@@ -6,7 +6,6 @@ import { EventBus, FeatureFlags, ModuleRegistry, createLogger } from "./core";
 import exampleModule from "./plugins/example/module";
 import leadCaptureModule from "./plugins/lead-capture/module";
 import genTemplatesModule from "./plugins/gen-templates/module";
-import genTemplatesModule from "./plugins/gen-templates/module";
 
 const app = express();
 // Доверяем фронтальному прокси (Nginx) — иначе req.ip = 127.0.0.1
