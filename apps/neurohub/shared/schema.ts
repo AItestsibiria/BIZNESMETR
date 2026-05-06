@@ -116,6 +116,117 @@ export const visitors = sqliteTable("visitors", {
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 
+// ============================================================
+// v304: foundation tables (Sprint 1)
+// Read docs/strategy/original/07-DEPLOY-ROADMAP-СХЕМА-БД.md §3.
+// All v304 tables live here; migrations are auto-applied by
+// server/storage.ts on boot (CREATE TABLE IF NOT EXISTS).
+// ============================================================
+
+// EventBus persisted events (07 §3.2)
+export const events = sqliteTable("events", {
+  id: text("id").primaryKey(),                       // uuid v4
+  name: text("name").notNull(),                      // 'auth.user.registered', 'gen.completed', ...
+  payload: text("payload"),                          // JSON
+  sourceModule: text("source_module"),
+  userId: integer("user_id"),
+  leadId: integer("lead_id"),
+  occurredAt: text("occurred_at").default(sql`CURRENT_TIMESTAMP`),
+  handlersCount: integer("handlers_count"),
+  handlersFailed: integer("handlers_failed"),
+});
+
+// Module registry (07 §3.3 / 06 §1.4)
+export const pluginsRegistry = sqliteTable("plugins_registry", {
+  name: text("name").primaryKey(),
+  version: text("version").notNull(),
+  status: text("status").notNull().default("active"),  // 'active' | 'disabled' | 'failed'
+  loadedAt: text("loaded_at"),
+  lastError: text("last_error"),
+  config: text("config"),                              // JSON copy of effective config
+});
+
+// Feature flags (06 §4.2)
+export const featureFlags = sqliteTable("feature_flags", {
+  key: text("key").primaryKey(),
+  enabled: integer("enabled").notNull().default(0),    // 0/1
+  rolloutPercent: integer("rollout_percent").notNull().default(100),
+  conditions: text("conditions"),                      // JSON: { user_role, country, ... }
+  abVariants: text("ab_variants"),                     // JSON: [{ name, weight, payload }]
+  description: text("description"),
+  updatedAt: text("updated_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+// Anonymous leads (07 §3.4) — visitors before registration
+export const leads = sqliteTable("leads", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  fingerprint: text("fingerprint").unique(),
+  email: text("email"),
+  phone: text("phone"),
+  telegramChatId: text("telegram_chat_id"),
+  vkUserId: text("vk_user_id"),
+  intent: text("intent"),
+  score: integer("score").notNull().default(0),
+  segment: text("segment"),
+  status: text("status").notNull().default("new"),     // 'new' | 'engaged' | 'converted' | 'dead'
+  firstSeen: text("first_seen").default(sql`CURRENT_TIMESTAMP`),
+  lastSeen: text("last_seen").default(sql`CURRENT_TIMESTAMP`),
+  userId: integer("user_id"),                          // populated once lead becomes a user
+});
+
+// Agent actions audit (07 §3.5) — what each agent has done
+export const agentActions = sqliteTable("agent_actions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  agentName: text("agent_name").notNull(),
+  triggerEvent: text("trigger_event").notNull(),
+  userId: integer("user_id"),
+  leadId: integer("lead_id"),
+  actionKind: text("action_kind").notNull(),
+  actionPayload: text("action_payload"),               // JSON
+  scheduledFor: text("scheduled_for"),
+  executedAt: text("executed_at"),
+  status: text("status").notNull().default("pending"), // 'pending' | 'executed' | 'failed' | 'cancelled'
+  result: text("result"),
+  error: text("error"),
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+// Marketing attribution (07 §3.11) — first-touch + last-touch
+export const trackingAttribution = sqliteTable("tracking_attribution", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id"),
+  leadId: integer("lead_id"),
+  firstUtmSource: text("first_utm_source"),
+  firstUtmMedium: text("first_utm_medium"),
+  firstUtmCampaign: text("first_utm_campaign"),
+  firstUtmContent: text("first_utm_content"),
+  firstReferer: text("first_referer"),
+  firstLandingPage: text("first_landing_page"),
+  firstSeenAt: text("first_seen_at"),
+  lastUtmSource: text("last_utm_source"),
+  lastUtmMedium: text("last_utm_medium"),
+  lastUtmCampaign: text("last_utm_campaign"),
+  lastUtmContent: text("last_utm_content"),
+  lastSeenAt: text("last_seen_at"),
+  yandexYclid: text("yandex_yclid"),
+  vkClickid: text("vk_clickid"),
+  googleGclid: text("google_gclid"),
+  metaFbclid: text("meta_fbclid"),
+  country: text("country"),
+  city: text("city"),
+  ip: text("ip"),
+  device: text("device"),
+  browser: text("browser"),
+  os: text("os"),
+});
+
+export type Event = typeof events.$inferSelect;
+export type Lead = typeof leads.$inferSelect;
+export type AgentAction = typeof agentActions.$inferSelect;
+export type FeatureFlag = typeof featureFlags.$inferSelect;
+export type PluginRegistration = typeof pluginsRegistry.$inferSelect;
+export type TrackingAttribution = typeof trackingAttribution.$inferSelect;
+
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
   balance: true,

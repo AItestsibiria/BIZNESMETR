@@ -40,6 +40,110 @@ try {
   const vCols = sqlite.prepare("PRAGMA table_info(visitors)").all() as { name: string }[];
   const vn = vCols.map(c => c.name);
   if (!vn.includes("country_code")) sqlite.exec("ALTER TABLE visitors ADD COLUMN country_code TEXT");
+
+  // v304 foundation tables (Sprint 1).
+  // Spec: docs/strategy/original/07-DEPLOY-ROADMAP-СХЕМА-БД.md §3.
+  // Idempotent — safe to run on every boot.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS events (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      payload TEXT,
+      source_module TEXT,
+      user_id INTEGER,
+      lead_id INTEGER,
+      occurred_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      handlers_count INTEGER,
+      handlers_failed INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS events_name_idx ON events(name, occurred_at);
+    CREATE INDEX IF NOT EXISTS events_user_idx ON events(user_id);
+
+    CREATE TABLE IF NOT EXISTS plugins_registry (
+      name TEXT PRIMARY KEY,
+      version TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      loaded_at TEXT,
+      last_error TEXT,
+      config TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS feature_flags (
+      key TEXT PRIMARY KEY,
+      enabled INTEGER NOT NULL DEFAULT 0,
+      rollout_percent INTEGER NOT NULL DEFAULT 100,
+      conditions TEXT,
+      ab_variants TEXT,
+      description TEXT,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS leads (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      fingerprint TEXT UNIQUE,
+      email TEXT,
+      phone TEXT,
+      telegram_chat_id TEXT,
+      vk_user_id TEXT,
+      intent TEXT,
+      score INTEGER NOT NULL DEFAULT 0,
+      segment TEXT,
+      status TEXT NOT NULL DEFAULT 'new',
+      first_seen TEXT DEFAULT CURRENT_TIMESTAMP,
+      last_seen TEXT DEFAULT CURRENT_TIMESTAMP,
+      user_id INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS leads_email_idx ON leads(email);
+    CREATE INDEX IF NOT EXISTS leads_score_idx ON leads(score DESC);
+
+    CREATE TABLE IF NOT EXISTS agent_actions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_name TEXT NOT NULL,
+      trigger_event TEXT NOT NULL,
+      user_id INTEGER,
+      lead_id INTEGER,
+      action_kind TEXT NOT NULL,
+      action_payload TEXT,
+      scheduled_for TEXT,
+      executed_at TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      result TEXT,
+      error TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS agent_actions_status_idx ON agent_actions(status, scheduled_for);
+    CREATE INDEX IF NOT EXISTS agent_actions_agent_idx ON agent_actions(agent_name, created_at);
+
+    CREATE TABLE IF NOT EXISTS tracking_attribution (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      lead_id INTEGER,
+      first_utm_source TEXT,
+      first_utm_medium TEXT,
+      first_utm_campaign TEXT,
+      first_utm_content TEXT,
+      first_referer TEXT,
+      first_landing_page TEXT,
+      first_seen_at TEXT,
+      last_utm_source TEXT,
+      last_utm_medium TEXT,
+      last_utm_campaign TEXT,
+      last_utm_content TEXT,
+      last_seen_at TEXT,
+      yandex_yclid TEXT,
+      vk_clickid TEXT,
+      google_gclid TEXT,
+      meta_fbclid TEXT,
+      country TEXT,
+      city TEXT,
+      ip TEXT,
+      device TEXT,
+      browser TEXT,
+      os TEXT
+    );
+    CREATE INDEX IF NOT EXISTS attribution_user_idx ON tracking_attribution(user_id);
+    CREATE INDEX IF NOT EXISTS attribution_lead_idx ON tracking_attribution(lead_id);
+  `);
 } catch (e) {
   console.error("[MIGRATION] Error:", e);
 }

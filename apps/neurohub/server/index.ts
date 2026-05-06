@@ -2,6 +2,8 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { EventBus, FeatureFlags, ModuleRegistry, createLogger } from "./core";
+import exampleModule from "./plugins/example/module";
 
 const app = express();
 // Доверяем фронтальному прокси (Nginx) — иначе req.ip = 127.0.0.1
@@ -64,6 +66,24 @@ app.use((req, res, next) => {
 
 (async () => {
   await registerRoutes(httpServer, app);
+
+  // v304 plugin foundation. Spec: docs/strategy/original/06 §1.
+  // Mount BEFORE the global error handler so plugin routes hit
+  // it on failure, but AFTER core registerRoutes() so core wins
+  // on path conflicts.
+  const bootLogger = createLogger("boot");
+  try {
+    const eventBus = new EventBus();
+    const featureFlags = new FeatureFlags();
+    const registry = new ModuleRegistry();
+    registry.register([exampleModule]);
+    await registry.start({ app, eventBus, featureFlags, logger: bootLogger });
+    bootLogger.info(`v304 registry online (${registry.list().length} modules)`);
+  } catch (err) {
+    bootLogger.error("v304 registry failed to boot", {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
