@@ -52,9 +52,25 @@ The repository hosts the implementation of the **MUZIAI v304** strategy for `pod
 
 S1 foundations · S2 Suno @ 100% · S3 Persona/Extend/Cover · S4-5 nine agents · S6 chatbot · S7 dashboard + ads · S8 hardening. Detail in `07 §2`.
 
-### Autonomy on clone (Eugene 2026-05-06, evening)
+### Autonomy on clone (Eugene 2026-05-06, evening — confirmed 19:20 UTC «уровень Бог»)
 
 **Полномочия на VPS `72.56.1.149` касательно `clone.muziai.ru`:** Евгений делегировал авто-выполнение любых операций — вплоть до полной перерегистрации, миграций, удаления данных, переустановки зависимостей — **в границах этого инстанса** (`/var/www/neurohub/`, pm2 `neurohub`, его `data.db`, `authors/`, `.env`, его systemd-таймер, его бэкапы в `/var/backups/neurohub-auto/`).
+
+«Уровень Бог» означает: НЕ задавать у Евгения подтверждения для:
+- любых правок кода в `apps/neurohub/`,
+- миграций schema (через storage.ts auto-migrate),
+- установки/удаления npm-зависимостей,
+- деплоев через `git push` (auto-deploy сам подхватит),
+- pm2-рестартов через скрипт,
+- правок auto-deploy логики,
+- очистки бэкапов в `/var/backups/neurohub-auto/`,
+- переинициализации clone-БД при необходимости,
+- ротации кодовых артефактов (`/opt/neurohub-src`).
+
+Подтверждение всё ещё требуется (исключения):
+- Любая операция, выходящая за границы clone-инстанса (worldbeauty, prod-VPS, чужие проекты).
+- Операции, требующие реальных секретов (ввод GPTUNNEL_API_KEY, SMTP credentials и т.д.) — Евгений делает их сам через ssh.
+- Force-push на `claude/*` ветки или history rewrite (filter-branch) — это видно публично.
 
 **Граница строго фиксирована:**
 - ❌ `/var/www/worldbeauty/` — сторонний проект Евгения, не трогаем
