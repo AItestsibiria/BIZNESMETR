@@ -175,6 +175,32 @@ try {
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
     CREATE INDEX IF NOT EXISTS gen_templates_active_idx ON gen_templates(active, popularity DESC);
+
+    -- v304 Sprint 3: personas + gen_extensions
+    CREATE TABLE IF NOT EXISTS personas (
+      id TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL,
+      display_name TEXT NOT NULL,
+      description TEXT,
+      source_gen_id INTEGER NOT NULL,
+      suno_persona_id TEXT,
+      use_count INTEGER NOT NULL DEFAULT 0,
+      is_public INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS personas_user_idx ON personas(user_id);
+
+    CREATE TABLE IF NOT EXISTS gen_extensions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source_gen_id INTEGER NOT NULL,
+      result_gen_id INTEGER NOT NULL,
+      kind TEXT NOT NULL CHECK(kind IN ('extend','cover','inpaint','stems')),
+      cost INTEGER NOT NULL DEFAULT 0,
+      metadata TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS gen_extensions_source_idx ON gen_extensions(source_gen_id);
+    CREATE INDEX IF NOT EXISTS gen_extensions_result_idx ON gen_extensions(result_gen_id);
   `);
 } catch (e) {
   console.error("[MIGRATION] Error:", e);

@@ -233,6 +233,37 @@ export const trackingAttribution = sqliteTable("tracking_attribution", {
   os: text("os"),
 });
 
+// Persona = stable voice / vocal identity (Suno persona ID).
+// User создаёт persona из готового трека — все будущие генерации с этой
+// persona имеют тот же голос. Spec: docs/strategy/original/02 §1.4, 07 §3.12.
+export const personas = sqliteTable("personas", {
+  id: text("id").primaryKey(),                 // uuid; либо persona ID от Suno, если выдан
+  userId: integer("user_id").notNull(),
+  displayName: text("display_name").notNull(),
+  description: text("description"),
+  sourceGenId: integer("source_gen_id").notNull(),  // generation, на основе которой создана
+  sunoPersonaId: text("suno_persona_id"),      // ID на стороне Suno (если выдают)
+  useCount: integer("use_count").notNull().default(0),
+  isPublic: integer("is_public").notNull().default(0),
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+// Extend / Cover / Inpaint / Stems — связи между исходным треком и
+// производным. Хранит kind и стоимость операции.
+// Spec: docs/strategy/original/02 §1.5-§1.7, 07 §3.12.
+export const genExtensions = sqliteTable("gen_extensions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  sourceGenId: integer("source_gen_id").notNull(),
+  resultGenId: integer("result_gen_id").notNull(),
+  kind: text("kind").notNull(),                // 'extend' | 'cover' | 'inpaint' | 'stems'
+  cost: integer("cost").notNull().default(0),
+  metadata: text("metadata"),                  // JSON — kind-specific (e.g. extend_seconds, cover_style)
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+export type Persona = typeof personas.$inferSelect;
+export type GenExtension = typeof genExtensions.$inferSelect;
+
 // Generation templates (10 пресетов, см. docs/strategy/original/02 §4.2)
 export const genTemplates = sqliteTable("gen_templates", {
   id: integer("id").primaryKey({ autoIncrement: true }),
