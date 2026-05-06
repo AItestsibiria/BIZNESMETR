@@ -56,4 +56,31 @@ ssh root@72.56.1.149 '
 
 ---
 
+## Журнал фиксов на clone (prompt #4)
+
+### Этап 2 — bcryptjs · 2026-05-06 · ✅ выполнено
+
+- В `package.json`: `^3.0.3` ✓
+- В `package-lock.json`: ✓
+- В `node_modules/bcryptjs`: **уже существовал** до запуска `npm install`
+- `npm install bcryptjs --save --omit=dev`: `up to date`
+- Smoke `node -e require('bcryptjs').hashSync(...)`: ✅ ok
+
+**Открытое наблюдение:** модуль был на диске, но работающий pm2-процесс выдавал `Cannot find module 'bcryptjs'`. Возможные причины:
+1. Сборка `dist/index.cjs` минифицирована со ссылкой на путь до того, как bcryptjs появился (нет, директория создана 2026-04-15).
+2. esbuild bundle ищет модуль по `require.resolve()` с другого CWD, и резолв не находит (важно: pm2 cwd = `/var/www/neurohub`, а `dist/index.cjs` минифицирован).
+3. Какой-то конкретный path triggers лениво подгружаемый require, а dist кеширует старый require.cache.
+
+**План:** диагностируем после Этапа 5 (`pm2 restart neurohub --update-env`). Если рестарт-цикл прекратится — причина была «процесс не перезагружался с момента появления bcryptjs». Если останется — расследуем глубже.
+
+**npm audit:** 371 packages, 3 vulnerabilities (2 moderate, 1 high). Не фиксим сейчас (риск major-bump). Запланировано на Sprint 8 (hardening).
+
+### Этап 3 — ffmpeg · pending
+
+### Этап 4 — `/api/.env` инспекция · pending
+
+### Этап 5 — pm2 restart · pending (требует явного «да» Евгения)
+
+---
+
 *Last updated: 2026-05-06*
