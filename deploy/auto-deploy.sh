@@ -55,6 +55,22 @@ if [[ "$LOCAL" == "$REMOTE" ]]; then
   exit 0
 fi
 
+# Self-update: если скрипт в репо отличается от установленного, обновляем
+# себя ДО запуска деплоя. Следующий тик systemd-таймера выполнит уже новую
+# версию. Не ломает текущий запуск — просто берём новую копию и выходим
+# с кодом 0 (timer запустит снова через минуту).
+SCRIPT_PATH=$(readlink -f "$0")
+REPO_SCRIPT_PATH="$SRC_DIR/deploy/auto-deploy.sh"
+if [[ -f "$REPO_SCRIPT_PATH" ]] && [[ "$SCRIPT_PATH" != "$REPO_SCRIPT_PATH" ]]; then
+  if ! cmp -s "$SCRIPT_PATH" "$REPO_SCRIPT_PATH"; then
+    log "self-update: script changed in repo, copying new version"
+    cp "$REPO_SCRIPT_PATH" "$SCRIPT_PATH"
+    chmod +x "$SCRIPT_PATH"
+    log "self-update: done; next tick will run the new script"
+    exit 0
+  fi
+fi
+
 log "new commit on $BRANCH: $LOCAL → $REMOTE; deploying"
 SHORT_BEFORE="${LOCAL:0:7}"
 SHORT_AFTER="${REMOTE:0:7}"
