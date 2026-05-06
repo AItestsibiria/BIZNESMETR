@@ -8,8 +8,116 @@ import Database from "better-sqlite3";
 import { eq, desc, sql, and } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 
-const sqlite = new Database("data.db");
+const sqlite = new Database(process.env.DATABASE_FILE || "data.db");
 sqlite.pragma("journal_mode = WAL");
+
+// Bootstrap core v51 tables on a fresh DB. Idempotent — CREATE IF NOT EXISTS.
+// Без этого блока на пустой data.db ALTER TABLE ниже падает («no such table»).
+// Schema below — точная копия v51 миграций (drizzle-kit push), нужная просто
+// чтобы сервер мог стартовать с нуля и для local-runtime тестов.
+try {
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL UNIQUE,
+      password TEXT NOT NULL,
+      balance INTEGER NOT NULL DEFAULT 0,
+      free_used INTEGER NOT NULL DEFAULT 0,
+      role TEXT NOT NULL DEFAULT 'user',
+      email_verified INTEGER NOT NULL DEFAULT 0,
+      referral_code TEXT,
+      referred_by INTEGER,
+      referral_bonus_given INTEGER NOT NULL DEFAULT 0,
+      telegram_id TEXT,
+      blocked INTEGER NOT NULL DEFAULT 0,
+      pending_name TEXT,
+      name_change_token TEXT,
+      bonus_tracks INTEGER NOT NULL DEFAULT 0,
+      used_promo TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS promo_codes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT NOT NULL UNIQUE,
+      bonus INTEGER NOT NULL DEFAULT 0,
+      bonus_tracks INTEGER NOT NULL DEFAULT 0,
+      max_uses INTEGER NOT NULL DEFAULT 0,
+      used_count INTEGER NOT NULL DEFAULT 0,
+      active_from TEXT,
+      active_to TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS generations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      style TEXT,
+      status TEXT NOT NULL DEFAULT 'pending',
+      result_url TEXT,
+      result_data TEXT,
+      task_id TEXT,
+      cost INTEGER NOT NULL DEFAULT 9900,
+      is_public INTEGER NOT NULL DEFAULT 0,
+      author_name TEXT,
+      priority_until TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      amount INTEGER NOT NULL,
+      description TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      inv_id INTEGER NOT NULL UNIQUE,
+      amount INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      description TEXT,
+      robo_data TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS gen_activity (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      gen_id INTEGER NOT NULL,
+      action TEXT NOT NULL,
+      ip TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS visitors (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ip TEXT,
+      fingerprint TEXT,
+      country TEXT,
+      city TEXT,
+      region TEXT,
+      user_agent TEXT,
+      referer TEXT,
+      device TEXT,
+      browser TEXT,
+      os TEXT,
+      user_id INTEGER,
+      page_url TEXT,
+      session_id TEXT,
+      visits INTEGER NOT NULL DEFAULT 1,
+      last_visit TEXT DEFAULT CURRENT_TIMESTAMP,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+} catch (e) {
+  console.error("[BOOTSTRAP] Error creating core tables:", e);
+}
 
 // Auto-migrate columns
 try {
