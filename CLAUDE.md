@@ -52,6 +52,15 @@ The repository hosts the implementation of the **MUZIAI v304** strategy for `pod
 
 S1 foundations · S2 Suno @ 100% · S3 Persona/Extend/Cover · S4-5 nine agents · S6 chatbot · S7 dashboard + ads · S8 hardening. Detail in `07 §2`.
 
+### Working rhythm rule (Eugene 2026-05-06)
+
+**После каждого успешного промежуточного результата (отчёт Perplexity, прохождение этапа, верификация чек-пойнта) — автоматически переходи к следующему логическому шагу. Не задавай «что дальше?», не жди команды.** Останавливайся ТОЛЬКО при:
+- неоднозначности, требующей выбора Евгения (тогда `AskUserQuestion`),
+- риске, требующем подтверждения (cutover на prod, удаление данных, ротация ключей),
+- зафиксированном сбое, который надо разобрать перед движением дальше.
+
+В остальных случаях движение по плану — настройка по умолчанию.
+
 > ⚠️ The CLAUDE.md sections below describe the local Acme API conventions that apply to **how** we write code in this repo (Express, Drizzle, Zod, etc.). The strategy package describes **what** we build. Follow both.
 
 ---
