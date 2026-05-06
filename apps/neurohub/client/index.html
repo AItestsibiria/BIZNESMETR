@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <title>MuziAi — Создай музыку с AI</title>
+    <meta name="description" content="Создавай музыку, песни и обложки альбомов с искусственным интеллектом, свой плейлист www.MuziAi.ru" />
+    <meta property="og:title" content="MuziAi — Создавай музыку с AI" />
+    <meta property="og:description" content="Создавай музыку, песни и обложки альбомов с искусственным интеллектом, свой плейлист www.MuziAi.ru" />
+    <meta name="theme-color" content="#7c3aed" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      // Redirect non-hash routes to hash-router paths for share/play links
+      // so that direct URLs like /share/42 (sent in emails/QR) work with wouter's useHashLocation.
+      (function () {
+        var p = window.location.pathname;
+        var m = p.match(/^\/(share|play|track)\/([\w-]+)\/?$/);
+        if (m) {
+          var target = '/' + window.location.search + '#/' + m[1] + '/' + m[2];
+          window.location.replace(target);
+        }
+      })();
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
