@@ -1,0 +1,10 @@
+# deploy/ — local rules
+
+# We DO want the source tarballs in the repo (each Sprint pushes one),
+# so the global `*.bak` and `*.old` rules don't strip them. But block
+# anything else that looks like accidental backups.
+*.bak
+*.old
+
+# Lock files specific to deploy script's flock
+*.lock
