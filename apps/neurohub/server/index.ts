@@ -14,6 +14,12 @@ import agentScoutModule from "./plugins/agent-scout/module";
 import agentWelcomeModule from "./plugins/agent-welcome/module";
 import agentDemoModule from "./plugins/agent-demo/module";
 import authEventsBridgeModule from "./plugins/auth-events-bridge/module";
+import agentOnboardingModule from "./plugins/agent-onboarding/module";
+import agentConversionModule from "./plugins/agent-conversion/module";
+import agentReferralModule from "./plugins/agent-referral/module";
+import agentRetentionModule from "./plugins/agent-retention/module";
+import agentContentModule from "./plugins/agent-content/module";
+import agentA1MasterModule from "./plugins/agent-a1-master/module";
 
 const app = express();
 // Доверяем фронтальному прокси (Nginx) — иначе req.ip = 127.0.0.1
@@ -98,6 +104,12 @@ app.use((req, res, next) => {
       agentScoutModule,
       agentWelcomeModule,
       agentDemoModule,
+      agentOnboardingModule,
+      agentConversionModule,
+      agentReferralModule,
+      agentRetentionModule,
+      agentContentModule,
+      agentA1MasterModule,
     ]);
     await registry.start({ app, eventBus, featureFlags, logger: bootLogger });
     bootLogger.info(`v304 registry online (${registry.list().length} modules)`);
