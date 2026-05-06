@@ -9,6 +9,10 @@ import genTemplatesModule from "./plugins/gen-templates/module";
 import v304DiagnosticsModule from "./plugins/v304-diagnostics/module";
 import personaModule from "./plugins/persona/module";
 import extendCoverModule from "./plugins/extend-cover/module";
+import agentLeadHunterModule from "./plugins/agent-lead-hunter/module";
+import agentScoutModule from "./plugins/agent-scout/module";
+import agentWelcomeModule from "./plugins/agent-welcome/module";
+import agentDemoModule from "./plugins/agent-demo/module";
 
 const app = express();
 // Доверяем фронтальному прокси (Nginx) — иначе req.ip = 127.0.0.1
@@ -88,6 +92,10 @@ app.use((req, res, next) => {
       v304DiagnosticsModule,
       personaModule,
       extendCoverModule,
+      agentLeadHunterModule,
+      agentScoutModule,
+      agentWelcomeModule,
+      agentDemoModule,
     ]);
     await registry.start({ app, eventBus, featureFlags, logger: bootLogger });
     bootLogger.info(`v304 registry online (${registry.list().length} modules)`);
