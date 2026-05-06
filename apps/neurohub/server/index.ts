@@ -14,6 +14,7 @@ import agentScoutModule from "./plugins/agent-scout/module";
 import agentWelcomeModule from "./plugins/agent-welcome/module";
 import agentDemoModule from "./plugins/agent-demo/module";
 import authEventsBridgeModule from "./plugins/auth-events-bridge/module";
+import securityGuardModule from "./plugins/security-guard/module";
 import agentOnboardingModule from "./plugins/agent-onboarding/module";
 import agentConversionModule from "./plugins/agent-conversion/module";
 import agentReferralModule from "./plugins/agent-referral/module";
@@ -99,6 +100,7 @@ app.use((req, res, next) => {
       v304DiagnosticsModule,
       personaModule,
       extendCoverModule,
+      securityGuardModule,
       authEventsBridgeModule,
       agentLeadHunterModule,
       agentScoutModule,
