@@ -35,11 +35,11 @@ export class EventBus implements EventBusContract {
   }
 
   unsubscribeModule(module: string): void {
-    for (const [name, arr] of this.subs) {
-      const filtered = arr.filter((s) => s.module !== module);
+    this.subs.forEach((arr, name) => {
+      const filtered = arr.filter((s: Subscription) => s.module !== module);
       if (filtered.length === 0) this.subs.delete(name);
       else this.subs.set(name, filtered);
-    }
+    });
   }
 
   async emit<P>(name: string, payload: P, source: string): Promise<void> {
