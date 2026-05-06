@@ -84,15 +84,29 @@ fi
 
 cd "$SOURCE_PATH"
 
-# Переиспользуем существующий node_modules для скорости — symlink в $APP_DIR
-if [[ ! -e node_modules ]] && [[ -d "$APP_DIR/node_modules" ]]; then
-  ln -s "$APP_DIR/node_modules" node_modules
-fi
+# Изолированный node_modules для билда. Раньше здесь был symlink на
+# /var/www/neurohub/node_modules — это опасно: 'npm install --omit=dev'
+# мог выпилить devDependencies из ПРОДА (там сидит pm2 neurohub).
+# Сейчас выгребаем любой существующий symlink/папку и ставим свежий.
+[[ -L node_modules ]] && unlink node_modules
+[[ -d node_modules ]] && rm -rf node_modules
 
-npm install --omit=dev --no-audit --no-fund 2>&1 | tail -20 | tee -a "$LOG_FILE" >&2 || {
-  log "FAIL: npm install"
-  exit 3
-}
+# Полная установка — включая devDependencies, потому что tsx (через
+# который собирается dist) сидит именно в devDeps. После билда node_modules
+# идёт в мусор; в /var/www/neurohub попадает только готовый dist/.
+# npm cache (~/.npm) переиспользуется между запусками — установка после
+# первого раза занимает секунды.
+if [[ -f package-lock.json ]]; then
+  npm ci --no-audit --no-fund 2>&1 | tail -20 | tee -a "$LOG_FILE" >&2 || {
+    log "FAIL: npm ci"
+    exit 3
+  }
+else
+  npm install --no-audit --no-fund 2>&1 | tail -20 | tee -a "$LOG_FILE" >&2 || {
+    log "FAIL: npm install"
+    exit 3
+  }
+fi
 
 npm run build 2>&1 | tail -30 | tee -a "$LOG_FILE" >&2 || {
   log "FAIL: npm run build"
