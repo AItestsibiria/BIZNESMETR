@@ -1,7 +1,20 @@
 # PREFLIGHT — что нужно сделать до старта Sprint 1
 
-Эти задачи выполняются **на VPS1 `72.56.1.149`** руками Евгения или Perplexity-исполнителя.
-**Перед каждой командой — пятиуровневое предупреждение и явное подтверждение Евгения.**
+## 🚨 Топология: три инстанса на одном VPS
+
+**IP `72.56.1.149`** хостит **три** приложения:
+
+| Домен | Роль | Можно трогать? |
+|---|---|---|
+| `podaripesnu.ru` | prod #1 — продаёт | ❌ только READ-ONLY |
+| `muziai.ru` | prod #2 — продаёт | ❌ только READ-ONLY |
+| `clone.muziai.ru` | staging — копия данных prod | ✅ рабочая зона v304 |
+
+Они физически делят CPU, RAM, диск, nginx, pm2-демон. Любая операция, не ограниченная путём clone-инстанса, может задеть один из prod. Поэтому **все pre-sprint задачи касаются только clone**.
+
+**Поток выкатки v304:** clone → smoke + integration → согласие Евгения → `podaripesnu.ru` → `muziai.ru`. Каждый prod-катап = отдельное пятиуровневое предупреждение + ручной snapshot + протестированный rollback.
+
+**SSH:** `ssh root@72.56.1.149`. Перед каждой командой — пятиуровневое предупреждение и явное подтверждение Евгения.
 
 ---
 
@@ -50,6 +63,8 @@ ssh root@72.56.1.149 '
 
 ### 3. Бэкапы `data.db` на Google Drive (rclone)
 
+> ⚠️ Бэкапим **только clone-инстанс**. Путь к нему уточним по результату §2 SSH-аудита (Perplexity вернёт реальный путь). В шагах ниже псевдо-путь `/var/www/muziai-clone/` — заменить на фактический.
+
 #### 3.1 Установка rclone на VPS1
 
 ```bash
@@ -86,14 +101,16 @@ rclone lsd gdrive:
 #### 3.3 Cron-задания для бэкапов
 
 ```bash
-mkdir -p /var/backups/muziai
+mkdir -p /var/backups/muziai-clone
 
 cat > /usr/local/bin/muziai-backup.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 TS=$(date +%Y%m%d-%H%M%S)
-DB=/var/www/muziai/data.db
-DST=/var/backups/muziai/data-$TS.db
+# ⚠️ ПУТЬ К clone-инстансу — уточнить по результату §2 SSH-аудита.
+# Это путь к data.db именно clone.muziai.ru, НЕ prod.
+DB=/var/www/muziai-clone/data.db
+DST=/var/backups/muziai-clone/data-$TS.db
 
 [[ -f "$DB" ]] || { echo "DB not found"; exit 1; }
 sqlite3 "$DB" ".backup $DST"
@@ -107,7 +124,7 @@ if [[ "$HOUR" == "03" ]]; then
 fi
 
 # локальная ретенция: 24 hourly + 30 daily
-find /var/backups/muziai -name 'data-*.db.gz' -mtime +2 -delete
+find /var/backups/muziai-clone -name 'data-*.db.gz' -mtime +2 -delete
 
 # Drive ретенция
 rclone delete --min-age 25h gdrive:muziai-backups/hourly/ --quiet || true
@@ -124,18 +141,42 @@ chmod +x /usr/local/bin/muziai-backup.sh
 
 ```bash
 /usr/local/bin/muziai-backup.sh
-ls -la /var/backups/muziai/
+ls -la /var/backups/muziai-clone/
 rclone ls gdrive:muziai-backups/hourly/ | tail -3
 ```
 
-#### 3.5 Ручной snapshot перед миграцией v304
+#### 3.5 Ручной snapshot перед миграцией v304 (на clone)
 
-Перед каждым `v304.sh install`:
+Перед каждым `v304.sh install` на clone:
 
 ```bash
-sqlite3 /var/www/muziai/data.db ".backup /tmp/pre-v304.db"
-rclone copy /tmp/pre-v304.db gdrive:muziai-backups/manual/ --quiet
+sqlite3 /var/www/muziai-clone/data.db ".backup /tmp/pre-v304-clone.db"
+rclone copy /tmp/pre-v304-clone.db gdrive:muziai-backups/manual/ --quiet
 ```
+
+#### 3.6 Cutover на prod (после зелёного теста на clone)
+
+Порядок: сначала `podaripesnu.ru`, затем `muziai.ru` (или наоборот, по решению Евгения). **Между катапами — окно наблюдения 24 часа.**
+
+Перед каждым `v304.sh install` на prod:
+
+```bash
+# для podaripesnu.ru
+sqlite3 /var/www/podaripesnu/data.db ".backup /tmp/pre-v304-podaripesnu.db"
+rclone copy /tmp/pre-v304-podaripesnu.db gdrive:muziai-backups/manual/ --quiet
+
+# для muziai.ru
+sqlite3 /var/www/muziai/data.db ".backup /tmp/pre-v304-muziai.db"
+rclone copy /tmp/pre-v304-muziai.db gdrive:muziai-backups/manual/ --quiet
+```
+
+> Точные пути уточним по §2 SSH-аудита.
+
+⚠️ Каждый prod-катап:
+- пятиуровневое предупреждение и явное «да» Евгения;
+- окно минимальной нагрузки (например, 03:00–06:00 МСК);
+- протестированный заранее `v304.sh rollback`;
+- мониторинг 30 минут после: `pm2 status`, `/api/health`, error logs.
 
 ---
 

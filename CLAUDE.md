@@ -39,7 +39,12 @@ The repository hosts the implementation of the **MUZIAI v304** strategy for `pod
 
 ### Operational constraints
 
-- **VPS1 `72.56.1.149` (MuziAI / podaripesnu.ru) is production** — never deploy or run scripts against it without explicit confirmation from Eugene. Use the five-level warning before any destructive operation.
+- **🚨 Single-VPS topology, three instances:** the host `72.56.1.149` runs:
+  - `podaripesnu.ru` — **production #1** (live, selling) — DO NOT TOUCH
+  - `muziai.ru` — **production #2** (live, selling) — DO NOT TOUCH
+  - `clone.muziai.ru` — **staging** with a copy of prod data — this is the only place v304 code runs during development
+  - Three apps, three paths, three pm2 processes — one machine. Any unscoped command can hit either prod. Always pin commands to the clone path (e.g. `/var/www/muziai-clone/`) — exact path comes from the §2 SSH audit.
+- **Cutover flow:** all v304 changes land on clone first → smoke + integration tests → Eugene approves → roll to `podaripesnu.ru` → roll to `muziai.ru`. Each prod cutover gets its own five-level warning, ручной DB snapshot, and rollback rehearsal.
 - **All UI text, logs, emails, and docs are in Russian.**
 - The 25 blocker questions from `07 §4` are now answered — see `docs/strategy/ANSWERS.md`. Pre-Sprint 1 / 6 / 7 checklists in `docs/strategy/PREFLIGHT.md`.
 
