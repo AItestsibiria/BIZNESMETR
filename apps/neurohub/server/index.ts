@@ -13,6 +13,7 @@ import agentLeadHunterModule from "./plugins/agent-lead-hunter/module";
 import agentScoutModule from "./plugins/agent-scout/module";
 import agentWelcomeModule from "./plugins/agent-welcome/module";
 import agentDemoModule from "./plugins/agent-demo/module";
+import authEventsBridgeModule from "./plugins/auth-events-bridge/module";
 
 const app = express();
 // Доверяем фронтальному прокси (Nginx) — иначе req.ip = 127.0.0.1
@@ -92,6 +93,7 @@ app.use((req, res, next) => {
       v304DiagnosticsModule,
       personaModule,
       extendCoverModule,
+      authEventsBridgeModule,
       agentLeadHunterModule,
       agentScoutModule,
       agentWelcomeModule,
