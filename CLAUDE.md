@@ -15,6 +15,41 @@ This file provides context and conventions for AI assistants (Claude Code and ot
 
 ---
 
+## Strategy Package — MUZIAI v304 (READ FIRST)
+
+The repository hosts the implementation of the **MUZIAI v304** strategy for `podaripesnu.ru`. The full strategic specification — architecture, plugin API, event catalog, full DB DDL, 8-sprint roadmap, deployment scripts — lives in `docs/strategy/`.
+
+**Before writing any new code, read at least:**
+
+1. `docs/strategy/README.md` — index and quick navigation
+2. `docs/strategy/original/00-NAVIGATOR-объединённая-стратегия.md` — system map
+3. `docs/strategy/original/06-PLUGIN-АРХИТЕКТУРА-ХВОСТЫ.md` — Module API, Event Bus, Hook Points (foundation for all new features)
+4. `docs/strategy/original/07-DEPLOY-ROADMAP-СХЕМА-БД.md` — full DB schema, 8-sprint plan, one-command deploy
+
+### Non-negotiable architectural rules
+
+| Rule | What it means in code |
+|---|---|
+| **Thin core + plugins** | All new features live in `plugins/<name>/`. Never modify core (`auth`, `billing`, `generations`, `streaming`, `payments`, `playlist`, `admin`, `diagnostics`) except for critical bug fixes. |
+| **Event-driven** | Plugins publish/subscribe through the `EventBus` — no direct cross-plugin calls. Standard event names live in `06 §2.3`. |
+| **Plugin owns its tables** | Each plugin ships its own SQL migration; core schema is off-limits except for the additive ALTERs listed in `07 §3`. |
+| **Feature flags by default** | New behavior gates on `feature_flags` so it can be toggled without a release. |
+| **No vendor lock** | Suno via GPTunnel and Robokassa sit behind abstractions — keep that boundary. |
+
+### Operational constraints
+
+- **VPS1 `72.56.1.149` (MuziAI / podaripesnu.ru) is production** — never deploy or run scripts against it without explicit confirmation from Eugene. Use the five-level warning before any destructive operation.
+- **All UI text, logs, emails, and docs are in Russian.**
+- The 25 open questions in `07 §4` are blockers — confirm answers before starting Sprint 1.
+
+### Sprint roadmap (≈2.5 months, 1 dev)
+
+S1 foundations · S2 Suno @ 100% · S3 Persona/Extend/Cover · S4-5 nine agents · S6 chatbot · S7 dashboard + ads · S8 hardening. Detail in `07 §2`.
+
+> ⚠️ The CLAUDE.md sections below describe the local Acme API conventions that apply to **how** we write code in this repo (Express, Prisma, Zod, etc.). The strategy package describes **what** we build. Follow both.
+
+---
+
 ## Commands
 
 ```bash
@@ -188,4 +223,4 @@ Store secrets in `.env` (git-ignored). Commit `.env.example` with placeholder va
 
 ---
 
-*Last updated: 2026-05-06 — Verified against current repository state; source code has not yet been added, conventions remain authoritative for upcoming implementation.*
+*Last updated: 2026-05-06 — Added MUZIAI v304 strategy package reference (`docs/strategy/`); thin-core + plugin architecture and operational rules now documented as non-negotiable.*
