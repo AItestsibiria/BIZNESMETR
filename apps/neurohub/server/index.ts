@@ -16,6 +16,7 @@ import agentDemoModule from "./plugins/agent-demo/module";
 import authEventsBridgeModule from "./plugins/auth-events-bridge/module";
 import securityGuardModule from "./plugins/security-guard/module";
 import notificationsModule from "./plugins/notifications/module";
+import chatbotModule from "./plugins/chatbot/module";
 import agentOnboardingModule from "./plugins/agent-onboarding/module";
 import agentConversionModule from "./plugins/agent-conversion/module";
 import agentReferralModule from "./plugins/agent-referral/module";
@@ -104,6 +105,7 @@ app.use((req, res, next) => {
       securityGuardModule,
       authEventsBridgeModule,
       notificationsModule,
+      chatbotModule,
       agentLeadHunterModule,
       agentScoutModule,
       agentWelcomeModule,

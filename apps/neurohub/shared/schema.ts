@@ -264,6 +264,33 @@ export const genExtensions = sqliteTable("gen_extensions", {
 export type Persona = typeof personas.$inferSelect;
 export type GenExtension = typeof genExtensions.$inferSelect;
 
+// Chatbot sessions / messages (Sprint 6).
+// Spec: docs/strategy/original/04 §1-§4, 07 §3.6.
+export const chatbotSessions = sqliteTable("chatbot_sessions", {
+  id: text("id").primaryKey(),                  // uuid
+  channel: text("channel").notNull(),           // 'web' | 'telegram' | 'vk' | 'email'
+  externalId: text("external_id"),              // tg_chat_id / vk_user_id / email
+  userId: integer("user_id"),
+  leadId: integer("lead_id"),
+  state: text("state").notNull().default("active"),  // 'active' | 'escalated' | 'closed'
+  intent: text("intent"),                       // распознанное намерение (sales / support / faq / other)
+  startedAt: text("started_at").default(sql`CURRENT_TIMESTAMP`),
+  lastMessageAt: text("last_message_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const chatbotMessages = sqliteTable("chatbot_messages", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  sessionId: text("session_id").notNull(),
+  role: text("role").notNull(),                 // 'user' | 'bot' | 'system'
+  text: text("text").notNull(),
+  toolCall: text("tool_call"),                  // JSON если бот дёрнул tool
+  toolResult: text("tool_result"),              // JSON ответа tool'а
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+export type ChatbotSession = typeof chatbotSessions.$inferSelect;
+export type ChatbotMessage = typeof chatbotMessages.$inferSelect;
+
 // Generation templates (10 пресетов, см. docs/strategy/original/02 §4.2)
 export const genTemplates = sqliteTable("gen_templates", {
   id: integer("id").primaryKey({ autoIncrement: true }),

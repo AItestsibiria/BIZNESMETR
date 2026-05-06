@@ -309,6 +309,32 @@ try {
     );
     CREATE INDEX IF NOT EXISTS gen_extensions_source_idx ON gen_extensions(source_gen_id);
     CREATE INDEX IF NOT EXISTS gen_extensions_result_idx ON gen_extensions(result_gen_id);
+
+    -- Sprint 6: chatbot
+    CREATE TABLE IF NOT EXISTS chatbot_sessions (
+      id TEXT PRIMARY KEY,
+      channel TEXT NOT NULL,
+      external_id TEXT,
+      user_id INTEGER,
+      lead_id INTEGER,
+      state TEXT NOT NULL DEFAULT 'active',
+      intent TEXT,
+      started_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      last_message_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS chatbot_sessions_external_idx ON chatbot_sessions(channel, external_id);
+    CREATE INDEX IF NOT EXISTS chatbot_sessions_user_idx ON chatbot_sessions(user_id);
+
+    CREATE TABLE IF NOT EXISTS chatbot_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      text TEXT NOT NULL,
+      tool_call TEXT,
+      tool_result TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS chatbot_messages_session_idx ON chatbot_messages(session_id, created_at);
   `);
 } catch (e) {
   console.error("[MIGRATION] Error:", e);
