@@ -28,6 +28,20 @@ try {
   if (!gcn.includes("deleted_at")) sqlite.exec("ALTER TABLE generations ADD COLUMN deleted_at TEXT");
   if (!gcn.includes("error_reason")) sqlite.exec("ALTER TABLE generations ADD COLUMN error_reason TEXT");
 
+  // v304 Sprint 2: Suno на 100%. См. docs/strategy/original/02 §2.1.
+  // Все колонки nullable — старый код v51 их не пишет, новый — пишет
+  // только когда пользователь / template их задал.
+  if (!gcn.includes("structural_tags")) sqlite.exec("ALTER TABLE generations ADD COLUMN structural_tags TEXT");
+  if (!gcn.includes("vocal_weights")) sqlite.exec("ALTER TABLE generations ADD COLUMN vocal_weights TEXT");
+  if (!gcn.includes("negative_prompt")) sqlite.exec("ALTER TABLE generations ADD COLUMN negative_prompt TEXT");
+  if (!gcn.includes("suno_model")) sqlite.exec("ALTER TABLE generations ADD COLUMN suno_model TEXT");
+  if (!gcn.includes("duration_seconds")) sqlite.exec("ALTER TABLE generations ADD COLUMN duration_seconds INTEGER");
+  if (!gcn.includes("bpm")) sqlite.exec("ALTER TABLE generations ADD COLUMN bpm INTEGER");
+  if (!gcn.includes("music_key")) sqlite.exec("ALTER TABLE generations ADD COLUMN music_key TEXT");
+  if (!gcn.includes("template_slug")) sqlite.exec("ALTER TABLE generations ADD COLUMN template_slug TEXT");
+  if (!gcn.includes("persona_id")) sqlite.exec("ALTER TABLE generations ADD COLUMN persona_id TEXT");
+  if (!gcn.includes("source_gen_id")) sqlite.exec("ALTER TABLE generations ADD COLUMN source_gen_id INTEGER");
+
   // gen_activity: геолокация IP
   const gaCols = sqlite.prepare("PRAGMA table_info(gen_activity)").all() as { name: string }[];
   const gan = gaCols.map(c => c.name);
@@ -143,6 +157,24 @@ try {
     );
     CREATE INDEX IF NOT EXISTS attribution_user_idx ON tracking_attribution(user_id);
     CREATE INDEX IF NOT EXISTS attribution_lead_idx ON tracking_attribution(lead_id);
+
+    -- v304 Sprint 2: gen_templates (см. 02 §4.2)
+    CREATE TABLE IF NOT EXISTS gen_templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      slug TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      category TEXT,
+      description TEXT,
+      prompt_template TEXT,
+      style TEXT,
+      structural_tags_json TEXT,
+      recommended_bpm INTEGER,
+      recommended_key TEXT,
+      popularity INTEGER NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS gen_templates_active_idx ON gen_templates(active, popularity DESC);
   `);
 } catch (e) {
   console.error("[MIGRATION] Error:", e);

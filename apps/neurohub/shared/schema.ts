@@ -58,6 +58,19 @@ export const generations = sqliteTable("generations", {
   deletedAt: text("deleted_at"), // soft-delete
   errorReason: text("error_reason"), // человекочитаемая причина ошибки для UI
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+
+  // v304 Sprint 2: Suno на 100% (см. docs/strategy/original/02 §1, §2.1)
+  structuralTags: text("structural_tags"),  // JSON: [{ tag: '[Verse]', startSec: 0 }, ...]
+  vocalWeights: text("vocal_weights"),      // JSON: { 'rock': 0.7, 'jazz': 0.3 }
+  negativePrompt: text("negative_prompt"),  // что НЕ хотим в треке
+  sunoModel: text("suno_model"),            // 'v3.5' | 'v4' | 'v4.5'
+  durationSeconds: integer("duration_seconds"),
+  bpm: integer("bpm"),
+  musicKey: text("music_key"),              // 'C major', 'A minor', ...
+  templateSlug: text("template_slug"),      // если из шаблона — какого
+  // Для extend/cover (Sprint 3-4):
+  personaId: text("persona_id"),
+  sourceGenId: integer("source_gen_id"),    // если это extend/cover, на чём основано
 });
 
 export const transactions = sqliteTable("transactions", {
@@ -218,6 +231,23 @@ export const trackingAttribution = sqliteTable("tracking_attribution", {
   device: text("device"),
   browser: text("browser"),
   os: text("os"),
+});
+
+// Generation templates (10 пресетов, см. docs/strategy/original/02 §4.2)
+export const genTemplates = sqliteTable("gen_templates", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  slug: text("slug").notNull().unique(),    // 'wedding', 'birthday', 'corporate', ...
+  name: text("name").notNull(),             // «Песня на свадьбу»
+  category: text("category"),               // 'celebration' | 'b2b' | 'kids' | 'memory' | ...
+  description: text("description"),
+  promptTemplate: text("prompt_template"),  // шаблон prompt с плейсхолдерами {name}, {date}
+  style: text("style"),                     // дефолтный жанр
+  structuralTagsJson: text("structural_tags_json"),  // дефолтная структура [Verse]/[Chorus]/...
+  recommendedBpm: integer("recommended_bpm"),
+  recommendedKey: text("recommended_key"),
+  popularity: integer("popularity").notNull().default(0),
+  active: integer("active").notNull().default(1),
+  updatedAt: text("updated_at").default(sql`CURRENT_TIMESTAMP`),
 });
 
 export type Event = typeof events.$inferSelect;

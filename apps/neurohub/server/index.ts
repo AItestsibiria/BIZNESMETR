@@ -5,6 +5,8 @@ import { createServer } from "http";
 import { EventBus, FeatureFlags, ModuleRegistry, createLogger } from "./core";
 import exampleModule from "./plugins/example/module";
 import leadCaptureModule from "./plugins/lead-capture/module";
+import genTemplatesModule from "./plugins/gen-templates/module";
+import genTemplatesModule from "./plugins/gen-templates/module";
 
 const app = express();
 // Доверяем фронтальному прокси (Nginx) — иначе req.ip = 127.0.0.1
@@ -77,7 +79,7 @@ app.use((req, res, next) => {
     const eventBus = new EventBus();
     const featureFlags = new FeatureFlags();
     const registry = new ModuleRegistry();
-    registry.register([exampleModule, leadCaptureModule]);
+    registry.register([exampleModule, leadCaptureModule, genTemplatesModule]);
     await registry.start({ app, eventBus, featureFlags, logger: bootLogger });
     bootLogger.info(`v304 registry online (${registry.list().length} modules)`);
   } catch (err) {

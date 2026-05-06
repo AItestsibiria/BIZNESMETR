@@ -52,6 +52,20 @@ The repository hosts the implementation of the **MUZIAI v304** strategy for `pod
 
 S1 foundations · S2 Suno @ 100% · S3 Persona/Extend/Cover · S4-5 nine agents · S6 chatbot · S7 dashboard + ads · S8 hardening. Detail in `07 §2`.
 
+### Autonomy on clone (Eugene 2026-05-06, evening)
+
+**Полномочия на VPS `72.56.1.149` касательно `clone.muziai.ru`:** Евгений делегировал авто-выполнение любых операций — вплоть до полной перерегистрации, миграций, удаления данных, переустановки зависимостей — **в границах этого инстанса** (`/var/www/neurohub/`, pm2 `neurohub`, его `data.db`, `authors/`, `.env`, его systemd-таймер, его бэкапы в `/var/backups/neurohub-auto/`).
+
+**Граница строго фиксирована:**
+- ❌ `/var/www/worldbeauty/` — сторонний проект Евгения, не трогаем
+- ❌ `/var/www/anthropic-proxy/` — proxy сервис, не трогаем
+- ❌ `/var/www/podaripesnu*` и `/var/www/muziai*` — если когда-нибудь появятся на этом VPS, **не трогаем** (они prod на другом VPS, но имена защищены на случай миграции хостов)
+- ❌ Любые операции на других VPS (прод `muziai.ru` на `31.130.148.107`, `podaripesnu.ru` TBD) — **только** с явным новым «да» Евгения
+
+**Канал доставки:** через `git push` + auto-deploy (см. `deploy/auto-deploy.sh` + `deploy/install-auto-deploy.md`). Прямого SSH из моей sandbox-среды нет; всё, что не ложится в эту автоматику, требует prompt'а Perplexity.
+
+**Health check + rollback** в самом `auto-deploy.sh` гарантирует: если коммит ломает сборку или health-check `/api/example/ping`, dist возвращается из pre-flight backup, и pm2 поднимается на предыдущей версии. Я вижу это в ветке `clone-deploy-log` и поправляю следующим коммитом.
+
 ### Working rhythm rule (Eugene 2026-05-06)
 
 **После каждого успешного промежуточного результата (отчёт Perplexity, прохождение этапа, верификация чек-пойнта) — автоматически переходи к следующему логическому шагу. Не задавай «что дальше?», не жди команды.** Останавливайся ТОЛЬКО при:
