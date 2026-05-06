@@ -130,8 +130,10 @@ if [[ "$SUCCESS" -ne 1 ]]; then
   exit 5
 fi
 
-# 7. Записать deploy report и комитнуть в ветку clone-deploy-log
-REPORT_DIR="$SRC_DIR/.deploy-reports"
+# 7. Записать deploy report локально (без push'а — anonymous push в публичный
+# репо невозможен; чтобы я мог прочитать историю деплоев, пусть Perplexity
+# раз в день шлёт мне `tail -200 /var/log/neurohub-auto-deploy.log`).
+REPORT_DIR="/var/log/neurohub-auto-deploy.d"
 mkdir -p "$REPORT_DIR"
 REPORT_FILE="$REPORT_DIR/deploy-$TS.md"
 {
@@ -141,7 +143,6 @@ REPORT_FILE="$REPORT_DIR/deploy-$TS.md"
   echo "- Branch: $BRANCH"
   echo "- Backup: $BACKUP_FILE"
   echo "- Health: passed"
-  echo "- Restarts before/after: $(pm2 jlist | python3 -c "import sys,json;d=json.load(sys.stdin); [print(p['pm2_env']['restart_time']) for p in d if p['name']=='$PM2_NAME']" 2>/dev/null || echo "?")"
   echo ""
   echo "## Diff (last 20 commits)"
   echo '```'
@@ -149,23 +150,7 @@ REPORT_FILE="$REPORT_DIR/deploy-$TS.md"
   echo '```'
 } > "$REPORT_FILE"
 
-# Push в отдельную ветку clone-deploy-log (orphan-ветка только под отчёты).
-# Не используем рабочее дерево — пишем напрямую через git plumbing.
-if git ls-remote --exit-code --heads origin clone-deploy-log >/dev/null 2>&1; then
-  PARENT=$(git ls-remote origin clone-deploy-log | awk '{print $1}')
-  PARENT_ARG="-p $PARENT"
-else
-  PARENT_ARG=""
-fi
-
-# Если push в лог-ветку упал по auth — не считаем deploy неудачным, просто warn.
-{
-  REPORT_BASENAME=$(basename "$REPORT_FILE")
-  cd "$REPORT_DIR"
-  BLOB=$(git --git-dir="$SRC_DIR/.git" hash-object -w "$REPORT_FILE")
-  TREE=$(printf "100644 blob %s\t%s\n" "$BLOB" "$REPORT_BASENAME" | git --git-dir="$SRC_DIR/.git" mktree)
-  COMMIT=$(echo "auto-deploy $TS ($SHORT_BEFORE → $SHORT_AFTER)" | git --git-dir="$SRC_DIR/.git" commit-tree "$TREE" $PARENT_ARG)
-  git --git-dir="$SRC_DIR/.git" push origin "$COMMIT:refs/heads/clone-deploy-log" 2>>"$LOG_FILE"
-} || log "WARN: failed to push deploy report (auth?). Local copy at $REPORT_FILE"
+# Чистим старые отчёты — храним последние 50
+ls -1t "$REPORT_DIR"/deploy-*.md 2>/dev/null | tail -n +51 | xargs -r rm -f
 
 log "deploy OK: $SHORT_BEFORE → $SHORT_AFTER"
