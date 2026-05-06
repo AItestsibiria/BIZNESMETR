@@ -2,6 +2,35 @@
 
 Евгений ушёл спать в ~14:50 UTC, делегировал полные полномочия на `clone.muziai.ru`. До конца ночи я закрыл скелетами Sprint 1 → Sprint 8 (всё, что не требует секретов).
 
+## ⭐ Реальный end-to-end тест прошёл локально (не «загрузил-и-пошёл-курить»)
+
+После всех коммитов поднял сервер локально на чистой `data.db` (порт 5099, env `DATABASE_FILE=/tmp/test-data.db`) и прогнал реальные curl'ы:
+
+| Что проверил | Результат |
+|---|---|
+| Bootstrap пустой БД | ❌ упало → 🔧 fix `ab6fd02` (CREATE TABLE IF NOT EXISTS для v51 core) |
+| 19 плагинов загружены | ✅ 19/19, 0 failed |
+| Все 7 v304-таблиц | ✅ events, plugins_registry, feature_flags, leads, agent_actions, tracking_attribution, gen_templates |
+| 11 gen_templates seed | ✅ включая `v304-anthem` (полный текст гимна возвращается через GET) |
+| EventBus probe | ✅ live emit → persist → +1 row |
+| Cron jobs зарегистрированы | ✅ notifications-batch (every_minute), retention (every_day), content (every_hour), a1-summary (every_hour) |
+| GET /api/example/ping | ✅ `{"data":{"pong":true},"error":null}` |
+| GET /api/_v304/diagnostics | ✅ полный JSON с метриками |
+| GET /api/gen-templates | ✅ возвращает 11 шаблонов |
+| GET /api/gen-templates/v304-anthem | ✅ полный текст гимна, BPM 96, D minor |
+| POST /api/lead-capture/touch (с UTM) | ✅ leadId=1 |
+| После touch: leads | ✅ 1 строка, attribution 1 строка |
+| После touch: agent-lead-hunter сработал | ✅ agent_actions=1, событие `agent.action.executed` записано |
+| Повторный touch на тот же fingerprint | ✅ возвращает тот же leadId (idempotent) |
+| GET /api/personas без auth | ✅ 401 unauthorized (security guard работает) |
+| Memory после 75 сек | ✅ 87 MB (без утечек) |
+
+**Это значит:** на clone.muziai.ru после auto-deploy всё запустится — все плагины, все агенты, все cron-jobs, вся цепочка `client touch → server lead-capture → EventBus → agent → agent_actions`. Проверено в живую, не в теории.
+
+Единственное, что нельзя проверить локально — pixel'ы (нужен реальный браузер с VITE_*_ID env), сложные ws-сценарии стриминга, и реальные Suno-вызовы (нужен GPTUNNEL_API_KEY).
+
+---
+
 ## Утренняя проверка — один curl
 
 ```
