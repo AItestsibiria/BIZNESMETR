@@ -305,7 +305,7 @@ class GPTunnelSunoProvider implements MusicProvider {
     if (input.key) meta.push(`[Key: ${input.key}]`);  
     if (meta.length === 0) return lyrics;  
     // Если в lyrics уже есть теги, не дублируем  
-    if (/^\\s*\[Tempo|^\\s*\[Mood|^\\s*\[Key/m.test(lyrics)) return lyrics;  
+    if (/^\\s*[Tempo|^\\s*[Mood|^\\s*[Key/m.test(lyrics)) return lyrics;  
     return meta.join(' ') + '\\n\\n' + lyrics;  
   }  
   
