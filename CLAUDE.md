@@ -188,4 +188,4 @@ Store secrets in `.env` (git-ignored). Commit `.env.example` with placeholder va
 
 ---
 
-*Last updated: 2026-04-05 — Updated with Acme API stack, conventions, and testing requirements.*
+*Last updated: 2026-05-06 — Verified against current repository state; source code has not yet been added, conventions remain authoritative for upcoming implementation.*
