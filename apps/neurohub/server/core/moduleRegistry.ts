@@ -7,11 +7,18 @@ import { sql } from "drizzle-orm";
 import { db } from "../storage";
 import { pluginsRegistry } from "@shared/schema";
 import { createLogger } from "./logger";
-import type { BootContext, Logger, Module } from "./types";
+import type { BootContext, Job, Logger, Module } from "./types";
+
+const INTERVAL_MS: Record<string, number> = {
+  every_minute: 60 * 1000,
+  every_hour: 60 * 60 * 1000,
+  every_day: 24 * 60 * 60 * 1000,
+};
 
 export class ModuleRegistry {
   private modules: Module[] = [];
   private loaded = new Set<string>();
+  private intervals: NodeJS.Timeout[] = [];
   private readonly logger: Logger;
 
   constructor(logger: Logger = createLogger("registry")) {
@@ -76,6 +83,12 @@ export class ModuleRegistry {
       await m.onLoad(ctx);
     }
 
+    if (m.jobs?.length) {
+      for (const job of m.jobs) {
+        this.scheduleJob(m.name, job);
+      }
+    }
+
     db.insert(pluginsRegistry)
       .values({
         name: m.name,
@@ -97,6 +110,59 @@ export class ModuleRegistry {
 
     this.loaded.add(m.name);
     this.logger.info(`module loaded`, { name: m.name, version: m.version });
+  }
+
+  private scheduleJob(moduleName: string, job: Job): void {
+    const runWithIsolation = async () => {
+      try {
+        await Promise.resolve(job.handler());
+      } catch (err) {
+        this.logger.error("job failed", {
+          module: moduleName,
+          job: job.name,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    };
+
+    if (job.schedule === "startup") {
+      // Запускаем разово, после полной загрузки реестра.
+      setImmediate(runWithIsolation);
+      return;
+    }
+
+    const intervalMs = INTERVAL_MS[job.schedule];
+    if (!intervalMs) {
+      // Cron-выражения пока не поддерживаются — зальём в Sprint 6 при
+      // необходимости (через node-cron). Логируем skip.
+      this.logger.warn("unsupported job schedule, skipping", {
+        module: moduleName,
+        job: job.name,
+        schedule: job.schedule,
+      });
+      return;
+    }
+
+    // Первый запуск через intervalMs (не сразу, чтобы не нагружать boot).
+    const handle = setInterval(runWithIsolation, intervalMs);
+    // Не блокируем graceful shutdown:
+    if (typeof handle.unref === "function") handle.unref();
+    this.intervals.push(handle);
+    this.logger.info("job scheduled", {
+      module: moduleName,
+      job: job.name,
+      schedule: job.schedule,
+      everyMs: intervalMs,
+    });
+  }
+
+  /**
+   * Останавливает все scheduled jobs. Вызывается на graceful shutdown.
+   * Express SIGTERM-handler сам решит, в какой момент позвать.
+   */
+  stopJobs(): void {
+    for (const h of this.intervals) clearInterval(h);
+    this.intervals = [];
   }
 
   private async markFailed(m: Module, error: string): Promise<void> {
