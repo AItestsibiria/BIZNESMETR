@@ -6,12 +6,13 @@ This file provides context and conventions for AI assistants (Claude Code and ot
 
 ## Project Overview
 
-**BIZNESMETR / Acme API** is a business metrics REST API platform.
+**BIZNESMETR / Acme API** is a business metrics REST API platform — implementation host for the **MUZIAI v304** strategy (`podaripesnu.ru`).
 
 **Repository:** `aitestsibiria/biznesmetr`  
 **Primary remote:** `origin`  
-**Runtime:** Node.js 20  
-**Stack:** Express · PostgreSQL · Prisma ORM · TypeScript (strict) · Jest · Zod
+**Runtime:** Node.js 20 LTS (verify on VPS1 — see `docs/strategy/PREFLIGHT.md`)  
+**Stack:** Express · **SQLite** (`data.db`) · **Drizzle ORM** · TypeScript (strict) · Vitest · Zod  
+**Note on stack:** PostgreSQL migration is planned for v305–v306 (see `docs/strategy/ANSWERS.md` §16). Until then, SQLite is the only DB.
 
 ---
 
@@ -40,24 +41,26 @@ The repository hosts the implementation of the **MUZIAI v304** strategy for `pod
 
 - **VPS1 `72.56.1.149` (MuziAI / podaripesnu.ru) is production** — never deploy or run scripts against it without explicit confirmation from Eugene. Use the five-level warning before any destructive operation.
 - **All UI text, logs, emails, and docs are in Russian.**
-- The 25 open questions in `07 §4` are blockers — confirm answers before starting Sprint 1.
+- The 25 blocker questions from `07 §4` are now answered — see `docs/strategy/ANSWERS.md`. Pre-Sprint 1 / 6 / 7 checklists in `docs/strategy/PREFLIGHT.md`.
 
 ### Sprint roadmap (≈2.5 months, 1 dev)
 
 S1 foundations · S2 Suno @ 100% · S3 Persona/Extend/Cover · S4-5 nine agents · S6 chatbot · S7 dashboard + ads · S8 hardening. Detail in `07 §2`.
 
-> ⚠️ The CLAUDE.md sections below describe the local Acme API conventions that apply to **how** we write code in this repo (Express, Prisma, Zod, etc.). The strategy package describes **what** we build. Follow both.
+> ⚠️ The CLAUDE.md sections below describe the local Acme API conventions that apply to **how** we write code in this repo (Express, Drizzle, Zod, etc.). The strategy package describes **what** we build. Follow both.
 
 ---
 
 ## Commands
 
 ```bash
-npm run dev          # Start development server
-npm run test         # Run tests (Jest)
-npm run lint         # ESLint + Prettier check
-npm run build        # Production build
-npm run db:test:reset  # Reset local test DB — REQUIRED before running tests
+npm run dev             # Start development server
+npm run test            # Run tests (Vitest)
+npm run test:smoke      # Smoke tests only (target: < 10 min)
+npm run lint            # ESLint + Prettier check
+npm run build           # Production build
+npm run db:migrate      # Apply Drizzle migrations to data.db
+npm run db:test:reset   # Recreate test SQLite DB and apply migrations
 ```
 
 ---
@@ -65,9 +68,11 @@ npm run db:test:reset  # Reset local test DB — REQUIRED before running tests
 ## Architecture
 
 - **Framework:** Express REST API
-- **Database:** PostgreSQL accessed via Prisma ORM
-- **Request handlers:** `src/handlers/` — one file per resource/route group
+- **Database:** SQLite (`data.db`) accessed via **Drizzle ORM**. Migrations live in `drizzle/migrations/`; per-plugin migrations in `plugins/<name>/migrations/`.
+- **Request handlers:** `src/handlers/` (core) and `plugins/<name>/routes.ts` (plugins) — one file per resource / route group
 - **Shared types:** `src/types/` — TypeScript interfaces and Zod schemas shared across the app
+- **Plugin runtime:** Module API (see `docs/strategy/original/06-PLUGIN-АРХИТЕКТУРА-ХВОСТЫ.md`) — every new feature is a plugin with its own `module.ts`, migrations, routes, jobs, event subscriptions
+- **Eventing:** in-process `EventBus` with persisted events in the `events` table
 
 ### Response Shape
 
@@ -118,14 +123,14 @@ logger.error('Failed to create widget', { error })
 ### Error Handling
 
 - Catch errors at the handler level; return `{ data: null, error: 'Human-readable message' }`.
-- Never let raw Prisma errors, Zod errors, or Node errors propagate to the HTTP response body.
+- Never let raw Drizzle errors, Zod errors, or Node errors propagate to the HTTP response body.
 - Log the full error internally before sending the sanitized response.
 
 ---
 
 ## Testing
 
-Tests use a **real local PostgreSQL database** — not mocks.
+Tests use a **real local SQLite database** — not mocks.
 
 ```bash
 # Always reset the test DB before a test run
@@ -133,9 +138,10 @@ npm run db:test:reset
 npm run test
 ```
 
-- Test files live alongside source files or in a `__tests__/` subdirectory.
-- Seed data and fixtures go through Prisma directly — no raw SQL in tests.
+- Test files live alongside source files or in a `__tests__/` subdirectory (per file 06 §6.1, plugins keep their tests in `plugins/<name>/__tests__/`).
+- Seed data and fixtures go through Drizzle directly — no raw SQL in tests except for `PRAGMA` statements.
 - Each test suite is responsible for cleaning up the data it creates.
+- `PRAGMA integrity_check` is part of smoke tests.
 
 ---
 
@@ -191,15 +197,17 @@ test(handlers): add coverage for widget creation errors
 - Always use the `logger` module — never `console.log`.
 - Always validate request input with Zod before touching business logic.
 - Always return `{ data, error }` — never a bare object or array.
-- Never expose stack traces, Prisma error details, or internal paths to the client.
+- Never expose stack traces, Drizzle error details, or internal paths to the client.
 - Remove all unused imports — TypeScript strict mode will fail the build otherwise.
 - Before suggesting tests pass, run `npm run db:test:reset` then `npm run test`.
+- New features go into `plugins/<name>/` — never modify core directly except for fixes listed in `docs/strategy/original/01-АУДИТ-И-АРХИТЕКТУРА.md`.
 
 ### Security
 
 - Never introduce command injection, SQL injection, XSS, or other OWASP Top 10 vulnerabilities.
-- Use Prisma's parameterized queries — never string-interpolate user input into queries.
-- Do not log secrets, tokens, passwords, or PII.
+- Use Drizzle's parameterized queries — never string-interpolate user input into queries.
+- Do not log secrets, tokens, passwords, or PII. Logger has a redaction layer (Sprint 8).
+- Do not commit secrets to the repo. `.env` is git-ignored. **Do not paste secrets into chats / PRs / commits — even encrypted blobs.** Eugene installs secrets directly into VPS1 `.env` over SSH.
 
 ### Git Workflow for AI Assistants
 
@@ -213,14 +221,25 @@ test(handlers): add coverage for widget creation errors
 
 ## Environment Variables
 
+Full list lives in `docs/strategy/original/07-DEPLOY-ROADMAP-СХЕМА-БД.md` §1.6 (`.env.example`). Minimum to boot:
+
 | Variable | Required | Description |
 |---|---|---|
 | `NODE_ENV` | Yes | `development`, `test`, or `production` |
-| `DATABASE_URL` | Yes | Prisma connection string for the main DB |
-| `TEST_DATABASE_URL` | Yes | Separate DB used by Jest — never the main DB |
+| `DATABASE_URL` | Yes | SQLite path, e.g. `file:./data.db` |
+| `TEST_DATABASE_URL` | Yes | Separate SQLite path for Vitest, e.g. `file:./data.test.db` |
+| `SESSION_SECRET` | Yes | 32-byte random for signed cookies |
+| `SIGNED_URL_SECRET` | Yes | 32-byte random for streaming signatures |
+| `GPTUNNEL_API_KEY` | Yes (S2+) | Suno via GPTunnel |
+| `ROBOKASSA_LOGIN` / `_PASSWORD_1` / `_PASSWORD_2` | Yes (S3+) | Payments |
+| `SMTP_*` / `IMAP_*` | Yes (S6) | Email hub |
+| `TELEGRAM_BOT_TOKEN` | Yes (S6) | TG channel |
+| `VK_GROUP_ID` / `VK_ACCESS_TOKEN` / `VK_CONFIRMATION_CODE` / `VK_SECRET` | Yes (S6) | VK channel |
+| `YM_COUNTER_ID` / `VK_PIXEL_ID` | Yes (S1) | Pixels |
+| `LLM_PROVIDER` / `LLM_MODEL` | Yes (S6) | ConductorBot LLM |
 
-Store secrets in `.env` (git-ignored). Commit `.env.example` with placeholder values only.
+Store secrets in `.env` (git-ignored). Commit `.env.example` with placeholder values only. **Do not transmit secrets through the chat — Eugene puts them on VPS1 directly over SSH.**
 
 ---
 
-*Last updated: 2026-05-06 — Added MUZIAI v304 strategy package reference (`docs/strategy/`); thin-core + plugin architecture and operational rules now documented as non-negotiable.*
+*Last updated: 2026-05-06 — Stack corrected to SQLite + Drizzle + Vitest (per `ANSWERS.md` §16). 25 v304 blocker questions answered; pre-sprint checklists in `docs/strategy/PREFLIGHT.md`.*
