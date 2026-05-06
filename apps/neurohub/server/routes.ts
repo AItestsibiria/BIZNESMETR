@@ -157,7 +157,12 @@ async function saveGenFiles(genId: number) {
   }
 }
 
-const GPTUNNEL_API_KEY = process.env.GPTUNNEL_API_KEY || "shds-VrbF2w9B9xK9w35GkjZjWpsiRCU";
+// SECURITY: hardcoded fallback removed 2026-05-06 — old key was leaked to public repo,
+// rotated by Eugene. Server now refuses to start without GPTUNNEL_API_KEY in env.
+const GPTUNNEL_API_KEY = process.env.GPTUNNEL_API_KEY || "";
+if (!GPTUNNEL_API_KEY) {
+  console.error("[FATAL] GPTUNNEL_API_KEY missing in env — Suno calls will fail");
+}
 
 // Humanize Suno-style raw string into Russian chips ("rock, fast tempo, 170 BPM" → "Рок · быстрый · 170 BPM")
 function humanizeStyle(rawStyle: string): string {
@@ -187,10 +192,13 @@ function humanizeStyle(rawStyle: string): string {
 }
 const GPTUNNEL_BASE = "https://gptunnel.ru/v1";
 
-// Robokassa payment config
-const ROBO_MERCHANT_LOGIN = process.env.ROBO_MERCHANT_LOGIN || "soundai_test";
-const ROBO_PASSWORD1 = process.env.ROBO_PASSWORD1 || "test_password1";
-const ROBO_PASSWORD2 = process.env.ROBO_PASSWORD2 || "test_password2";
+// Robokassa payment config — values seem to be test placeholders, but keep them
+// out of the public repo in case they ever became real. Empty string fallback
+// means payment routes will reject on missing config rather than silently use
+// test creds against prod accounts.
+const ROBO_MERCHANT_LOGIN = process.env.ROBO_MERCHANT_LOGIN || "";
+const ROBO_PASSWORD1 = process.env.ROBO_PASSWORD1 || "";
+const ROBO_PASSWORD2 = process.env.ROBO_PASSWORD2 || "";
 const ROBO_IS_TEST = process.env.ROBO_IS_TEST !== "false"; // default true (test mode)
 const ROBO_BASE_URL = ROBO_IS_TEST
   ? "https://auth.robokassa.ru/Merchant/Index.aspx"
