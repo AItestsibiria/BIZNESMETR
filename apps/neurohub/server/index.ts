@@ -119,6 +119,14 @@ app.get(["/api/_status", "/api/status"], (_req, res) => {
   res.json({ data: v304Boot, error: null });
 });
 
+// Кольцевой буфер последних 100 client-errors — для UI карточки
+// «Recent client errors» в /admin/v304 (TZ Eugene 11:27).
+const CLIENT_ERRORS_RING: Array<{
+  ts: string; page?: string; url?: string; message?: string;
+  stack?: string; componentStack?: string; ua?: string;
+}> = [];
+const CLIENT_ERRORS_MAX = 100;
+
 // ErrorBoundary clients шлют сюда runtime-ошибки страниц.
 // Логируем в pm2 — Eugene видит сразу через pm2 logs neurohub.
 app.post("/api/_client-error", express.json(), (req, res) => {
@@ -126,8 +134,23 @@ app.post("/api/_client-error", express.json(), (req, res) => {
   console.error(`\x1b[31m[CLIENT-ERR]\x1b[0m page=${p.page ?? "?"} url=${p.url ?? "?"} msg=${p.message ?? "?"}`);
   if (p.stack) console.error(`  stack: ${String(p.stack).slice(0, 1500)}`);
   if (p.componentStack) console.error(`  componentStack: ${String(p.componentStack).slice(0, 800)}`);
-  res.json({ data: { logged: true }, error: null });
+  // Сохраняем в ring-буфер
+  CLIENT_ERRORS_RING.push({
+    ts: new Date().toISOString(),
+    page: p.page, url: p.url, message: p.message,
+    stack: p.stack ? String(p.stack).slice(0, 4000) : undefined,
+    componentStack: p.componentStack ? String(p.componentStack).slice(0, 2000) : undefined,
+    ua: req.headers["user-agent"]?.slice(0, 200),
+  });
+  if (CLIENT_ERRORS_RING.length > CLIENT_ERRORS_MAX) {
+    CLIENT_ERRORS_RING.splice(0, CLIENT_ERRORS_RING.length - CLIENT_ERRORS_MAX);
+  }
+  res.json({ data: { logged: true, total: CLIENT_ERRORS_RING.length }, error: null });
 });
+
+// Доступ к ring-буферу для admin-роутов (через global, чтобы не плодить
+// импорты из плагинов в ядро).
+(globalThis as any).__clientErrorsRing = CLIENT_ERRORS_RING;
 
 (async () => {
   await registerRoutes(httpServer, app);

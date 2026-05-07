@@ -667,7 +667,95 @@ function OverviewTab({ toast: _t }: { toast: any }) {
       </Card>
 
       <DebugBatchCard />
+      <ClientErrorsCard />
     </div>
+  );
+}
+
+// ClientErrorsCard — последние client-side React-ошибки от ErrorBoundary.
+// Каждые 10 сек авто-обновление. По клику — раскрывает stack-trace.
+function ClientErrorsCard() {
+  const { toast } = useToast();
+  const { data, refetch, isLoading } = useQuery<{ count: number; items: any[] }>({
+    queryKey: ["client-errors"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/admin/v304/client-errors");
+      return (await r.json()).data;
+    },
+    refetchInterval: 10_000,
+  });
+  const clear = useMutation({
+    mutationFn: async () => {
+      const r = await apiRequest("POST", "/api/admin/v304/client-errors/clear", {});
+      return r.json();
+    },
+    onSuccess: () => { refetch(); toast({ title: "🗑 Очищено", description: "Ring-буфер пуст" }); },
+  });
+  const count = data?.count ?? 0;
+  const items = data?.items ?? [];
+  const [openIdx, setOpenIdx] = useState<number | null>(null);
+
+  return (
+    <Card className={`border-${count > 0 ? "rose" : "emerald"}-500/30 bg-gradient-to-br from-${count > 0 ? "rose" : "emerald"}-500/5 to-transparent`}>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2 justify-between">
+          <span>🐛 Client errors (React/JS)</span>
+          <div className="flex items-center gap-2">
+            <span className={`text-xs px-2 py-0.5 rounded-full ${count > 0 ? "bg-rose-500/20 text-rose-200" : "bg-emerald-500/20 text-emerald-200"}`}>
+              {count} в буфере
+            </span>
+            <Button size="sm" variant="outline" onClick={() => refetch()} disabled={isLoading}>↻</Button>
+            {count > 0 && <Button size="sm" variant="outline" onClick={() => clear.mutate()} disabled={clear.isPending}>🗑</Button>}
+          </div>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {count === 0 && (
+          <div className="text-xs text-emerald-300/80 py-4 text-center">
+            ✅ Нет ошибок. ErrorBoundary в каждой странице (dashboard, track, admin, templates) шлёт сюда runtime-ошибки React.
+          </div>
+        )}
+        {items.length > 0 && (
+          <div className="space-y-1 max-h-[400px] overflow-y-auto">
+            {items.map((it, i) => (
+              <div key={i} className="text-[11px] p-2 rounded border border-rose-500/20 bg-rose-500/5">
+                <div
+                  className="flex items-start justify-between gap-2 cursor-pointer hover:bg-rose-500/10 -m-1 p-1 rounded"
+                  onClick={() => setOpenIdx(openIdx === i ? null : i)}
+                >
+                  <div className="font-mono text-white flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-rose-300">[{it.page ?? "?"}]</span>
+                      <span className="text-[9px] text-muted-foreground">{new Date(it.ts).toLocaleString("ru-RU")}</span>
+                    </div>
+                    <div className="text-rose-200 truncate mt-0.5">{it.message}</div>
+                  </div>
+                  <span className="text-rose-300 text-xs shrink-0">{openIdx === i ? "▾" : "▸"}</span>
+                </div>
+                {openIdx === i && (
+                  <div className="mt-2 space-y-2 pl-2 border-l border-rose-500/20">
+                    {it.url && <div className="text-[10px] text-cyan-300 break-all">URL: {it.url}</div>}
+                    {it.ua && <div className="text-[10px] text-muted-foreground/80 break-all">UA: {it.ua}</div>}
+                    {it.stack && (
+                      <div>
+                        <div className="text-[10px] text-rose-300 font-semibold mb-1">Stack:</div>
+                        <pre className="text-[10px] whitespace-pre-wrap break-all text-rose-200/90 max-h-[200px] overflow-auto">{it.stack}</pre>
+                      </div>
+                    )}
+                    {it.componentStack && (
+                      <div>
+                        <div className="text-[10px] text-amber-300 font-semibold mb-1">Component stack:</div>
+                        <pre className="text-[10px] whitespace-pre-wrap break-all text-amber-200/90 max-h-[150px] overflow-auto">{it.componentStack}</pre>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

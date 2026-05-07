@@ -908,6 +908,23 @@ async function pollProcessingGenerations(): Promise<{ scanned: number; done: num
   return { scanned: rows.length, done, failed };
 }
 
+// GET /api/admin/v304/client-errors — последние 100 React/JS-ошибок,
+// прилетевших на /api/_client-error от ErrorBoundary в браузере.
+// Используется в /admin UI «Recent client errors» (TZ Eugene 11:27).
+router.get("/client-errors", requireAdmin, (req, res) => {
+  const ring: any[] = (globalThis as any).__clientErrorsRing ?? [];
+  const limit = Math.min(parseInt(String(req.query.limit ?? "50"), 10) || 50, 100);
+  // newest-first
+  const items = ring.slice().reverse().slice(0, limit);
+  res.json({ data: { count: ring.length, items }, error: null });
+});
+
+router.post("/client-errors/clear", requireAdmin, (_req, res) => {
+  const ring: any[] = (globalThis as any).__clientErrorsRing ?? [];
+  ring.length = 0;
+  res.json({ data: { cleared: true }, error: null });
+});
+
 router.post("/poll-now", requireAdmin, async (_req, res) => {
   try {
     const result = await pollProcessingGenerations();
