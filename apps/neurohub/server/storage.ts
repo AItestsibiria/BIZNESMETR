@@ -156,6 +156,9 @@ try {
   if (!gcn.includes("template_slug")) sqlite.exec("ALTER TABLE generations ADD COLUMN template_slug TEXT");
   if (!gcn.includes("persona_id")) sqlite.exec("ALTER TABLE generations ADD COLUMN persona_id TEXT");
   if (!gcn.includes("source_gen_id")) sqlite.exec("ALTER TABLE generations ADD COLUMN source_gen_id INTEGER");
+  // Eugene 2026-05-07: единое поле voice_type для всех путей генерации
+  // (см. server/lib/normalizeVocalParams.ts).
+  if (!gcn.includes("voice_type")) sqlite.exec("ALTER TABLE generations ADD COLUMN voice_type TEXT");
 
   // gen_activity: геолокация IP
   const gaCols = sqlite.prepare("PRAGMA table_info(gen_activity)").all() as { name: string }[];

@@ -382,6 +382,14 @@ export default function MusicPage() {
           if (title) body.title = title;
         }
         body.instrumental = instrumental;
+        body.isDuet = isDuet;
+        // Eugene 2026-05-07: всегда отправляем явный voiceType, не только
+        // когда не-instrumental + не-duet. Сервер использует normalizeVocalParams
+        // как единый источник правды и больше не дефолтит на Female.
+        body.voiceType = instrumental ? "instrumental"
+          : isDuet ? "duet"
+          : voice; // 'male' | 'female'
+        // legacy 'voice' — оставляем для совместимости с не-обновлённым сервером.
         if (!instrumental && !isDuet) body.voice = voice;
         body.authorName = authorName.trim();
         body.isPublic = !isPrivate;

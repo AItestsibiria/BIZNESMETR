@@ -71,6 +71,10 @@ export const generations = sqliteTable("generations", {
   // Для extend/cover (Sprint 3-4):
   personaId: text("persona_id"),
   sourceGenId: integer("source_gen_id"),    // если это extend/cover, на чём основано
+  // Voice type — единое поле для всех путей генерации (Eugene 2026-05-07).
+  // Раньше voice прятался внутри JSON style, что приводило к потере при
+  // регенерации/массовой генерации. Теперь — отдельная колонка.
+  voiceType: text("voice_type"),            // 'male' | 'female' | 'duet' | 'instrumental' | NULL
 });
 
 export const transactions = sqliteTable("transactions", {

@@ -11,6 +11,7 @@ import crypto from "crypto";
 import NodeID3 from "node-id3";
 import fs from "fs";
 import path from "path";
+import { normalizeVocalParams } from "./lib/normalizeVocalParams";
 
 const AUTHORS_DIR = process.env.AUTHORS_DIR || path.join(process.cwd(), "authors");
 
@@ -1960,7 +1961,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const userId = (req as any).userId;
     const user = storage.getUser(userId);
     if (!user) { res.status(404).json({ message: "Пользователь не найден" }); return; }
-    const { prompt, style, lyrics, title, instrumental, voice, authorName, isPublic, category } = req.body;
+    const { prompt, style, lyrics, title, instrumental, voice, voiceType, isDuet, authorName, isPublic, category } = req.body;
     if (!prompt && !lyrics) {
       res.status(400).json({ message: "Опишите желаемый трек или вставьте текст" });
       return;
@@ -1985,16 +1986,34 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         authorName: authorName || user.name || "Аноним",
       });
 
+      // Eugene 2026-05-07: единый нормализатор voice. Раньше было 4 точки
+      // независимого формирования voiceTag (с дефолтом на Female), что
+      // приводило к потере выбранного голоса при duet/instrumental.
+      const norm = normalizeVocalParams({
+        prompt,
+        style,
+        lyrics,
+        voiceType,
+        voice,
+        isDuet,
+        instrumental,
+        generationId: gen.id,
+      });
+      // Сохраняем нормализованный voiceType в БД для future regenerate.
+      try {
+        db.update(generations).set({ voiceType: norm.voiceType }).where(eq(generations.id, gen.id)).run();
+      } catch (e) {
+        console.error(`[VOCAL-NORMALIZE] failed to save voiceType for gen #${gen.id}`, e);
+      }
+
       // Build the media create payload per GPTunnel Suno API docs
-      const rawLyrics = lyrics || "";
-      const rawPrompt = prompt || "";
+      const rawLyrics = norm.finalLyrics || lyrics || "";
+      const rawPrompt = norm.finalPrompt || prompt || "";
+      const fullTags = norm.finalStyle;
+      const isInstrumental = norm.voiceType === "instrumental";
       const payload: any = {
         model: "suno",
       };
-
-      // Combine style with voice choice for tags
-      const voiceTag = voice === "male" ? "Male Vocal" : "Female Vocal";
-      const fullTags = instrumental ? (style || "") : (style ? `${style}, ${voiceTag}` : voiceTag);
 
       // Auto-generate title if not provided (required by GPTunnel for custom/instrumental modes)
       const autoTitle = title || rawLyrics.split("\n")[0]?.replace(/^\[.*?\]\s*/, "").slice(0, 80) || rawPrompt.slice(0, 80) || "Мой трек";
@@ -2002,7 +2021,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       // Use lyrics as fallback prompt if prompt is empty
       const effectivePrompt = rawPrompt || rawLyrics.split("\n").slice(0, 3).join(" ").slice(0, 400);
 
-      if (instrumental) {
+      if (isInstrumental) {
         // GPTunnel instrumental mode is broken — use basic mode with instrumental hint in prompt
         payload.prompt = `Instrumental, no vocals. ${fullTags || ""} ${effectivePrompt}`.trim().slice(0, 400);
       } else if (rawLyrics && rawLyrics.length >= 50) {
@@ -2014,7 +2033,6 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         if (rawPrompt) payload.prompt = rawPrompt.slice(0, 400);
       } else {
         // Basic mode: just prompt, Suno auto-generates lyrics
-        // If user gave short lyrics (<50 chars) — fall back to basic mode using them as prompt hint
         const basicPrompt = (effectivePrompt || rawLyrics || "Песня").slice(0, 400);
         payload.prompt = basicPrompt || "Песня";
         if (rawLyrics && rawLyrics.length > 0 && rawLyrics.length < 50) {
@@ -2022,7 +2040,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         }
       }
 
-      console.log(`[MUSIC] Mode: ${payload.mode || "basic"}, prompt: ${(payload.prompt || "").length}ch, lyrics: ${(payload.lyric || "").length}ch`);
+      console.log(`[MUSIC] gen #${gen.id} voiceType=${norm.voiceType} mode=${payload.mode || "basic"} prompt=${(payload.prompt || "").length}ch lyrics=${(payload.lyric || "").length}ch tags="${(payload.tags || "").slice(0, 100)}"`);
 
       const resp = await gptunnelFetch("/media/create", {
         method: "POST",
@@ -2241,7 +2259,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const userId = (req as any).userId;
     const user = storage.getUser(userId);
     if (!user) { res.status(404).json({ message: "Автор не найден" }); return; }
-    const { sourceId, newStyle, voice, isPublic, category, authorName } = req.body;
+    const { sourceId, newStyle, voice, voiceType, isDuet, instrumental, isPublic, category, authorName } = req.body;
     if (!sourceId) { res.status(400).json({ message: "Исходный трек не указан" }); return; }
     if (!newStyle || newStyle.length < 3) { res.status(400).json({ message: "Опишите новый стиль" }); return; }
 
@@ -2261,8 +2279,19 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     if (!charge.ok) { res.status(402).json({ message: charge.error }); return; }
 
     try {
-      const voiceTag = voice === "male" ? "Male Vocal" : voice === "female" ? "Female Vocal" : "";
-      const fullTags = voiceTag ? `${newStyle}, ${voiceTag}` : newStyle;
+      // Eugene 2026-05-07: используем единый нормализатор. Если пользователь
+      // не передал явный voiceType при ремиксе — берём из source.voiceType.
+      const inheritedVoiceType = (source as any).voiceType ?? null;
+      const norm = normalizeVocalParams({
+        prompt: `Кавер в стиле ${newStyle}`,
+        style: newStyle,
+        voiceType: voiceType ?? inheritedVoiceType,
+        voice,
+        isDuet,
+        instrumental,
+        generationId: source.id,
+      });
+      const fullTags = norm.finalStyle;
 
       const sourceMeta = (() => { try { return JSON.parse(source.style || "{}"); } catch { return {}; } })();
       const sourceTitle = source.displayTitle || source.prompt || "Трек";
@@ -3923,13 +3952,29 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         authorName: oldGen.authorName || user.name || "Аноним",
       });
 
-      const rawLyrics = (oldGen.prompt || "").length > 0 && (oldGen.prompt || "").includes("\n") ? oldGen.prompt : "";
-      const rawPrompt = oldGen.prompt || "";
+      const rawLyricsRaw = (oldGen.prompt || "").length > 0 && (oldGen.prompt || "").includes("\n") ? oldGen.prompt : "";
+      const rawPromptRaw = oldGen.prompt || "";
       const styleStr = styleObj.style || "";
       const titleStr = styleObj.title || "";
       const instrumental = !!styleObj.instrumental;
-      const voiceTag = "Female Vocal"; // по умолчанию как в generate
-      const fullTags = instrumental ? styleStr : (styleStr ? `${styleStr}, ${voiceTag}` : voiceTag);
+      // Eugene 2026-05-07: regenerate теперь сохраняет voiceType из исходного
+      // трека (oldGen.voiceType), а не дефолтит на Female как раньше.
+      const inheritedVoice = (oldGen as any).voiceType ?? null;
+      const norm = normalizeVocalParams({
+        prompt: rawPromptRaw,
+        style: styleStr,
+        lyrics: rawLyricsRaw,
+        voiceType: inheritedVoice,
+        instrumental,
+        generationId: newGen.id,
+      });
+      try {
+        db.update(generations).set({ voiceType: norm.voiceType }).where(eq(generations.id, newGen.id)).run();
+      } catch {}
+      const rawLyrics = norm.finalLyrics || rawLyricsRaw;
+      const rawPrompt = norm.finalPrompt || rawPromptRaw;
+      // Используем нормализованный finalStyle вместо ручной конкатенации.
+      const fullTags = norm.finalStyle;
       const autoTitle = titleStr || rawLyrics.split("\n")[0]?.replace(/^\[.*?\]\s*/, "").slice(0, 80) || rawPrompt.slice(0, 80) || "Мой трек";
       const effectivePrompt = rawPrompt || rawLyrics.split("\n").slice(0, 3).join(" ").slice(0, 400);
 
