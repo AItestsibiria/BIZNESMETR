@@ -3,6 +3,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { EventBus, FeatureFlags, ModuleRegistry, createLogger, setGlobalRegistry } from "./core";
+import { bootstrapAdminRoles } from "./core/adminAuth";
 // Static imports below — esbuild inlines them into dist/index.cjs.
 // Если эти строки превратить в переменно-параметризованные await import(),
 // esbuild не сможет статически разрешить пути и плагины останутся
@@ -122,6 +123,16 @@ app.get(["/api/_status", "/api/status"], (_req, res) => {
   await registerRoutes(httpServer, app);
 
   const bootLogger = createLogger("boot");
+
+  // ТЗ Eugene 2026-05-07: при старте промотим всех email'ов из ADMIN_EMAIL
+  // в users.role='admin'. Идемпотентно — если уже admin, пропускаем.
+  // Закрывает регрессию «egnovoselov видит 403 потому что чек только email».
+  try {
+    const r = bootstrapAdminRoles();
+    bootLogger.info(`admin bootstrap: promoted=${r.promoted} skipped=${r.skipped}`);
+  } catch (e) {
+    bootLogger.error("admin bootstrap failed", { error: e instanceof Error ? e.message : String(e) });
+  }
 
   // Все 20 плагинов уже импортированы статически выше → они в bundle.
   // Здесь — пара (name, module) для unified loop + диагностика.

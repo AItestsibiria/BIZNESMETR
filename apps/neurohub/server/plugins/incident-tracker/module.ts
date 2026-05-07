@@ -18,15 +18,13 @@ import { sql, desc, eq, and } from "drizzle-orm";
 import { Router } from "express";
 import * as fs from "node:fs";
 import { db } from "../../storage";
-import { incidents, generations, agentActions, users } from "@shared/schema";
+import { incidents, generations, agentActions } from "@shared/schema";
 import type { BootContext, Module } from "../../core";
+import { requireAdmin } from "../../core/adminAuth";
 
 let bootRefs: { eventBus: BootContext["eventBus"]; logger: BootContext["logger"] } | null = null;
 
 const ENV_FILE = process.env.ENV_FILE || "/var/www/neurohub/.env";
-const ADMIN_EMAILS = new Set(
-  (process.env.ADMIN_EMAIL || "egnovoselov@gmail.com").split(",").map((e) => e.trim().toLowerCase()),
-);
 
 interface ClassifiedRoot {
   kind: string;
@@ -233,22 +231,6 @@ async function autoResolveOpen(): Promise<void> {
 
 // Endpoints
 const router = Router();
-
-function requireAdmin(req: any, res: any, next: any): void {
-  const auth = (req.headers?.authorization ?? "").toString();
-  let token = auth.startsWith("Bearer ") ? auth.slice(7) : (req.query?.token ?? "");
-  if (!token) return res.status(401).json({ data: null, error: "unauthorized" });
-  try {
-    const row = db.get<{ userId: number }>(sql`SELECT user_id as userId FROM sessions WHERE token = ${token} LIMIT 1`);
-    if (!row?.userId) return res.status(401).json({ data: null, error: "unauthorized" });
-    const u = db.select().from(users).where(eq(users.id, row.userId)).get();
-    if (!u || !ADMIN_EMAILS.has((u.email ?? "").toLowerCase())) return res.status(403).json({ data: null, error: "forbidden" });
-    (req as any).userId = row.userId;
-    next();
-  } catch (err) {
-    res.status(500).json({ data: null, error: err instanceof Error ? err.message : "internal" });
-  }
-}
 
 router.get("/", requireAdmin, (_req, res) => {
   const open = db.select().from(incidents).where(eq(incidents.status, "open")).orderBy(desc(incidents.severity), desc(incidents.lastSeenAt)).all();
