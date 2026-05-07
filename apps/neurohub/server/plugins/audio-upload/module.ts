@@ -87,9 +87,10 @@ router.post("/upload", requireAuth, upload.single("audio"), async (req, res) => 
   const file = (req as any).file as Express.Multer.File | undefined;
   if (!file) return res.status(400).json({ data: null, error: "Файл не получен (поле 'audio')" });
 
-  // mime-валидация по заявленному + по магическим байтам можно добавить
-  // позже через 'file-type'. Пока — whitelist по client-mime + extension.
-  if (!ALLOWED_MIME.has(file.mimetype)) {
+  // Bug-fix Eugene 13:35: Chrome шлёт `audio/webm;codecs=opus` — strip codec
+  // suffix чтобы попасть в whitelist (тот содержит только base mime'ы).
+  const baseMime = file.mimetype.split(";")[0].trim().toLowerCase();
+  if (!ALLOWED_MIME.has(baseMime)) {
     return res.status(415).json({
       data: null,
       error: `Формат не поддерживается: ${file.mimetype}. Поддержка: mp3, wav, m4a, webm, ogg.`,
@@ -239,15 +240,18 @@ router.post("/audio-cover", requireAuth, async (req, res) => {
   const apiKey = process.env.GPTUNNEL_API_KEY ?? "";
   if (!apiKey) return res.status(503).json({ data: null, error: "GPTUNNEL_API_KEY не задан" });
 
+  // Определяем тип ДО создания row чтобы записать правильную category
+  const willHaveLyrics = norm.finalLyrics && norm.finalLyrics.length >= 50;
+
   // Создаём gen-row до запроса в Suno — даже если упадёт, у нас будет след.
   const newGen = db.insert(generations).values({
     userId, type: "music",
-    prompt: prompt || `Кавер на загруженный трек`,
+    prompt: prompt || (willHaveLyrics ? `Песня по голосу` : `Кавер на загруженный трек`),
     style: JSON.stringify({
       style: norm.finalStyle,
-      title: title || "Кавер",
-      category: "cover",
-      mode: "cover",
+      title: title || (willHaveLyrics ? "Песня" : "Кавер"),
+      category: willHaveLyrics ? "song" : "cover",
+      mode: willHaveLyrics ? "audio-to-music" : "cover",
       audioInputUrl,
       audioWeight: audioWeight ?? 0.7,
       fromUploadSha: uploadSha || null,
@@ -260,23 +264,32 @@ router.post("/audio-cover", requireAuth, async (req, res) => {
     voiceType: norm.voiceType,
   } as any).returning().get();
 
-  // Suno cover payload (см. v304-audio-input-TZ.md §2.1).
-  const sunoBody: any = {
-    model: "suno-cover",
-    mode: norm.finalLyrics && norm.finalLyrics.length >= 50 ? "custom" : "basic",
-    uploadUrl: audioInputUrl,
-    audioWeight: typeof audioWeight === "number" ? Math.max(0, Math.min(1, audioWeight)) : 0.7,
-  };
+  // ТЗ Eugene 13:36: голос — это запись СМЫСЛА, а не музыкальный референс.
+  // Если есть полноценные lyrics (≥50 chars) — генерируем обычную music, не cover.
+  // Иначе остаётся cover-режим с uploadUrl.
+  const hasLyrics = norm.finalLyrics && norm.finalLyrics.length >= 50;
+  const sunoBody: any = hasLyrics
+    ? {
+        // Музыка из текста — то что хотел Eugene: голосом → текст → песня
+        model: "suno",
+        mode: "custom",
+        lyric: norm.finalLyrics.slice(0, 3000),
+        title: (title || "Песня").slice(0, 80),
+      }
+    : {
+        // Fallback: реальный cover на чужой трек (если без lyrics)
+        model: "suno-cover",
+        mode: "basic",
+        uploadUrl: audioInputUrl,
+        audioWeight: typeof audioWeight === "number" ? Math.max(0, Math.min(1, audioWeight)) : 0.7,
+      };
   if (norm.voiceType === "male" || norm.voiceType === "female") {
     sunoBody.vocalGender = norm.voiceType === "male" ? "m" : "f";
   }
   if (norm.voiceType === "instrumental") sunoBody.instrumental = true;
-  if (norm.finalStyle) sunoBody.style = norm.finalStyle.slice(0, 200);
+  if (norm.finalStyle) sunoBody.tags = norm.finalStyle.slice(0, 200);
   if (norm.finalPrompt) sunoBody.prompt = norm.finalPrompt.slice(0, 400);
-  if (sunoBody.mode === "custom") {
-    sunoBody.lyric = norm.finalLyrics.slice(0, 3000);
-    sunoBody.title = (title || "Кавер").slice(0, 80);
-  }
+  console.log(`[AUDIO-COVER] gen #${newGen.id} mode=${hasLyrics ? "music-from-lyrics" : "cover-from-upload"} sunoBody=${JSON.stringify({ ...sunoBody, lyric: sunoBody.lyric ? `[${sunoBody.lyric.length}ch]` : undefined }).slice(0, 200)}`);
 
   let upstream: any = null;
   let upstreamStatus = 0;
