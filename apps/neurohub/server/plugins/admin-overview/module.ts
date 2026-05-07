@@ -969,6 +969,17 @@ router.post("/client-errors/clear", requireAdmin, (_req, res) => {
   res.json({ data: { cleared: true }, error: null });
 });
 
+// Кольцевой буфер использований Yandex SpeechKit — для статистики «баланса
+// API» (ТЗ Eugene 13:38). Yandex Cloud Billing API требует IAM-token, поэтому
+// real-balance недоступен. Показываем счётчик успешных вызовов + оценку
+// списанных рублей (≈ 0.45 ₽/мин при short audio API).
+const YANDEX_USAGE: Array<{ ts: number; durationSec: number; ok: boolean }> = [];
+export function recordYandexUsage(durationSec: number, ok: boolean) {
+  YANDEX_USAGE.push({ ts: Date.now(), durationSec, ok });
+  if (YANDEX_USAGE.length > 500) YANDEX_USAGE.splice(0, YANDEX_USAGE.length - 500);
+}
+(globalThis as any).__yandexUsage = YANDEX_USAGE;
+
 // GET /api/admin/v304/yandex/status — состояние Яндекс-сервисов.
 // ТЗ Eugene 12:42: «агент на dashboard для управления Яндекс-ключом».
 router.get("/yandex/status", requireAdmin, async (_req, res) => {
@@ -1025,7 +1036,22 @@ router.get("/yandex/status", requireAdmin, async (_req, res) => {
       services.speechkit_stt.authProbe = { error: e instanceof Error ? e.message : "?" };
     }
   }
-  res.json({ data: { services }, error: null });
+  // Usage-статистика (вместо real balance — Yandex Cloud Billing требует IAM)
+  const now = Date.now();
+  const last24h = YANDEX_USAGE.filter((u) => now - u.ts < 24 * 60 * 60 * 1000);
+  const last7d = YANDEX_USAGE.filter((u) => now - u.ts < 7 * 24 * 60 * 60 * 1000);
+  const total = YANDEX_USAGE.length;
+  const okCount = YANDEX_USAGE.filter((u) => u.ok).length;
+  const totalDurationSec = YANDEX_USAGE.reduce((a, u) => a + (u.ok ? u.durationSec : 0), 0);
+  const usage = {
+    total, ok: okCount, fails: total - okCount,
+    last24h_calls: last24h.length, last7d_calls: last7d.length,
+    totalMinutes: Math.round(totalDurationSec / 60 * 100) / 100,
+    estimatedSpentRub: Math.round(totalDurationSec / 60 * 0.45 * 100) / 100, // ≈ ₽0.45/мин
+    pricePerMinute: 0.45,
+    note: "Yandex Cloud Billing API требует IAM-token. Здесь оценка по кол-ву вызовов × средняя ставка short audio API.",
+  };
+  res.json({ data: { services, usage }, error: null });
 });
 
 // POST /api/admin/v304/transcribe-verify

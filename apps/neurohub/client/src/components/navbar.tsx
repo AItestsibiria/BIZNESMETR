@@ -71,20 +71,36 @@ export default function Navbar() {
   // (на сервере проверка идёт по ADMIN_EMAIL CSV из .env). Это снимает
   // необходимость отдельно синхронизировать список админов на клиенте.
   const [adminBal, setAdminBal] = useState<{ available: boolean; balance?: number; suno?: { estimatedTracks: number; pricePerTrack: number } } | null>(null);
+  const [yandexUsage, setYandexUsage] = useState<{ totalMinutes: number; estimatedSpentRub: number; total: number; ok: boolean } | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    if (!user) { setIsAdmin(false); setAdminBal(null); return; }
+    if (!user) { setIsAdmin(false); setAdminBal(null); setYandexUsage(null); return; }
     let cancelled = false;
     // apiRequest throws on non-2xx — 401/403 для не-админа улетят в catch.
     const load = async () => {
       try {
-        const r = await apiRequest("GET", "/api/admin/v304/gptunnel-balance");
-        if (cancelled || !r.ok) return;
-        const j = await r.json();
+        const [r1, r2] = await Promise.allSettled([
+          apiRequest("GET", "/api/admin/v304/gptunnel-balance"),
+          apiRequest("GET", "/api/admin/v304/yandex/status"),
+        ]);
         if (cancelled) return;
-        setIsAdmin(true);
-        setAdminBal(j.data);
+        if (r1.status === "fulfilled" && r1.value.ok) {
+          const j = await r1.value.json();
+          setIsAdmin(true);
+          setAdminBal(j.data);
+        }
+        if (r2.status === "fulfilled" && r2.value.ok) {
+          const j = await r2.value.json();
+          const stt = j.data?.services?.speechkit_stt;
+          const u = j.data?.usage;
+          if (u) setYandexUsage({
+            totalMinutes: u.totalMinutes || 0,
+            estimatedSpentRub: u.estimatedSpentRub || 0,
+            total: u.total || 0,
+            ok: stt?.configured && stt?.authProbe?.authValid !== false,
+          });
+        }
       } catch {
         if (!cancelled) setIsAdmin(false);
       }
@@ -182,6 +198,14 @@ export default function Navbar() {
                     )}
                   </span>
                 </Link>
+                {/* Yandex API usage — рядом с балансом (Eugene 13:38) */}
+                {isAdmin && yandexUsage && (
+                  <Link href="/admin/v304" title={`Yandex SpeechKit: ${yandexUsage.total} вызовов · ≈ ${yandexUsage.totalMinutes.toFixed(1)} мин · ≈ ${yandexUsage.estimatedSpentRub.toFixed(2)}₽`}>
+                    <span className={`price-badge cursor-pointer ${yandexUsage.ok ? "text-cyan-300" : "text-amber-300"}`}>
+                      🎤 Я: {yandexUsage.estimatedSpentRub.toFixed(0)}₽
+                    </span>
+                  </Link>
+                )}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button

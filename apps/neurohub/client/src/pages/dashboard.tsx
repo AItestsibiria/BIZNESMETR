@@ -12,7 +12,7 @@ import {
   ArrowUpRight, ArrowDownLeft, Clock, CheckCircle2, XCircle, Loader2, Download, Globe, Lock, RotateCcw,
   Share2, Users, Copy, TrendingUp, Eye, BarChart3, Pencil, ExternalLink, Trash2, ArchiveRestore,
   Play, Pause, SkipForward, SkipBack, RefreshCcw, ChevronDown, Repeat, Repeat1, Ticket, FastForward,
-  AlertCircle, Wallet,
+  AlertCircle, Wallet, Mic,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect, useRef } from "react";
@@ -356,15 +356,24 @@ function AdminStats() {
   const [viewingUser, setViewingUser] = useState<any>(null);
   const [viewingGens, setViewingGens] = useState<any[]>([]);
   const [gptBalance, setGptBalance] = useState<{ available: boolean; balance?: number; currency?: string; reason?: string; suno?: { estimatedTracks: number; pricePerTrack: number } } | null>(null);
+  const [yandexUsage, setYandexUsage] = useState<{ totalMinutes: number; estimatedSpentRub: number; total: number; configured: boolean } | null>(null);
 
   useEffect(() => {
     apiRequest("GET", "/api/admin/stats").then(r => r.json()).then(setStats).catch(() => {});
-    // Подтягиваем баланс GPTunnel — endpoint admin-only.
-    const fetchBalance = () =>
-      apiRequest("GET", "/api/admin/v304/gptunnel-balance")
-        .then(r => r.json())
-        .then(j => setGptBalance(j.data))
-        .catch(() => {});
+    // Подтягиваем баланс GPTunnel + usage Yandex (Eugene 13:38).
+    const fetchBalance = () => {
+      apiRequest("GET", "/api/admin/v304/gptunnel-balance").then(r => r.json()).then(j => setGptBalance(j.data)).catch(() => {});
+      apiRequest("GET", "/api/admin/v304/yandex/status").then(r => r.json()).then(j => {
+        const u = j.data?.usage;
+        const stt = j.data?.services?.speechkit_stt;
+        if (u) setYandexUsage({
+          totalMinutes: u.totalMinutes || 0,
+          estimatedSpentRub: u.estimatedSpentRub || 0,
+          total: u.total || 0,
+          configured: !!stt?.configured,
+        });
+      }).catch(() => {});
+    };
     fetchBalance();
     const t = setInterval(fetchBalance, 60_000);
     return () => clearInterval(t);
@@ -391,6 +400,17 @@ function AdminStats() {
         : (gptBalance?.reason ?? "недоступен"),
       color: !gptBalance?.available ? "text-rose-400" : balLow ? "text-amber-400" : "text-emerald-400",
     },
+    {
+      icon: Mic,
+      label: "Яндекс STT",
+      value: yandexUsage?.configured
+        ? `${yandexUsage.estimatedSpentRub.toFixed(2)} ₽`
+        : "нет ключа",
+      sub: yandexUsage?.configured
+        ? `${yandexUsage.total} вызовов · ≈${yandexUsage.totalMinutes.toFixed(1)} мин · ₽0.45/мин`
+        : "Введите ключ в /admin → Секреты",
+      color: !yandexUsage?.configured ? "text-rose-400" : "text-cyan-400",
+    },
   ];
 
   return (
@@ -399,7 +419,7 @@ function AdminStats() {
         <BarChart3 className="w-4 h-4 text-purple-400" />
         Статистика
       </h2>
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
         {cards.map((c, i) => (
           <div
             key={i}

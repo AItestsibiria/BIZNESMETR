@@ -369,6 +369,16 @@ router.post("/transcribe", requireAuth, async (req, res) => {
     for (const a of result.attempts) {
       console.log(`  ${a.provider} ok=${a.ok} status=${a.httpStatus ?? "-"} ms=${a.durationMs} err=${a.error?.slice(0, 100) ?? "-"}`);
     }
+    // Учитываем usage Yandex для отображения «баланса API» (Eugene 13:38).
+    // Длительность аудио оцениваем по размеру: mp3 128kbps ≈ 16KB/sec.
+    if (result.provider === "yandex") {
+      const estSec = Math.max(1, Math.round(buffer.length / 16000));
+      const ring: any[] = (globalThis as any).__yandexUsage;
+      if (Array.isArray(ring)) {
+        ring.push({ ts: Date.now(), durationSec: estSec, ok: true });
+        if (ring.length > 500) ring.splice(0, ring.length - 500);
+      }
+    }
     const transcript = result.transcript;
 
     if (!transcript) {
