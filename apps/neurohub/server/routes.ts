@@ -1399,12 +1399,16 @@ function createNew(){
     let category = "song";
     let baseStyle = "";
     let fullStyle = "";
+    let isBonus = false;
+    let bonusFromGenId: number | null = null;
     try {
       const m = JSON.parse(gen.style || "{}");
       baseStyle = m.style || "";
       fullStyle = m.fullStyle || m.style || "";
       category = m.category || "song";
       styleInfo = humanizeStyle(fullStyle);
+      isBonus = !!m.isBonus;
+      bonusFromGenId = m.bonusFromGenId ?? null;
     } catch {}
     // Extract lyrics from Suno resultData
     let lyrics = "";
@@ -1426,6 +1430,8 @@ function createNew(){
       authorName: gen.authorName || author?.name || "Аноним",
       createdAt: gen.createdAt,
       lyrics,
+      isBonus,
+      bonusFromGenId,
       styleInfo,
       baseStyle,
       fullStyle,

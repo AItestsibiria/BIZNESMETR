@@ -842,43 +842,65 @@ export default function MusicPage() {
                       toast({ title: "Войдите", description: "Чтобы использовать аудио-генерацию, нужен аккаунт. Бесплатно за 30 сек.", variant: "destructive" });
                       return;
                     }
-                    // Авто-загрузка + транскрипция + LLM-rewrite.
-                    // НЕ передаём Authorization вручную — auth.tsx patcher
-                    // сам добавит Bearer если есть globalToken (закрывает 401).
+                    // Видимый прогресс по шагам (Eugene 12:32 — «надиктовал но
+                    // не появляется транскрибация»). Раньше silent fail.
                     try {
+                      console.log("[AUDIO-FLOW] step 1/3: uploading", { size: file.size, type: file.type });
                       setAudioUploading(true);
+                      toast({ title: "📤 Загружаю файл…", description: `${Math.round(file.size / 1024)} KB` });
                       const fd = new FormData();
                       fd.append("audio", file);
                       const up = await fetch("/api/gen/upload", { method: "POST", body: fd });
-                      const upJson = await up.json();
+                      const upJson = await up.json().catch(() => ({}));
+                      console.log("[AUDIO-FLOW] upload response", { status: up.status, ok: up.ok, body: upJson });
                       if (up.status === 401) {
                         setShowInlineAuth(true);
-                        toast({ title: "Сессия истекла", description: "Перелогиньтесь в форме ниже.", variant: "destructive" });
+                        toast({ title: "401 — войдите", description: "Сессия истекла. Перелогиньтесь.", variant: "destructive" });
                         return;
                       }
-                      if (!up.ok || !upJson?.data?.sha) throw new Error(upJson?.error || "upload failed");
+                      if (!up.ok || !upJson?.data?.sha) {
+                        toast({ title: `❌ Upload ${up.status}`, description: upJson?.error || "Сервер не вернул sha", variant: "destructive" });
+                        return;
+                      }
                       const sha = upJson.data.sha;
                       setAudioUploadSha(sha);
                       setAudioUploadUrl(upJson.data.uploadUrl);
                       setAudioUploading(false);
+                      toast({ title: "✅ Загружено", description: `Файл сохранён (sha=${sha.slice(0, 8)}…). Распознаю голос…` });
+
+                      console.log("[AUDIO-FLOW] step 2/3: transcribing");
                       setTranscribing(true);
                       const t = await fetch("/api/gen/transcribe", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ uploadSha: sha }),
                       });
-                      const tJson = await t.json();
+                      const tJson = await t.json().catch(() => ({}));
+                      console.log("[AUDIO-FLOW] transcribe response", { status: t.status, body: tJson });
                       if (t.status === 401) {
                         setShowInlineAuth(true);
+                        toast({ title: "401 на transcribe", variant: "destructive" });
                         return;
+                      }
+                      if (!t.ok) {
+                        toast({ title: `❌ Transcribe ${t.status}`, description: tJson?.error || "сервер вернул ошибку", variant: "destructive" });
+                        return;
+                      }
+                      if (tJson?.data?.warning) {
+                        toast({ title: "⚠ Whisper не распознал", description: tJson.data.warning, variant: "destructive" });
                       }
                       if (tJson?.data?.transcript) setAudioTranscript(tJson.data.transcript);
                       if (tJson?.data?.suggestion) {
                         setAudioSuggestion(tJson.data.suggestion);
                         if (tJson.data.suggestion.lyrics) setAudioLyrics(tJson.data.suggestion.lyrics);
+                        toast({ title: "✅ Текст готов", description: "Можете править или нажать ReТекст для другого варианта." });
+                      } else if (tJson?.data?.fallbackToManual) {
+                        toast({ title: "📝 Введите текст вручную", description: "Whisper недоступен — наберите описание ниже" });
                       }
                     } catch (err) {
-                      toast({ title: "Ошибка обработки", description: err instanceof Error ? err.message : "fail", variant: "destructive" });
+                      const m = err instanceof Error ? err.message : "fail";
+                      console.error("[AUDIO-FLOW] error", err);
+                      toast({ title: "❌ Ошибка обработки", description: m, variant: "destructive" });
                     } finally {
                       setAudioUploading(false);
                       setTranscribing(false);

@@ -20,10 +20,12 @@ interface TrackData {
   authorName: string;
   createdAt: string;
   lyrics: string;
+  isBonus?: boolean;
+  bonusFromGenId?: number | null;
   styleInfo: string;
   baseStyle: string;
   fullStyle: string;
-  category: "song" | "greeting";
+  category: "song" | "greeting" | "cover";
   isPublic: number;
 }
 
@@ -259,6 +261,11 @@ export default function TrackPage() {
           {track.category === "greeting" && (
             <div className="absolute top-3 left-3 px-2.5 py-1 rounded-full bg-pink-500/90 text-white text-xs font-medium backdrop-blur-sm">
               🎁 Поздравление
+            </div>
+          )}
+          {track.isBonus && (
+            <div className="absolute top-3 right-3 px-2.5 py-1 rounded-full bg-gradient-to-r from-emerald-500 to-cyan-500 text-white text-xs font-medium backdrop-blur-sm shadow-lg">
+              🎁 Бонус от MuziAi
             </div>
           )}
         </div>

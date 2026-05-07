@@ -910,13 +910,20 @@ async function pollProcessingGenerations(): Promise<{ scanned: number; done: num
                     FROM generations WHERE id = ${row.id}`,
               );
               if (orig) {
+                // Маркируем 2-й вариант как бонусный (ТЗ Eugene 12:31).
+                let mergedStyle: any = {};
+                try { mergedStyle = JSON.parse(orig.style || "{}"); } catch {}
+                mergedStyle.isBonus = true;
+                mergedStyle.bonusFromGenId = row.id;
+                mergedStyle.bonusLabel = "🎁 Бонус от MuziAi";
+                if (mergedStyle.title) mergedStyle.title = `${mergedStyle.title} · 🎁 бонус`;
                 db.run(sql`INSERT INTO generations
                            (user_id, type, prompt, style, status, result_url, result_data,
                             cost, task_id, author_name, is_public, voice_type)
-                           VALUES (${orig.userId}, ${orig.type}, ${orig.prompt}, ${orig.style},
+                           VALUES (${orig.userId}, ${orig.type}, ${orig.prompt}, ${JSON.stringify(mergedStyle)},
                                    'done', ${secondTrack.audio_url}, ${JSON.stringify({ result: [secondTrack] })},
                                    0, ${v2TaskId}, ${orig.authorName}, ${orig.isPublic}, ${orig.voiceType})`);
-                console.log(`\x1b[32m[POLL]\x1b[0m gen #${row.id} variant 2 saved as separate gen (taskId=${v2TaskId})`);
+                console.log(`\x1b[32m[POLL]\x1b[0m gen #${row.id} BONUS variant 2 saved (taskId=${v2TaskId})`);
                 done += 1;
               }
             }
