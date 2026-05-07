@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { HelpBuddy } from "@/components/help-buddy";
 import { useAuth } from "@/lib/auth";
 import { startBgMusic, stopBgMusic } from "@/components/background-music";
 import { useLocation } from "wouter";
@@ -107,6 +108,16 @@ export default function LyricsPage() {
             <p className="text-sm text-muted-foreground">AI напишет текст по вашему описанию</p>
           </div>
           <span className="ml-auto price-badge" data-testid="badge-price-lyrics">99 ₽</span>
+          <HelpBuddy
+            variant="violet"
+            size="sm"
+            title="Что это?"
+            sections={[
+              { label: "Как работает", text: "Опишите тему песни (например, «гимн ко дню рождения мамы») — AI напишет полный текст с куплетами и припевом.", color: "text-purple-300" },
+              { label: "Цена", text: "99 ₽ за один полный текст. Бесплатных попыток 5 в день у новых.", color: "text-emerald-300" },
+              { label: "Что дальше", text: "Готовый текст можно сразу перенести в «Музыка» — AI озвучит его в выбранном вами стиле и голосе.", color: "text-cyan-300" },
+            ]}
+          />
         </div>
 
         {/* Form */}

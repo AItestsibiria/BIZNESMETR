@@ -148,10 +148,12 @@ router.post("/upload", requireAuth, upload.single("audio"), async (req, res) => 
   });
 });
 
-// POST /api/gen/cover — кавер из загруженного аудио ИЛИ из существующей gen.
+// POST /api/gen/audio-cover — кавер из загруженного аудио ИЛИ из существующей gen.
+// Имя `audio-cover` чтобы не конфликтовать со старым skeleton extend-cover/cover
+// (который требует session-auth и валится на Bearer-токенах).
 // Body: { uploadSha?: string, sourceGenId?: number, voiceType, prompt?, style?,
 //         audioWeight?: 0..1, isPublic? }
-router.post("/cover", requireAuth, async (req, res) => {
+router.post("/audio-cover", requireAuth, async (req, res) => {
   const userId = (req as any).userId as number;
   const { uploadSha, sourceGenId, voiceType, voice, isDuet, instrumental,
           prompt, style: bodyStyle, audioWeight, isPublic, authorName,

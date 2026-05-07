@@ -1,4 +1,5 @@
 import { useAuth } from "@/lib/auth";
+import { HelpBuddy } from "@/components/help-buddy";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -395,10 +396,24 @@ function AdminStats() {
 
   return (
     <div className="mb-8">
-      <h2 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-        <BarChart3 className="w-4 h-4 text-purple-400" />
-        Статистика
-      </h2>
+      <div className="flex items-center justify-between mb-3 gap-2">
+        <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+          <BarChart3 className="w-4 h-4 text-purple-400" />
+          Статистика
+        </h2>
+        <HelpBuddy
+          variant="violet"
+          size="sm"
+          title="Что показывает админ-стат?"
+          sections={[
+            { label: "Авторы", text: "Сколько людей зарегистрировалось всего, сегодня, за неделю.", color: "text-purple-300" },
+            { label: "Посетители", text: "Уникальные IP за сегодня и всего. Видны на счётчике Яндекс.Метрики.", color: "text-blue-300" },
+            { label: "Генерации", text: "Сколько треков создано (status=done). Сегодня и всего.", color: "text-emerald-300" },
+            { label: "Выручка", text: "Сумма оплаченных через Robokassa заказов.", color: "text-amber-300" },
+            { label: "GPTunnel", text: "Реальный баланс кошелька + расчётное количество доступных Suno-треков (balance / 8₽).", color: "text-cyan-300" },
+          ]}
+        />
+      </div>
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         {cards.map((c, i) => (
           <div

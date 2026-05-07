@@ -11,6 +11,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
+import { HelpBuddy } from "@/components/help-buddy";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -107,7 +108,22 @@ export default function AdminV304Page() {
 
   return (
     <div className="container mx-auto p-4 sm:p-6 max-w-7xl">
-      <h1 className="text-2xl sm:text-3xl font-bold mb-6">Admin · v304</h1>
+      <div className="flex items-center gap-3 mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold">Admin · v304</h1>
+        <HelpBuddy
+          variant="violet"
+          title="Что есть в админ-панели?"
+          align="start"
+          sections={[
+            { label: "Обзор", text: "Health всех 22 плагинов, infra-сервисы (БД, диск, GPTunnel), live баланс, лиды, события за 24ч, кнопки 🎵 Запустить гимн / 🚑 Реанимировать.", color: "text-violet-300" },
+            { label: "🔑 Секреты", text: "Безопасная ротация API-ключей и SMTP. Verify пробный запрос, runtime-check сравнивает .env vs процесс.", color: "text-amber-300" },
+            { label: "Шаблоны", text: "10 готовых шаблонов генерации (свадьба, юбилей, корпоратив). Можно править/удалять с откатом.", color: "text-purple-300" },
+            { label: "Feature flags", text: "Включай/выключай фичи без релиза.", color: "text-emerald-300" },
+            { label: "Лиды", text: "Все email-подписки и demo-запросы.", color: "text-cyan-300" },
+            { label: "Audit log", text: "Все правки в админке с before/after JSON и кнопкой «Восстановить».", color: "text-rose-300" },
+          ]}
+        />
+      </div>
       <Tabs defaultValue="overview">
         <TabsList className="mb-4 flex flex-wrap">
           <TabsTrigger value="overview">Обзор</TabsTrigger>

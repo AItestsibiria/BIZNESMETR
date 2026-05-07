@@ -114,7 +114,7 @@ const v304Boot = {
   registryError: null as string | null,
 };
 
-app.get("/api/_status", (_req, res) => {
+app.get(["/api/_status", "/api/status"], (_req, res) => {
   res.json({ data: v304Boot, error: null });
 });
 
