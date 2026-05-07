@@ -17,6 +17,7 @@ import { eq, sql, and } from "drizzle-orm";
 import { db } from "../../storage";
 import { audioUploads, generations, users, transactions } from "@shared/schema";
 import { normalizeVocalParams } from "../../lib/normalizeVocalParams";
+import { transcribeRussianAudio, verifyAllProviders } from "../../lib/transcribe";
 import type { Module } from "../../core";
 
 const COVER_PRICE_KOPEK = Number(process.env.AUDIO_COVER_PRICE_KOPEK ?? "29900"); // 299₽
@@ -307,60 +308,24 @@ router.post("/transcribe", requireAuth, async (req, res) => {
     const apiKey = process.env.GPTUNNEL_API_KEY ?? "";
     if (!apiKey) return res.status(503).json({ data: null, error: "GPTUNNEL_API_KEY не задан" });
 
-    // 1. Whisper transcribe (multipart)
+    // 1. Multi-provider transcribe (Yandex → OpenAI → GPTunnel) — ТЗ Eugene 12:35
     const buffer = fs.readFileSync(upl.storagePath);
-    const buildForm = () => {
-      const f = new FormData();
-      const blob = new Blob([buffer], { type: upl.mime || "audio/webm" });
-      f.append("file", blob, `audio.${upl.ext || "webm"}`);
-      f.append("model", "whisper-1");
-      f.append("language", "ru");
-      return f;
-    };
-
-    // Пробуем несколько вариантов endpoint'а — у GPTunnel Whisper может
-    // быть на api.gptunnel.ru или нужен отдельный scope. Возвращаем пустой
-    // transcript с warning'ом если все варианты упали (UI fallback на manual ввод).
-    let transcript = "";
-    let lastError = "";
-    const candidates = [
-      "https://gptunnel.ru/v1/audio/transcriptions",
-      "https://api.gptunnel.ru/v1/audio/transcriptions",
-    ];
-    for (const url of candidates) {
-      try {
-        const r = await fetch(url, {
-          method: "POST",
-          headers: { Authorization: apiKey },
-          body: buildForm(),
-          signal: AbortSignal.timeout(60_000),
-        });
-        if (r.ok) {
-          const data: any = await r.json().catch(() => null);
-          transcript = String(data?.text ?? "").trim();
-          if (transcript) break;
-        } else {
-          const t = await r.text().catch(() => "");
-          lastError = `${url} → ${r.status}: ${t.slice(0, 200)}`;
-          console.error(`[TRANSCRIBE] ${lastError}`);
-          if (r.status !== 401 && r.status !== 404) break;
-        }
-      } catch (e) {
-        lastError = `${url} → network: ${e instanceof Error ? e.message : "?"}`;
-        console.error(`[TRANSCRIBE] ${lastError}`);
-      }
+    const result = await transcribeRussianAudio(buffer, upl.mime || "audio/webm", upl.ext || "webm");
+    console.log(`[TRANSCRIBE] provider=${result.provider} attempts=${result.attempts.length}`);
+    for (const a of result.attempts) {
+      console.log(`  ${a.provider} ok=${a.ok} status=${a.httpStatus ?? "-"} ms=${a.durationMs} err=${a.error?.slice(0, 100) ?? "-"}`);
     }
+    const transcript = result.transcript;
 
     if (!transcript) {
-      // Возвращаем 200 c warning — UI покажет manual-input вместо красной ошибки
+      const summary = result.attempts.map((a) => `${a.provider}: ${a.ok ? "OK" : (a.error?.slice(0, 60) ?? "fail")}`).join(" | ");
       return res.json({
         data: {
           transcript: "",
           suggestion: null,
-          warning: lastError
-            ? `Не удалось распознать голос автоматически (${lastError}). Введите текст вручную ниже.`
-            : "Whisper не распознал речь. Введите текст вручную ниже.",
+          warning: `Не удалось распознать. Попробованные: ${summary}. Введите текст вручную ниже.`,
           fallbackToManual: true,
+          attempts: result.attempts,
         },
         error: null,
       });

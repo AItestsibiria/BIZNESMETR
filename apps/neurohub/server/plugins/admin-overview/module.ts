@@ -477,7 +477,12 @@ function stripRaw(c: { fetchedAt: number; balance: number; currency: string; raw
 const ENV_FILE = process.env.ENV_FILE || "/var/www/neurohub/.env";
 
 const ROTATABLE_SECRETS: Record<string, { name: string; description: string; verifiable: boolean }> = {
-  GPTUNNEL_API_KEY: { name: "GPTunnel API key", description: "Suno + LLM router", verifiable: true },
+  GPTUNNEL_API_KEY: { name: "GPTunnel API key", description: "Suno + LLM router (fallback STT)", verifiable: true },
+  YANDEX_SPEECHKIT_API_KEY: { name: "Yandex SpeechKit", description: "Speech-to-text Russian (priority)", verifiable: false },
+  YANDEX_FOLDER_ID: { name: "Yandex Folder ID", description: "FolderID for SpeechKit", verifiable: false },
+  OPENAI_API_KEY: { name: "OpenAI API key", description: "Whisper STT (fallback 2)", verifiable: false },
+  MAX_BOT_TOKEN: { name: "Max.ru Bot token", description: "Sales channel via Max messenger", verifiable: false },
+  MAX_WEBHOOK_SECRET: { name: "Max webhook secret", description: "X-Max-Bot-Api-Secret", verifiable: false },
   SMTP_HOST:        { name: "SMTP host", description: "smtp.yandex.ru и т.п.", verifiable: false },
   SMTP_PORT:        { name: "SMTP port", description: "Default 465", verifiable: false },
   SMTP_USER:        { name: "SMTP user", description: "noreply@podaripesnu.ru", verifiable: false },
@@ -962,6 +967,37 @@ router.post("/client-errors/clear", requireAdmin, (_req, res) => {
   const ring: any[] = (globalThis as any).__clientErrorsRing ?? [];
   ring.length = 0;
   res.json({ data: { cleared: true }, error: null });
+});
+
+// POST /api/admin/v304/transcribe-verify
+// Body: { uploadSha: string }
+// Гоняет аудио через ВСЕ STT-провайдеры (Yandex, OpenAI, GPTunnel) и
+// возвращает матрицу — какой работает. ТЗ Eugene 12:35.
+router.post("/transcribe-verify", requireAdmin, async (req, res) => {
+  try {
+    const sha = String(req.body?.uploadSha ?? "").trim();
+    if (!sha) return res.status(400).json({ data: null, error: "uploadSha required" });
+    const fs = await import("node:fs");
+    const { audioUploads } = await import("@shared/schema");
+    const upl = db.select().from(audioUploads).where(eq(audioUploads.sha, sha)).get();
+    if (!upl) return res.status(404).json({ data: null, error: "файл не найден" });
+    const buffer = fs.readFileSync(upl.storagePath);
+    const { verifyAllProviders } = await import("../../lib/transcribe");
+    const attempts = await verifyAllProviders(buffer, upl.mime || "audio/webm", upl.ext || "webm");
+    const working = attempts.filter((a) => a.ok).map((a) => a.provider);
+    res.json({
+      data: {
+        sha, sizeBytes: upl.sizeBytes, mime: upl.mime,
+        attempts, working,
+        recommendation: working.length === 0
+          ? "ни один провайдер не работает. Получи YANDEX_SPEECHKIT_API_KEY (бесплатный trial) или OPENAI_API_KEY"
+          : `Работает: ${working.join(", ")}. Использовать в продакшне будет первый из них (приоритет: yandex > openai > gptunnel).`,
+      },
+      error: null,
+    });
+  } catch (err) {
+    res.status(500).json({ data: null, error: err instanceof Error ? err.message : "internal" });
+  }
 });
 
 router.post("/poll-now", requireAdmin, async (_req, res) => {
