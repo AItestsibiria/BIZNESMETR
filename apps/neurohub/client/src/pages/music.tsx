@@ -15,7 +15,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { InlineAuth } from "@/components/inline-auth";
-import { Music, Loader2, Download, Play, Pause, Volume2, Copy, Check, RefreshCcw, ChevronDown, Sparkles, Sliders, Mic, FileText, Settings2 } from "lucide-react";
+import { Music, Loader2, Download, Play, Pause, Volume2, Copy, Check, RefreshCcw, ChevronDown, Sparkles, Sliders, Mic, FileText, Settings2, Share2 } from "lucide-react";
 import { HelpBuddy } from "@/components/help-buddy";
 import { MicRecorder } from "@/components/mic-recorder";
 import { useToast } from "@/hooks/use-toast";
@@ -1641,7 +1641,128 @@ export default function MusicPage() {
         )}
       </div>
 
-
+      <ShareFAB user={user} />
     </div>
+  );
+}
+
+// ShareFAB — плавающая кнопка bottom-right. ТЗ Eugene 12:56:
+// «человек может тут же авторизироваться и продолжить генерацию».
+// Если не залогинен — внутри dialog'а показывается InlineAuth.
+function ShareFAB({ user }: { user: any }) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const shareUrl = typeof window !== "undefined" ? window.location.origin + "/#/music" : "";
+
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {}
+  };
+
+  const nativeShare = async () => {
+    try {
+      if ((navigator as any).share) {
+        await (navigator as any).share({
+          title: "MuziAi — создаю песню по голосу",
+          text: "Попробуй создать свою песню в MuziAi за 1 минуту",
+          url: shareUrl,
+        });
+      } else {
+        copyLink();
+      }
+    } catch {}
+  };
+
+  return (
+    <>
+      {/* FAB */}
+      <button
+        type="button"
+        aria-label="Поделиться и продолжить"
+        onClick={() => setOpen(true)}
+        className="fixed bottom-5 right-5 z-40 w-14 h-14 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 text-white shadow-2xl shadow-cyan-500/40 hover:scale-110 active:scale-95 transition-all flex items-center justify-center border-2 border-white/20"
+        data-testid="fab-share"
+      >
+        <Share2 className="w-6 h-6" />
+        <span className="absolute top-0 right-0 w-3 h-3 bg-emerald-400 rounded-full border-2 border-background animate-pulse" />
+      </button>
+
+      {/* Modal */}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Share2 className="w-5 h-5 text-cyan-300" />
+              Поделиться MuziAi
+            </DialogTitle>
+            <DialogDescription>
+              {user
+                ? "Расскажи друзьям и продолжай создавать."
+                : "Зарегистрируйся за 30 сек ниже — продолжишь генерацию здесь же."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={nativeShare} className="flex-1 bg-cyan-500/20 text-cyan-200 hover:bg-cyan-500/30 border border-cyan-500/30">
+                📤 Поделиться
+              </Button>
+              <Button onClick={copyLink} variant="outline" className="flex-1">
+                {copied ? <><Check className="w-4 h-4 mr-2" />Скопировано</> : <><Copy className="w-4 h-4 mr-2" />Скопировать</>}
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 text-xs">
+              <a
+                href={`https://api.whatsapp.com/send?text=${encodeURIComponent("MuziAi: создай свою песню за 1 минуту — " + shareUrl)}`}
+                target="_blank" rel="noopener noreferrer"
+                className="px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-center hover:bg-emerald-500/20"
+              >
+                WhatsApp
+              </a>
+              <a
+                href={`https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent("Попробуй MuziAi")}`}
+                target="_blank" rel="noopener noreferrer"
+                className="px-3 py-2 rounded-lg bg-blue-500/10 border border-blue-500/30 text-blue-300 text-center hover:bg-blue-500/20"
+              >
+                Telegram
+              </a>
+              <a
+                href={`https://vk.com/share.php?url=${encodeURIComponent(shareUrl)}`}
+                target="_blank" rel="noopener noreferrer"
+                className="px-3 py-2 rounded-lg bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-center hover:bg-indigo-500/20"
+              >
+                VK
+              </a>
+            </div>
+
+            {!user && (
+              <div className="pt-3 border-t border-white/10 space-y-2">
+                <div className="text-xs text-violet-300 font-semibold flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Войди — продолжи генерацию здесь же
+                </div>
+                <InlineAuth onSuccess={() => setOpen(false)} />
+              </div>
+            )}
+
+            {user && (
+              <div className="pt-3 border-t border-white/10">
+                <Button
+                  className="w-full"
+                  onClick={() => setOpen(false)}
+                >
+                  Продолжить генерацию →
+                </Button>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
