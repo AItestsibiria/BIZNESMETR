@@ -665,7 +665,106 @@ function OverviewTab({ toast: _t }: { toast: any }) {
           <AnthemRunner />
         </CardContent>
       </Card>
+
+      <DebugBatchCard />
     </div>
+  );
+}
+
+// DebugBatchCard — прямо в UI вводишь диапазон или CSV ID, видишь raw
+// Suno-ответ + DB-статус для каждого. Закрывает кейс «нет консоли в браузере».
+function DebugBatchCard() {
+  const { toast } = useToast();
+  const [input, setInput] = useState("672-679");
+  const [output, setOutput] = useState<any>(null);
+
+  const parseIds = (s: string): number[] => {
+    const out = new Set<number>();
+    for (const part of s.split(",")) {
+      const t = part.trim();
+      if (!t) continue;
+      const m = t.match(/^(\d+)\s*-\s*(\d+)$/);
+      if (m) {
+        const a = parseInt(m[1], 10), b = parseInt(m[2], 10);
+        if (a <= b) for (let i = a; i <= b; i++) out.add(i);
+      } else {
+        const n = parseInt(t, 10);
+        if (Number.isFinite(n)) out.add(n);
+      }
+    }
+    return Array.from(out).slice(0, 50);
+  };
+
+  const run = useMutation({
+    mutationFn: async () => {
+      const ids = parseIds(input);
+      if (ids.length === 0) throw new Error("Не распознал ID. Формат: 672-679 или 672,673,675");
+      const r = await apiRequest("POST", "/api/admin/v304/generations/debug-batch", { ids });
+      return r.json();
+    },
+    onSuccess: (j) => setOutput(j.data),
+    onError: (e: Error) => toast({ title: "Ошибка", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <Card className="border-rose-500/30 bg-gradient-to-br from-rose-500/5 to-transparent">
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          🔬 Диагностика генераций (batch)
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="text-xs text-muted-foreground">
+          Введи диапазон («672-679») или CSV («672,673,675»). До 50 ID за раз.
+          Получишь DB-статус + свежий ответ Suno для каждого.
+        </div>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="672-679"
+            className="flex-1 px-3 py-2 text-sm rounded-lg bg-background/50 border border-white/10"
+            data-testid="input-debug-ids"
+          />
+          <Button onClick={() => run.mutate()} disabled={run.isPending} variant="outline">
+            {run.isPending ? "Опрашиваю Suno…" : "Проверить"}
+          </Button>
+        </div>
+        {output && (
+          <div className="space-y-2">
+            <div className="text-xs text-muted-foreground">
+              Найдено: {output.count}. Успешные = «firstTrackStatus:succeeded», ошибки — поле «errorReason» или «sunoFresh.message».
+            </div>
+            <div className="space-y-1 max-h-[500px] overflow-y-auto">
+              {output.items?.map((it: any) => (
+                <div key={it.id} className={`text-[11px] p-2 rounded border ${
+                  it.status === "done" ? "border-emerald-500/30 bg-emerald-500/5"
+                  : it.status === "error" ? "border-rose-500/30 bg-rose-500/5"
+                  : "border-amber-500/30 bg-amber-500/5"
+                }`}>
+                  <div className="font-mono text-white">
+                    #{it.id} · status=<b>{it.status}</b> · voiceType={it.voiceType ?? "—"} · cost={it.cost}
+                  </div>
+                  {it.prompt && <div className="text-muted-foreground mt-0.5">prompt: {it.prompt}</div>}
+                  {it.errorReason && (
+                    <div className="text-rose-300 mt-1">errorReason: {it.errorReason}</div>
+                  )}
+                  {it.sunoFresh && (
+                    <div className="text-cyan-300 mt-1">
+                      Suno HTTP {it.sunoFreshStatus} · status={it.sunoFresh.status} · code={it.sunoFresh.code} · msg={it.sunoFresh.message ?? "—"}
+                      {it.sunoFresh.firstTrackStatus && ` · firstTrack=${it.sunoFresh.firstTrackStatus}`}
+                    </div>
+                  )}
+                  {it.sunoFreshError && <div className="text-rose-300 mt-1">network: {it.sunoFreshError}</div>}
+                  {!it.exists && <div className="text-rose-300 mt-1">генерация не существует в БД</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
