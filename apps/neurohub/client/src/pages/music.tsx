@@ -272,6 +272,8 @@ export default function MusicPage() {
   const [audioTranscript, setAudioTranscript] = useState<string>("");
   const [audioLyrics, setAudioLyrics] = useState<string>("");
   const [audioSuggestion, setAudioSuggestion] = useState<{ genre?: string; bpm?: number; templateSlug?: string; title?: string } | null>(null);
+  const [rewriting, setRewriting] = useState(false);
+  const [rewriteHint, setRewriteHint] = useState("");
   // Внутри Расширенного — старая Simple/Lyrics подвкладка (была prev top-mode).
   const [legacyMode, setLegacyMode] = useState<"simple" | "advanced">("simple");
   const [prompt, setPrompt] = useState("");
@@ -896,7 +898,48 @@ export default function MusicPage() {
                 )}
                 {(audioLyrics || audioTranscript) && (
                   <div className="space-y-2">
-                    <Label className="text-xs text-muted-foreground">🎵 Текст песни (можно править перед генерацией):</Label>
+                    <div className="flex items-center justify-between gap-2">
+                      <Label className="text-xs text-muted-foreground">🎵 Текст песни (можно править перед генерацией):</Label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[11px] border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/10"
+                        disabled={rewriting || !audioTranscript}
+                        onClick={async () => {
+                          setRewriting(true);
+                          try {
+                            const r = await fetch("/api/gen/rewrite-lyrics", {
+                              method: "POST",
+                              headers: {
+                                Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
+                                "Content-Type": "application/json",
+                              },
+                              body: JSON.stringify({
+                                transcript: audioTranscript,
+                                templateSlug: audioSuggestion?.templateSlug,
+                                hint: rewriteHint.trim() || undefined,
+                              }),
+                            });
+                            const j = await r.json();
+                            const s = j?.data?.suggestion;
+                            if (s) {
+                              setAudioSuggestion(s);
+                              if (s.lyrics) setAudioLyrics(s.lyrics);
+                            } else {
+                              toast({ title: "Не удалось переписать", description: j?.error || "LLM вернул пусто", variant: "destructive" });
+                            }
+                          } catch (err) {
+                            toast({ title: "Ошибка", description: err instanceof Error ? err.message : "fail", variant: "destructive" });
+                          } finally {
+                            setRewriting(false);
+                          }
+                        }}
+                        data-testid="btn-rewrite-lyrics"
+                      >
+                        {rewriting ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Пишу другой</> : <><RefreshCcw className="w-3 h-3 mr-1" />Другой вариант</>}
+                      </Button>
+                    </div>
                     <Textarea
                       value={audioLyrics}
                       onChange={(e) => setAudioLyrics(e.target.value)}
@@ -904,6 +947,14 @@ export default function MusicPage() {
                       placeholder="LLM напишет текст из вашего голоса. Если нет — наберите вручную."
                       className="bg-background/50 border-cyan-500/30"
                       data-testid="textarea-audio-lyrics"
+                    />
+                    <input
+                      type="text"
+                      value={rewriteHint}
+                      onChange={(e) => setRewriteHint(e.target.value)}
+                      placeholder="Опц.: добавить пожелание для re-roll'а (например «более грустно» или «больше упомянуть детей»)"
+                      className="w-full px-3 py-1.5 text-[11px] rounded bg-background/30 border border-white/10 placeholder:text-muted-foreground/40"
+                      data-testid="input-rewrite-hint"
                     />
                   </div>
                 )}

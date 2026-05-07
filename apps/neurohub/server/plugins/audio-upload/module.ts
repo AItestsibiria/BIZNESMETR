@@ -388,6 +388,73 @@ router.post("/transcribe", requireAuth, async (req, res) => {
   }
 });
 
+// POST /api/gen/rewrite-lyrics
+// Body: { transcript: string, templateSlug?: string, hint?: string }
+// Перегенерирует текст песни из уже распознанного transcript'а.
+// Не дёргает Whisper (нет файла) — только LLM. Юзер жмёт сколько раз
+// надо пока не зацепит смысл (ТЗ Eugene 12:14).
+router.post("/rewrite-lyrics", requireAuth, async (req, res) => {
+  try {
+    const transcript = String(req.body?.transcript ?? "").trim();
+    if (!transcript) return res.status(400).json({ data: null, error: "transcript required" });
+    const templateSlug = String(req.body?.templateSlug ?? "").trim();
+    const hint = String(req.body?.hint ?? "").trim();
+
+    const apiKey = process.env.GPTUNNEL_API_KEY ?? "";
+    if (!apiKey) return res.status(503).json({ data: null, error: "GPTUNNEL_API_KEY не задан" });
+
+    let suggestion: any = null;
+    try {
+      const r = await fetch("https://gptunnel.ru/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content:
+                "Ты — поэт-песенник. Из устного описания сделай новый ВАРИАНТ singable lyrics на русском " +
+                "(2 куплета + припев + bridge, ~16 строк). Сохраняй смысл, но меняй формулировки и образы. " +
+                "Подбери жанр и BPM 70-140. Выбери templateSlug из: birthday, wedding, anniversary, " +
+                "lullaby, memorial, corporate-anthem, valentines-day, proposal-song, kids-fun, best-friend, " +
+                "new-year или null. Ответ строго JSON: " +
+                '{"lyrics":"...","genre":"...","bpm":120,"templateSlug":"...","title":"..."}',
+            },
+            {
+              role: "user",
+              content:
+                `Описание: ${transcript}` +
+                (templateSlug ? `\nПредпочтительный шаблон: ${templateSlug}` : "") +
+                (hint ? `\nПожелание автора: ${hint}` : ""),
+            },
+          ],
+          temperature: 1.0, // выше — больше разнообразия между re-roll'ами
+          max_tokens: 600,
+          response_format: { type: "json_object" },
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!r.ok) {
+        const t = await r.text().catch(() => "");
+        return res.status(r.status).json({ data: null, error: `LLM вернул ${r.status}: ${t.slice(0, 200)}` });
+      }
+      const data: any = await r.json();
+      const content = data?.choices?.[0]?.message?.content;
+      if (content) {
+        try { suggestion = JSON.parse(content); } catch {}
+      }
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e);
+      return res.status(502).json({ data: null, error: `LLM network: ${m}` });
+    }
+
+    res.json({ data: { suggestion }, error: null });
+  } catch (err) {
+    res.status(500).json({ data: null, error: err instanceof Error ? err.message : "internal" });
+  }
+});
+
 // POST /api/gen/audio-cover/:id/regenerate
 // «Не нравится результат — перегенерировать» (ТЗ Eugene 2026-05-07 11:55).
 // Берёт исходный gen, читает fromUploadSha из его style-meta, и запускает
