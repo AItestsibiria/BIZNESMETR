@@ -135,6 +135,28 @@ ssh root@72.56.1.149 'sed -i "/^ИМЯ_КЛЮЧА=/d" /var/www/neurohub/.env \
 
 В остальных случаях движение по плану — настройка по умолчанию.
 
+### Reuse-working-solutions rule (Eugene 2026-05-07)
+
+**Запоминай какие решения работают без отказно — приоритетно используй их повторно.** Перед написанием НОВОГО endpoint'а / pipeline'а / компонента — сначала смотрю, есть ли в кодовой базе аналог, который уже подтверждённо работает в проде. Если есть — funnel через него, не создаю параллельный путь.
+
+Анти-паттерн который это правило закрывает:
+- Я создал `/api/gen/audio-cover` со своей логикой sunoBody (vocalGender, instrumental flag, suno-cover model). Накопил 3 коммита фиксов. По итогу это не работало. Решение: funnel audio mode через РАБОЧИЙ `/api/music/generate` (тот же что у Текст·Расширенный) — заработало с первого раза.
+- Похожие случаи: магический звон/цвет можно собрать с нуля ИЛИ переиспользовать `btn-cosmic` от landing CTA (что уже знаем работает). Второе — приоритет.
+
+Цикл проверки перед новой реализацией:
+1. Grep по существующим endpoint'ам / компонентам со схожим назначением
+2. Подтвердить что они РАБОТАЮТ (Eugene успешно использует, тесты прошли, нет инцидентов)
+3. Использовать их напрямую (вызов / ре-export / wrapper) вместо параллельной реализации
+4. Только если параметрические нужды РЕАЛЬНО не покрываются — создавать новое
+
+Реестр работающих решений (обновляется):
+- `/api/music/generate` — генерация music (custom-mode + basic-mode). Принимает lyrics, style, voice/voiceType, isDuet, instrumental. Вшит refund/timeout/poller. Используется для Текст·Простой / Текст·Расширенный / Audio (после af965ea).
+- `/api/admin/v304/gptunnel-balance` — реальный баланс GPTunnel + расчёт Suno-треков.
+- `transcribeRussianAudio()` (server/lib/transcribe.ts) — multi-provider STT с приоритетом Yandex.
+- `normalizeVocalParams()` (server/lib/normalizeVocalParams.ts) — единый normalizer voice (Female Vocal / Male Vocal / Duet / Instrumental).
+- `btn-cosmic` (index.css) — magic shimmer-gradient CSS class. Используется на landing CTA + magic-кнопке /music.
+- `pollProcessingGenerations()` + bonus 2-й трек (admin-overview/module.ts).
+
 ### Numbered options rule (Eugene 2026-05-07)
 
 **Любые варианты, тест-кейсы, чек-листы и опции я нумерую цифрами с новой строки.** Это позволяет Евгению отвечать в формате «1 ок, 2 не ок, 3 ошибка X» — без переспрашивания «о каком пункте речь».
