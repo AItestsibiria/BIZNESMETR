@@ -334,4 +334,32 @@ Custom mode (свой текст песни):
 
 ---
 
+## 14. pm2 restart --update-env берёт env из shell вызывающего, не из .env
+
+**Симптом:** ключ обновлён через UI, admin-verify показывает ✅ (читает .env напрямую), но `/api/music/generate` всё ещё падает с 401 на старом ключе. `process.env.GPTUNNEL_API_KEY` в runtime отличается от `.env` файла.
+
+**Причина:** `pm2 restart neurohub --update-env` подхватывает env из **процесса, который вызвал команду**, а не парсит `.env` файл. Если spawn запущен из express-приложения с устаревшим `process.env`, новый процесс получит то же устаревшее окружение даже с `--update-env`.
+
+**Анти-паттерн:**
+```ts
+spawn("bash", ["-c", "pm2 restart neurohub --update-env"], {
+  env: { ...process.env, HOME: "/root" },
+});
+```
+
+**Рабочий паттерн:** source .env в bash-subshell перед pm2:
+```ts
+const cmd = `set -a && [ -f ${ENV_FILE} ] && . ${ENV_FILE}; set +a && pm2 restart neurohub --update-env`;
+spawn("bash", ["-c", cmd], { env: { HOME: "/root", PM2_HOME: "/root/.pm2", PATH: ... } });
+```
+`set -a` экспортирует все assignments автоматически — эквивалент `export X=value` для каждой строки.
+
+**Диагностика:** добавить endpoint `/api/admin/v304/secrets/runtime-check` — сравнивает `readEnvFile()` с `process.env` для каждого whitelist-ключа. UI показывает `desynced` список + кнопку «Restart pm2».
+
+**Verify ≠ Test:** `verify` через `/v1/balance` проверяет account-level scope. `test-suno` через `POST /v1/media/create` — media-level scope. Эти scope могут различаться у GPTunnel. Если verify ✅, а test-suno ❌ — нужен другой ключ с media-доступом.
+
+**Правило:** для admin-flow «обновить ключ → ожидать что runtime его увидит» использовать source-then-restart pattern + endpoint runtime-check для пост-проверки + test-suno для верификации правильного scope.
+
+---
+
 *Last updated: 2026-05-07. Каждый новый bug-class пополняет список.*

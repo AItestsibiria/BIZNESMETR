@@ -494,16 +494,18 @@ function writeEnvFile(updates: Record<string, string>): void {
   fs.writeFileSync(ENV_FILE, result, { mode: 0o600 });
 }
 
+// pm2 restart --update-env берёт env из shell-среды spawn'а. Чтобы он
+// гарантированно подхватил свежий .env (а не кэшированный старый
+// process.env), source'им .env в bash-subshell. Это закрывает класс
+// багов 'admin-verify пройден, но runtime-генерация падает с тем же
+// ключом' — теперь runtime получит то же значение что и admin читает.
 function scheduleRestart(): void {
-  const child = childProc.spawn(
-    "bash",
-    ["-c", "sleep 1 && pm2 restart neurohub --update-env >/dev/null 2>&1"],
-    {
-      detached: true,
-      stdio: "ignore",
-      env: { ...process.env, HOME: process.env.HOME || "/root", PM2_HOME: process.env.PM2_HOME || "/root/.pm2" },
-    },
-  );
+  const cmd = `sleep 1 && set -a && [ -f ${ENV_FILE} ] && . ${ENV_FILE}; set +a && pm2 restart neurohub --update-env >/dev/null 2>&1`;
+  const child = childProc.spawn("bash", ["-c", cmd], {
+    detached: true,
+    stdio: "ignore",
+    env: { HOME: process.env.HOME || "/root", PM2_HOME: process.env.PM2_HOME || "/root/.pm2", PATH: process.env.PATH ?? "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" },
+  });
   child.unref();
 }
 
@@ -594,6 +596,103 @@ router.put("/secrets", requireAdmin, (req, res) => {
       },
       error: null,
     });
+  } catch (err) {
+    res.status(500).json({ data: null, error: err instanceof Error ? err.message : "internal" });
+  }
+});
+
+// Сравнение runtime env vs .env file — показывает рассинхронизацию.
+router.get("/secrets/runtime-check", requireAdmin, (_req, res) => {
+  const env = readEnvFile();
+  const compare = Object.keys(ROTATABLE_SECRETS).map((key) => {
+    const fileVal = env[key] ?? "";
+    const runtimeVal = process.env[key] ?? "";
+    return {
+      key,
+      file: { length: fileVal.length, first8: fileVal.slice(0, 8) },
+      runtime: { length: runtimeVal.length, first8: runtimeVal.slice(0, 8) },
+      synced: fileVal === runtimeVal,
+    };
+  });
+  res.json({
+    data: {
+      timestamp: new Date().toISOString(),
+      pid: process.pid,
+      uptime_sec: Math.round(process.uptime()),
+      compare,
+      desynced: compare.filter((c) => !c.synced).map((c) => c.key),
+    },
+    error: null,
+  });
+});
+
+// Полноценный test-call к Suno /media/create с минимальным payload —
+// проверяет что ключ имеет именно media-scope (а не только balance).
+// Создаёт реальную задачу у GPTunnel БЕЗ сохранения в БД.
+router.post("/secrets/test-suno", requireAdmin, async (_req, res) => {
+  const env = readEnvFile();
+  // Используем именно runtime значение — точно то что использует
+  // production-код /api/music/generate.
+  const runtimeKey = process.env.GPTUNNEL_API_KEY ?? "";
+  const fileKey = env.GPTUNNEL_API_KEY ?? "";
+  if (!runtimeKey) {
+    return res.json({ data: { ok: false, reason: "GPTUNNEL_API_KEY missing in runtime process.env" }, error: null });
+  }
+  const synced = runtimeKey === fileKey;
+
+  const probe = async (apiKey: string, label: string) => {
+    try {
+      const r = await fetch("https://gptunnel.ru/v1/media/create", {
+        method: "POST",
+        headers: { Authorization: apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "suno", prompt: "test ping" }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const text = await r.text();
+      let parsed: any = null;
+      try { parsed = JSON.parse(text); } catch {}
+      return {
+        label,
+        keyLength: apiKey.length,
+        keyFirst8: apiKey.slice(0, 8),
+        httpStatus: r.status,
+        ok: r.ok,
+        responsePreview: text.slice(0, 400),
+        responseId: parsed?.id ?? null,
+        message: parsed?.message ?? parsed?.error?.message ?? null,
+      };
+    } catch (err) {
+      return {
+        label,
+        keyLength: apiKey.length,
+        keyFirst8: apiKey.slice(0, 8),
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  };
+
+  const runtimeProbe = await probe(runtimeKey, "runtime (process.env)");
+  const fileProbe = synced ? null : await probe(fileKey, ".env file");
+
+  res.json({
+    data: {
+      timestamp: new Date().toISOString(),
+      synced,
+      runtime: runtimeProbe,
+      file: fileProbe,
+      hint: synced
+        ? (runtimeProbe.ok ? "Suno-create OK — ключ имеет media-scope" : "Ключ читается одинаково в runtime и .env, но Suno-create отвергает — проблема не в нашем коде")
+        : "⚠️ Runtime-env не совпадает с .env! pm2 restart не подхватил свежий ключ. Жми кнопку 'Restart pm2' или используй ssh.",
+    },
+    error: null,
+  });
+});
+
+router.post("/secrets/restart", requireAdmin, (_req, res) => {
+  try {
+    scheduleRestart();
+    res.json({ data: { restartScheduled: true, etaSec: 2 }, error: null });
   } catch (err) {
     res.status(500).json({ data: null, error: err instanceof Error ? err.message : "internal" });
   }

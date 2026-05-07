@@ -443,8 +443,50 @@ function SecretsTab({ toast }: { toast: any }) {
     queryFn: () => fetcher<SecretRow[]>("/api/admin/v304/secrets"),
     refetchInterval: 60000,
   });
+  const runtime = useQuery({
+    queryKey: ["admin-runtime-check"],
+    queryFn: () => fetcher<{
+      pid: number;
+      uptime_sec: number;
+      desynced: string[];
+      compare: Array<{ key: string; file: { length: number; first8: string }; runtime: { length: number; first8: string }; synced: boolean }>;
+    }>("/api/admin/v304/secrets/runtime-check"),
+    refetchInterval: 30000,
+  });
   const [editKey, setEditKey] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+
+  const restartPm2 = useMutation({
+    mutationFn: async () => {
+      const r = await apiRequest("POST", "/api/admin/v304/secrets/restart", {});
+      return r.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Рестарт запланирован", description: "pm2 подхватит .env через ~2 секунды" });
+      setTimeout(() => {
+        queryClient.invalidateQueries({ queryKey: ["admin-runtime-check"] });
+      }, 4000);
+    },
+    onError: (e: Error) => toast({ title: "Ошибка рестарта", description: e.message, variant: "destructive" }),
+  });
+
+  const testSuno = useMutation({
+    mutationFn: async () => {
+      const r = await apiRequest("POST", "/api/admin/v304/secrets/test-suno", {});
+      return r.json();
+    },
+    onSuccess: (j) => {
+      const d = j.data;
+      const r = d.runtime;
+      const v = r?.ok;
+      toast({
+        title: v ? "✅ Suno create OK" : "❌ Suno create FAIL",
+        description: `runtime status=${r?.httpStatus ?? "?"} ${r?.message ?? r?.error ?? d.hint ?? ""}`,
+        variant: v ? "default" : "destructive",
+      });
+    },
+    onError: (e: Error) => toast({ title: "Ошибка test-suno", description: e.message, variant: "destructive" }),
+  });
 
   const upsert = useMutation({
     mutationFn: async ({ key, value }: { key: string; value: string }) => {
@@ -484,14 +526,63 @@ function SecretsTab({ toast }: { toast: any }) {
 
   if (isLoading) return <div>Загрузка…</div>;
 
+  const desyncedCount = runtime.data?.desynced?.length ?? 0;
+  const isDesynced = desyncedCount > 0;
+
   return (
     <div className="space-y-4">
+      {/* RUNTIME SYNC STATUS */}
+      <Card className={isDesynced ? "border-amber-500/60 bg-amber-500/5" : "border-emerald-500/40 bg-emerald-500/5"}>
+        <CardContent className="p-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm">
+              {isDesynced ? (
+                <>
+                  <span className="font-bold text-amber-500">⚠ Runtime ≠ .env</span>
+                  <span className="text-muted-foreground"> — pm2 ещё не подхватил свежие значения для: </span>
+                  <span className="font-mono text-xs">{runtime.data?.desynced.join(", ")}</span>
+                </>
+              ) : (
+                <>
+                  <span className="font-bold text-emerald-500">✅ Runtime = .env</span>
+                  <span className="text-muted-foreground"> — все секреты синхронизированы</span>
+                </>
+              )}
+              {runtime.data && (
+                <span className="text-xs text-muted-foreground ml-2">
+                  (pid {runtime.data.pid}, uptime {runtime.data.uptime_sec}s)
+                </span>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant={isDesynced ? "default" : "outline"}
+                onClick={() => restartPm2.mutate()}
+                disabled={restartPm2.isPending}
+              >
+                {restartPm2.isPending ? "Рестарт…" : "🔄 Restart pm2"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => testSuno.mutate()}
+                disabled={testSuno.isPending}
+              >
+                {testSuno.isPending ? "Тестирую…" : "🎵 Test Suno create"}
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardContent className="text-xs text-muted-foreground p-3 space-y-1">
-          <div>🔒 <b>Безопасность.</b> Значение секрета передаётся по TLS на сервер, записывается в <code>/var/www/neurohub/.env</code> с правами 600. В <b>audit-log</b> попадает только факт изменения и длина — само значение нет.</div>
-          <div>⚡ <b>Авто-trim.</b> Ведущие/висящие пробелы и обёртывающие кавычки снимаются перед записью — PITFALLS #12.</div>
-          <div>🔄 <b>Авто-restart.</b> После сохранения через ~1 сек pm2 перезапустит neurohub чтобы новое значение подхватилось.</div>
-          <div>🧪 <b>Verify.</b> Для GPTUNNEL_API_KEY делает реальный test-call к gptunnel.ru/v1/balance.</div>
+          <div>🔒 <b>Безопасность.</b> Значение секрета передаётся по TLS, пишется в <code>/var/www/neurohub/.env</code> с правами 600. В audit — только факт + длина.</div>
+          <div>⚡ <b>Авто-trim.</b> Ведущие/висящие пробелы и кавычки снимаются — PITFALLS #12.</div>
+          <div>🔄 <b>Авто-restart.</b> После save через ~1 сек pm2 рестарт + source .env (читает свежие значения, не кэш).</div>
+          <div>🧪 <b>Verify.</b> GET /v1/balance — проверяет, что аккаунт жив.</div>
+          <div>🎵 <b>Test Suno create.</b> Реальный POST /v1/media/create с минимальным payload — проверяет media-scope ключа. Это то, что использует /api/music/generate.</div>
         </CardContent>
       </Card>
 
