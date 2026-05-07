@@ -361,6 +361,24 @@ try {
     );
     CREATE INDEX IF NOT EXISTS admin_audit_log_entity_idx ON admin_audit_log(entity, entity_key, created_at DESC);
     CREATE INDEX IF NOT EXISTS admin_audit_log_recent_idx ON admin_audit_log(created_at DESC);
+
+    -- Incident tracking — auto-detect + auto-resolve.
+    CREATE TABLE IF NOT EXISTS incidents (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL,
+      severity TEXT NOT NULL DEFAULT 'critical',
+      title TEXT NOT NULL,
+      root_cause TEXT,
+      resolution TEXT,
+      evidence TEXT,
+      status TEXT NOT NULL DEFAULT 'open',
+      first_seen_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      last_seen_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      resolved_at TEXT,
+      occurrences INTEGER NOT NULL DEFAULT 1,
+      dedupe_key TEXT UNIQUE
+    );
+    CREATE INDEX IF NOT EXISTS incidents_status_idx ON incidents(status, severity, last_seen_at DESC);
   `);
 } catch (e) {
   console.error("[MIGRATION] Error:", e);

@@ -255,6 +255,135 @@ function BigStat({ label, value, color, hint }: { label: string; value: number |
   );
 }
 
+type Incident = {
+  id: number;
+  kind: string;
+  severity: "critical" | "warning" | "info";
+  title: string;
+  rootCause: string | null;
+  resolution: string | null;
+  evidence: string | null;
+  status: "open" | "resolved" | "auto-resolved" | "dismissed";
+  firstSeenAt: string | null;
+  lastSeenAt: string | null;
+  resolvedAt: string | null;
+  occurrences: number;
+};
+
+function CriticalIncidentsCard() {
+  const { toast } = useToast();
+  const { data, refetch } = useQuery({
+    queryKey: ["v304-incidents"],
+    queryFn: () => fetcher<{ open: Incident[]; recentResolved: Incident[]; counts: { open: number; critical_open: number; warning_open: number } }>("/api/admin/v304/incidents"),
+    refetchInterval: 20000,
+  });
+
+  const resolve = useMutation({
+    mutationFn: async ({ id, action }: { id: number; action: "resolve" | "dismiss" }) => {
+      const r = await apiRequest("POST", `/api/admin/v304/incidents/${id}/${action}`, {});
+      return r.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Инцидент закрыт" });
+      refetch();
+    },
+    onError: (e: Error) => toast({ title: "Ошибка", description: e.message, variant: "destructive" }),
+  });
+
+  const scan = useMutation({
+    mutationFn: async () => {
+      const r = await apiRequest("POST", "/api/admin/v304/incidents/scan-now", {});
+      return r.json();
+    },
+    onSuccess: () => {
+      toast({ title: "Сканирование запущено" });
+      refetch();
+    },
+  });
+
+  if (!data) return null;
+  const open = data.open;
+  if (open.length === 0) {
+    return (
+      <Card className="border-emerald-500/40 bg-emerald-500/5">
+        <CardContent className="p-3 text-sm flex items-center justify-between gap-3">
+          <span className="text-emerald-500 font-medium">✅ Нет открытых инцидентов</span>
+          <Button size="sm" variant="outline" onClick={() => scan.mutate()} disabled={scan.isPending}>
+            {scan.isPending ? "Сканирую…" : "🔎 Сканировать сейчас"}
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="border-rose-600 bg-gradient-to-br from-rose-600/15 via-rose-600/5 to-transparent">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          <span className="text-rose-500 text-lg">🔴 Критично</span>
+          <Badge variant="destructive">{data.counts.critical_open} критических</Badge>
+          {data.counts.warning_open > 0 && <Badge variant="outline">{data.counts.warning_open} warn</Badge>}
+          <span className="ml-auto">
+            <Button size="sm" variant="outline" onClick={() => scan.mutate()} disabled={scan.isPending}>
+              {scan.isPending ? "Сканирую…" : "🔎 Скан"}
+            </Button>
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {open.map((i) => (
+          <div
+            key={i.id}
+            className={`rounded-lg border p-3 space-y-2 ${
+              i.severity === "critical" ? "border-rose-500/60 bg-rose-500/5" : "border-amber-500/50 bg-amber-500/5"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold text-sm flex items-center gap-2">
+                  <Badge
+                    className={i.severity === "critical" ? "bg-rose-600" : "bg-amber-500"}
+                  >
+                    {i.severity === "critical" ? "CRITICAL" : "WARN"}
+                  </Badge>
+                  <code className="text-xs text-muted-foreground">{i.kind}</code>
+                  <span className="text-xs text-muted-foreground">×{i.occurrences}</span>
+                </div>
+                <div className="mt-1 text-sm">{i.title}</div>
+              </div>
+              <div className="flex flex-col gap-1 shrink-0">
+                <Button size="sm" variant="outline" onClick={() => resolve.mutate({ id: i.id, action: "resolve" })}>
+                  ✓ Решено
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => resolve.mutate({ id: i.id, action: "dismiss" })}>
+                  Игнорировать
+                </Button>
+              </div>
+            </div>
+            {i.rootCause && (
+              <div className="text-xs">
+                <span className="font-medium">Первопричина: </span>
+                <span className="text-muted-foreground">{i.rootCause}</span>
+              </div>
+            )}
+            {i.resolution && (
+              <div className="text-xs rounded bg-background/50 border p-2">
+                <span className="font-medium">Что делать: </span>
+                {i.resolution}
+              </div>
+            )}
+            {i.lastSeenAt && (
+              <div className="text-[10px] text-muted-foreground">
+                Последний раз: {new Date(i.lastSeenAt).toLocaleString("ru-RU")}
+              </div>
+            )}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
 function OverviewTab({ toast: _t }: { toast: any }) {
   const overview = useQuery({
     queryKey: ["admin-overview"],
@@ -292,6 +421,8 @@ function OverviewTab({ toast: _t }: { toast: any }) {
 
   return (
     <div className="space-y-6">
+      <CriticalIncidentsCard />
+
       <div className={`rounded-2xl border bg-gradient-to-br ${heroBg} p-6 sm:p-8`}>
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">

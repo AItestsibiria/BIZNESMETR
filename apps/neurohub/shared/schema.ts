@@ -314,6 +314,29 @@ export const adminAuditLog = sqliteTable("admin_audit_log", {
 
 export type AdminAuditEntry = typeof adminAuditLog.$inferSelect;
 
+// Incidents — auto-detected critical problems with root-cause classification.
+// Eugene 2026-05-07: 'при любой ошибке разбирайся в первопричинах,
+// решай сразу. В логах зеленым решенные, стратегически нерешенный
+// сразу красным админпанель Критично'.
+export const incidents = sqliteTable("incidents", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  kind: text("kind").notNull(),                         // 'gptunnel_invalid_key' | 'gptunnel_low_balance' | 'gptunnel_no_media_scope' | 'plugin_failed' | 'generation_error' | 'env_desynced' | 'other'
+  severity: text("severity").notNull().default("critical"), // 'critical' | 'warning' | 'info'
+  title: text("title").notNull(),
+  rootCause: text("root_cause"),                        // Человеческое объяснение
+  resolution: text("resolution"),                       // Что нужно сделать — для UI
+  evidence: text("evidence"),                            // JSON с доказательствами (sample log line, http response, и т.д.)
+  status: text("status").notNull().default("open"),     // 'open' | 'resolved' | 'auto-resolved' | 'dismissed'
+  firstSeenAt: text("first_seen_at").default(sql`CURRENT_TIMESTAMP`),
+  lastSeenAt: text("last_seen_at").default(sql`CURRENT_TIMESTAMP`),
+  resolvedAt: text("resolved_at"),
+  occurrences: integer("occurrences").notNull().default(1),
+  // dedupe key: kind+context, дубли увеличивают occurrences вместо нового row
+  dedupeKey: text("dedupe_key").unique(),
+});
+
+export type Incident = typeof incidents.$inferSelect;
+
 // Generation templates (10 пресетов, см. docs/strategy/original/02 §4.2)
 export const genTemplates = sqliteTable("gen_templates", {
   id: integer("id").primaryKey({ autoIncrement: true }),
