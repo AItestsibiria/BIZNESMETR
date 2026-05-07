@@ -1,17 +1,12 @@
 // Multi-provider Speech-to-text для русского аудио.
 // ТЗ Eugene 2026-05-07 12:35: «100% работающее API + надо верифицировать».
-//
-// Провайдеры в порядке предпочтения:
-//   1. Yandex SpeechKit (native RU, лучшее качество, ~₽0.45/мин)
-//      env: YANDEX_SPEECHKIT_API_KEY + YANDEX_FOLDER_ID
-//   2. OpenAI Whisper напрямую (если есть OPENAI_API_KEY)
-//      env: OPENAI_API_KEY
-//   3. GPTunnel Whisper (proxy через нашего поставщика)
-//      env: GPTUNNEL_API_KEY
-//
-// Каждый провайдер возвращает { transcript, error }.
-// /api/gen/transcribe пробует в порядке pref, отдаёт первый успешный.
-// /api/admin/v304/transcribe-verify пробует ВСЕ — для self-проверки.
+// Дополнение 12:52: Yandex принимает только oggopus/lpcm. Браузер шлёт
+// audio/webm — конвертируем через ffmpeg до отправки.
+
+import * as childProc from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 
 export type TranscribeProvider = "yandex" | "openai" | "gptunnel";
 
@@ -36,6 +31,46 @@ async function timed<T>(fn: () => Promise<T>): Promise<{ result: T | null; err: 
   catch (err) { return { result: null, err, ms: Date.now() - t0 }; }
 }
 
+// === ffmpeg helper: webm → ogg-opus ===
+// Yandex SpeechKit принимает только oggopus / lpcm. Браузерный MediaRecorder
+// в Chrome пишет audio/webm (Matroska container) с Opus-кодеком. Перепаковка
+// в ogg = быстро (без перекодирования аудио, copy stream).
+function convertToOggOpus(input: Buffer, mime: string): Promise<Buffer | null> {
+  return new Promise((resolve) => {
+    if (mime.includes("ogg") || mime.includes("opus")) {
+      // Уже ogg-opus — отдаём как есть
+      resolve(input);
+      return;
+    }
+    const tmpDir = os.tmpdir();
+    const inExt = mime.includes("webm") ? "webm" : mime.includes("mp4") ? "m4a" : mime.includes("wav") ? "wav" : "bin";
+    const inFile = path.join(tmpDir, `stt-${Date.now()}-${Math.random().toString(36).slice(2)}.${inExt}`);
+    const outFile = inFile.replace(/\.\w+$/, ".ogg");
+    try { fs.writeFileSync(inFile, input); } catch { resolve(null); return; }
+    // -c:a copy не работает webm→ogg (разные контейнеры, Opus можно копировать
+    // но ffmpeg иногда хочет re-mux). Пробуем без -c:a copy для надёжности.
+    childProc.exec(
+      `ffmpeg -y -i "${inFile}" -vn -c:a libopus -ar 48000 -ac 1 "${outFile}" 2>/dev/null`,
+      { timeout: 30_000 },
+      (err) => {
+        try { fs.unlinkSync(inFile); } catch {}
+        if (err) {
+          try { fs.unlinkSync(outFile); } catch {}
+          resolve(null);
+          return;
+        }
+        try {
+          const out = fs.readFileSync(outFile);
+          try { fs.unlinkSync(outFile); } catch {}
+          resolve(out);
+        } catch {
+          resolve(null);
+        }
+      },
+    );
+  });
+}
+
 // === Yandex SpeechKit (native RU, лучшее качество) ===
 async function tryYandex(buffer: Buffer, mime: string): Promise<TranscribeAttempt> {
   const apiKey = process.env.YANDEX_SPEECHKIT_API_KEY;
@@ -43,19 +78,31 @@ async function tryYandex(buffer: Buffer, mime: string): Promise<TranscribeAttemp
   if (!apiKey) return { provider: "yandex", ok: false, error: "YANDEX_SPEECHKIT_API_KEY missing" };
 
   const t = await timed(async () => {
-    // SpeechKit short audio recognize: до 1 минуты, прямой POST с raw audio
-    // https://yandex.cloud/ru/docs/speechkit/stt/api/request-api#http-request
+    // Конвертация если не ogg/opus уже
+    let body = buffer;
+    let format = "oggopus";
+    if (mime.includes("wav")) {
+      format = "lpcm";
+    } else if (!mime.includes("ogg") && !mime.includes("opus")) {
+      const converted = await convertToOggOpus(buffer, mime);
+      if (!converted) {
+        return { ok: false, status: 0, body: `ffmpeg conversion failed (mime=${mime}). Установите ffmpeg на VPS.` };
+      }
+      body = converted;
+      format = "oggopus";
+    }
+
     const url = new URL("https://stt.api.cloud.yandex.net/speech/v1/stt:recognize");
     url.searchParams.set("topic", "general");
     url.searchParams.set("lang", "ru-RU");
-    url.searchParams.set("format", mime.includes("wav") ? "lpcm" : "oggopus");
+    url.searchParams.set("format", format);
     if (folderId) url.searchParams.set("folderId", folderId);
-    if (mime.includes("wav")) url.searchParams.set("sampleRateHertz", "48000");
+    if (format === "lpcm") url.searchParams.set("sampleRateHertz", "48000");
 
     const r = await fetch(url.toString(), {
       method: "POST",
       headers: { Authorization: `Api-Key ${apiKey}` },
-      body: buffer,
+      body,
       signal: AbortSignal.timeout(60_000),
     });
     return { ok: r.ok, status: r.status, body: await r.text().catch(() => "") };
