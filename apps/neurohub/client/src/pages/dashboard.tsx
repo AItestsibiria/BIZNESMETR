@@ -386,7 +386,7 @@ function AdminStats() {
         : "—",
       sub: gptBalance?.available
         ? (gptBalance.suno?.estimatedTracks != null
-            ? `🎵 Suno ≈ ${gptBalance.suno.estimatedTracks.toLocaleString("ru-RU")} треков${balLow ? " · ⚠ ниже 750" : ""}`
+            ? `🎵 MuziAi ≈ ${gptBalance.suno.estimatedTracks.toLocaleString("ru-RU")} треков (пары по 2 за запрос)${balLow ? " · ⚠ ниже 750" : ""}`
             : (balLow ? "⚠ ниже 750 — пополни" : "лимит ОК"))
         : (gptBalance?.reason ?? "недоступен"),
       color: !gptBalance?.available ? "text-rose-400" : balLow ? "text-amber-400" : "text-emerald-400",

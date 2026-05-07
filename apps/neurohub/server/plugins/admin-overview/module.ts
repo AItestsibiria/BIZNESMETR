@@ -391,11 +391,11 @@ router.get("/leads", requireAdmin, (req, res) => {
 let _balanceCache: { fetchedAt: number; balance: number; currency: string; raw: any } | null = null;
 const BALANCE_CACHE_TTL = 30_000; // 30 сек чтобы не задалбывать GPTunnel
 
-// SUNO_TRACK_COST — расчётная стоимость одного трека Suno в рублях у GPTunnel.
-// На GPTunnel «реальный» баланс — это рубли в кошельке, а Suno-модель не
-// имеет отдельного эндпоинта баланса. Поэтому расчёт: tracks = floor(balance/cost).
-// Конфигурируется env (SUNO_TRACK_COST=8), default 8₽ исходя из текущего тарифа.
-const SUNO_TRACK_COST = Number(process.env.SUNO_TRACK_COST ?? "8") || 8;
+// SUNO_TRACK_COST — стоимость ОДНОГО трека через GPTunnel.
+// Факт 2026-05: GPTunnel берёт 18₽ за запрос Suno, который всегда возвращает
+// ПАРУ (2 варианта). Итого: 9₽/трек. Раньше было 8₽ — занижено.
+// Конфигурируется env SUNO_TRACK_COST.
+const SUNO_TRACK_COST = Number(process.env.SUNO_TRACK_COST ?? "9") || 9;
 
 router.get("/gptunnel-balance", requireAdmin, async (req, res) => {
   const force = String(req.query.force ?? "") === "1";
@@ -890,6 +890,38 @@ async function pollProcessingGenerations(): Promise<{ scanned: number; done: num
                        result_data=${JSON.stringify(data)}
                    WHERE id=${row.id}`);
         done += 1;
+
+        // GPTunnel Suno возвращает ПАРУ треков за один запрос (18₽ за пару).
+        // Сохраняем 2-й вариант отдельной строкой — иначе теряется 50% оплаченного.
+        if (Array.isArray(data.result) && data.result.length > 1) {
+          const secondTrack = data.result.find((t: any, i: number) =>
+            i > 0 && t.status === "succeeded" && t.audio_url && t.audio_url !== succeeded.audio_url,
+          );
+          if (secondTrack) {
+            const v2TaskId = `${row.taskId}_v2`;
+            const exists = db.get<{ id: number }>(
+              sql`SELECT id FROM generations WHERE task_id = ${v2TaskId} LIMIT 1`,
+            );
+            if (!exists) {
+              const orig = db.get<{ userId: number; type: string; prompt: string; style: string;
+                authorName: string | null; isPublic: number; voiceType: string | null }>(
+                sql`SELECT user_id as userId, type, prompt, style, author_name as authorName,
+                           is_public as isPublic, voice_type as voiceType
+                    FROM generations WHERE id = ${row.id}`,
+              );
+              if (orig) {
+                db.run(sql`INSERT INTO generations
+                           (user_id, type, prompt, style, status, result_url, result_data,
+                            cost, task_id, author_name, is_public, voice_type)
+                           VALUES (${orig.userId}, ${orig.type}, ${orig.prompt}, ${orig.style},
+                                   'done', ${secondTrack.audio_url}, ${JSON.stringify({ result: [secondTrack] })},
+                                   0, ${v2TaskId}, ${orig.authorName}, ${orig.isPublic}, ${orig.voiceType})`);
+                console.log(`\x1b[32m[POLL]\x1b[0m gen #${row.id} variant 2 saved as separate gen (taskId=${v2TaskId})`);
+                done += 1;
+              }
+            }
+          }
+        }
       } else if (data.status === "error" || data.status === "failed") {
         const reason = String(
           data.message ?? data.error?.message ?? `Suno status=${data.status}`,
