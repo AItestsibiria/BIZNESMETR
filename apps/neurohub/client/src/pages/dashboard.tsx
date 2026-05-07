@@ -1718,11 +1718,6 @@ export default function DashboardPage() {
 
 
         {/* Balance Card — для админов показываем как MuziAi-треки (TZ Eugene 11:13) */}
-        {(() => {
-          const userIsAdmin = (user as any)?.role === "admin" || (user?.email || "").toLowerCase() === "egnovoselov@gmail.com";
-          // Сохраняем оригинальный JSX в обычном случае, для админа — заменяем верхнюю цифру
-          return null;
-        })()}
         <div className="gradient-border p-6 rounded-2xl mb-8">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>

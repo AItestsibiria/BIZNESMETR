@@ -119,6 +119,16 @@ app.get(["/api/_status", "/api/status"], (_req, res) => {
   res.json({ data: v304Boot, error: null });
 });
 
+// ErrorBoundary clients шлют сюда runtime-ошибки страниц.
+// Логируем в pm2 — Eugene видит сразу через pm2 logs neurohub.
+app.post("/api/_client-error", express.json(), (req, res) => {
+  const p = req.body ?? {};
+  console.error(`\x1b[31m[CLIENT-ERR]\x1b[0m page=${p.page ?? "?"} url=${p.url ?? "?"} msg=${p.message ?? "?"}`);
+  if (p.stack) console.error(`  stack: ${String(p.stack).slice(0, 1500)}`);
+  if (p.componentStack) console.error(`  componentStack: ${String(p.componentStack).slice(0, 800)}`);
+  res.json({ data: { logged: true }, error: null });
+});
+
 (async () => {
   await registerRoutes(httpServer, app);
 

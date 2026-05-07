@@ -396,7 +396,8 @@ async function getGeo(ip: string): Promise<{ country: string; countryCode: strin
   try {
     const cleanIp = ip.replace(/^::ffff:/, '');
     if (cleanIp === '127.0.0.1' || cleanIp === '::1') return { country: 'Local', countryCode: '', city: '', region: '' };
-    const res = await fetch(`http://ip-api.com/json/${cleanIp}?fields=country,countryCode,city,regionName&lang=ru`);
+    // ТЗ Eugene 11:16: страны на английском (объединение разных языков по country_code).
+    const res = await fetch(`http://ip-api.com/json/${cleanIp}?fields=country,countryCode,city,regionName&lang=en`);
     const data = await res.json();
     const geo = {
       country: data.country || '',

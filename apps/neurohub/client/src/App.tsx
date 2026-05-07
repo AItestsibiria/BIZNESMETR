@@ -20,6 +20,17 @@ import TelegramCallbackPage from "./pages/telegram-callback";
 import AdminV304Page from "./pages/admin-v304";
 import TemplatesPage from "./pages/templates";
 import BackgroundMusic from "./components/background-music";
+import { ErrorBoundary } from "./components/error-boundary";
+
+// Wrapper для рендера каждой страницы внутри ErrorBoundary с именем —
+// чтобы вместо чёрного экрана при runtime-ошибке показать стек.
+function withBoundary(Comp: any, name: string) {
+  return (params: any) => (
+    <ErrorBoundary pageName={name}>
+      <Comp {...params} />
+    </ErrorBoundary>
+  );
+}
 
 // Track visitor on page load
 if (typeof window !== 'undefined') {
@@ -47,15 +58,15 @@ function AppContent() {
           <Route path="/lyrics" component={LyricsPage} />
           <Route path="/music" component={MusicPage} />
           <Route path="/covers" component={CoversPage} />
-          <Route path="/dashboard" component={DashboardPage} />
+          <Route path="/dashboard" component={withBoundary(DashboardPage, "dashboard")} />
           <Route path="/forgot-password" component={ForgotPasswordPage} />
           <Route path="/payment/success" component={PaymentSuccess} />
           <Route path="/payment/fail" component={PaymentFail} />
-          <Route path="/track/:id" component={TrackPage} />
+          <Route path="/track/:id" component={withBoundary(TrackPage, "track")} />
           <Route path="/telegram-callback" component={TelegramCallbackPage} />
-          <Route path="/admin" component={AdminV304Page} />
-          <Route path="/admin/v304" component={AdminV304Page} />
-          <Route path="/templates" component={TemplatesPage} />
+          <Route path="/admin" component={withBoundary(AdminV304Page, "admin")} />
+          <Route path="/admin/v304" component={withBoundary(AdminV304Page, "admin-v304")} />
+          <Route path="/templates" component={withBoundary(TemplatesPage, "templates")} />
           <Route component={NotFoundPage} />
         </Switch>
       </Router>
