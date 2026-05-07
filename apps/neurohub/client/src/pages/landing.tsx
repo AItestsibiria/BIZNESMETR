@@ -284,7 +284,7 @@ const services = [
   {
     icon: Music,
     title: "Музыка + Вокал",
-    description: "Полноценная песня с музыкой и голосом на базе Suno AI — готовый трек за минуты",
+    description: "Полноценная песня с музыкой и голосом на базе MuziAi — готовый трек за минуты",
     price: "299 ₽",
     href: "/music",
     gradient: "from-blue-500/20 to-blue-900/20",

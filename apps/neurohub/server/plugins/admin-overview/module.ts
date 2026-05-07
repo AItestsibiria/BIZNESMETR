@@ -808,7 +808,7 @@ router.post("/generate-anthem", requireAdmin, async (req, res) => {
     }
 
     if (upstreamStatus < 200 || upstreamStatus >= 300 || !upstream?.id) {
-      const errMsg = upstream?.message ?? upstream?.error?.message ?? `Suno вернул ${upstreamStatus}`;
+      const errMsg = upstream?.message ?? upstream?.error?.message ?? `MuziAi вернул ${upstreamStatus}`;
       db.update(generations).set({ status: "error", errorReason: String(errMsg) }).where(eq(generations.id, newGen.id)).run();
       return res.status(upstreamStatus || 502).json({
         data: null,
@@ -860,7 +860,7 @@ async function pollProcessingGenerations(): Promise<{ scanned: number; done: num
   for (const row of rows) {
     // Тухлые processing > 30 мин — закрываем как timeout.
     if (row.createdAt < cutoff) {
-      db.run(sql`UPDATE generations SET status='error', error_reason='Suno timeout > 30 min'
+      db.run(sql`UPDATE generations SET status='error', error_reason='MuziAi timeout > 30 min'
                  WHERE id=${row.id}`);
       failed += 1;
       continue;

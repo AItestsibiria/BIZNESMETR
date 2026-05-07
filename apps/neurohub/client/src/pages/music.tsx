@@ -613,7 +613,7 @@ export default function MusicPage() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-white" data-testid="text-music-title">Музыка + Вокал</h1>
-            <p className="text-sm text-muted-foreground">Полноценная песня с помощью Suno AI</p>
+            <p className="text-sm text-muted-foreground">Полноценная песня с помощью MuziAi</p>
           </div>
           <span className="ml-auto price-badge" data-testid="badge-price-music">299 ₽</span>
         </div>
@@ -724,11 +724,11 @@ export default function MusicPage() {
             sections={[
               {
                 icon: <Mic />, color: "text-cyan-300", label: "Аудио",
-                text: <>Загрузите свой mp3 (голос, мелодия, чужая песня) — Suno сделает <b>кавер</b> в нужном стиле и голосе. До 8 мин, 20 MB. <span className="text-cyan-300">299 ₽</span>.</>,
+                text: <>Загрузите свой mp3 (голос, мелодия, чужая песня) — MuziAi сделает <b>кавер</b> в нужном стиле и голосе. До 8 мин, 20 MB. <span className="text-cyan-300">299 ₽</span>.</>,
               },
               {
                 icon: <FileText />, color: "text-purple-300", label: "Текст · Простой",
-                text: <>Опишите песню одним предложением — Suno сама подберёт стиль, темп и мелодию. Самый быстрый способ. <span className="text-purple-300">299 ₽</span>.</>,
+                text: <>Опишите песню одним предложением — MuziAi сам подберёт стиль, темп и мелодию. Самый быстрый способ. <span className="text-purple-300">299 ₽</span>.</>,
               },
               {
                 icon: <Settings2 />, color: "text-violet-300", label: "Текст · Расширенный",
@@ -774,7 +774,7 @@ export default function MusicPage() {
                   data-testid="input-basic-prompt"
                 />
                 <p className="text-[10px] text-muted-foreground/70">
-                  Стиль и темп выберет Suno автоматически. Достаточно описать настроение и тему.
+                  Стиль и темп выберет MuziAi автоматически. Достаточно описать настроение и тему.
                 </p>
               </div>
               {/* Voice selector — те же 4 кнопки что в advanced */}
@@ -829,7 +829,7 @@ export default function MusicPage() {
                 </div>
                 <p className="text-[10px] text-cyan-300/80">
                   Принимаем mp3/wav/m4a/webm/ogg, до 20 MB. Файл загружается на наш сервер,
-                  Suno делает кавер с нужным голосом и стилем.
+                  MuziAi делает кавер с нужным голосом и стилем.
                 </p>
               </div>
               {audioMode === "advanced" && (
@@ -1007,7 +1007,7 @@ export default function MusicPage() {
                   if (lyrics.length > 30 && (hasNamePattern || hasBirthdayName)) {
                     return (
                       <div className="mt-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200" data-testid="warning-name-pattern">
-                        ⚠️ <b>Возможна блокировка.</b> Suno часто отклоняет тексты с именем и отчеством («Иван Иванович») или прямыми обращениями «Имя, с днём рождения». Чтобы не терять 99 ₽:
+                        ⚠️ <b>Возможна блокировка.</b> MuziAi часто отклоняет тексты с именем и отчеством («Иван Иванович») или прямыми обращениями «Имя, с днём рождения». Чтобы не терять 99 ₽:
                         <ul className="list-disc list-inside mt-1 space-y-0.5">
                           <li>Используйте инициалы: «И. И., с днём»</li>
                           <li>Строчная буква или уменьшительное: «валера» вместо «Валерий»</li>

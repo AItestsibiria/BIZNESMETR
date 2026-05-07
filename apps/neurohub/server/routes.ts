@@ -2141,7 +2141,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
           if (!audioUrl) {
             // Result arrived but no URL — mark as error
             console.error(`[MUSIC] Gen #${gen.id}: done but no audio URL`);
-            storage.updateGeneration(gen.id, { status: "error", errorReason: "Сервис Suno вернул ответ без аудио-URL. Баланс возвращён." });
+            storage.updateGeneration(gen.id, { status: "error", errorReason: "Сервис MuziAi вернул ответ без аудио-URL. Баланс возвращён." });
             // рефанд при отсутствии audioUrl
             try {
               if (gen.cost > 0) {
@@ -4045,7 +4045,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       }
       const taskId = data.id;
       if (!taskId) {
-        storage.updateGeneration(newGen.id, { status: "error", errorReason: "Suno не вернул task_id" });
+        storage.updateGeneration(newGen.id, { status: "error", errorReason: "MuziAi не вернул task_id" });
         if (!charge.isFree) {
           storage.updateBalance(userId, newGen.cost || 9900);
           storage.createTransaction({ userId, type: "music", amount: newGen.cost || 9900, description: "Возврат: нет task_id при регенерации" });

@@ -229,7 +229,7 @@ function GptunnelBalanceCard() {
               {sunoTracks != null && (
                 <div className="mt-2 flex items-center gap-2 text-sm">
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/30">
-                    🎵 Suno: ≈ <b>{sunoTracks.toLocaleString("ru-RU")}</b> треков
+                    🎵 MuziAi: ≈ <b>{sunoTracks.toLocaleString("ru-RU")}</b> треков
                   </span>
                   {sunoPrice != null && (
                     <span className="text-[10px] text-muted-foreground">
@@ -716,7 +716,7 @@ function DebugBatchCard() {
       <CardContent className="space-y-3">
         <div className="text-xs text-muted-foreground">
           Введи диапазон («672-679») или CSV («672,673,675»). До 50 ID за раз.
-          Получишь DB-статус + свежий ответ Suno для каждого.
+          Получишь DB-статус + свежий ответ MuziAi для каждого.
         </div>
         <div className="flex gap-2">
           <input
@@ -728,7 +728,7 @@ function DebugBatchCard() {
             data-testid="input-debug-ids"
           />
           <Button onClick={() => run.mutate()} disabled={run.isPending} variant="outline">
-            {run.isPending ? "Опрашиваю Suno…" : "Проверить"}
+            {run.isPending ? "Опрашиваю MuziAi…" : "Проверить"}
           </Button>
         </div>
         {output && (
@@ -752,7 +752,7 @@ function DebugBatchCard() {
                   )}
                   {it.sunoFresh && (
                     <div className="text-cyan-300 mt-1">
-                      Suno HTTP {it.sunoFreshStatus} · status={it.sunoFresh.status} · code={it.sunoFresh.code} · msg={it.sunoFresh.message ?? "—"}
+                      MuziAi HTTP {it.sunoFreshStatus} · status={it.sunoFresh.status} · code={it.sunoFresh.code} · msg={it.sunoFresh.message ?? "—"}
                       {it.sunoFresh.firstTrackStatus && ` · firstTrack=${it.sunoFresh.firstTrackStatus}`}
                     </div>
                   )}
@@ -779,7 +779,7 @@ function AnthemRunner() {
     onSuccess: (j) => {
       const d = j.data;
       toast({
-        title: "🎵 Гимн отправлен в Suno",
+        title: "🎵 Гимн отправлен в MuziAi",
         description: `gen #${d.generationId}, taskId ${(d.taskId || "").slice(0, 12)}…  Откроется через секунду.`,
       });
       setTimeout(() => navigate(`/track/${d.generationId}`), 1500);
@@ -811,12 +811,12 @@ function AnthemRunner() {
       } else if (status === "error") {
         toast({
           title: "❌ Гимн упал в error",
-          description: d.errorReason || "Suno вернул ошибку. Запусти новый.",
+          description: d.errorReason || "MuziAi вернул ошибку. Запусти новый.",
           variant: "destructive",
         });
       } else {
         toast({
-          title: "⏳ Suno ещё работает",
+          title: "⏳ MuziAi ещё работает",
           description: `gen #${d.generationId} в processing — открываю страницу с авто-опросом.`,
         });
         setTimeout(() => navigate(`/track/${d.generationId}`), 800);
@@ -843,7 +843,7 @@ function AnthemRunner() {
         onClick={() => revive.mutate()}
         disabled={revive.isPending}
       >
-        {revive.isPending ? "Опрашиваю Suno…" : "🚑 Реанимировать последний"}
+        {revive.isPending ? "Опрашиваю MuziAi…" : "🚑 Реанимировать последний"}
       </Button>
     </div>
   );

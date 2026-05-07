@@ -198,7 +198,7 @@ export default function TrackPage() {
           <Music className="w-16 h-16 text-violet-400 animate-pulse" />
           <Sparkles className="w-6 h-6 text-amber-300 absolute -top-1 -right-1 animate-spin" style={{ animationDuration: "3s" }} />
         </div>
-        <h1 className="text-2xl font-semibold">Suno работает над треком…</h1>
+        <h1 className="text-2xl font-semibold">MuziAi работает над треком…</h1>
         {pending.prompt && <p className="text-sm text-muted-foreground max-w-sm">{pending.prompt}</p>}
         <p className="text-xs text-muted-foreground/70 max-w-sm">
           Обычно занимает 1–2 минуты. Страница обновится автоматически — не закрывайте.

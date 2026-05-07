@@ -263,7 +263,7 @@ router.post("/audio-cover", requireAuth, async (req, res) => {
   }
 
   if (upstreamStatus < 200 || upstreamStatus >= 300 || !upstream?.id) {
-    const errMsg = upstream?.message ?? upstream?.error?.message ?? `Suno вернул ${upstreamStatus}`;
+    const errMsg = upstream?.message ?? upstream?.error?.message ?? `MuziAi вернул ${upstreamStatus}`;
     db.update(generations).set({ status: "error", errorReason: String(errMsg).slice(0, 500) })
       .where(eq(generations.id, newGen.id)).run();
     refundCover(userId, newGen.id, String(errMsg).slice(0, 80));
