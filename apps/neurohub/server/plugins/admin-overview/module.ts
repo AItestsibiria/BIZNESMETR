@@ -878,17 +878,49 @@ async function pollProcessingGenerations(): Promise<{ scanned: number; done: num
         if (r.ok) {
           const data: any = await r.json().catch(() => null);
           if (data) {
-            const succeeded = Array.isArray(data.result)
-              ? data.result.find((t: any) => t.status === "succeeded" && t.audio_url)
+            // ТЗ Eugene 14:04 «0-1 сек только название». Suno иногда возвращает
+            // preview-обрубок (1 сек) рядом с полным треком. Выбираем самый
+            // длинный succeeded — у длинного duration > 30, у preview 0-1.
+            const candidates = Array.isArray(data.result)
+              ? data.result.filter((t: any) => t.status === "succeeded" && t.audio_url)
+              : [];
+            const succeeded = candidates.length > 0
+              ? candidates.reduce((best: any, t: any) => {
+                  const tDur = Number(t.duration ?? t.audio_duration ?? t.metadata?.duration ?? 0);
+                  const bDur = Number(best.duration ?? best.audio_duration ?? best.metadata?.duration ?? 0);
+                  return tDur > bDur ? t : best;
+                })
               : null;
             const isDone = data.status === "done" || !!succeeded;
             if (isDone && succeeded) {
+              // HEAD-check: убедимся что audio_url реально отдаёт mp3 (>100KB).
+              // Защищает от truncated 0-байт ответов Suno (Eugene 14:04).
+              let audioOk = true;
+              let audioSize = 0;
+              try {
+                const head = await fetch(succeeded.audio_url, { method: "HEAD", signal: AbortSignal.timeout(8_000) });
+                audioOk = head.ok;
+                audioSize = Number(head.headers.get("content-length") || 0);
+                if (audioSize > 0 && audioSize < 100_000) {
+                  // Менее 100KB — это preview-обрубок, не полный трек
+                  console.warn(`[POLL] gen #${row.id} audio_url too small: ${audioSize}B — skip, retry next iteration`);
+                  audioOk = false;
+                }
+              } catch (e) {
+                console.warn(`[POLL] gen #${row.id} HEAD failed:`, e instanceof Error ? e.message : e);
+                audioOk = false;
+              }
+              if (!audioOk) {
+                // не сохраняем — останется processing, повтор через минуту
+                continue;
+              }
               db.run(sql`UPDATE generations
                          SET status='done', result_url=${succeeded.audio_url},
                              result_data=${JSON.stringify(data)}
                          WHERE id=${row.id}`);
               done += 1;
               recovered = true;
+              console.log(`\x1b[32m[POLL]\x1b[0m gen #${row.id} done size=${audioSize}B`);
 
               // Bonus 2-й трек из пары
               if (Array.isArray(data.result) && data.result.length > 1) {
