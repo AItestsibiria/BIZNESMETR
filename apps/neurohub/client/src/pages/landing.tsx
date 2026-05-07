@@ -340,8 +340,16 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [tracks, setTracks] = useState<any[]>([]);
-  const [playingId, setPlayingId] = useState<number | null>(null);
-  const [currentTime, setCurrentTime] = useState(0);
+  // Persist playingId + currentTime в sessionStorage чтобы при возврате
+  // на страницу плеер открывался на том же треке (ТЗ Eugene 12:18).
+  const [playingId, setPlayingId] = useState<number | null>(() => {
+    try { const v = sessionStorage.getItem("player_trackId"); return v ? Number(v) : null; } catch { return null; }
+  });
+  const [currentTime, setCurrentTime] = useState<number>(() => {
+    try { const v = sessionStorage.getItem("player_currentTime"); return v ? Number(v) : 0; } catch { return 0; }
+  });
+  // Persist при изменении (throttle через ref для timeupdate)
+  useEffect(() => { try { if (playingId) sessionStorage.setItem("player_trackId", String(playingId)); else sessionStorage.removeItem("player_trackId"); } catch {} }, [playingId]);
   const [trackDuration, setTrackDuration] = useState(0);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const expandedIdRef = useRef<number | null>(null);
@@ -363,9 +371,24 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   }, []);
   const NAME_TO_CC: Record<string,string> = { "United States":"US","США":"US","Russia":"RU","Россия":"RU","Germany":"DE","Германия":"DE","United Kingdom":"GB","Великобритания":"GB","Netherlands":"NL","Нидерланды":"NL","Ukraine":"UA","Украина":"UA","Saudi Arabia":"SA","Молдова":"MD","Moldova":"MD","France":"FR","Франция":"FR","Italy":"IT","Италия":"IT","Spain":"ES","Испания":"ES","Poland":"PL","Польша":"PL","Belarus":"BY","Беларусь":"BY","Kazakhstan":"KZ","Казахстан":"KZ","Turkey":"TR","Турция":"TR","China":"CN","Китай":"CN","Japan":"JP","Япония":"JP","Korea":"KR","India":"IN","Индия":"IN","Brazil":"BR","Бразилия":"BR","Canada":"CA","Канада":"CA","Australia":"AU","Австралия":"AU","Israel":"IL","Израиль":"IL","UAE":"AE","ОАЭ":"AE","Georgia":"GE","Грузия":"GE","Armenia":"AM","Армения":"AM","Azerbaijan":"AZ","Азербайджан":"AZ","Uzbekistan":"UZ","Узбекистан":"UZ","Latvia":"LV","Lithuania":"LT","Estonia":"EE","Czech Republic":"CZ","Czechia":"CZ","Switzerland":"CH","Sweden":"SE","Norway":"NO","Finland":"FI","Denmark":"DK","Austria":"AT","Belgium":"BE","Greece":"GR","Portugal":"PT","Hungary":"HU","Romania":"RO","Bulgaria":"BG","Serbia":"RS","Croatia":"HR" };
   const flagOf = (cc: string, name?: string) => { const code = (cc && cc.length === 2 ? cc : (name && NAME_TO_CC[name])) || ""; return code ? String.fromCodePoint(...code.toUpperCase().split('').map(c => 0x1F1E6 + c.charCodeAt(0) - 65)) : "🌐"; };
-  const [sortMode, setSortMode] = useState<"rating" | "date" | "random" | "top_month">("rating");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
-  const [categoryFilter, setCategoryFilter] = useState<'all' | 'song' | 'greeting'>('song');
+  // ТЗ Eugene 2026-05-07 12:18: фильтры плейлиста должны жёстко
+  // удерживаться через сессии и навигацию. Используем localStorage.
+  const [sortMode, setSortMode] = useState<"rating" | "date" | "random" | "top_month">(() => {
+    try { const s = localStorage.getItem("playlist_sortMode"); if (s === "rating" || s === "date" || s === "random" || s === "top_month") return s; } catch {}
+    return "rating";
+  });
+  const [sortDir, setSortDir] = useState<"asc" | "desc">(() => {
+    try { const s = localStorage.getItem("playlist_sortDir"); if (s === "asc" || s === "desc") return s; } catch {}
+    return "asc";
+  });
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'song' | 'greeting'>(() => {
+    try { const s = localStorage.getItem("playlist_category"); if (s === "all" || s === "song" || s === "greeting") return s; } catch {}
+    return "song";
+  });
+  // Persist каждый раз когда меняется
+  useEffect(() => { try { localStorage.setItem("playlist_sortMode", sortMode); } catch {} }, [sortMode]);
+  useEffect(() => { try { localStorage.setItem("playlist_sortDir", sortDir); } catch {} }, [sortDir]);
+  useEffect(() => { try { localStorage.setItem("playlist_category", categoryFilter); } catch {} }, [categoryFilter]);
   const [currentPage, setCurrentPage] = useState(1);
   const TRACKS_PER_PAGE = 20;
   const repeatModeRef = useRef(repeatMode);
@@ -542,7 +565,22 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     audio.volume = 0.5;
     audioRef.current = audio;
     playingTrackRef.current = track;
-    setCurrentTime(0);
+    // Восстановление позиции — только если возвращаемся к ТОМУ ЖЕ треку
+    // что был в session (Eugene 12:18 «без промедления продолжить»).
+    let restoreTo = 0;
+    try {
+      const persistedId = Number(sessionStorage.getItem("player_trackId") || "0");
+      const persistedTime = Number(sessionStorage.getItem("player_currentTime") || "0");
+      if (persistedId === track.id && persistedTime > 0 && persistedTime < (track.duration || 9999) - 5) {
+        restoreTo = persistedTime;
+      }
+    } catch {}
+    setCurrentTime(restoreTo);
+    if (restoreTo > 0) {
+      audio.addEventListener("loadedmetadata", () => {
+        try { audio.currentTime = restoreTo; } catch {}
+      }, { once: true });
+    }
     setTrackDuration(track.duration || 0);
 
     // Crossfade cover
@@ -657,7 +695,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         muteBgMusic();
         timerRef.current = window.setInterval(() => {
           if (audioRef.current && !audioRef.current.paused) {
-            setCurrentTime(audioRef.current.currentTime);
+            const t = audioRef.current.currentTime;
+            setCurrentTime(t);
+            // Throttle persist — каждые ~2 сек, чтобы не задалбывать sessionStorage
+            try {
+              if (Math.floor(t) % 2 === 0) sessionStorage.setItem("player_currentTime", String(t));
+            } catch {}
           }
         }, 250);
       } else {
@@ -806,16 +849,16 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   </div>
                   <span className="text-xs text-muted-foreground tabular-nums w-9 text-right">{formatDuration(trackDuration)}</span>
                 </div>
-                {/* Control buttons */}
-                <div className="flex items-center gap-3 mt-3">
-                  <button onClick={skipPrev} className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors">
-                    <SkipBack className="w-4 h-4 text-muted-foreground" />
+                {/* Control buttons — увеличены до 48px touch-target (Eugene 12:18) */}
+                <div className="flex items-center gap-4 mt-3">
+                  <button onClick={skipPrev} aria-label="Предыдущий трек" className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/15 active:bg-white/20 transition-colors border border-white/10">
+                    <SkipBack className="w-6 h-6 text-white/80" />
                   </button>
-                  <button onClick={() => togglePlay(currentTrack)} className="w-11 h-11 rounded-full bg-purple-500/20 flex items-center justify-center hover:bg-purple-500/30 transition-colors border border-purple-500/30">
-                    {audioRef.current?.paused ? <Play className="w-5 h-5 text-purple-300 ml-0.5" /> : <Pause className="w-5 h-5 text-purple-300" />}
+                  <button onClick={() => togglePlay(currentTrack)} aria-label="Воспроизведение/пауза" className="w-14 h-14 rounded-full bg-gradient-to-br from-purple-500/35 to-blue-500/30 flex items-center justify-center hover:from-purple-500/55 hover:to-blue-500/45 active:scale-95 transition-all border border-purple-500/40 shadow-lg shadow-purple-500/20">
+                    {audioRef.current?.paused ? <Play className="w-7 h-7 text-purple-100 ml-0.5" /> : <Pause className="w-7 h-7 text-purple-100" />}
                   </button>
-                  <button onClick={skipNext} className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors">
-                    <SkipForward className="w-4 h-4 text-muted-foreground" />
+                  <button onClick={skipNext} aria-label="Следующий трек" className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/15 active:bg-white/20 transition-colors border border-white/10">
+                    <SkipForward className="w-6 h-6 text-white/80" />
                   </button>
                   <button
                     className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${repeatMode === "all" ? "bg-green-500/20 text-green-300" : "bg-white/5 text-muted-foreground hover:bg-white/10"}`}
@@ -1103,8 +1146,21 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                           </div>
                           {musicTracks.length > 1 && (
                             <>
-                              <button className="absolute left-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/40 flex items-center justify-center hover:bg-black/60 transition-colors z-40" onClick={() => expandPrev()}><SkipBack className="w-4 h-4 text-white" /></button>
-                              <button className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-black/40 flex items-center justify-center hover:bg-black/60 transition-colors z-40" onClick={() => expandNext()}><SkipForward className="w-4 h-4 text-white" /></button>
+                              {/* Стрелки раскрытой обложки — увеличены до 56px и сдвинуты ~10% к центру (Eugene 12:18) */}
+                              <button
+                                aria-label="Предыдущий трек"
+                                className="absolute left-[10%] top-1/2 -translate-y-1/2 w-14 h-14 rounded-full bg-black/55 backdrop-blur-sm flex items-center justify-center hover:bg-black/75 active:scale-95 transition-all z-40 border border-white/20 shadow-lg"
+                                onClick={() => expandPrev()}
+                              >
+                                <SkipBack className="w-6 h-6 text-white" />
+                              </button>
+                              <button
+                                aria-label="Следующий трек"
+                                className="absolute right-[10%] top-1/2 -translate-y-1/2 w-14 h-14 rounded-full bg-black/55 backdrop-blur-sm flex items-center justify-center hover:bg-black/75 active:scale-95 transition-all z-40 border border-white/20 shadow-lg"
+                                onClick={() => expandNext()}
+                              >
+                                <SkipForward className="w-6 h-6 text-white" />
+                              </button>
                             </>
                           )}
                           {ePlaying && (
