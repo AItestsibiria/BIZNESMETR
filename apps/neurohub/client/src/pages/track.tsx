@@ -339,10 +339,7 @@ export default function TrackPage() {
                 try {
                   const r = await fetch(`/api/gen/audio-cover/${track.id}/regenerate`, {
                     method: "POST",
-                    headers: {
-                      Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
-                      "Content-Type": "application/json",
-                    },
+                    headers: { "Content-Type": "application/json" },
                     body: "{}",
                   });
                   const j = await r.json();

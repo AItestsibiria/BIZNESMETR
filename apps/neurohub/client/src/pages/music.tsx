@@ -400,7 +400,7 @@ export default function MusicPage() {
           setAudioUploading(true);
           const fd = new FormData();
           fd.append("audio", audioFile);
-          const up = await fetch("/api/gen/upload", { method: "POST", body: fd, headers: { Authorization: `Bearer ${localStorage.getItem("token") || ""}` } });
+          const up = await fetch("/api/gen/upload", { method: "POST", body: fd });
           const upJson = await up.json();
           setAudioUploading(false);
           if (!up.ok || !upJson?.data?.uploadUrl) {
@@ -837,17 +837,25 @@ export default function MusicPage() {
                     setAudioTranscript("");
                     setAudioLyrics("");
                     setAudioSuggestion(null);
-                    // Авто-загрузка + транскрипция + LLM-rewrite
+                    if (!user) {
+                      setShowInlineAuth(true);
+                      toast({ title: "Войдите", description: "Чтобы использовать аудио-генерацию, нужен аккаунт. Бесплатно за 30 сек.", variant: "destructive" });
+                      return;
+                    }
+                    // Авто-загрузка + транскрипция + LLM-rewrite.
+                    // НЕ передаём Authorization вручную — auth.tsx patcher
+                    // сам добавит Bearer если есть globalToken (закрывает 401).
                     try {
                       setAudioUploading(true);
                       const fd = new FormData();
                       fd.append("audio", file);
-                      const up = await fetch("/api/gen/upload", {
-                        method: "POST",
-                        body: fd,
-                        headers: { Authorization: `Bearer ${localStorage.getItem("token") || ""}` },
-                      });
+                      const up = await fetch("/api/gen/upload", { method: "POST", body: fd });
                       const upJson = await up.json();
+                      if (up.status === 401) {
+                        setShowInlineAuth(true);
+                        toast({ title: "Сессия истекла", description: "Перелогиньтесь в форме ниже.", variant: "destructive" });
+                        return;
+                      }
                       if (!up.ok || !upJson?.data?.sha) throw new Error(upJson?.error || "upload failed");
                       const sha = upJson.data.sha;
                       setAudioUploadSha(sha);
@@ -856,13 +864,14 @@ export default function MusicPage() {
                       setTranscribing(true);
                       const t = await fetch("/api/gen/transcribe", {
                         method: "POST",
-                        headers: {
-                          Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
-                          "Content-Type": "application/json",
-                        },
+                        headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ uploadSha: sha }),
                       });
                       const tJson = await t.json();
+                      if (t.status === 401) {
+                        setShowInlineAuth(true);
+                        return;
+                      }
                       if (tJson?.data?.transcript) setAudioTranscript(tJson.data.transcript);
                       if (tJson?.data?.suggestion) {
                         setAudioSuggestion(tJson.data.suggestion);
@@ -911,10 +920,7 @@ export default function MusicPage() {
                           try {
                             const r = await fetch("/api/gen/rewrite-lyrics", {
                               method: "POST",
-                              headers: {
-                                Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
-                                "Content-Type": "application/json",
-                              },
+                              headers: { "Content-Type": "application/json" },
                               body: JSON.stringify({
                                 transcript: audioTranscript,
                                 templateSlug: audioSuggestion?.templateSlug,
