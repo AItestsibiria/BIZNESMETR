@@ -985,32 +985,6 @@ export default function MusicPage() {
                   Запишите голосом любую идею — система распознает суть и напишет полноценный текст песни. Текст можно править. Если результат не понравится — на странице трека кнопка «🔄 Перегенерировать».
                 </div>
               </div>
-              <div className="my-2 flex items-center gap-2 text-[10px] text-muted-foreground/50">
-                <div className="flex-1 h-px bg-white/10" />
-                <span>или</span>
-                <div className="flex-1 h-px bg-white/10" />
-              </div>
-              <div className="space-y-3">
-                <Label className="text-sm text-muted-foreground">📁 Загрузить файл (mp3/wav/m4a, до 20 MB)</Label>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="file"
-                    accept="audio/*"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0] || null;
-                      setAudioFile(f);
-                      setAudioUploadUrl(null);
-                    }}
-                    className="text-sm file:mr-3 file:px-3 file:py-1.5 file:rounded-md file:border-0 file:bg-cyan-500/20 file:text-cyan-200 file:cursor-pointer cursor-pointer"
-                    data-testid="input-audio-file"
-                  />
-                  {audioFile && <span className="text-xs text-muted-foreground truncate max-w-[180px]">{audioFile.name}</span>}
-                </div>
-                <p className="text-[10px] text-cyan-300/80">
-                  Принимаем mp3/wav/m4a/webm/ogg, до 20 MB. Файл загружается на наш сервер,
-                  MuziAi делает кавер с нужным голосом и стилем.
-                </p>
-              </div>
               {audioMode === "advanced" && (
                 <div className="space-y-2">
                   <Label className="text-sm text-muted-foreground">audioWeight — насколько копировать мелодию ({audioWeight.toFixed(2)})</Label>
