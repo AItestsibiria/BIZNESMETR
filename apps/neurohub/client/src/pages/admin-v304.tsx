@@ -108,12 +108,14 @@ export default function AdminV304Page() {
       <Tabs defaultValue="overview">
         <TabsList className="mb-4 flex flex-wrap">
           <TabsTrigger value="overview">Обзор</TabsTrigger>
+          <TabsTrigger value="secrets">🔑 Секреты</TabsTrigger>
           <TabsTrigger value="templates">Шаблоны</TabsTrigger>
           <TabsTrigger value="flags">Feature flags</TabsTrigger>
           <TabsTrigger value="leads">Лиды</TabsTrigger>
           <TabsTrigger value="audit">Audit log</TabsTrigger>
         </TabsList>
         <TabsContent value="overview"><OverviewTab toast={toast} /></TabsContent>
+        <TabsContent value="secrets"><SecretsTab toast={toast} /></TabsContent>
         <TabsContent value="templates"><TemplatesTab toast={toast} /></TabsContent>
         <TabsContent value="flags"><FlagsTab toast={toast} /></TabsContent>
         <TabsContent value="leads"><LeadsTab toast={toast} /></TabsContent>
@@ -212,6 +214,144 @@ function OverviewTab({ toast }: { toast: any }) {
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// ============================================================
+// Secrets tab — простая ротация ключей с verify
+// ============================================================
+type SecretRow = {
+  key: string;
+  name: string;
+  description: string;
+  verifiable: boolean;
+  present: boolean;
+  masked: { length: number; first8: string; hasLeadingSpace: boolean } | null;
+};
+
+function SecretsTab({ toast }: { toast: any }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["admin-secrets"],
+    queryFn: () => fetcher<SecretRow[]>("/api/admin/v304/secrets"),
+    refetchInterval: 60000,
+  });
+  const [editKey, setEditKey] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+
+  const upsert = useMutation({
+    mutationFn: async ({ key, value }: { key: string; value: string }) => {
+      const r = await apiRequest("PUT", "/api/admin/v304/secrets", { key, value, restart: true });
+      return r.json();
+    },
+    onSuccess: (j, vars) => {
+      const m = j.data.masked;
+      toast({
+        title: `${vars.key} сохранён`,
+        description: `length=${m.length}, first8=${m.first8}${m.hasLeadingSpace ? " ⚠ ВЕДУЩИЙ ПРОБЕЛ" : ""}. Audit #${j.data.auditId}. Сервер перезапускается…`,
+      });
+      setEditKey(null);
+      setEditValue("");
+      // pm2 restart ~ 2-3 сек, дадим time + invalidate
+      setTimeout(() => queryClient.invalidateQueries({ queryKey: ["admin-secrets"] }), 4000);
+    },
+    onError: (e: Error) => toast({ title: "Ошибка", description: e.message, variant: "destructive" }),
+  });
+
+  const verify = useMutation({
+    mutationFn: async (key: string) => {
+      const r = await apiRequest("POST", "/api/admin/v304/secrets/verify", { key });
+      return r.json();
+    },
+    onSuccess: (j, key) => {
+      const v = j.data.verified;
+      const status = v === true ? "✅ работает" : v === false ? "❌ не валиден" : "ℹ️ verify не поддерживается";
+      toast({
+        title: `${key}: ${status}`,
+        description: j.data.hint || j.data.message || j.data.responsePreview?.slice(0, 80) || "",
+        variant: v === false ? "destructive" : "default",
+      });
+    },
+    onError: (e: Error) => toast({ title: "Ошибка verify", description: e.message, variant: "destructive" }),
+  });
+
+  if (isLoading) return <div>Загрузка…</div>;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardContent className="text-xs text-muted-foreground p-3 space-y-1">
+          <div>🔒 <b>Безопасность.</b> Значение секрета передаётся по TLS на сервер, записывается в <code>/var/www/neurohub/.env</code> с правами 600. В <b>audit-log</b> попадает только факт изменения и длина — само значение нет.</div>
+          <div>⚡ <b>Авто-trim.</b> Ведущие/висящие пробелы и обёртывающие кавычки снимаются перед записью — PITFALLS #12.</div>
+          <div>🔄 <b>Авто-restart.</b> После сохранения через ~1 сек pm2 перезапустит neurohub чтобы новое значение подхватилось.</div>
+          <div>🧪 <b>Verify.</b> Для GPTUNNEL_API_KEY делает реальный test-call к gptunnel.ru/v1/balance.</div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {data?.map((s) => (
+          <Card key={s.key}>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                {s.name}
+                {s.present ? (
+                  <Badge variant="default">установлен</Badge>
+                ) : (
+                  <Badge variant="outline">пусто</Badge>
+                )}
+                {s.masked?.hasLeadingSpace && <Badge variant="destructive">⚠ ПРОБЕЛ</Badge>}
+              </CardTitle>
+              <div className="text-xs text-muted-foreground">{s.description}</div>
+              <div className="text-xs font-mono">
+                {s.present
+                  ? `length=${s.masked?.length}, first8=${s.masked?.first8}…`
+                  : "—"}
+              </div>
+            </CardHeader>
+            <CardContent className="pt-2 space-y-2">
+              {editKey === s.key ? (
+                <>
+                  <Input
+                    type="password"
+                    autoComplete="off"
+                    placeholder="Новое значение (без кавычек, без пробелов в начале)"
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => upsert.mutate({ key: s.key, value: editValue })}
+                      disabled={!editValue || upsert.isPending}
+                    >
+                      {upsert.isPending ? "Сохраняю…" : "Сохранить + рестарт"}
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => { setEditKey(null); setEditValue(""); }}>
+                      Отмена
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" onClick={() => { setEditKey(s.key); setEditValue(""); }}>
+                    {s.present ? "Обновить" : "Установить"}
+                  </Button>
+                  {s.verifiable && s.present && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => verify.mutate(s.key)}
+                      disabled={verify.isPending}
+                    >
+                      {verify.isPending && verify.variables === s.key ? "Проверяю…" : "🧪 Проверить"}
+                    </Button>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
     </div>
   );
 }

@@ -15,6 +15,8 @@
 // Spec: docs/strategy/original/03 §4 (UI), 07 §6 (метрики).
 
 import { Router } from "express";
+import * as fs from "node:fs";
+import * as childProc from "node:child_process";
 import { sql, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../../storage";
@@ -430,6 +432,217 @@ router.get("/leads", requireAdmin, (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 100, 500);
   const all = db.select().from(leads).orderBy(desc(leads.id)).limit(limit).all();
   res.json({ data: all, error: null });
+});
+
+// =============================================================
+// Secrets — безопасная ротация через UI.
+// Значения НИКОГДА не попадают в audit log (только факт изменения).
+// =============================================================
+const ENV_FILE = process.env.ENV_FILE || "/var/www/neurohub/.env";
+
+const ROTATABLE_SECRETS: Record<string, { name: string; description: string; verifiable: boolean }> = {
+  GPTUNNEL_API_KEY: { name: "GPTunnel API key", description: "Suno + LLM router", verifiable: true },
+  SMTP_HOST:        { name: "SMTP host", description: "smtp.yandex.ru и т.п.", verifiable: false },
+  SMTP_PORT:        { name: "SMTP port", description: "Default 465", verifiable: false },
+  SMTP_USER:        { name: "SMTP user", description: "noreply@podaripesnu.ru", verifiable: false },
+  SMTP_PASS:        { name: "SMTP password", description: "App password", verifiable: false },
+  SMTP_FROM:        { name: "SMTP from", description: "MuziAI <noreply@...>", verifiable: false },
+  TELEGRAM_BOT_TOKEN: { name: "Telegram bot token", description: "BotFather token", verifiable: false },
+  VK_GROUP_ID:      { name: "VK group id", description: "Community ID", verifiable: false },
+  VK_ACCESS_TOKEN:  { name: "VK access token", description: "Community access token", verifiable: false },
+  VK_CONFIRMATION_CODE: { name: "VK confirmation", description: "Callback API confirmation", verifiable: false },
+  VK_SECRET:        { name: "VK secret", description: "Callback signing secret", verifiable: false },
+  ROBO_MERCHANT_LOGIN: { name: "Robokassa login", description: "ИП-login", verifiable: false },
+  ROBO_PASSWORD1:   { name: "Robokassa pwd1", description: "Sign password 1", verifiable: false },
+  ROBO_PASSWORD2:   { name: "Robokassa pwd2", description: "Sign password 2", verifiable: false },
+  YM_COUNTER_ID:    { name: "Yandex Metrika ID", description: "VITE_YM_COUNTER_ID", verifiable: false },
+  VK_PIXEL_ID:      { name: "VK Pixel ID", description: "VITE_VK_PIXEL_ID", verifiable: false },
+  ADMIN_EMAIL:      { name: "Admin email(s)", description: "comma-separated list", verifiable: false },
+};
+
+function readEnvFile(): Record<string, string> {
+  if (!fs.existsSync(ENV_FILE)) return {};
+  const raw = fs.readFileSync(ENV_FILE, "utf-8");
+  const out: Record<string, string> = {};
+  for (const line of raw.split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t || t.startsWith("#")) continue;
+    const eq = t.indexOf("=");
+    if (eq <= 0) continue;
+    out[t.slice(0, eq).trim()] = t.slice(eq + 1);
+  }
+  return out;
+}
+
+function writeEnvFile(updates: Record<string, string>): void {
+  const cur = fs.existsSync(ENV_FILE) ? fs.readFileSync(ENV_FILE, "utf-8") : "";
+  const lines = cur.split(/\r?\n/);
+  const remaining = new Set(Object.keys(updates));
+  const out: string[] = [];
+  for (const line of lines) {
+    const m = line.match(/^([A-Z_][A-Z0-9_]*)=/);
+    if (m && remaining.has(m[1])) {
+      out.push(`${m[1]}=${updates[m[1]]}`);
+      remaining.delete(m[1]);
+    } else {
+      out.push(line);
+    }
+  }
+  remaining.forEach((k) => out.push(`${k}=${updates[k]}`));
+  let result = out.join("\n");
+  if (!result.endsWith("\n")) result += "\n";
+  fs.writeFileSync(ENV_FILE, result, { mode: 0o600 });
+}
+
+function scheduleRestart(): void {
+  const child = childProc.spawn(
+    "bash",
+    ["-c", "sleep 1 && pm2 restart neurohub --update-env >/dev/null 2>&1"],
+    {
+      detached: true,
+      stdio: "ignore",
+      env: { ...process.env, HOME: process.env.HOME || "/root", PM2_HOME: process.env.PM2_HOME || "/root/.pm2" },
+    },
+  );
+  child.unref();
+}
+
+function maskValue(value: string): { length: number; first8: string; hasLeadingSpace: boolean } {
+  return {
+    length: value.length,
+    first8: value.slice(0, 8),
+    hasLeadingSpace: value.startsWith(" "),
+  };
+}
+
+router.get("/secrets", requireAdmin, (_req, res) => {
+  try {
+    const env = readEnvFile();
+    const list = Object.entries(ROTATABLE_SECRETS).map(([key, meta]) => {
+      const value = env[key] ?? "";
+      const present = value.length > 0;
+      return {
+        key,
+        ...meta,
+        present,
+        masked: present ? maskValue(value) : null,
+      };
+    });
+    res.json({ data: list, error: null });
+  } catch (err) {
+    res.status(500).json({ data: null, error: err instanceof Error ? err.message : "internal" });
+  }
+});
+
+const SecretUpsertSchema = z.object({
+  key: z.string().regex(/^[A-Z_][A-Z0-9_]*$/),
+  value: z.string().min(1).max(2048),
+  restart: z.boolean().optional(),
+});
+
+router.put("/secrets", requireAdmin, (req, res) => {
+  const parsed = SecretUpsertSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ data: null, error: parsed.error.issues[0]?.message ?? "invalid" });
+  }
+  const { key, value, restart } = parsed.data;
+  if (!ROTATABLE_SECRETS[key]) {
+    return res.status(400).json({ data: null, error: `key '${key}' not in rotatable list` });
+  }
+
+  // PITFALLS #12 защита: trim ведущих/висящих пробелов и обёртывающих
+  // кавычек до записи в .env. Этот один блок убивает целый класс багов.
+  let cleaned = value.trim();
+  if (
+    (cleaned.startsWith('"') && cleaned.endsWith('"')) ||
+    (cleaned.startsWith("'") && cleaned.endsWith("'"))
+  ) {
+    cleaned = cleaned.slice(1, -1);
+  }
+  if (/\r|\n/.test(cleaned)) {
+    return res.status(400).json({ data: null, error: "value must not contain newlines" });
+  }
+  if (cleaned.length === 0) {
+    return res.status(400).json({ data: null, error: "value empty after trim" });
+  }
+
+  try {
+    const before = readEnvFile();
+    const wasPresent = !!before[key];
+    writeEnvFile({ [key]: cleaned });
+
+    // Audit БЕЗ значения секрета — только факт + длина.
+    const auditId = recordEdit(
+      req,
+      wasPresent ? "update" : "create",
+      "secret",
+      key,
+      { length: (before[key] ?? "").length },
+      { length: cleaned.length },
+    );
+
+    if (restart !== false) scheduleRestart();
+
+    res.json({
+      data: {
+        key,
+        action: wasPresent ? "updated" : "created",
+        masked: maskValue(cleaned),
+        auditId,
+        restartScheduled: restart !== false,
+        note: "значение секрета НЕ сохранено в audit-log",
+      },
+      error: null,
+    });
+  } catch (err) {
+    res.status(500).json({ data: null, error: err instanceof Error ? err.message : "internal" });
+  }
+});
+
+router.post("/secrets/verify", requireAdmin, async (req, res) => {
+  const key = String(req.body?.key ?? "");
+  const meta = ROTATABLE_SECRETS[key];
+  if (!meta) return res.status(400).json({ data: null, error: "unknown key" });
+  if (!meta.verifiable) {
+    return res.json({
+      data: { key, verified: null, message: "автоматическая verification не реализована для этого ключа" },
+      error: null,
+    });
+  }
+  const env = readEnvFile();
+  const value = env[key];
+  if (!value) return res.status(400).json({ data: null, error: "secret not set" });
+
+  if (key === "GPTUNNEL_API_KEY") {
+    try {
+      const r = await fetch("https://gptunnel.ru/v1/balance", {
+        method: "GET",
+        headers: { Authorization: value },
+      });
+      const body = await r.text();
+      return res.json({
+        data: {
+          key,
+          verified: r.ok,
+          httpStatus: r.status,
+          responsePreview: body.slice(0, 300),
+          hint: r.ok
+            ? "ключ валиден"
+            : (r.status === 401 || r.status === 403)
+              ? "ключ отвергнут GPTunnel — проверь актуальность в кабинете провайдера"
+              : `неожиданный код ${r.status}`,
+        },
+        error: null,
+      });
+    } catch (err) {
+      return res.json({
+        data: { key, verified: false, error: err instanceof Error ? err.message : "fetch failed" },
+        error: null,
+      });
+    }
+  }
+
+  res.json({ data: { key, verified: null }, error: null });
 });
 
 // ---- Audit log: список + restore ----
