@@ -61,7 +61,9 @@ export default function Navbar() {
     { href: "/templates", label: "Шаблоны" },
     { href: "/lyrics", label: "Тексты" },
     { href: "/music", label: "Музыка" },
-    { href: "/music?tab=audio", label: "🎧 Аудио" },
+    // Аудио ведёт на /music — режим выставляется через localStorage,
+    // т.к. wouter (hash-router) не парсит query-string как часть пути.
+    { href: "/music", label: "🎧 Аудио", onClickSetMode: "audio" as const },
     { href: "/covers", label: "Обложки" },
   ];
 
@@ -149,8 +151,13 @@ export default function Navbar() {
           <div className="hidden md:flex items-center gap-1">
             {navLinks.map((link) => (
               <Link
-                key={link.href}
+                key={`${link.href}-${link.label}`}
                 href={link.href}
+                onClick={() => {
+                  if ((link as any).onClickSetMode) {
+                    try { localStorage.setItem("music_mode", (link as any).onClickSetMode); } catch {}
+                  }
+                }}
                 className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                   location === link.href
                     ? "text-white bg-white/10"

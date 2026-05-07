@@ -765,7 +765,7 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
   // Admin-only: попап с географией прослушиваний
   const [geoDialog, setGeoDialog] = useState<{ open: boolean; genId: number | null; title: string }>({ open: false, genId: null, title: "" });
   const { user: currentUser } = useAuth();
-  const isAdmin = currentUser?.email === "egnovoselov@gmail.com";
+  const isAdmin = (currentUser?.role === "admin") || (currentUser?.email?.toLowerCase() === "egnovoselov@gmail.com");
   // Cover/Extend remix dialog (author-only, dashboard scope)
   const [remixDialog, setRemixDialog] = useState<{ open: boolean; mode: 'cover' | 'extend' | null; track: any | null }>({ open: false, mode: null, track: null });
   const [remixStyle, setRemixStyle] = useState("");
