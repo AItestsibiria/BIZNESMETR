@@ -2,6 +2,32 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { EventBus, FeatureFlags, ModuleRegistry, createLogger } from "./core";
+// Static imports below — esbuild inlines them into dist/index.cjs.
+// Если эти строки превратить в переменно-параметризованные await import(),
+// esbuild не сможет статически разрешить пути и плагины останутся
+// require()-ссылками на несуществующие файлы (что произошло в коммите
+// 649450a и привело к 20/20 'Cannot find module').
+import exampleModule from "./plugins/example/module";
+import leadCaptureModule from "./plugins/lead-capture/module";
+import genTemplatesModule from "./plugins/gen-templates/module";
+import v304DiagnosticsModule from "./plugins/v304-diagnostics/module";
+import personaModule from "./plugins/persona/module";
+import extendCoverModule from "./plugins/extend-cover/module";
+import securityGuardModule from "./plugins/security-guard/module";
+import authEventsBridgeModule from "./plugins/auth-events-bridge/module";
+import notificationsModule from "./plugins/notifications/module";
+import chatbotModule from "./plugins/chatbot/module";
+import agentLeadHunterModule from "./plugins/agent-lead-hunter/module";
+import agentScoutModule from "./plugins/agent-scout/module";
+import agentWelcomeModule from "./plugins/agent-welcome/module";
+import agentDemoModule from "./plugins/agent-demo/module";
+import agentOnboardingModule from "./plugins/agent-onboarding/module";
+import agentConversionModule from "./plugins/agent-conversion/module";
+import agentReferralModule from "./plugins/agent-referral/module";
+import agentRetentionModule from "./plugins/agent-retention/module";
+import agentContentModule from "./plugins/agent-content/module";
+import agentA1MasterModule from "./plugins/agent-a1-master/module";
 
 const app = express();
 // Доверяем фронтальному прокси (Nginx) — иначе req.ip = 127.0.0.1
@@ -73,8 +99,6 @@ const v304Boot = {
   pluginsFailed: [] as { name: string; error: string }[],
   registryStarted: false,
   registryError: null as string | null,
-  storageOk: false,
-  storageError: null as string | null,
 };
 
 app.get("/api/_status", (_req, res) => {
@@ -84,73 +108,57 @@ app.get("/api/_status", (_req, res) => {
 (async () => {
   await registerRoutes(httpServer, app);
 
-  // v304 plugin foundation — defensive boot.
-  // Каждый импорт плагина обёрнут try/catch так, чтобы любая ошибка
-  // одного модуля не сломала сервер.
   const bootLogger = createLogger("boot");
 
-  // 1. Storage health
-  try {
-    const { db } = await import("./storage");
-    // sanity: select 1
-    db.run((await import("drizzle-orm")).sql`SELECT 1`);
-    v304Boot.storageOk = true;
-  } catch (err) {
-    v304Boot.storageError = err instanceof Error ? err.message : String(err);
-    bootLogger.error("storage init failed", { error: v304Boot.storageError });
-  }
-
-  // 2. Lazy-load each plugin
-  const PLUGIN_PATHS: { name: string; path: string }[] = [
-    { name: "example",            path: "./plugins/example/module" },
-    { name: "lead-capture",       path: "./plugins/lead-capture/module" },
-    { name: "gen-templates",      path: "./plugins/gen-templates/module" },
-    { name: "v304-diagnostics",   path: "./plugins/v304-diagnostics/module" },
-    { name: "persona",            path: "./plugins/persona/module" },
-    { name: "extend-cover",       path: "./plugins/extend-cover/module" },
-    { name: "security-guard",     path: "./plugins/security-guard/module" },
-    { name: "auth-events-bridge", path: "./plugins/auth-events-bridge/module" },
-    { name: "notifications",      path: "./plugins/notifications/module" },
-    { name: "chatbot",            path: "./plugins/chatbot/module" },
-    { name: "agent-lead-hunter",  path: "./plugins/agent-lead-hunter/module" },
-    { name: "agent-scout",        path: "./plugins/agent-scout/module" },
-    { name: "agent-welcome",      path: "./plugins/agent-welcome/module" },
-    { name: "agent-demo",         path: "./plugins/agent-demo/module" },
-    { name: "agent-onboarding",   path: "./plugins/agent-onboarding/module" },
-    { name: "agent-conversion",   path: "./plugins/agent-conversion/module" },
-    { name: "agent-referral",     path: "./plugins/agent-referral/module" },
-    { name: "agent-retention",    path: "./plugins/agent-retention/module" },
-    { name: "agent-content",      path: "./plugins/agent-content/module" },
-    { name: "agent-a1-master",    path: "./plugins/agent-a1-master/module" },
+  // Все 20 плагинов уже импортированы статически выше → они в bundle.
+  // Здесь — пара (name, module) для unified loop + диагностика.
+  // Если какой-то module === undefined (например, expor default отсутствует
+  // или модуль выкинул на загрузке), он попадает в pluginsFailed без
+  // падения сервера.
+  const PLUGINS: Array<{ name: string; module: any }> = [
+    { name: "example", module: exampleModule },
+    { name: "lead-capture", module: leadCaptureModule },
+    { name: "gen-templates", module: genTemplatesModule },
+    { name: "v304-diagnostics", module: v304DiagnosticsModule },
+    { name: "persona", module: personaModule },
+    { name: "extend-cover", module: extendCoverModule },
+    { name: "security-guard", module: securityGuardModule },
+    { name: "auth-events-bridge", module: authEventsBridgeModule },
+    { name: "notifications", module: notificationsModule },
+    { name: "chatbot", module: chatbotModule },
+    { name: "agent-lead-hunter", module: agentLeadHunterModule },
+    { name: "agent-scout", module: agentScoutModule },
+    { name: "agent-welcome", module: agentWelcomeModule },
+    { name: "agent-demo", module: agentDemoModule },
+    { name: "agent-onboarding", module: agentOnboardingModule },
+    { name: "agent-conversion", module: agentConversionModule },
+    { name: "agent-referral", module: agentReferralModule },
+    { name: "agent-retention", module: agentRetentionModule },
+    { name: "agent-content", module: agentContentModule },
+    { name: "agent-a1-master", module: agentA1MasterModule },
   ];
 
-  const loaded: any[] = [];
-  for (const { name, path } of PLUGIN_PATHS) {
+  const validModules: any[] = [];
+  for (const { name, module } of PLUGINS) {
     v304Boot.pluginsAttempted.push(name);
-    try {
-      const mod = (await import(path)).default;
-      if (!mod || typeof mod !== "object" || !mod.name) {
-        throw new Error(`module export missing or invalid (got: ${typeof mod})`);
-      }
-      loaded.push(mod);
+    if (module && typeof module === "object" && module.name) {
+      validModules.push(module);
       v304Boot.pluginsLoaded.push(name);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      v304Boot.pluginsFailed.push({ name, error: message });
-      bootLogger.error(`plugin import failed: ${name}`, { error: message });
+    } else {
+      const error = `module export missing or invalid (got: ${typeof module})`;
+      v304Boot.pluginsFailed.push({ name, error });
+      bootLogger.error(`plugin invalid: ${name}`, { error });
     }
   }
 
-  // 3. Registry start — ещё один уровень изоляции
   try {
-    const { EventBus, FeatureFlags, ModuleRegistry } = await import("./core");
     const eventBus = new EventBus();
     const featureFlags = new FeatureFlags();
     const registry = new ModuleRegistry();
-    registry.register(loaded as any);
+    registry.register(validModules);
     await registry.start({ app, eventBus, featureFlags, logger: bootLogger });
     v304Boot.registryStarted = true;
-    bootLogger.info(`v304 registry online (${loaded.length} modules)`);
+    bootLogger.info(`v304 registry online (${validModules.length} modules)`);
   } catch (err) {
     v304Boot.registryError = err instanceof Error ? err.message : String(err);
     bootLogger.error("v304 registry failed to start", {
@@ -197,21 +205,3 @@ app.get("/api/_status", (_req, res) => {
     },
   );
 })();
-
-// createLogger живёт в core/, но если core не подгрузился —
-// нам всё равно нужен логгер. Мини-fallback.
-function createLogger(scope: string) {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require("./core/logger").createLogger(scope);
-  } catch {
-    return {
-      info: (msg: string, extra?: unknown) =>
-        console.log(`[${scope}] info ${msg}`, extra ?? ""),
-      warn: (msg: string, extra?: unknown) =>
-        console.warn(`[${scope}] warn ${msg}`, extra ?? ""),
-      error: (msg: string, extra?: unknown) =>
-        console.error(`[${scope}] error ${msg}`, extra ?? ""),
-    };
-  }
-}
