@@ -104,7 +104,10 @@ router.post("/upload", requireAuth, upload.single("audio"), async (req, res) => 
   }
 
   const sha = crypto.createHash("sha256").update(file.buffer).digest("hex");
-  const ext = EXT_BY_MIME[file.mimetype] || "bin";
+  // ТЗ Eugene 13:56 «железно работать». Используем baseMime (без codecs=…)
+  // для определения ext, иначе Chrome `audio/webm;codecs=opus` → bin → ffmpeg fail.
+  const ext = EXT_BY_MIME[baseMime] || "bin";
+  console.log(`[UPLOAD] sha=${sha.slice(0, 8)} mime=${file.mimetype} → baseMime=${baseMime} ext=${ext} size=${file.size}`);
 
   // Идемпотентность: тот же sha — возвращаем существующий.
   const existing = db.select().from(audioUploads).where(eq(audioUploads.sha, sha)).get();
