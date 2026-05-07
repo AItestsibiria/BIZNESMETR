@@ -1564,19 +1564,9 @@ export default function DashboardPage() {
     setEditingName(false);
   };
 
-  // Redirect if not logged in (but wait for auth to finish loading)
-  if (!authLoading && !user) {
-    navigate("/login");
-    return null;
-  }
-
-  if (!user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="w-6 h-6 animate-spin text-purple-400" />
-      </div>
-    );
-  }
+  // ВАЖНО (Eugene 2026-05-07 11:35): NO conditional returns here.
+  // Все hooks должны вызываться в одном порядке (Rules of Hooks).
+  // Auth-guard перенесён ВНИЗ — после всех хуков (см. ~line 1635).
 
   const [showAllGens, setShowAllGens] = useState(false);
   const [showDeleted, setShowDeleted] = useState(false);
@@ -1629,6 +1619,23 @@ export default function DashboardPage() {
   const [promoCode, setPromoCode] = useState("");
   const [promoLoading, setPromoLoading] = useState(false);
   const [showPromoInput, setShowPromoInput] = useState(false);
+
+  // ============================================================
+  // Auth-guard перенесён сюда из верхушки (Eugene 2026-05-07 11:35)
+  // — закрывает React #310 «больше hooks чем в предыдущем рендере».
+  // Все hooks выше выполняются всегда, независимо от user-state.
+  // ============================================================
+  if (!authLoading && !user) {
+    navigate("/login");
+    return null;
+  }
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-6 h-6 animate-spin text-purple-400" />
+      </div>
+    );
+  }
 
   const handleApplyPromo = async () => {
     if (!promoCode.trim()) return;
