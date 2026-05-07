@@ -1024,6 +1024,67 @@ router.post("/generations/debug-batch", requireAdmin, async (req, res) => {
   }
 });
 
+// POST /api/admin/v304/generations/:id/recover-from-suno
+// Восстанавливает «ложно-error» генерацию: дёргает Suno /media/result,
+// если есть audio_url — переводит в done с правильным resultUrl.
+// Use case: gen 672-679 — TIMEOUT WATCHER пометил error через 2 мин, но
+// Suno реально вернул succeeded на 3-4 мин.
+router.post("/generations/:id/recover-from-suno", requireAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ data: null, error: "invalid id" });
+    const gen = db.select().from(generations).where(eq(generations.id, id)).get();
+    if (!gen) return res.status(404).json({ data: null, error: "generation not found" });
+    if (!gen.taskId) return res.status(400).json({ data: null, error: "no taskId — recovery невозможен" });
+
+    const apiKey = process.env.GPTUNNEL_API_KEY ?? "";
+    if (!apiKey) return res.status(503).json({ data: null, error: "GPTUNNEL_API_KEY missing" });
+
+    const r = await fetch("https://gptunnel.ru/v1/media/result", {
+      method: "POST",
+      headers: { Authorization: apiKey, "Content-Type": "application/json" },
+      body: JSON.stringify({ task_id: gen.taskId }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!r.ok) {
+      return res.status(502).json({ data: null, error: `MuziAi вернул ${r.status}` });
+    }
+    const data: any = await r.json();
+    const succeeded = Array.isArray(data?.result)
+      ? data.result.find((t: any) => t.status === "succeeded" && t.audio_url)
+      : null;
+    if (!succeeded) {
+      return res.json({
+        data: {
+          recovered: false,
+          message: "MuziAi не вернул успешный трек — recovery невозможен",
+          sunoStatus: data?.status,
+          firstTrackStatus: Array.isArray(data?.result) ? data.result[0]?.status : null,
+        },
+        error: null,
+      });
+    }
+
+    db.run(sql`UPDATE generations
+               SET status='done', result_url=${succeeded.audio_url}, result_data=${JSON.stringify(data)},
+                   error_reason=NULL
+               WHERE id=${id}`);
+
+    res.json({
+      data: {
+        recovered: true,
+        generationId: id,
+        audioUrl: succeeded.audio_url,
+        watchUrl: `/#/track/${id}`,
+        previousErrorReason: gen.errorReason,
+      },
+      error: null,
+    });
+  } catch (err) {
+    res.status(500).json({ data: null, error: err instanceof Error ? err.message : "internal" });
+  }
+});
+
 // POST /api/admin/v304/anthem/revive
 // One-click «Реанимировать последний гимн»: находит последний gen с
 // templateSlug='v304-anthem', форсит pollProcessingGenerations и

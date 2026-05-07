@@ -3932,29 +3932,62 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   setTimeout(dailyCountryBump, 5000); // на старте: чтобы было видно через 5с после запуска
 
   // ==================== TIMEOUT WATCHER ====================
-  // Каждые 30с ищем генерации status='processing' старше 2 мин — помечаем error + возвращаем деньги.
-  setInterval(() => {
+  // ТЗ Eugene 2026-05-07: расследование gens 672-679 показало что watcher
+  // помечал error через 2 мин — но Suno возвращал succeeded на 3-4 мин.
+  // Лечим тремя способами:
+  //  1) Таймаут поднят до 8 мин (Suno typical max 3 мин + buffer на retry).
+  //  2) Перед marking error — финальный poll Suno. Если succeeded → recover
+  //     в 'done' с audio_url вместо error+refund.
+  //  3) Если Suno вернул error/failed — тогда настоящий error.
+  setInterval(async () => {
     try {
-      const cutoff = new Date(Date.now() - 2 * 60 * 1000).toISOString().replace("T", " ").slice(0, 19);
+      const cutoff = new Date(Date.now() - 8 * 60 * 1000).toISOString().replace("T", " ").slice(0, 19);
       const stuck = db.select().from(generations)
         .where(and(eq(generations.status, "processing"), eq(generations.type, "music")))
         .all();
       for (const gen of stuck) {
         const created = (gen.createdAt || "").replace("T", " ").slice(0, 19);
-        if (created && created <= cutoff) {
-          const reason = "Превышен лимит ожидания (2 мин). Генерация не завершилась. Баланс возвращён.";
-          storage.updateGeneration(gen.id, { status: "error", errorReason: reason });
+        if (!created || created > cutoff) continue;
+
+        // Финальный poll Suno перед тем как сдаваться
+        if (gen.taskId) {
           try {
-            if ((gen.cost || 0) > 0) {
-              storage.updateBalance(gen.userId, gen.cost);
-              storage.createTransaction({ userId: gen.userId, type: "music", amount: gen.cost, description: "Возврат: таймаут генерации #" + gen.id });
-            } else {
-              db.update(users).set({ bonusTracks: sql`${users.bonusTracks} + 1` }).where(eq(users.id, gen.userId)).run();
-              storage.createTransaction({ userId: gen.userId, type: "music", amount: 0, description: "🎁 Возврат подарочного трека: таймаут #" + gen.id });
+            const r = await gptunnelFetch("/media/result", {
+              method: "POST",
+              body: JSON.stringify({ task_id: gen.taskId }),
+            });
+            if (r.ok) {
+              const data: any = await r.json();
+              const succeeded = Array.isArray(data?.result)
+                ? data.result.find((t: any) => t.status === "succeeded" && t.audio_url)
+                : null;
+              if (succeeded) {
+                storage.updateGeneration(gen.id, {
+                  status: "done",
+                  resultUrl: succeeded.audio_url,
+                  resultData: JSON.stringify(data),
+                });
+                console.log(`[TIMEOUT-WATCHER] gen #${gen.id} RECOVERED from late Suno response (audio_url present)`);
+                continue; // не помечаем error, не рефандим
+              }
             }
-          } catch (e) { console.error("[TIMEOUT-WATCHER] refund error:", e); }
-          console.log(`[TIMEOUT-WATCHER] gen #${gen.id} marked as failed (timeout 2min). Refunded ${gen.cost} kop.`);
+          } catch (e) {
+            console.error(`[TIMEOUT-WATCHER] poll failed for gen #${gen.id}, falling through to error:`, e);
+          }
         }
+
+        const reason = "Превышен лимит ожидания (8 мин). Suno не завершил. Баланс возвращён.";
+        storage.updateGeneration(gen.id, { status: "error", errorReason: reason });
+        try {
+          if ((gen.cost || 0) > 0) {
+            storage.updateBalance(gen.userId, gen.cost);
+            storage.createTransaction({ userId: gen.userId, type: "music", amount: gen.cost, description: "Возврат: таймаут генерации #" + gen.id });
+          } else {
+            db.update(users).set({ bonusTracks: sql`${users.bonusTracks} + 1` }).where(eq(users.id, gen.userId)).run();
+            storage.createTransaction({ userId: gen.userId, type: "music", amount: 0, description: "🎁 Возврат подарочного трека: таймаут #" + gen.id });
+          }
+        } catch (e) { console.error("[TIMEOUT-WATCHER] refund error:", e); }
+        console.log(`[TIMEOUT-WATCHER] gen #${gen.id} marked as failed (>8 min, no audio in poll). Refunded ${gen.cost} kop.`);
       }
     } catch (e) {
       console.error("[TIMEOUT-WATCHER] error:", e);

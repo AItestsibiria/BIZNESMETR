@@ -671,6 +671,64 @@ function OverviewTab({ toast: _t }: { toast: any }) {
   );
 }
 
+function DebugRow({ it, onRecovered }: { it: any; onRecovered: () => void }) {
+  const { toast } = useToast();
+  const recoverable = it.status === "error"
+    && it.sunoFresh?.firstTrackStatus === "succeeded"
+    && it.sunoFreshStatus === 200;
+  const recover = useMutation({
+    mutationFn: async () => {
+      const r = await apiRequest("POST", `/api/admin/v304/generations/${it.id}/recover-from-suno`, {});
+      return r.json();
+    },
+    onSuccess: (j) => {
+      const d = j.data;
+      if (d?.recovered) {
+        toast({ title: `🟢 #${it.id} восстановлен`, description: `audio_url подхвачен, открой /track/${it.id}` });
+        onRecovered();
+      } else {
+        toast({ title: "Recovery невозможен", description: d?.message || "MuziAi не вернул succeeded трек", variant: "destructive" });
+      }
+    },
+    onError: (e: Error) => toast({ title: "Ошибка recover", description: e.message, variant: "destructive" }),
+  });
+  return (
+    <div className={`text-[11px] p-2 rounded border ${
+      it.status === "done" ? "border-emerald-500/30 bg-emerald-500/5"
+      : it.status === "error" ? "border-rose-500/30 bg-rose-500/5"
+      : "border-amber-500/30 bg-amber-500/5"
+    }`}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="font-mono text-white flex-1">
+          #{it.id} · status=<b>{it.status}</b> · voiceType={it.voiceType ?? "—"} · cost={it.cost}
+        </div>
+        {recoverable && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 px-2 text-[10px] border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10"
+            onClick={() => recover.mutate()}
+            disabled={recover.isPending}
+            data-testid={`btn-recover-${it.id}`}
+          >
+            {recover.isPending ? "…" : "🟢 Восстановить"}
+          </Button>
+        )}
+      </div>
+      {it.prompt && <div className="text-muted-foreground mt-0.5">prompt: {it.prompt}</div>}
+      {it.errorReason && <div className="text-rose-300 mt-1">errorReason: {it.errorReason}</div>}
+      {it.sunoFresh && (
+        <div className="text-cyan-300 mt-1">
+          MuziAi HTTP {it.sunoFreshStatus} · status={it.sunoFresh.status} · code={it.sunoFresh.code} · msg={it.sunoFresh.message ?? "—"}
+          {it.sunoFresh.firstTrackStatus && ` · firstTrack=${it.sunoFresh.firstTrackStatus}`}
+        </div>
+      )}
+      {it.sunoFreshError && <div className="text-rose-300 mt-1">network: {it.sunoFreshError}</div>}
+      {!it.exists && <div className="text-rose-300 mt-1">генерация не существует в БД</div>}
+    </div>
+  );
+}
+
 // DebugBatchCard — прямо в UI вводишь диапазон или CSV ID, видишь raw
 // Suno-ответ + DB-статус для каждого. Закрывает кейс «нет консоли в браузере».
 function DebugBatchCard() {
@@ -737,29 +795,7 @@ function DebugBatchCard() {
               Найдено: {output.count}. Успешные = «firstTrackStatus:succeeded», ошибки — поле «errorReason» или «sunoFresh.message».
             </div>
             <div className="space-y-1 max-h-[500px] overflow-y-auto">
-              {output.items?.map((it: any) => (
-                <div key={it.id} className={`text-[11px] p-2 rounded border ${
-                  it.status === "done" ? "border-emerald-500/30 bg-emerald-500/5"
-                  : it.status === "error" ? "border-rose-500/30 bg-rose-500/5"
-                  : "border-amber-500/30 bg-amber-500/5"
-                }`}>
-                  <div className="font-mono text-white">
-                    #{it.id} · status=<b>{it.status}</b> · voiceType={it.voiceType ?? "—"} · cost={it.cost}
-                  </div>
-                  {it.prompt && <div className="text-muted-foreground mt-0.5">prompt: {it.prompt}</div>}
-                  {it.errorReason && (
-                    <div className="text-rose-300 mt-1">errorReason: {it.errorReason}</div>
-                  )}
-                  {it.sunoFresh && (
-                    <div className="text-cyan-300 mt-1">
-                      MuziAi HTTP {it.sunoFreshStatus} · status={it.sunoFresh.status} · code={it.sunoFresh.code} · msg={it.sunoFresh.message ?? "—"}
-                      {it.sunoFresh.firstTrackStatus && ` · firstTrack=${it.sunoFresh.firstTrackStatus}`}
-                    </div>
-                  )}
-                  {it.sunoFreshError && <div className="text-rose-300 mt-1">network: {it.sunoFreshError}</div>}
-                  {!it.exists && <div className="text-rose-300 mt-1">генерация не существует в БД</div>}
-                </div>
-              ))}
+              {output.items?.map((it: any) => <DebugRow key={it.id} it={it} onRecovered={() => run.mutate()} />)}
             </div>
           </div>
         )}
