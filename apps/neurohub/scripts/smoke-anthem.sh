@@ -43,15 +43,35 @@ fi
 python3 <<'PY'
 import json
 tpl = json.load(open("/tmp/anthem-tpl.json"))["data"]
-# v51 /api/music/generate принимает поля prompt и style.
+
+# Гимн содержит ~1437 символов, что больше 400-char лимита basic-mode
+# у GPTunnel/Suno. Используем custom mode:
+#   mode: "custom"
+#   lyric: полный текст (50-3000 chars)
+#   title: имя трека (обязательно)
+#   tags:  стиль для tags
+#   prompt: короткое описание (опц., <=400 chars)
+# v51 routes.ts:1959 принимает поля 'lyrics' и 'title' и сам собирает
+# custom-mode payload для GPTunnel (см. routes.ts:2010-2017).
+
+full_text = tpl["promptTemplate"]
+short_desc = tpl.get("description") or "Эпический гимн платформы MUZIAI v304."
+
 body = {
-    "prompt": tpl["promptTemplate"],
+    # 'lyrics' включает custom-mode у v51 (если len(lyrics) >= 50)
+    "lyrics": full_text,
+    "title": "Гимн MUZIAI v304",
     "style": tpl.get("style") or "epic symphonic rock, orchestral, choir, anthemic",
+    # короткий prompt опционально — v51 включит его в payload как есть
+    "prompt": short_desc[:400],
     "isPublic": 1,
     "authorName": "MUZIAI v304 (Claude)",
+    # voice и instrumental не задаём — Suno подберёт mixed choir
 }
 json.dump(body, open("/tmp/anthem-body.json", "w"), ensure_ascii=False)
+print(f"  lyrics chars: {len(body['lyrics'])}")
 print(f"  prompt chars: {len(body['prompt'])}")
+print(f"  title: {body['title']}")
 print(f"  style: {body['style']}")
 PY
 

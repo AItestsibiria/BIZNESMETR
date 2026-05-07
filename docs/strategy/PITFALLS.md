@@ -282,4 +282,56 @@ sed -i 's/^\([A-Z_]\+\)= */\1=/' /var/www/<app>/.env
 
 ---
 
+## 13. GPTunnel Authorization без Bearer + 400-char prompt лимит в basic mode
+
+**Симптом 1:** API возвращает auth-error даже с правильным ключом.
+**Симптом 2:** трек получается коротким / не той структуры, чем ждёшь.
+
+**Документация:** https://docs.gptunnel.ru/media-api/suno
+
+**Анти-паттерн:**
+```bash
+# Bearer вообще не нужен:
+-H "Authorization: Bearer shds-..."   # ❌
+# Длинный текст в basic-mode prompt:
+{"model":"suno", "prompt":"<1500 chars текста>"}   # ❌ truncated до 400
+```
+
+**Рабочий паттерн:**
+
+Заголовок:
+```
+Authorization: shds-XXX                ✅ голый ключ, без Bearer
+```
+
+Endpoint: `POST https://gptunnel.ru/v1/media/create`
+
+Basic mode (Suno сам пишет текст):
+```json
+{ "model": "suno", "prompt": "<≤400 chars описание>", "version": "chirp-v4-5" }
+```
+
+Custom mode (свой текст песни):
+```json
+{
+  "model": "suno",
+  "mode": "custom",
+  "lyric": "<50-3000 chars>",
+  "title": "<≤80 chars обязательно>",
+  "tags": "<≤200 chars стиль/жанр/voice>",
+  "prompt": "<опц. ≤400 chars>"
+}
+```
+
+В v51 `/api/music/generate` это разруливается автоматически: если в request body передать `lyrics` ≥ 50 chars + `title` — v51 переключается в custom mode (см. `routes.ts:2010-2017`). Просто шлёшь:
+```json
+{ "lyrics": "<full text>", "title": "...", "style": "..." }
+```
+
+После — `POST /v1/media/result` с `task_id` (24 символа) для проверки статуса.
+
+**Правило:** длинный текст → `lyrics` + `title`, а не `prompt`. И никогда не `Bearer` для GPTunnel.
+
+---
+
 *Last updated: 2026-05-07. Каждый новый bug-class пополняет список.*
