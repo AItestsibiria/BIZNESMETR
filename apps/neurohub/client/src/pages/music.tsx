@@ -937,7 +937,7 @@ export default function MusicPage() {
                         }}
                         data-testid="btn-rewrite-lyrics"
                       >
-                        {rewriting ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" />Пишу другой</> : <><RefreshCcw className="w-3 h-3 mr-1" />Другой вариант</>}
+                        {rewriting ? <><Loader2 className="w-3 h-3 mr-1 animate-spin" />ReТекст…</> : <><RefreshCcw className="w-3 h-3 mr-1" />ReТекст</>}
                       </Button>
                     </div>
                     <Textarea
