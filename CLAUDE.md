@@ -82,6 +82,12 @@ S1 foundations · S2 Suno @ 100% · S3 Persona/Extend/Cover · S4-5 nine agents 
 
 **Health check + rollback** в самом `auto-deploy.sh` гарантирует: если коммит ломает сборку или health-check `/api/example/ping`, dist возвращается из pre-flight backup, и pm2 поднимается на предыдущей версии. Я вижу это в ветке `clone-deploy-log` и поправляю следующим коммитом.
 
+### Pitfalls registry rule (Eugene 2026-05-07)
+
+**Перед задачей класса, который уже встречался — сверяюсь с `docs/strategy/PITFALLS.md`.** Каждая ошибка после первого раза становится записью в этом файле. Документ покрывает: shell-экранирование, systemd+pm2 HOME, esbuild + dynamic imports, SQLite timestamp compare, v51 auth pattern, self-update гонки, npm install через symlink, hardcoded keys, секреты в чате.
+
+При появлении нового класса бага — обновляю PITFALLS.md в том же коммите что и фикс. Это превращает накопленный опыт в навигационную карту: каждое будущее действие проверяется по списку.
+
 ### Backup-before-edit rule (Eugene 2026-05-07)
 
 **Любая admin-редакция данных через UI/API создаёт snapshot прежнего состояния.** Применяется ко всем PUT/PATCH/DELETE на `/api/admin/v304/*`. Технически:
