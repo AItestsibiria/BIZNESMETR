@@ -388,62 +388,55 @@ export default function MusicPage() {
       setShowInlineAuth(true);
       return;
     }
-    // Audio mode — отдельный путь: upload + cover endpoint
+    // Audio mode — голос → текст уже распознан, шлём на ПРОВЕРЕННЫЙ
+    // /api/music/generate (тот же endpoint что Текст·Расширенный).
+    // ТЗ Eugene 13:53 «реши кардинально» — без отдельного audio-cover.
     if (mode === "audio") {
-      if (!audioFile && !audioUploadUrl) {
-        toast({ title: "Загрузите аудио-файл", variant: "destructive" });
+      const finalLyrics = audioLyrics.trim();
+      if (!finalLyrics || finalLyrics.length < 50) {
+        toast({ title: "Текст слишком короткий", description: "Нужно минимум 50 символов lyrics. Запиши голос ещё раз или дополни вручную.", variant: "destructive" });
         return;
       }
       try {
         setLoading(true);
         startBgMusic();
-        let sha = audioUploadSha;
-        if (audioFile && !sha) {
-          setAudioUploading(true);
-          const fd = new FormData();
-          fd.append("audio", audioFile);
-          const up = await fetch("/api/gen/upload", { method: "POST", body: fd });
-          const upJson = await up.json();
-          setAudioUploading(false);
-          if (!up.ok || !upJson?.data?.uploadUrl) {
-            throw new Error(upJson?.error || "upload failed");
-          }
-          sha = upJson.data.sha;
-          setAudioUploadSha(sha);
-          setAudioUploadUrl(upJson.data.uploadUrl);
-        }
-        // Автоматический style из LLM-suggestion если пользователь не задал свой
+        // Style: из user-stylePrompt или авто-suggestion от LLM
         const finalStyle = (audioMode === "advanced" && stylePrompt.trim())
           ? stylePrompt.trim()
-          : (audioSuggestion?.genre ?? "");
-        // Lyrics: правленый или auto-сгенерированный из транскрипции
-        const finalLyrics = audioLyrics.trim();
-        const coverBody: any = {
-          uploadSha: sha,
+          : (audioSuggestion?.genre || "pop");
+        const body: any = {
+          style: finalStyle,
+          category: "song",
+          lyrics: finalLyrics,
+          title: audioSuggestion?.title || title || undefined,
+          instrumental, isDuet,
+          voice,
           voiceType: instrumental ? "instrumental" : isDuet ? "duet" : voice,
-          voice, isDuet, instrumental,
-          audioWeight: 0.7,
           authorName: authorName.trim(),
           isPublic: !isPrivate,
         };
-        if (finalStyle) coverBody.style = finalStyle;
-        if (finalLyrics.length >= 50) {
-          coverBody.lyrics = finalLyrics;
-          coverBody.title = audioSuggestion?.title || title || "Кавер";
-        }
-        const r = await apiRequest("POST", "/api/gen/audio-cover", coverBody);
-        const j = await r.json();
-        if (j?.data?.generationId) {
-          toast({ title: "🎵 Кавер запущен", description: `gen #${j.data.generationId} — открываю страницу с авто-обновлением.` });
-          setTimeout(() => navigate(`/track/${j.data.generationId}`), 800);
+        const res = await apiRequest("POST", "/api/music/generate", body);
+        const data = await res.json();
+        if (data?.id) {
+          toast({ title: "🎵 Песня запущена", description: `gen #${data.id} — открываю страницу с авто-обновлением.` });
+          setTimeout(() => navigate(`/track/${data.id}`), 800);
         } else {
-          throw new Error(j?.error || "cover failed");
+          throw new Error(data?.message || data?.error || "generate failed");
         }
       } catch (err: any) {
-        toast({ title: "Не удалось создать кавер", description: err?.message || "ошибка", variant: "destructive" });
+        const msg = err?.message || "ошибка";
+        // apiRequest throws «STATUS: <body>» — пробуем извлечь читаемое
+        let detail = msg;
+        try {
+          const m = msg.match(/^\d+:\s*(.+)$/);
+          if (m) {
+            const parsed = JSON.parse(m[1]);
+            detail = parsed.message || parsed.error || m[1];
+          }
+        } catch {}
+        toast({ title: "Не удалось создать песню", description: detail, variant: "destructive" });
       } finally {
         setLoading(false);
-        setAudioUploading(false);
       }
       return;
     }
