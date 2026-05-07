@@ -46,7 +46,7 @@ export function HelpBuddy({
   align = "end",
   className = "",
   ariaLabel = "Подсказка",
-  emoji = "🧑‍🎤",
+  emoji = "🧑‍💼",
 }: HelpBuddyProps) {
   const s = size === "sm" ? "w-7 h-7 text-sm" : "w-9 h-9 text-base";
   return (
