@@ -275,32 +275,30 @@ router.post("/audio-cover", requireAuth, async (req, res) => {
     voiceType: norm.voiceType,
   } as any).returning().get();
 
-  // ТЗ Eugene 13:36: голос — это запись СМЫСЛА, а не музыкальный референс.
-  // Если есть полноценные lyrics (≥50 chars) — генерируем обычную music, не cover.
-  // Иначе остаётся cover-режим с uploadUrl.
+  // ТЗ Eugene 13:48 «реши кардинально»: следуем точному pattern'у рабочего
+  // /api/music/generate (routes.ts:2028+). Раньше добавлял vocalGender и
+  // instrumental:true — GPTunnel их отвергает. Voice-выбор уже в normalizer
+  // через [Female Vocal] теги в lyric + "Female Vocal..." в tags.
   const hasLyrics = norm.finalLyrics && norm.finalLyrics.length >= 50;
-  const sunoBody: any = hasLyrics
-    ? {
-        // Музыка из текста — то что хотел Eugene: голосом → текст → песня
-        model: "suno",
-        mode: "custom",
-        lyric: norm.finalLyrics.slice(0, 3000),
-        title: (title || "Песня").slice(0, 80),
-      }
-    : {
-        // Fallback: реальный cover на чужой трек (если без lyrics)
-        model: "suno-cover",
-        mode: "basic",
-        uploadUrl: audioInputUrl,
-        audioWeight: typeof audioWeight === "number" ? Math.max(0, Math.min(1, audioWeight)) : 0.7,
-      };
-  if (norm.voiceType === "male" || norm.voiceType === "female") {
-    sunoBody.vocalGender = norm.voiceType === "male" ? "m" : "f";
+  const isInstrumental = norm.voiceType === "instrumental";
+  const sunoBody: any = { model: "suno" };
+
+  if (isInstrumental) {
+    // GPTunnel instrumental flag сломан — кладём подсказку в prompt (basic mode)
+    sunoBody.prompt = `Instrumental, no vocals. ${norm.finalStyle || ""} ${norm.finalPrompt || ""}`.trim().slice(0, 400);
+  } else if (hasLyrics) {
+    // Custom-mode: lyric + tags + title
+    sunoBody.mode = "custom";
+    sunoBody.lyric = norm.finalLyrics.slice(0, 3000);
+    sunoBody.title = (title || "Песня").slice(0, 80);
+    if (norm.finalStyle) sunoBody.tags = norm.finalStyle.slice(0, 200);
+    if (norm.finalPrompt) sunoBody.prompt = norm.finalPrompt.slice(0, 400);
+  } else {
+    // Basic-mode: только prompt
+    sunoBody.prompt = (norm.finalPrompt || norm.finalLyrics || prompt || "Песня").slice(0, 400);
+    if (norm.finalStyle) sunoBody.tags = norm.finalStyle.slice(0, 200);
   }
-  if (norm.voiceType === "instrumental") sunoBody.instrumental = true;
-  if (norm.finalStyle) sunoBody.tags = norm.finalStyle.slice(0, 200);
-  if (norm.finalPrompt) sunoBody.prompt = norm.finalPrompt.slice(0, 400);
-  console.log(`[AUDIO-COVER] gen #${newGen.id} mode=${hasLyrics ? "music-from-lyrics" : "cover-from-upload"} sunoBody=${JSON.stringify({ ...sunoBody, lyric: sunoBody.lyric ? `[${sunoBody.lyric.length}ch]` : undefined }).slice(0, 200)}`);
+  console.log(`[AUDIO-COVER] gen #${newGen.id} voiceType=${norm.voiceType} mode=${sunoBody.mode || "basic"} prompt=${(sunoBody.prompt || "").length}ch lyric=${(sunoBody.lyric || "").length}ch tags="${(sunoBody.tags || "").slice(0, 100)}"`);
 
   let upstream: any = null;
   let upstreamStatus = 0;
@@ -609,22 +607,22 @@ router.post("/audio-cover/:id/regenerate", requireAuth, async (req, res) => {
       voiceType: norm.voiceType,
     } as any).returning().get();
 
+    // Аналогичный фикс для regenerate (тот же pattern что в audio-cover)
     const apiKey = process.env.GPTUNNEL_API_KEY ?? "";
-    const sunoBody: any = {
-      model: "suno-cover",
-      mode: norm.finalLyrics && norm.finalLyrics.length >= 50 ? "custom" : "basic",
-      uploadUrl: upl.publicUrl,
-      audioWeight: typeof meta.audioWeight === "number" ? meta.audioWeight : 0.7,
-    };
-    if (norm.voiceType === "male" || norm.voiceType === "female") {
-      sunoBody.vocalGender = norm.voiceType === "male" ? "m" : "f";
-    }
-    if (norm.voiceType === "instrumental") sunoBody.instrumental = true;
-    if (norm.finalStyle) sunoBody.style = norm.finalStyle.slice(0, 200);
-    if (norm.finalPrompt) sunoBody.prompt = norm.finalPrompt.slice(0, 400);
-    if (sunoBody.mode === "custom") {
+    const hasLyricsRe = norm.finalLyrics && norm.finalLyrics.length >= 50;
+    const isInstrumentalRe = norm.voiceType === "instrumental";
+    const sunoBody: any = { model: "suno" };
+    if (isInstrumentalRe) {
+      sunoBody.prompt = `Instrumental, no vocals. ${norm.finalStyle || ""} ${norm.finalPrompt || ""}`.trim().slice(0, 400);
+    } else if (hasLyricsRe) {
+      sunoBody.mode = "custom";
       sunoBody.lyric = norm.finalLyrics.slice(0, 3000);
-      sunoBody.title = (meta.title || "Кавер").slice(0, 80);
+      sunoBody.title = (meta.title || "Песня").slice(0, 80);
+      if (norm.finalStyle) sunoBody.tags = norm.finalStyle.slice(0, 200);
+      if (norm.finalPrompt) sunoBody.prompt = norm.finalPrompt.slice(0, 400);
+    } else {
+      sunoBody.prompt = (norm.finalPrompt || norm.finalLyrics || "Песня").slice(0, 400);
+      if (norm.finalStyle) sunoBody.tags = norm.finalStyle.slice(0, 200);
     }
 
     let upstream: any = null;
