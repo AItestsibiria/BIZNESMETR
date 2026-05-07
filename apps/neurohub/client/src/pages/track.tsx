@@ -330,6 +330,36 @@ export default function TrackPage() {
           <Button variant="outline" onClick={handleDownload} data-testid="btn-download">
             <Download className="w-4 h-4 mr-2" /> Скачать
           </Button>
+          {/* «Перегенерировать» — для треков-каверов из аудио (ТЗ Eugene 11:55) */}
+          {track.category === "cover" && (
+            <Button
+              variant="outline"
+              className="border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/10"
+              onClick={async () => {
+                try {
+                  const r = await fetch(`/api/gen/audio-cover/${track.id}/regenerate`, {
+                    method: "POST",
+                    headers: {
+                      Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
+                      "Content-Type": "application/json",
+                    },
+                    body: "{}",
+                  });
+                  const j = await r.json();
+                  if (j?.data?.generationId) {
+                    window.location.href = `/#/track/${j.data.generationId}`;
+                  } else {
+                    alert(j?.error || "Регенерация недоступна");
+                  }
+                } catch (err) {
+                  alert(err instanceof Error ? err.message : "ошибка");
+                }
+              }}
+              data-testid="btn-regenerate-cover"
+            >
+              🔄 Перегенерировать
+            </Button>
+          )}
         </div>
 
         {/* Blinking CTA — under "Create similar" on share pages, including non-public tracks */}

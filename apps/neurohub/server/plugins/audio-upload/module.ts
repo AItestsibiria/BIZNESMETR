@@ -289,6 +289,135 @@ router.post("/audio-cover", requireAuth, async (req, res) => {
   });
 });
 
+// POST /api/gen/audio-cover/:id/regenerate
+// «Не нравится результат — перегенерировать» (ТЗ Eugene 2026-05-07 11:55).
+// Берёт исходный gen, читает fromUploadSha из его style-meta, и запускает
+// новую cover-генерацию с теми же параметрами но новым taskId.
+router.post("/audio-cover/:id/regenerate", requireAuth, async (req, res) => {
+  try {
+    const userId = (req as any).userId as number;
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ data: null, error: "invalid id" });
+
+    const oldGen = db.select().from(generations)
+      .where(and(eq(generations.id, id), eq(generations.userId, userId)))
+      .get();
+    if (!oldGen) return res.status(404).json({ data: null, error: "Генерация не найдена или не ваша" });
+
+    let meta: any = {};
+    try { meta = JSON.parse(oldGen.style || "{}"); } catch {}
+    const uploadSha = meta.fromUploadSha;
+    if (!uploadSha) {
+      return res.status(400).json({
+        data: null,
+        error: "Эта генерация не из аудио-кавера. Регенерация доступна только для треков созданных через 🎧 Аудио (uploadSha).",
+      });
+    }
+
+    const upl = db.select().from(audioUploads)
+      .where(and(eq(audioUploads.sha, uploadSha), eq(audioUploads.userId, userId)))
+      .get();
+    if (!upl) return res.status(404).json({ data: null, error: "Исходный файл удалён или не доступен" });
+
+    const u = db.select().from(users).where(eq(users.id, userId)).get();
+    if (!u) return res.status(404).json({ data: null, error: "Пользователь не найден" });
+
+    if ((u.balance ?? 0) < COVER_PRICE_KOPEK) {
+      return res.status(402).json({ data: null, error: `Недостаточно средств. Нужно ${COVER_PRICE_KOPEK / 100} ₽` });
+    }
+    db.update(users).set({ balance: (u.balance ?? 0) - COVER_PRICE_KOPEK }).where(eq(users.id, userId)).run();
+    db.insert(transactions).values({
+      userId, type: "music", amount: -COVER_PRICE_KOPEK,
+      description: `Перегенерация аудио-кавера (re-roll #${id})`,
+    } as any).run();
+
+    const norm = normalizeVocalParams({
+      prompt: oldGen.prompt,
+      style: meta.style,
+      lyrics: undefined,
+      voiceType: (oldGen as any).voiceType,
+      generationId: null,
+    });
+
+    const newGen = db.insert(generations).values({
+      userId, type: "music",
+      prompt: oldGen.prompt,
+      style: JSON.stringify({
+        ...meta,
+        title: (meta.title || "Кавер") + " (re-roll)",
+        rerolledFromGenId: id,
+      }),
+      status: "processing",
+      cost: COVER_PRICE_KOPEK,
+      isPublic: oldGen.isPublic,
+      authorName: oldGen.authorName,
+      voiceType: norm.voiceType,
+    } as any).returning().get();
+
+    const apiKey = process.env.GPTUNNEL_API_KEY ?? "";
+    const sunoBody: any = {
+      model: "suno-cover",
+      mode: norm.finalLyrics && norm.finalLyrics.length >= 50 ? "custom" : "basic",
+      uploadUrl: upl.publicUrl,
+      audioWeight: typeof meta.audioWeight === "number" ? meta.audioWeight : 0.7,
+    };
+    if (norm.voiceType === "male" || norm.voiceType === "female") {
+      sunoBody.vocalGender = norm.voiceType === "male" ? "m" : "f";
+    }
+    if (norm.voiceType === "instrumental") sunoBody.instrumental = true;
+    if (norm.finalStyle) sunoBody.style = norm.finalStyle.slice(0, 200);
+    if (norm.finalPrompt) sunoBody.prompt = norm.finalPrompt.slice(0, 400);
+    if (sunoBody.mode === "custom") {
+      sunoBody.lyric = norm.finalLyrics.slice(0, 3000);
+      sunoBody.title = (meta.title || "Кавер").slice(0, 80);
+    }
+
+    let upstream: any = null;
+    let upstreamStatus = 0;
+    try {
+      const r = await fetch("https://gptunnel.ru/v1/media/create", {
+        method: "POST",
+        headers: { Authorization: apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify(sunoBody),
+        signal: AbortSignal.timeout(20000),
+      });
+      upstreamStatus = r.status;
+      const t = await r.text();
+      try { upstream = JSON.parse(t); } catch { upstream = { raw: t }; }
+    } catch (err) {
+      const e = err instanceof Error ? err.message : String(err);
+      db.update(generations).set({ status: "error", errorReason: `network: ${e}` })
+        .where(eq(generations.id, newGen.id)).run();
+      refundCover(userId, newGen.id, "network");
+      return res.status(502).json({ data: null, error: e });
+    }
+
+    if (upstreamStatus < 200 || upstreamStatus >= 300 || !upstream?.id) {
+      const errMsg = upstream?.message ?? upstream?.error?.message ?? `MuziAi вернул ${upstreamStatus}`;
+      db.update(generations).set({ status: "error", errorReason: String(errMsg).slice(0, 500) })
+        .where(eq(generations.id, newGen.id)).run();
+      refundCover(userId, newGen.id, String(errMsg).slice(0, 80));
+      return res.status(upstreamStatus || 502).json({ data: null, error: errMsg });
+    }
+
+    db.update(generations).set({ taskId: upstream.id })
+      .where(eq(generations.id, newGen.id)).run();
+
+    res.json({
+      data: {
+        generationId: newGen.id,
+        rerolledFromGenId: id,
+        taskId: upstream.id,
+        watchUrl: `/#/track/${newGen.id}`,
+        status: "processing",
+      },
+      error: null,
+    });
+  } catch (err) {
+    res.status(500).json({ data: null, error: err instanceof Error ? err.message : "internal" });
+  }
+});
+
 // GET /api/gen/uploads — мои загрузки (для UI «Мои файлы»).
 router.get("/uploads", requireAuth, (req, res) => {
   const userId = (req as any).userId as number;
