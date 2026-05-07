@@ -296,6 +296,189 @@ const SEED: SeedTemplate[] = [
     recommendedBpm: 100,
     recommendedKey: "A minor",
   },
+
+  // ============================================================
+  // Расширение Sprint 2: 23 новых шаблона по группам
+  // (ТЗ Eugene 2026-05-07 11:11). Каждый — production-ready
+  // с готовой структурой, BPM и стилем.
+  // ============================================================
+
+  // === Группа: celebration (личные праздники) ===
+  { slug: "name-day", name: "Именины", category: "celebration",
+    description: "Тёплая застольная песня к именинам / тезоименитству.",
+    promptTemplate: "Уютная застольная песня на именины {имя}. Тёплые слова, добрые пожелания, лёгкая ностальгия.",
+    style: "warm acoustic, folk pop, gentle vocals, accordion accents",
+    structuralTags: [{tag:"[Intro]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Outro]"}],
+    recommendedBpm: 100, recommendedKey: "G major" },
+
+  { slug: "engagement", name: "Помолвка", category: "celebration",
+    description: "Романтичная песня для объявления помолвки / вечеринки.",
+    promptTemplate: "Романтика, обещание, начало пути вдвоём. Имена: {он} и {она}.",
+    style: "romantic pop ballad, piano, soft strings, female lead",
+    structuralTags: [{tag:"[Intro]"},{tag:"[Verse]"},{tag:"[Pre-Chorus]"},{tag:"[Chorus]"},{tag:"[Bridge]"},{tag:"[Chorus]"},{tag:"[Outro]"}],
+    recommendedBpm: 78, recommendedKey: "C major" },
+
+  { slug: "baby-birth", name: "Рождение ребёнка", category: "celebration",
+    description: "Песня-поздравление для новорождённого и счастливых родителей.",
+    promptTemplate: "Светлая радость, новая жизнь, благословение. Имя малыша: {имя}.",
+    style: "lullaby pop, music box, soft female vocals, gentle harmonies",
+    structuralTags: [{tag:"[Intro]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Outro]"}],
+    recommendedBpm: 82, recommendedKey: "F major" },
+
+  { slug: "senior-jubilee", name: "Юбилей 50/60/70", category: "celebration",
+    description: "Тёплая песня на круглую дату — для старшего поколения.",
+    promptTemplate: "Юбилей {лет} лет. Уважение, благодарность за прожитые годы, тёплые слова детей и внуков. Имя: {имя}.",
+    style: "warm orchestral pop, soft strings, mature male vocal, classic ballad",
+    structuralTags: [{tag:"[Intro]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Bridge]"},{tag:"[Chorus]"},{tag:"[Outro]"}],
+    recommendedBpm: 88, recommendedKey: "D major" },
+
+  // === Группа: holiday (государственные/массовые) ===
+  { slug: "new-year", name: "Новогодняя песня", category: "holiday",
+    description: "Праздничная песня к Новому году — для семьи или корпоратива.",
+    promptTemplate: "Снег, ёлка, бой курантов, ожидание чуда. {личное_посвящение}.",
+    style: "festive pop, sleigh bells, bright synths, cheerful chorus, mixed vocals",
+    structuralTags: [{tag:"[Intro]"},{tag:"[Verse]"},{tag:"[Pre-Chorus]"},{tag:"[Chorus]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Outro]"}],
+    recommendedBpm: 120, recommendedKey: "C major" },
+
+  { slug: "8-march", name: "К 8 марта", category: "holiday",
+    description: "Поздравление женщине / мамам / коллегам к 8 марта.",
+    promptTemplate: "Восхищение красотой, благодарность, весеннее настроение. Адресат: {кому}.",
+    style: "soft romantic pop, acoustic guitar, warm male vocal, spring vibes",
+    structuralTags: [{tag:"[Intro]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Outro]"}],
+    recommendedBpm: 96, recommendedKey: "G major" },
+
+  { slug: "23-feb", name: "К 23 февраля", category: "holiday",
+    description: "Поздравление мужчине / отцу / коллегам-защитникам.",
+    promptTemplate: "Уважение, мужество, честь, благодарность. Адресат: {кому}.",
+    style: "heroic anthem, brass, marching drums, male choir, anthemic",
+    structuralTags: [{tag:"[Intro]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Bridge]"},{tag:"[Chorus]"},{tag:"[Outro]"}],
+    recommendedBpm: 110, recommendedKey: "D minor" },
+
+  { slug: "9-may", name: "9 мая (День Победы)", category: "holiday",
+    description: "Песня памяти и благодарности ветеранам.",
+    promptTemplate: "Гордость, память о подвиге, благодарность поколениям. Семейная история: {ветеран_семьи}.",
+    style: "patriotic ballad, orchestra, choir, solemn male lead, brass",
+    structuralTags: [{tag:"[Intro]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Bridge]"},{tag:"[Chorus]"},{tag:"[Outro]"}],
+    recommendedBpm: 80, recommendedKey: "G minor" },
+
+  { slug: "valentines-day", name: "День Святого Валентина", category: "holiday",
+    description: "Романтичная мини-песня в подарок 14 февраля.",
+    promptTemplate: "Признание, объятия, нежность. {моё_имя} → {твоё_имя}.",
+    style: "romantic acoustic pop, fingerpicking guitar, intimate vocal, soft strings",
+    structuralTags: [{tag:"[Intro]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Outro]"}],
+    recommendedBpm: 72, recommendedKey: "A major" },
+
+  // === Группа: b2b (расширение) ===
+  { slug: "product-launch", name: "Запуск продукта", category: "b2b",
+    description: "Энергичный гимн к запуску нового продукта / релизу.",
+    promptTemplate: "Революция, прорыв, новая эпоха. Продукт: {название}. Преимущества: {USP}.",
+    style: "modern electronic pop, rising synths, four-on-the-floor, anthemic chorus",
+    structuralTags: [{tag:"[Intro]"},{tag:"[Verse]"},{tag:"[Pre-Chorus]"},{tag:"[Chorus]"},{tag:"[Drop]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Outro]"}],
+    recommendedBpm: 128, recommendedKey: "F# minor" },
+
+  { slug: "award-ceremony", name: "Награждение / Premium", category: "b2b",
+    description: "Торжественный фон для церемонии награждения.",
+    promptTemplate: "Триумф, признание, вершина пути. Награждаемый: {имя}. За: {достижение}.",
+    style: "cinematic orchestral, swelling strings, brass fanfare, choral",
+    structuralTags: [{tag:"[Intro]"},{tag:"[Build]"},{tag:"[Climax]"},{tag:"[Outro]"}],
+    recommendedBpm: 90, recommendedKey: "C major" },
+
+  // === Группа: kids (расширение) ===
+  { slug: "kids-fun", name: "Весёлая детская", category: "kids",
+    description: "Озорная песенка для детского праздника / хороводов.",
+    promptTemplate: "Игра, смех, прыжки, дружба. Имена детей: {имена}.",
+    style: "playful kids pop, bright melodies, claps, ukulele, child-like vocals",
+    structuralTags: [{tag:"[Intro]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Outro]"}],
+    recommendedBpm: 130, recommendedKey: "C major" },
+
+  { slug: "kids-birthday", name: "Детский день рождения", category: "kids",
+    description: "Весёлое поздравление ребёнку на праздник — короткая, цепляющая.",
+    promptTemplate: "С днём рождения, {имя}! {лет} лет. Подарки, торт, друзья, шары.",
+    style: "cheerful kids pop, bright synth, claps, female lead, party vibes",
+    structuralTags: [{tag:"[Intro]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Outro]"}],
+    recommendedBpm: 140, recommendedKey: "G major" },
+
+  // === Группа: love (расширение) ===
+  { slug: "proposal-song", name: "Предложение руки и сердца", category: "love",
+    description: "Песня для момента предложения — романтика, обещание.",
+    promptTemplate: "Один вопрос, одна жизнь вдвоём. {он} обращается к {она}.",
+    style: "intimate acoustic ballad, piano, strings swell, male lead, emotional",
+    structuralTags: [{tag:"[Intro]"},{tag:"[Verse]"},{tag:"[Pre-Chorus]"},{tag:"[Chorus]"},{tag:"[Bridge]"},{tag:"[Chorus]"},{tag:"[Outro]"}],
+    recommendedBpm: 70, recommendedKey: "D major" },
+
+  { slug: "long-distance", name: "На расстоянии", category: "love",
+    description: "Песня для пары в долгой разлуке — нежность, ожидание.",
+    promptTemplate: "Километры между нами, но сердце рядом. {имена_пары}.",
+    style: "indie folk, fingerpicking, melancholic vocals, soft drums",
+    structuralTags: [{tag:"[Intro]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Outro]"}],
+    recommendedBpm: 86, recommendedKey: "E minor" },
+
+  { slug: "first-date", name: "Первое свидание", category: "love",
+    description: "Лёгкая, флирт-вайб для подарка после первой встречи.",
+    promptTemplate: "Случайная встреча, первый взгляд, желание увидеть снова. {его_имя} ↔ {её_имя}.",
+    style: "indie pop, jangly guitar, bright drums, mixed vocals, fresh",
+    structuralTags: [{tag:"[Intro]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Outro]"}],
+    recommendedBpm: 110, recommendedKey: "G major" },
+
+  // === Группа: friendship ===
+  { slug: "best-friend", name: "Лучшему другу", category: "friendship",
+    description: "Песня в подарок другу/подруге — благодарность за дружбу.",
+    promptTemplate: "Через годы рядом. Слова дружбы и поддержки. Имя: {друг}.",
+    style: "uplifting acoustic pop, claps, group vocals, sing-along chorus",
+    structuralTags: [{tag:"[Intro]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Bridge]"},{tag:"[Chorus]"},{tag:"[Outro]"}],
+    recommendedBpm: 116, recommendedKey: "D major" },
+
+  { slug: "reunion", name: "Встреча выпускников", category: "friendship",
+    description: "Ностальгическая песня для класса/группы/команды через много лет.",
+    promptTemplate: "Прошло {лет} лет. Старые истории, общие воспоминания. Год выпуска: {год}.",
+    style: "nostalgic indie folk, warm vocals, acoustic guitar, brushed drums",
+    structuralTags: [{tag:"[Intro]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Outro]"}],
+    recommendedBpm: 92, recommendedKey: "C major" },
+
+  // === Группа: memory (расширение) ===
+  { slug: "in-memory-pet", name: "Памяти питомца", category: "memory",
+    description: "Тихая песня в память об ушедшем питомце.",
+    promptTemplate: "Прощай, друг. Имя питомца: {кличка}. Особые воспоминания: {воспоминание}.",
+    style: "quiet piano ballad, soft strings, gentle female vocal, melancholic",
+    structuralTags: [{tag:"[Intro]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Outro]"}],
+    recommendedBpm: 68, recommendedKey: "F minor" },
+
+  // === Группа: ethnic (расширение) ===
+  { slug: "celtic", name: "Кельтская баллада", category: "ethnic",
+    description: "Атмосферная баллада в кельтском духе — для тематических праздников.",
+    promptTemplate: "Туманные холмы, древние истории, путь героя. Тема: {тема}.",
+    style: "celtic folk, fiddle, tin whistle, bodhran, female lead",
+    structuralTags: [{tag:"[Intro]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Instrumental]"},{tag:"[Chorus]"},{tag:"[Outro]"}],
+    recommendedBpm: 96, recommendedKey: "D minor" },
+
+  { slug: "latin", name: "Латиноамериканская", category: "ethnic",
+    description: "Жаркий латино-фьюжн — танцевальное настроение.",
+    promptTemplate: "Танец, страсть, ритм. Адресат / повод: {кому}.",
+    style: "latin pop, salsa percussion, brass, spanish guitar, bilingual hooks",
+    structuralTags: [{tag:"[Intro]"},{tag:"[Verse]"},{tag:"[Pre-Chorus]"},{tag:"[Chorus]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Outro]"}],
+    recommendedBpm: 105, recommendedKey: "A minor" },
+
+  // === Группа: genre-demo (демо стилей) ===
+  { slug: "genre-rock-anthem", name: "Демо: рок-гимн", category: "genre-demo",
+    description: "Образец тяжёлого рок-гимна для проб стиля.",
+    promptTemplate: "Свобода, восстание, энергия толпы. Тема: {тема}.",
+    style: "arena rock, distorted guitars, big drums, anthemic male vocal, power chords",
+    structuralTags: [{tag:"[Intro]"},{tag:"[Verse]"},{tag:"[Pre-Chorus]"},{tag:"[Chorus]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Solo]"},{tag:"[Chorus]"},{tag:"[Outro]"}],
+    recommendedBpm: 130, recommendedKey: "E minor" },
+
+  { slug: "genre-jazz", name: "Демо: джазовая баллада", category: "genre-demo",
+    description: "Лаунж-джаз с тёплым саксофоном и мягким вокалом.",
+    promptTemplate: "Поздний вечер, бокал, неон. Тема: {тема}.",
+    style: "smooth jazz ballad, saxophone, brushed drums, upright bass, sultry female vocal",
+    structuralTags: [{tag:"[Intro]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Verse]"},{tag:"[Chorus]"},{tag:"[Sax Solo]"},{tag:"[Chorus]"},{tag:"[Outro]"}],
+    recommendedBpm: 84, recommendedKey: "Bb major" },
+
+  { slug: "genre-rap", name: "Демо: рэп / hip-hop", category: "genre-demo",
+    description: "Жёсткий рэп для тематической поздравлялки или диссa.",
+    promptTemplate: "Городской ритм, чёткие punchlines. Тема: {тема}. Адресат: {кому}.",
+    style: "modern hip-hop, hard 808 drums, melodic trap, male flow, catchy hook",
+    structuralTags: [{tag:"[Intro]"},{tag:"[Verse]"},{tag:"[Hook]"},{tag:"[Verse]"},{tag:"[Hook]"},{tag:"[Bridge]"},{tag:"[Hook]"},{tag:"[Outro]"}],
+    recommendedBpm: 90, recommendedKey: "G minor" },
 ];
 
 const router = Router();
@@ -340,7 +523,7 @@ router.get("/:slug", (req, res) => {
 const genTemplatesModule: Module = {
   name: "gen-templates",
   version: "0.1.0",
-  description: "Seeds 10 song templates and exposes them at /api/gen-templates.",
+  description: "Seeds 36 song templates по 9 группам (celebration/holiday/b2b/kids/love/friendship/memory/ethnic/genre-demo) и отдаёт их через GET /api/gen-templates.",
   routes: { prefix: "gen-templates", router },
   publishes: [],
   onLoad: async (ctx) => {
