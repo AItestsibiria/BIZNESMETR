@@ -1103,11 +1103,42 @@ router.post("/anthem/revive", requireAdmin, async (_req, res) => {
     }
 
     let pollResult: any = null;
+    let recoveredFromError = false;
+
     if (last.status === "processing" && last.taskId) {
       pollResult = await pollProcessingGenerations();
+    } else if (last.status === "error" && last.taskId) {
+      // ТЗ Eugene 2026-05-07 11:08: «проверь последний запуск по шаблону».
+      // Если gen в error но Suno реально вернул succeeded — recovery.
+      const apiKey = process.env.GPTUNNEL_API_KEY ?? "";
+      if (apiKey) {
+        try {
+          const r = await fetch("https://gptunnel.ru/v1/media/result", {
+            method: "POST",
+            headers: { Authorization: apiKey, "Content-Type": "application/json" },
+            body: JSON.stringify({ task_id: last.taskId }),
+            signal: AbortSignal.timeout(15_000),
+          });
+          if (r.ok) {
+            const data: any = await r.json();
+            const succeeded = Array.isArray(data?.result)
+              ? data.result.find((t: any) => t.status === "succeeded" && t.audio_url)
+              : null;
+            if (succeeded) {
+              db.run(sql`UPDATE generations
+                         SET status='done', result_url=${succeeded.audio_url},
+                             result_data=${JSON.stringify(data)}, error_reason=NULL
+                         WHERE id=${last.id}`);
+              recoveredFromError = true;
+            }
+          }
+        } catch (e) {
+          console.error(`[ANTHEM-REVIVE] recovery poll failed for gen #${last.id}:`, e);
+        }
+      }
     }
 
-    // Re-read после поллинга
+    // Re-read после поллинга/recovery
     const fresh = db.get<{ id: number; status: string; resultUrl: string | null; errorReason: string | null }>(
       sql`SELECT id, status, result_url as resultUrl, error_reason as errorReason
           FROM generations WHERE id = ${last.id}`,
@@ -1124,6 +1155,7 @@ router.post("/anthem/revive", requireAdmin, async (_req, res) => {
         watchUrl: `/#/track/${fresh?.id ?? last.id}`,
         polled: !!pollResult,
         pollResult,
+        recoveredFromError,
       },
       error: null,
     });

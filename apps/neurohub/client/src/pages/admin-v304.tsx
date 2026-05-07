@@ -842,7 +842,12 @@ function AnthemRunner() {
       }
       const status = d.status as string;
       if (status === "done") {
-        toast({ title: "✅ Гимн готов", description: `gen #${d.generationId} — открываю…` });
+        toast({
+          title: d.recoveredFromError ? "🟢 Гимн восстановлен из error" : "✅ Гимн готов",
+          description: d.recoveredFromError
+            ? `gen #${d.generationId} был помечен error по таймауту, но MuziAi реально вернул трек — recovery успешен. Открываю…`
+            : `gen #${d.generationId} — открываю…`,
+        });
         setTimeout(() => navigate(`/track/${d.generationId}`), 800);
       } else if (status === "error") {
         toast({
