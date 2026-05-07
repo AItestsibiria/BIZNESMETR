@@ -667,8 +667,101 @@ function OverviewTab({ toast: _t }: { toast: any }) {
       </Card>
 
       <DebugBatchCard />
+      <YandexAgentCard />
       <ClientErrorsCard />
     </div>
+  );
+}
+
+// YandexAgentCard — управление Yandex Cloud ключами + статус сервисов.
+// ТЗ Eugene 12:42: «агент на dashboard, секретное место для ключа,
+// в первую очередь — перевод аудио в текст».
+function YandexAgentCard() {
+  const [, navigate] = useLocation();
+  const { toast } = useToast();
+  const { data, refetch, isLoading } = useQuery<{ services: Record<string, any> }>({
+    queryKey: ["yandex-status"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/admin/v304/yandex/status");
+      return (await r.json()).data;
+    },
+    refetchInterval: 60_000,
+  });
+  const services = data?.services ?? {};
+  const stt = services.speechkit_stt;
+  const sttReady = stt?.configured && stt?.authProbe?.authValid !== false;
+
+  return (
+    <Card className={`border-${sttReady ? "emerald" : "amber"}-500/30 bg-gradient-to-br from-${sttReady ? "emerald" : "amber"}-500/5 to-transparent`}>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2 justify-between">
+          <span>🤖 Яндекс-агент</span>
+          <div className="flex items-center gap-2">
+            <span className={`text-xs px-2 py-0.5 rounded-full ${sttReady ? "bg-emerald-500/20 text-emerald-200" : "bg-amber-500/20 text-amber-200"}`}>
+              {sttReady ? "✅ STT готов" : "⚠ Нужен ключ"}
+            </span>
+            <Button size="sm" variant="outline" onClick={() => refetch()} disabled={isLoading}>↻</Button>
+          </div>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="text-xs text-muted-foreground">
+          Управление подключением к Yandex Cloud: распознавание речи, синтез, перевод.
+          Ключи хранятся в <code className="text-violet-300">/admin → 🔑 Секреты</code>.
+        </div>
+
+        <div className="space-y-2">
+          {Object.entries(services).map(([key, svc]: [string, any]) => {
+            const color = svc.status === "ready" ? "border-emerald-500/30 bg-emerald-500/5"
+              : svc.status === "planned" ? "border-amber-500/30 bg-amber-500/5"
+              : svc.status === "not_configured" ? "border-rose-500/30 bg-rose-500/5"
+              : "border-white/10 bg-white/5";
+            return (
+              <div key={key} className={`p-2.5 rounded border ${color} text-[11px]`}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-white">{svc.name}</div>
+                    <div className="text-muted-foreground mt-0.5">{svc.pricing ?? ""}</div>
+                    {svc.note && <div className="text-amber-300/80 italic mt-0.5">{svc.note}</div>}
+                    {svc.authProbe && svc.authProbe.httpStatus && (
+                      <div className="text-cyan-300 mt-0.5">probe HTTP {svc.authProbe.httpStatus} · auth {svc.authProbe.authValid ? "✅" : "❌"}</div>
+                    )}
+                    {svc.docs && (
+                      <a href={svc.docs} target="_blank" rel="noopener noreferrer" className="text-cyan-300 hover:underline text-[10px]">{svc.docs}</a>
+                    )}
+                  </div>
+                  <div className="text-[10px] shrink-0">
+                    {svc.status === "ready" && <span className="text-emerald-300">🟢 ready</span>}
+                    {svc.status === "not_configured" && <span className="text-rose-300">🔴 нет ключа</span>}
+                    {svc.status === "planned" && <span className="text-amber-300">⏳ planned</span>}
+                    {svc.status === "not_planned" && <span className="text-muted-foreground">—</span>}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="flex flex-wrap gap-2 pt-2 border-t border-white/10">
+          <Button size="sm" variant="outline" onClick={() => navigate("/admin/v304")} className="text-[11px]">
+            🔑 Перейти в Секреты → ввести YANDEX_SPEECHKIT_API_KEY + YANDEX_FOLDER_ID
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-[11px] border-cyan-500/40 text-cyan-300"
+            onClick={() => {
+              toast({
+                title: "Как получить Yandex ключ",
+                description: "1) console.cloud.yandex.ru → создать сервисный аккаунт. 2) Роль 'ai.speechkit-stt.user'. 3) Создать API-ключ. 4) Folder ID — в правом верхнем углу. 5) /admin → 🔑 Секреты → вставить + Restart.",
+              });
+            }}
+          >
+            ❔ Как получить ключ?
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

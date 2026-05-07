@@ -969,6 +969,65 @@ router.post("/client-errors/clear", requireAdmin, (_req, res) => {
   res.json({ data: { cleared: true }, error: null });
 });
 
+// GET /api/admin/v304/yandex/status — состояние Яндекс-сервисов.
+// ТЗ Eugene 12:42: «агент на dashboard для управления Яндекс-ключом».
+router.get("/yandex/status", requireAdmin, async (_req, res) => {
+  const apiKey = process.env.YANDEX_SPEECHKIT_API_KEY;
+  const folderId = process.env.YANDEX_FOLDER_ID;
+  const services: any = {
+    speechkit_stt: {
+      name: "SpeechKit STT (распознавание речи)",
+      configured: !!apiKey,
+      keyLen: apiKey ? apiKey.length : 0,
+      folderIdSet: !!folderId,
+      pricing: "≈ 0.45 ₽/мин (short audio API)",
+      status: apiKey ? "ready" : "not_configured",
+      docs: "https://yandex.cloud/ru/docs/speechkit/stt/",
+    },
+    speechkit_tts: {
+      name: "SpeechKit TTS (синтез речи)",
+      configured: false,
+      status: "planned",
+      pricing: "≈ 0.40 ₽/1000 символов",
+      note: "Будет добавлено в Sprint 5",
+    },
+    translate: {
+      name: "Yandex Translate",
+      configured: false,
+      status: "planned",
+      pricing: "≈ 400 ₽/млн символов",
+      note: "Опционально для Sprint 6+",
+    },
+    cloudfunctions: {
+      name: "Cloud Functions",
+      configured: false,
+      status: "not_planned",
+      note: "Не используется в архитектуре",
+    },
+  };
+  // Лёгкая live-проверка: если ключ есть, делаем GET к balance-style endpoint
+  // (Yandex не имеет dedicated balance — пробуем малозатратную проверку через
+  // GET headers без body — должен вернуть 400/415, что подтверждает auth ОК)
+  if (apiKey) {
+    try {
+      const r = await fetch("https://stt.api.cloud.yandex.net/speech/v1/stt:recognize?lang=ru-RU", {
+        method: "POST",
+        headers: { Authorization: `Api-Key ${apiKey}` },
+        body: Buffer.from([]),
+        signal: AbortSignal.timeout(5_000),
+      });
+      // Любой ответ кроме 401/403 → ключ принят
+      services.speechkit_stt.authProbe = {
+        httpStatus: r.status,
+        authValid: r.status !== 401 && r.status !== 403,
+      };
+    } catch (e) {
+      services.speechkit_stt.authProbe = { error: e instanceof Error ? e.message : "?" };
+    }
+  }
+  res.json({ data: { services }, error: null });
+});
+
 // POST /api/admin/v304/transcribe-verify
 // Body: { uploadSha: string }
 // Гоняет аудио через ВСЕ STT-провайдеры (Yandex, OpenAI, GPTunnel) и
