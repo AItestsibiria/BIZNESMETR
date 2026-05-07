@@ -398,6 +398,18 @@ try {
     );
     CREATE INDEX IF NOT EXISTS audio_uploads_user_idx ON audio_uploads(user_id, created_at DESC);
   `);
+
+  // Sprint 6 max-channel — расширяем chatbot_sessions для FSM
+  // (Eugene 2026-05-07 12:00). Идемпотентно через PRAGMA-check.
+  try {
+    const cols = sqlite.prepare("PRAGMA table_info(chatbot_sessions)").all() as any[];
+    const has = (n: string) => cols.some((c) => c.name === n);
+    if (!has("max_chat_id")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN max_chat_id TEXT");
+    if (!has("fsm_state")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN fsm_state TEXT");
+    if (!has("fsm_data")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN fsm_data TEXT");
+  } catch (e) {
+    console.error("[MIGRATION] chatbot_sessions FSM columns failed:", e);
+  }
 } catch (e) {
   console.error("[MIGRATION] Error:", e);
 }

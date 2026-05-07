@@ -32,6 +32,7 @@ import agentA1MasterModule from "./plugins/agent-a1-master/module";
 import adminOverviewModule from "./plugins/admin-overview/module";
 import incidentTrackerModule from "./plugins/incident-tracker/module";
 import audioUploadModule from "./plugins/audio-upload/module";
+import maxChannelModule from "./plugins/max-channel/module";
 import * as fs from "node:fs";
 
 const app = express();
@@ -196,6 +197,7 @@ app.post("/api/_client-error", express.json(), (req, res) => {
     { name: "admin-overview", module: adminOverviewModule },
     { name: "incident-tracker", module: incidentTrackerModule },
     { name: "audio-upload", module: audioUploadModule },
+    { name: "max-channel", module: maxChannelModule },
   ];
 
   const validModules: any[] = [];
