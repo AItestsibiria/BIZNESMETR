@@ -69,6 +69,104 @@ function tableCount<T extends { id: any } | { key: any } | { name: any }>(
 
 const router = Router();
 
+// POST /api/_v304/smoke-test  — синтетический end-to-end: эмитит три
+// сигнальных события, ждёт 3 секунды, собирает agent_actions/events
+// которые подписчики породили, возвращает полный отчёт. Не пишет в
+// users/generations/payments.
+router.post("/smoke-test", async (_req, res) => {
+  if (!bootRefs) {
+    return res.status(503).json({ data: null, error: "boot context missing" });
+  }
+  const smokeId = `smoke-${Date.now()}`;
+  const startedAt = new Date().toISOString();
+  // SQLite CURRENT_TIMESTAMP формата 'YYYY-MM-DD HH:MM:SS' плохо сравнивается
+  // с ISO-строкой через >=. Используем id-tracking: запомнить максимум перед
+  // эмитами, фильтровать новые по id > saved.
+  const beforeMaxActionId = db.select({ m: sql<number>`COALESCE(MAX(id), 0)` }).from(agentActions).get()?.m ?? 0;
+  const beforeActionsCount = db.select({ c: sql<number>`count(*)` }).from(agentActions).get()?.c ?? 0;
+  const beforeEventsCount = db.select({ c: sql<number>`count(*)` }).from(events).get()?.c ?? 0;
+
+  await bootRefs.eventBus.emit(
+    "auth.user.registered",
+    { smokeId, userId: 0, email: `${smokeId}@smoke.local`, telegramId: null },
+    "v304-diagnostics-smoke",
+  );
+  await bootRefs.eventBus.emit(
+    "payment.succeeded",
+    { smokeId, userId: 0, invId: -1, amount: 29900 },
+    "v304-diagnostics-smoke",
+  );
+  await bootRefs.eventBus.emit(
+    "generation.completed",
+    { smokeId, userId: 0, genId: -1, type: "music" },
+    "v304-diagnostics-smoke",
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 3000));
+
+  const afterActionsCount = db.select({ c: sql<number>`count(*)` }).from(agentActions).get()?.c ?? 0;
+  const afterEventsCount = db.select({ c: sql<number>`count(*)` }).from(events).get()?.c ?? 0;
+
+  const newActions = db
+    .select({
+      id: agentActions.id,
+      agentName: agentActions.agentName,
+      triggerEvent: agentActions.triggerEvent,
+      actionKind: agentActions.actionKind,
+      status: agentActions.status,
+      executedAt: agentActions.executedAt,
+      error: agentActions.error,
+    })
+    .from(agentActions)
+    .where(sql`${agentActions.id} > ${beforeMaxActionId}`)
+    .orderBy(desc(agentActions.id))
+    .all();
+
+  // events.id — uuid, не сортируется; используем все события за окно
+  // (afterEventsCount - beforeEventsCount) — берём столько последних
+  const eventsAdded = afterEventsCount - beforeEventsCount;
+  const newEvents = db
+    .select({
+      id: events.id,
+      name: events.name,
+      sourceModule: events.sourceModule,
+      handlersCount: events.handlersCount,
+      handlersFailed: events.handlersFailed,
+      occurredAt: events.occurredAt,
+    })
+    .from(events)
+    .orderBy(desc(events.occurredAt))
+    .limit(Math.max(eventsAdded, 1))
+    .all();
+
+  res.json({
+    data: {
+      smokeId,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      eventsAdded: afterEventsCount - beforeEventsCount,
+      actionsAdded: afterActionsCount - beforeActionsCount,
+      eventsByName: newEvents.reduce<Record<string, number>>((acc, e) => {
+        acc[e.name] = (acc[e.name] ?? 0) + 1;
+        return acc;
+      }, {}),
+      actionsByAgent: newActions.reduce<Record<string, { executed: number; failed: number; pending: number }>>(
+        (acc, a) => {
+          if (!acc[a.agentName]) acc[a.agentName] = { executed: 0, failed: 0, pending: 0 };
+          if (a.status === "executed") acc[a.agentName].executed++;
+          else if (a.status === "failed") acc[a.agentName].failed++;
+          else acc[a.agentName].pending++;
+          return acc;
+        },
+        {},
+      ),
+      events: newEvents.slice(0, 30),
+      actions: newActions.slice(0, 30),
+    },
+    error: null,
+  });
+});
+
 router.get("/diagnostics", async (_req, res) => {
   const started = Date.now();
   const report: Record<string, unknown> = {

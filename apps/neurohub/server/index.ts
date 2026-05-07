@@ -28,6 +28,7 @@ import agentReferralModule from "./plugins/agent-referral/module";
 import agentRetentionModule from "./plugins/agent-retention/module";
 import agentContentModule from "./plugins/agent-content/module";
 import agentA1MasterModule from "./plugins/agent-a1-master/module";
+import adminOverviewModule from "./plugins/admin-overview/module";
 
 const app = express();
 // Доверяем фронтальному прокси (Nginx) — иначе req.ip = 127.0.0.1
@@ -136,6 +137,7 @@ app.get("/api/_status", (_req, res) => {
     { name: "agent-retention", module: agentRetentionModule },
     { name: "agent-content", module: agentContentModule },
     { name: "agent-a1-master", module: agentA1MasterModule },
+    { name: "admin-overview", module: adminOverviewModule },
   ];
 
   const validModules: any[] = [];
