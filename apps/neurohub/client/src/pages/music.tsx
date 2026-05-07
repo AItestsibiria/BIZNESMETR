@@ -735,16 +735,16 @@ export default function MusicPage() {
             variant="cyan"
             sections={[
               {
-                icon: <Mic />, color: "text-cyan-300", label: "🎤 Аудио — основной путь",
-                text: <><b>Запишите смысл голосом</b> 20-30 сек: кому, о чём, повод. MuziAi распознает суть, напишет текст песни и сделает кавер. Можно записывать заново, переписывать текст («ReТекст» сколько нужно). <span className="text-cyan-300">299 ₽</span>.</>,
+                icon: <Mic />, color: "text-cyan-300", label: "🎤 Аудио",
+                text: <>Записал голосом — получил песню. Самый быстрый. Качество среднее. <span className="text-cyan-300 font-semibold">299 ₽</span>.</>,
               },
               {
                 icon: <FileText />, color: "text-purple-300", label: "Текст · Простой",
-                text: <>Опишите песню одним предложением — MuziAi сам подберёт стиль, темп и мелодию. Быстро. <span className="text-purple-300">299 ₽</span>.</>,
+                text: <>Описал одной фразой — MuziAi подобрал стиль. Быстро, качество среднее. <span className="text-purple-300 font-semibold">299 ₽</span>.</>,
               },
               {
                 icon: <Settings2 />, color: "text-violet-300", label: "Текст · Расширенный",
-                text: <>Полный контроль: жанр, BPM, настроение, темп, свой текст, мульти-стиль. <b>Самый точный и качественный результат</b> — для тех кто знает чего хочет. <span className="text-violet-300">от 299 ₽ за трек</span>.</>,
+                text: <>Полный контроль: жанр, BPM, темп, текст, мульти-стиль. Самый точный. <span className="text-violet-300 font-semibold">299 ₽ за трек</span>.</>,
               },
             ]}
           >
@@ -914,11 +914,17 @@ export default function MusicPage() {
                     Распознаю голос и пишу текст песни… (15-30 сек)
                   </div>
                 )}
+                {/* Транскрипция — сворачивается когда lyrics готовы (Eugene 13:21) */}
                 {audioTranscript && (
-                  <div className="space-y-2 p-3 rounded-lg border border-cyan-500/30 bg-cyan-500/5">
-                    <Label className="text-xs text-cyan-300">📝 Что я услышал:</Label>
-                    <div className="text-xs italic text-muted-foreground">{audioTranscript}</div>
-                  </div>
+                  <details className="group" open={!audioLyrics}>
+                    <summary className="cursor-pointer list-none p-2.5 rounded-lg border border-cyan-500/20 bg-cyan-500/5 text-[11px] text-cyan-300 flex items-center gap-2 hover:bg-cyan-500/10">
+                      <ChevronDown className="w-3 h-3 transition-transform group-open:rotate-180" />
+                      📝 Что я услышал ({audioTranscript.length} симв.)
+                    </summary>
+                    <div className="mt-2 px-3 py-2 text-xs italic text-muted-foreground leading-relaxed">
+                      {audioTranscript}
+                    </div>
+                  </details>
                 )}
                 {audioSuggestion && (audioSuggestion.genre || audioSuggestion.templateSlug) && (
                   <div className="flex flex-wrap gap-2 text-[10px]">
@@ -928,9 +934,9 @@ export default function MusicPage() {
                   </div>
                 )}
                 {(audioLyrics || audioTranscript) && (
-                  <div className="space-y-2">
+                  <div className="space-y-2 p-4 rounded-2xl border border-cyan-500/40 bg-gradient-to-br from-cyan-500/[0.07] via-purple-500/[0.04] to-transparent shadow-lg shadow-cyan-500/10">
                     <div className="flex items-center justify-between gap-2">
-                      <Label className="text-xs text-muted-foreground">🎵 Текст песни (можно править перед генерацией):</Label>
+                      <Label className="text-sm text-cyan-200 font-semibold">🎵 Текст песни — правьте до запуска:</Label>
                       <Button
                         type="button"
                         variant="outline"
@@ -971,9 +977,9 @@ export default function MusicPage() {
                     <Textarea
                       value={audioLyrics}
                       onChange={(e) => setAudioLyrics(e.target.value)}
-                      rows={6}
+                      rows={10}
                       placeholder="LLM напишет текст из вашего голоса. Если нет — наберите вручную."
-                      className="bg-background/50 border-cyan-500/30"
+                      className="bg-background/60 border-cyan-500/30 text-sm leading-relaxed font-medium resize-y"
                       data-testid="textarea-audio-lyrics"
                     />
                     <input
