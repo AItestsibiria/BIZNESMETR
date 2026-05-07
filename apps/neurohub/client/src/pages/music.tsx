@@ -736,15 +736,15 @@ export default function MusicPage() {
             sections={[
               {
                 icon: <Mic />, color: "text-cyan-300", label: "🎤 Аудио",
-                text: <>Записал голосом — получил песню. Самый быстрый. Качество среднее. <span className="text-cyan-300 font-semibold">299 ₽</span>.</>,
+                text: <>Записал голосом — получил песню. Самый быстрый. Качество среднее.</>,
               },
               {
                 icon: <FileText />, color: "text-purple-300", label: "Текст · Простой",
-                text: <>Описал одной фразой — MuziAi подобрал стиль. Быстро, качество среднее. <span className="text-purple-300 font-semibold">299 ₽</span>.</>,
+                text: <>Описал одной фразой — MuziAi подобрал стиль. Быстро, качество среднее.</>,
               },
               {
                 icon: <Settings2 />, color: "text-violet-300", label: "Текст · Расширенный",
-                text: <>Полный контроль: жанр, BPM, темп, текст, мульти-стиль. Самый точный. <span className="text-violet-300 font-semibold">299 ₽ за трек</span>.</>,
+                text: <>Полный контроль: жанр, BPM, темп, текст, мульти-стиль. Самый точный.</>,
               },
             ]}
           >
@@ -1085,6 +1085,63 @@ export default function MusicPage() {
                         <option value="very fast">Очень быстрый</option>
                       </select>
                     </div>
+                  </div>
+
+                  {/* Multi-style picker — parity с Текст·Расширенный (Eugene 13:23) */}
+                  <div className="space-y-2">
+                    <Label className="text-sm text-muted-foreground">Стили <span className="text-white/40">(можно выбрать несколько — будет N треков)</span></Label>
+                    <div className="flex flex-wrap gap-2">
+                      {styles.map((s) => {
+                        const isChecked = selectedStyles.includes(s.value);
+                        return (
+                          <button
+                            key={s.value}
+                            type="button"
+                            className={`text-xs px-3 py-1.5 rounded-lg border transition-all flex items-center gap-1.5 ${
+                              isChecked
+                                ? "border-cyan-500 bg-cyan-500/20 text-cyan-100 shadow shadow-cyan-500/20"
+                                : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20"
+                            }`}
+                            onClick={() => {
+                              setSelectedStyles((prev) => {
+                                if (prev.includes(s.value)) {
+                                  if (prev.length === 1) return prev;
+                                  return prev.filter((v) => v !== s.value);
+                                }
+                                return [...prev, s.value];
+                              });
+                            }}
+                          >
+                            <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center text-[9px] ${
+                              isChecked ? "border-cyan-400 bg-cyan-500/30 text-cyan-100" : "border-white/20 bg-white/5"
+                            }`}>
+                              {isChecked ? "✓" : ""}
+                            </span>
+                            {s.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {selectedStyles.length > 1 && (
+                      <div className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                        <span className="text-amber-400 text-xs">⚡</span>
+                        <p className="text-xs text-amber-300/90">
+                          Будет создано <strong>{selectedStyles.length}</strong> кавера в разных стилях. Стоимость: <strong>{selectedStyles.length * 299} ₽</strong>
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Custom title — parity с Текст·Расширенный */}
+                  <div className="space-y-2">
+                    <Label className="text-sm text-muted-foreground">Название трека <span className="text-white/40">(опционально)</span></Label>
+                    <Input
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      placeholder={audioSuggestion?.title || "Например: Мой гимн"}
+                      className="bg-background/50 border-white/10 input-glow"
+                      data-testid="input-audio-title"
+                    />
                   </div>
                 </>
               )}
