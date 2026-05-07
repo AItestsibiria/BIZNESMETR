@@ -434,6 +434,57 @@ router.get("/leads", requireAdmin, (req, res) => {
   res.json({ data: all, error: null });
 });
 
+// GET /api/admin/v304/gptunnel-balance
+// Реальный баланс из gptunnel.ru/v1/balance + парсинг + cache.
+let _balanceCache: { fetchedAt: number; balance: number; currency: string; raw: any } | null = null;
+const BALANCE_CACHE_TTL = 30_000; // 30 сек чтобы не задалбывать GPTunnel
+
+router.get("/gptunnel-balance", requireAdmin, async (req, res) => {
+  const force = String(req.query.force ?? "") === "1";
+  const apiKey = process.env.GPTUNNEL_API_KEY ?? "";
+  if (!apiKey) {
+    return res.json({ data: { available: false, reason: "GPTUNNEL_API_KEY missing" }, error: null });
+  }
+
+  if (!force && _balanceCache && Date.now() - _balanceCache.fetchedAt < BALANCE_CACHE_TTL) {
+    return res.json({ data: { available: true, cached: true, ...stripRaw(_balanceCache) }, error: null });
+  }
+
+  try {
+    const r = await fetch("https://gptunnel.ru/v1/balance", {
+      method: "GET",
+      headers: { Authorization: apiKey },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) {
+      return res.json({
+        data: { available: false, httpStatus: r.status, reason: r.status === 401 ? "ключ невалиден" : `HTTP ${r.status}` },
+        error: null,
+      });
+    }
+    const raw = await r.json().catch(() => null);
+    // Разные провайдеры могут отдавать поля по-разному —
+    // вытаскиваем максимально мягко.
+    const balance = Number(raw?.balance ?? raw?.amount ?? raw?.value ?? raw?.balance_rub ?? 0);
+    const currency = String(raw?.currency ?? raw?.currencyCode ?? "RUB");
+    _balanceCache = { fetchedAt: Date.now(), balance, currency, raw };
+    res.json({ data: { available: true, cached: false, balance, currency, fetchedAt: new Date(_balanceCache.fetchedAt).toISOString(), raw }, error: null });
+  } catch (err) {
+    res.json({
+      data: { available: false, error: err instanceof Error ? err.message : String(err) },
+      error: null,
+    });
+  }
+});
+
+function stripRaw(c: { fetchedAt: number; balance: number; currency: string; raw: any }) {
+  return {
+    balance: c.balance,
+    currency: c.currency,
+    fetchedAt: new Date(c.fetchedAt).toISOString(),
+  };
+}
+
 // =============================================================
 // Secrets — безопасная ротация через UI.
 // Значения НИКОГДА не попадают в audit log (только факт изменения).

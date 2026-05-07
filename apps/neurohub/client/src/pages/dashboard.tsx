@@ -12,7 +12,7 @@ import {
   ArrowUpRight, ArrowDownLeft, Clock, CheckCircle2, XCircle, Loader2, Download, Globe, Lock, RotateCcw,
   Share2, Users, Copy, TrendingUp, Eye, BarChart3, Pencil, ExternalLink, Trash2, ArchiveRestore,
   Play, Pause, SkipForward, SkipBack, RefreshCcw, ChevronDown, Repeat, Repeat1, Ticket, FastForward,
-  AlertCircle,
+  AlertCircle, Wallet,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect, useRef } from "react";
@@ -355,18 +355,40 @@ function AdminStats() {
   }, [showVisitors, visitorPeriod]);
   const [viewingUser, setViewingUser] = useState<any>(null);
   const [viewingGens, setViewingGens] = useState<any[]>([]);
+  const [gptBalance, setGptBalance] = useState<{ available: boolean; balance?: number; currency?: string; reason?: string } | null>(null);
 
   useEffect(() => {
     apiRequest("GET", "/api/admin/stats").then(r => r.json()).then(setStats).catch(() => {});
+    // Подтягиваем баланс GPTunnel — endpoint admin-only.
+    const fetchBalance = () =>
+      apiRequest("GET", "/api/admin/v304/gptunnel-balance")
+        .then(r => r.json())
+        .then(j => setGptBalance(j.data))
+        .catch(() => {});
+    fetchBalance();
+    const t = setInterval(fetchBalance, 60_000);
+    return () => clearInterval(t);
   }, []);
 
   if (!stats) return <Skeleton className="h-24 mb-8" />;
 
+  const balLow = gptBalance?.available && gptBalance.balance != null && gptBalance.balance < 750;
   const cards = [
     { icon: Users, label: "Авторы", value: stats.authors.total, sub: `+${stats.authors.today} сегодня, +${stats.authors.thisWeek} за неделю`, color: "text-purple-400", onClick: () => setShowAuthors(!showAuthors) },
     { icon: Eye, label: "Посетители", value: stats.visitors.today, sub: `${stats.visitors.total} всего IP`, color: "text-blue-400", onClick: () => setShowVisitors(!showVisitors) },
     { icon: Music, label: "Генерации", value: stats.generations.total, sub: `+${stats.generations.today} сегодня`, color: "text-green-400" },
     { icon: TrendingUp, label: "Выручка", value: `${stats.revenue} ₽`, sub: "оплаченные заказы", color: "text-yellow-400" },
+    {
+      icon: Wallet,
+      label: "GPTunnel баланс",
+      value: gptBalance?.available
+        ? `${(gptBalance.balance ?? 0).toLocaleString("ru-RU")} ${gptBalance.currency ?? "₽"}`
+        : "—",
+      sub: gptBalance?.available
+        ? (balLow ? "⚠ ниже 750 — пополни" : "лимит ОК")
+        : (gptBalance?.reason ?? "недоступен"),
+      color: !gptBalance?.available ? "text-rose-400" : balLow ? "text-amber-400" : "text-emerald-400",
+    },
   ];
 
   return (
@@ -375,7 +397,7 @@ function AdminStats() {
         <BarChart3 className="w-4 h-4 text-purple-400" />
         Статистика
       </h2>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         {cards.map((c, i) => (
           <div
             key={i}

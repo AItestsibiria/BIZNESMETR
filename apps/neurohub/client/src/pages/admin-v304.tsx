@@ -168,6 +168,68 @@ function statusColor(s: string): string {
   }
 }
 
+// Карточка баланса GPTunnel — auto-refresh каждые 60 сек, ручной refresh
+// через кнопку 'Обновить'. Показывает большим шрифтом текущий баланс.
+function GptunnelBalanceCard() {
+  const { data, refetch, isLoading } = useQuery({
+    queryKey: ["gptunnel-balance"],
+    queryFn: () => fetcher<any>("/api/admin/v304/gptunnel-balance"),
+    refetchInterval: 60000,
+  });
+
+  const refresh = useMutation({
+    mutationFn: async () => {
+      const r = await apiRequest("GET", "/api/admin/v304/gptunnel-balance?force=1");
+      return r.json();
+    },
+    onSuccess: () => refetch(),
+  });
+
+  const available = data?.available !== false;
+  const balance = data?.balance ?? null;
+  const currency = data?.currency ?? "₽";
+  const reason = data?.reason ?? data?.error ?? null;
+  const low = balance != null && balance < 750;
+  const cls = !available
+    ? "from-rose-600/20 via-rose-600/5 to-transparent border-rose-500/40"
+    : low
+      ? "from-amber-500/25 via-amber-500/5 to-transparent border-amber-500/50"
+      : "from-emerald-500/20 via-emerald-500/5 to-transparent border-emerald-500/40";
+
+  return (
+    <Card className={`bg-gradient-to-br ${cls}`}>
+      <CardContent className="p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div>
+          <div className="text-xs uppercase text-muted-foreground tracking-wider">GPTunnel баланс</div>
+          {available ? (
+            <div className="text-4xl font-bold mt-1">
+              {balance != null ? balance.toLocaleString("ru-RU") : "—"}
+              <span className="text-base font-normal text-muted-foreground ml-1">{currency}</span>
+              {low && <Badge variant="destructive" className="ml-3 align-middle">⚠ ниже 750</Badge>}
+            </div>
+          ) : (
+            <div className="text-base text-rose-500 mt-1">⚠ недоступен: {reason ?? "?"}</div>
+          )}
+          {data?.fetchedAt && (
+            <div className="text-[10px] text-muted-foreground mt-1">
+              {data.cached ? "из кэша · " : ""}
+              обновлено {new Date(data.fetchedAt).toLocaleTimeString("ru-RU")}
+            </div>
+          )}
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => refresh.mutate()}
+          disabled={refresh.isPending || isLoading}
+        >
+          {refresh.isPending ? "Обновляю…" : "🔄 Обновить"}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 function StatBox({ label, value, color }: { label: string; value: number; color: string }) {
   return (
     <div className="rounded-md border bg-background/40 backdrop-blur px-3 py-2 min-w-[60px]">
@@ -308,6 +370,8 @@ function OverviewTab({ toast: _t }: { toast: any }) {
           </CardContent>
         </Card>
       )}
+
+      <GptunnelBalanceCard />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <BigStat label="События / 24ч" value={data.events.total} color="emerald" />
