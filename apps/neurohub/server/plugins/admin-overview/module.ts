@@ -34,17 +34,46 @@ import type { Module } from "../../core";
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "egnovoselov@gmail.com";
 
+// v51 хранит auth-token в Bearer-header → проверяет через таблицу sessions
+// (token, user_id). Эта функция повторяет authMiddleware из routes.ts:263-318
+// без импорта (роутс монолит, импортировать опасно).
+function getUserIdFromRequest(req: any): number | null {
+  const authHeader = req.headers?.authorization;
+  let token: string | undefined;
+  if (typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
+    token = authHeader.slice(7);
+  } else if (typeof req.query?.token === "string") {
+    token = req.query.token;
+  }
+  if (!token) return null;
+  try {
+    const row = db.get<{ userId: number }>(
+      sql`SELECT user_id as userId FROM sessions WHERE token = ${token} LIMIT 1`,
+    );
+    return row?.userId ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function requireAdmin(req: any, res: any, next: any): void {
-  const userId = req?.session?.passport?.user ?? req?.session?.userId;
+  const userId = getUserIdFromRequest(req);
   if (!userId) {
     res.status(401).json({ data: null, error: "unauthorized" });
     return;
   }
   const u = db.select().from(users).where(eq(users.id, userId)).get();
-  if (!u || u.email !== ADMIN_EMAIL) {
+  if (!u) {
+    res.status(401).json({ data: null, error: "user not found" });
+    return;
+  }
+  if (u.email !== ADMIN_EMAIL) {
     res.status(403).json({ data: null, error: "forbidden" });
     return;
   }
+  // Прокидываем userId дальше — used by recordEdit().
+  (req as any).userId = userId;
+  (req as any).adminUser = u;
   next();
 }
 
@@ -59,13 +88,13 @@ function recordEdit(
   after: unknown,
   restoredFromAuditId?: number,
 ): number {
-  const userId = req?.session?.passport?.user ?? req?.session?.userId ?? null;
-  const u = userId ? db.select().from(users).where(eq(users.id, userId)).get() : null;
+  const userId = (req as any).userId ?? null;
+  const adminEmail = (req as any).adminUser?.email ?? null;
   const inserted = db
     .insert(adminAuditLog)
     .values({
       adminUserId: userId,
-      adminEmail: u?.email ?? null,
+      adminEmail,
       action,
       entity,
       entityKey,

@@ -114,6 +114,13 @@ try {
       last_visit TEXT DEFAULT CURRENT_TIMESTAMP,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
+
+    -- v51 sessions: Bearer auth token storage (created on-the-fly by routes.ts;
+    -- but we explicitly include it so a fresh data.db boots cleanly).
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL
+    );
   `);
 } catch (e) {
   console.error("[BOOTSTRAP] Error creating core tables:", e);
