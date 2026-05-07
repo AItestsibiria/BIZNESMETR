@@ -952,6 +952,78 @@ router.post("/generations/:id/reassign", requireAdmin, (req, res) => {
   }
 });
 
+// POST /api/admin/v304/generations/debug-batch
+// Body: { ids: number[] }
+// Возвращает: для каждого id — DB-запись + свежий ответ Suno /v1/media/result
+// + классифицированную причину. Use case: батч-диагностика подряд упавших
+// генераций, чтобы за один запрос увидеть закономерность (sensitive content,
+// invalid key, low balance и т.д.).
+router.post("/generations/debug-batch", requireAdmin, async (req, res) => {
+  try {
+    const idsRaw = req.body?.ids;
+    const ids: number[] = Array.isArray(idsRaw)
+      ? idsRaw.map((v: any) => Number(v)).filter((n: number) => Number.isFinite(n))
+      : [];
+    if (ids.length === 0 || ids.length > 50) {
+      return res.status(400).json({ data: null, error: "ids: array of 1..50 generation IDs" });
+    }
+    const apiKey = process.env.GPTUNNEL_API_KEY ?? "";
+
+    const out: any[] = [];
+    for (const id of ids) {
+      const gen = db.select().from(generations).where(eq(generations.id, id)).get();
+      if (!gen) { out.push({ id, exists: false }); continue; }
+
+      const baseInfo = {
+        id, exists: true,
+        status: gen.status,
+        taskId: gen.taskId,
+        errorReason: gen.errorReason,
+        prompt: (gen.prompt || "").slice(0, 80),
+        templateSlug: (gen as any).templateSlug,
+        voiceType: (gen as any).voiceType,
+        userId: gen.userId,
+        cost: gen.cost,
+        createdAt: gen.createdAt,
+      };
+
+      if (!apiKey || !gen.taskId) {
+        out.push({ ...baseInfo, sunoFresh: null, note: !apiKey ? "GPTUNNEL_API_KEY missing" : "no taskId" });
+        continue;
+      }
+
+      try {
+        const r = await fetch("https://gptunnel.ru/v1/media/result", {
+          method: "POST",
+          headers: { Authorization: apiKey, "Content-Type": "application/json" },
+          body: JSON.stringify({ task_id: gen.taskId }),
+          signal: AbortSignal.timeout(10000),
+        });
+        const text = await r.text();
+        let suno: any;
+        try { suno = JSON.parse(text); } catch { suno = { raw: text }; }
+        out.push({
+          ...baseInfo,
+          sunoFreshStatus: r.status,
+          sunoFresh: {
+            status: suno?.status,
+            code: suno?.code,
+            message: suno?.message ?? suno?.error?.message,
+            resultCount: Array.isArray(suno?.result) ? suno.result.length : null,
+            firstTrackStatus: Array.isArray(suno?.result) ? suno.result[0]?.status : null,
+            firstAudio: Array.isArray(suno?.result) ? suno.result[0]?.audio_url ? "present" : null : null,
+          },
+        });
+      } catch (e) {
+        out.push({ ...baseInfo, sunoFresh: null, sunoFreshError: e instanceof Error ? e.message : String(e) });
+      }
+    }
+    res.json({ data: { count: out.length, items: out }, error: null });
+  } catch (err) {
+    res.status(500).json({ data: null, error: err instanceof Error ? err.message : "internal" });
+  }
+});
+
 // POST /api/admin/v304/anthem/revive
 // One-click «Реанимировать последний гимн»: находит последний gen с
 // templateSlug='v304-anthem', форсит pollProcessingGenerations и
