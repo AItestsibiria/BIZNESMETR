@@ -355,7 +355,7 @@ function AdminStats() {
   }, [showVisitors, visitorPeriod]);
   const [viewingUser, setViewingUser] = useState<any>(null);
   const [viewingGens, setViewingGens] = useState<any[]>([]);
-  const [gptBalance, setGptBalance] = useState<{ available: boolean; balance?: number; currency?: string; reason?: string } | null>(null);
+  const [gptBalance, setGptBalance] = useState<{ available: boolean; balance?: number; currency?: string; reason?: string; suno?: { estimatedTracks: number; pricePerTrack: number } } | null>(null);
 
   useEffect(() => {
     apiRequest("GET", "/api/admin/stats").then(r => r.json()).then(setStats).catch(() => {});
@@ -385,7 +385,9 @@ function AdminStats() {
         ? `${(gptBalance.balance ?? 0).toLocaleString("ru-RU")} ${gptBalance.currency ?? "₽"}`
         : "—",
       sub: gptBalance?.available
-        ? (balLow ? "⚠ ниже 750 — пополни" : "лимит ОК")
+        ? (gptBalance.suno?.estimatedTracks != null
+            ? `🎵 Suno ≈ ${gptBalance.suno.estimatedTracks.toLocaleString("ru-RU")} треков${balLow ? " · ⚠ ниже 750" : ""}`
+            : (balLow ? "⚠ ниже 750 — пополни" : "лимит ОК"))
         : (gptBalance?.reason ?? "недоступен"),
       color: !gptBalance?.available ? "text-rose-400" : balLow ? "text-amber-400" : "text-emerald-400",
     },

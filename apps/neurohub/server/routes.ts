@@ -1361,8 +1361,21 @@ function createNew(){
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
     res.setHeader("Pragma", "no-cache");
     const gen = db.select().from(generations).where(eq(generations.id, parseInt(req.params.id))).get();
-    if (!gen || gen.status !== "done" || !gen.resultUrl) {
+    if (!gen) {
       res.status(404).json({ message: "Трек не найден" });
+      return;
+    }
+    // Возвращаем 200 со статусом для processing/error — клиент покажет
+    // прогресс / причину вместо «не найден» и продолжит опрос.
+    if (gen.status !== "done" || !gen.resultUrl) {
+      res.json({
+        id: gen.id,
+        status: gen.status, // "processing" | "error" | "pending" | ...
+        errorReason: gen.errorReason || null,
+        prompt: gen.displayTitle || gen.prompt,
+        createdAt: gen.createdAt,
+        taskId: gen.taskId || null,
+      });
       return;
     }
     // Track info is accessible by ID (used by share pages, track page)
@@ -1404,6 +1417,7 @@ function createNew(){
     } catch {}
     res.json({
       id: gen.id,
+      status: "done",
       type: gen.type,
       prompt: gen.displayTitle || gen.prompt,
       audioUrl: `/api/stream/${gen.id}`,

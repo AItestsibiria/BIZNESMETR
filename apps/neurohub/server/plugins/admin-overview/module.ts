@@ -439,6 +439,12 @@ router.get("/leads", requireAdmin, (req, res) => {
 let _balanceCache: { fetchedAt: number; balance: number; currency: string; raw: any } | null = null;
 const BALANCE_CACHE_TTL = 30_000; // 30 сек чтобы не задалбывать GPTunnel
 
+// SUNO_TRACK_COST — расчётная стоимость одного трека Suno в рублях у GPTunnel.
+// На GPTunnel «реальный» баланс — это рубли в кошельке, а Suno-модель не
+// имеет отдельного эндпоинта баланса. Поэтому расчёт: tracks = floor(balance/cost).
+// Конфигурируется env (SUNO_TRACK_COST=8), default 8₽ исходя из текущего тарифа.
+const SUNO_TRACK_COST = Number(process.env.SUNO_TRACK_COST ?? "8") || 8;
+
 router.get("/gptunnel-balance", requireAdmin, async (req, res) => {
   const force = String(req.query.force ?? "") === "1";
   const apiKey = process.env.GPTUNNEL_API_KEY ?? "";
@@ -447,7 +453,15 @@ router.get("/gptunnel-balance", requireAdmin, async (req, res) => {
   }
 
   if (!force && _balanceCache && Date.now() - _balanceCache.fetchedAt < BALANCE_CACHE_TTL) {
-    return res.json({ data: { available: true, cached: true, ...stripRaw(_balanceCache) }, error: null });
+    return res.json({
+      data: {
+        available: true,
+        cached: true,
+        ...stripRaw(_balanceCache),
+        suno: sunoEstimate(_balanceCache.balance),
+      },
+      error: null,
+    });
   }
 
   try {
@@ -468,7 +482,18 @@ router.get("/gptunnel-balance", requireAdmin, async (req, res) => {
     const balance = Number(raw?.balance ?? raw?.amount ?? raw?.value ?? raw?.balance_rub ?? 0);
     const currency = String(raw?.currency ?? raw?.currencyCode ?? "RUB");
     _balanceCache = { fetchedAt: Date.now(), balance, currency, raw };
-    res.json({ data: { available: true, cached: false, balance, currency, fetchedAt: new Date(_balanceCache.fetchedAt).toISOString(), raw }, error: null });
+    res.json({
+      data: {
+        available: true,
+        cached: false,
+        balance,
+        currency,
+        fetchedAt: new Date(_balanceCache.fetchedAt).toISOString(),
+        raw,
+        suno: sunoEstimate(balance),
+      },
+      error: null,
+    });
   } catch (err) {
     res.json({
       data: { available: false, error: err instanceof Error ? err.message : String(err) },
@@ -476,6 +501,14 @@ router.get("/gptunnel-balance", requireAdmin, async (req, res) => {
     });
   }
 });
+
+function sunoEstimate(balance: number) {
+  return {
+    pricePerTrack: SUNO_TRACK_COST,
+    estimatedTracks: Math.max(0, Math.floor(balance / SUNO_TRACK_COST)),
+    note: "Расчёт на основе SUNO_TRACK_COST (env). У GPTunnel единый кошелёк — отдельного эндпоинта баланса Suno нет.",
+  };
+}
 
 function stripRaw(c: { fetchedAt: number; balance: number; currency: string; raw: any }) {
   return {
@@ -852,6 +885,86 @@ router.post("/generate-anthem", requireAdmin, async (req, res) => {
   }
 });
 
+// =============================================================
+// pollProcessingGenerations — каждую минуту скан 'processing' и
+// апдейт до 'done'/'error'. Закрывает класс багов когда client'у не
+// доступен polling (admin-launched anthem, inline-агенты, дашборд).
+// Логика — упрощённая копия /api/music/status/:taskId без рефанда.
+// =============================================================
+async function pollProcessingGenerations(): Promise<{ scanned: number; done: number; failed: number }> {
+  const apiKey = process.env.GPTUNNEL_API_KEY ?? "";
+  if (!apiKey) return { scanned: 0, done: 0, failed: 0 };
+
+  // Только последние 30 минут — старше = тухляк, помечаем ошибкой.
+  const cutoff = new Date(Date.now() - 30 * 60_000).toISOString();
+  const rows = db.all<{ id: number; taskId: string; createdAt: string }>(
+    sql`SELECT id, task_id as taskId, created_at as createdAt
+        FROM generations
+        WHERE status = 'processing' AND task_id IS NOT NULL AND task_id != ''`,
+  );
+
+  let done = 0;
+  let failed = 0;
+  for (const row of rows) {
+    // Тухлые processing > 30 мин — закрываем как timeout.
+    if (row.createdAt < cutoff) {
+      db.run(sql`UPDATE generations SET status='error', error_reason='Suno timeout > 30 min'
+                 WHERE id=${row.id}`);
+      failed += 1;
+      continue;
+    }
+
+    try {
+      const r = await fetch("https://gptunnel.ru/v1/media/result", {
+        method: "POST",
+        headers: { Authorization: apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify({ task_id: row.taskId }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!r.ok) continue; // оставляем processing — на следующей итерации повтор
+
+      const data: any = await r.json().catch(() => null);
+      if (!data) continue;
+
+      const succeeded = Array.isArray(data.result)
+        ? data.result.find((t: any) => t.status === "succeeded" && t.audio_url)
+        : null;
+      const isDone = data.status === "done" || !!succeeded;
+
+      if (isDone && succeeded) {
+        db.run(sql`UPDATE generations
+                   SET status='done',
+                       result_url=${succeeded.audio_url},
+                       result_data=${JSON.stringify(data)}
+                   WHERE id=${row.id}`);
+        done += 1;
+      } else if (data.status === "error" || data.status === "failed") {
+        const reason = String(
+          data.message ?? data.error?.message ?? `Suno status=${data.status}`,
+        ).slice(0, 500);
+        db.run(sql`UPDATE generations
+                   SET status='error', error_reason=${reason}, result_data=${JSON.stringify(data)}
+                   WHERE id=${row.id}`);
+        failed += 1;
+      }
+      // иначе — всё ещё в processing у Suno, ждём
+    } catch {
+      // network — повторим на следующей минуте
+    }
+  }
+
+  return { scanned: rows.length, done, failed };
+}
+
+router.post("/poll-now", requireAdmin, async (_req, res) => {
+  try {
+    const result = await pollProcessingGenerations();
+    res.json({ data: result, error: null });
+  } catch (err) {
+    res.status(500).json({ data: null, error: err instanceof Error ? err.message : "internal" });
+  }
+});
+
 router.post("/secrets/restart", requireAdmin, (_req, res) => {
   try {
     scheduleRestart();
@@ -969,8 +1082,22 @@ const adminOverviewModule: Module = {
   description: "Sprint 7 — GET /api/admin/v304/overview, read-only dashboard data.",
   routes: { prefix: "admin/v304", router },
   publishes: [],
+  jobs: [
+    // Поллим Suno-генерации в processing каждую минуту → переводим в done/error.
+    // Закрывает кейсы admin-launched anthem где у клиента нет авторизованного polling.
+    {
+      name: "anthem-poller",
+      schedule: "every_minute",
+      handler: async () => {
+        const r = await pollProcessingGenerations();
+        if (r.done > 0 || r.failed > 0) {
+          console.log(`\x1b[32m[ANTHEM-POLL]\x1b[0m scanned=${r.scanned} done=${r.done} failed=${r.failed}`);
+        }
+      },
+    },
+  ],
   onLoad: async (ctx) => {
-    ctx.logger.info("admin-overview online — GET /api/admin/v304/overview");
+    ctx.logger.info("admin-overview online — GET /api/admin/v304/overview + every_minute poller");
   },
   healthCheck: () => ({ status: "ok" }),
 };

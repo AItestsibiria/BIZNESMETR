@@ -189,6 +189,8 @@ function GptunnelBalanceCard() {
   const balance = data?.balance ?? null;
   const currency = data?.currency ?? "₽";
   const reason = data?.reason ?? data?.error ?? null;
+  const sunoTracks = data?.suno?.estimatedTracks ?? null;
+  const sunoPrice = data?.suno?.pricePerTrack ?? null;
   const low = balance != null && balance < 750;
   const cls = !available
     ? "from-rose-600/20 via-rose-600/5 to-transparent border-rose-500/40"
@@ -199,14 +201,28 @@ function GptunnelBalanceCard() {
   return (
     <Card className={`bg-gradient-to-br ${cls}`}>
       <CardContent className="p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-        <div>
+        <div className="flex-1 min-w-0">
           <div className="text-xs uppercase text-muted-foreground tracking-wider">GPTunnel баланс</div>
           {available ? (
-            <div className="text-4xl font-bold mt-1">
-              {balance != null ? balance.toLocaleString("ru-RU") : "—"}
-              <span className="text-base font-normal text-muted-foreground ml-1">{currency}</span>
-              {low && <Badge variant="destructive" className="ml-3 align-middle">⚠ ниже 750</Badge>}
-            </div>
+            <>
+              <div className="text-4xl font-bold mt-1">
+                {balance != null ? balance.toLocaleString("ru-RU") : "—"}
+                <span className="text-base font-normal text-muted-foreground ml-1">{currency}</span>
+                {low && <Badge variant="destructive" className="ml-3 align-middle">⚠ ниже 750</Badge>}
+              </div>
+              {sunoTracks != null && (
+                <div className="mt-2 flex items-center gap-2 text-sm">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/30">
+                    🎵 Suno: ≈ <b>{sunoTracks.toLocaleString("ru-RU")}</b> треков
+                  </span>
+                  {sunoPrice != null && (
+                    <span className="text-[10px] text-muted-foreground">
+                      по {sunoPrice}₽/трек
+                    </span>
+                  )}
+                </div>
+              )}
+            </>
           ) : (
             <div className="text-base text-rose-500 mt-1">⚠ недоступен: {reason ?? "?"}</div>
           )}

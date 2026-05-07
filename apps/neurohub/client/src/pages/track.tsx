@@ -11,6 +11,8 @@ import {
 
 interface TrackData {
   id: number;
+  status?: string; // "done" | "processing" | "error" | "pending"
+  errorReason?: string | null;
   type: string;
   prompt: string;
   audioUrl: string;
@@ -33,6 +35,7 @@ export default function TrackPage() {
   const [track, setTrack] = useState<TrackData | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [pending, setPending] = useState<{ status: string; errorReason?: string | null; prompt?: string } | null>(null);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -41,11 +44,41 @@ export default function TrackPage() {
 
   useEffect(() => {
     if (!id) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const fetchOnce = async () => {
+      try {
+        const r = await fetch(`/api/track/${id}`);
+        if (!r.ok) {
+          if (!cancelled) { setNotFound(true); setLoading(false); }
+          return;
+        }
+        const d = await r.json();
+        if (cancelled) return;
+        if (d.status === "done" || d.audioUrl) {
+          setTrack(d as TrackData);
+          setPending(null);
+          setLoading(false);
+        } else {
+          setPending({ status: d.status || "processing", errorReason: d.errorReason, prompt: d.prompt });
+          setLoading(false);
+          // авто-опрос каждые 5 сек пока processing
+          if (d.status === "processing" || d.status === "pending") {
+            timer = setTimeout(fetchOnce, 5000);
+          }
+        }
+      } catch {
+        if (!cancelled) { setNotFound(true); setLoading(false); }
+      }
+    };
+
     setLoading(true);
-    fetch(`/api/track/${id}`)
-      .then(r => { if (!r.ok) throw new Error("404"); return r.json(); })
-      .then((d: TrackData) => { setTrack(d); setLoading(false); })
-      .catch(() => { setNotFound(true); setLoading(false); });
+    fetchOnce();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [id]);
 
   useEffect(() => {
@@ -140,6 +173,42 @@ export default function TrackPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background text-foreground">
         <div className="animate-pulse text-muted-foreground">Загрузка…</div>
+      </div>
+    );
+  }
+  if (pending) {
+    if (pending.status === "error") {
+      return (
+        <div className="min-h-screen flex flex-col items-center justify-center bg-background text-foreground p-6 text-center gap-4">
+          <Music className="w-16 h-16 text-rose-400" />
+          <h1 className="text-2xl font-semibold">Генерация не удалась</h1>
+          {pending.prompt && <p className="text-sm text-muted-foreground">{pending.prompt}</p>}
+          {pending.errorReason && (
+            <p className="text-sm text-rose-300/90 max-w-md p-3 rounded-lg bg-rose-500/10 border border-rose-500/30">
+              {pending.errorReason}
+            </p>
+          )}
+          <Link href="/"><Button variant="outline"><ArrowLeft className="w-4 h-4 mr-2" />На главную</Button></Link>
+        </div>
+      );
+    }
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-background text-foreground p-6 text-center gap-4">
+        <div className="relative">
+          <Music className="w-16 h-16 text-violet-400 animate-pulse" />
+          <Sparkles className="w-6 h-6 text-amber-300 absolute -top-1 -right-1 animate-spin" style={{ animationDuration: "3s" }} />
+        </div>
+        <h1 className="text-2xl font-semibold">Suno работает над треком…</h1>
+        {pending.prompt && <p className="text-sm text-muted-foreground max-w-sm">{pending.prompt}</p>}
+        <p className="text-xs text-muted-foreground/70 max-w-sm">
+          Обычно занимает 1–2 минуты. Страница обновится автоматически — не закрывайте.
+        </p>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => window.location.reload()}>
+            Обновить сейчас
+          </Button>
+          <Link href="/"><Button variant="ghost"><ArrowLeft className="w-4 h-4 mr-2" />На главную</Button></Link>
+        </div>
       </div>
     );
   }
