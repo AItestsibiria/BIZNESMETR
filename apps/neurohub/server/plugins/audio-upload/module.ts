@@ -13,6 +13,7 @@ import multer from "multer";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
+import * as childProc from "node:child_process";
 import { eq, sql, and } from "drizzle-orm";
 import { db } from "../../storage";
 import { audioUploads, generations, users, transactions } from "@shared/schema";
@@ -119,10 +120,42 @@ router.post("/upload", requireAuth, upload.single("audio"), async (req, res) => 
 
   const userDir = path.join(UPLOADS_DIR, String(userId));
   try { fs.mkdirSync(userDir, { recursive: true }); } catch {}
-  const filename = `${sha}.${ext}`;
+  // ТЗ Eugene 13:31 «invalid» от Suno — webm не принимается. Конвертируем
+  // в mp3 при upload через ffmpeg чтобы Suno cover-endpoint принимал URL.
+  let finalExt = ext;
+  let finalMime = file.mimetype;
+  let finalBuffer = file.buffer;
+  const needsConvert = ext !== "mp3" && ext !== "wav";
+  if (needsConvert) {
+    const tmpIn = path.join(userDir, `_tmp-${sha}.${ext}`);
+    const tmpOut = path.join(userDir, `_tmp-${sha}.mp3`);
+    try {
+      fs.writeFileSync(tmpIn, file.buffer);
+      await new Promise<void>((resolve, reject) => {
+        const child = childProc.exec(
+          `ffmpeg -y -i "${tmpIn}" -vn -c:a libmp3lame -b:a 128k -ac 2 -ar 44100 "${tmpOut}"`,
+          { timeout: 60_000 },
+          (err) => err ? reject(err) : resolve(),
+        );
+        child.on("error", reject);
+      });
+      finalBuffer = fs.readFileSync(tmpOut);
+      finalExt = "mp3";
+      finalMime = "audio/mpeg";
+      try { fs.unlinkSync(tmpIn); } catch {}
+      try { fs.unlinkSync(tmpOut); } catch {}
+    } catch (e) {
+      console.error(`[UPLOAD] ffmpeg convert failed for ${sha}:`, e);
+      try { fs.unlinkSync(tmpIn); } catch {}
+      try { fs.unlinkSync(tmpOut); } catch {}
+      // Падение конвертации — шлём оригинал. Suno может не принять, но
+      // дадим хотя бы сохранить запись для отладки.
+    }
+  }
+  const filename = `${sha}.${finalExt}`;
   const storagePath = path.join(userDir, filename);
   try {
-    fs.writeFileSync(storagePath, file.buffer);
+    fs.writeFileSync(storagePath, finalBuffer);
   } catch (err) {
     return res.status(500).json({ data: null, error: `Не удалось сохранить файл: ${err instanceof Error ? err.message : "io"}` });
   }
@@ -135,7 +168,7 @@ router.post("/upload", requireAuth, upload.single("audio"), async (req, res) => 
   const inserted = db.insert(audioUploads).values({
     userId, sha,
     filenameOriginal: file.originalname.slice(0, 200),
-    ext, sizeBytes: file.size, mime: file.mimetype,
+    ext: finalExt, sizeBytes: finalBuffer.length, mime: finalMime,
     storagePath, publicUrl,
     lastUsedAt: new Date().toISOString(),
   }).returning().get();
@@ -143,7 +176,9 @@ router.post("/upload", requireAuth, upload.single("audio"), async (req, res) => 
   res.json({
     data: {
       id: inserted.id, sha, uploadUrl: publicUrl,
-      size: file.size, mime: file.mimetype, idempotent: false,
+      size: finalBuffer.length, mime: finalMime, ext: finalExt,
+      converted: needsConvert && finalExt === "mp3",
+      idempotent: false,
     },
     error: null,
   });
