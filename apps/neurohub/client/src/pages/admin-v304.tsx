@@ -677,15 +677,60 @@ function AnthemRunner() {
       });
     },
   });
+
+  const revive = useMutation({
+    mutationFn: async () => {
+      const r = await apiRequest("POST", "/api/admin/v304/anthem/revive", {});
+      return r.json();
+    },
+    onSuccess: (j) => {
+      const d = j.data;
+      if (!d?.found) {
+        toast({ title: "Гимны ещё не запускались", description: "Сначала нажми 🎵 Запустить гимн" });
+        return;
+      }
+      const status = d.status as string;
+      if (status === "done") {
+        toast({ title: "✅ Гимн готов", description: `gen #${d.generationId} — открываю…` });
+        setTimeout(() => navigate(`/track/${d.generationId}`), 800);
+      } else if (status === "error") {
+        toast({
+          title: "❌ Гимн упал в error",
+          description: d.errorReason || "Suno вернул ошибку. Запусти новый.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "⏳ Suno ещё работает",
+          description: `gen #${d.generationId} в processing — открываю страницу с авто-опросом.`,
+        });
+        setTimeout(() => navigate(`/track/${d.generationId}`), 800);
+      }
+    },
+    onError: (e: Error) => {
+      toast({ title: "Не удалось проверить", description: e.message, variant: "destructive" });
+    },
+  });
+
   return (
-    <Button
-      size="lg"
-      onClick={() => run.mutate()}
-      disabled={run.isPending}
-      className="bg-violet-600 hover:bg-violet-700"
-    >
-      {run.isPending ? "Отправляю…" : "🎵 Запустить гимн"}
-    </Button>
+    <div className="flex flex-wrap gap-2">
+      <Button
+        size="lg"
+        onClick={() => run.mutate()}
+        disabled={run.isPending}
+        className="bg-violet-600 hover:bg-violet-700"
+      >
+        {run.isPending ? "Отправляю…" : "🎵 Запустить гимн"}
+      </Button>
+      <Button
+        size="lg"
+        variant="outline"
+        onClick={() => revive.mutate()}
+        disabled={revive.isPending}
+      >
+        {revive.isPending ? "Опрашиваю Suno…" : "🚑 Реанимировать последний"}
+      </Button>
+    </div>
   );
 }
 

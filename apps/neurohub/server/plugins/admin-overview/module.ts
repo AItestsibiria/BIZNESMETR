@@ -965,6 +965,53 @@ router.post("/poll-now", requireAdmin, async (_req, res) => {
   }
 });
 
+// POST /api/admin/v304/anthem/revive
+// One-click «Реанимировать последний гимн»: находит последний gen с
+// templateSlug='v304-anthem', форсит pollProcessingGenerations и
+// возвращает текущий статус + watchUrl. Используется кнопкой в /admin.
+router.post("/anthem/revive", requireAdmin, async (_req, res) => {
+  try {
+    const last = db.get<{ id: number; status: string; taskId: string | null; resultUrl: string | null; errorReason: string | null; createdAt: string }>(
+      sql`SELECT id, status, task_id as taskId, result_url as resultUrl, error_reason as errorReason, created_at as createdAt
+          FROM generations
+          WHERE template_slug = 'v304-anthem'
+          ORDER BY id DESC
+          LIMIT 1`,
+    );
+    if (!last) {
+      return res.json({ data: { found: false, message: "Гимны ещё не запускались" }, error: null });
+    }
+
+    let pollResult: any = null;
+    if (last.status === "processing" && last.taskId) {
+      pollResult = await pollProcessingGenerations();
+    }
+
+    // Re-read после поллинга
+    const fresh = db.get<{ id: number; status: string; resultUrl: string | null; errorReason: string | null }>(
+      sql`SELECT id, status, result_url as resultUrl, error_reason as errorReason
+          FROM generations WHERE id = ${last.id}`,
+    );
+
+    res.json({
+      data: {
+        found: true,
+        generationId: fresh?.id ?? last.id,
+        status: fresh?.status ?? last.status,
+        resultUrl: fresh?.resultUrl ?? null,
+        errorReason: fresh?.errorReason ?? null,
+        createdAt: last.createdAt,
+        watchUrl: `/#/track/${fresh?.id ?? last.id}`,
+        polled: !!pollResult,
+        pollResult,
+      },
+      error: null,
+    });
+  } catch (err) {
+    res.status(500).json({ data: null, error: err instanceof Error ? err.message : "internal" });
+  }
+});
+
 router.post("/secrets/restart", requireAdmin, (_req, res) => {
   try {
     scheduleRestart();
