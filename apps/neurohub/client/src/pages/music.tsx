@@ -15,7 +15,8 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { InlineAuth } from "@/components/inline-auth";
-import { Music, Loader2, Download, Play, Pause, Volume2, Copy, Check, RefreshCcw, ChevronDown, Sparkles, Sliders, Mic, FileText, Settings2 } from "lucide-react";
+import { Music, Loader2, Download, Play, Pause, Volume2, Copy, Check, RefreshCcw, ChevronDown, Sparkles, Sliders, Mic, FileText, Settings2, Info } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
 
 const styles = [
@@ -666,7 +667,7 @@ export default function MusicPage() {
 
         {/* Mode Toggle — 3 режима. Аудио слева, синий, с микрофоном+эквалайзером.
             Затем «Текст Простой» / «Текст Расширенный» (ТЗ Eugene 2026-05-07). */}
-        <div className="mb-6">
+        <div className="mb-6 flex items-start justify-between gap-3 flex-wrap">
           <Tabs value={mode} onValueChange={(v) => setMode(v as any)}>
             <TabsList className="bg-white/5 border border-white/10 h-auto p-1 gap-1">
               <TabsTrigger
@@ -715,6 +716,67 @@ export default function MusicPage() {
             .animate-eq-bar2 { animation: eq-bar2 1.1s ease-in-out infinite; }
             .animate-eq-bar3 { animation: eq-bar3 0.7s ease-in-out infinite; }
           `}</style>
+
+          {/* Info-кнопка справа — описание режимов для нового пользователя */}
+          <Popover>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="w-9 h-9 flex items-center justify-center rounded-full border border-white/10 bg-white/5 hover:bg-white/10 hover:border-cyan-500/40 transition-colors text-cyan-300 self-center"
+                aria-label="Что значат режимы?"
+                data-testid="btn-modes-info"
+              >
+                <Info className="w-4 h-4" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent
+              align="end"
+              className="w-[320px] sm:w-[380px] bg-background/95 backdrop-blur border border-white/10 p-4 space-y-3 text-sm"
+            >
+              <div className="font-semibold text-white text-base">Какой режим выбрать?</div>
+
+              <div className="flex gap-2.5">
+                <Mic className="w-5 h-5 text-cyan-300 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-medium text-cyan-300">Аудио</div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Загрузите свой mp3 (свой голос, мелодия, чужая песня) — Suno
+                    сделает <b>кавер</b> в нужном стиле и голосе. Длина до 8 мин,
+                    20 MB. <span className="text-cyan-300">299 ₽</span>.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-2.5">
+                <FileText className="w-5 h-5 text-purple-300 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-medium text-purple-300">Текст · Простой</div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Опишите песню одним предложением — Suno сама подберёт стиль,
+                    темп и мелодию. Самый быстрый способ.{" "}
+                    <span className="text-purple-300">299 ₽</span>.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-2.5">
+                <Settings2 className="w-5 h-5 text-violet-300 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-medium text-violet-300">Текст · Расширенный</div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Полный контроль: жанр, BPM, настроение, темп, свой текст
+                    песни, мульти-стиль. Для опытных — когда хочешь точный
+                    результат. <span className="text-violet-300">от 299 ₽ за трек</span>.
+                  </p>
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-white/10 text-[10px] text-muted-foreground/70">
+                Голос (мужской / женский / дуэт / инструментал) выбирается в
+                любом режиме отдельно.
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
 
         {/* Аудио-режим — sub-tabs Простой/Расширенный */}
