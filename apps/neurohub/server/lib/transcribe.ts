@@ -43,7 +43,14 @@ function convertToOggOpus(input: Buffer, mime: string): Promise<Buffer | null> {
       return;
     }
     const tmpDir = os.tmpdir();
-    const inExt = mime.includes("webm") ? "webm" : mime.includes("mp4") ? "m4a" : mime.includes("wav") ? "wav" : "bin";
+    // ТЗ Eugene 13:45: mp3 (audio/mpeg) был «bin» → ffmpeg не распознавал.
+    const inExt =
+      mime.includes("webm") ? "webm" :
+      mime.includes("mp4") || mime.includes("m4a") ? "m4a" :
+      mime.includes("wav") ? "wav" :
+      mime.includes("mpeg") || mime.includes("mp3") ? "mp3" :
+      mime.includes("ogg") || mime.includes("opus") ? "ogg" :
+      "bin";
     const inFile = path.join(tmpDir, `stt-${Date.now()}-${Math.random().toString(36).slice(2)}.${inExt}`);
     const outFile = inFile.replace(/\.\w+$/, ".ogg");
     try { fs.writeFileSync(inFile, input); } catch { resolve(null); return; }
