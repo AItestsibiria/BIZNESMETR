@@ -12,6 +12,14 @@ export { EventBus } from "./eventBus";
 export { FeatureFlags } from "./featureFlags";
 export { ModuleRegistry } from "./moduleRegistry";
 export { createLogger } from "./logger";
+
+// Global registry holder — позволяет плагинам обращаться к братьям-плагинам
+// (через registry.list() + healthCheck()) без знания глобального state.
+import type { ModuleRegistry as MR } from "./moduleRegistry";
+let _globalRegistry: MR | null = null;
+export const setGlobalRegistry = (r: MR): void => { _globalRegistry = r; };
+export const getGlobalRegistry = (): MR | null => _globalRegistry;
+
 export type {
   BootContext,
   BusEvent,

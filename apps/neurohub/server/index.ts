@@ -2,7 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
-import { EventBus, FeatureFlags, ModuleRegistry, createLogger } from "./core";
+import { EventBus, FeatureFlags, ModuleRegistry, createLogger, setGlobalRegistry } from "./core";
 // Static imports below — esbuild inlines them into dist/index.cjs.
 // Если эти строки превратить в переменно-параметризованные await import(),
 // esbuild не сможет статически разрешить пути и плагины останутся
@@ -157,6 +157,7 @@ app.get("/api/_status", (_req, res) => {
     const eventBus = new EventBus();
     const featureFlags = new FeatureFlags();
     const registry = new ModuleRegistry();
+    setGlobalRegistry(registry);
     registry.register(validModules);
     await registry.start({ app, eventBus, featureFlags, logger: bootLogger });
     v304Boot.registryStarted = true;

@@ -52,6 +52,10 @@ export class ModuleRegistry {
     return [...this.modules];
   }
 
+  isLoaded(name: string): boolean {
+    return this.loaded.has(name);
+  }
+
   private async load(m: Module, ctx: BootContext): Promise<void> {
     if (m.migrations?.length) {
       for (const mig of m.migrations) {

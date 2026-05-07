@@ -18,6 +18,8 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
+import { Progress } from "@/components/ui/progress";
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell } from "recharts";
 
 type Overview = {
   timestamp: string;
@@ -126,91 +128,296 @@ export default function AdminV304Page() {
 }
 
 // ============================================================
-// Overview tab
+// Overview tab — красивый dashboard с health-check всех служб
 // ============================================================
-function OverviewTab({ toast }: { toast: any }) {
-  const { data, isLoading, error } = useQuery({
+type HealthCheck = {
+  timestamp: string;
+  overall: "ok" | "degraded" | "down";
+  summary: {
+    plugins_total: number;
+    plugins_ok: number;
+    plugins_degraded: number;
+    plugins_down: number;
+    plugins_unknown: number;
+  };
+  plugins: Array<{
+    name: string;
+    version: string;
+    status: "ok" | "degraded" | "down" | "unknown";
+    durationMs: number;
+    details?: Record<string, unknown>;
+    error?: string;
+  }>;
+  services: Array<{
+    name: string;
+    status: "ok" | "degraded" | "down" | "skipped";
+    details?: Record<string, unknown>;
+    error?: string;
+  }>;
+};
+
+function statusColor(s: string): string {
+  switch (s) {
+    case "ok": return "bg-emerald-500";
+    case "degraded": return "bg-amber-500";
+    case "down": return "bg-rose-600";
+    case "skipped": return "bg-slate-500";
+    case "unknown": return "bg-slate-400";
+    default: return "bg-slate-300";
+  }
+}
+
+function StatBox({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div className="rounded-md border bg-background/40 backdrop-blur px-3 py-2 min-w-[60px]">
+      <div className={`text-2xl font-bold ${color}`}>{value}</div>
+      <div className="text-[10px] uppercase text-muted-foreground">{label}</div>
+    </div>
+  );
+}
+
+function BigStat({ label, value, color, hint }: { label: string; value: number | string; color: string; hint?: string }) {
+  const colorClass = ({
+    emerald: "from-emerald-500/15 to-transparent border-emerald-500/30",
+    indigo: "from-indigo-500/15 to-transparent border-indigo-500/30",
+    violet: "from-violet-500/15 to-transparent border-violet-500/30",
+    amber: "from-amber-500/15 to-transparent border-amber-500/30",
+  } as Record<string, string>)[color] ?? "";
+  return (
+    <div className={`rounded-xl border p-4 bg-gradient-to-br ${colorClass}`}>
+      <div className="text-3xl font-bold">{value}</div>
+      <div className="text-xs uppercase text-muted-foreground">{label}</div>
+      {hint && <div className="text-[10px] text-muted-foreground mt-1">{hint}</div>}
+    </div>
+  );
+}
+
+function OverviewTab({ toast: _t }: { toast: any }) {
+  const overview = useQuery({
     queryKey: ["admin-overview"],
     queryFn: () => fetcher<Overview>("/api/admin/v304/overview"),
     refetchInterval: 30000,
   });
+  const health = useQuery({
+    queryKey: ["v304-health-check-all"],
+    queryFn: () => fetcher<HealthCheck>("/api/_v304/health-check-all"),
+    refetchInterval: 60000,
+  });
 
-  if (isLoading) return <div>Загрузка…</div>;
-  if (error) return <div className="text-red-500">Ошибка: {(error as Error).message}</div>;
+  if (overview.isLoading || health.isLoading) {
+    return <div className="p-8 text-center text-muted-foreground">Загрузка дашборда…</div>;
+  }
+  if (overview.error) return <div className="text-rose-500">Overview error: {(overview.error as Error).message}</div>;
+
+  const data = overview.data;
+  const hc = health.data;
   if (!data) return null;
 
+  const overall = hc?.overall ?? "unknown";
+  const heroBg =
+    overall === "ok"
+      ? "from-emerald-500/15 via-emerald-500/5 to-transparent"
+      : overall === "degraded"
+        ? "from-amber-500/15 via-amber-500/5 to-transparent"
+        : overall === "down"
+          ? "from-rose-600/20 via-rose-600/10 to-transparent"
+          : "from-slate-500/10 via-transparent to-transparent";
+  const heroPulse = overall === "ok" ? "bg-emerald-500" : overall === "degraded" ? "bg-amber-500" : overall === "down" ? "bg-rose-600" : "bg-slate-500";
+  const overallText = overall === "ok" ? "OK" : overall === "degraded" ? "DEGRADED" : overall === "down" ? "DOWN" : "UNKNOWN";
+
+  const eventsChart = data.events.breakdown.slice(0, 8).map((e) => ({ name: e.name.slice(-22), count: e.count }));
+
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-      <Card>
-        <CardHeader><CardTitle>Плагины</CardTitle></CardHeader>
-        <CardContent>
-          <div className="text-3xl font-bold">{data.plugins.active}/{data.plugins.total}</div>
-          <div className="text-sm text-muted-foreground">
-            Failed: {data.plugins.failed}
-          </div>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader><CardTitle>События за 24ч</CardTitle></CardHeader>
-        <CardContent>
-          <div className="text-3xl font-bold">{data.events.total}</div>
-          <div className="text-xs mt-2 space-y-1 max-h-32 overflow-auto">
-            {data.events.breakdown.slice(0, 8).map((e) => (
-              <div key={e.name} className="flex justify-between">
-                <span className="truncate">{e.name}</span>
-                <span className="font-mono">{e.count}</span>
+    <div className="space-y-6">
+      <div className={`rounded-2xl border bg-gradient-to-br ${heroBg} p-6 sm:p-8`}>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="relative">
+              <div className={`w-4 h-4 rounded-full ${heroPulse} animate-pulse`} />
+              <div className={`absolute inset-0 w-4 h-4 rounded-full ${heroPulse} animate-ping opacity-40`} />
+            </div>
+            <div>
+              <div className="text-2xl sm:text-3xl font-bold">
+                v304 platform: <span className={
+                  overall === "ok" ? "text-emerald-500"
+                  : overall === "degraded" ? "text-amber-500"
+                  : overall === "down" ? "text-rose-500"
+                  : "text-slate-500"
+                }>{overallText}</span>
               </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader><CardTitle>Лиды</CardTitle></CardHeader>
-        <CardContent>
-          <div className="text-3xl font-bold">{data.leads.total}</div>
-          <div className="text-xs mt-2 space-y-1">
-            {Object.entries(data.leads.byStatus).map(([s, c]) => (
-              <div key={s} className="flex justify-between">
-                <span>{s}</span>
-                <span className="font-mono">{c}</span>
+              <div className="text-xs text-muted-foreground">
+                {hc?.timestamp ? new Date(hc.timestamp).toLocaleString("ru-RU") : "—"}
               </div>
-            ))}
+            </div>
           </div>
-        </CardContent>
-      </Card>
-      <Card className="lg:col-span-2">
-        <CardHeader><CardTitle>Агенты (24ч)</CardTitle></CardHeader>
-        <CardContent>
-          <table className="w-full text-sm">
-            <thead><tr className="text-left text-xs text-muted-foreground">
-              <th>Агент</th><th>OK</th><th>Failed</th><th>Pending</th>
-            </tr></thead>
-            <tbody>
-              {Object.entries(data.agents).map(([n, s]) => (
-                <tr key={n}>
-                  <td className="py-1">{n}</td>
-                  <td>{s.executed}</td>
-                  <td className={s.failed > 0 ? "text-red-500" : ""}>{s.failed}</td>
-                  <td>{s.pending}</td>
-                </tr>
+          <div className="grid grid-cols-4 gap-3 text-center">
+            <StatBox label="OK" value={hc?.summary.plugins_ok ?? 0} color="text-emerald-500" />
+            <StatBox label="Degraded" value={hc?.summary.plugins_degraded ?? 0} color="text-amber-500" />
+            <StatBox label="Down" value={hc?.summary.plugins_down ?? 0} color="text-rose-500" />
+            <StatBox label="Total" value={hc?.summary.plugins_total ?? 0} color="text-foreground" />
+          </div>
+        </div>
+      </div>
+
+      {hc && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Инфраструктурные сервисы</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-3">
+              {hc.services.map((s) => (
+                <div key={s.name} className="flex items-center gap-2 rounded-lg border px-3 py-2">
+                  <div className={`w-2.5 h-2.5 rounded-full ${statusColor(s.status)}`} />
+                  <div>
+                    <div className="font-medium uppercase text-xs">{s.name}</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {s.details && Object.keys(s.details).length > 0
+                        ? Object.entries(s.details).slice(0, 2).map(([k, v]) => `${k}=${v}`).join(", ")
+                        : s.error?.slice(0, 50) ?? s.status.toUpperCase()}
+                    </div>
+                  </div>
+                </div>
               ))}
-              {Object.keys(data.agents).length === 0 && (
-                <tr><td colSpan={4} className="text-muted-foreground py-2">Нет действий за 24ч</td></tr>
-              )}
-            </tbody>
-          </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {hc && (
+        <Card>
+          <CardHeader className="pb-2 flex-row items-center justify-between">
+            <CardTitle className="text-base">Плагины · {hc.plugins.length} модулей</CardTitle>
+            <Badge variant="outline">{hc.summary.plugins_ok}/{hc.summary.plugins_total} OK</Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {hc.plugins.map((p) => (
+                <div key={p.name} className="flex items-center justify-between rounded-md border px-3 py-2 text-sm">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className={`w-2 h-2 rounded-full ${statusColor(p.status)} shrink-0`} />
+                    <span className="font-mono text-xs truncate" title={p.name}>{p.name}</span>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground shrink-0 ml-2">
+                    {p.durationMs}ms
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <BigStat label="События / 24ч" value={data.events.total} color="emerald" />
+        <BigStat label="Лиды всего" value={data.leads.total} color="indigo" />
+        <BigStat label="Шаблоны" value={data.templates.top.length} color="violet" hint="(топ-5)" />
+        <BigStat label="Плагины" value={`${data.plugins.active}/${data.plugins.total}`} color="amber" hint={`failed: ${data.plugins.failed}`} />
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Топ событий за 24ч</CardTitle>
+        </CardHeader>
+        <CardContent style={{ height: 220 }}>
+          {eventsChart.length === 0 ? (
+            <div className="text-muted-foreground text-sm py-6 text-center">Событий пока нет</div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={eventsChart} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-15} textAnchor="end" height={60} />
+                <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+                <Tooltip cursor={{ fill: "rgba(0,0,0,0.05)" }} />
+                <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                  {eventsChart.map((_, i) => (
+                    <Cell key={i} fill={`hsl(${(160 + i * 30) % 360}, 70%, 50%)`} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </CardContent>
       </Card>
-      <Card>
-        <CardHeader><CardTitle>Свежие генерации</CardTitle></CardHeader>
-        <CardContent>
-          <div className="text-xs space-y-1 max-h-40 overflow-auto">
-            {data.generations.recent.slice(0, 10).map((g) => (
-              <div key={g.id} className="flex justify-between">
-                <span>#{g.id} {g.type}</span>
-                <Badge variant={g.status === "done" ? "default" : "outline"}>{g.status}</Badge>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Агенты · 24ч</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {Object.keys(data.agents).length === 0 ? (
+              <div className="text-muted-foreground text-sm py-6 text-center">Агенты пока не активны</div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead className="text-xs text-muted-foreground">
+                  <tr><th className="text-left">Агент</th><th>OK</th><th>Failed</th><th>Pending</th></tr>
+                </thead>
+                <tbody>
+                  {Object.entries(data.agents).map(([name, s]) => (
+                    <tr key={name} className="border-t">
+                      <td className="py-1.5 font-mono text-xs">{name}</td>
+                      <td className="text-center text-emerald-500">{s.executed}</td>
+                      <td className={`text-center ${s.failed > 0 ? "text-rose-500 font-bold" : ""}`}>{s.failed}</td>
+                      <td className="text-center text-amber-500">{s.pending}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Лиды по статусу</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {data.leads.total === 0 ? (
+              <div className="text-muted-foreground text-sm py-6 text-center">Лидов пока нет</div>
+            ) : (
+              <div className="space-y-2">
+                {Object.entries(data.leads.byStatus).map(([s, c]) => {
+                  const pct = Math.round((c / data.leads.total) * 100);
+                  return (
+                    <div key={s}>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="capitalize">{s}</span>
+                        <span className="font-mono">{c} <span className="text-muted-foreground">({pct}%)</span></span>
+                      </div>
+                      <Progress value={pct} className="h-2" />
+                    </div>
+                  );
+                })}
               </div>
-            ))}
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Последние генерации</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-xs space-y-1.5">
+            {data.generations.recent.length === 0 ? (
+              <div className="text-muted-foreground py-3 text-center">Генераций пока нет</div>
+            ) : (
+              data.generations.recent.slice(0, 12).map((g) => (
+                <div key={g.id} className="flex items-center justify-between rounded border px-2 py-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs">#{g.id}</span>
+                    <Badge variant="outline" className="text-[10px]">{g.type}</Badge>
+                  </div>
+                  <Badge
+                    variant={g.status === "done" ? "default" : g.status === "error" ? "destructive" : "outline"}
+                    className="text-[10px]"
+                  >
+                    {g.status}
+                  </Badge>
+                </div>
+              ))
+            )}
           </div>
         </CardContent>
       </Card>

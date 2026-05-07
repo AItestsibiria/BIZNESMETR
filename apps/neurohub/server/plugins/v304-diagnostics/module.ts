@@ -22,6 +22,7 @@ import {
   genTemplates,
 } from "@shared/schema";
 import type { BootContext, Module } from "../../core";
+import { getGlobalRegistry } from "../../core";
 
 interface TableStat {
   name: string;
@@ -162,6 +163,163 @@ router.post("/smoke-test", async (_req, res) => {
       ),
       events: newEvents.slice(0, 30),
       actions: newActions.slice(0, 30),
+    },
+    error: null,
+  });
+});
+
+// Live health-check всех загруженных плагинов через registry.list().
+// Каждый плагин может определить healthCheck() — мы дёргаем все, обёрнутые
+// в try/catch, и возвращаем агрегат.
+router.get("/health-check-all", async (_req, res) => {
+  const registry = getGlobalRegistry();
+  if (!registry) {
+    return res.status(503).json({ data: null, error: "registry not ready" });
+  }
+
+  const modules = registry.list();
+  const results: Array<{
+    name: string;
+    version: string;
+    status: "ok" | "degraded" | "down" | "unknown";
+    details?: Record<string, unknown>;
+    error?: string;
+    durationMs: number;
+  }> = [];
+
+  for (const m of modules) {
+    const start = Date.now();
+    try {
+      if (typeof m.healthCheck !== "function") {
+        results.push({
+          name: m.name,
+          version: m.version,
+          status: "unknown",
+          durationMs: 0,
+        });
+        continue;
+      }
+      const r = await Promise.resolve(m.healthCheck());
+      results.push({
+        name: m.name,
+        version: m.version,
+        status: r?.status ?? "unknown",
+        details: r?.details,
+        durationMs: Date.now() - start,
+      });
+    } catch (err) {
+      results.push({
+        name: m.name,
+        version: m.version,
+        status: "down",
+        error: err instanceof Error ? err.message : String(err),
+        durationMs: Date.now() - start,
+      });
+    }
+  }
+
+  // Также проверим внешние сервисы и ключевые внутренние компоненты
+  const services: Array<{
+    name: string;
+    status: "ok" | "degraded" | "down" | "skipped";
+    details?: Record<string, unknown>;
+    error?: string;
+  }> = [];
+
+  // SQLite integrity
+  try {
+    const ic = (db.all(sql`PRAGMA integrity_check` as any) as any[]) ?? [];
+    const ok = ic.length > 0 && (ic[0]?.integrity_check === "ok" || ic[0]?.["integrity_check"] === "ok");
+    services.push({
+      name: "sqlite",
+      status: ok ? "ok" : "degraded",
+      details: { result: ic[0] },
+    });
+  } catch (err) {
+    services.push({
+      name: "sqlite",
+      status: "down",
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // GPTunnel — если ключ есть в env, делаем небольшой ping
+  if (process.env.GPTUNNEL_API_KEY) {
+    try {
+      const r = await fetch("https://gptunnel.ru/v1/balance", {
+        method: "GET",
+        headers: { Authorization: process.env.GPTUNNEL_API_KEY },
+        signal: AbortSignal.timeout(3500),
+      });
+      services.push({
+        name: "gptunnel",
+        status: r.ok ? "ok" : "down",
+        details: { httpStatus: r.status },
+      });
+    } catch (err) {
+      services.push({
+        name: "gptunnel",
+        status: "down",
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  } else {
+    services.push({ name: "gptunnel", status: "skipped", details: { reason: "GPTUNNEL_API_KEY not set" } });
+  }
+
+  // SMTP — если конфигурация есть, проверяем DNS hostname
+  if (process.env.SMTP_HOST) {
+    services.push({
+      name: "smtp",
+      status: "skipped",
+      details: { reason: "configured but live check not implemented", host: process.env.SMTP_HOST },
+    });
+  } else {
+    services.push({ name: "smtp", status: "skipped", details: { reason: "SMTP_HOST not set" } });
+  }
+
+  // EventBus probe
+  try {
+    const before = db.select({ c: sql<number>`count(*)` }).from(events).get()?.c ?? 0;
+    if (bootRefs?.eventBus) {
+      await bootRefs.eventBus.emit("_v304.health-probe", { ts: Date.now() }, "v304-diagnostics");
+    }
+    const after = db.select({ c: sql<number>`count(*)` }).from(events).get()?.c ?? 0;
+    services.push({
+      name: "eventbus",
+      status: after > before ? "ok" : "degraded",
+      details: { eventsAdded: after - before },
+    });
+  } catch (err) {
+    services.push({
+      name: "eventbus",
+      status: "down",
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  const overall =
+    results.some((r) => r.status === "down") ||
+    services.some((s) => s.status === "down")
+      ? "down"
+      : results.some((r) => r.status === "degraded") ||
+        services.some((s) => s.status === "degraded")
+      ? "degraded"
+      : "ok";
+
+  res.json({
+    data: {
+      timestamp: new Date().toISOString(),
+      overall,
+      summary: {
+        plugins_total: results.length,
+        plugins_ok: results.filter((r) => r.status === "ok").length,
+        plugins_degraded: results.filter((r) => r.status === "degraded").length,
+        plugins_down: results.filter((r) => r.status === "down").length,
+        plugins_unknown: results.filter((r) => r.status === "unknown").length,
+      },
+      plugins: results,
+      services,
     },
     error: null,
   });
