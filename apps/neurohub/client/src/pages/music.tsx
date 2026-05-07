@@ -264,8 +264,14 @@ export default function MusicPage() {
   // UI собирается заранее — отправит uploadUrl когда endpoint появится.
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [audioUploadUrl, setAudioUploadUrl] = useState<string | null>(null);
+  const [audioUploadSha, setAudioUploadSha] = useState<string | null>(null);
   const [audioUploading, setAudioUploading] = useState(false);
   const [audioWeight, setAudioWeight] = useState(0.7);
+  // Транскрипция + LLM-rewrite (ТЗ Eugene 2026-05-07 12:09: «голос → суть → текст песни»)
+  const [transcribing, setTranscribing] = useState(false);
+  const [audioTranscript, setAudioTranscript] = useState<string>("");
+  const [audioLyrics, setAudioLyrics] = useState<string>("");
+  const [audioSuggestion, setAudioSuggestion] = useState<{ genre?: string; bpm?: number; templateSlug?: string; title?: string } | null>(null);
   // Внутри Расширенного — старая Simple/Lyrics подвкладка (была prev top-mode).
   const [legacyMode, setLegacyMode] = useState<"simple" | "advanced">("simple");
   const [prompt, setPrompt] = useState("");
@@ -387,7 +393,7 @@ export default function MusicPage() {
       try {
         setLoading(true);
         startBgMusic();
-        let sha = (audioUploadUrl as any)?.sha;
+        let sha = audioUploadSha;
         if (audioFile && !sha) {
           setAudioUploading(true);
           const fd = new FormData();
@@ -399,8 +405,15 @@ export default function MusicPage() {
             throw new Error(upJson?.error || "upload failed");
           }
           sha = upJson.data.sha;
+          setAudioUploadSha(sha);
           setAudioUploadUrl(upJson.data.uploadUrl);
         }
+        // Автоматический style из LLM-suggestion если пользователь не задал свой
+        const finalStyle = (audioMode === "advanced" && stylePrompt.trim())
+          ? stylePrompt.trim()
+          : (audioSuggestion?.genre ?? "");
+        // Lyrics: правленый или auto-сгенерированный из транскрипции
+        const finalLyrics = audioLyrics.trim();
         const coverBody: any = {
           uploadSha: sha,
           voiceType: instrumental ? "instrumental" : isDuet ? "duet" : voice,
@@ -409,10 +422,10 @@ export default function MusicPage() {
           authorName: authorName.trim(),
           isPublic: !isPrivate,
         };
-        if (audioMode === "advanced" && stylePrompt.trim()) coverBody.style = stylePrompt.trim();
-        if (audioMode === "advanced" && lyrics.trim().length >= 50) {
-          coverBody.lyrics = lyrics;
-          if (title) coverBody.title = title;
+        if (finalStyle) coverBody.style = finalStyle;
+        if (finalLyrics.length >= 50) {
+          coverBody.lyrics = finalLyrics;
+          coverBody.title = audioSuggestion?.title || title || "Кавер";
         }
         const r = await apiRequest("POST", "/api/gen/audio-cover", coverBody);
         const j = await r.json();
@@ -816,11 +829,86 @@ export default function MusicPage() {
                 <Label className="text-sm text-muted-foreground">🎤 Запись с микрофона (до 3 мин)</Label>
                 <MicRecorder
                   maxSeconds={180}
-                  onRecorded={(file) => { setAudioFile(file); setAudioUploadUrl(null); }}
-                  disabled={loading || audioUploading}
+                  onRecorded={async (file) => {
+                    setAudioFile(file);
+                    setAudioUploadSha(null);
+                    setAudioTranscript("");
+                    setAudioLyrics("");
+                    setAudioSuggestion(null);
+                    // Авто-загрузка + транскрипция + LLM-rewrite
+                    try {
+                      setAudioUploading(true);
+                      const fd = new FormData();
+                      fd.append("audio", file);
+                      const up = await fetch("/api/gen/upload", {
+                        method: "POST",
+                        body: fd,
+                        headers: { Authorization: `Bearer ${localStorage.getItem("token") || ""}` },
+                      });
+                      const upJson = await up.json();
+                      if (!up.ok || !upJson?.data?.sha) throw new Error(upJson?.error || "upload failed");
+                      const sha = upJson.data.sha;
+                      setAudioUploadSha(sha);
+                      setAudioUploadUrl(upJson.data.uploadUrl);
+                      setAudioUploading(false);
+                      setTranscribing(true);
+                      const t = await fetch("/api/gen/transcribe", {
+                        method: "POST",
+                        headers: {
+                          Authorization: `Bearer ${localStorage.getItem("token") || ""}`,
+                          "Content-Type": "application/json",
+                        },
+                        body: JSON.stringify({ uploadSha: sha }),
+                      });
+                      const tJson = await t.json();
+                      if (tJson?.data?.transcript) setAudioTranscript(tJson.data.transcript);
+                      if (tJson?.data?.suggestion) {
+                        setAudioSuggestion(tJson.data.suggestion);
+                        if (tJson.data.suggestion.lyrics) setAudioLyrics(tJson.data.suggestion.lyrics);
+                      }
+                    } catch (err) {
+                      toast({ title: "Ошибка обработки", description: err instanceof Error ? err.message : "fail", variant: "destructive" });
+                    } finally {
+                      setAudioUploading(false);
+                      setTranscribing(false);
+                    }
+                  }}
+                  disabled={loading || audioUploading || transcribing}
                 />
+                {transcribing && (
+                  <div className="text-xs text-cyan-300 flex items-center gap-2">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Распознаю голос и пишу текст песни… (15-30 сек)
+                  </div>
+                )}
+                {audioTranscript && (
+                  <div className="space-y-2 p-3 rounded-lg border border-cyan-500/30 bg-cyan-500/5">
+                    <Label className="text-xs text-cyan-300">📝 Что я услышал:</Label>
+                    <div className="text-xs italic text-muted-foreground">{audioTranscript}</div>
+                  </div>
+                )}
+                {audioSuggestion && (audioSuggestion.genre || audioSuggestion.templateSlug) && (
+                  <div className="flex flex-wrap gap-2 text-[10px]">
+                    {audioSuggestion.genre && <span className="px-2 py-1 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/30">🎨 {audioSuggestion.genre}</span>}
+                    {audioSuggestion.bpm && <span className="px-2 py-1 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">⏱ {audioSuggestion.bpm} BPM</span>}
+                    {audioSuggestion.templateSlug && <span className="px-2 py-1 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">📁 {audioSuggestion.templateSlug}</span>}
+                  </div>
+                )}
+                {(audioLyrics || audioTranscript) && (
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">🎵 Текст песни (можно править перед генерацией):</Label>
+                    <Textarea
+                      value={audioLyrics}
+                      onChange={(e) => setAudioLyrics(e.target.value)}
+                      rows={6}
+                      placeholder="LLM напишет текст из вашего голоса. Если нет — наберите вручную."
+                      className="bg-background/50 border-cyan-500/30"
+                      data-testid="textarea-audio-lyrics"
+                    />
+                  </div>
+                )}
                 <div className="text-[10px] text-muted-foreground/70">
-                  Напевайте мелодию, надиктуйте текст, или сыграйте на инструменте — MuziAi сделает кавер в выбранном стиле и голосе. Если результат не понравится — на странице трека будет кнопка «🔄 Перегенерировать».
+                  Запишите голосом любую идею — система распознает суть и напишет полноценный текст песни. Текст можно править. Если результат не понравится — на странице трека кнопка «🔄 Перегенерировать».
                 </div>
               </div>
               <div className="my-2 flex items-center gap-2 text-[10px] text-muted-foreground/50">
@@ -884,17 +972,66 @@ export default function MusicPage() {
                 </div>
               </div>
               {audioMode === "advanced" && (
-                <div className="space-y-2">
-                  <Label className="text-sm text-muted-foreground">Стиль (опционально)</Label>
-                  <input
-                    type="text"
-                    placeholder="напр.: acoustic fingerpicking, intimate"
-                    value={stylePrompt}
-                    onChange={(e) => setStylePrompt(e.target.value)}
-                    className="w-full px-3 py-2 text-sm rounded-lg bg-background/50 border border-white/10 input-glow"
-                    data-testid="input-audio-style"
-                  />
-                </div>
+                <>
+                  <div className="space-y-2">
+                    <Label className="text-sm text-muted-foreground">Стиль (опционально, переопределяет авто-подбор)</Label>
+                    <input
+                      type="text"
+                      placeholder={audioSuggestion?.genre ? `авто: ${audioSuggestion.genre}` : "напр.: acoustic fingerpicking, intimate"}
+                      value={stylePrompt}
+                      onChange={(e) => setStylePrompt(e.target.value)}
+                      className="w-full px-3 py-2 text-sm rounded-lg bg-background/50 border border-white/10 input-glow"
+                      data-testid="input-audio-style"
+                    />
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <Label className="text-[11px] text-muted-foreground">BPM</Label>
+                      <input
+                        type="number"
+                        min={60} max={180}
+                        placeholder={audioSuggestion?.bpm ? String(audioSuggestion.bpm) : "120"}
+                        value={bpm}
+                        onChange={(e) => setBpm(e.target.value)}
+                        className="w-full px-2 py-1 text-xs rounded bg-background/50 border border-white/10"
+                        data-testid="input-audio-bpm"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-[11px] text-muted-foreground">Настроение</Label>
+                      <select
+                        value={mood}
+                        onChange={(e) => setMood(e.target.value)}
+                        className="w-full px-2 py-1 text-xs rounded bg-background/50 border border-white/10"
+                        data-testid="select-audio-mood"
+                      >
+                        <option value="">—</option>
+                        <option value="happy">Весёлое</option>
+                        <option value="sad">Грустное</option>
+                        <option value="romantic">Романтичное</option>
+                        <option value="energetic">Энергичное</option>
+                        <option value="calm">Спокойное</option>
+                        <option value="dramatic">Драматичное</option>
+                        <option value="epic">Эпичное</option>
+                      </select>
+                    </div>
+                    <div>
+                      <Label className="text-[11px] text-muted-foreground">Темп</Label>
+                      <select
+                        value={tempo}
+                        onChange={(e) => setTempo(e.target.value)}
+                        className="w-full px-2 py-1 text-xs rounded bg-background/50 border border-white/10"
+                        data-testid="select-audio-tempo"
+                      >
+                        <option value="">—</option>
+                        <option value="slow">Медленный</option>
+                        <option value="moderate">Средний</option>
+                        <option value="fast">Быстрый</option>
+                        <option value="very fast">Очень быстрый</option>
+                      </select>
+                    </div>
+                  </div>
+                </>
               )}
             </>
           ) : (

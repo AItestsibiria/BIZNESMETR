@@ -289,6 +289,105 @@ router.post("/audio-cover", requireAuth, async (req, res) => {
   });
 });
 
+// POST /api/gen/transcribe
+// Body: { uploadSha: string }
+// Whisper-транскрипция загруженного аудио через GPTunnel + LLM-rewrite в
+// singable lyrics + подбор шаблона. ТЗ Eugene 2026-05-07 12:09.
+router.post("/transcribe", requireAuth, async (req, res) => {
+  try {
+    const userId = (req as any).userId as number;
+    const sha = String(req.body?.uploadSha ?? "").trim();
+    if (!sha) return res.status(400).json({ data: null, error: "uploadSha required" });
+
+    const upl = db.select().from(audioUploads)
+      .where(and(eq(audioUploads.sha, sha), eq(audioUploads.userId, userId)))
+      .get();
+    if (!upl) return res.status(404).json({ data: null, error: "Файл не найден" });
+
+    const apiKey = process.env.GPTUNNEL_API_KEY ?? "";
+    if (!apiKey) return res.status(503).json({ data: null, error: "GPTUNNEL_API_KEY не задан" });
+
+    // 1. Whisper transcribe (multipart)
+    const buffer = fs.readFileSync(upl.storagePath);
+    const fd = new FormData();
+    const blob = new Blob([buffer], { type: upl.mime || "audio/webm" });
+    fd.append("file", blob, `audio.${upl.ext || "webm"}`);
+    fd.append("model", "whisper-1");
+    fd.append("language", "ru");
+
+    let transcript = "";
+    try {
+      const r = await fetch("https://gptunnel.ru/v1/audio/transcriptions", {
+        method: "POST",
+        headers: { Authorization: apiKey },
+        body: fd,
+        signal: AbortSignal.timeout(60_000),
+      });
+      if (!r.ok) {
+        const t = await r.text().catch(() => "");
+        return res.status(r.status).json({ data: null, error: `Whisper вернул ${r.status}: ${t.slice(0, 200)}` });
+      }
+      const data: any = await r.json().catch(() => null);
+      transcript = String(data?.text ?? "").trim();
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e);
+      return res.status(502).json({ data: null, error: `Whisper network: ${m}` });
+    }
+    if (!transcript) {
+      return res.json({ data: { transcript: "", suggestion: null, error: "Whisper не распознал речь — попробуй говорить громче" }, error: null });
+    }
+
+    // 2. LLM rewrite + подбор шаблона
+    let suggestion: any = null;
+    try {
+      const r = await fetch("https://gptunnel.ru/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content:
+                "Ты — поэт-песенник. Из устного описания пользователя сделай: " +
+                "(1) singable lyrics на русском (2 куплета + припев + bridge, ~16 строк), " +
+                "(2) подбор подходящего жанра и темпа (genre + bpm 70-140), " +
+                "(3) шаблон из списка: birthday, wedding, anniversary, lullaby, " +
+                "memorial, corporate-anthem, valentines-day, proposal-song, kids-fun, " +
+                "best-friend, new-year. Если ни один не подходит — null. " +
+                "Ответ строго JSON: " +
+                '{"lyrics":"...","genre":"...","bpm":120,"templateSlug":"...","title":"..."}',
+            },
+            { role: "user", content: transcript },
+          ],
+          temperature: 0.85,
+          max_tokens: 600,
+          response_format: { type: "json_object" },
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (r.ok) {
+        const data: any = await r.json();
+        const content = data?.choices?.[0]?.message?.content;
+        if (content) {
+          try { suggestion = JSON.parse(content); } catch {}
+        }
+      }
+    } catch {}
+
+    res.json({
+      data: {
+        transcript,
+        suggestion,
+        uploadSha: sha,
+      },
+      error: null,
+    });
+  } catch (err) {
+    res.status(500).json({ data: null, error: err instanceof Error ? err.message : "internal" });
+  }
+});
+
 // POST /api/gen/audio-cover/:id/regenerate
 // «Не нравится результат — перегенерировать» (ТЗ Eugene 2026-05-07 11:55).
 // Берёт исходный gen, читает fromUploadSha из его style-meta, и запускает
