@@ -863,89 +863,90 @@ async function pollProcessingGenerations(): Promise<{ scanned: number; done: num
   let done = 0;
   let failed = 0;
   for (const row of rows) {
-    // Тухлые processing > 30 мин — закрываем как timeout.
-    if (row.createdAt < cutoff) {
+    // ТЗ Eugene 14:00: сначала ВСЕГДА опрашиваем Suno — может уже готово
+    // (Suno держит результат). Только если Suno сам не вернул succeeded
+    // и > 30 мин с created → помечаем timeout. Иначе — recovery.
+    let recovered = false;
+    if (row.taskId) {
+      try {
+        const r = await fetch("https://gptunnel.ru/v1/media/result", {
+          method: "POST",
+          headers: { Authorization: apiKey, "Content-Type": "application/json" },
+          body: JSON.stringify({ task_id: row.taskId }),
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (r.ok) {
+          const data: any = await r.json().catch(() => null);
+          if (data) {
+            const succeeded = Array.isArray(data.result)
+              ? data.result.find((t: any) => t.status === "succeeded" && t.audio_url)
+              : null;
+            const isDone = data.status === "done" || !!succeeded;
+            if (isDone && succeeded) {
+              db.run(sql`UPDATE generations
+                         SET status='done', result_url=${succeeded.audio_url},
+                             result_data=${JSON.stringify(data)}
+                         WHERE id=${row.id}`);
+              done += 1;
+              recovered = true;
+
+              // Bonus 2-й трек из пары
+              if (Array.isArray(data.result) && data.result.length > 1) {
+                const secondTrack = data.result.find((t: any, i: number) =>
+                  i > 0 && t.status === "succeeded" && t.audio_url && t.audio_url !== succeeded.audio_url,
+                );
+                if (secondTrack) {
+                  const v2TaskId = `${row.taskId}_v2`;
+                  const exists = db.get<{ id: number }>(
+                    sql`SELECT id FROM generations WHERE task_id = ${v2TaskId} LIMIT 1`,
+                  );
+                  if (!exists) {
+                    const orig = db.get<{ userId: number; type: string; prompt: string; style: string;
+                      authorName: string | null; isPublic: number; voiceType: string | null }>(
+                      sql`SELECT user_id as userId, type, prompt, style, author_name as authorName,
+                                 is_public as isPublic, voice_type as voiceType
+                          FROM generations WHERE id = ${row.id}`,
+                    );
+                    if (orig) {
+                      let mergedStyle: any = {};
+                      try { mergedStyle = JSON.parse(orig.style || "{}"); } catch {}
+                      mergedStyle.isBonus = true;
+                      mergedStyle.bonusFromGenId = row.id;
+                      mergedStyle.bonusLabel = "🎁 Бонус от MuziAi";
+                      if (mergedStyle.title) mergedStyle.title = `${mergedStyle.title} · 🎁 бонус`;
+                      db.run(sql`INSERT INTO generations
+                                 (user_id, type, prompt, style, status, result_url, result_data,
+                                  cost, task_id, author_name, is_public, voice_type)
+                                 VALUES (${orig.userId}, ${orig.type}, ${orig.prompt}, ${JSON.stringify(mergedStyle)},
+                                         'done', ${secondTrack.audio_url}, ${JSON.stringify({ result: [secondTrack] })},
+                                         0, ${v2TaskId}, ${orig.authorName}, ${orig.isPublic}, ${orig.voiceType})`);
+                      done += 1;
+                    }
+                  }
+                }
+              }
+              continue;
+            } else if (data.status === "error" || data.status === "failed") {
+              const reason = String(data.message ?? data.error?.message ?? `Suno status=${data.status}`).slice(0, 500);
+              db.run(sql`UPDATE generations
+                         SET status='error', error_reason=${reason}, result_data=${JSON.stringify(data)}
+                         WHERE id=${row.id}`);
+              failed += 1;
+              continue;
+            }
+            // status='processing' у Suno — продолжаем ждать (не маркируем timeout)
+          }
+        }
+      } catch {
+        // network — ретрай в следующую минуту
+      }
+    }
+    // Suno не вернул done И > 30 мин → честный timeout (теперь только если
+    // Suno сам ничего не дал, и время вышло)
+    if (!recovered && row.createdAt < cutoff) {
       db.run(sql`UPDATE generations SET status='error', error_reason='MuziAi timeout > 30 min'
                  WHERE id=${row.id}`);
       failed += 1;
-      continue;
-    }
-
-    try {
-      const r = await fetch("https://gptunnel.ru/v1/media/result", {
-        method: "POST",
-        headers: { Authorization: apiKey, "Content-Type": "application/json" },
-        body: JSON.stringify({ task_id: row.taskId }),
-        signal: AbortSignal.timeout(15_000),
-      });
-      if (!r.ok) continue; // оставляем processing — на следующей итерации повтор
-
-      const data: any = await r.json().catch(() => null);
-      if (!data) continue;
-
-      const succeeded = Array.isArray(data.result)
-        ? data.result.find((t: any) => t.status === "succeeded" && t.audio_url)
-        : null;
-      const isDone = data.status === "done" || !!succeeded;
-
-      if (isDone && succeeded) {
-        db.run(sql`UPDATE generations
-                   SET status='done',
-                       result_url=${succeeded.audio_url},
-                       result_data=${JSON.stringify(data)}
-                   WHERE id=${row.id}`);
-        done += 1;
-
-        // GPTunnel Suno возвращает ПАРУ треков за один запрос (18₽ за пару).
-        // Сохраняем 2-й вариант отдельной строкой — иначе теряется 50% оплаченного.
-        if (Array.isArray(data.result) && data.result.length > 1) {
-          const secondTrack = data.result.find((t: any, i: number) =>
-            i > 0 && t.status === "succeeded" && t.audio_url && t.audio_url !== succeeded.audio_url,
-          );
-          if (secondTrack) {
-            const v2TaskId = `${row.taskId}_v2`;
-            const exists = db.get<{ id: number }>(
-              sql`SELECT id FROM generations WHERE task_id = ${v2TaskId} LIMIT 1`,
-            );
-            if (!exists) {
-              const orig = db.get<{ userId: number; type: string; prompt: string; style: string;
-                authorName: string | null; isPublic: number; voiceType: string | null }>(
-                sql`SELECT user_id as userId, type, prompt, style, author_name as authorName,
-                           is_public as isPublic, voice_type as voiceType
-                    FROM generations WHERE id = ${row.id}`,
-              );
-              if (orig) {
-                // Маркируем 2-й вариант как бонусный (ТЗ Eugene 12:31).
-                let mergedStyle: any = {};
-                try { mergedStyle = JSON.parse(orig.style || "{}"); } catch {}
-                mergedStyle.isBonus = true;
-                mergedStyle.bonusFromGenId = row.id;
-                mergedStyle.bonusLabel = "🎁 Бонус от MuziAi";
-                if (mergedStyle.title) mergedStyle.title = `${mergedStyle.title} · 🎁 бонус`;
-                db.run(sql`INSERT INTO generations
-                           (user_id, type, prompt, style, status, result_url, result_data,
-                            cost, task_id, author_name, is_public, voice_type)
-                           VALUES (${orig.userId}, ${orig.type}, ${orig.prompt}, ${JSON.stringify(mergedStyle)},
-                                   'done', ${secondTrack.audio_url}, ${JSON.stringify({ result: [secondTrack] })},
-                                   0, ${v2TaskId}, ${orig.authorName}, ${orig.isPublic}, ${orig.voiceType})`);
-                console.log(`\x1b[32m[POLL]\x1b[0m gen #${row.id} BONUS variant 2 saved (taskId=${v2TaskId})`);
-                done += 1;
-              }
-            }
-          }
-        }
-      } else if (data.status === "error" || data.status === "failed") {
-        const reason = String(
-          data.message ?? data.error?.message ?? `Suno status=${data.status}`,
-        ).slice(0, 500);
-        db.run(sql`UPDATE generations
-                   SET status='error', error_reason=${reason}, result_data=${JSON.stringify(data)}
-                   WHERE id=${row.id}`);
-        failed += 1;
-      }
-      // иначе — всё ещё в processing у Suno, ждём
-    } catch {
-      // network — повторим на следующей минуте
     }
   }
 
