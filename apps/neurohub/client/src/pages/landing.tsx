@@ -396,14 +396,38 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   repeatModeRef.current = repeatMode;
   const [prevCoverUrl, setPrevCoverUrl] = useState<string | null>(null);
   const [coverFading, setCoverFading] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Глобальный singleton — keeps audio alive across navigation (Eugene 14:09).
+  // На window.__muziaiAudio лежит orphan Audio element + meta. При unmount
+  // НЕ паузим — пусть играет в фоне. На remount забираем оттуда.
+  const audioRef = useRef<HTMLAudioElement | null>(
+    (typeof window !== "undefined" ? (window as any).__muziaiAudio || null : null),
+  );
   const timerRef = useRef<number | null>(null);
-  const playingTrackRef = useRef<any>(null);
+  const playingTrackRef = useRef<any>(
+    (typeof window !== "undefined" ? (window as any).__muziaiTrack || null : null),
+  );
   const tracksRef = useRef<any[]>([]);
   useEffect(() => { tracksRef.current = tracks; }, [tracks]);
 
+  // На mount если уже играет глобальный audio — восстанавливаем UI state
   useEffect(() => {
-    return () => { audioRef.current?.pause(); };
+    const g: any = typeof window !== "undefined" ? window : null;
+    if (g?.__muziaiAudio && !g.__muziaiAudio.paused && g.__muziaiTrack) {
+      setPlayingId(g.__muziaiTrack.id);
+      setCurrentTime(g.__muziaiAudio.currentTime || 0);
+      setTrackDuration(g.__muziaiAudio.duration || 0);
+      // Подписываемся на ongoing playback для UI-обновлений
+      if (timerRef.current) clearInterval(timerRef.current);
+      timerRef.current = window.setInterval(() => {
+        if (g.__muziaiAudio && !g.__muziaiAudio.paused) {
+          setCurrentTime(g.__muziaiAudio.currentTime);
+        }
+      }, 250);
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+      // НЕ паузим — глобальный audio продолжает играть на других страницах
+    };
   }, []);
 
   // Keep ref in sync with state
@@ -566,6 +590,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     audio.volume = 0.5;
     audioRef.current = audio;
     playingTrackRef.current = track;
+    // Сохраняем в global для cross-page survival (Eugene 14:09)
+    if (typeof window !== "undefined") {
+      (window as any).__muziaiAudio = audio;
+      (window as any).__muziaiTrack = track;
+    }
     // Восстановление позиции — только если возвращаемся к ТОМУ ЖЕ треку
     // что был в session (Eugene 12:18 «без промедления продолжить»).
     let restoreTo = 0;
