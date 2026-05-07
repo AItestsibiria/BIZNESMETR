@@ -873,7 +873,14 @@ export default function MusicPage() {
                       const t = await fetch("/api/gen/transcribe", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ uploadSha: sha }),
+                        body: JSON.stringify({
+                          uploadSha: sha,
+                          style: stylePrompt.trim() || undefined,
+                          bpm: bpm || undefined,
+                          mood: mood || undefined,
+                          tempo: tempo || undefined,
+                          voiceType: instrumental ? "instrumental" : isDuet ? "duet" : voice,
+                        }),
                       });
                       const tJson = await t.json().catch(() => ({}));
                       console.log("[AUDIO-FLOW] transcribe response", { status: t.status, body: tJson });
@@ -953,6 +960,12 @@ export default function MusicPage() {
                                 transcript: audioTranscript,
                                 templateSlug: audioSuggestion?.templateSlug,
                                 hint: rewriteHint.trim() || undefined,
+                                // Передаём текущие настройки чтобы re-roll учитывал
+                                style: stylePrompt.trim() || undefined,
+                                bpm: bpm || undefined,
+                                mood: mood || undefined,
+                                tempo: tempo || undefined,
+                                voiceType: instrumental ? "instrumental" : isDuet ? "duet" : voice,
                               }),
                             });
                             const j = await r.json();

@@ -299,6 +299,12 @@ router.post("/transcribe", requireAuth, async (req, res) => {
     const userId = (req as any).userId as number;
     const sha = String(req.body?.uploadSha ?? "").trim();
     if (!sha) return res.status(400).json({ data: null, error: "uploadSha required" });
+    // ТЗ Eugene 13:28: пользовательские настройки → в LLM
+    const userStyle = String(req.body?.style ?? "").trim();
+    const userBpm = req.body?.bpm ? Number(req.body.bpm) : null;
+    const userMood = String(req.body?.mood ?? "").trim();
+    const userTempo = String(req.body?.tempo ?? "").trim();
+    const userVoice = String(req.body?.voiceType ?? req.body?.voice ?? "").trim();
 
     const upl = db.select().from(audioUploads)
       .where(and(eq(audioUploads.sha, sha), eq(audioUploads.userId, userId)))
@@ -352,7 +358,16 @@ router.post("/transcribe", requireAuth, async (req, res) => {
                 "Ответ строго JSON: " +
                 '{"lyrics":"...","genre":"...","bpm":120,"templateSlug":"...","title":"..."}',
             },
-            { role: "user", content: transcript },
+            {
+              role: "user",
+              content:
+                `Описание: ${transcript}` +
+                (userStyle ? `\nЖанр (учти в формулировках): ${userStyle}` : "") +
+                (userBpm ? `\nBPM ${userBpm}` : "") +
+                (userMood ? `\nНастроение: ${userMood}` : "") +
+                (userTempo ? `\nТемп: ${userTempo}` : "") +
+                (userVoice && userVoice !== "auto" ? `\nГолос: ${userVoice}` : ""),
+            },
           ],
           temperature: 0.85,
           max_tokens: 600,
@@ -393,6 +408,12 @@ router.post("/rewrite-lyrics", requireAuth, async (req, res) => {
     if (!transcript) return res.status(400).json({ data: null, error: "transcript required" });
     const templateSlug = String(req.body?.templateSlug ?? "").trim();
     const hint = String(req.body?.hint ?? "").trim();
+    // ТЗ Eugene 13:28: учитывать пользовательские настройки стиля
+    const userStyle = String(req.body?.style ?? "").trim();
+    const userBpm = req.body?.bpm ? Number(req.body.bpm) : null;
+    const userMood = String(req.body?.mood ?? "").trim();
+    const userTempo = String(req.body?.tempo ?? "").trim();
+    const userVoice = String(req.body?.voiceType ?? req.body?.voice ?? "").trim();
 
     const apiKey = process.env.GPTUNNEL_API_KEY ?? "";
     if (!apiKey) return res.status(503).json({ data: null, error: "GPTUNNEL_API_KEY не задан" });
@@ -420,6 +441,11 @@ router.post("/rewrite-lyrics", requireAuth, async (req, res) => {
               content:
                 `Описание: ${transcript}` +
                 (templateSlug ? `\nПредпочтительный шаблон: ${templateSlug}` : "") +
+                (userStyle ? `\nЖанр/стиль (учти в формулировках): ${userStyle}` : "") +
+                (userBpm ? `\nBPM ${userBpm} — подбирай длину строк под темп` : "") +
+                (userMood ? `\nНастроение: ${userMood} (передай эмоцию в словах)` : "") +
+                (userTempo ? `\nТемп: ${userTempo}` : "") +
+                (userVoice && userVoice !== "auto" ? `\nГолос: ${userVoice} (если duet — пиши «[Male]…[Female]…[Together]» структуру)` : "") +
                 (hint ? `\nПожелание автора: ${hint}` : ""),
             },
           ],
