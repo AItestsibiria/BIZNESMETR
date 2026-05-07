@@ -6,6 +6,7 @@
 // POST /api/admin/v304/audit/:id/restore. Это и видно на вкладке Audit.
 
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
@@ -421,7 +422,59 @@ function OverviewTab({ toast: _t }: { toast: any }) {
           </div>
         </CardContent>
       </Card>
+
+      {/* ANTHEM ONE-CLICK */}
+      <Card className="border-violet-500/60 bg-gradient-to-br from-violet-600/20 via-fuchsia-500/10 to-transparent">
+        <CardContent className="p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div>
+            <div className="text-lg font-bold flex items-center gap-2">
+              👑 Запустить Гимн MUZIAI v304
+              <Badge className="bg-violet-600">официальный</Badge>
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">
+              Один клик. Через 1–2 минуты MP3 в /dashboard.
+            </div>
+          </div>
+          <AnthemRunner />
+        </CardContent>
+      </Card>
     </div>
+  );
+}
+
+function AnthemRunner() {
+  const { toast } = useToast();
+  const [, navigate] = useLocation();
+  const run = useMutation({
+    mutationFn: async () => {
+      const r = await apiRequest("POST", "/api/admin/v304/generate-anthem", {});
+      return r.json();
+    },
+    onSuccess: (j) => {
+      const d = j.data;
+      toast({
+        title: "🎵 Гимн отправлен в Suno",
+        description: `gen #${d.generationId}, taskId ${(d.taskId || "").slice(0, 12)}…  Откроется через секунду.`,
+      });
+      setTimeout(() => navigate(`/track/${d.generationId}`), 1500);
+    },
+    onError: (e: Error) => {
+      toast({
+        title: "Не удалось запустить гимн",
+        description: e.message,
+        variant: "destructive",
+      });
+    },
+  });
+  return (
+    <Button
+      size="lg"
+      onClick={() => run.mutate()}
+      disabled={run.isPending}
+      className="bg-violet-600 hover:bg-violet-700"
+    >
+      {run.isPending ? "Отправляю…" : "🎵 Запустить гимн"}
+    </Button>
   );
 }
 

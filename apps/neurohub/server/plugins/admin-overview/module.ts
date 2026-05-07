@@ -689,6 +689,118 @@ router.post("/secrets/test-suno", requireAdmin, async (_req, res) => {
   });
 });
 
+// POST /api/admin/v304/generate-anthem
+// Один-клик запуск Гимна MUZIAI v304: берёт шаблон v304-anthem,
+// создаёт generation от лица админа, шлёт в GPTunnel/Suno,
+// возвращает generationId + ссылки для прослушивания.
+router.post("/generate-anthem", requireAdmin, async (req, res) => {
+  try {
+    const adminUserId = (req as any).userId as number;
+    const adminEmail = (req as any).adminUser?.email ?? "admin";
+
+    // 1. Шаблон гимна
+    const tpl = db.select().from(genTemplates).where(eq(genTemplates.slug, "v304-anthem")).get();
+    if (!tpl) return res.status(404).json({ data: null, error: "Шаблон v304-anthem не найден" });
+
+    // 2. Нормализуем — для гимна используем DUET (мужской лид + женский хор)
+    const { normalizeVocalParams } = await import("../../lib/normalizeVocalParams");
+    const norm = normalizeVocalParams({
+      prompt: tpl.description ?? "Эпический гимн платформы MUZIAI v304",
+      style: tpl.style,
+      lyrics: tpl.promptTemplate,
+      voiceType: "duet",
+    });
+
+    // 3. Создаём строку в generations
+    const newGen = db
+      .insert(generations)
+      .values({
+        userId: adminUserId,
+        type: "music",
+        prompt: tpl.promptTemplate || "",
+        style: JSON.stringify({
+          style: norm.finalStyle,
+          title: tpl.name,
+          category: "anthem",
+          fromTemplate: tpl.slug,
+          startedBy: adminEmail,
+        }),
+        status: "processing",
+        cost: 0,
+        isPublic: 1,
+        authorName: "MUZIAI v304",
+        voiceType: norm.voiceType,
+        templateSlug: tpl.slug,
+        bpm: tpl.recommendedBpm ?? null,
+        musicKey: tpl.recommendedKey ?? null,
+      } as any)
+      .returning()
+      .get();
+
+    // 4. POST в GPTunnel /v1/media/create
+    const apiKey = process.env.GPTUNNEL_API_KEY ?? "";
+    if (!apiKey) {
+      db.update(generations).set({ status: "error", errorReason: "GPTUNNEL_API_KEY missing" }).where(eq(generations.id, newGen.id)).run();
+      return res.status(503).json({ data: null, error: "GPTUNNEL_API_KEY не задан в runtime" });
+    }
+
+    // Custom-mode: lyrics ≥50 chars, есть title и tags
+    const sunoBody = {
+      model: "suno",
+      mode: "custom",
+      lyric: (tpl.promptTemplate ?? "").slice(0, 3000),
+      title: tpl.name.slice(0, 80),
+      tags: norm.finalStyle.slice(0, 200),
+    };
+
+    let upstream: any = null;
+    let upstreamStatus = 0;
+    try {
+      const r = await fetch("https://gptunnel.ru/v1/media/create", {
+        method: "POST",
+        headers: { Authorization: apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify(sunoBody),
+        signal: AbortSignal.timeout(20000),
+      });
+      upstreamStatus = r.status;
+      const text = await r.text();
+      try { upstream = JSON.parse(text); } catch { upstream = { raw: text }; }
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      db.update(generations).set({ status: "error", errorReason: `network: ${error}` }).where(eq(generations.id, newGen.id)).run();
+      return res.status(502).json({ data: null, error });
+    }
+
+    if (upstreamStatus < 200 || upstreamStatus >= 300 || !upstream?.id) {
+      const errMsg = upstream?.message ?? upstream?.error?.message ?? `Suno вернул ${upstreamStatus}`;
+      db.update(generations).set({ status: "error", errorReason: String(errMsg) }).where(eq(generations.id, newGen.id)).run();
+      return res.status(upstreamStatus || 502).json({
+        data: null,
+        error: errMsg,
+        details: { upstreamStatus, upstream },
+      });
+    }
+
+    // 5. Сохраняем taskId
+    db.update(generations).set({ taskId: upstream.id, status: "processing" }).where(eq(generations.id, newGen.id)).run();
+
+    res.json({
+      data: {
+        generationId: newGen.id,
+        taskId: upstream.id,
+        status: "processing",
+        message: "Гимн отправлен в Suno. Через 1-2 минуты будет готов.",
+        watchUrl: `/#/track/${newGen.id}`,
+        dashboardUrl: `/#/dashboard`,
+        statusEndpoint: `/api/track/${newGen.id}`,
+      },
+      error: null,
+    });
+  } catch (err) {
+    res.status(500).json({ data: null, error: err instanceof Error ? err.message : "internal" });
+  }
+});
+
 router.post("/secrets/restart", requireAdmin, (_req, res) => {
   try {
     scheduleRestart();
