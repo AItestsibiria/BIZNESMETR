@@ -801,19 +801,19 @@ export default function MusicPage() {
                     className={`min-w-[110px] h-12 px-4 text-sm font-medium rounded-xl border transition-all ${!instrumental && !isDuet && voice === "female" ? "border-purple-400/60 bg-gradient-to-br from-purple-500/30 to-pink-500/20 text-purple-100 shadow-lg shadow-purple-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
                     onClick={() => { setInstrumental(false); setIsDuet(false); setVoice("female"); }}
                     data-testid="btn-basic-female">
-                    👩 Женский
+                    <span className="inline-block transition-transform duration-300 hover:scale-110">👩‍🎤</span> Женский
                   </button>
                   <button type="button"
                     className={`min-w-[110px] h-12 px-4 text-sm font-medium rounded-xl border transition-all ${!instrumental && !isDuet && voice === "male" ? "border-blue-400/60 bg-gradient-to-br from-blue-500/30 to-cyan-500/20 text-blue-100 shadow-lg shadow-blue-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
                     onClick={() => { setInstrumental(false); setIsDuet(false); setVoice("male"); }}
                     data-testid="btn-basic-male">
-                    👨 Мужской
+                    <span className="inline-block transition-transform duration-300 hover:scale-110">👨‍🎤</span> Мужской
                   </button>
                   <button type="button"
                     className={`min-w-[110px] h-12 px-4 text-sm font-medium rounded-xl border transition-all ${isDuet ? "border-pink-400/60 bg-gradient-to-br from-pink-500/30 to-rose-500/20 text-pink-100 shadow-lg shadow-pink-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
                     onClick={() => { setInstrumental(false); setIsDuet(true); }}
                     data-testid="btn-basic-duet">
-                    👫 Дуэт
+                    <span className="inline-block transition-transform duration-300 hover:scale-110">👩‍🎤👨‍🎤</span> Дуэт
                   </button>
                   <button type="button"
                     className={`min-w-[110px] h-12 px-4 text-sm font-medium rounded-xl border transition-all ${instrumental ? "border-amber-400/60 bg-gradient-to-br from-amber-500/30 to-orange-500/20 text-amber-100 shadow-lg shadow-amber-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
@@ -1038,13 +1038,13 @@ export default function MusicPage() {
                 <div className="flex flex-wrap gap-2">
                   <button type="button"
                     className={`px-3 py-1.5 text-sm rounded-lg border ${!instrumental && !isDuet && voice === "female" ? "border-purple-500/40 bg-purple-500/15 text-purple-300" : "border-white/10 bg-white/5 text-muted-foreground"}`}
-                    onClick={() => { setInstrumental(false); setIsDuet(false); setVoice("female"); }}>👩 Женский</button>
+                    onClick={() => { setInstrumental(false); setIsDuet(false); setVoice("female"); }}><span className="inline-block transition-transform duration-300 hover:scale-110">👩‍🎤</span> Женский</button>
                   <button type="button"
                     className={`px-3 py-1.5 text-sm rounded-lg border ${!instrumental && !isDuet && voice === "male" ? "border-blue-500/40 bg-blue-500/15 text-blue-300" : "border-white/10 bg-white/5 text-muted-foreground"}`}
-                    onClick={() => { setInstrumental(false); setIsDuet(false); setVoice("male"); }}>👨 Мужской</button>
+                    onClick={() => { setInstrumental(false); setIsDuet(false); setVoice("male"); }}><span className="inline-block transition-transform duration-300 hover:scale-110">👨‍🎤</span> Мужской</button>
                   <button type="button"
                     className={`px-3 py-1.5 text-sm rounded-lg border ${isDuet ? "border-pink-500/40 bg-pink-500/15 text-pink-300" : "border-white/10 bg-white/5 text-muted-foreground"}`}
-                    onClick={() => { setInstrumental(false); setIsDuet(true); }}>👫 Дуэт</button>
+                    onClick={() => { setInstrumental(false); setIsDuet(true); }}><span className="inline-block transition-transform duration-300 hover:scale-110">👩‍🎤👨‍🎤</span> Дуэт</button>
                   <button type="button"
                     className={`px-3 py-1.5 text-sm rounded-lg border ${instrumental ? "border-amber-500/40 bg-amber-500/15 text-amber-300" : "border-white/10 bg-white/5 text-muted-foreground"}`}
                     onClick={() => { setIsDuet(false); setInstrumental(true); }}>🎻 Инструментальная</button>
@@ -1590,7 +1590,9 @@ export default function MusicPage() {
                 </>
               ) : mode === "audio" ? (
                 <>
-                  <Mic className="w-5 h-5 text-cyan-100 drop-shadow" />
+                  <span className="text-2xl drop-shadow transition-transform duration-300 hover:scale-110" key={voice + (isDuet ? "d" : "") + (instrumental ? "i" : "")}>
+                    {instrumental ? "🎻" : isDuet ? "👩‍🎤👨‍🎤" : voice === "male" ? "👨‍🎤" : "👩‍🎤"}
+                  </span>
                   <span className="tracking-wide">{audioUploading ? "Загружаю…"
                     : !audioFile && !audioUploadUrl ? "Запишите голос"
                     : "🎵 Создать кавер — 299 ₽"}</span>

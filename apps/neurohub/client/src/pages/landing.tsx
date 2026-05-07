@@ -1,6 +1,6 @@
 import { useLocation, useRoute } from "wouter";
 import { useAuth } from "@/lib/auth";
-import { PenLine, Music, Image, Sparkles, ArrowRight, Zap, Download, Headphones, Play, Pause, SkipForward, SkipBack, ChevronDown, ChevronUp, Share2, Repeat, Repeat1 } from "lucide-react";
+import { PenLine, Music, Image, Sparkles, ArrowRight, Zap, Download, Mic, Play, Pause, SkipForward, SkipBack, ChevronDown, ChevronUp, Share2, Repeat, Repeat1 } from "lucide-react";
 import { ShareQRSection, TrackShareQR } from "@/components/share-qr";
 import { KaraokeLyrics } from "@/components/karaoke-lyrics";
 import { muteBgMusic, unmuteBgMusic } from "@/components/background-music";
@@ -1497,7 +1497,7 @@ export default function LandingPage() {
 
         <div className="max-w-4xl mx-auto text-center relative z-10">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-purple-500/20 bg-purple-500/5 mb-6">
-            <Headphones className="w-4 h-4 text-purple-400" />
+            <Mic className="w-4 h-4 text-purple-400" />
             <span className="text-sm text-purple-300 font-medium">Нейросети для музыки</span>
           </div>
 

@@ -63,7 +63,7 @@ export default function Navbar() {
     { href: "/music", label: "Музыка" },
     // Аудио ведёт на /music — режим выставляется через localStorage,
     // т.к. wouter (hash-router) не парсит query-string как часть пути.
-    { href: "/music", label: "🎧 Аудио", onClickSetMode: "audio" as const },
+    { href: "/music", label: "🎤 Аудио", onClickSetMode: "audio" as const },
     { href: "/covers", label: "Обложки" },
   ];
 
