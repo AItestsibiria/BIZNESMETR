@@ -168,8 +168,13 @@ router.post("/upload", requireAuth, upload.single("audio"), async (req, res) => 
   }
 
   // Публичный URL: /uploads статика проксируется nginx-ом → public host.
-  // PUBLIC_HOST задаётся env (clone.muziai.ru / muziai.ru). Дефолт — relative.
-  const host = process.env.PUBLIC_HOST || "";
+  // PUBLIC_HOST задаётся env (clone.muziai.ru / muziai.ru). Eugene 13:46:
+  // если не задан, берём из request-headers (Host + protocol). Раньше
+  // дефолт был "" → Suno получал relative URL и не мог скачать.
+  const host = process.env.PUBLIC_HOST
+    || (req.headers["x-forwarded-proto"]
+        ? `${req.headers["x-forwarded-proto"]}://${req.headers["x-forwarded-host"] || req.headers.host}`
+        : `https://${req.headers.host || "clone.muziai.ru"}`);
   const publicUrl = `${host}/uploads/${userId}/${filename}`;
 
   const inserted = db.insert(audioUploads).values({
