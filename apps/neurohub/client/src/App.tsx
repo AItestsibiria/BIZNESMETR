@@ -52,6 +52,7 @@ function AppContent() {
           <Route path="/payment/fail" component={PaymentFail} />
           <Route path="/track/:id" component={TrackPage} />
           <Route path="/telegram-callback" component={TelegramCallbackPage} />
+          <Route path="/admin" component={AdminV304Page} />
           <Route path="/admin/v304" component={AdminV304Page} />
           <Route component={NotFoundPage} />
         </Switch>

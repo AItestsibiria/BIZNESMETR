@@ -32,7 +32,14 @@ import {
 } from "@shared/schema";
 import type { Module } from "../../core";
 
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "egnovoselov@gmail.com";
+// Список админ-emails. Можно один (legacy) или несколько через запятую:
+// ADMIN_EMAIL=egnovoselov@gmail.com,второй@email.ru
+const ADMIN_EMAILS: Set<string> = new Set(
+  (process.env.ADMIN_EMAIL || "egnovoselov@gmail.com")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean),
+);
 
 // v51 хранит auth-token в Bearer-header → проверяет через таблицу sessions
 // (token, user_id). Эта функция повторяет authMiddleware из routes.ts:263-318
@@ -67,7 +74,7 @@ function requireAdmin(req: any, res: any, next: any): void {
     res.status(401).json({ data: null, error: "user not found" });
     return;
   }
-  if (u.email !== ADMIN_EMAIL) {
+  if (!ADMIN_EMAILS.has((u.email ?? "").toLowerCase())) {
     res.status(403).json({ data: null, error: "forbidden" });
     return;
   }

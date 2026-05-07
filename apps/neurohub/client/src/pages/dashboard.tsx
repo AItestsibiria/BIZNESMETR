@@ -1657,7 +1657,28 @@ export default function DashboardPage() {
         </div>
 
         {/* Admin Stats */}
-        {user?.email === "egnovoselov@gmail.com" && <><AdminStats /><PendingPublications /><TopGenStats /></>}
+        {user?.email === "egnovoselov@gmail.com" && (
+          <>
+            {/* v304 Admin Panel — кнопка-переход для админа */}
+            <div className="mb-6 p-4 rounded-2xl border border-primary/40 bg-primary/5">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div>
+                  <div className="text-lg font-semibold">v304 Admin Panel</div>
+                  <div className="text-sm text-muted-foreground">
+                    Шаблоны, feature flags, лиды, audit log с restore.
+                  </div>
+                </div>
+                <a
+                  href="#/admin"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:opacity-90 transition"
+                >
+                  Открыть →
+                </a>
+              </div>
+            </div>
+            <AdminStats /><PendingPublications /><TopGenStats />
+          </>
+        )}
 
 
         {/* Balance Card */}

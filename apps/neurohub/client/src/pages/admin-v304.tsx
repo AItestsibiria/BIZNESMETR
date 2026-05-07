@@ -83,15 +83,19 @@ export default function AdminV304Page() {
   const { user } = useAuth();
   const { toast } = useToast();
 
-  if (!user || user.email !== "egnovoselov@gmail.com") {
+  // Защита на стороне клиента — мягкая (бэк всё равно проверит).
+  // Админ-доступ для тех, чей email есть в server-side ADMIN_EMAIL списке;
+  // на клиенте это знание неполное, поэтому показываем UI всем
+  // авторизованным пользователям и оставляем backend ответить 403.
+  if (!user) {
     return (
       <div className="p-8 max-w-2xl mx-auto">
         <Card>
           <CardHeader>
-            <CardTitle>Доступ запрещён</CardTitle>
+            <CardTitle>Войди в систему</CardTitle>
           </CardHeader>
           <CardContent>
-            Эта панель только для администратора. Войди под admin-аккаунтом.
+            <a href="#/login" className="underline">→ Войти</a>
           </CardContent>
         </Card>
       </div>
