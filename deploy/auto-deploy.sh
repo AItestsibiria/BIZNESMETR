@@ -19,6 +19,14 @@
 
 set -euo pipefail
 
+# pm2 + systemd ловушка: systemd запускает service без HOME, и pm2
+# ищет daemon в /etc/.pm2 вместо /root/.pm2 — не находит процессов
+# и `pm2 restart neurohub` падает с "Process not found". Без этих
+# двух exports скрипт молча упадёт после build на этапе pm2 restart
+# (set -e + redirected stderr = тишина в логе).
+export HOME="${HOME:-/root}"
+export PM2_HOME="${PM2_HOME:-/root/.pm2}"
+
 REPO_URL="https://github.com/AItestsibiria/biznesmetr.git"
 BRANCH="claude/add-claude-documentation-OW5V7"
 SRC_DIR="/opt/neurohub-src"

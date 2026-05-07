@@ -2,27 +2,6 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
-import { EventBus, FeatureFlags, ModuleRegistry, createLogger } from "./core";
-import exampleModule from "./plugins/example/module";
-import leadCaptureModule from "./plugins/lead-capture/module";
-import genTemplatesModule from "./plugins/gen-templates/module";
-import v304DiagnosticsModule from "./plugins/v304-diagnostics/module";
-import personaModule from "./plugins/persona/module";
-import extendCoverModule from "./plugins/extend-cover/module";
-import agentLeadHunterModule from "./plugins/agent-lead-hunter/module";
-import agentScoutModule from "./plugins/agent-scout/module";
-import agentWelcomeModule from "./plugins/agent-welcome/module";
-import agentDemoModule from "./plugins/agent-demo/module";
-import authEventsBridgeModule from "./plugins/auth-events-bridge/module";
-import securityGuardModule from "./plugins/security-guard/module";
-import notificationsModule from "./plugins/notifications/module";
-import chatbotModule from "./plugins/chatbot/module";
-import agentOnboardingModule from "./plugins/agent-onboarding/module";
-import agentConversionModule from "./plugins/agent-conversion/module";
-import agentReferralModule from "./plugins/agent-referral/module";
-import agentRetentionModule from "./plugins/agent-retention/module";
-import agentContentModule from "./plugins/agent-content/module";
-import agentA1MasterModule from "./plugins/agent-a1-master/module";
 
 const app = express();
 // Доверяем фронтальному прокси (Nginx) — иначе req.ip = 127.0.0.1
@@ -83,45 +62,99 @@ app.use((req, res, next) => {
   next();
 });
 
+// v304 boot status — global, populated below.
+// /api/_status работает ВСЕГДА, даже если все 20 плагинов сгорят.
+// Это лазейка для пост-mortem диагностики без ssh.
+const v304Boot = {
+  buildSha: process.env.V304_BUILD_SHA || "unknown",
+  attemptedAt: new Date().toISOString(),
+  pluginsAttempted: [] as string[],
+  pluginsLoaded: [] as string[],
+  pluginsFailed: [] as { name: string; error: string }[],
+  registryStarted: false,
+  registryError: null as string | null,
+  storageOk: false,
+  storageError: null as string | null,
+};
+
+app.get("/api/_status", (_req, res) => {
+  res.json({ data: v304Boot, error: null });
+});
+
 (async () => {
   await registerRoutes(httpServer, app);
 
-  // v304 plugin foundation. Spec: docs/strategy/original/06 §1.
-  // Mount BEFORE the global error handler so plugin routes hit
-  // it on failure, but AFTER core registerRoutes() so core wins
-  // on path conflicts.
+  // v304 plugin foundation — defensive boot.
+  // Каждый импорт плагина обёрнут try/catch так, чтобы любая ошибка
+  // одного модуля не сломала сервер.
   const bootLogger = createLogger("boot");
+
+  // 1. Storage health
   try {
+    const { db } = await import("./storage");
+    // sanity: select 1
+    db.run((await import("drizzle-orm")).sql`SELECT 1`);
+    v304Boot.storageOk = true;
+  } catch (err) {
+    v304Boot.storageError = err instanceof Error ? err.message : String(err);
+    bootLogger.error("storage init failed", { error: v304Boot.storageError });
+  }
+
+  // 2. Lazy-load each plugin
+  const PLUGIN_PATHS: { name: string; path: string }[] = [
+    { name: "example",            path: "./plugins/example/module" },
+    { name: "lead-capture",       path: "./plugins/lead-capture/module" },
+    { name: "gen-templates",      path: "./plugins/gen-templates/module" },
+    { name: "v304-diagnostics",   path: "./plugins/v304-diagnostics/module" },
+    { name: "persona",            path: "./plugins/persona/module" },
+    { name: "extend-cover",       path: "./plugins/extend-cover/module" },
+    { name: "security-guard",     path: "./plugins/security-guard/module" },
+    { name: "auth-events-bridge", path: "./plugins/auth-events-bridge/module" },
+    { name: "notifications",      path: "./plugins/notifications/module" },
+    { name: "chatbot",            path: "./plugins/chatbot/module" },
+    { name: "agent-lead-hunter",  path: "./plugins/agent-lead-hunter/module" },
+    { name: "agent-scout",        path: "./plugins/agent-scout/module" },
+    { name: "agent-welcome",      path: "./plugins/agent-welcome/module" },
+    { name: "agent-demo",         path: "./plugins/agent-demo/module" },
+    { name: "agent-onboarding",   path: "./plugins/agent-onboarding/module" },
+    { name: "agent-conversion",   path: "./plugins/agent-conversion/module" },
+    { name: "agent-referral",     path: "./plugins/agent-referral/module" },
+    { name: "agent-retention",    path: "./plugins/agent-retention/module" },
+    { name: "agent-content",      path: "./plugins/agent-content/module" },
+    { name: "agent-a1-master",    path: "./plugins/agent-a1-master/module" },
+  ];
+
+  const loaded: any[] = [];
+  for (const { name, path } of PLUGIN_PATHS) {
+    v304Boot.pluginsAttempted.push(name);
+    try {
+      const mod = (await import(path)).default;
+      if (!mod || typeof mod !== "object" || !mod.name) {
+        throw new Error(`module export missing or invalid (got: ${typeof mod})`);
+      }
+      loaded.push(mod);
+      v304Boot.pluginsLoaded.push(name);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      v304Boot.pluginsFailed.push({ name, error: message });
+      bootLogger.error(`plugin import failed: ${name}`, { error: message });
+    }
+  }
+
+  // 3. Registry start — ещё один уровень изоляции
+  try {
+    const { EventBus, FeatureFlags, ModuleRegistry } = await import("./core");
     const eventBus = new EventBus();
     const featureFlags = new FeatureFlags();
     const registry = new ModuleRegistry();
-    registry.register([
-      exampleModule,
-      leadCaptureModule,
-      genTemplatesModule,
-      v304DiagnosticsModule,
-      personaModule,
-      extendCoverModule,
-      securityGuardModule,
-      authEventsBridgeModule,
-      notificationsModule,
-      chatbotModule,
-      agentLeadHunterModule,
-      agentScoutModule,
-      agentWelcomeModule,
-      agentDemoModule,
-      agentOnboardingModule,
-      agentConversionModule,
-      agentReferralModule,
-      agentRetentionModule,
-      agentContentModule,
-      agentA1MasterModule,
-    ]);
+    registry.register(loaded as any);
     await registry.start({ app, eventBus, featureFlags, logger: bootLogger });
-    bootLogger.info(`v304 registry online (${registry.list().length} modules)`);
+    v304Boot.registryStarted = true;
+    bootLogger.info(`v304 registry online (${loaded.length} modules)`);
   } catch (err) {
-    bootLogger.error("v304 registry failed to boot", {
-      error: err instanceof Error ? err.message : String(err),
+    v304Boot.registryError = err instanceof Error ? err.message : String(err);
+    bootLogger.error("v304 registry failed to start", {
+      error: v304Boot.registryError,
     });
   }
 
@@ -164,3 +197,21 @@ app.use((req, res, next) => {
     },
   );
 })();
+
+// createLogger живёт в core/, но если core не подгрузился —
+// нам всё равно нужен логгер. Мини-fallback.
+function createLogger(scope: string) {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require("./core/logger").createLogger(scope);
+  } catch {
+    return {
+      info: (msg: string, extra?: unknown) =>
+        console.log(`[${scope}] info ${msg}`, extra ?? ""),
+      warn: (msg: string, extra?: unknown) =>
+        console.warn(`[${scope}] warn ${msg}`, extra ?? ""),
+      error: (msg: string, extra?: unknown) =>
+        console.error(`[${scope}] error ${msg}`, extra ?? ""),
+    };
+  }
+}
