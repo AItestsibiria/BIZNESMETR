@@ -48,17 +48,11 @@ fi
 
 cd "$SRC_DIR"
 git fetch --quiet origin "$BRANCH"
-
-LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse "origin/$BRANCH")
-if [[ "$LOCAL" == "$REMOTE" ]]; then
-  exit 0
-fi
 
-# Self-update: если скрипт в репо отличается от установленного, обновляем
-# себя ДО запуска деплоя. Следующий тик systemd-таймера выполнит уже новую
-# версию. Не ломает текущий запуск — просто берём новую копию и выходим
-# с кодом 0 (timer запустит снова через минуту).
+# Self-update FIRST: если скрипт в репо отличается от установленного,
+# обновляем себя ДО любых решений про deploy. Следующий тик systemd-таймера
+# выполнит уже новую версию.
 SCRIPT_PATH=$(readlink -f "$0")
 REPO_SCRIPT_PATH="$SRC_DIR/deploy/auto-deploy.sh"
 if [[ -f "$REPO_SCRIPT_PATH" ]] && [[ "$SCRIPT_PATH" != "$REPO_SCRIPT_PATH" ]]; then
@@ -71,8 +65,23 @@ if [[ -f "$REPO_SCRIPT_PATH" ]] && [[ "$SCRIPT_PATH" != "$REPO_SCRIPT_PATH" ]]; 
   fi
 fi
 
-log "new commit on $BRANCH: $LOCAL → $REMOTE; deploying"
+# SHA-tracking через отдельный файл /var/www/neurohub/.deployed-sha.
+# Сравниваем REMOTE (актуальный коммит в git) с тем, что мы УЖЕ задеплоили.
+# Преимущества перед сравнением `git rev-parse HEAD == origin/<branch>`:
+#   - после первого clone HEAD == origin сразу же, и старая логика
+#     никогда не запускала первый deploy → bug.
+#   - если deploy упал и rollback — .deployed-sha НЕ обновляется,
+#     следующий тик снова попробует, без вмешательства.
+DEPLOYED_SHA_FILE="$APP_DIR/.deployed-sha"
+DEPLOYED_SHA=$(cat "$DEPLOYED_SHA_FILE" 2>/dev/null || echo "")
+if [[ "$DEPLOYED_SHA" == "$REMOTE" ]]; then
+  exit 0
+fi
+
+LOCAL="$DEPLOYED_SHA"   # для совместимости с логом и git diff ниже
+log "deploy needed: deployed=${LOCAL:-<none>} → target=$REMOTE"
 SHORT_BEFORE="${LOCAL:0:7}"
+[[ -z "$SHORT_BEFORE" ]] && SHORT_BEFORE="initial"
 SHORT_AFTER="${REMOTE:0:7}"
 
 # 1. Pre-flight backup текущего dist
@@ -87,8 +96,10 @@ fi
 # Чистим старые бэкапы — храним последние 10
 ls -1t "$BACKUP_ROOT"/dist-*.tar.gz 2>/dev/null | tail -n +11 | xargs -r rm -f
 
-# 2. Pull
-git reset --hard "origin/$BRANCH" >/dev/null
+# 2. Sync working tree to REMOTE — после first-clone мы УЖЕ на нужном SHA,
+# но reset --hard на $REMOTE гарантирует identical state даже если что-то
+# пошло криво между fetch и reset.
+git reset --hard "$REMOTE" >/dev/null
 git clean -fdq
 
 # 3. Сборка из apps/neurohub/
@@ -182,5 +193,9 @@ REPORT_FILE="$REPORT_DIR/deploy-$TS.md"
 
 # Чистим старые отчёты — храним последние 50
 ls -1t "$REPORT_DIR"/deploy-*.md 2>/dev/null | tail -n +51 | xargs -r rm -f
+
+# Фиксируем успешно задеплоенный SHA. Только ПОСЛЕ всех проверок —
+# при rollback'е этот файл НЕ обновится, и следующий тик попробует снова.
+echo "$REMOTE" > "$DEPLOYED_SHA_FILE"
 
 log "deploy OK: $SHORT_BEFORE → $SHORT_AFTER"
