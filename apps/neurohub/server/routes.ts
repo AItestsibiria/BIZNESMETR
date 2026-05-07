@@ -2412,6 +2412,10 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       const sourceTitle = source.displayTitle || source.prompt || "Трек";
       const sourceStyle = sourceMeta.style || "";
 
+      // ТЗ Eugene 2026-05-07: продление наследует voiceType от источника
+      // если пользователь явно не сменил. Раньше extend терял голос полностью.
+      const inheritedVoiceType = (source as any).voiceType ?? null;
+
       const gen = storage.createGeneration({
         userId,
         type: "music",
@@ -2430,9 +2434,23 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         authorName: authorName || user.name || "Аноним",
       });
 
+      const norm = normalizeVocalParams({
+        prompt: prompt || sourceStyle,
+        style: sourceStyle,
+        lyrics,
+        voice,
+        voiceType: inheritedVoiceType,
+        generationId: gen.id,
+      });
+      try {
+        db.update(generations).set({ voiceType: norm.voiceType }).where(eq(generations.id, gen.id)).run();
+      } catch (e) {
+        console.error(`[VOCAL-NORMALIZE] failed to save voiceType for extend gen #${gen.id}`, e);
+      }
+
       const audioUrl = `https://muziai.ru/api/stream/${source.id}`;
       const sourceTaskId = source.taskId || "";
-      const promptText = prompt || sourceStyle || "Продолжение";
+      const promptText = norm.finalPrompt || prompt || sourceStyle || "Продолжение";
 
       const attempts = [
         { model: "suno-extend", prompt: promptText, audio_url: audioUrl, continue_at: continueAt },
@@ -2441,9 +2459,16 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         { model: "suno-extend", prompt: promptText, audio_url: audioUrl, continueAt },
         { model: "suno-extend", prompt: promptText, source_url: audioUrl, continue_at: continueAt },
       ];
-      // Custom mode adds lyrics if provided
-      if (lyrics && lyrics.length >= 50) {
-        for (const a of attempts) { a.mode = "custom"; (a as any).lyric = lyrics.slice(0, 3000); (a as any).title = sourceTitle.slice(0, 80); }
+      // Custom mode adds lyrics if provided. Используем нормализованные lyrics
+      // (с правильной [Male]/[Female] разбивкой для дуэта) и тэги стиля.
+      const normLyrics = norm.finalLyrics || lyrics || "";
+      if (normLyrics && normLyrics.length >= 50) {
+        for (const a of attempts) {
+          a.mode = "custom";
+          (a as any).lyric = normLyrics.slice(0, 3000);
+          (a as any).title = sourceTitle.slice(0, 80);
+          if (norm.finalStyle) (a as any).tags = norm.finalStyle.slice(0, 200);
+        }
       }
 
       let data: any = null;

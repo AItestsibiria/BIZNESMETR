@@ -1253,6 +1253,13 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
                       e.stopPropagation();
                       (window as any).__lyricsTransfer = gen.prompt || "";
                       (window as any).__styleTransfer = gen.style || "";
+                      // ТЗ Eugene 2026-05-07: при повторе из dashboard
+                      // переносим voiceType исходного трека (раньше терялся
+                      // → /music дефолтил на female).
+                      (window as any).__voiceTypeTransfer = (gen as any).voiceType || null;
+                      try {
+                        sessionStorage.setItem("__voiceTypeTransfer", String((gen as any).voiceType || ""));
+                      } catch {}
                       navigate("/music");
                     }}
                   >
@@ -1322,10 +1329,15 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
                       (window as any).__styleTransfer = baseStyle;
                       (window as any).__fullStyleTransfer = fullStyle;
                       (window as any).__lyricsTransfer = lyrics;
+                      // ТЗ Eugene 2026-05-07 §5: voiceType должен браться
+                      // из исходного трека, не угадываться.
+                      const transferVT = (gen as any).voiceType || null;
+                      (window as any).__voiceTypeTransfer = transferVT;
                       try {
                         sessionStorage.setItem("__styleTransfer", baseStyle);
                         sessionStorage.setItem("__fullStyleTransfer", fullStyle || "");
                         sessionStorage.setItem("__lyricsTransfer", lyrics);
+                        sessionStorage.setItem("__voiceTypeTransfer", String(transferVT || ""));
                       } catch {}
                       // Дополнительно — в буфер обмена
                       try {

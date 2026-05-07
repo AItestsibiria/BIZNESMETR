@@ -203,26 +203,32 @@ export default function MusicPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
 
-  // Check for lyrics/style passed from other pages
+  // Check for lyrics/style/voiceType passed from other pages
   const transferred = (() => {
     let lyricsT = (window as any).__lyricsTransfer;
     let styleT = (window as any).__styleTransfer;
     let fullStyleT = (window as any).__fullStyleTransfer;
+    let voiceTypeT = (window as any).__voiceTypeTransfer;
     // Fallback на sessionStorage (переживёт рефреш и полную навигацию)
     try {
       if (!lyricsT) lyricsT = sessionStorage.getItem("__lyricsTransfer") || null;
       if (!styleT) styleT = sessionStorage.getItem("__styleTransfer") || null;
       if (!fullStyleT) fullStyleT = sessionStorage.getItem("__fullStyleTransfer") || null;
+      if (!voiceTypeT) voiceTypeT = sessionStorage.getItem("__voiceTypeTransfer") || null;
     } catch {}
     if (lyricsT) delete (window as any).__lyricsTransfer;
     if (styleT) delete (window as any).__styleTransfer;
     if (fullStyleT) delete (window as any).__fullStyleTransfer;
+    if (voiceTypeT) delete (window as any).__voiceTypeTransfer;
     try {
       sessionStorage.removeItem("__lyricsTransfer");
       sessionStorage.removeItem("__styleTransfer");
       sessionStorage.removeItem("__fullStyleTransfer");
+      sessionStorage.removeItem("__voiceTypeTransfer");
     } catch {}
-    if (lyricsT || styleT || fullStyleT) return { lyrics: lyricsT || null, style: styleT || null, fullStyle: fullStyleT || null };
+    if (lyricsT || styleT || fullStyleT || voiceTypeT) {
+      return { lyrics: lyricsT || null, style: styleT || null, fullStyle: fullStyleT || null, voiceType: voiceTypeT || null };
+    }
     // URL query fallback
     try {
       const hash = window.location.hash;
@@ -230,7 +236,7 @@ export default function MusicPage() {
       if (qIdx === -1) return null;
       const params = new URLSearchParams(hash.slice(qIdx));
       const val = params.get("lyrics");
-      return val ? { lyrics: val, style: null, fullStyle: null } : null;
+      return val ? { lyrics: val, style: null, fullStyle: null, voiceType: null } : null;
     } catch { return null; }
   })();
 
@@ -241,8 +247,14 @@ export default function MusicPage() {
   const [lyrics, setLyrics] = useState(transferred?.lyrics || "");
   const [songCategory, setSongCategory] = useState<'song' | 'greeting'>('greeting'); // по умолчанию Поздравление
   const [title, setTitle] = useState("");
-  const [instrumental, setInstrumental] = useState(false);
-  const [voice, setVoice] = useState<"female" | "male">("female");
+  // ТЗ Eugene 2026-05-07 §5: при повторе из dashboard используем
+  // voiceType исходного трека (не дефолтим). transferred.voiceType ∈
+  // 'male' | 'female' | 'duet' | 'instrumental' | 'auto' | null.
+  const _transferredVT = (transferred?.voiceType || "").toString().toLowerCase();
+  const [instrumental, setInstrumental] = useState<boolean>(_transferredVT === "instrumental");
+  const [voice, setVoice] = useState<"female" | "male">(
+    _transferredVT === "male" ? "male" : "female",
+  );
   const [isPrivate, setIsPrivate] = useState(true);
   const [authorName, setAuthorName] = useState(user?.name || "");
   const [lastGenId, setLastGenId] = useState<number | null>(null);
@@ -270,7 +282,7 @@ export default function MusicPage() {
   const [mood, setMood] = useState(parsedTransfer.mood);
   const [tempo, setTempo] = useState(parsedTransfer.tempo);
   const [stylePrompt, setStylePrompt] = useState("");
-  const [isDuet, setIsDuet] = useState(false);
+  const [isDuet, setIsDuet] = useState<boolean>(_transferredVT === "duet");
   const [lastPromptText, setLastPromptText] = useState("");
   const [copiedPrompt, setCopiedPrompt] = useState(false);
   const [highlightStyles, setHighlightStyles] = useState(!!transferred?.style);

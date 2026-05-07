@@ -1,5 +1,6 @@
 // Единый нормализатор vocal-параметров для всех путей генерации
-// (POST /api/music/generate, /api/music/regenerate/:id, mass-gen, и т.д.).
+// (POST /api/music/generate, /api/music/regenerate/:id, /api/music/extend,
+// /api/music/style-cover, admin generate-anthem, и т.д.).
 //
 // Решает класс багов, когда выбранный пользователем голос терялся,
 // перезаписывался, или дефолтил на Female. См. ТЗ Eugene 2026-05-07.
@@ -10,18 +11,21 @@
 //   voiceType == 'female'       → удалить male/Male Vocal/[Male]
 //                                 добавить [Female Vocal]/female voice/женский вокал
 //   voiceType == 'duet'         → структура [Male]/[Female]/[Together] в lyrics
-//                                 style включает 'male and female duet vocals, duet'
+//                                 style: 'male and female duet vocals, duet'
+//                                 СОХРАНЯЕТ существующие [Male]/[Female]/[Together]
+//                                 если пользователь сам их расставил в lyrics
 //   voiceType == 'instrumental' → удалить ВСЕ vocal markers
-//                                 добавить 'instrumental, no vocals'
-//   voiceType == null/undefined → fallback: пытаемся определить из существующего
-//                                 prompt/style; если не удаётся — НЕ ставим дефолт,
-//                                 оставляем как есть (Suno сам решит)
+//                                 добавить 'instrumental, no vocals, без вокала'
+//   voiceType == 'auto'         → НИКАКИХ маркеров не добавляем; то что было
+//                                 в prompt/style — остаётся; Suno сам решит.
+//                                 Используется для legacy-треков и для случая
+//                                 «пользователь явно ничего не выбрал».
 //
 // Возвращает finalPrompt + finalStyle + voiceType (нормализованный).
 // ВСЕГДА логирует console.log для диагностики (PITFALLS #11/12 — видимость
 // эпицентра проблемы).
 
-export type VoiceType = "male" | "female" | "duet" | "instrumental" | null;
+export type VoiceType = "male" | "female" | "duet" | "instrumental" | "auto";
 
 interface NormalizeInput {
   prompt?: string | null;
@@ -40,7 +44,7 @@ interface NormalizeOutput {
   finalPrompt: string;
   finalStyle: string;
   finalLyrics: string;
-  voiceType: Exclude<VoiceType, null>;
+  voiceType: VoiceType;
   log: {
     generationId: string | number | null;
     voiceType: string;
@@ -83,29 +87,32 @@ function stripAll(s: string, ...patterns: RegExp[]): string {
     .trim();
 }
 
-function inferVoiceType(input: NormalizeInput): Exclude<VoiceType, null> {
+function inferVoiceType(input: NormalizeInput): VoiceType {
   // Явные флаги имеют приоритет.
   if (input.instrumental === true) return "instrumental";
   if (input.isDuet === true) return "duet";
 
   // voiceType явный
   const vt = (input.voiceType ?? "").toString().toLowerCase().trim();
-  if (vt === "male" || vt === "female" || vt === "duet" || vt === "instrumental") return vt as any;
+  if (vt === "male" || vt === "female" || vt === "duet" || vt === "instrumental" || vt === "auto") return vt as VoiceType;
 
   // voice legacy: 'male'/'female'
   const v = (input.voice ?? "").toString().toLowerCase().trim();
-  if (v === "male" || v === "female") return v as any;
+  if (v === "male" || v === "female") return v as VoiceType;
 
-  // Эвристика по существующему prompt + style
+  // Эвристика по существующему prompt + style + lyrics. Свежие RegExp
+  // на каждое сравнение — у /gi есть lastIndex, нельзя переиспользовать.
   const pool = `${input.prompt ?? ""} ${input.style ?? ""} ${input.lyrics ?? ""}`;
-  if (INSTRUMENTAL_MARKERS.test(pool)) return "instrumental";
-  if (DUET_MARKERS.test(pool)) return "duet";
-  if (FEMALE_MARKERS.test(pool) || TAG_FEMALE.test(pool)) return "female";
-  if (MALE_MARKERS.test(pool) || TAG_MALE.test(pool)) return "male";
+  const has = (re: RegExp) => new RegExp(re.source, re.flags).test(pool);
+  if (has(INSTRUMENTAL_MARKERS)) return "instrumental";
+  if (has(DUET_MARKERS) || has(TAG_DUET)) return "duet";
+  if (has(FEMALE_MARKERS) || has(TAG_FEMALE)) return "female";
+  if (has(MALE_MARKERS) || has(TAG_MALE)) return "male";
 
-  // Не ставим дефолт — пусть Suno сам решит (старый код дефолтил на Female,
-  // что и было причиной бага).
-  return "female";
+  // ТЗ Eugene 2026-05-07 §7.8: legacy-треки без voiceType — безопасный
+  // fallback. НЕ дефолтим на female (это и был источник бага). Возвращаем
+  // 'auto' — нормализатор не добавит маркеров, prompt/style идут как есть.
+  return "auto";
 }
 
 export function normalizeVocalParams(input: NormalizeInput): NormalizeOutput {
@@ -124,32 +131,47 @@ export function normalizeVocalParams(input: NormalizeInput): NormalizeOutput {
   let lyrics = input.lyrics ?? "";
 
   // Для duet — оригинальные [Male]/[Female]/[Together] теги в lyrics
-  // должны сохраниться. Очищаем lyrics только для не-duet режимов.
-  if (voiceType !== "duet") {
+  // должны сохраниться (ТЗ §6 «не ломать структуру»). Очищаем lyrics
+  // только для не-duet режимов. Для auto — тоже не трогаем.
+  if (voiceType !== "duet" && voiceType !== "auto") {
     lyrics = stripAll(lyrics, TAG_MALE, TAG_FEMALE, TAG_DUET);
   }
 
-  // Добавляем правильные маркеры
+  // Сохраняем оригинал lyrics ДО возможной перезаписи каркасом duet.
+  const originalLyrics = lyrics;
+
+  // Добавляем правильные маркеры (с русскими дублями для надёжности —
+  // Suno обучена на mixed-language тегах, RU-маркеры повышают точность).
   switch (voiceType) {
     case "male":
-      style = deduplicateCommaList(`${style}, Male Vocal, male voice`.replace(/^,\s*/, ""));
+      style = deduplicateCommaList(`${style}, Male Vocal, male voice, мужской вокал`.replace(/^,\s*/, ""));
       if (prompt) prompt = `${prompt}\n[Male Vocal]`.trim();
       break;
     case "female":
-      style = deduplicateCommaList(`${style}, Female Vocal, female voice`.replace(/^,\s*/, ""));
+      style = deduplicateCommaList(`${style}, Female Vocal, female voice, женский вокал`.replace(/^,\s*/, ""));
       if (prompt) prompt = `${prompt}\n[Female Vocal]`.trim();
       break;
     case "duet":
-      style = deduplicateCommaList(`${style}, male and female duet vocals, duet`.replace(/^,\s*/, ""));
-      // Если в lyrics нет [Male]/[Female] — добавим минимальную каркас
-      if (lyrics && !TAG_MALE.test(lyrics) && !TAG_FEMALE.test(lyrics)) {
-        lyrics = `[Male]\n${lyrics}\n\n[Female]\n\n[Together]\n`;
+      style = deduplicateCommaList(`${style}, male and female duet vocals, duet, дуэт`.replace(/^,\s*/, ""));
+      // Если в lyrics уже есть [Male] или [Female] — оставляем как есть,
+      // НЕ перезаписываем (ТЗ §6: «если в prompt уже есть [Male]/[Female]/
+      // [Together], не ломать структуру»). Каркас добавляем только когда
+      // структура пустая.
+      {
+        const hasMale = new RegExp(TAG_MALE.source, TAG_MALE.flags).test(originalLyrics);
+        const hasFemale = new RegExp(TAG_FEMALE.source, TAG_FEMALE.flags).test(originalLyrics);
+        if (originalLyrics && !hasMale && !hasFemale) {
+          lyrics = `[Male]\n${originalLyrics}\n\n[Female]\n\n[Together]\n`;
+        }
       }
       break;
     case "instrumental":
-      style = deduplicateCommaList(`${style}, instrumental, no vocals`.replace(/^,\s*/, ""));
+      style = deduplicateCommaList(`${style}, instrumental, no vocals, без вокала`.replace(/^,\s*/, ""));
       if (prompt) prompt = `Instrumental, no vocals. ${prompt}`.trim();
       lyrics = ""; // инструментальная без текста
+      break;
+    case "auto":
+      // Никаких маркеров не добавляем — Suno сам решит.
       break;
   }
 
