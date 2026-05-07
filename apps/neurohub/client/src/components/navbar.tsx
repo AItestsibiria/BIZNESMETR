@@ -61,6 +61,7 @@ export default function Navbar() {
     { href: "/templates", label: "Шаблоны" },
     { href: "/lyrics", label: "Тексты" },
     { href: "/music", label: "Музыка" },
+    { href: "/music?tab=audio", label: "🎧 Аудио" },
     { href: "/covers", label: "Обложки" },
   ];
 

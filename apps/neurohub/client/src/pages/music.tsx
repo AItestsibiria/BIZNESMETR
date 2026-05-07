@@ -240,7 +240,32 @@ export default function MusicPage() {
     } catch { return null; }
   })();
 
-  const [mode, setMode] = useState<"simple" | "advanced">("advanced");
+  const [mode, setMode] = useState<"basic" | "audio" | "advanced">(() => {
+    // ТЗ Eugene 2026-05-07: 3 режима по частоте использования.
+    // Default — basic (минимум полей). Запоминаем выбор пользователя.
+    try {
+      const tabFromUrl = new URLSearchParams(window.location.hash.split("?")[1] || "").get("tab");
+      if (tabFromUrl === "basic" || tabFromUrl === "audio" || tabFromUrl === "advanced") return tabFromUrl;
+      const saved = localStorage.getItem("music_mode");
+      if (saved === "basic" || saved === "audio" || saved === "advanced") return saved;
+    } catch {}
+    return "basic";
+  });
+  useEffect(() => { try { localStorage.setItem("music_mode", mode); } catch {} }, [mode]);
+  const [audioMode, setAudioMode] = useState<"simple" | "advanced">(() => {
+    try { const s = localStorage.getItem("music_audio_mode"); if (s === "simple" || s === "advanced") return s; } catch {}
+    return "simple";
+  });
+  useEffect(() => { try { localStorage.setItem("music_audio_mode", audioMode); } catch {} }, [audioMode]);
+  // Аудио-вход: пользовательский upload (mp3) для cover/extend режима.
+  // Sprint 3 backend ещё не готов (см. docs/strategy/v304-audio-input-TZ.md),
+  // UI собирается заранее — отправит uploadUrl когда endpoint появится.
+  const [audioFile, setAudioFile] = useState<File | null>(null);
+  const [audioUploadUrl, setAudioUploadUrl] = useState<string | null>(null);
+  const [audioUploading, setAudioUploading] = useState(false);
+  const [audioWeight, setAudioWeight] = useState(0.7);
+  // Внутри Расширенного — старая Simple/Lyrics подвкладка (была prev top-mode).
+  const [legacyMode, setLegacyMode] = useState<"simple" | "advanced">("simple");
   const [prompt, setPrompt] = useState("");
   const [style, setStyle] = useState(transferred?.style || "pop");
   const [selectedStyles, setSelectedStyles] = useState<string[]>([transferred?.style || "pop"]);
@@ -351,19 +376,29 @@ export default function MusicPage() {
       setShowInlineAuth(true);
       return;
     }
-    const mainPrompt = mode === "simple" ? prompt : lyrics;
-    if (!mainPrompt.trim()) {
-      toast({ title: mode === "simple" ? "Опишите желаемый трек" : "Вставьте текст песни", variant: "destructive" });
+    // Базовый режим — только prompt + voice, без выбора стиля.
+    // Audio — пока заблокирован (backend в Sprint 3.1, см. v304-audio-input-TZ.md).
+    if (mode === "audio") {
+      toast({ title: "Аудио-режим в разработке", description: "Backend Sprint 3.1, ETA скоро.", variant: "destructive" });
       return;
     }
 
-    const stylesToGenerate = selectedStyles.length > 0 ? selectedStyles : [style];
+    const isBasic = mode === "basic";
+    const mainPrompt = isBasic ? prompt : (legacyMode === "simple" ? prompt : lyrics);
+    if (!mainPrompt.trim()) {
+      toast({ title: isBasic ? "Опишите песню" : (legacyMode === "simple" ? "Опишите желаемый трек" : "Вставьте текст песни"), variant: "destructive" });
+      return;
+    }
+
+    // Базовый режим: один трек, без явного стиля. Передаём пустой stylesToGenerate
+    // как [""] — handleGenerate ниже не будет добавлять fullStyle если basic.
+    const stylesToGenerate = isBasic ? [""] : (selectedStyles.length > 0 ? selectedStyles : [style]);
 
     setLoading(true);
     startBgMusic();
     setResultUrl(null);
     setHighlightStyles(false);
-    setLastPromptText(mode === "simple" ? prompt : lyrics);
+    setLastPromptText(legacyMode === "simple" ? prompt : lyrics);
     setUsedStyles(prev => {
       const next = [...prev];
       for (const s of stylesToGenerate) { if (!next.includes(s)) next.push(s); }
@@ -378,16 +413,23 @@ export default function MusicPage() {
     for (let i = 0; i < stylesToGenerate.length; i++) {
       const s = stylesToGenerate[i];
       try {
-        // Build enriched style string with advanced options
-        let fullStyle = s;
-        if (tempo) fullStyle += `, ${tempo} tempo`;
-        if (isDuet) fullStyle += `, male and female duet, duet vocals`;
-        if (mood) fullStyle += `, ${mood.toLowerCase()} mood`;
-        if (bpm) fullStyle += `, ${bpm} BPM`;
-        if (stylePrompt.trim()) fullStyle += `, ${stylePrompt.trim()}`;
+        // Базовый режим — стиль не задаём, нормализатор/Suno решат сами.
+        // Расширенный — собираем enriched style.
+        let fullStyle = "";
+        if (!isBasic) {
+          fullStyle = s;
+          if (tempo) fullStyle += `, ${tempo} tempo`;
+          if (isDuet) fullStyle += `, male and female duet, duet vocals`;
+          if (mood) fullStyle += `, ${mood.toLowerCase()} mood`;
+          if (bpm) fullStyle += `, ${bpm} BPM`;
+          if (stylePrompt.trim()) fullStyle += `, ${stylePrompt.trim()}`;
+        }
 
-        const body: any = { style: fullStyle, category: songCategory };
-        if (mode === "simple") {
+        const body: any = { category: songCategory };
+        if (fullStyle) body.style = fullStyle;
+        if (isBasic) {
+          body.prompt = prompt;
+        } else if (legacyMode === "simple") {
           body.prompt = prompt;
         } else {
           body.lyrics = lyrics;
@@ -576,24 +618,178 @@ export default function MusicPage() {
           </button>
         </div>
 
-        {/* Mode Toggle */}
+        {/* Mode Toggle — 3 режима по частоте использования (ТЗ 2026-05-07) */}
         <div className="mb-6">
-          <Tabs value={mode} onValueChange={(v) => setMode(v as "simple" | "advanced")}>
+          <Tabs value={mode} onValueChange={(v) => setMode(v as any)}>
             <TabsList className="bg-white/5 border border-white/10">
-              <TabsTrigger value="simple" className="data-[state=active]:bg-purple-500/20 data-[state=active]:text-white" data-testid="tab-simple">
-                Простой
+              <TabsTrigger value="basic" className="data-[state=active]:bg-purple-500/20 data-[state=active]:text-white" data-testid="tab-basic">
+                ⚡ Базовый
+              </TabsTrigger>
+              <TabsTrigger value="audio" className="data-[state=active]:bg-purple-500/20 data-[state=active]:text-white" data-testid="tab-audio">
+                🎧 Аудио
               </TabsTrigger>
               <TabsTrigger value="advanced" className="data-[state=active]:bg-purple-500/20 data-[state=active]:text-white" data-testid="tab-advanced">
-                Расширенный
+                🛠 Расширенный
               </TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
 
+        {/* Аудио-режим — sub-tabs Простой/Расширенный */}
+        {mode === "audio" && (
+          <div className="mb-4">
+            <Tabs value={audioMode} onValueChange={(v) => setAudioMode(v as any)}>
+              <TabsList className="bg-white/5 border border-white/10">
+                <TabsTrigger value="simple" className="data-[state=active]:bg-cyan-500/20 data-[state=active]:text-white" data-testid="tab-audio-simple">
+                  Простой
+                </TabsTrigger>
+                <TabsTrigger value="advanced" className="data-[state=active]:bg-cyan-500/20 data-[state=active]:text-white" data-testid="tab-audio-advanced">
+                  Расширенный
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          </div>
+        )}
+
         {/* Form */}
         <div className="gradient-border p-6 rounded-2xl space-y-5 mb-6">
-          {/* === ПРОСТОЙ РЕЖИМ === */}
-          {mode === "simple" ? (
+          {/* === БАЗОВЫЙ РЕЖИМ — минимум полей, без выбора стиля === */}
+          {mode === "basic" ? (
+            <>
+              <div className="space-y-2">
+                <Label className="text-sm text-muted-foreground">Опишите песню в свободной форме</Label>
+                <Textarea
+                  placeholder="Например: грустная баллада о расставании / весёлый детский гимн ко дню рождения / эпический рок про космос…"
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  rows={5}
+                  className="bg-background/50 border-white/10 input-glow resize-none"
+                  data-testid="input-basic-prompt"
+                />
+                <p className="text-[10px] text-muted-foreground/70">
+                  Стиль и темп выберет Suno автоматически. Достаточно описать настроение и тему.
+                </p>
+              </div>
+              {/* Voice selector — те же 4 кнопки что в advanced */}
+              <div className="space-y-2">
+                <Label className="text-sm text-muted-foreground">Голос</Label>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button"
+                    className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${!instrumental && !isDuet && voice === "female" ? "border-purple-500/40 bg-purple-500/15 text-purple-300" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white"}`}
+                    onClick={() => { setInstrumental(false); setIsDuet(false); setVoice("female"); }}
+                    data-testid="btn-basic-female">
+                    👩 Женский
+                  </button>
+                  <button type="button"
+                    className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${!instrumental && !isDuet && voice === "male" ? "border-blue-500/40 bg-blue-500/15 text-blue-300" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white"}`}
+                    onClick={() => { setInstrumental(false); setIsDuet(false); setVoice("male"); }}
+                    data-testid="btn-basic-male">
+                    👨 Мужской
+                  </button>
+                  <button type="button"
+                    className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${isDuet ? "border-pink-500/40 bg-pink-500/15 text-pink-300" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white"}`}
+                    onClick={() => { setInstrumental(false); setIsDuet(true); }}
+                    data-testid="btn-basic-duet">
+                    👫 Дуэт
+                  </button>
+                  <button type="button"
+                    className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${instrumental ? "border-amber-500/40 bg-amber-500/15 text-amber-300" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white"}`}
+                    onClick={() => { setIsDuet(false); setInstrumental(true); }}
+                    data-testid="btn-basic-instrumental">
+                    🎻 Инструментальная
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : mode === "audio" ? (
+            <>
+              {/* === АУДИО-РЕЖИМ — upload + cover/extend === */}
+              <div className="space-y-3">
+                <Label className="text-sm text-muted-foreground">Загрузите аудио (mp3/wav, до 8 минут)</Label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="file"
+                    accept="audio/*"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] || null;
+                      setAudioFile(f);
+                      setAudioUploadUrl(null);
+                    }}
+                    className="text-sm file:mr-3 file:px-3 file:py-1.5 file:rounded-md file:border-0 file:bg-cyan-500/20 file:text-cyan-200 file:cursor-pointer cursor-pointer"
+                    data-testid="input-audio-file"
+                  />
+                  {audioFile && <span className="text-xs text-muted-foreground truncate max-w-[180px]">{audioFile.name}</span>}
+                </div>
+                <p className="text-[10px] text-amber-300/80">
+                  ⚠ Серверный upload-эндпоинт в работе (Sprint 3.1, см. <code>docs/strategy/v304-audio-input-TZ.md</code>).
+                  UI готов и подключится автоматически когда backend будет залит.
+                </p>
+              </div>
+              {audioMode === "advanced" && (
+                <div className="space-y-2">
+                  <Label className="text-sm text-muted-foreground">audioWeight — насколько копировать мелодию ({audioWeight.toFixed(2)})</Label>
+                  <input
+                    type="range" min={0} max={1} step={0.05}
+                    value={audioWeight}
+                    onChange={(e) => setAudioWeight(parseFloat(e.target.value))}
+                    className="w-full accent-cyan-500"
+                    data-testid="input-audio-weight"
+                  />
+                  <div className="flex justify-between text-[10px] text-muted-foreground/70">
+                    <span>0 = свободная импровизация</span>
+                    <span>1 = почти копия</span>
+                  </div>
+                </div>
+              )}
+              {/* Voice — те же 4 кнопки */}
+              <div className="space-y-2">
+                <Label className="text-sm text-muted-foreground">Голос для кавера</Label>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button"
+                    className={`px-3 py-1.5 text-sm rounded-lg border ${!instrumental && !isDuet && voice === "female" ? "border-purple-500/40 bg-purple-500/15 text-purple-300" : "border-white/10 bg-white/5 text-muted-foreground"}`}
+                    onClick={() => { setInstrumental(false); setIsDuet(false); setVoice("female"); }}>👩 Женский</button>
+                  <button type="button"
+                    className={`px-3 py-1.5 text-sm rounded-lg border ${!instrumental && !isDuet && voice === "male" ? "border-blue-500/40 bg-blue-500/15 text-blue-300" : "border-white/10 bg-white/5 text-muted-foreground"}`}
+                    onClick={() => { setInstrumental(false); setIsDuet(false); setVoice("male"); }}>👨 Мужской</button>
+                  <button type="button"
+                    className={`px-3 py-1.5 text-sm rounded-lg border ${isDuet ? "border-pink-500/40 bg-pink-500/15 text-pink-300" : "border-white/10 bg-white/5 text-muted-foreground"}`}
+                    onClick={() => { setInstrumental(false); setIsDuet(true); }}>👫 Дуэт</button>
+                  <button type="button"
+                    className={`px-3 py-1.5 text-sm rounded-lg border ${instrumental ? "border-amber-500/40 bg-amber-500/15 text-amber-300" : "border-white/10 bg-white/5 text-muted-foreground"}`}
+                    onClick={() => { setIsDuet(false); setInstrumental(true); }}>🎻 Инструментальная</button>
+                </div>
+              </div>
+              {audioMode === "advanced" && (
+                <div className="space-y-2">
+                  <Label className="text-sm text-muted-foreground">Стиль (опционально)</Label>
+                  <input
+                    type="text"
+                    placeholder="напр.: acoustic fingerpicking, intimate"
+                    value={stylePrompt}
+                    onChange={(e) => setStylePrompt(e.target.value)}
+                    className="w-full px-3 py-2 text-sm rounded-lg bg-background/50 border border-white/10 input-glow"
+                    data-testid="input-audio-style"
+                  />
+                </div>
+              )}
+            </>
+          ) : (
+            // === РАСШИРЕННЫЙ РЕЖИМ — старый код с внутренней Simple/Lyrics подвкладкой ===
+            <>
+              {/* Sub-tabs внутри Расширенного */}
+              <div>
+                <Tabs value={legacyMode} onValueChange={(v) => setLegacyMode(v as any)}>
+                  <TabsList className="bg-white/5 border border-white/10">
+                    <TabsTrigger value="simple" className="data-[state=active]:bg-purple-500/20 data-[state=active]:text-white" data-testid="tab-legacy-simple">
+                      По описанию
+                    </TabsTrigger>
+                    <TabsTrigger value="advanced" className="data-[state=active]:bg-purple-500/20 data-[state=active]:text-white" data-testid="tab-legacy-lyrics">
+                      Свой текст
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
+              {legacyMode === "simple" ? (
             <>
               <div className="space-y-2">
                 <Label className="text-sm text-muted-foreground">Опишите желаемый трек</Label>
@@ -868,7 +1064,7 @@ export default function MusicPage() {
           )}
 
           {/* Настроение — видно всегда в расширенном */}
-          {mode === "advanced" && (
+          {legacyMode === "advanced" && (
             <div className="space-y-2">
               <Label className="text-sm text-muted-foreground">Настроение</Label>
               <div className="flex flex-wrap gap-2">
@@ -891,7 +1087,7 @@ export default function MusicPage() {
           )}
 
           {/* Для опытных авторов — только в расширенном */}
-          {mode === "advanced" && (
+          {legacyMode === "advanced" && (
           <div className="border border-white/[0.06] rounded-xl overflow-hidden">
             <button
               type="button"
@@ -956,8 +1152,12 @@ export default function MusicPage() {
           </div>
           )}
 
-          {/* Сводка параметров генерации */}
-          {selectedStyles.length > 0 && (
+          {/* === КОНЕЦ Расширенного режима. Кнопка Generate — общая для всех 3 mode'ов === */}
+            </>
+          )}
+
+          {/* Сводка параметров генерации (только Расширенный) */}
+          {mode === "advanced" && selectedStyles.length > 0 && (
             <div className="text-[11px] p-3 rounded-lg bg-purple-500/[0.06] border border-purple-500/20 mb-2 space-y-1">
               <p className="text-purple-300/80 text-[10px] font-semibold mb-1">Параметры генерации:</p>
               {selectedStyles.map((sv, i) => {
@@ -984,13 +1184,28 @@ export default function MusicPage() {
           <Button
             className="w-full btn-gradient rounded-xl h-12 text-base"
             onClick={handleGenerate}
-            disabled={loading || selectedStyles.length === 0}
+            disabled={
+              loading
+              || (mode === "advanced" && selectedStyles.length === 0)
+              || (mode === "basic" && !prompt.trim())
+              || (mode === "audio")
+            }
             data-testid="button-generate-music"
           >
             {loading ? (
               <span className="flex items-center gap-2">
                 <Loader2 className="w-4 h-4 animate-spin" />
                 {polling ? "Генерация трека..." : "Отправляем запрос..."}
+              </span>
+            ) : mode === "basic" ? (
+              <span className="flex items-center gap-2">
+                <Music className="w-4 h-4" />
+                {!prompt.trim() ? "Опишите песню" : "Создать песню — 299 ₽"}
+              </span>
+            ) : mode === "audio" ? (
+              <span className="flex items-center gap-2">
+                <Music className="w-4 h-4" />
+                🚧 Скоро (Sprint 3.1) — TZ готов
               </span>
             ) : (
               <span className="flex items-center gap-2">
