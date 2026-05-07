@@ -309,32 +309,61 @@ router.post("/transcribe", requireAuth, async (req, res) => {
 
     // 1. Whisper transcribe (multipart)
     const buffer = fs.readFileSync(upl.storagePath);
-    const fd = new FormData();
-    const blob = new Blob([buffer], { type: upl.mime || "audio/webm" });
-    fd.append("file", blob, `audio.${upl.ext || "webm"}`);
-    fd.append("model", "whisper-1");
-    fd.append("language", "ru");
+    const buildForm = () => {
+      const f = new FormData();
+      const blob = new Blob([buffer], { type: upl.mime || "audio/webm" });
+      f.append("file", blob, `audio.${upl.ext || "webm"}`);
+      f.append("model", "whisper-1");
+      f.append("language", "ru");
+      return f;
+    };
 
+    // Пробуем несколько вариантов endpoint'а — у GPTunnel Whisper может
+    // быть на api.gptunnel.ru или нужен отдельный scope. Возвращаем пустой
+    // transcript с warning'ом если все варианты упали (UI fallback на manual ввод).
     let transcript = "";
-    try {
-      const r = await fetch("https://gptunnel.ru/v1/audio/transcriptions", {
-        method: "POST",
-        headers: { Authorization: apiKey },
-        body: fd,
-        signal: AbortSignal.timeout(60_000),
-      });
-      if (!r.ok) {
-        const t = await r.text().catch(() => "");
-        return res.status(r.status).json({ data: null, error: `Whisper вернул ${r.status}: ${t.slice(0, 200)}` });
+    let lastError = "";
+    const candidates = [
+      "https://gptunnel.ru/v1/audio/transcriptions",
+      "https://api.gptunnel.ru/v1/audio/transcriptions",
+    ];
+    for (const url of candidates) {
+      try {
+        const r = await fetch(url, {
+          method: "POST",
+          headers: { Authorization: apiKey },
+          body: buildForm(),
+          signal: AbortSignal.timeout(60_000),
+        });
+        if (r.ok) {
+          const data: any = await r.json().catch(() => null);
+          transcript = String(data?.text ?? "").trim();
+          if (transcript) break;
+        } else {
+          const t = await r.text().catch(() => "");
+          lastError = `${url} → ${r.status}: ${t.slice(0, 200)}`;
+          console.error(`[TRANSCRIBE] ${lastError}`);
+          if (r.status !== 401 && r.status !== 404) break;
+        }
+      } catch (e) {
+        lastError = `${url} → network: ${e instanceof Error ? e.message : "?"}`;
+        console.error(`[TRANSCRIBE] ${lastError}`);
       }
-      const data: any = await r.json().catch(() => null);
-      transcript = String(data?.text ?? "").trim();
-    } catch (e) {
-      const m = e instanceof Error ? e.message : String(e);
-      return res.status(502).json({ data: null, error: `Whisper network: ${m}` });
     }
+
     if (!transcript) {
-      return res.json({ data: { transcript: "", suggestion: null, error: "Whisper не распознал речь — попробуй говорить громче" }, error: null });
+      // Возвращаем 200 c warning — UI покажет manual-input вместо красной ошибки
+      return res.json({
+        data: {
+          transcript: "",
+          suggestion: null,
+          warning: lastError
+            ? `Не удалось распознать голос автоматически (${lastError}). Введите текст вручную ниже.`
+            : "Whisper не распознал речь. Введите текст вручную ниже.",
+          fallbackToManual: true,
+        },
+        error: null,
+      });
     }
 
     // 2. LLM rewrite + подбор шаблона
