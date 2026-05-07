@@ -126,6 +126,7 @@ export default function TemplatesPage() {
                               </div>
                             </div>
                             <div className="flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                              <span className="rounded bg-cyan-500/10 text-cyan-300 px-2 py-0.5">~ 2–4 мин</span>
                               {t.recommendedBpm && <span className="rounded bg-white/5 px-2 py-0.5">{t.recommendedBpm} BPM</span>}
                               {t.recommendedKey && <span className="rounded bg-white/5 px-2 py-0.5">{t.recommendedKey}</span>}
                               {t.style && (

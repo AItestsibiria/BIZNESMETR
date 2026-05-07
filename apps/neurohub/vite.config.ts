@@ -16,6 +16,9 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    // Sourcemaps включены для прода — нужны для debug React-ошибок
+    // (read prod stack-trace по реальным именам файлов/строк).
+    sourcemap: true,
   },
   server: {
     fs: {
