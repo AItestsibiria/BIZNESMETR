@@ -1497,10 +1497,10 @@ export default function MusicPage() {
           <button
             type="button"
             disabled={
-              loading || audioUploading
+              loading || audioUploading || transcribing
               || (mode === "advanced" && selectedStyles.length === 0)
               || (mode === "basic" && !prompt.trim())
-              || (mode === "audio" && !audioFile && !audioUploadUrl)
+              || (mode === "audio" && !audioFile)
             }
             onClick={(e) => {
               // Космический звон + вспышка при клике
@@ -1526,13 +1526,8 @@ export default function MusicPage() {
               } catch {}
               handleGenerate();
             }}
-            className="magic-btn group relative w-full h-16 rounded-2xl text-base sm:text-lg font-bold text-white overflow-hidden transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:saturate-50"
+            className="magic-btn btn-cosmic group relative w-full h-16 rounded-2xl text-base sm:text-lg font-bold text-white overflow-hidden transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:saturate-50"
             data-testid="button-generate-music"
-            style={{
-              background: "linear-gradient(110deg, #a855f7 0%, #ec4899 35%, #f97316 60%, #3b82f6 100%)",
-              backgroundSize: "300% 100%",
-              boxShadow: "0 12px 40px -8px rgba(168, 85, 247, 0.6), 0 0 30px rgba(236, 72, 153, 0.4), inset 0 1px 0 rgba(255,255,255,0.25)",
-            }}
           >
             {/* Pulsing glow layer */}
             <span aria-hidden className="absolute inset-0 rounded-2xl opacity-70 group-hover:opacity-100 transition-opacity"
@@ -1581,20 +1576,14 @@ export default function MusicPage() {
             </span>
           </button>
           <style>{`
-            @keyframes magic-shine {
-              0%, 100% { background-position: 0% 50%; }
-              50% { background-position: 100% 50%; }
-            }
+            /* Усиление btn-cosmic для магической кнопки генерации (Eugene 13:13).
+               btn-cosmic уже даёт 6-цветный анимированный shimmer как на landing. */
             .magic-btn {
-              animation: magic-gradient-shift 6s ease-in-out infinite, magic-pulse 2.4s ease-in-out infinite;
-            }
-            @keyframes magic-gradient-shift {
-              0%, 100% { background-position: 0% 50%; }
-              50% { background-position: 100% 50%; }
+              animation: magic-pulse 2.4s ease-in-out infinite;
             }
             @keyframes magic-pulse {
-              0%, 100% { box-shadow: 0 12px 40px -8px rgba(168, 85, 247, 0.55), 0 0 30px rgba(236, 72, 153, 0.35), inset 0 1px 0 rgba(255,255,255,0.25); }
-              50% { box-shadow: 0 18px 55px -6px rgba(168, 85, 247, 0.85), 0 0 50px rgba(236, 72, 153, 0.55), 0 0 80px rgba(59, 130, 246, 0.4), inset 0 1px 0 rgba(255,255,255,0.35); }
+              0%, 100% { box-shadow: 0 0 24px rgba(139, 92, 246, 0.45), 0 0 48px rgba(59, 130, 246, 0.25); }
+              50% { box-shadow: 0 0 40px rgba(139, 92, 246, 0.75), 0 0 80px rgba(236, 72, 153, 0.5), 0 0 120px rgba(34, 211, 238, 0.3); }
             }
             .magic-btn:hover { transform: translateY(-2px) scale(1.01); }
             .magic-btn:active { transform: translateY(0) scale(0.98); }
