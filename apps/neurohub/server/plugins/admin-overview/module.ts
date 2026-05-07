@@ -917,6 +917,41 @@ router.post("/poll-now", requireAdmin, async (_req, res) => {
   }
 });
 
+// POST /api/admin/v304/generations/:id/reassign
+// Переназначает владельца генерации на другого user'а (по email).
+// Use case Eugene 2026-05-07: gen #678 не удалось → перенести в кабинет
+// автор 2 для дебага. Записывает audit-лог с before/after.
+router.post("/generations/:id/reassign", requireAdmin, (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ data: null, error: "invalid id" });
+    const toEmail = String(req.body?.toEmail ?? "").trim().toLowerCase();
+    if (!toEmail) return res.status(400).json({ data: null, error: "toEmail required" });
+
+    const gen = db.select().from(generations).where(eq(generations.id, id)).get();
+    if (!gen) return res.status(404).json({ data: null, error: "generation not found" });
+    const target = db.select().from(users).where(eq(users.email, toEmail)).get();
+    if (!target) return res.status(404).json({ data: null, error: `пользователь ${toEmail} не найден` });
+
+    const before = { id: gen.id, userId: gen.userId, status: gen.status, errorReason: gen.errorReason };
+    db.update(generations).set({ userId: target.id }).where(eq(generations.id, id)).run();
+    const after = { id: gen.id, userId: target.id };
+
+    const auditId = recordEdit(req, "update", "generation_owner", String(id), before, after);
+    res.json({
+      data: {
+        generationId: id,
+        movedTo: { userId: target.id, email: target.email, name: target.name },
+        previousUserId: gen.userId,
+        auditId,
+      },
+      error: null,
+    });
+  } catch (err) {
+    res.status(500).json({ data: null, error: err instanceof Error ? err.message : "internal" });
+  }
+});
+
 // POST /api/admin/v304/anthem/revive
 // One-click «Реанимировать последний гимн»: находит последний gen с
 // templateSlug='v304-anthem', форсит pollProcessingGenerations и
