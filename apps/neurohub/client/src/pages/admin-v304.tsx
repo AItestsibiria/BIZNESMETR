@@ -12,6 +12,8 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { HelpBuddy } from "@/components/help-buddy";
+import { MicRecorder } from "@/components/mic-recorder";
+import { Loader2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -691,6 +693,37 @@ function YandexAgentCard() {
   const stt = services.speechkit_stt;
   const sttReady = stt?.configured && stt?.authProbe?.authValid !== false;
 
+  const [verifyResult, setVerifyResult] = useState<any>(null);
+  const [testing, setTesting] = useState(false);
+
+  const runTest = async (file: File) => {
+    setTesting(true);
+    setVerifyResult(null);
+    try {
+      // 1) Upload
+      const fd = new FormData();
+      fd.append("audio", file);
+      const up = await fetch("/api/gen/upload", { method: "POST", body: fd });
+      const upJson = await up.json();
+      if (!up.ok || !upJson?.data?.sha) throw new Error(upJson?.error || `upload ${up.status}`);
+      // 2) Verify all providers
+      const v = await fetch("/api/admin/v304/transcribe-verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uploadSha: upJson.data.sha }),
+      });
+      const vJson = await v.json();
+      if (!v.ok) throw new Error(vJson?.error || `verify ${v.status}`);
+      setVerifyResult(vJson.data);
+      const working = (vJson.data.working || []).join(", ") || "ни один";
+      toast({ title: `Тест завершён. Работают: ${working}`, description: vJson.data.recommendation });
+    } catch (err) {
+      toast({ title: "Ошибка теста", description: err instanceof Error ? err.message : "fail", variant: "destructive" });
+    } finally {
+      setTesting(false);
+    }
+  };
+
   return (
     <Card className={`border-${sttReady ? "emerald" : "amber"}-500/30 bg-gradient-to-br from-${sttReady ? "emerald" : "amber"}-500/5 to-transparent`}>
       <CardHeader>
@@ -740,6 +773,30 @@ function YandexAgentCard() {
               </div>
             );
           })}
+        </div>
+
+        {/* Тест записи STT — 5 секунд микрофон → upload → verify all */}
+        <div className="pt-2 border-t border-white/10 space-y-2">
+          <Label className="text-xs text-muted-foreground">🧪 Тест распознавания (запиши 5 сек, прогоним через все 3 провайдера):</Label>
+          <MicRecorder maxSeconds={10} onRecorded={runTest} disabled={testing} />
+          {testing && <div className="text-xs text-cyan-300 flex items-center gap-2"><Loader2 className="w-3 h-3 animate-spin" />Загружаю + проверяю провайдеры…</div>}
+          {verifyResult?.attempts && (
+            <div className="space-y-1">
+              {verifyResult.attempts.map((a: any) => (
+                <div key={a.provider} className={`text-[11px] p-2 rounded border ${a.ok ? "border-emerald-500/30 bg-emerald-500/5" : "border-rose-500/20 bg-rose-500/5"}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <span className={`font-mono ${a.ok ? "text-emerald-300" : "text-rose-300"}`}>{a.ok ? "🟢" : "🔴"} {a.provider}</span>
+                      <span className="text-muted-foreground ml-2">HTTP {a.httpStatus ?? "?"} · {a.durationMs}ms</span>
+                    </div>
+                  </div>
+                  {a.transcript && <div className="text-emerald-200 mt-1 italic">«{a.transcript}»</div>}
+                  {a.error && <div className="text-rose-300/80 mt-1 break-all">{a.error.slice(0, 200)}</div>}
+                </div>
+              ))}
+              <div className="text-[11px] text-cyan-300 pt-1">{verifyResult.recommendation}</div>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-wrap gap-2 pt-2 border-t border-white/10">
