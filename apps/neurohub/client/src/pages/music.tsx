@@ -828,9 +828,9 @@ export default function MusicPage() {
             <>
               {/* === АУДИО-РЕЖИМ — микрофон ИЛИ файл === */}
               <div className="space-y-3">
-                <Label className="text-sm text-muted-foreground">🎤 Запись с микрофона (до 3 мин)</Label>
+                <Label className="text-sm text-muted-foreground">🎤 Запись с микрофона (до 30 секунд)</Label>
                 <MicRecorder
-                  maxSeconds={180}
+                  maxSeconds={30}
                   onRecorded={async (file) => {
                     setAudioFile(file);
                     setAudioUploadSha(null);

@@ -16,7 +16,7 @@ interface MicRecorderProps {
   disabled?: boolean;
 }
 
-const DEFAULT_MAX = 180; // 3 мин — достаточно для напева/демо
+const DEFAULT_MAX = 30; // ТЗ Eugene 13:42: 30 сек хватает для смысла
 
 function pickMime(): { mime: string; ext: string } {
   // Пытаемся получить максимально совместимый mime для Suno/ffmpeg.
@@ -163,7 +163,7 @@ export function MicRecorder({ maxSeconds = DEFAULT_MAX, onRecorded, disabled }: 
             data-testid="btn-mic-start"
           >
             <Mic className="w-4 h-4 mr-2" />
-            🎤 Записать с микрофона
+            🎤 Записать до 30 секунд
           </Button>
         )}
         {state === "recording" && (

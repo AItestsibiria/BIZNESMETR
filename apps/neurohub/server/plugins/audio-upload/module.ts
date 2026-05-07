@@ -126,15 +126,21 @@ router.post("/upload", requireAuth, upload.single("audio"), async (req, res) => 
   let finalExt = ext;
   let finalMime = file.mimetype;
   let finalBuffer = file.buffer;
-  const needsConvert = ext !== "mp3" && ext !== "wav";
+  // ВСЕГДА прогоняем через ffmpeg чтобы:
+  // 1. сконвертить в mp3 если нужно
+  // 2. обрезать до 30 сек (ТЗ Eugene 13:42)
+  // 3. нормализовать битрейт/sample rate
+  const needsConvert = true;
   if (needsConvert) {
     const tmpIn = path.join(userDir, `_tmp-${sha}.${ext}`);
     const tmpOut = path.join(userDir, `_tmp-${sha}.mp3`);
     try {
       fs.writeFileSync(tmpIn, file.buffer);
+      // ТЗ Eugene 13:42: жёсткий лимит 30 сек — длинные файлы автообрезаем.
+      // -t 30 = взять только первые 30 сек.
       await new Promise<void>((resolve, reject) => {
         const child = childProc.exec(
-          `ffmpeg -y -i "${tmpIn}" -vn -c:a libmp3lame -b:a 128k -ac 2 -ar 44100 "${tmpOut}"`,
+          `ffmpeg -y -i "${tmpIn}" -t 30 -vn -c:a libmp3lame -b:a 128k -ac 2 -ar 44100 "${tmpOut}"`,
           { timeout: 60_000 },
           (err) => err ? reject(err) : resolve(),
         );
