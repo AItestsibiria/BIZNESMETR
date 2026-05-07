@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { InlineAuth } from "@/components/inline-auth";
 import { Music, Loader2, Download, Play, Pause, Volume2, Copy, Check, RefreshCcw, ChevronDown, Sparkles, Sliders, Mic, FileText, Settings2 } from "lucide-react";
 import { HelpBuddy } from "@/components/help-buddy";
+import { MicRecorder } from "@/components/mic-recorder";
 import { useToast } from "@/hooks/use-toast";
 
 const styles = [
@@ -810,9 +811,25 @@ export default function MusicPage() {
             </>
           ) : mode === "audio" ? (
             <>
-              {/* === АУДИО-РЕЖИМ — upload + cover/extend === */}
+              {/* === АУДИО-РЕЖИМ — микрофон ИЛИ файл === */}
               <div className="space-y-3">
-                <Label className="text-sm text-muted-foreground">Загрузите аудио (mp3/wav, до 8 минут)</Label>
+                <Label className="text-sm text-muted-foreground">🎤 Запись с микрофона (до 3 мин)</Label>
+                <MicRecorder
+                  maxSeconds={180}
+                  onRecorded={(file) => { setAudioFile(file); setAudioUploadUrl(null); }}
+                  disabled={loading || audioUploading}
+                />
+                <div className="text-[10px] text-muted-foreground/70">
+                  Напевайте мелодию, надиктуйте текст, или сыграйте на инструменте — MuziAi сделает кавер в выбранном стиле и голосе. Если результат не понравится — на странице трека будет кнопка «🔄 Перегенерировать».
+                </div>
+              </div>
+              <div className="my-2 flex items-center gap-2 text-[10px] text-muted-foreground/50">
+                <div className="flex-1 h-px bg-white/10" />
+                <span>или</span>
+                <div className="flex-1 h-px bg-white/10" />
+              </div>
+              <div className="space-y-3">
+                <Label className="text-sm text-muted-foreground">📁 Загрузить файл (mp3/wav/m4a, до 20 MB)</Label>
                 <div className="flex items-center gap-3">
                   <input
                     type="file"
