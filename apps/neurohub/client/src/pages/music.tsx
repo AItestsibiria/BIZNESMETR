@@ -798,25 +798,25 @@ export default function MusicPage() {
                 <Label className="text-sm text-muted-foreground">Голос</Label>
                 <div className="flex flex-wrap gap-2">
                   <button type="button"
-                    className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${!instrumental && !isDuet && voice === "female" ? "border-purple-500/40 bg-purple-500/15 text-purple-300" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white"}`}
+                    className={`min-w-[110px] h-12 px-4 text-sm font-medium rounded-xl border transition-all ${!instrumental && !isDuet && voice === "female" ? "border-purple-400/60 bg-gradient-to-br from-purple-500/30 to-pink-500/20 text-purple-100 shadow-lg shadow-purple-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
                     onClick={() => { setInstrumental(false); setIsDuet(false); setVoice("female"); }}
                     data-testid="btn-basic-female">
                     👩 Женский
                   </button>
                   <button type="button"
-                    className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${!instrumental && !isDuet && voice === "male" ? "border-blue-500/40 bg-blue-500/15 text-blue-300" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white"}`}
+                    className={`min-w-[110px] h-12 px-4 text-sm font-medium rounded-xl border transition-all ${!instrumental && !isDuet && voice === "male" ? "border-blue-400/60 bg-gradient-to-br from-blue-500/30 to-cyan-500/20 text-blue-100 shadow-lg shadow-blue-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
                     onClick={() => { setInstrumental(false); setIsDuet(false); setVoice("male"); }}
                     data-testid="btn-basic-male">
                     👨 Мужской
                   </button>
                   <button type="button"
-                    className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${isDuet ? "border-pink-500/40 bg-pink-500/15 text-pink-300" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white"}`}
+                    className={`min-w-[110px] h-12 px-4 text-sm font-medium rounded-xl border transition-all ${isDuet ? "border-pink-400/60 bg-gradient-to-br from-pink-500/30 to-rose-500/20 text-pink-100 shadow-lg shadow-pink-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
                     onClick={() => { setInstrumental(false); setIsDuet(true); }}
                     data-testid="btn-basic-duet">
                     👫 Дуэт
                   </button>
                   <button type="button"
-                    className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${instrumental ? "border-amber-500/40 bg-amber-500/15 text-amber-300" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white"}`}
+                    className={`min-w-[110px] h-12 px-4 text-sm font-medium rounded-xl border transition-all ${instrumental ? "border-amber-400/60 bg-gradient-to-br from-amber-500/30 to-orange-500/20 text-amber-100 shadow-lg shadow-amber-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
                     onClick={() => { setIsDuet(false); setInstrumental(true); }}
                     data-testid="btn-basic-instrumental">
                     🎻 Инструментальная
@@ -1521,45 +1521,123 @@ export default function MusicPage() {
             </div>
           )}
 
-          <Button
-            className="w-full btn-gradient rounded-xl h-12 text-base"
-            onClick={handleGenerate}
+          {/* === MAGIC GENERATE BUTTON ===
+              Магический звон + вспышка при клике + пульсирующее свечение.
+              ТЗ Eugene 2026-05-07 13:00: «приятная музыка, вспышка,
+              магический свет, сказка». */}
+          <button
+            type="button"
             disabled={
               loading || audioUploading
               || (mode === "advanced" && selectedStyles.length === 0)
               || (mode === "basic" && !prompt.trim())
               || (mode === "audio" && !audioFile && !audioUploadUrl)
             }
+            onClick={(e) => {
+              // Космический звон + вспышка при клике
+              const btn = e.currentTarget;
+              btn.classList.add("magic-flash");
+              setTimeout(() => btn.classList.remove("magic-flash"), 600);
+              try {
+                const ctx = new ((window as any).AudioContext || (window as any).webkitAudioContext)();
+                const now = ctx.currentTime;
+                [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
+                  const osc = ctx.createOscillator();
+                  const gain = ctx.createGain();
+                  osc.type = "sine";
+                  osc.frequency.setValueAtTime(freq, now);
+                  gain.gain.setValueAtTime(0, now + i * 0.04);
+                  gain.gain.linearRampToValueAtTime(0.06, now + i * 0.04 + 0.04);
+                  gain.gain.exponentialRampToValueAtTime(0.001, now + 0.9 + i * 0.1);
+                  osc.connect(gain).connect(ctx.destination);
+                  osc.start(now + i * 0.04);
+                  osc.stop(now + 1.2);
+                });
+                setTimeout(() => ctx.close(), 1500);
+              } catch {}
+              handleGenerate();
+            }}
+            className="magic-btn group relative w-full h-16 rounded-2xl text-base sm:text-lg font-bold text-white overflow-hidden transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:saturate-50"
             data-testid="button-generate-music"
+            style={{
+              background: "linear-gradient(110deg, #a855f7 0%, #ec4899 35%, #f97316 60%, #3b82f6 100%)",
+              backgroundSize: "300% 100%",
+              boxShadow: "0 12px 40px -8px rgba(168, 85, 247, 0.6), 0 0 30px rgba(236, 72, 153, 0.4), inset 0 1px 0 rgba(255,255,255,0.25)",
+            }}
           >
-            {loading ? (
-              <span className="flex items-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                {polling ? "Генерация трека..." : "Отправляем запрос..."}
-              </span>
-            ) : mode === "basic" ? (
-              <span className="flex items-center gap-2">
-                <Music className="w-4 h-4" />
-                {!prompt.trim() ? "Опишите песню" : "Создать песню — 299 ₽"}
-              </span>
-            ) : mode === "audio" ? (
-              <span className="flex items-center gap-2">
-                <Mic className="w-4 h-4" />
-                {audioUploading ? "Загружаю файл…"
-                  : !audioFile && !audioUploadUrl ? "Выберите аудио-файл"
-                  : "Создать кавер — 299 ₽"}
-              </span>
-            ) : (
-              <span className="flex items-center gap-2">
-                <Music className="w-4 h-4" />
-                {selectedStyles.length === 0
-                  ? "Выберите стиль"
-                  : selectedStyles.length > 1
-                  ? `Создать ${selectedStyles.length} ${selectedStyles.length <= 4 ? "трека" : "треков"} — ${selectedStyles.length * 299} ₽`
-                  : "Создать песню — 299 ₽"}
-              </span>
-            )}
-          </Button>
+            {/* Pulsing glow layer */}
+            <span aria-hidden className="absolute inset-0 rounded-2xl opacity-70 group-hover:opacity-100 transition-opacity"
+              style={{
+                background: "radial-gradient(circle at 30% 50%, rgba(255,255,255,0.25), transparent 60%)",
+                animation: "magic-shine 3s ease-in-out infinite",
+              }}
+            />
+            {/* Sparkle dots */}
+            <span aria-hidden className="absolute top-1.5 right-3 text-yellow-200 text-xs animate-pulse">✨</span>
+            <span aria-hidden className="absolute bottom-1.5 left-4 text-pink-200 text-xs animate-pulse" style={{ animationDelay: "0.4s" }}>✦</span>
+            <span aria-hidden className="absolute top-3 left-1/3 text-cyan-200 text-[8px] animate-pulse" style={{ animationDelay: "0.8s" }}>✧</span>
+            {/* Content */}
+            <span className="relative z-10 flex items-center justify-center gap-2.5 drop-shadow-lg">
+              {loading ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span className="tracking-wide">{polling ? "Генерация трека…" : "Отправляем запрос…"}</span>
+                </>
+              ) : mode === "basic" ? (
+                <>
+                  <Sparkles className="w-5 h-5 text-yellow-200 drop-shadow" />
+                  <span className="tracking-wide">{!prompt.trim() ? "Опишите песню" : "✨ Создать песню — 299 ₽"}</span>
+                </>
+              ) : mode === "audio" ? (
+                <>
+                  <Mic className="w-5 h-5 text-cyan-100 drop-shadow" />
+                  <span className="tracking-wide">{audioUploading ? "Загружаю…"
+                    : !audioFile && !audioUploadUrl ? "Запишите голос"
+                    : "🎵 Создать кавер — 299 ₽"}</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-5 h-5 text-yellow-200 drop-shadow" />
+                  <span className="tracking-wide">
+                    {selectedStyles.length === 0
+                      ? "Выберите стиль"
+                      : selectedStyles.length > 1
+                      ? `✨ Создать ${selectedStyles.length} ${selectedStyles.length <= 4 ? "трека" : "треков"} — ${selectedStyles.length * 299} ₽`
+                      : "✨ Создать песню — 299 ₽"}
+                  </span>
+                </>
+              )}
+            </span>
+          </button>
+          <style>{`
+            @keyframes magic-shine {
+              0%, 100% { background-position: 0% 50%; }
+              50% { background-position: 100% 50%; }
+            }
+            .magic-btn {
+              animation: magic-gradient-shift 6s ease-in-out infinite, magic-pulse 2.4s ease-in-out infinite;
+            }
+            @keyframes magic-gradient-shift {
+              0%, 100% { background-position: 0% 50%; }
+              50% { background-position: 100% 50%; }
+            }
+            @keyframes magic-pulse {
+              0%, 100% { box-shadow: 0 12px 40px -8px rgba(168, 85, 247, 0.55), 0 0 30px rgba(236, 72, 153, 0.35), inset 0 1px 0 rgba(255,255,255,0.25); }
+              50% { box-shadow: 0 18px 55px -6px rgba(168, 85, 247, 0.85), 0 0 50px rgba(236, 72, 153, 0.55), 0 0 80px rgba(59, 130, 246, 0.4), inset 0 1px 0 rgba(255,255,255,0.35); }
+            }
+            .magic-btn:hover { transform: translateY(-2px) scale(1.01); }
+            .magic-btn:active { transform: translateY(0) scale(0.98); }
+            .magic-btn.magic-flash::before {
+              content: ""; position: absolute; inset: 0;
+              background: radial-gradient(circle, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0) 70%);
+              animation: magic-flash-anim 0.6s ease-out;
+              pointer-events: none; z-index: 5;
+            }
+            @keyframes magic-flash-anim {
+              0% { opacity: 1; transform: scale(0.5); }
+              100% { opacity: 0; transform: scale(2); }
+            }
+          `}</style>
 
           {/* Inline auth form - appears when not logged in */}
           {showInlineAuth && !user && (
