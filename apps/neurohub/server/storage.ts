@@ -379,6 +379,24 @@ try {
       dedupe_key TEXT UNIQUE
     );
     CREATE INDEX IF NOT EXISTS incidents_status_idx ON incidents(status, severity, last_seen_at DESC);
+
+    -- Sprint 3.1 audio-input: пользовательские аудио-файлы для cover/extend.
+    -- SHA256 = идемпотентность.
+    CREATE TABLE IF NOT EXISTS audio_uploads (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      sha TEXT NOT NULL UNIQUE,
+      filename_original TEXT,
+      ext TEXT,
+      size_bytes INTEGER,
+      duration_sec REAL,
+      mime TEXT,
+      storage_path TEXT NOT NULL,
+      public_url TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      last_used_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS audio_uploads_user_idx ON audio_uploads(user_id, created_at DESC);
   `);
 } catch (e) {
   console.error("[MIGRATION] Error:", e);

@@ -30,8 +30,19 @@ import agentContentModule from "./plugins/agent-content/module";
 import agentA1MasterModule from "./plugins/agent-a1-master/module";
 import adminOverviewModule from "./plugins/admin-overview/module";
 import incidentTrackerModule from "./plugins/incident-tracker/module";
+import audioUploadModule from "./plugins/audio-upload/module";
+import * as fs from "node:fs";
 
 const app = express();
+// Static serve пользовательских аудио (Sprint 3.1).
+// Nginx может отдавать /uploads напрямую — этот fallback на случай если nginx
+// маршрут не настроен. Express отдаёт с Cache-Control 30d.
+const UPLOADS_DIR = process.env.UPLOADS_DIR || "/var/www/neurohub/uploads";
+try { fs.mkdirSync(UPLOADS_DIR, { recursive: true }); } catch {}
+app.use("/uploads", express.static(UPLOADS_DIR, {
+  maxAge: "30d",
+  setHeaders: (res) => res.setHeader("Cache-Control", "public, max-age=2592000"),
+}));
 // Доверяем фронтальному прокси (Nginx) — иначе req.ip = 127.0.0.1
 // '1' означает «один хоп выше по цепочке X-Forwarded-For» — это наш Nginx на том же VPS
 app.set("trust proxy", 1);
@@ -140,6 +151,7 @@ app.get("/api/_status", (_req, res) => {
     { name: "agent-a1-master", module: agentA1MasterModule },
     { name: "admin-overview", module: adminOverviewModule },
     { name: "incident-tracker", module: incidentTrackerModule },
+    { name: "audio-upload", module: audioUploadModule },
   ];
 
   const validModules: any[] = [];

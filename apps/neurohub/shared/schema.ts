@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { sql } from "drizzle-orm";
@@ -336,6 +336,25 @@ export const incidents = sqliteTable("incidents", {
 });
 
 export type Incident = typeof incidents.$inferSelect;
+
+// User-uploaded audio files (Sprint 3.1) — для cover/extend/voice-clone.
+// SHA256 от содержимого = идемпотентность: тот же файл = тот же uploadUrl.
+// Очистка cron'ом старше 30 дней без use.
+export const audioUploads = sqliteTable("audio_uploads", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull().references(() => users.id),
+  sha: text("sha").notNull().unique(),
+  filenameOriginal: text("filename_original"),
+  ext: text("ext"),
+  sizeBytes: integer("size_bytes"),
+  durationSec: real("duration_sec"),
+  mime: text("mime"),
+  storagePath: text("storage_path").notNull(),
+  publicUrl: text("public_url").notNull(),
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+  lastUsedAt: text("last_used_at"),
+});
+export type AudioUpload = typeof audioUploads.$inferSelect;
 
 // Generation templates (10 пресетов, см. docs/strategy/original/02 §4.2)
 export const genTemplates = sqliteTable("gen_templates", {

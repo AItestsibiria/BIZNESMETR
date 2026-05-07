@@ -15,7 +15,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { InlineAuth } from "@/components/inline-auth";
-import { Music, Loader2, Download, Play, Pause, Volume2, Copy, Check, RefreshCcw, ChevronDown, Sparkles, Sliders } from "lucide-react";
+import { Music, Loader2, Download, Play, Pause, Volume2, Copy, Check, RefreshCcw, ChevronDown, Sparkles, Sliders, Mic, FileText, Settings2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const styles = [
@@ -376,10 +376,56 @@ export default function MusicPage() {
       setShowInlineAuth(true);
       return;
     }
-    // Базовый режим — только prompt + voice, без выбора стиля.
-    // Audio — пока заблокирован (backend в Sprint 3.1, см. v304-audio-input-TZ.md).
+    // Audio mode — отдельный путь: upload + cover endpoint
     if (mode === "audio") {
-      toast({ title: "Аудио-режим в разработке", description: "Backend Sprint 3.1, ETA скоро.", variant: "destructive" });
+      if (!audioFile && !audioUploadUrl) {
+        toast({ title: "Загрузите аудио-файл", variant: "destructive" });
+        return;
+      }
+      try {
+        setLoading(true);
+        startBgMusic();
+        let sha = (audioUploadUrl as any)?.sha;
+        if (audioFile && !sha) {
+          setAudioUploading(true);
+          const fd = new FormData();
+          fd.append("audio", audioFile);
+          const up = await fetch("/api/gen/upload", { method: "POST", body: fd, headers: { Authorization: `Bearer ${localStorage.getItem("token") || ""}` } });
+          const upJson = await up.json();
+          setAudioUploading(false);
+          if (!up.ok || !upJson?.data?.uploadUrl) {
+            throw new Error(upJson?.error || "upload failed");
+          }
+          sha = upJson.data.sha;
+          setAudioUploadUrl(upJson.data.uploadUrl);
+        }
+        const coverBody: any = {
+          uploadSha: sha,
+          voiceType: instrumental ? "instrumental" : isDuet ? "duet" : voice,
+          voice, isDuet, instrumental,
+          audioWeight: audioMode === "advanced" ? audioWeight : 0.7,
+          authorName: authorName.trim(),
+          isPublic: !isPrivate,
+        };
+        if (audioMode === "advanced" && stylePrompt.trim()) coverBody.style = stylePrompt.trim();
+        if (audioMode === "advanced" && lyrics.trim().length >= 50) {
+          coverBody.lyrics = lyrics;
+          if (title) coverBody.title = title;
+        }
+        const r = await apiRequest("POST", "/api/gen/cover", coverBody);
+        const j = await r.json();
+        if (j?.data?.generationId) {
+          toast({ title: "🎵 Кавер запущен", description: `gen #${j.data.generationId} — открываю страницу с авто-обновлением.` });
+          setTimeout(() => navigate(`/track/${j.data.generationId}`), 800);
+        } else {
+          throw new Error(j?.error || "cover failed");
+        }
+      } catch (err: any) {
+        toast({ title: "Не удалось создать кавер", description: err?.message || "ошибка", variant: "destructive" });
+      } finally {
+        setLoading(false);
+        setAudioUploading(false);
+      }
       return;
     }
 
@@ -618,21 +664,57 @@ export default function MusicPage() {
           </button>
         </div>
 
-        {/* Mode Toggle — 3 режима по частоте использования (ТЗ 2026-05-07) */}
+        {/* Mode Toggle — 3 режима. Аудио слева, синий, с микрофоном+эквалайзером.
+            Затем «Текст Простой» / «Текст Расширенный» (ТЗ Eugene 2026-05-07). */}
         <div className="mb-6">
           <Tabs value={mode} onValueChange={(v) => setMode(v as any)}>
-            <TabsList className="bg-white/5 border border-white/10">
-              <TabsTrigger value="basic" className="data-[state=active]:bg-purple-500/20 data-[state=active]:text-white" data-testid="tab-basic">
-                ⚡ Базовый
+            <TabsList className="bg-white/5 border border-white/10 h-auto p-1 gap-1">
+              <TabsTrigger
+                value="audio"
+                className="group data-[state=active]:bg-gradient-to-r data-[state=active]:from-cyan-500/30 data-[state=active]:to-blue-500/20 data-[state=active]:text-white data-[state=active]:shadow-[0_0_24px_rgba(34,211,238,0.4)] px-4 py-2 rounded-lg transition-all"
+                data-testid="tab-audio"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <Mic className="w-4 h-4 text-cyan-300" />
+                  <span className="flex items-end gap-[2px] h-3" aria-hidden>
+                    <span className="w-[3px] bg-cyan-400 rounded-sm animate-eq-bar1" style={{ height: "30%" }} />
+                    <span className="w-[3px] bg-cyan-300 rounded-sm animate-eq-bar2" style={{ height: "60%" }} />
+                    <span className="w-[3px] bg-blue-300 rounded-sm animate-eq-bar3" style={{ height: "100%" }} />
+                    <span className="w-[3px] bg-cyan-300 rounded-sm animate-eq-bar2" style={{ height: "55%" }} />
+                  </span>
+                  <span className="font-medium">Аудио</span>
+                </span>
               </TabsTrigger>
-              <TabsTrigger value="audio" className="data-[state=active]:bg-purple-500/20 data-[state=active]:text-white" data-testid="tab-audio">
-                🎧 Аудио
+              <TabsTrigger
+                value="basic"
+                className="data-[state=active]:bg-purple-500/20 data-[state=active]:text-white px-3 py-2 rounded-lg"
+                data-testid="tab-basic"
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <FileText className="w-4 h-4 text-purple-300" />
+                  Текст · Простой
+                </span>
               </TabsTrigger>
-              <TabsTrigger value="advanced" className="data-[state=active]:bg-purple-500/20 data-[state=active]:text-white" data-testid="tab-advanced">
-                🛠 Расширенный
+              <TabsTrigger
+                value="advanced"
+                className="data-[state=active]:bg-violet-500/20 data-[state=active]:text-white px-3 py-2 rounded-lg"
+                data-testid="tab-advanced"
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <Settings2 className="w-4 h-4 text-violet-300" />
+                  Текст · Расширенный
+                </span>
               </TabsTrigger>
             </TabsList>
           </Tabs>
+          <style>{`
+            @keyframes eq-bar1 { 0%,100%{height:20%}50%{height:80%} }
+            @keyframes eq-bar2 { 0%,100%{height:50%}50%{height:30%} }
+            @keyframes eq-bar3 { 0%,100%{height:90%}50%{height:45%} }
+            .animate-eq-bar1 { animation: eq-bar1 0.9s ease-in-out infinite; }
+            .animate-eq-bar2 { animation: eq-bar2 1.1s ease-in-out infinite; }
+            .animate-eq-bar3 { animation: eq-bar3 0.7s ease-in-out infinite; }
+          `}</style>
         </div>
 
         {/* Аудио-режим — sub-tabs Простой/Расширенный */}
@@ -720,9 +802,9 @@ export default function MusicPage() {
                   />
                   {audioFile && <span className="text-xs text-muted-foreground truncate max-w-[180px]">{audioFile.name}</span>}
                 </div>
-                <p className="text-[10px] text-amber-300/80">
-                  ⚠ Серверный upload-эндпоинт в работе (Sprint 3.1, см. <code>docs/strategy/v304-audio-input-TZ.md</code>).
-                  UI готов и подключится автоматически когда backend будет залит.
+                <p className="text-[10px] text-cyan-300/80">
+                  Принимаем mp3/wav/m4a/webm/ogg, до 20 MB. Файл загружается на наш сервер,
+                  Suno делает кавер с нужным голосом и стилем.
                 </p>
               </div>
               {audioMode === "advanced" && (
@@ -1185,10 +1267,10 @@ export default function MusicPage() {
             className="w-full btn-gradient rounded-xl h-12 text-base"
             onClick={handleGenerate}
             disabled={
-              loading
+              loading || audioUploading
               || (mode === "advanced" && selectedStyles.length === 0)
               || (mode === "basic" && !prompt.trim())
-              || (mode === "audio")
+              || (mode === "audio" && !audioFile && !audioUploadUrl)
             }
             data-testid="button-generate-music"
           >
@@ -1204,8 +1286,10 @@ export default function MusicPage() {
               </span>
             ) : mode === "audio" ? (
               <span className="flex items-center gap-2">
-                <Music className="w-4 h-4" />
-                🚧 Скоро (Sprint 3.1) — TZ готов
+                <Mic className="w-4 h-4" />
+                {audioUploading ? "Загружаю файл…"
+                  : !audioFile && !audioUploadUrl ? "Выберите аудио-файл"
+                  : "Создать кавер — 299 ₽"}
               </span>
             ) : (
               <span className="flex items-center gap-2">
