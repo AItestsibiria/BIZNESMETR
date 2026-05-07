@@ -1,5 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Link, useLocation } from "wouter";
+import { apiRequest } from "@/lib/queryClient";
 
 function playCosmicChime() {
   try {
@@ -63,8 +64,41 @@ export default function Navbar() {
     { href: "/covers", label: "Обложки" },
   ];
 
+  // Админство определяем по факту что /gptunnel-balance отвечает 200
+  // (на сервере проверка идёт по ADMIN_EMAIL CSV из .env). Это снимает
+  // необходимость отдельно синхронизировать список админов на клиенте.
+  const [adminBal, setAdminBal] = useState<{ available: boolean; balance?: number; suno?: { estimatedTracks: number; pricePerTrack: number } } | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    if (!user) { setIsAdmin(false); setAdminBal(null); return; }
+    let cancelled = false;
+    // apiRequest throws on non-2xx — 401/403 для не-админа улетят в catch.
+    const load = async () => {
+      try {
+        const r = await apiRequest("GET", "/api/admin/v304/gptunnel-balance");
+        if (cancelled || !r.ok) return;
+        const j = await r.json();
+        if (cancelled) return;
+        setIsAdmin(true);
+        setAdminBal(j.data);
+      } catch {
+        if (!cancelled) setIsAdmin(false);
+      }
+    };
+    load();
+    const t = setInterval(load, 60_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [user]);
+
   const formatBalance = (user: any) => {
-    // Balance display always shows amount
+    // Для админа — Suno-треки из GPTunnel-баланса (одна live-цифра, обновл. 60 сек).
+    if (isAdmin) {
+      if (!adminBal) return "…";
+      if (!adminBal.available) return "GPT⚠";
+      const tracks = adminBal.suno?.estimatedTracks ?? 0;
+      return `🎵 ${tracks.toLocaleString("ru-RU")}`;
+    }
     return `${Math.floor(user.balance / 100)} ₽`;
   };
 
