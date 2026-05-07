@@ -18,6 +18,7 @@ import { InlineAuth } from "@/components/inline-auth";
 import { Music, Loader2, Download, Play, Pause, Volume2, Copy, Check, RefreshCcw, ChevronDown, Sparkles, Sliders, Mic, FileText, Settings2, Share2 } from "lucide-react";
 import { HelpBuddy } from "@/components/help-buddy";
 import { MicRecorder } from "@/components/mic-recorder";
+import { StudioMicEq } from "@/components/studio-mic-eq";
 import { useToast } from "@/hooks/use-toast";
 
 const styles = [
@@ -692,13 +693,7 @@ export default function MusicPage() {
                 data-testid="tab-audio"
               >
                 <span className="inline-flex items-center gap-2">
-                  <Mic className="w-4 h-4 text-cyan-300" />
-                  <span className="flex items-end gap-[2px] h-3" aria-hidden>
-                    <span className="w-[3px] bg-cyan-400 rounded-sm animate-eq-bar1" style={{ height: "30%" }} />
-                    <span className="w-[3px] bg-cyan-300 rounded-sm animate-eq-bar2" style={{ height: "60%" }} />
-                    <span className="w-[3px] bg-blue-300 rounded-sm animate-eq-bar3" style={{ height: "100%" }} />
-                    <span className="w-[3px] bg-cyan-300 rounded-sm animate-eq-bar2" style={{ height: "55%" }} />
-                  </span>
+                  <StudioMicEq size="sm" />
                   <span className="font-medium">Аудио</span>
                 </span>
               </TabsTrigger>
