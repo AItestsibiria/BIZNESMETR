@@ -1717,20 +1717,14 @@ export default function DashboardPage() {
         )}
 
 
-        {/* Balance Card — для админов показываем как MuziAi-треки (TZ Eugene 11:13) */}
+        {/* Balance Card */}
         <div className="gradient-border p-6 rounded-2xl mb-8">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
-              <p className="text-sm text-muted-foreground mb-1">
-                {((user as any)?.role === "admin" || (user?.email || "").toLowerCase() === "egnovoselov@gmail.com")
-                  ? "Баланс (в треках MuziAi)"
-                  : "Баланс"}
-              </p>
+              <p className="text-sm text-muted-foreground mb-1">Баланс</p>
               <div className="flex items-baseline gap-3">
                 <p className="text-3xl font-bold gradient-text" data-testid="text-balance">
-                  {((user as any)?.role === "admin" || (user?.email || "").toLowerCase() === "egnovoselov@gmail.com")
-                    ? `🎵 ${Math.floor((user.balance || 0) / 100 / 8).toLocaleString("ru-RU")} треков`
-                    : formatBalance(user.balance)}
+                  {formatBalance(user.balance)}
                 </p>
                 {(user as any).bonusTracks > 0 && (
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-green-500/10 border border-green-500/20" data-testid="text-bonus-tracks">
