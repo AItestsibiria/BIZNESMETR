@@ -135,6 +135,12 @@ ssh root@72.56.1.149 'sed -i "/^ИМЯ_КЛЮЧА=/d" /var/www/neurohub/.env \
 
 В остальных случаях движение по плану — настройка по умолчанию.
 
+### Timestamp footer rule (Eugene 2026-05-07)
+
+**В конце каждого ответа в чате — мелким шрифтом (HTML `<sub>` или markdown с эмодзи `🕐`) дата + время с точностью до минуты, по часам сервера.** Формат: `🕐 2026-05-07 08:34 MSK`. Цель — Евгений видит хронологию всей переписки и может ссылаться на конкретную запись по времени.
+
+Применяется к **каждому** assistant-ответу, включая короткие подтверждения, сообщения об ошибках, статусы push'ей. Не применяется к tool-output'ам (они и так timestamped средой).
+
 > ⚠️ The CLAUDE.md sections below describe the local Acme API conventions that apply to **how** we write code in this repo (Express, Drizzle, Zod, etc.). The strategy package describes **what** we build. Follow both.
 
 ---
