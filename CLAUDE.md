@@ -82,6 +82,17 @@ S1 foundations · S2 Suno @ 100% · S3 Persona/Extend/Cover · S4-5 nine agents 
 
 **Health check + rollback** в самом `auto-deploy.sh` гарантирует: если коммит ломает сборку или health-check `/api/example/ping`, dist возвращается из pre-flight backup, и pm2 поднимается на предыдущей версии. Я вижу это в ветке `clone-deploy-log` и поправляю следующим коммитом.
 
+### Backup-before-edit rule (Eugene 2026-05-07)
+
+**Любая admin-редакция данных через UI/API создаёт snapshot прежнего состояния.** Применяется ко всем PUT/PATCH/DELETE на `/api/admin/v304/*`. Технически:
+
+- Таблица `admin_audit_log` хранит per-edit JSON-снапшот (before / after).
+- Каждый ответ admin-эндпоинта содержит `auditId` — путь восстановления.
+- POST `/api/admin/v304/audit/:id/restore` откатывает к prior state.
+- `data.db` целиком бэкапится скриптом `auto-deploy.sh` (`/var/backups/neurohub-auto/`) при каждом успешном деплое — это страховка более грубого зерна.
+
+Для **критических операций** (миграции, удаление таблиц, ротация ключей) — отдельный manual snapshot вне auto-deploy цикла.
+
 ### Working rhythm rule (Eugene 2026-05-06)
 
 **После каждого успешного промежуточного результата (отчёт Perplexity, прохождение этапа, верификация чек-пойнта) — автоматически переходи к следующему логическому шагу. Не задавай «что дальше?», не жди команды.** Останавливайся ТОЛЬКО при:

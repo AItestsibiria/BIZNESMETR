@@ -335,6 +335,22 @@ try {
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
     CREATE INDEX IF NOT EXISTS chatbot_messages_session_idx ON chatbot_messages(session_id, created_at);
+
+    -- Sprint 7: admin audit log (backup-before-edit).
+    CREATE TABLE IF NOT EXISTS admin_audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      admin_user_id INTEGER,
+      admin_email TEXT,
+      action TEXT NOT NULL CHECK(action IN ('create','update','delete','restore')),
+      entity TEXT NOT NULL,
+      entity_key TEXT NOT NULL,
+      before_json TEXT,
+      after_json TEXT,
+      restored_from_audit_id INTEGER,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS admin_audit_log_entity_idx ON admin_audit_log(entity, entity_key, created_at DESC);
+    CREATE INDEX IF NOT EXISTS admin_audit_log_recent_idx ON admin_audit_log(created_at DESC);
   `);
 } catch (e) {
   console.error("[MIGRATION] Error:", e);

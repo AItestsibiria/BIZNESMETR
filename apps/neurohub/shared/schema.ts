@@ -291,6 +291,25 @@ export const chatbotMessages = sqliteTable("chatbot_messages", {
 export type ChatbotSession = typeof chatbotSessions.$inferSelect;
 export type ChatbotMessage = typeof chatbotMessages.$inferSelect;
 
+// Admin audit log — backup-before-edit для всех PUT/PATCH/DELETE через
+// /api/admin/v304/*. Хранит JSON-snapshot before/after, позволяет
+// откатить любое редактирование.
+// Spec: docs/strategy/original/06 §4.3 (audit), правило Eugene 2026-05-07.
+export const adminAuditLog = sqliteTable("admin_audit_log", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  adminUserId: integer("admin_user_id"),
+  adminEmail: text("admin_email"),
+  action: text("action").notNull(),                // 'create' | 'update' | 'delete' | 'restore'
+  entity: text("entity").notNull(),                // 'template' | 'flag' | 'lead' | ...
+  entityKey: text("entity_key").notNull(),         // slug / key / id (как text)
+  beforeJson: text("before_json"),                 // null если create
+  afterJson: text("after_json"),                   // null если delete (hard)
+  restoredFromAuditId: integer("restored_from_audit_id"),
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+export type AdminAuditEntry = typeof adminAuditLog.$inferSelect;
+
 // Generation templates (10 пресетов, см. docs/strategy/original/02 §4.2)
 export const genTemplates = sqliteTable("gen_templates", {
   id: integer("id").primaryKey({ autoIncrement: true }),

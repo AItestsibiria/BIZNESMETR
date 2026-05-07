@@ -17,6 +17,7 @@ import ForgotPasswordPage from "./pages/forgot-password";
 import { PaymentSuccess, PaymentFail } from "./pages/payment-result";
 import TrackPage from "./pages/track";
 import TelegramCallbackPage from "./pages/telegram-callback";
+import AdminV304Page from "./pages/admin-v304";
 import BackgroundMusic from "./components/background-music";
 
 // Track visitor on page load
@@ -51,6 +52,7 @@ function AppContent() {
           <Route path="/payment/fail" component={PaymentFail} />
           <Route path="/track/:id" component={TrackPage} />
           <Route path="/telegram-callback" component={TelegramCallbackPage} />
+          <Route path="/admin/v304" component={AdminV304Page} />
           <Route component={NotFoundPage} />
         </Switch>
       </Router>
