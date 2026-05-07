@@ -404,28 +404,31 @@ export default function MusicPage() {
         const finalStyle = (audioMode === "advanced" && stylePrompt.trim())
           ? stylePrompt.trim()
           : (audioSuggestion?.genre || "pop");
+        // Body — точный pattern Текст·Расширенный (lyrics path), reuse-working-rule
         const body: any = {
           style: finalStyle,
           category: "song",
           lyrics: finalLyrics,
-          title: audioSuggestion?.title || title || undefined,
-          instrumental, isDuet,
-          voice,
+          instrumental,
+          isDuet,
           voiceType: instrumental ? "instrumental" : isDuet ? "duet" : voice,
           authorName: authorName.trim(),
           isPublic: !isPrivate,
         };
+        if (!instrumental && !isDuet) body.voice = voice;
+        if (audioSuggestion?.title || title) body.title = audioSuggestion?.title || title;
+        console.log("[AUDIO-FLOW] step 3/3: generate", body);
         const res = await apiRequest("POST", "/api/music/generate", body);
         const data = await res.json();
+        console.log("[AUDIO-FLOW] generate response", data);
         if (data?.id) {
-          toast({ title: "🎵 Песня запущена", description: `gen #${data.id} — открываю страницу с авто-обновлением.` });
+          toast({ title: "🎵 Песня запущена", description: `gen #${data.id} — открываю.` });
           setTimeout(() => navigate(`/track/${data.id}`), 800);
         } else {
-          throw new Error(data?.message || data?.error || "generate failed");
+          throw new Error(data?.message || data?.error || JSON.stringify(data));
         }
       } catch (err: any) {
         const msg = err?.message || "ошибка";
-        // apiRequest throws «STATUS: <body>» — пробуем извлечь читаемое
         let detail = msg;
         try {
           const m = msg.match(/^\d+:\s*(.+)$/);
@@ -434,7 +437,9 @@ export default function MusicPage() {
             detail = parsed.message || parsed.error || m[1];
           }
         } catch {}
-        toast({ title: "Не удалось создать песню", description: detail, variant: "destructive" });
+        // Полная ошибка в console — Eugene снимет F12
+        console.error("[AUDIO-FLOW] generate failed:", msg);
+        toast({ title: "Не удалось создать песню", description: detail.slice(0, 300), variant: "destructive", duration: 10000 });
       } finally {
         setLoading(false);
       }
