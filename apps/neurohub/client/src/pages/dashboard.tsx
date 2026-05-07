@@ -1232,7 +1232,7 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
 
       {/* Track list */}
       <div className="glass-card rounded-xl overflow-hidden divide-y divide-white/[0.04] max-h-[400px] overflow-y-auto">
-        {musicTracks.map((gen) => {
+        {musicTracks.map((gen, idx) => {
           const isActive = playingId === gen.id;
           const isPlaying = isActive && audioRef.current && !audioRef.current.paused;
           const isExpanded = expandedId === gen.id;
@@ -1244,6 +1244,10 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
                   isActive ? "bg-purple-500/[0.08]" : ""
                 }`}
               >
+                {/* Номер трека (ТЗ Eugene 14:06: слева номер) */}
+                <span className="w-7 text-right text-xs text-muted-foreground tabular-nums shrink-0 select-none" data-testid={`track-num-${gen.id}`}>
+                  {idx + 1}
+                </span>
                 {/* Cover — click to expand */}
                 <div
                   className="w-8 h-8 rounded-md overflow-hidden shrink-0 bg-gradient-to-br from-purple-500/20 to-blue-500/20 relative group flex items-center justify-center cursor-pointer"

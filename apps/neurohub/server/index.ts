@@ -33,6 +33,7 @@ import adminOverviewModule from "./plugins/admin-overview/module";
 import incidentTrackerModule from "./plugins/incident-tracker/module";
 import audioUploadModule from "./plugins/audio-upload/module";
 import maxChannelModule from "./plugins/max-channel/module";
+import generationAgentModule from "./plugins/generation-agent/module";
 import * as fs from "node:fs";
 
 const app = express();
@@ -198,6 +199,7 @@ app.post("/api/_client-error", express.json(), (req, res) => {
     { name: "incident-tracker", module: incidentTrackerModule },
     { name: "audio-upload", module: audioUploadModule },
     { name: "max-channel", module: maxChannelModule },
+    { name: "generation-agent", module: generationAgentModule },
   ];
 
   const validModules: any[] = [];
