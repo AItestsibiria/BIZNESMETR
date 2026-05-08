@@ -192,6 +192,13 @@ async function autoRetryTransient() {
       sunoBody.prompt = String(basicPrompt).slice(0, 400);
       if (meta.tags || styleStr) sunoBody.tags = String(meta.tags || styleStr).slice(0, 200);
     }
+    // doc-audit 2026-05-08: webhook → не нужен polling после retry
+    const publicHost = process.env.PUBLIC_HOST || "https://clone.muziai.ru";
+    const sig = require("crypto").createHmac("sha256",
+      process.env.SUNO_WEBHOOK_SECRET ||
+      require("crypto").createHash("sha256").update((process.env.SESSION_SECRET || "fallback") + ":suno-webhook").digest("hex").slice(0, 32)
+    ).update(String(g.id)).digest("hex").slice(0, 16);
+    sunoBody.callback_url = `${publicHost}/api/suno/webhook?gen_id=${g.id}&sig=${sig}`;
 
     let sunoOk = false;
     try {

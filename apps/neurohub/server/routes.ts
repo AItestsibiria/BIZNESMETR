@@ -341,6 +341,32 @@ async function gptunnelFetch(path: string, options: RequestInit = {}) {
   return fetch(url, { ...options, headers, signal: options.signal ?? AbortSignal.timeout(timeoutMs) });
 }
 
+// Suno webhook secret — derive из SESSION_SECRET если не задан явно.
+// Eugene 2026-05-08 doc-audit: callback_url убирает polling, экономит API calls.
+const SUNO_WEBHOOK_SECRET = process.env.SUNO_WEBHOOK_SECRET
+  || crypto.createHash("sha256").update((process.env.SESSION_SECRET || "fallback") + ":suno-webhook").digest("hex").slice(0, 32);
+
+function publicHostUrl(req?: Request): string {
+  // Используем первый available из:
+  //   1. PUBLIC_HOST env (если admin задал)
+  //   2. X-Forwarded-Proto + Host headers (за nginx/cloudflare)
+  //   3. Hardcoded clone.muziai.ru как fallback
+  const fromEnv = process.env.PUBLIC_HOST;
+  if (fromEnv) return fromEnv.replace(/\/$/, "");
+  if (req) {
+    const proto = (req.headers["x-forwarded-proto"] || "https").toString().split(",")[0].trim();
+    const host = (req.headers["x-forwarded-host"] || req.headers.host || "").toString();
+    if (host) return `${proto}://${host}`;
+  }
+  return "https://clone.muziai.ru";
+}
+
+function buildSunoCallbackUrl(req: Request | null, genId: number): string {
+  const base = publicHostUrl(req || undefined);
+  const sig = crypto.createHmac("sha256", SUNO_WEBHOOK_SECRET).update(String(genId)).digest("hex").slice(0, 16);
+  return `${base}/api/suno/webhook?gen_id=${genId}&sig=${sig}`;
+}
+
 // Price per service type (in kopecks)
 const PRICES: Record<string, number> = {
   lyrics: 9900,   // 99 ₽
@@ -535,6 +561,90 @@ export async function registerRoutes(
       bonusTracks: refBonusTxns?.count || 0,
     });
   });
+
+  // ==================== SUNO WEBHOOK ====================
+  // Eugene 2026-05-08 doc-audit: GPTunnel шлёт сюда POST когда Suno завершил
+  // генерацию. Заменяет 5-сек polling. Параллельно polling остаётся как
+  // fallback (если webhook потерялся, gen всё равно подберётся).
+  //
+  // URL: https://<host>/api/suno/webhook?gen_id=<id>&sig=<hmac>
+  // Сервер сравнивает sig = HMAC(SUNO_WEBHOOK_SECRET, gen_id) → если ОК,
+  // обновляет статус gen и сохраняет audio_url.
+  const sunoWebhookHandler = async (req: Request, res: Response) => {
+    try {
+      const genId = parseInt(String(req.query.gen_id || ""), 10);
+      const sig = String(req.query.sig || "");
+      if (!genId || !sig) { res.status(400).json({ error: "missing gen_id/sig" }); return; }
+      const expected = crypto.createHmac("sha256", SUNO_WEBHOOK_SECRET).update(String(genId)).digest("hex").slice(0, 16);
+      if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+        res.status(403).json({ error: "bad signature" });
+        return;
+      }
+      const gen = storage.getGeneration(genId);
+      if (!gen) { res.status(404).json({ error: "gen not found" }); return; }
+      if (gen.status === "done") { res.json({ ok: true, alreadyDone: true }); return; }
+
+      // GPTunnel webhook payload (структура подтверждена docs):
+      // { task_id, status: 'succeeded'|'failed', code, result: [...], message }
+      const data: any = req.body || {};
+      console.log(`[SUNO-WEBHOOK] gen #${genId} payload:`, JSON.stringify(data).slice(0, 400));
+
+      const succeeded = Array.isArray(data?.result)
+        ? data.result.find((t: any) => t.status === "succeeded" && t.audio_url)
+        : null;
+      const audioUrl = succeeded?.audio_url || (typeof data?.result === "string" ? data.result : null);
+
+      if (audioUrl) {
+        storage.updateGeneration(genId, {
+          status: "done",
+          resultUrl: audioUrl,
+          resultData: JSON.stringify(data),
+        });
+        saveGenFiles(genId).catch(() => {});
+
+        // Bonus 2-й трек если Suno вернул пару
+        if (Array.isArray(data.result) && data.result.length > 1) {
+          try {
+            const second = data.result.find((t: any, i: number) =>
+              i > 0 && t.status === "succeeded" && t.audio_url && t.audio_url !== audioUrl);
+            if (second && !db.select().from(generations)
+              .where(and(eq(generations.userId, gen.userId), eq(generations.taskId, gen.taskId || ""), sql`${generations.id} != ${gen.id}`))
+              .get()) {
+              const gen2 = storage.createGeneration({
+                userId: gen.userId, type: "music",
+                prompt: gen.prompt || "", style: gen.style || "",
+                cost: 0, status: "done",
+                isPublic: gen.isPublic, authorName: gen.authorName || undefined,
+                taskId: gen.taskId || undefined,
+              });
+              storage.updateGeneration(gen2.id, { resultUrl: second.audio_url, resultData: JSON.stringify(second) });
+              saveGenFiles(gen2.id).catch(() => {});
+              console.log(`[SUNO-WEBHOOK] bonus track gen #${gen2.id} created from pair`);
+            }
+          } catch (e) { console.error("[SUNO-WEBHOOK] bonus track creation failed:", e); }
+        }
+
+        console.log(`[SUNO-WEBHOOK] gen #${genId} → done, audio=${audioUrl.slice(0, 80)}`);
+      } else {
+        // Suno вернул error/failed
+        const reason = data?.message || data?.error?.message || `code=${data?.code} status=${data?.status}`;
+        storage.updateGeneration(genId, { status: "error", errorReason: reason });
+        if (gen.cost && gen.cost > 0) {
+          storage.refundGeneration({
+            genId, userId: gen.userId, cost: gen.cost, type: "music",
+            description: `Возврат: webhook error #${genId} — ${reason.slice(0, 80)}`,
+          });
+        }
+        console.log(`[SUNO-WEBHOOK] gen #${genId} → error: ${reason}`);
+      }
+      res.json({ ok: true });
+    } catch (e: any) {
+      console.error("[SUNO-WEBHOOK] error:", e?.message || e);
+      res.status(500).json({ error: "internal" });
+    }
+  };
+  app.post("/api/suno/webhook", sunoWebhookHandler);
+  app.get("/api/suno/webhook", sunoWebhookHandler); // на случай если GPTunnel шлёт GET
 
   // Track visitor
   app.post("/api/track-visit", async (req: Request, res: Response) => {
@@ -2118,6 +2228,11 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         db.update(generations).set({ style: JSON.stringify(updatedMeta) }).where(eq(generations.id, gen.id)).run();
       } catch {}
 
+      // Eugene 2026-05-08 doc-audit: callback_url убирает 5-сек polling.
+      // GPTunnel POSTit на этот URL когда Suno завершит. Polling остаётся
+      // как fallback на случай потерянного webhook'а.
+      payload.callback_url = buildSunoCallbackUrl(req, gen.id);
+
       const resp = await gptunnelFetch("/media/create", {
         method: "POST",
         body: JSON.stringify(payload),
@@ -2403,9 +2518,11 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         { model: "suno-cover", prompt: fullTags, input_audio: audioUrl, mode: "basic" },
       ];
 
+      const cbUrl = buildSunoCallbackUrl(req, gen.id);
       let data: any = null;
       let usedShape: any = null;
       for (const payload of attempts) {
+        (payload as any).callback_url = cbUrl;
         const r = await gptunnelFetch("/media/create", { method: "POST", body: JSON.stringify(payload) });
         const j: any = await r.json();
         console.log(`[COVER] Try ${JSON.stringify(Object.keys(payload))} → code=${j.code} status=${j.status}`);
@@ -2533,9 +2650,11 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         }
       }
 
+      const cbUrl = buildSunoCallbackUrl(req, gen.id);
       let data: any = null;
       let usedShape: any = null;
       for (const payload of attempts) {
+        (payload as any).callback_url = cbUrl;
         const r = await gptunnelFetch("/media/create", { method: "POST", body: JSON.stringify(payload) });
         const j: any = await r.json();
         console.log(`[EXTEND] Try ${JSON.stringify(Object.keys(payload))} → code=${j.code} status=${j.status}`);
@@ -2606,6 +2725,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
           model: "gpt-image-1-high",
           prompt: fullPrompt,
           ar: "1:1",
+          callback_url: buildSunoCallbackUrl(req, gen.id),
         }),
       });
 
@@ -3878,9 +3998,9 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     }
 
     try {
-      const r = await fetch(`${GPTUNNEL_BASE}/balance`, {
-        headers: { Authorization: GPTUNNEL_API_KEY },
-      });
+      // Eugene 2026-05-08 doc-audit: используем gptunnelFetch для unified
+      // timeout (10 сек на /balance) и Authorization без Bearer prefix.
+      const r = await gptunnelFetch("/balance");
       const data: any = await r.json();
       const balance = Number(data.balance);
       if (isNaN(balance)) {
@@ -4141,6 +4261,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         payload.prompt = (effectivePrompt || rawLyrics || "Песня").slice(0, 400);
       }
 
+      payload.callback_url = buildSunoCallbackUrl(req, newGen.id);
       const resp = await gptunnelFetch("/media/create", { method: "POST", body: JSON.stringify(payload) });
       const data = await resp.json();
       console.log(`[REGEN] gen #${newGen.id} (from #${oldGen.id}):`, JSON.stringify(data).slice(0, 300));
