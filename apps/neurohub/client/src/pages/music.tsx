@@ -379,21 +379,33 @@ export default function MusicPage() {
     return () => { stopBgMusic(); if (pollRef.current) clearInterval(pollRef.current); };
   }, []);
 
+  // Active processing generations — для баннера «Идёт процесс генерации».
+  // Eugene 2026-05-08: показываем юзеру live-статус, обновляем каждые 10 сек.
+  const [activeGens, setActiveGens] = useState<any[]>([]);
+
   // Resume polling for any processing generation on page load
   useEffect(() => {
     if (!user) return;
-    apiRequest("GET", "/api/generations").then(r => r.json()).then((gens: any[]) => {
-      const processing = gens.find((g: any) => g.type === "music" && g.status === "processing" && g.taskId);
-      if (processing) {
-        setLoading(true);
-        setPolling(true);
-        setLastGenId(processing.id);
-        startBgMusic();
-        pollRef.current = setInterval(() => pollStatus(processing.taskId), 5000);
-      }
-    }).catch(() => {});
-
+    const fetchActive = async () => {
+      try {
+        const r = await apiRequest("GET", "/api/generations");
+        const gens: any[] = await r.json();
+        const proc = gens.filter((g: any) => g.status === "processing");
+        setActiveGens(proc);
+        const processing = proc.find((g: any) => g.type === "music" && g.taskId);
+        if (processing && !pollRef.current) {
+          setLoading(true);
+          setPolling(true);
+          setLastGenId(processing.id);
+          startBgMusic();
+          pollRef.current = setInterval(() => pollStatus(processing.taskId), 5000);
+        }
+      } catch {}
+    };
+    fetchActive();
+    const tick = setInterval(fetchActive, 10_000);
     return () => {
+      clearInterval(tick);
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, [user]);
@@ -681,6 +693,23 @@ export default function MusicPage() {
   return (
     <div className="min-h-screen pt-20 px-4 pb-12 hero-gradient">
       <div className="max-w-3xl mx-auto">
+        {/* Eugene 2026-05-08: «Идёт процесс генерации» live-статус.
+            Берём из activeGens (обновляются каждые 10 сек). */}
+        {activeGens.length > 0 && (
+          <div className="mb-4 rounded-xl border border-purple-500/40 bg-gradient-to-r from-purple-500/15 to-blue-500/15 p-3 flex items-center gap-3 animate-pulse">
+            <div className="w-2.5 h-2.5 rounded-full bg-purple-400 animate-ping shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-purple-100">
+                🔄 Идёт процесс генерации: {activeGens.length} {activeGens.length === 1 ? "трек" : "трека"}
+              </p>
+              <p className="text-xs text-purple-200/80 truncate">
+                {activeGens.slice(0, 3).map((g) => g.displayTitle || g.prompt?.slice(0, 40) || `#${g.id}`).join(" · ")}
+                {activeGens.length > 3 && ` · ещё ${activeGens.length - 3}`}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex items-center gap-3 mb-8">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center">

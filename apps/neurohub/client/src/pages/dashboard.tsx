@@ -1611,7 +1611,16 @@ export default function DashboardPage() {
       const res = await apiRequest("GET", url);
       return res.json();
     },
+    // Eugene 2026-05-08: автоматически refetch'аем каждые 10 сек если есть
+    // processing gens — статус-баннер обновится без F5.
+    refetchInterval: (query) => {
+      const data = query.state.data as any[] | undefined;
+      const hasProcessing = (data || []).some((g) => g?.status === "processing");
+      return hasProcessing ? 10_000 : false;
+    },
   });
+  // Активные processing gens — для статус-баннера
+  const activeGens = (generations || []).filter((g) => g.status === "processing");
 
   const { data: txns, isLoading: txnsLoading } = useQuery<Transaction[]>({
     queryKey: ["/api/transactions"],
@@ -1934,6 +1943,23 @@ export default function DashboardPage() {
                 )}
               </div>
             </div>
+
+            {/* Eugene 2026-05-08: статус «Идёт процесс генерации» если есть
+                processing gens — обновляется каждые 10 сек */}
+            {activeGens.length > 0 && (
+              <div className="mb-3 rounded-xl border border-purple-500/30 bg-gradient-to-r from-purple-500/10 to-blue-500/10 p-3 flex items-center gap-3 animate-pulse">
+                <div className="w-2 h-2 rounded-full bg-purple-400 animate-ping" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-purple-200">
+                    🔄 Идёт процесс генерации: {activeGens.length} {activeGens.length === 1 ? "трек" : "трека"}
+                  </p>
+                  <p className="text-xs text-purple-300/70 truncate">
+                    {activeGens.slice(0, 3).map((g) => (g as any).displayTitle || g.prompt?.slice(0, 40) || `#${g.id}`).join(" · ")}
+                    {activeGens.length > 3 && ` · ещё ${activeGens.length - 3}`}
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Search */}
             <div className="mb-3 flex gap-2">
