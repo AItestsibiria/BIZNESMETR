@@ -10,7 +10,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { createPortal } from "react-dom";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
 
 // Deep space canvas: Milky Way, bright stars, planets, comets
@@ -340,17 +340,23 @@ function formatDuration(seconds: number): string {
 function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const { user } = useAuth();
   const [tracks, setTracks] = useState<any[]>([]);
-  // Persist playingId + currentTime в sessionStorage чтобы при возврате
-  // на страницу плеер открывался на том же треке (ТЗ Eugene 12:18).
+  // ТЗ Eugene 2026-05-08: настройки плейлиста и текущий трек — ПЕР-ЮЗЕР.
+  // Разные пользователи не делят выборку и позицию воспроизведения.
+  // Ключ: pl_v2:<userId|guest>:<setting>. После login/logout useEffect
+  // ниже re-читает значения для нового user.id.
+  const psKey = useCallback((k: string) => `pl_v2:${user?.id || "guest"}:${k}`, [user?.id]);
+  // Persist playingId + currentTime в localStorage (а не sessionStorage —
+  // переживёт закрытие вкладки), per-user.
   const [playingId, setPlayingId] = useState<number | null>(() => {
-    try { const v = sessionStorage.getItem("player_trackId"); return v ? Number(v) : null; } catch { return null; }
+    try { const v = localStorage.getItem(`pl_v2:${user?.id || "guest"}:trackId`); return v ? Number(v) : null; } catch { return null; }
   });
   const [currentTime, setCurrentTime] = useState<number>(() => {
-    try { const v = sessionStorage.getItem("player_currentTime"); return v ? Number(v) : 0; } catch { return 0; }
+    try { const v = localStorage.getItem(`pl_v2:${user?.id || "guest"}:currentTime`); return v ? Number(v) : 0; } catch { return 0; }
   });
   // Persist при изменении (throttle через ref для timeupdate)
-  useEffect(() => { try { if (playingId) sessionStorage.setItem("player_trackId", String(playingId)); else sessionStorage.removeItem("player_trackId"); } catch {} }, [playingId]);
+  useEffect(() => { try { if (playingId) localStorage.setItem(psKey("trackId"), String(playingId)); else localStorage.removeItem(psKey("trackId")); } catch {} }, [playingId, psKey]);
   const [trackDuration, setTrackDuration] = useState(0);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const expandedIdRef = useRef<number | null>(null);
@@ -375,21 +381,38 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // ТЗ Eugene 2026-05-07 12:18: фильтры плейлиста должны жёстко
   // удерживаться через сессии и навигацию. Используем localStorage.
   const [sortMode, setSortMode] = useState<"rating" | "date" | "random" | "top_month">(() => {
-    try { const s = localStorage.getItem("playlist_sortMode"); if (s === "rating" || s === "date" || s === "random" || s === "top_month") return s; } catch {}
+    try { const s = localStorage.getItem(`pl_v2:${user?.id || "guest"}:sortMode`); if (s === "rating" || s === "date" || s === "random" || s === "top_month") return s; } catch {}
     return "rating";
   });
   const [sortDir, setSortDir] = useState<"asc" | "desc">(() => {
-    try { const s = localStorage.getItem("playlist_sortDir"); if (s === "asc" || s === "desc") return s; } catch {}
+    try { const s = localStorage.getItem(`pl_v2:${user?.id || "guest"}:sortDir`); if (s === "asc" || s === "desc") return s; } catch {}
     return "asc";
   });
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'song' | 'greeting'>(() => {
-    try { const s = localStorage.getItem("playlist_category"); if (s === "all" || s === "song" || s === "greeting") return s; } catch {}
+    try { const s = localStorage.getItem(`pl_v2:${user?.id || "guest"}:category`); if (s === "all" || s === "song" || s === "greeting") return s; } catch {}
     return "song";
   });
   // Persist каждый раз когда меняется
-  useEffect(() => { try { localStorage.setItem("playlist_sortMode", sortMode); } catch {} }, [sortMode]);
-  useEffect(() => { try { localStorage.setItem("playlist_sortDir", sortDir); } catch {} }, [sortDir]);
-  useEffect(() => { try { localStorage.setItem("playlist_category", categoryFilter); } catch {} }, [categoryFilter]);
+  // ТЗ Eugene 2026-05-08 «параметры выборки плейлиста ПЕР-ЮЗЕР, после
+  // возврата продолжи плейлист». Re-read settings когда user меняется
+  // (login/logout) и persist в localStorage с user-key.
+  useEffect(() => {
+    try {
+      const sm = localStorage.getItem(psKey("sortMode"));
+      if (sm === "rating" || sm === "date" || sm === "random" || sm === "top_month") setSortMode(sm);
+      const sd = localStorage.getItem(psKey("sortDir"));
+      if (sd === "asc" || sd === "desc") setSortDir(sd);
+      const cf = localStorage.getItem(psKey("category"));
+      if (cf === "all" || cf === "song" || cf === "greeting") setCategoryFilter(cf);
+      const tid = localStorage.getItem(psKey("trackId"));
+      if (tid) setPlayingId(Number(tid));
+      const ct = localStorage.getItem(psKey("currentTime"));
+      if (ct) setCurrentTime(Number(ct));
+    } catch {}
+  }, [user?.id, psKey]);
+  useEffect(() => { try { localStorage.setItem(psKey("sortMode"), sortMode); } catch {} }, [sortMode, psKey]);
+  useEffect(() => { try { localStorage.setItem(psKey("sortDir"), sortDir); } catch {} }, [sortDir, psKey]);
+  useEffect(() => { try { localStorage.setItem(psKey("category"), categoryFilter); } catch {} }, [categoryFilter, psKey]);
   const [currentPage, setCurrentPage] = useState(1);
   const TRACKS_PER_PAGE = 20;
   const repeatModeRef = useRef(repeatMode);
@@ -603,8 +626,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     // что был в session (Eugene 12:18 «без промедления продолжить»).
     let restoreTo = 0;
     try {
-      const persistedId = Number(sessionStorage.getItem("player_trackId") || "0");
-      const persistedTime = Number(sessionStorage.getItem("player_currentTime") || "0");
+      const persistedId = Number(localStorage.getItem(psKey("trackId")) || "0");
+      const persistedTime = Number(localStorage.getItem(psKey("currentTime")) || "0");
       if (persistedId === track.id && persistedTime > 0 && persistedTime < (track.duration || 9999) - 5) {
         restoreTo = persistedTime;
       }
@@ -731,9 +754,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           if (audioRef.current && !audioRef.current.paused) {
             const t = audioRef.current.currentTime;
             setCurrentTime(t);
-            // Throttle persist — каждые ~2 сек, чтобы не задалбывать sessionStorage
+            // Throttle persist — каждые ~2 сек, чтобы не задалбывать localStorage
             try {
-              if (Math.floor(t) % 2 === 0) sessionStorage.setItem("player_currentTime", String(t));
+              if (Math.floor(t) % 2 === 0) localStorage.setItem(psKey("currentTime"), String(t));
             } catch {}
           }
         }, 250);
