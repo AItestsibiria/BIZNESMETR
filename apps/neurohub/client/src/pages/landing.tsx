@@ -6,7 +6,6 @@ import { ShareQRSection, TrackShareQR } from "@/components/share-qr";
 import { KaraokeLyrics } from "@/components/karaoke-lyrics";
 import { muteBgMusic, unmuteBgMusic } from "@/components/background-music";
 import { setLockScreenTrack, setLockScreenPlaybackState } from "@/lib/lockscreen";
-import { usePlayer } from "@/lib/player-agent";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -339,10 +338,6 @@ function formatDuration(seconds: number): string {
 }
 
 function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
-  // PlayerAgent — единая точка управления аудио (Eugene 14:29).
-  // Локальные audioRef/playingId синхронизируются с агентом для backwards-
-  // compat с уже работающим UI-кодом (cover crossfade, lockscreen).
-  const player = usePlayer();
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [tracks, setTracks] = useState<any[]>([]);
@@ -782,10 +777,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const totalPages = Math.max(1, Math.ceil(filteredMusic.length / TRACKS_PER_PAGE));
   const safePage = Math.min(currentPage, totalPages);
 
-  // Синхронизируем PlayerAgent: queue = filteredMusic, repeat = repeatMode.
-  // Это позволяет cross-page next/prev работать с тем же фильтром.
-  useEffect(() => { player.setQueue(filteredMusic); }, [filteredMusic.length, categoryFilter, searchQuery]);
-  useEffect(() => { player.setRepeat(repeatMode); }, [repeatMode]);
   const paginatedMusic = filteredMusic.slice((safePage - 1) * TRACKS_PER_PAGE, safePage * TRACKS_PER_PAGE);
 
   const skipPrev = () => {
