@@ -666,7 +666,9 @@ function renderSystem(d) {
   document.getElementById("raw").textContent = JSON.stringify(d, null, 2);
 }
 
-if (token || isStaging) run(false);
+// Не авто-fetch на загрузке — иначе если GPTunnel тормозит, страница «висит».
+// Eugene сам жмёт кнопку → видит прогресс. Быстрее на смартфоне/слабом сигнале.
+document.getElementById("status").innerHTML = '<span class="ok">Готов</span> — выбери тест ниже.';
 </script>
 </body></html>`);
 });
