@@ -205,6 +205,18 @@ export default function MusicPage() {
   const { toast } = useToast();
 
   // Check for lyrics/style/voiceType passed from other pages
+  // Eugene 2026-05-08: regenerate flow — переход с дашборда из errored трека
+  // подставляет все параметры из gen.style и заставляет кнопку моргать.
+  const regeneratePayload = (() => {
+    try {
+      const raw = sessionStorage.getItem("musicRegenerate");
+      if (!raw) return null;
+      sessionStorage.removeItem("musicRegenerate");
+      return JSON.parse(raw);
+    } catch { return null; }
+  })();
+  const [pulseGenerate, setPulseGenerate] = useState<boolean>(!!regeneratePayload);
+
   const transferred = (() => {
     let lyricsT = (window as any).__lyricsTransfer;
     let styleT = (window as any).__styleTransfer;
@@ -275,20 +287,20 @@ export default function MusicPage() {
   const [rewriting, setRewriting] = useState(false);
   const [rewriteHint, setRewriteHint] = useState("");
   // Внутри Расширенного — старая Simple/Lyrics подвкладка (была prev top-mode).
-  const [legacyMode, setLegacyMode] = useState<"simple" | "advanced">("simple");
-  const [prompt, setPrompt] = useState("");
-  const [style, setStyle] = useState(transferred?.style || "pop");
-  const [selectedStyles, setSelectedStyles] = useState<string[]>([transferred?.style || "pop"]);
-  const [lyrics, setLyrics] = useState(transferred?.lyrics || "");
-  const [songCategory, setSongCategory] = useState<'song' | 'greeting'>('greeting'); // по умолчанию Поздравление
-  const [title, setTitle] = useState("");
-  // ТЗ Eugene 2026-05-07 §5: при повторе из dashboard используем
-  // voiceType исходного трека (не дефолтим). transferred.voiceType ∈
-  // 'male' | 'female' | 'duet' | 'instrumental' | 'auto' | null.
-  const _transferredVT = (transferred?.voiceType || "").toString().toLowerCase();
-  const [instrumental, setInstrumental] = useState<boolean>(_transferredVT === "instrumental");
+  const [legacyMode, setLegacyMode] = useState<"simple" | "advanced">(
+    regeneratePayload?.mode === "advanced" ? "advanced" : "simple",
+  );
+  const [prompt, setPrompt] = useState(regeneratePayload?.prompt || "");
+  const [style, setStyle] = useState(regeneratePayload?.style || transferred?.style || "pop");
+  const [selectedStyles, setSelectedStyles] = useState<string[]>([regeneratePayload?.style || transferred?.style || "pop"]);
+  const [lyrics, setLyrics] = useState(regeneratePayload?.lyrics || transferred?.lyrics || "");
+  const [songCategory, setSongCategory] = useState<'song' | 'greeting'>('greeting');
+  const [title, setTitle] = useState(regeneratePayload?.title || "");
+  // ТЗ Eugene 2026-05-07 §5 + 2026-05-08 regenerate flow.
+  const _transferredVT = (regeneratePayload?.voiceType || transferred?.voiceType || "").toString().toLowerCase();
+  const [instrumental, setInstrumental] = useState<boolean>(_transferredVT === "instrumental" || !!regeneratePayload?.instrumental);
   const [voice, setVoice] = useState<"female" | "male">(
-    _transferredVT === "male" ? "male" : "female",
+    regeneratePayload?.voice === "male" || _transferredVT === "male" ? "male" : "female",
   );
   const [isPrivate, setIsPrivate] = useState(true);
   const [authorName, setAuthorName] = useState(user?.name || "");
@@ -1635,9 +1647,10 @@ export default function MusicPage() {
                 });
                 setTimeout(() => ctx.close(), 1500);
               } catch {}
+              setPulseGenerate(false);
               handleGenerate();
             }}
-            className="magic-btn btn-cosmic group relative w-full h-16 rounded-2xl text-base sm:text-lg font-bold text-white overflow-hidden transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:saturate-50"
+            className={`magic-btn btn-cosmic group relative w-full h-16 rounded-2xl text-base sm:text-lg font-bold text-white overflow-hidden transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed disabled:saturate-50 ${pulseGenerate ? "animate-pulse ring-4 ring-purple-400/60 ring-offset-2 ring-offset-background scale-105" : ""}`}
             data-testid="button-generate-music"
           >
             {/* Pulsing glow layer */}

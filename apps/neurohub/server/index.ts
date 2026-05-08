@@ -73,6 +73,29 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
+// Eugene 2026-05-08: clone.muziai.ru должен быть закрыт от поисковиков.
+// Prod-домены (podaripesnu.ru, muziai.ru) — индексируются нормально.
+app.use((req, res, next) => {
+  const host = (req.headers.host || "").toString().toLowerCase();
+  const isStaging = host.includes("clone.") || host.includes("staging.") || host.startsWith("localhost") || host.startsWith("127.0.0.1");
+  if (isStaging) {
+    res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet");
+  }
+  next();
+});
+
+// /robots.txt — для staging-доменов отдаём Disallow: /, для prod — нормально
+app.get("/robots.txt", (req, res) => {
+  const host = (req.headers.host || "").toString().toLowerCase();
+  const isStaging = host.includes("clone.") || host.includes("staging.") || host.startsWith("localhost") || host.startsWith("127.0.0.1");
+  res.setHeader("Content-Type", "text/plain; charset=utf-8");
+  if (isStaging) {
+    res.send("User-agent: *\nDisallow: /\n");
+  } else {
+    res.send("User-agent: *\nAllow: /\nSitemap: https://muziai.ru/sitemap.xml\n");
+  }
+});
+
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",

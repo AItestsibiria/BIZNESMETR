@@ -2067,26 +2067,31 @@ export default function DashboardPage() {
                             <Button
                               size="sm"
                               className="btn-gradient rounded-lg text-xs h-8 w-full"
-                              onClick={async (e) => {
+                              onClick={(e) => {
                                 e.stopPropagation();
-                                try {
-                                  const res = await apiRequest("POST", `/api/music/regenerate/${gen.id}`);
-                                  const d = await res.json();
-                                  if (!res.ok) {
-                                    toast({ title: "Ошибка", description: d.message || "Не удалось", variant: "destructive" });
-                                    return;
-                                  }
-                                  toast({ title: "Регенерация запущена", description: "Новый трек будет готов через несколько минут" });
-                                  queryClient.invalidateQueries({ queryKey: ["/api/generations"] });
-                                  queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-                                } catch (err: any) {
-                                  toast({ title: "Ошибка", description: err.message, variant: "destructive" });
-                                }
+                                // ТЗ Eugene 2026-05-08: переходим на /music с параметрами,
+                                // юзер видит поля, кнопка моргает — клик создаёт.
+                                let meta: any = {};
+                                try { meta = JSON.parse(gen.style || "{}"); } catch {}
+                                const payload = {
+                                  prompt: gen.prompt || "",
+                                  lyrics: meta.lyric || gen.prompt || "",
+                                  style: meta.style || meta.tags || "",
+                                  title: meta.title || "",
+                                  voice: meta.voiceType === "duet" || meta.voiceType === "instrumental" ? "male" : (meta.voiceType || "male"),
+                                  voiceType: meta.voiceType || "male",
+                                  isDuet: meta.voiceType === "duet",
+                                  instrumental: meta.voiceType === "instrumental",
+                                  mode: meta.mode === "custom" ? "advanced" : "simple",
+                                  fromGenId: gen.id,
+                                };
+                                try { sessionStorage.setItem("musicRegenerate", JSON.stringify(payload)); } catch {}
+                                navigate("/music");
                               }}
                               data-testid={`btn-regenerate-${gen.id}`}
                             >
                               <RotateCcw className="w-3 h-3 mr-1.5" />
-                              Регенерировать (те же стиль и текст)
+                              Перегенерировать (открыть форму)
                             </Button>
                           )}
                         </div>
@@ -2264,26 +2269,29 @@ export default function DashboardPage() {
                   {selectedGen.type === "music" ? (
                     <Button
                       className="btn-gradient rounded-xl w-full"
-                      onClick={async () => {
-                        try {
-                          const res = await apiRequest("POST", `/api/music/regenerate/${selectedGen.id}`);
-                          const d = await res.json();
-                          if (!res.ok) {
-                            toast({ title: "Ошибка", description: d.message || "Не удалось запустить регенерацию", variant: "destructive" });
-                            return;
-                          }
-                          toast({ title: "Регенерация запущена", description: "Новый трек будет готов через несколько минут" });
-                          setSelectedGen(null);
-                          queryClient.invalidateQueries({ queryKey: ["/api/generations"] });
-                          queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
-                        } catch (e: any) {
-                          toast({ title: "Ошибка", description: e.message, variant: "destructive" });
-                        }
+                      onClick={() => {
+                        let meta: any = {};
+                        try { meta = JSON.parse(selectedGen.style || "{}"); } catch {}
+                        const payload = {
+                          prompt: selectedGen.prompt || "",
+                          lyrics: meta.lyric || selectedGen.prompt || "",
+                          style: meta.style || meta.tags || "",
+                          title: meta.title || "",
+                          voice: meta.voiceType === "duet" || meta.voiceType === "instrumental" ? "male" : (meta.voiceType || "male"),
+                          voiceType: meta.voiceType || "male",
+                          isDuet: meta.voiceType === "duet",
+                          instrumental: meta.voiceType === "instrumental",
+                          mode: meta.mode === "custom" ? "advanced" : "simple",
+                          fromGenId: selectedGen.id,
+                        };
+                        try { sessionStorage.setItem("musicRegenerate", JSON.stringify(payload)); } catch {}
+                        setSelectedGen(null);
+                        navigate("/music");
                       }}
                       data-testid="button-regenerate-gen"
                     >
                       <RotateCcw className="w-4 h-4 mr-2" />
-                      Регенерировать (те же стиль и текст)
+                      Перегенерировать (открыть форму)
                     </Button>
                   ) : (
                     <Button
