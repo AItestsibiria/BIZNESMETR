@@ -2168,7 +2168,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     // Если Suno глобально недоступен (баланс=0, ключ невалид, error-rate>80%)
     // — отказываем СРАЗУ, до charge. Иначе юзер бы получил error+refund цикл.
     if (isSunoCircuitOpen()) {
-      res.status(503).json({ message: "Suno временно недоступен. Watchdog обнаружил проблему — мы уже работаем над ней. Попробуйте через 5–10 минут." });
+      res.status(503).json({ message: "MuziAi временно недоступен. Мы уже работаем над проблемой — мы уже работаем над ней. Попробуйте через 5–10 минут." });
       return;
     }
     const { prompt, style, lyrics, title, instrumental, voice, voiceType, isDuet, authorName, isPublic, category } = req.body;
@@ -2368,7 +2368,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
             storage.updateGeneration(gen.id, { status: "error", errorReason: "Сервис MuziAi вернул ответ без аудио-URL. Баланс возвращён." });
             // рефанд при отсутствии audioUrl (атомарно — orphan-scanner не задвоит)
             try {
-              storage.refundGeneration({ genId: gen.id, userId: gen.userId, cost: gen.cost, type: "music", description: `Возврат: пустой ответ Suno #${gen.id}` });
+              storage.refundGeneration({ genId: gen.id, userId: gen.userId, cost: gen.cost, type: "music", description: `Возврат: пустой ответ MuziAi #${gen.id}` });
             } catch {}
             data.status = "error";
           } else {
@@ -2464,11 +2464,11 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
             // Понятное сообщение для автора о причине
             const rawMsg = String(data.message || "").toLowerCase();
             if (data.code === 1001 || rawMsg.includes("sensitive")) {
-              data.userMessage = "Текст песни или описание стиля было отклонено модерацией Suno (ругательства, жестокость, откровенные сцены, имена публичных людей, защищённые бренды). Попробуйте перефразировать. Баланс возвращён.";
+              data.userMessage = "Текст песни или описание стиля было отклонено модерацией MuziAi (ругательства, жестокость, откровенные сцены, имена публичных людей, защищённые бренды). Попробуйте перефразировать. Баланс возвращён.";
             } else if (rawMsg.includes("timeout") || rawMsg.includes("timed out")) {
               data.userMessage = "Сервис не ответил вовремя. Попробуйте ещё раз. Баланс возвращён.";
             } else if (data.message) {
-              data.userMessage = `Ошибка Suno: ${data.message}. Баланс возвращён.`;
+              data.userMessage = `Ошибка MuziAi: ${data.message}. Баланс возвращён.`;
             } else {
               data.userMessage = "Не удалось создать трек. Баланс возвращён.";
             }
@@ -2501,7 +2501,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const userId = (req as any).userId;
     const user = storage.getUser(userId);
     if (!user) { res.status(404).json({ message: "Автор не найден" }); return; }
-    if (isSunoCircuitOpen()) { res.status(503).json({ message: "Suno временно недоступен. Watchdog обнаружил проблему. Попробуйте через 5–10 минут." }); return; }
+    if (isSunoCircuitOpen()) { res.status(503).json({ message: "MuziAi временно недоступен. Мы уже работаем над проблемой. Попробуйте через 5–10 минут." }); return; }
     const { sourceId, newStyle, voice, voiceType, isDuet, instrumental, isPublic, category, authorName } = req.body;
     if (!sourceId) { res.status(400).json({ message: "Исходный трек не указан" }); return; }
     if (!newStyle || newStyle.length < 3) { res.status(400).json({ message: "Опишите новый стиль" }); return; }
@@ -2593,7 +2593,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       if (!data || !data.id || data.status === "failed") {
         storage.updateGeneration(gen.id, { status: "error" });
         if (!charge.isFree) {
-          storage.refundGeneration({ genId: gen.id, userId, cost: gen.cost || 9900, type: "music", description: `Возврат: Suno-cover недоступен #${gen.id}` });
+          storage.refundGeneration({ genId: gen.id, userId, cost: gen.cost || 9900, type: "music", description: `Возврат: режим Кавер недоступен #${gen.id}` });
         }
         res.status(503).json({
           message: "Режим Кавер временно недоступен — ждём формат API от GPTunnel. Баланс возвращён.",
@@ -2618,7 +2618,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const userId = (req as any).userId;
     const user = storage.getUser(userId);
     if (!user) { res.status(404).json({ message: "Автор не найден" }); return; }
-    if (isSunoCircuitOpen()) { res.status(503).json({ message: "Suno временно недоступен. Watchdog обнаружил проблему. Попробуйте через 5–10 минут." }); return; }
+    if (isSunoCircuitOpen()) { res.status(503).json({ message: "MuziAi временно недоступен. Мы уже работаем над проблемой. Попробуйте через 5–10 минут." }); return; }
     const { sourceId, continueAt, prompt, lyrics, voice, isPublic, category, authorName } = req.body;
     if (!sourceId) { res.status(400).json({ message: "Исходный трек не указан" }); return; }
     if (continueAt === undefined || continueAt < 0) {
@@ -2727,7 +2727,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       if (!data || !data.id || data.status === "failed") {
         storage.updateGeneration(gen.id, { status: "error" });
         if (!charge.isFree) {
-          storage.refundGeneration({ genId: gen.id, userId, cost: gen.cost || 9900, type: "music", description: `Возврат: Suno-extend недоступен #${gen.id}` });
+          storage.refundGeneration({ genId: gen.id, userId, cost: gen.cost || 9900, type: "music", description: `Возврат: режим Продление недоступен #${gen.id}` });
         }
         res.status(503).json({
           message: "Режим Продление временно недоступен — ждём формат API от GPTunnel. Баланс возвращён.",
@@ -4233,7 +4233,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
           }
         }
 
-        const reason = "Превышен лимит ожидания (30 мин). Suno не завершил. Баланс возвращён.";
+        const reason = "Превышен лимит ожидания (30 мин). MuziAi не завершил. Баланс возвращён.";
         storage.updateGeneration(gen.id, { status: "error", errorReason: reason });
         try {
           if ((gen.cost || 0) > 0) {
@@ -4256,7 +4256,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const userId = (req as any).userId;
     const genId = parseInt(req.params.id, 10);
     if (!genId) { res.status(400).json({ message: "Неверный ID" }); return; }
-    if (isSunoCircuitOpen()) { res.status(503).json({ message: "Suno временно недоступен. Watchdog обнаружил проблему. Попробуйте через 5–10 минут." }); return; }
+    if (isSunoCircuitOpen()) { res.status(503).json({ message: "MuziAi временно недоступен. Мы уже работаем над проблемой. Попробуйте через 5–10 минут." }); return; }
     const oldGen = storage.getGeneration(genId);
     if (!oldGen || oldGen.userId !== userId) { res.status(404).json({ message: "Генерация не найдена" }); return; }
     if (oldGen.status !== "error") { res.status(400).json({ message: "Можно регенерировать только треки с ошибкой" }); return; }

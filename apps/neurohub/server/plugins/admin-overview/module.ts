@@ -830,7 +830,7 @@ router.post("/generate-anthem", requireAdmin, async (req, res) => {
         generationId: newGen.id,
         taskId: upstream.id,
         status: "processing",
-        message: "Гимн отправлен в Suno. Через 1-2 минуты будет готов.",
+        message: "Гимн отправлен в MuziAi. Через 1-2 минуты будет готов.",
         watchUrl: `/#/track/${newGen.id}`,
         dashboardUrl: `/#/dashboard`,
         statusEndpoint: `/api/track/${newGen.id}`,
@@ -963,7 +963,7 @@ async function pollProcessingGenerations(): Promise<{ scanned: number; done: num
               }
               continue;
             } else if (data.status === "error" || data.status === "failed") {
-              const reason = String(data.message ?? data.error?.message ?? `Suno status=${data.status}`).slice(0, 500);
+              const reason = String(data.message ?? data.error?.message ?? `MuziAi status=${data.status}`).slice(0, 500);
               db.run(sql`UPDATE generations
                          SET status='error', error_reason=${reason}, result_data=${JSON.stringify(data)}
                          WHERE id=${row.id}`);
@@ -980,7 +980,7 @@ async function pollProcessingGenerations(): Promise<{ scanned: number; done: num
     // Suno не вернул done И > 30 мин → честный timeout (теперь только если
     // Suno сам ничего не дал, и время вышло)
     if (!recovered && row.createdAt < cutoff) {
-      db.run(sql`UPDATE generations SET status='error', error_reason='MuziAi timeout > 30 min — Suno backend завис, баланс возвращён'
+      db.run(sql`UPDATE generations SET status='error', error_reason='MuziAi timeout > 30 min — баланс возвращён'
                  WHERE id=${row.id}`);
       failed += 1;
     }

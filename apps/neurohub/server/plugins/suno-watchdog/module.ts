@@ -301,7 +301,7 @@ async function pollBalance(): Promise<void> {
           kind: "suno_unreachable",
           severity: "critical",
           title: "GPTunnel недоступен — стабильно (3+ циклов)",
-          body: `Не могу достучаться до gptunnel.ru/v1/balance уже ${STATE.consecutiveBalanceFailures} циклов подряд: ${STATE.balanceError}. Все Suno-запросы падают.`,
+          body: `Не могу достучаться до gptunnel.ru/v1/balance уже ${STATE.consecutiveBalanceFailures} циклов подряд: ${STATE.balanceError}. Все MuziAi-запросы падают.`,
           resolution: "Проверь VPS network: curl -m 10 https://gptunnel.ru/v1/balance -H \"Authorization: $GPTUNNEL_API_KEY\". Firewall/DNS/route на VPS.",
         });
       }
@@ -438,7 +438,7 @@ async function evaluateState(): Promise<void> {
     await notifyAdmin({
       kind: "suno_high_error_rate",
       severity: "critical",
-      title: `Suno: error-rate ${ratePct}% за ${high5m ? "5 мин" : "60 мин"}`,
+      title: `MuziAi: error-rate ${ratePct}% за ${high5m ? "5 мин" : "60 мин"}`,
       body: `За ${winLabel} большинство генераций упали. Похоже, Suno глобально не работает. Auto-retry приостановлен (circuit open).`,
       resolution: "Дождись восстановления (Watchdog auto-recovers) или обнови ключ если проблема в нём. /admin/v304 → Suno Watchdog для real-time стейта",
     });
