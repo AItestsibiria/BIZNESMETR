@@ -693,16 +693,15 @@ router.get("/diag", (_req, res) => {
 </div>
 
 <script>
-// Staging hostname → GET идёт без логина. Если есть token — добавим Bearer.
-const token = localStorage.getItem("token");
-const isStaging = location.hostname.includes("clone.muziai.ru") || location.hostname === "localhost" || location.hostname === "127.0.0.1";
+// ES5-only inline JS (старый iOS Safari, старый Android Chrome).
+// Никаких const/let, ?., ??, async/await, arrow functions.
+var token = localStorage.getItem("token");
+var hostname = location.hostname;
+var isStaging = hostname.indexOf("clone.muziai.ru") >= 0 || hostname === "localhost" || hostname === "127.0.0.1";
 if (!token && !isStaging) {
-  document.getElementById("status").innerHTML = '<span class="err">Не залогинен.</span> Открой <a href="/#/login">/#/login</a> и вернись сюда.';
-  document.getElementById("btnGet").disabled = true;
-  document.getElementById("btnPost").disabled = true;
+  document.getElementById("status").innerHTML = '<span class="err">Не залогинен.</span> Открой <a href="/#/login">/#/login</a> и вернись.';
 }
-// На staging: показываем все кнопки даже без token
-// (бэкенд разрешает hostname=clone.muziai.ru без admin auth)
+// На staging: бэкенд разрешает hostname=clone.muziai.ru без admin auth
 
 // ES5-compat (для старых iOS Safari). Никаких ?., ??, async/await.
 function runDiag(includeTest) {
