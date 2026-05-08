@@ -3782,20 +3782,27 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
 
       console.log(`[PAYMENT RESULT] SUCCESS! User ${userId} credited ${OutSum} ₽`);
 
-      // Referral bonus on first payment: both get +1 free track
+      // BACKEND-14 fix Eugene 14:27: atomic flag-set чтобы parallel webhooks
+      // не дали бонус дважды. UPDATE WHERE referralBonusGiven=0 — changes=1
+      // только у того кто первым успел.
       const payer = storage.getUser(userId);
-      if (payer && !payer.referralBonusGiven && payer.referredBy) {
-        db.update(users).set({ referralBonusGiven: 1 }).where(eq(users.id, userId)).run();
-        // Payer bonus
-        db.update(users).set({ freeUsed: Math.max(0, payer.freeUsed - 1) }).where(eq(users.id, userId)).run();
-        storage.createTransaction({ userId, type: "topup", amount: 0, description: "🎁 Бонус за первую оплату: +1 трек" });
-        // Referrer bonus
-        const referrer = storage.getUser(payer.referredBy);
-        if (referrer) {
-          db.update(users).set({ freeUsed: Math.max(0, referrer.freeUsed - 1) }).where(eq(users.id, referrer.id)).run();
-          storage.createTransaction({ userId: referrer.id, type: "topup", amount: 0, description: `🎁 Бонус: автор ${payer.name} сделал первую оплату: +1 трек` });
+      if (payer && payer.referredBy) {
+        const claimed = db.update(users)
+          .set({ referralBonusGiven: 1 })
+          .where(and(eq(users.id, userId), eq(users.referralBonusGiven, 0)))
+          .returning()
+          .get();
+        if (claimed) {
+          // Только если мы первые поставили флаг — выдаём бонусы
+          db.update(users).set({ freeUsed: Math.max(0, payer.freeUsed - 1) }).where(eq(users.id, userId)).run();
+          storage.createTransaction({ userId, type: "topup", amount: 0, description: "🎁 Бонус за первую оплату: +1 трек" });
+          const referrer = storage.getUser(payer.referredBy);
+          if (referrer) {
+            db.update(users).set({ freeUsed: Math.max(0, referrer.freeUsed - 1) }).where(eq(users.id, referrer.id)).run();
+            storage.createTransaction({ userId: referrer.id, type: "topup", amount: 0, description: `🎁 Бонус: автор ${payer.name} сделал первую оплату: +1 трек` });
+          }
+          console.log(`[REFERRAL BONUS] First payment by #${userId}, bonus to referrer #${payer.referredBy}`);
         }
-        console.log(`[REFERRAL BONUS] First payment by #${userId}, bonus to referrer #${payer.referredBy}`);
       }
 
       res.send(`OK${InvId}`);

@@ -125,11 +125,19 @@ const router = Router();
 
 router.post("/webhook", async (req, res) => {
   // Verify secret (если задан)
-  if (WEBHOOK_SECRET) {
-    const got = req.headers["x-max-bot-api-secret"];
-    if (got !== WEBHOOK_SECRET) {
-      return res.status(401).json({ error: "bad secret" });
-    }
+  // BACKEND-13 fix Eugene 14:27: timing-safe + REQUIRED webhook secret
+  // (раньше при пустом WEBHOOK_SECRET принимали всё подряд → fraud).
+  const got = String(req.headers["x-max-bot-api-secret"] || "");
+  if (!WEBHOOK_SECRET) {
+    bootRefs?.logger.warn("max-webhook: MAX_WEBHOOK_SECRET не задан — webhook отвергнут");
+    return res.status(401).json({ error: "MAX_WEBHOOK_SECRET not configured" });
+  }
+  const ok = got.length === WEBHOOK_SECRET.length && (() => {
+    try { return crypto.timingSafeEqual(Buffer.from(got, "utf8"), Buffer.from(WEBHOOK_SECRET, "utf8")); }
+    catch { return false; }
+  })();
+  if (!ok) {
+    return res.status(401).json({ error: "bad secret" });
   }
 
   const u = req.body;

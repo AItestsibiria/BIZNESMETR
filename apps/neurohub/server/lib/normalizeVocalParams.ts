@@ -58,10 +58,12 @@ interface NormalizeOutput {
 
 // JS \b не работает с кириллицей — используем независимые паттерны для
 // латиницы (с \b) и кириллицы (без \b, опираясь на pre-/post-context).
-const FEMALE_MARKERS = /\b(female\s*vocal|female\s*voice|female\s+singer)\b|женск(ий|ая|ое|ие|ого)?\s*вокал|жен\.?\s*вокал/gi;
-const MALE_MARKERS   = /\b(male\s*vocal|male\s*voice|male\s+singer)\b|мужск(ой|ая|ое|ие|ого)?\s*вокал|муж\.?\s*вокал/gi;
-const DUET_MARKERS   = /\b(male\s+and\s+female\s+duet\s+vocals?|duet\s+vocals?)\b|\bduet\b|дуэт/gi;
-const INSTRUMENTAL_MARKERS = /\b(instrumental|no\s*vocals?)\b|без\s*вокал[аеуь]?/gi;
+// BACKEND-15 fix Eugene 14:27: non-capturing (?:..) вместо capturing (..)
+// для защиты от ReDoS на длинных строках.
+const FEMALE_MARKERS = /\b(?:female\s*vocal|female\s*voice|female\s+singer)\b|женск(?:ий|ая|ое|ие|ого)?\s*вокал|жен\.?\s*вокал/gi;
+const MALE_MARKERS   = /\b(?:male\s*vocal|male\s*voice|male\s+singer)\b|мужск(?:ой|ая|ое|ие|ого)?\s*вокал|муж\.?\s*вокал/gi;
+const DUET_MARKERS   = /\b(?:male\s+and\s+female\s+duet\s+vocals?|duet\s+vocals?)\b|\bduet\b|дуэт/gi;
+const INSTRUMENTAL_MARKERS = /\b(?:instrumental|no\s*vocals?)\b|без\s*вокал[аеуь]?/gi;
 const TAG_FEMALE = /\[\s*female\s*[^\]]*\]/gi;
 const TAG_MALE   = /\[\s*male\s*[^\]]*\]/gi;
 const TAG_DUET   = /\[\s*(together|duet)\s*[^\]]*\]/gi;
