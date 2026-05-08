@@ -54,6 +54,10 @@ interface WatchdogState {
   lastAlerts: Record<string, string>; // kind → ISO ts
   circuitOpen: boolean;
   circuitOpenSince: string | null;
+  // Eugene 2026-05-08: счётчики consecutive failures для подавления false-positive
+  // alerts от транзиентных network blips (DNS hiccup, packet loss).
+  consecutiveBalanceFailures: number;
+  consecutiveBalanceSuccesses: number;
 }
 
 const STATE: WatchdogState = {
@@ -72,6 +76,8 @@ const STATE: WatchdogState = {
   lastAlerts: {},
   circuitOpen: false,
   circuitOpenSince: null,
+  consecutiveBalanceFailures: 0,
+  consecutiveBalanceSuccesses: 0,
 };
 
 let bootRefs: { eventBus: BootContext["eventBus"]; logger: BootContext["logger"] } | null = null;
@@ -240,27 +246,68 @@ async function pollBalance(): Promise<void> {
     STATE.balanceError = "GPTUNNEL_API_KEY не установлен";
     return;
   }
+  // Eugene 2026-05-08: retry с экспонентой ВНУТРИ одного pollBalance.
+  // Закрывает класс false-positive alerts от транзиентных DNS/packet-loss.
+  // 3 попытки: 0ms / 3sec / 8sec → суммарно ~11 сек на edge cases.
+  const tryFetch = async (): Promise<{ ok: boolean; status?: number; data?: any; error?: string }> => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, attempt === 1 ? 3000 : 8000));
+      try {
+        const r = await fetch("https://gptunnel.ru/v1/balance", {
+          headers: { Authorization: apiKey },
+          signal: AbortSignal.timeout(PING_TIMEOUT_MS),
+        });
+        if (!r.ok) return { ok: false, status: r.status, error: `HTTP ${r.status}` };
+        const data = await r.json().catch(() => null);
+        return { ok: true, data };
+      } catch (e) {
+        if (attempt === 2) return { ok: false, error: e instanceof Error ? e.message : String(e) };
+        // иначе попробуем ещё раз
+      }
+    }
+    return { ok: false, error: "exhausted" };
+  };
+
   try {
-    const r = await fetch("https://gptunnel.ru/v1/balance", {
-      headers: { Authorization: apiKey },
-      signal: AbortSignal.timeout(PING_TIMEOUT_MS),
-    });
-    if (!r.ok) {
-      STATE.balanceError = `HTTP ${r.status}`;
+    const result = await tryFetch();
+    if (!result.ok && result.status) {
+      // HTTP ошибка от GPTunnel (не network) — это ответ сервера
+      STATE.balanceError = result.error || `HTTP ${result.status}`;
       STATE.lastSunoPingAt = new Date().toISOString();
-      // 401/403 — proteted ключ; будет обработан ниже как unreachable
-      if (r.status === 401 || r.status === 403) {
+      STATE.consecutiveBalanceFailures += 1;
+      STATE.consecutiveBalanceSuccesses = 0;
+      if (result.status === 401 || result.status === 403) {
         await notifyAdmin({
           kind: "suno_invalid_key",
           severity: "critical",
           title: "GPTunnel ключ невалиден или отозван",
-          body: `GET /v1/balance вернул HTTP ${r.status}. Все генерации Suno падают до тех пор пока ключ не обновлён.`,
+          body: `GET /v1/balance вернул HTTP ${result.status}. Все генерации Suno падают до тех пор пока ключ не обновлён.`,
           resolution: "Открой gptunnel.ru → выпусти свежий ключ → /admin/v304 → 🔑 Секреты → ротация GPTUNNEL_API_KEY → pm2 restart neurohub --update-env",
         });
       }
       return;
     }
-    const data: any = await r.json();
+    if (!result.ok) {
+      // Network failure после 3-х попыток — но всё равно подождём 3
+      // последовательных циклов (15 мин) до alert'а. Локальные blips
+      // не должны спамить.
+      STATE.balanceError = result.error || "network";
+      STATE.lastSunoPingAt = new Date().toISOString();
+      STATE.consecutiveBalanceFailures += 1;
+      STATE.consecutiveBalanceSuccesses = 0;
+      console.log(`\x1b[33m[suno-watchdog]\x1b[0m balance unreachable (attempt ${STATE.consecutiveBalanceFailures}, error=${STATE.balanceError})`);
+      if (STATE.consecutiveBalanceFailures >= 3) {
+        await notifyAdmin({
+          kind: "suno_unreachable",
+          severity: "critical",
+          title: "GPTunnel недоступен — стабильно (3+ циклов)",
+          body: `Не могу достучаться до gptunnel.ru/v1/balance уже ${STATE.consecutiveBalanceFailures} циклов подряд: ${STATE.balanceError}. Все Suno-запросы падают.`,
+          resolution: "Проверь VPS network: curl -m 10 https://gptunnel.ru/v1/balance -H \"Authorization: $GPTUNNEL_API_KEY\". Firewall/DNS/route на VPS.",
+        });
+      }
+      return;
+    }
+    const data = result.data;
     // GPTunnel возвращает balance в рублях (float). Переводим в копейки.
     const rubles = typeof data?.balance === "number" ? data.balance : Number(data?.balance ?? 0);
     const kopeks = Math.round(rubles * 100);
@@ -268,6 +315,13 @@ async function pollBalance(): Promise<void> {
     STATE.balanceCheckedAt = new Date().toISOString();
     STATE.balanceError = null;
     STATE.lastSunoPingAt = STATE.balanceCheckedAt;
+    // Reset failure counter, инкремент success — auto-resolve если был alert
+    if (STATE.consecutiveBalanceFailures > 0) {
+      console.log(`\x1b[32m[suno-watchdog]\x1b[0m balance recovered after ${STATE.consecutiveBalanceFailures} failures`);
+      autoResolveIncident("suno_unreachable", `сеть восстановлена: ${(kopeks / 100).toFixed(2)}₽`);
+    }
+    STATE.consecutiveBalanceFailures = 0;
+    STATE.consecutiveBalanceSuccesses += 1;
 
     if (kopeks < LOW_BALANCE_THRESHOLD_KOPEKS) {
       await notifyAdmin({
@@ -282,15 +336,8 @@ async function pollBalance(): Promise<void> {
       autoResolveIncident("suno_invalid_key", "GPTunnel /balance отвечает 200");
     }
   } catch (e) {
-    STATE.balanceError = e instanceof Error ? e.message : String(e);
-    STATE.lastSunoPingAt = new Date().toISOString();
-    await notifyAdmin({
-      kind: "suno_unreachable",
-      severity: "critical",
-      title: "GPTunnel недоступен (network)",
-      body: `Не могу достучаться до gptunnel.ru/v1/balance: ${STATE.balanceError}. Все Suno-запросы падают.`,
-      resolution: "Проверь VPS network: curl -m 10 https://gptunnel.ru/v1/balance -H \"Authorization: $GPTUNNEL_API_KEY\". Если падает — firewall/DNS на VPS",
-    });
+    // unexpected (parsing JSON failed etc.) — лог, не alert
+    console.error("[suno-watchdog] pollBalance unexpected:", e);
   }
 }
 
