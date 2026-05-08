@@ -543,14 +543,30 @@ function render(d) {
   // Scope-проверка ключа на /media/create (без charge'а)
   if (d.keyScope?.mediaCreate) {
     const k = d.keyScope.mediaCreate;
-    const cls = k.status === 422 || k.status === 400 ? "ok"
+    // Validation OK = HTTP 200 + body.code:3 (GPTunnel так делает)
+    const valid = (k.status === 200 || k.status === 400 || k.status === 422) && (k.body?.code === 3 || k.body?.issues);
+    const cls = valid ? "ok"
               : k.status === 401 || k.status === 403 ? "err"
-              : k.status === 500 || k.status === 502 || k.status === 503 ? "err"
               : "warn";
     html += '<div class="panel"><div class="label">Scope ключа на /media/create</div>';
-    html += '<div class="big ' + cls + '">HTTP ' + (k.status || "?") + ' (' + (k.ms || "?") + ' мс)</div>';
+    html += '<div class="big ' + cls + '">' + (valid ? "✅" : "⚠️") + " HTTP " + (k.status || "?") + " · code=" + (k.body?.code ?? "?") + ' (' + (k.ms || "?") + ' мс)</div>';
     if (k.hint) html += '<div style="margin-top:8px">' + k.hint + '</div>';
+    if (k.sunoModelsAvailable) html += '<div style="margin-top:8px;color:#9ca3af;font-size:12px">Suno-модели: ' + k.sunoModelsAvailable.join(", ") + '</div>';
     html += '</div>';
+
+    if (d.keyScope.sunoSchema) {
+      const s = d.keyScope.sunoSchema;
+      html += '<div class="panel"><div class="label">Что Suno требует (probe model:"suno")</div>';
+      html += '<div>' + (s.message || "") + '</div>';
+      if (s.requiredFields?.length) {
+        html += '<div style="margin-top:8px"><b>Required:</b><ul style="margin:4px 0 0 0">';
+        s.requiredFields.forEach((f: any) => {
+          html += '<li>' + f.path + ' — ' + f.message + (f.expected ? ' <span style="color:#9ca3af">(' + String(f.expected).slice(0, 80) + (String(f.expected).length > 80 ? "…" : "") + ')</span>' : '') + '</li>';
+        });
+        html += '</ul></div>';
+      }
+      html += '</div>';
+    }
   }
 
   // Тест-запрос (live, ~18₽)
@@ -653,17 +669,20 @@ async function runFullDiagnose(includeTestRequest: boolean) {
   }
 
   // 3. Scope-проверка ключа на /media/create БЕЗ charge'а:
-  //    шлём заведомо невалидный payload {} → GPTunnel должен вернуть 422
-  //    с validation issues ДО передачи в Suno (без списания).
-  //    Если 200 → unexpected, если 401/403 → ключ без media-scope,
-  //    если 500 → GPTunnel/Suno proxy сломан, если 422 → ключ работает.
+  //    PROBE A — пустой body: GPTunnel вернёт 200 + code:3 (валидация),
+  //              со списком ВСЕХ моделей. Это доказывает что ключ принимается.
+  //    PROBE B — { model: "suno" } без других полей: получим schema
+  //              ошибки специфично для Suno → видим что Suno требует.
+  //    GPTunnel в случае ошибки валидации возвращает HTTP 200 + body.code != 0.
+  //    Реальный успех = body.code == 0 + body.id присутствует.
   if (apiKey) {
+    // PROBE A: пустой body
     const t0 = Date.now();
     try {
       const r = await fetch("https://gptunnel.ru/v1/media/create", {
         method: "POST",
         headers: { Authorization: apiKey, "Content-Type": "application/json" },
-        body: JSON.stringify({}), // намеренно пустой — должен fail валидацию
+        body: JSON.stringify({}),
         signal: AbortSignal.timeout(15_000),
       });
       report.keyScope.mediaCreate.ms = Date.now() - t0;
@@ -673,22 +692,55 @@ async function runFullDiagnose(includeTestRequest: boolean) {
       try { body = JSON.parse(text); } catch { body = { raw: text.slice(0, 500) }; }
       report.keyScope.mediaCreate.body = body;
       report.keyScope.mediaCreate.reachable = r.status > 0;
+      const valid = (r.status === 200 || r.status === 400 || r.status === 422)
+                    && (body?.code === 3 || body?.issues || body?.message?.includes("schema"));
       if (r.status === 401 || r.status === 403) {
-        report.keyScope.mediaCreate.hint = "🚫 Ключ НЕ имеет media-scope. Это объясняет все 'Internal server error': GPTunnel возвращает что-то странное вместо 401. Нужен новый ключ с media/Suno scope.";
-        report.recommendations.push("🔑 Ключ без media-scope. На gptunnel.ru → выпусти НОВЫЙ ключ с явным правом на /media/create. Старый только balance умеет.");
-      } else if (r.status === 422 || r.status === 400) {
-        report.keyScope.mediaCreate.hint = `✅ Ключ принимается /media/create (валидация ${r.status}). Scope OK. Значит 'Internal server error' идёт от Suno backend, не от ключа.`;
+        report.keyScope.mediaCreate.hint = "🚫 Ключ НЕ имеет media-scope. Нужен новый ключ.";
+        report.recommendations.push("🔑 Ключ без media-scope. На gptunnel.ru → выпусти НОВЫЙ ключ.");
+      } else if (valid) {
+        // Извлекаем список моделей из validation issues
+        const modelIssue = (body?.issues || []).find((i: any) => i.path?.[0] === "model");
+        const sunoModels = modelIssue?.expected
+          ? (modelIssue.expected as string).split(" | ").map((s: string) => s.replace(/'/g, "")).filter((s: string) => s.includes("suno"))
+          : null;
+        report.keyScope.mediaCreate.sunoModelsAvailable = sunoModels;
+        report.keyScope.mediaCreate.hint = `✅ Ключ принят /media/create. Validation отработала (code:3). Suno-модели в списке: ${sunoModels?.join(", ") || "?"}. Значит «Internal server error» в реальных gens идёт от Suno backend ПОСЛЕ принятия запроса.`;
       } else if (r.status === 500 || r.status === 502 || r.status === 503) {
-        report.keyScope.mediaCreate.hint = `⚠️ /media/create возвращает ${r.status} даже на пустой body. GPTunnel proxy сам сломан. Это не наш ключ.`;
-        report.recommendations.push(`🌐 GPTunnel /media/create отвечает ${r.status} даже на пустой запрос. Сервис лежит на их стороне. Связаться с поддержкой.`);
-      } else if (r.status === 200) {
-        report.keyScope.mediaCreate.hint = `❓ Неожиданно: пустой body вернул 200. Возможно payload прошёл и заюзал кредит — проверь баланс.`;
+        report.keyScope.mediaCreate.hint = `⚠️ /media/create вернул ${r.status} на пустой body. GPTunnel proxy сам сломан.`;
+        report.recommendations.push(`🌐 GPTunnel proxy отвечает ${r.status}. Связаться с их поддержкой.`);
       } else {
-        report.keyScope.mediaCreate.hint = `❓ HTTP ${r.status}. Не классифицирован.`;
+        report.keyScope.mediaCreate.hint = `❓ HTTP ${r.status}, body.code=${body?.code}. Не классифицирован.`;
       }
     } catch (e) {
       report.keyScope.mediaCreate.ms = Date.now() - t0;
       report.keyScope.mediaCreate.hint = `❌ Не достучался до /media/create: ${e instanceof Error ? e.message : String(e)}`;
+    }
+
+    // PROBE B: { model: "suno" } — увидим schema requirements специфично для Suno
+    if (report.keyScope.mediaCreate.reachable && (report.keyScope.mediaCreate.body?.code === 3)) {
+      try {
+        const r2 = await fetch("https://gptunnel.ru/v1/media/create", {
+          method: "POST",
+          headers: { Authorization: apiKey, "Content-Type": "application/json" },
+          body: JSON.stringify({ model: "suno" }),
+          signal: AbortSignal.timeout(15_000),
+        });
+        const text2 = await r2.text();
+        let body2: any;
+        try { body2 = JSON.parse(text2); } catch { body2 = { raw: text2.slice(0, 500) }; }
+        report.keyScope.sunoSchema = {
+          status: r2.status,
+          code: body2?.code,
+          message: body2?.message,
+          requiredFields: (body2?.issues || []).map((i: any) => ({
+            path: (i.path || []).join("."),
+            expected: i.expected,
+            message: i.message,
+          })),
+        };
+      } catch (e) {
+        report.keyScope.sunoSchema = { error: e instanceof Error ? e.message : String(e) };
+      }
     }
   }
 
