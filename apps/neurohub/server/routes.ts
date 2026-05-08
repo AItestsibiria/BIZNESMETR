@@ -2260,10 +2260,12 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         db.update(generations).set({ style: JSON.stringify(updatedMeta) }).where(eq(generations.id, gen.id)).run();
       } catch {}
 
-      // Eugene 2026-05-08 doc-audit: callback_url убирает 5-сек polling.
-      // GPTunnel POSTit на этот URL когда Suno завершит. Polling остаётся
-      // как fallback на случай потерянного webhook'а.
-      payload.callback_url = buildSunoCallbackUrl(req, gen.id);
+      // Eugene 2026-05-08 21:42: REVERT callback_url. Сравнение с prod показало
+      // что там callback_url НЕ передаётся и Suno работает. На clone после
+      // добавления callback_url появились зависания #672/#673. Точная причина
+      // неясна (формат поля? unreachable webhook?). Возвращаемся к polling-only
+      // как на prod. Webhook endpoint остаётся как dormant защита если когда-то
+      // GPTunnel docs подтвердят правильный формат.
 
       const resp = await gptunnelFetch("/media/create", {
         method: "POST",
@@ -2550,11 +2552,9 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         { model: "suno-cover", prompt: fullTags, input_audio: audioUrl, mode: "basic" },
       ];
 
-      const cbUrl = buildSunoCallbackUrl(req, gen.id);
       let data: any = null;
       let usedShape: any = null;
       for (const payload of attempts) {
-        (payload as any).callback_url = cbUrl;
         const r = await gptunnelFetch("/media/create", { method: "POST", body: JSON.stringify(payload) });
         const j: any = await r.json();
         console.log(`[COVER] Try ${JSON.stringify(Object.keys(payload))} → code=${j.code} status=${j.status}`);
@@ -2682,11 +2682,9 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         }
       }
 
-      const cbUrl = buildSunoCallbackUrl(req, gen.id);
       let data: any = null;
       let usedShape: any = null;
       for (const payload of attempts) {
-        (payload as any).callback_url = cbUrl;
         const r = await gptunnelFetch("/media/create", { method: "POST", body: JSON.stringify(payload) });
         const j: any = await r.json();
         console.log(`[EXTEND] Try ${JSON.stringify(Object.keys(payload))} → code=${j.code} status=${j.status}`);
@@ -2757,7 +2755,6 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
           model: "gpt-image-1-high",
           prompt: fullPrompt,
           ar: "1:1",
-          callback_url: buildSunoCallbackUrl(req, gen.id),
         }),
       });
 
@@ -4293,7 +4290,6 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         payload.prompt = (effectivePrompt || rawLyrics || "Песня").slice(0, 400);
       }
 
-      payload.callback_url = buildSunoCallbackUrl(req, newGen.id);
       const resp = await gptunnelFetch("/media/create", { method: "POST", body: JSON.stringify(payload) });
       const data = await resp.json();
       console.log(`[REGEN] gen #${newGen.id} (from #${oldGen.id}):`, JSON.stringify(data).slice(0, 300));
