@@ -28,9 +28,14 @@ import { requireAdmin } from "../../core/adminAuth";
 import type { BootContext, Module } from "../../core";
 
 const LOW_BALANCE_THRESHOLD_KOPEKS = Number(process.env.SUNO_LOW_BALANCE_KOPEKS) || 100_000; // 1000₽
-const ERROR_RATE_5M_THRESHOLD = 0.8; // 80% gens упали за 5 мин = down
-const ERROR_RATE_5M_MIN_VOLUME = 3;  // минимум 3 gen чтобы делать выводы
-const DEDUPE_MINUTES = 30;            // не повторять алёрт раньше 30 мин
+const ERROR_RATE_5M_THRESHOLD = 0.8;   // 80% gens упали за 5 мин = down
+const ERROR_RATE_5M_MIN_VOLUME = 3;    // минимум 3 gen чтобы делать выводы
+// Eugene 2026-05-08: расширил окно до 60 мин — иначе при упорной проблеме
+// (Suno лежит 2 часа, юзеры не пытаются генерить → totalGens5m=0) watchdog
+// показывает «up» хотя сервис фактически down. 60-мин окно держит память.
+const ERROR_RATE_60M_THRESHOLD = 0.7;  // 70% за час при volume>=5 = down
+const ERROR_RATE_60M_MIN_VOLUME = 5;
+const DEDUPE_MINUTES = 30;             // не повторять алёрт раньше 30 мин
 const PING_TIMEOUT_MS = 10_000;
 
 interface WatchdogState {
@@ -40,8 +45,11 @@ interface WatchdogState {
   balanceError: string | null;
   errorRate5m: number; // 0..1
   errorRate15m: number;
+  errorRate60m: number; // Eugene 2026-05-08: окно для упорных проблем
   totalGens5m: number;
   errorGens5m: number;
+  totalGens60m: number;
+  errorGens60m: number;
   lastSunoPingAt: string | null;
   lastAlerts: Record<string, string>; // kind → ISO ts
   circuitOpen: boolean;
@@ -55,8 +63,11 @@ const STATE: WatchdogState = {
   balanceError: null,
   errorRate5m: 0,
   errorRate15m: 0,
+  errorRate60m: 0,
   totalGens5m: 0,
   errorGens5m: 0,
+  totalGens60m: 0,
+  errorGens60m: 0,
   lastSunoPingAt: null,
   lastAlerts: {},
   circuitOpen: false,
@@ -284,7 +295,7 @@ async function pollBalance(): Promise<void> {
 }
 
 function scanGenerationErrorRate(): void {
-  // Берём gens за последние 5/15 мин и считаем error-rate
+  // Берём gens за последние 5/15/60 мин и считаем error-rate
   const r5: any = db.get(sql`
     SELECT
       COUNT(*) AS total,
@@ -301,24 +312,37 @@ function scanGenerationErrorRate(): void {
     WHERE created_at > datetime('now', '-15 minutes')
       AND type = 'music'
   `);
+  const r60: any = db.get(sql`
+    SELECT
+      COUNT(*) AS total,
+      SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS errors
+    FROM generations
+    WHERE created_at > datetime('now', '-60 minutes')
+      AND type = 'music'
+  `);
 
   STATE.totalGens5m = r5?.total ?? 0;
   STATE.errorGens5m = r5?.errors ?? 0;
   STATE.errorRate5m = STATE.totalGens5m > 0 ? STATE.errorGens5m / STATE.totalGens5m : 0;
   const total15 = r15?.total ?? 0;
   STATE.errorRate15m = total15 > 0 ? (r15?.errors ?? 0) / total15 : 0;
+  STATE.totalGens60m = r60?.total ?? 0;
+  STATE.errorGens60m = r60?.errors ?? 0;
+  STATE.errorRate60m = STATE.totalGens60m > 0 ? STATE.errorGens60m / STATE.totalGens60m : 0;
 }
 
 async function evaluateState(): Promise<void> {
   const previousStatus = STATE.status;
 
   // Status priority: down > low_balance > up
+  // Окна: 5-мин (свежий burst) ИЛИ 60-мин (упорная проблема)
+  const high5m = STATE.totalGens5m >= ERROR_RATE_5M_MIN_VOLUME &&
+                 STATE.errorRate5m >= ERROR_RATE_5M_THRESHOLD;
+  const high60m = STATE.totalGens60m >= ERROR_RATE_60M_MIN_VOLUME &&
+                  STATE.errorRate60m >= ERROR_RATE_60M_THRESHOLD;
   if (STATE.balanceError && STATE.balanceError !== "GPTUNNEL_API_KEY не установлен") {
     STATE.status = "down";
-  } else if (
-    STATE.totalGens5m >= ERROR_RATE_5M_MIN_VOLUME &&
-    STATE.errorRate5m >= ERROR_RATE_5M_THRESHOLD
-  ) {
+  } else if (high5m || high60m) {
     STATE.status = "down";
   } else if (
     STATE.balanceKopeks !== null &&
@@ -346,19 +370,23 @@ async function evaluateState(): Promise<void> {
   }
 
   // High-error-rate alert (отдельный, не от баланса)
-  if (
-    STATE.totalGens5m >= ERROR_RATE_5M_MIN_VOLUME &&
-    STATE.errorRate5m >= ERROR_RATE_5M_THRESHOLD
-  ) {
+  if (high5m || high60m) {
+    const winLabel = high5m ? `5 мин (${STATE.errorGens5m}/${STATE.totalGens5m})`
+                            : `60 мин (${STATE.errorGens60m}/${STATE.totalGens60m})`;
+    const ratePct = high5m ? (STATE.errorRate5m * 100).toFixed(0)
+                           : (STATE.errorRate60m * 100).toFixed(0);
     await notifyAdmin({
       kind: "suno_high_error_rate",
       severity: "critical",
-      title: `Suno: error-rate ${(STATE.errorRate5m * 100).toFixed(0)}% за 5 мин`,
-      body: `За 5 мин: ${STATE.errorGens5m}/${STATE.totalGens5m} генераций упали. Похоже, Suno глобально не работает. Auto-retry приостановлен (circuit open).`,
+      title: `Suno: error-rate ${ratePct}% за ${high5m ? "5 мин" : "60 мин"}`,
+      body: `За ${winLabel} большинство генераций упали. Похоже, Suno глобально не работает. Auto-retry приостановлен (circuit open).`,
       resolution: "Дождись восстановления (Watchdog auto-recovers) или обнови ключ если проблема в нём. /admin/v304 → Suno Watchdog для real-time стейта",
     });
-  } else if (STATE.totalGens5m >= ERROR_RATE_5M_MIN_VOLUME && STATE.errorRate5m < 0.3) {
-    autoResolveIncident("suno_high_error_rate", `error-rate упал до ${(STATE.errorRate5m * 100).toFixed(0)}%`);
+  } else if (
+    (STATE.totalGens5m >= ERROR_RATE_5M_MIN_VOLUME && STATE.errorRate5m < 0.3) ||
+    (STATE.totalGens60m >= ERROR_RATE_60M_MIN_VOLUME && STATE.errorRate60m < 0.3)
+  ) {
+    autoResolveIncident("suno_high_error_rate", `error-rate стабилизировался`);
   }
 
   // Если стейт сменился up→down или обратно — лог
@@ -457,19 +485,11 @@ router.get("/page", (_req, res) => {
 </div>
 
 <script>
-// На clone.muziai.ru GET работает без Bearer (staging). POST (~18₽) требует
-// admin-токен — поэтому если пользователь не залогинен, скрываем POST-кнопку.
 const token = localStorage.getItem("token");
-const isStaging = location.hostname.includes("clone.muziai.ru") || location.hostname === "localhost" || location.hostname === "127.0.0.1";
 if (!token) {
-  if (isStaging) {
-    // Staging: GET-диагностика без логина, POST скрываем.
-    document.getElementById("btnPost").style.display = "none";
-  } else {
-    document.getElementById("status").innerHTML = '<span class="err">Не залогинен.</span> Открой <a href="/#/login">/#/login</a> и вернись сюда.';
-    document.getElementById("btnGet").disabled = true;
-    document.getElementById("btnPost").disabled = true;
-  }
+  document.getElementById("status").innerHTML = '<span class="err">Не залогинен.</span> Открой <a href="/#/login">/#/login</a> (egnovoselov@gmail.com) и вернись сюда — токен сохранится в браузере, дальше всё работает в один клик.';
+  document.getElementById("btnGet").disabled = true;
+  document.getElementById("btnPost").disabled = true;
 }
 
 async function run(includeTest) {
@@ -478,11 +498,9 @@ async function run(includeTest) {
   document.getElementById("btnGet").disabled = true;
   document.getElementById("btnPost").disabled = true;
   try {
-    const headers = { "Content-Type": "application/json" };
-    if (token) headers["Authorization"] = "Bearer " + token;
     const r = await fetch("/api/admin/v304/suno-watchdog/full-diagnose", {
       method: includeTest ? "POST" : "GET",
-      headers,
+      headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
     });
     const j = await r.json();
     if (!r.ok || j.error) { throw new Error(j.error || "HTTP " + r.status); }
@@ -701,27 +719,7 @@ async function runFullDiagnose(includeTestRequest: boolean) {
   return report;
 }
 
-// GET — открывается в браузере одной ссылкой, без trace-спалит и без test-запроса.
-// На clone.muziai.ru работает БЕЗ логина (Eugene 2026-05-08 «сделай проще»):
-// staging-инстанс, prod это отдельный VPS — данные не утекают на сайте, который продаёт.
-function isCloneStaging(req: any): boolean {
-  const host = (req?.get?.("host") || req?.headers?.host || "").toString().toLowerCase();
-  return host.includes("clone.muziai.ru") || host.startsWith("localhost") || host.startsWith("127.0.0.1");
-}
-
-router.get("/full-diagnose", async (req, res) => {
-  if (!isCloneStaging(req)) {
-    // На prod-доменах требуем admin как раньше
-    const userId = (() => {
-      const t = (req.headers.authorization || "").toString().replace(/^Bearer\s+/, "") || (req.query as any).token;
-      if (!t) return null;
-      try { return db.get<{ userId: number }>(sql`SELECT user_id as userId FROM sessions WHERE token = ${t}`)?.userId ?? null; }
-      catch { return null; }
-    })();
-    if (!userId) { res.status(401).json({ data: null, error: "unauthorized" }); return; }
-    const u = db.select().from(users).where(eq(users.id, userId)).get();
-    if (!u || (u.role !== "admin")) { res.status(403).json({ data: null, error: "forbidden" }); return; }
-  }
+router.get("/full-diagnose", requireAdmin, async (_req, res) => {
   const report = await runFullDiagnose(false);
   res.json({ data: report, error: null });
 });
