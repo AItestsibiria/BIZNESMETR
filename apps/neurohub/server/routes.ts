@@ -570,6 +570,17 @@ export async function registerRoutes(
   // URL: https://<host>/api/suno/webhook?gen_id=<id>&sig=<hmac>
   // Сервер сравнивает sig = HMAC(SUNO_WEBHOOK_SECRET, gen_id) → если ОК,
   // обновляет статус gen и сохраняет audio_url.
+  //
+  // ВАЖНО Eugene 2026-05-08 21:11: webhook payload структура от GPTunnel
+  // не задокументирована — gen #671 показал что callback может прийти с
+  // промежуточным status="running" без audio_url, и наш строгий handler
+  // ошибочно помечал error+refund. ТЕПЕРЬ:
+  //   - data.status='succeeded'|'done' + audio_url найден → done
+  //   - data.status='failed'|'error' + явная ошибка → error (polling уже
+  //     рефандит через storage.refundGeneration атомарно)
+  //   - всё остальное (running/processing/intermediate/unknown shape) →
+  //     200 OK без изменения состояния gen. Polling сам всё закроет.
+  // Это убирает класс багов «webhook убил живую генерацию».
   const sunoWebhookHandler = async (req: Request, res: Response) => {
     try {
       const genId = parseInt(String(req.query.gen_id || ""), 10);
@@ -584,17 +595,22 @@ export async function registerRoutes(
       if (!gen) { res.status(404).json({ error: "gen not found" }); return; }
       if (gen.status === "done") { res.json({ ok: true, alreadyDone: true }); return; }
 
-      // GPTunnel webhook payload (структура подтверждена docs):
-      // { task_id, status: 'succeeded'|'failed', code, result: [...], message }
       const data: any = req.body || {};
-      console.log(`[SUNO-WEBHOOK] gen #${genId} payload:`, JSON.stringify(data).slice(0, 400));
+      console.log(`[SUNO-WEBHOOK] gen #${genId} payload:`, JSON.stringify(data).slice(0, 600));
 
-      const succeeded = Array.isArray(data?.result)
-        ? data.result.find((t: any) => t.status === "succeeded" && t.audio_url)
-        : null;
-      const audioUrl = succeeded?.audio_url || (typeof data?.result === "string" ? data.result : null);
+      // Извлечение audio_url из разных возможных мест в payload
+      const audioUrl =
+        data?.audio_url ||
+        data?.url ||
+        (Array.isArray(data?.result)
+          ? (data.result.find((t: any) => t?.audio_url && (t?.status === "succeeded" || !t?.status))?.audio_url)
+          : data?.result?.audio_url || (typeof data?.result === "string" ? data.result : null));
 
-      if (audioUrl) {
+      const isFinalSuccess = audioUrl && (data?.status === "succeeded" || data?.status === "done" || !data?.status);
+      const isFinalError = !audioUrl && (data?.status === "failed" || data?.status === "error") &&
+                           (data?.message || data?.error || data?.code === 1 || data?.code === 1001);
+
+      if (isFinalSuccess) {
         storage.updateGeneration(genId, {
           status: "done",
           resultUrl: audioUrl,
@@ -603,10 +619,10 @@ export async function registerRoutes(
         saveGenFiles(genId).catch(() => {});
 
         // Bonus 2-й трек если Suno вернул пару
-        if (Array.isArray(data.result) && data.result.length > 1) {
+        if (Array.isArray(data?.result) && data.result.length > 1) {
           try {
             const second = data.result.find((t: any, i: number) =>
-              i > 0 && t.status === "succeeded" && t.audio_url && t.audio_url !== audioUrl);
+              i > 0 && t?.audio_url && t.audio_url !== audioUrl);
             if (second && !db.select().from(generations)
               .where(and(eq(generations.userId, gen.userId), eq(generations.taskId, gen.taskId || ""), sql`${generations.id} != ${gen.id}`))
               .get()) {
@@ -625,8 +641,11 @@ export async function registerRoutes(
         }
 
         console.log(`[SUNO-WEBHOOK] gen #${genId} → done, audio=${audioUrl.slice(0, 80)}`);
-      } else {
-        // Suno вернул error/failed
+        res.json({ ok: true, status: "done" });
+        return;
+      }
+
+      if (isFinalError) {
         const reason = data?.message || data?.error?.message || `code=${data?.code} status=${data?.status}`;
         storage.updateGeneration(genId, { status: "error", errorReason: reason });
         if (gen.cost && gen.cost > 0) {
@@ -636,8 +655,14 @@ export async function registerRoutes(
           });
         }
         console.log(`[SUNO-WEBHOOK] gen #${genId} → error: ${reason}`);
+        res.json({ ok: true, status: "error" });
+        return;
       }
-      res.json({ ok: true });
+
+      // Промежуточный статус (running/processing/etc.) — НЕ трогаем gen.
+      // Polling /api/music/status или timeout-watcher закроют когда будет финал.
+      console.log(`[SUNO-WEBHOOK] gen #${genId} → intermediate (status=${data?.status}, code=${data?.code}), igноре, polling доделает`);
+      res.json({ ok: true, status: "intermediate" });
     } catch (e: any) {
       console.error("[SUNO-WEBHOOK] error:", e?.message || e);
       res.status(500).json({ error: "internal" });
