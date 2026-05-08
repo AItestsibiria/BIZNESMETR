@@ -688,7 +688,13 @@ router.get("/diag", (_req, res) => {
 <div id="summary"></div>
 
 <div class="panel">
-  <div class="label">Полный JSON-отчёт</div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+    <div class="label" style="margin:0">Полный JSON-отчёт</div>
+    <div>
+      <button id="btnCopyJson" onclick="copyText('raw', this)" style="padding:6px 12px;font-size:12px">📋 Копировать JSON</button>
+      <button id="btnCopyAll" onclick="copyAll(this)" style="padding:6px 12px;font-size:12px">📋 Копировать ВЕСЬ отчёт</button>
+    </div>
+  </div>
   <pre id="raw">…</pre>
 </div>
 
@@ -819,6 +825,54 @@ function renderProviders(d) {
   document.getElementById("providers").innerHTML = html;
   document.getElementById("summary").innerHTML = "";
   document.getElementById("raw").textContent = JSON.stringify(d, null, 2);
+}
+
+// Eugene 2026-05-08 «Copy-reports-button rule»: каждый отчёт можно
+// скопировать одной кнопкой. Если clipboard API недоступен — fallback
+// на execCommand('copy') через временный textarea.
+function copyText(elementId, btn) {
+  var el = document.getElementById(elementId);
+  if (!el) return;
+  var text = el.textContent || el.innerText || "";
+  copyToClipboard(text, btn);
+}
+function copyAll(btn) {
+  var status = document.getElementById("status");
+  var providers = document.getElementById("providers");
+  var systemTest = document.getElementById("systemTest");
+  var summary = document.getElementById("summary");
+  var raw = document.getElementById("raw");
+  var parts = [];
+  parts.push("=== Suno Watchdog Diag (" + new Date().toISOString() + ") ===");
+  if (status) parts.push("Статус: " + (status.textContent || ""));
+  if (providers && providers.innerText) parts.push("\n--- Провайдеры ---\n" + providers.innerText);
+  if (systemTest && systemTest.innerText) parts.push("\n--- Системный тест ---\n" + systemTest.innerText);
+  if (summary && summary.innerText) parts.push("\n--- Сводка ---\n" + summary.innerText);
+  if (raw && raw.textContent && raw.textContent !== "…") parts.push("\n--- Полный JSON ---\n" + raw.textContent);
+  copyToClipboard(parts.join("\n"), btn);
+}
+function copyToClipboard(text, btn) {
+  var done = function() {
+    if (!btn) return;
+    var orig = btn.textContent;
+    btn.textContent = "✅ Скопировано";
+    setTimeout(function() { btn.textContent = orig; }, 1500);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(function() { fallbackCopy(text, done); });
+  } else {
+    fallbackCopy(text, done);
+  }
+}
+function fallbackCopy(text, done) {
+  var ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.left = "-9999px";
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand("copy"); done(); } catch (e) {}
+  document.body.removeChild(ta);
 }
 
 // Никакого авто-fetch'а — Eugene сам жмёт кнопку.
