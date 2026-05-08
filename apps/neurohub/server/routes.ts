@@ -361,13 +361,24 @@ function checkAndCharge(userId: number, serviceType: string): { ok: boolean; isF
     return { ok: true, isFree: false, cost: 0, usedBonusTrack: true };
   }
 
-  // Check balance
-  if (user.balance < price) {
-    return { ok: false, isFree: false, cost: price, error: `Недостаточно средств. Нужно ${PRICE_LABELS[serviceType] || "99 ₽"}.` };
+  // Atomic charge: UPDATE WHERE balance >= price (BACKEND-3 fix Eugene 14:16).
+  // Раньше read-then-update было гонкой — 2 одновременных request могли списать
+  // тот же баланс. Теперь SQLite сам гарантирует атомарность.
+  const stmt = (db as any).$client?.prepare?.(
+    `UPDATE users SET balance = balance - ? WHERE id = ? AND balance >= ?`,
+  );
+  if (stmt) {
+    const r = stmt.run(price, userId, price);
+    if (r.changes !== 1) {
+      return { ok: false, isFree: false, cost: price, error: `Недостаточно средств. Нужно ${PRICE_LABELS[serviceType] || "99 ₽"}.` };
+    }
+  } else {
+    // Fallback (если drizzle не отдал client) — старый путь
+    if (user.balance < price) {
+      return { ok: false, isFree: false, cost: price, error: `Недостаточно средств. Нужно ${PRICE_LABELS[serviceType] || "99 ₽"}.` };
+    }
+    storage.updateBalance(userId, -price);
   }
-
-  // Charge
-  storage.updateBalance(userId, -price);
   storage.createTransaction({
     userId,
     type: serviceType,
@@ -3705,7 +3716,16 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       // Verify signature: OutSum:InvId:Password2:Shp_userId=X
       const expectedSig = roboSignature([OutSum, InvId, ROBO_PASSWORD2, `Shp_userId=${Shp_userId}`], ROBO_PASSWORD2);
 
-      if (SignatureValue.toUpperCase() !== expectedSig.toUpperCase()) {
+      // BACKEND-1 fix: timing-safe compare (Eugene 14:16). Раньше !== leak'ал
+      // время через side-channel, можно было постепенно угадать пароль.
+      const got = String(SignatureValue || "").toUpperCase();
+      const exp = expectedSig.toUpperCase();
+      const same = got.length === exp.length && (() => {
+        try {
+          return crypto.timingSafeEqual(Buffer.from(got, "utf8"), Buffer.from(exp, "utf8"));
+        } catch { return false; }
+      })();
+      if (!same) {
         console.error(`[PAYMENT RESULT] Bad signature! Expected: ${expectedSig}, Got: ${SignatureValue}`);
         res.status(400).send("Bad signature");
         return;

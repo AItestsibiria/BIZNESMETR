@@ -748,11 +748,14 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   };
 
   const skipNext = () => {
-    const musicTracks = tracks.filter(t => t.type === "music" && t.audioUrl);
+    // BUG-1 fix: используем tracksRef.current чтобы не было гонки с
+    // refresh-интервалом, который обновляет tracks state пока пользователь
+    // быстро жмёт next/prev (Eugene 14:14).
+    const musicTracks = tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
     if (musicTracks.length === 0) return;
     const idx = musicTracks.findIndex(t => t.id === playingId);
-    const nextIdx = (idx + 1) % musicTracks.length;
-    playTrack(musicTracks[nextIdx]);
+    const nextIdx = idx >= 0 ? (idx + 1) % musicTracks.length : 0;
+    if (musicTracks[nextIdx]) playTrack(musicTracks[nextIdx]);
   };
 
   if (tracks.length === 0) return null;
@@ -776,10 +779,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const paginatedMusic = filteredMusic.slice((safePage - 1) * TRACKS_PER_PAGE, safePage * TRACKS_PER_PAGE);
 
   const skipPrev = () => {
-    if (musicTracks.length === 0) return;
-    const idx = musicTracks.findIndex(t => t.id === playingId);
-    const prev = (idx - 1 + musicTracks.length) % musicTracks.length;
-    playTrack(musicTracks[prev]);
+    const list = tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+    if (list.length === 0) return;
+    const idx = list.findIndex(t => t.id === playingId);
+    const prev = idx > 0 ? idx - 1 : list.length - 1;
+    if (list[prev]) playTrack(list[prev]);
   };
 
   // Navigate expanded cover to prev/next track
