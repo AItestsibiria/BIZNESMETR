@@ -343,7 +343,8 @@ function AdminStats() {
   const [visitorList, setVisitorList] = useState<any[]>([]);
 
   // Период для фильтра посетителей
-  const [visitorPeriod, setVisitorPeriod] = useState<"today" | "week" | "month" | "all">("week");
+  // Eugene 2026-05-08 «по умолчанию за день»
+  const [visitorPeriod, setVisitorPeriod] = useState<"today" | "week" | "month" | "all">("today");
   const [showAllIps, setShowAllIps] = useState(false);
   useEffect(() => {
     if (showVisitors) {

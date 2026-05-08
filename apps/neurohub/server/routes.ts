@@ -493,7 +493,9 @@ async function resolveIpGeo(ip: string): Promise<{ city: string; region: string;
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 4000);
-    const res = await fetch(`http://ip-api.com/json/${encodeURIComponent(cleaned)}?fields=status,country,countryCode,regionName,city,query&lang=ru`, { signal: ctrl.signal });
+    // Eugene 2026-05-08: всегда lang=en для консистентного country-имени
+    // (объединяем 'Russia'/'Россия' через country_code).
+    const res = await fetch(`http://ip-api.com/json/${encodeURIComponent(cleaned)}?fields=status,country,countryCode,regionName,city,query&lang=en`, { signal: ctrl.signal });
     clearTimeout(t);
     const j: any = await res.json();
     if (j.status !== "success") return null;
@@ -736,28 +738,36 @@ export async function registerRoutes(
     const periodTotal = raw.prepare(`SELECT COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors ${dateFilter}`).get() as any;
     const periodVisits = raw.prepare(`SELECT COALESCE(SUM(visits), 0) as c FROM visitors ${dateFilter}`).get() as any;
 
-    // Страны: уникальные посетители + сумма визитов
-    const cFilter = dateFilter
-      ? dateFilter.replace("WHERE", "AND").replace("WHERE", "") // unused, just safety
-      : "";
+    // Страны: GROUP BY country_code объединяет «Russia» и «Россия» в одну
+    // запись (Eugene 2026-05-08: «страны объедини, по английски пиши»).
+    // Берём первое непустое country-имя из группы — для свежих записей это
+    // английский (getGeo шлёт lang=en); старые ru-записи перекрываются.
     const byCountry = raw.prepare(`
-      SELECT country, country as name,
+      SELECT
+        COALESCE(country_code, '??') as countryCode,
+        MAX(country) as name,
+        MAX(country) as country,
         COUNT(DISTINCT COALESCE(fingerprint, ip)) as visitors,
         COALESCE(SUM(visits), 0) as visits
       FROM visitors
       ${dateFilter ? dateFilter + " AND" : "WHERE"} country IS NOT NULL AND country != ''
-      GROUP BY country ORDER BY visitors DESC LIMIT 30
+      GROUP BY country_code
+      ORDER BY visitors DESC LIMIT 30
     `).all();
 
-    // Города
+    // Города: GROUP BY (city, country_code) — тот же принцип объединения.
     const byCity = raw.prepare(`
-      SELECT city, country,
-        (city || ', ' || COALESCE(country, '')) as name,
+      SELECT
+        city,
+        COALESCE(country_code, '??') as countryCode,
+        MAX(country) as country,
+        (city || ', ' || COALESCE(MAX(country), '')) as name,
         COUNT(DISTINCT COALESCE(fingerprint, ip)) as visitors,
         COALESCE(SUM(visits), 0) as visits
       FROM visitors
       ${dateFilter ? dateFilter + " AND" : "WHERE"} city IS NOT NULL AND city != ''
-      GROUP BY city, country ORDER BY visitors DESC LIMIT 50
+      GROUP BY city, country_code
+      ORDER BY visitors DESC LIMIT 50
     `).all();
 
     // IP-адреса с количеством визитов на каждый

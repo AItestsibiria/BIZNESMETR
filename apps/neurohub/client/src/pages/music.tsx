@@ -256,6 +256,11 @@ export default function MusicPage() {
   const [mode, setMode] = useState<"basic" | "audio" | "advanced">(() => {
     // ТЗ Eugene 2026-05-07: 3 режима по частоте использования.
     // Default — basic (минимум полей). Запоминаем выбор пользователя.
+    // Eugene 2026-05-08: при регенерации форсируем 'advanced' если был
+    // custom режим у исходного трека → форма откроется в правильном виде.
+    if (regeneratePayload) {
+      return regeneratePayload.lyrics && regeneratePayload.lyrics.length >= 50 ? "advanced" : "basic";
+    }
     try {
       const tabFromUrl = new URLSearchParams(window.location.hash.split("?")[1] || "").get("tab");
       if (tabFromUrl === "basic" || tabFromUrl === "audio" || tabFromUrl === "advanced") return tabFromUrl;
@@ -548,7 +553,13 @@ export default function MusicPage() {
     }
 
     const isBasic = mode === "basic";
-    const mainPrompt = isBasic ? prompt : (legacyMode === "simple" ? prompt : lyrics);
+    // Eugene 2026-05-08: fallback при регенерации — если в текущем mode пусто,
+    // но в другом поле есть текст, используем его. Иначе юзер видел «Опишите
+    // песню» хотя lyrics были заполнены из musicRegenerate.
+    let mainPrompt = isBasic ? prompt : (legacyMode === "simple" ? prompt : lyrics);
+    if (!mainPrompt.trim()) {
+      mainPrompt = (lyrics || prompt || "").trim();
+    }
     if (!mainPrompt.trim()) {
       toast({ title: isBasic ? "Опишите песню" : (legacyMode === "simple" ? "Опишите желаемый трек" : "Вставьте текст песни"), variant: "destructive" });
       return;
