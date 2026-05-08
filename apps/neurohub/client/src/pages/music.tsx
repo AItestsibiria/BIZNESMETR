@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useAuth } from "@/lib/auth";
 import { startBgMusic, stopBgMusic } from "@/components/background-music";
-import { useLocation } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -203,7 +202,6 @@ function AudioPlayer({ url, autoPlay }: { url: string; autoPlay?: boolean }) {
 
 export default function MusicPage() {
   const { user, refreshUser } = useAuth();
-  const [, navigate] = useLocation();
   const { toast } = useToast();
 
   // Check for lyrics/style/voiceType passed from other pages
@@ -388,6 +386,68 @@ export default function MusicPage() {
       setShowInlineAuth(true);
       return;
     }
+
+    // ТЗ Eugene 2026-05-08: ОДИНАКОВЫЙ визуал и процесс для всех 3 форм
+    // (Audio / Текст·Простой / Текст·Расширенный). После клика — ОСТАЁМСЯ
+    // на странице, показываем progress-панель, после готовности — inline
+    // AudioPlayer + кнопки. Никаких redirect'ов.
+    const runPollAndFinalize = (taskIds: string[], stylesCount: number) => {
+      if (taskIds.length === 0) {
+        setLoading(false);
+        stopBgMusic();
+        return;
+      }
+      setPolling(true);
+      const pendingTasks = new Set(taskIds);
+      const errorMessages: string[] = [];
+      let doneCount = 0;
+      pollRef.current = setInterval(async () => {
+        for (const tid of [...pendingTasks]) {
+          try {
+            const r = await apiRequest("GET", `/api/music/status/${tid}`);
+            const d = await r.json();
+            if (d.status === "done" || d.status === "error" || d.status === "failed") {
+              pendingTasks.delete(tid);
+              if (d.status === "done" && d.audioUrl) {
+                setResultUrl(d.audioUrl);
+                doneCount++;
+              } else if (d.status === "error" || d.status === "failed") {
+                if (d.userMessage) errorMessages.push(d.userMessage);
+                else if (d.message) errorMessages.push(d.message);
+                else errorMessages.push("Не удалось создать трек");
+              }
+            }
+          } catch {}
+        }
+        if (pendingTasks.size === 0) {
+          setPolling(false);
+          setLoading(false);
+          stopBgMusic();
+          if (pollRef.current) clearInterval(pollRef.current);
+          await refreshUser();
+          if (doneCount > 0 && errorMessages.length === 0) {
+            toast({ title: doneCount > 1 ? `${doneCount} треков готово` : "Трек готов!" });
+          } else if (doneCount > 0 && errorMessages.length > 0) {
+            toast({
+              title: `Готово: ${doneCount}, отклонено: ${errorMessages.length}`,
+              description: errorMessages[0].slice(0, 200),
+              variant: "destructive",
+            });
+          } else {
+            toast({
+              title: "Трек не создан",
+              description: errorMessages[0] || "Неизвестная ошибка. Баланс возвращён.",
+              variant: "destructive",
+              duration: 12000,
+            });
+          }
+        }
+      }, 5000);
+      if (stylesCount > 1 && taskIds.length > 0) {
+        toast({ title: `Запущено ${taskIds.length} треков`, description: "Слушайте здесь — все треки также сохранены в личном кабинете" });
+      }
+    };
+
     // Audio mode — голос → текст уже распознан, шлём на ПРОВЕРЕННЫЙ
     // /api/music/generate (тот же endpoint что Текст·Расширенный).
     // ТЗ Eugene 13:53 «реши кардинально» — без отдельного audio-cover.
@@ -406,6 +466,8 @@ export default function MusicPage() {
       setLoading(true);
       startBgMusic();
       setResultUrl(null);
+      setLastPromptText(finalLyrics);
+      const audioTaskIds: string[] = [];
       let lastIdAudio: number | null = null;
       let errorCountAudio = 0;
       let lastErrorAudio = "";
@@ -437,6 +499,7 @@ export default function MusicPage() {
           const data = await res.json();
           console.log("[AUDIO-FLOW] generate response:", data);
           if (data?.id) lastIdAudio = data.id;
+          if (data?.taskId) audioTaskIds.push(data.taskId);
           if (!data?.taskId) errorCountAudio++;
         } catch (err: any) {
           errorCountAudio++;
@@ -455,11 +518,13 @@ export default function MusicPage() {
           if (serverMsg) lastErrorAudio = serverMsg;
         }
       }
-      setLoading(false);
-      if (lastIdAudio) {
-        toast({ title: "🎵 Песня запущена", description: `gen #${lastIdAudio} — открываю.` });
-        setTimeout(() => navigate(`/track/${lastIdAudio}`), 800);
+      if (lastIdAudio) setLastGenId(lastIdAudio);
+      if (audioTaskIds.length > 0) {
+        // ОСТАЁМСЯ на странице, показываем progress-панель + результат inline
+        runPollAndFinalize(audioTaskIds, audioStyles.length);
       } else {
+        setLoading(false);
+        stopBgMusic();
         toast({
           title: "Не удалось создать песню",
           description: lastErrorAudio || "Сервер не вернул taskId. Проверь логи в /admin/v304.",
@@ -568,61 +633,8 @@ export default function MusicPage() {
 
     if (lastId) setLastGenId(lastId);
 
-    // collect last error message for user feedback
-    // (set in catch below via closure variable)
     if (allTaskIds.length > 0) {
-      setPolling(true);
-      // Track all tasks; finish when all done/error
-      const pendingTasks = new Set(allTaskIds);
-      const errorMessages: string[] = [];
-      let doneCount = 0;
-      pollRef.current = setInterval(async () => {
-        for (const tid of [...pendingTasks]) {
-          try {
-            const r = await apiRequest("GET", `/api/music/status/${tid}`);
-            const d = await r.json();
-            if (d.status === "done" || d.status === "error" || d.status === "failed") {
-              pendingTasks.delete(tid);
-              if (d.status === "done" && d.audioUrl) {
-                setResultUrl(d.audioUrl);
-                doneCount++;
-              } else if (d.status === "error" || d.status === "failed") {
-                if (d.userMessage) errorMessages.push(d.userMessage);
-                else if (d.message) errorMessages.push(d.message);
-                else errorMessages.push("Не удалось создать трек");
-              }
-            }
-          } catch {}
-        }
-        if (pendingTasks.size === 0) {
-          setPolling(false);
-          setLoading(false);
-          stopBgMusic();
-          if (pollRef.current) clearInterval(pollRef.current);
-          await refreshUser();
-          // Резюме по всем трекам с учётом ошибок от Suno
-          if (doneCount > 0 && errorMessages.length === 0) {
-            toast({ title: doneCount > 1 ? `${doneCount} треков готово` : "Трек готов!" });
-          } else if (doneCount > 0 && errorMessages.length > 0) {
-            toast({
-              title: `Готово: ${doneCount}, отклонено: ${errorMessages.length}`,
-              description: errorMessages[0].slice(0, 200),
-              variant: "destructive",
-            });
-          } else {
-            // Все треки отклонены — покажем первое сообщение полностью (самый важный случай)
-            toast({
-              title: "Трек не создан",
-              description: errorMessages[0] || "Неизвестная ошибка. Баланс возвращён.",
-              variant: "destructive",
-              duration: 12000,
-            });
-          }
-        }
-      }, 5000);
-      if (stylesToGenerate.length > 1 && errorCount < stylesToGenerate.length) {
-        toast({ title: `Запущено ${allTaskIds.length} треков`, description: "Все треки появятся в личном кабинете" });
-      }
+      runPollAndFinalize(allTaskIds, stylesToGenerate.length);
     } else {
       setLoading(false);
       stopBgMusic();
