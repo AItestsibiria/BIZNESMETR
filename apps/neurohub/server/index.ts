@@ -44,6 +44,11 @@ const UPLOADS_DIR = process.env.UPLOADS_DIR || "/var/www/neurohub/uploads";
 try { fs.mkdirSync(UPLOADS_DIR, { recursive: true }); } catch {}
 app.use("/uploads", express.static(UPLOADS_DIR, {
   maxAge: "30d",
+  // BACKEND-7 fix Eugene 14:23: dotfiles deny — нет path traversal через
+  // ../ ../ или скрытых файлов. fallthrough false — 404 если не найдено.
+  dotfiles: "deny",
+  index: false,
+  fallthrough: false,
   setHeaders: (res) => res.setHeader("Cache-Control", "public, max-age=2592000"),
 }));
 // Доверяем фронтальному прокси (Nginx) — иначе req.ip = 127.0.0.1
@@ -129,14 +134,35 @@ const CLIENT_ERRORS_RING: Array<{
 }> = [];
 const CLIENT_ERRORS_MAX = 100;
 
+// BACKEND-9 fix Eugene 14:23: rate-limit per-IP, иначе DoS через бесконечный
+// spam в логи. Map(ip → {count, resetAt}). Window 1 мин, лимит 20 reports.
+const CLIENT_ERR_RATE = new Map<string, { count: number; resetAt: number }>();
+const CLIENT_ERR_LIMIT = 20;
+const CLIENT_ERR_WINDOW_MS = 60_000;
+
 // ErrorBoundary clients шлют сюда runtime-ошибки страниц.
-// Логируем в pm2 — Eugene видит сразу через pm2 logs neurohub.
 app.post("/api/_client-error", express.json(), (req, res) => {
+  const ip = (req.headers["x-forwarded-for"] || req.ip || "?").toString().split(",")[0].trim();
+  const now = Date.now();
+  let entry = CLIENT_ERR_RATE.get(ip);
+  if (!entry || now > entry.resetAt) {
+    entry = { count: 0, resetAt: now + CLIENT_ERR_WINDOW_MS };
+    CLIENT_ERR_RATE.set(ip, entry);
+  }
+  entry.count++;
+  if (entry.count > CLIENT_ERR_LIMIT) {
+    return res.status(429).json({ data: null, error: "rate-limited" });
+  }
+  // BACKEND-8 fix: max-size eviction чтобы Map не разрастался при DDoS.
+  if (CLIENT_ERR_RATE.size > 10_000) {
+    const oldestIp = Array.from(CLIENT_ERR_RATE.entries()).sort((a, b) => a[1].resetAt - b[1].resetAt)[0]?.[0];
+    if (oldestIp) CLIENT_ERR_RATE.delete(oldestIp);
+  }
+
   const p = req.body ?? {};
   console.error(`\x1b[31m[CLIENT-ERR]\x1b[0m page=${p.page ?? "?"} url=${p.url ?? "?"} msg=${p.message ?? "?"}`);
   if (p.stack) console.error(`  stack: ${String(p.stack).slice(0, 1500)}`);
   if (p.componentStack) console.error(`  componentStack: ${String(p.componentStack).slice(0, 800)}`);
-  // Сохраняем в ring-буфер
   CLIENT_ERRORS_RING.push({
     ts: new Date().toISOString(),
     page: p.page, url: p.url, message: p.message,

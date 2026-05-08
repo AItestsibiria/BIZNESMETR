@@ -139,14 +139,12 @@ router.post("/upload", requireAuth, upload.single("audio"), async (req, res) => 
     const tmpOut = path.join(userDir, `_tmp-${sha}.mp3`);
     try {
       fs.writeFileSync(tmpIn, file.buffer);
-      // ТЗ Eugene 13:42: жёсткий лимит 30 сек — длинные файлы автообрезаем.
-      // -t 30 = взять только первые 30 сек.
+      // BACKEND-4 fix Eugene 14:23: execFile вместо exec — нет shell-injection
+      // через имена файлов (sha hex безопасен, но лучше defensive coding).
+      // BACKEND-5 fix: try/finally cleanup tmp-файлов даже при error.
       await new Promise<void>((resolve, reject) => {
-        const child = childProc.exec(
-          `ffmpeg -y -i "${tmpIn}" -t 30 -vn -c:a libmp3lame -b:a 128k -ac 2 -ar 44100 "${tmpOut}"`,
-          { timeout: 60_000 },
-          (err) => err ? reject(err) : resolve(),
-        );
+        const args = ["-y", "-i", tmpIn, "-t", "30", "-vn", "-c:a", "libmp3lame", "-b:a", "128k", "-ac", "2", "-ar", "44100", tmpOut];
+        const child = childProc.execFile("ffmpeg", args, { timeout: 60_000 }, (err) => err ? reject(err) : resolve());
         child.on("error", reject);
       });
       finalBuffer = fs.readFileSync(tmpOut);

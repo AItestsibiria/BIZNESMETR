@@ -56,21 +56,24 @@ function convertToOggOpus(input: Buffer, mime: string): Promise<Buffer | null> {
     try { fs.writeFileSync(inFile, input); } catch { resolve(null); return; }
     // -c:a copy не работает webm→ogg (разные контейнеры, Opus можно копировать
     // но ffmpeg иногда хочет re-mux). Пробуем без -c:a copy для надёжности.
-    childProc.exec(
-      `ffmpeg -y -i "${inFile}" -vn -c:a libopus -ar 48000 -ac 1 "${outFile}" 2>/dev/null`,
+    // BACKEND-4 fix: execFile вместо exec, no shell injection
+    childProc.execFile(
+      "ffmpeg",
+      ["-y", "-i", inFile, "-vn", "-c:a", "libopus", "-ar", "48000", "-ac", "1", outFile],
       { timeout: 30_000 },
       (err) => {
-        try { fs.unlinkSync(inFile); } catch {}
-        if (err) {
+        // BACKEND-5: cleanup ВСЕГДА — успех или fail
+        const cleanup = () => {
+          try { fs.unlinkSync(inFile); } catch {}
           try { fs.unlinkSync(outFile); } catch {}
-          resolve(null);
-          return;
-        }
+        };
+        if (err) { cleanup(); resolve(null); return; }
         try {
           const out = fs.readFileSync(outFile);
-          try { fs.unlinkSync(outFile); } catch {}
+          cleanup();
           resolve(out);
         } catch {
+          cleanup();
           resolve(null);
         }
       },

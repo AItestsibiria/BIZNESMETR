@@ -1377,6 +1377,25 @@ function createNew(){
       res.status(404).json({ message: "Трек не найден" });
       return;
     }
+    // BACKEND-6 fix Eugene 14:23: privacy check. Не-публичные треки доступны
+    // только владельцу. Раньше любой мог по ID увидеть приватный трек.
+    if (gen.isPublic !== 1) {
+      const authHeader = req.headers.authorization;
+      let viewerId: number | null = null;
+      if (typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
+        const token = authHeader.slice(7);
+        try {
+          const row = db.get<{ userId: number }>(
+            sql`SELECT user_id as userId FROM sessions WHERE token = ${token} LIMIT 1`,
+          );
+          viewerId = row?.userId ?? null;
+        } catch {}
+      }
+      if (viewerId !== gen.userId) {
+        res.status(403).json({ message: "Этот трек приватный" });
+        return;
+      }
+    }
     // Возвращаем 200 со статусом для processing/error — клиент покажет
     // прогресс / причину вместо «не найден» и продолжит опрос.
     if (gen.status !== "done" || !gen.resultUrl) {

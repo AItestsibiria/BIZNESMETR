@@ -53,12 +53,14 @@ function alreadyRefunded(genStyle: string | null): boolean {
   try { return !!JSON.parse(genStyle || "{}").refunded; } catch { return false; }
 }
 
-function markRefunded(genId: number, currentStyle: string | null) {
-  let meta: any = {};
-  try { meta = JSON.parse(currentStyle || "{}"); } catch {}
-  meta.refunded = true;
-  meta.refundedAt = new Date().toISOString();
-  db.run(sql`UPDATE generations SET style=${JSON.stringify(meta)} WHERE id=${genId}`);
+function markRefunded(genId: number, _currentStyle: string | null) {
+  // BACKEND-10 fix Eugene 14:23: atomic json_set вместо read-modify-write.
+  // Раньше параллельные refund-попытки могли потерять флаг (TOCTOU race).
+  // SQLite json_set гарантирует атомарность на уровне строки.
+  const ts = new Date().toISOString();
+  db.run(sql`UPDATE generations
+             SET style = json_set(COALESCE(style, '{}'), '$.refunded', json('true'), '$.refundedAt', ${ts})
+             WHERE id = ${genId} AND (json_extract(style, '$.refunded') IS NULL OR json_extract(style, '$.refunded') != json('true'))`);
 }
 
 function ensureRefund(gen: { id: number; userId: number; cost: number; style: string | null; errorReason: string | null }) {
