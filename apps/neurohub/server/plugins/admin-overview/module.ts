@@ -853,10 +853,11 @@ async function pollProcessingGenerations(): Promise<{ scanned: number; done: num
   if (!apiKey) return { scanned: 0, done: 0, failed: 0 };
 
   // Только последние 30 минут — старше = тухляк, помечаем ошибкой.
-  // Eugene 2026-05-08: Suno нормально завершает за 3–6 мин. Если > 12 мин
-  // зависает — считаем что Suno зашейкало (gen #662-#670, #672, #673),
-  // даём юзеру быстрый рефанд вместо 30-минутного ожидания.
-  const cutoff = new Date(Date.now() - 12 * 60_000).toISOString();
+  // Eugene 2026-05-08 (revert): 12-мин cutoff был слишком агрессивен — gen #676
+  // Suno завершил за 13 мин, нашему watchdog'у это смотрелось как timeout.
+  // Возвращаем 30 мин: Suno может легитимно занимать до 20-25 мин под нагрузкой.
+  // Юзер ждёт дольше, но НЕ теряет реальный трек.
+  const cutoff = new Date(Date.now() - 30 * 60_000).toISOString();
   const rows = db.all<{ id: number; taskId: string; createdAt: string }>(
     sql`SELECT id, task_id as taskId, created_at as createdAt
         FROM generations
@@ -979,10 +980,70 @@ async function pollProcessingGenerations(): Promise<{ scanned: number; done: num
     // Suno не вернул done И > 30 мин → честный timeout (теперь только если
     // Suno сам ничего не дал, и время вышло)
     if (!recovered && row.createdAt < cutoff) {
-      db.run(sql`UPDATE generations SET status='error', error_reason='MuziAi timeout > 12 min — Suno backend завис, баланс возвращён'
+      db.run(sql`UPDATE generations SET status='error', error_reason='MuziAi timeout > 30 min — Suno backend завис, баланс возвращён'
                  WHERE id=${row.id}`);
       failed += 1;
     }
+  }
+
+  // Eugene 2026-05-08 «реши кардинально на будущее»: auto-recovery.
+  // Если timeout-watcher пометил gen='error', а Suno потом всё-таки отдал
+  // трек — восстанавливаем gen.status='done' и сохраняем audio_url.
+  // Юзер получает: рефанд (уже сделан) + трек как 🎁 бонус. Платформа
+  // съедает стоимость (~9₽), но юзер не теряет генерацию.
+  // Сканит errored gens за последний час с error_reason LIKE '%timeout%'.
+  try {
+    const recoveryCutoff = new Date(Date.now() - 60 * 60_000).toISOString();
+    const errored = db.all<{ id: number; taskId: string }>(
+      sql`SELECT id, task_id as taskId
+          FROM generations
+          WHERE status='error'
+            AND task_id IS NOT NULL AND task_id != ''
+            AND created_at > ${recoveryCutoff}
+            AND error_reason LIKE '%timeout%'
+          LIMIT 30`,
+    );
+    for (const row of errored) {
+      try {
+        const r = await fetch("https://gptunnel.ru/v1/media/result", {
+          method: "POST",
+          headers: { Authorization: apiKey, "Content-Type": "application/json" },
+          body: JSON.stringify({ task_id: row.taskId }),
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!r.ok) continue;
+        const data: any = await r.json().catch(() => null);
+        if (!data) continue;
+        const candidates = Array.isArray(data?.result)
+          ? data.result.filter((t: any) => t.status === "succeeded" && t.audio_url)
+          : [];
+        const succeeded = candidates.length > 0
+          ? candidates.reduce((best: any, t: any) => {
+              const tDur = Number(t.duration ?? t.audio_duration ?? t.metadata?.duration ?? 0);
+              const bDur = Number(best.duration ?? best.audio_duration ?? best.metadata?.duration ?? 0);
+              return tDur > bDur ? t : best;
+            })
+          : null;
+        if (succeeded?.audio_url) {
+          // Маркируем style.recoveredAfterTimeout = true (для аналитики)
+          db.run(sql`UPDATE generations
+                     SET status='done',
+                         result_url=${succeeded.audio_url},
+                         result_data=${JSON.stringify(data)},
+                         error_reason=NULL,
+                         style=json_set(COALESCE(style, '{}'),
+                                         '$.recoveredAfterTimeout', json('true'),
+                                         '$.recoveredAt', datetime('now'))
+                     WHERE id=${row.id} AND status='error'`);
+          console.log(`\x1b[32m[AUTO-RECOVER]\x1b[0m gen #${row.id} восстановлен из timeout — Suno всё-таки отдал трек`);
+          done += 1;
+        }
+      } catch {
+        // network — следующий cron подберёт
+      }
+    }
+  } catch (e) {
+    console.error("[AUTO-RECOVER] error:", e);
   }
 
   return { scanned: rows.length, done, failed };
