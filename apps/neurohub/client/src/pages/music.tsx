@@ -312,6 +312,9 @@ export default function MusicPage() {
   const [lastGenId, setLastGenId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [polling, setPolling] = useState(false);
+  // Eugene 2026-05-08: после 3 мин ожидания показываем choice-панель
+  // (подождать ещё / открыть дашборд)
+  const [showLongWait, setShowLongWait] = useState(false);
   const [resultUrl, setResultUrl] = useState<string | null>(null);
   const [showInlineAuth, setShowInlineAuth] = useState(false);
   const [usedStyles, setUsedStyles] = useState<string[]>(transferred?.style ? [transferred.style] : []);
@@ -427,19 +430,25 @@ export default function MusicPage() {
         return;
       }
       setPolling(true);
+      setShowLongWait(false);
       const pendingTasks = new Set(taskIds);
       const errorMessages: string[] = [];
       let doneCount = 0;
       // Eugene 2026-05-08 docs-first audit: client-side 30-мин hard timeout.
-      // Если сервер не закроет polling сам (admin-overview cron), фронт сам
-      // прекратит спам /api/music/status каждые 5 сек.
+      // Eugene 2026-05-08: после 3 мин — предложение «подождать ещё / открыть
+      // дашборд» (Suno иногда думает дольше — не нагнетаем тревогу).
       const startedAt = Date.now();
       const MAX_POLL_MS = 30 * 60 * 1000;
+      const LONG_WAIT_MS = 3 * 60 * 1000;
       pollRef.current = setInterval(async () => {
+        if (Date.now() - startedAt > LONG_WAIT_MS && !showLongWait) {
+          setShowLongWait(true);
+        }
         if (Date.now() - startedAt > MAX_POLL_MS) {
           if (pollRef.current) clearInterval(pollRef.current);
           setPolling(false);
           setLoading(false);
+          setShowLongWait(false);
           stopBgMusic();
           toast({
             title: "Ожидание прервано",
@@ -470,6 +479,7 @@ export default function MusicPage() {
         if (pendingTasks.size === 0) {
           setPolling(false);
           setLoading(false);
+          setShowLongWait(false);
           stopBgMusic();
           if (pollRef.current) clearInterval(pollRef.current);
           await refreshUser();
@@ -1819,11 +1829,45 @@ export default function MusicPage() {
               <Equalizer playing={true} />
             </div>
             <p className="text-sm text-muted-foreground pulse-gradient">
-              Генерация трека... Обычно это занимает 30-120 секунд
+              {showLongWait ? "Suno думает дольше обычного — это нормально" : "Генерация трека... Обычно это занимает 30-120 секунд"}
             </p>
             <div className="w-full h-1 bg-white/5 rounded-full mt-4 overflow-hidden">
               <div className="h-full audio-progress rounded-full animate-pulse" style={{ width: "60%" }} />
             </div>
+            {/* Eugene 2026-05-08: после 3 мин предлагаем выбор —
+                подождать ещё или уйти в дашборд (там трек появится сам). */}
+            {showLongWait && (
+              <div className="mt-5 pt-4 border-t border-white/10 space-y-3">
+                <p className="text-xs text-muted-foreground">
+                  Прошло больше 3 мин. Можешь подождать здесь — или открыть дашборд: трек сам появится в плейлисте когда Suno закончит, баланс не пострадает.
+                </p>
+                <div className="flex gap-2 justify-center">
+                  <Button
+                    variant="outline"
+                    className="rounded-xl border-purple-500/40 text-purple-200 hover:bg-purple-500/10"
+                    onClick={() => setShowLongWait(false)}
+                    data-testid="btn-wait-more"
+                  >
+                    ⏳ Подождать ещё
+                  </Button>
+                  <Button
+                    className="rounded-xl bg-gradient-to-r from-purple-500 to-blue-500"
+                    onClick={() => {
+                      // Дашборд продолжит polling статуса; pollRef отдадим cron'у на сервере
+                      if (pollRef.current) clearInterval(pollRef.current);
+                      setPolling(false);
+                      setLoading(false);
+                      setShowLongWait(false);
+                      stopBgMusic();
+                      window.location.hash = "#/dashboard";
+                    }}
+                    data-testid="btn-open-dashboard"
+                  >
+                    📊 Открыть дашборд
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
