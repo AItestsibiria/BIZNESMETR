@@ -450,6 +450,10 @@ export interface IStorage {
   // Transactions
   createTransaction(data: { userId: number; type: string; amount: number; description?: string }): Transaction;
   getTransactions(userId: number): Transaction[];
+
+  // Refund safety (single atomic entry-point — see God-mode audit 2026-05-08)
+  claimRefund(genId: number): boolean;
+  refundGeneration(args: { genId: number; userId: number; cost: number; type: string; description: string }): boolean;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -533,6 +537,34 @@ export class DatabaseStorage implements IStorage {
 
   getTransactions(userId: number): Transaction[] {
     return db.select().from(transactions).where(eq(transactions.userId, userId)).orderBy(desc(transactions.id)).all();
+  }
+
+  // God-mode audit 2026-05-08: единый атомарный refund-shutter.
+  // Раньше 14 inline-рефандов в routes.ts не маркировали style.refunded,
+  // и orphan-scanner возвращал повторно. Теперь любая попытка рефанда
+  // проходит через claimRefund — SQLite атомарно ставит флаг ИЛИ отказывает.
+  claimRefund(genId: number): boolean {
+    const result: any = db.run(sql`UPDATE generations
+      SET style = json_set(COALESCE(style, '{}'),
+                            '$.refunded', json('true'),
+                            '$.refundedAt', datetime('now'))
+      WHERE id = ${genId}
+        AND (json_extract(style, '$.refunded') IS NULL
+             OR json_extract(style, '$.refunded') != json('true'))`);
+    return (result?.changes ?? 0) > 0;
+  }
+
+  refundGeneration(args: { genId: number; userId: number; cost: number; type: string; description: string }): boolean {
+    if (!args.cost || args.cost <= 0) return false;
+    if (!this.claimRefund(args.genId)) return false;
+    this.updateBalance(args.userId, args.cost);
+    this.createTransaction({
+      userId: args.userId,
+      type: args.type,
+      amount: args.cost,
+      description: args.description,
+    });
+    return true;
   }
 }
 

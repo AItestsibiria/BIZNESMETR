@@ -18,9 +18,8 @@
 // Spec: docs/strategy/v304-generation-agent-TZ.md (создаётся в этом коммите)
 
 import { Router } from "express";
-import { sql, eq } from "drizzle-orm";
-import { db } from "../../storage";
-import { generations, transactions, users } from "@shared/schema";
+import { sql } from "drizzle-orm";
+import { db, storage } from "../../storage";
 import { requireAdmin } from "../../core/adminAuth";
 import type { BootContext, Module } from "../../core";
 
@@ -48,33 +47,27 @@ const STATS: AgentStats = {
   reasonBreakdown: {},
 };
 
-// Защита от двойного рефанда. Помечаем gen.id в style JSON.
+// Защита от двойного рефанда. Маркер в style.refunded JSON.
 function alreadyRefunded(genStyle: string | null): boolean {
   try { return !!JSON.parse(genStyle || "{}").refunded; } catch { return false; }
 }
 
-function markRefunded(genId: number, _currentStyle: string | null) {
-  // BACKEND-10 fix Eugene 14:23: atomic json_set вместо read-modify-write.
-  // Раньше параллельные refund-попытки могли потерять флаг (TOCTOU race).
-  // SQLite json_set гарантирует атомарность на уровне строки.
-  const ts = new Date().toISOString();
-  db.run(sql`UPDATE generations
-             SET style = json_set(COALESCE(style, '{}'), '$.refunded', json('true'), '$.refundedAt', ${ts})
-             WHERE id = ${genId} AND (json_extract(style, '$.refunded') IS NULL OR json_extract(style, '$.refunded') != json('true'))`);
-}
-
+// God-mode audit 2026-05-08: рефанд идёт ТОЛЬКО через storage.refundGeneration.
+// Атомарный claim предотвращает дубль с inline-рефандами в routes.ts.
+// TOCTOU на balance тоже устранён — refundGeneration делает атомарный UPDATE
+// users SET balance = balance + cost.
 function ensureRefund(gen: { id: number; userId: number; cost: number; style: string | null; errorReason: string | null }) {
   if (!gen.cost || gen.cost <= 0) return;
   if (alreadyRefunded(gen.style)) return;
   try {
-    const u = db.select().from(users).where(eq(users.id, gen.userId)).get();
-    if (!u) return;
-    db.update(users).set({ balance: (u.balance ?? 0) + gen.cost }).where(eq(users.id, gen.userId)).run();
-    db.insert(transactions).values({
-      userId: gen.userId, type: "music", amount: gen.cost,
+    const ok = storage.refundGeneration({
+      genId: gen.id,
+      userId: gen.userId,
+      cost: gen.cost,
+      type: "music",
       description: `Возврат: ошибка генерации #${gen.id} — ${(gen.errorReason || "?").slice(0, 80)}`,
-    } as any).run();
-    markRefunded(gen.id, gen.style);
+    });
+    if (!ok) return; // уже возвращено другим путём — выходим тихо
     STATS.refunded += 1;
     STATS.refundedKopeks += gen.cost;
     bootRefs?.logger.info(`[gen-agent] refunded #${gen.id} ${gen.cost / 100}₽ to user ${gen.userId}`);
@@ -85,19 +78,21 @@ function ensureRefund(gen: { id: number; userId: number; cost: number; style: st
 }
 
 async function scanErrorGensWithoutRefund() {
-  // Хвост: gens which got status='error' BUT никто не сделал рефанд
-  // (например из-за бага в endpoint'е). Этот периодический скан страхует.
+  // Хвост: gens которым status='error' AND рефанда не было (style.refunded=null).
+  // God-mode 2026-05-08: фильтр на refunded ДО iteration — экономит работу
+  // и устраняет окно гонки с inline-рефандами routes.ts (они теперь тоже
+  // ставят флаг через storage.refundGeneration → claimRefund).
   const orphans = db.all<{ id: number; userId: number; cost: number; style: string | null; errorReason: string | null }>(
     sql`SELECT id, user_id as userId, cost, style, error_reason as errorReason
         FROM generations
         WHERE status = 'error' AND cost > 0
           AND created_at > datetime('now', '-7 days')
+          AND (json_extract(style, '$.refunded') IS NULL
+               OR json_extract(style, '$.refunded') != json('true'))
         LIMIT 200`,
   );
   for (const g of orphans) {
-    if (!alreadyRefunded(g.style)) {
-      ensureRefund(g);
-    }
+    ensureRefund(g);
   }
   return orphans.length;
 }
@@ -123,10 +118,15 @@ function isTransientError(reason: string): boolean {
 
 // Auto-retry: для свежих transient-error gens пробуем повторно
 // отправить в Suno (с теми же параметрами + ретёр-флаг в style).
+//
+// God-mode 2026-05-08: добавлен atomic claim перед Suno-вызовом и фильтр
+// refunded в SELECT. Решает класс багов «refund + retry в один минуту»:
+// если orphan-scanner успел рефандить, retry не запустится; если retry
+// успел поднять gen в processing, orphan-scanner его не увидит.
 async function autoRetryTransient() {
   const apiKey = process.env.GPTUNNEL_API_KEY;
   if (!apiKey) return 0;
-  // Берём свежие transient errors (< 5 мин) с retry_count < 2
+  // Берём свежие transient errors (< 5 мин), retry_count < 2, НЕ возвращённые.
   const candidates = db.all<{ id: number; userId: number; prompt: string; style: string;
     errorReason: string | null; cost: number; type: string }>(
     sql`SELECT id, user_id as userId, prompt, style, error_reason as errorReason, cost, type
@@ -134,7 +134,10 @@ async function autoRetryTransient() {
         WHERE status = 'error'
           AND created_at > datetime('now', '-5 minutes')
           AND type = 'music'
-          AND (json_extract(style, '$.retryCount') IS NULL OR CAST(json_extract(style, '$.retryCount') AS INTEGER) < 2)
+          AND (json_extract(style, '$.refunded') IS NULL
+               OR json_extract(style, '$.refunded') != json('true'))
+          AND (json_extract(style, '$.retryCount') IS NULL
+               OR CAST(json_extract(style, '$.retryCount') AS INTEGER) < 2)
         LIMIT 10`,
   );
   let retried = 0;
@@ -145,10 +148,27 @@ async function autoRetryTransient() {
     const retryCount = (meta.retryCount ?? 0) + 1;
     meta.retryCount = retryCount;
     meta.retryAt = new Date().toISOString();
-    // Восстановим status='processing' и пошлём в Suno снова
+
+    // ATOMIC CLAIM: переводим status='error' → 'processing' одной командой,
+    // только если gen всё ещё в error И не возвращён. Это закрывает окно
+    // гонки с orphan-scanner. Если CHANGES=0 → кто-то нас опередил, skip.
+    const claim: any = db.run(sql`UPDATE generations
+        SET status='processing', error_reason=NULL,
+            style=json_set(COALESCE(style, '{}'),
+                            '$.retryCount', ${retryCount},
+                            '$.retryClaimedAt', datetime('now'))
+        WHERE id=${g.id}
+          AND status='error'
+          AND (json_extract(style, '$.refunded') IS NULL
+               OR json_extract(style, '$.refunded') != json('true'))`);
+    if (!claim || (claim.changes ?? 0) === 0) {
+      console.log(`\x1b[33m[AUTO-RETRY]\x1b[0m gen #${g.id} skipped — claim lost (refunded or status changed)`);
+      continue;
+    }
+
     const styleStr = meta.style || "";
     const title = meta.title || "Песня";
-    const lyric = g.prompt || ""; // в /music/generate gen.prompt = lyrics
+    const lyric = g.prompt || "";
     const sunoBody: any = { model: "suno" };
     if (lyric.length >= 50) {
       sunoBody.mode = "custom";
@@ -159,6 +179,8 @@ async function autoRetryTransient() {
       sunoBody.prompt = lyric.slice(0, 400) || "Песня";
       if (styleStr) sunoBody.tags = String(styleStr).slice(0, 200);
     }
+
+    let sunoOk = false;
     try {
       const r = await fetch("https://gptunnel.ru/v1/media/create", {
         method: "POST",
@@ -170,15 +192,25 @@ async function autoRetryTransient() {
       let data: any; try { data = JSON.parse(text); } catch { data = { raw: text }; }
       if (r.ok && data?.id) {
         db.run(sql`UPDATE generations
-                   SET status='processing', task_id=${data.id}, error_reason=NULL,
-                       style=${JSON.stringify(meta)}
-                   WHERE id=${g.id}`);
+                   SET task_id=${data.id}
+                   WHERE id=${g.id} AND status='processing'`);
         retried += 1;
+        sunoOk = true;
         console.log(`\x1b[33m[AUTO-RETRY]\x1b[0m gen #${g.id} re-submitted to Suno (attempt ${retryCount}, taskId=${data.id})`);
         bootRefs?.eventBus.emit("gen.auto_retry", { genId: g.id, attempt: retryCount }, "generation-agent");
       }
     } catch (e) {
-      // продолжаем с другими
+      // обработаем через rollback ниже
+    }
+
+    // Если Suno-вызов не удался — откатываем status в error, чтобы orphan-scanner
+    // мог рефандить (или следующий retry — если retryCount < 2 и < 5 мин).
+    if (!sunoOk) {
+      db.run(sql`UPDATE generations
+                 SET status='error',
+                     error_reason=COALESCE(error_reason, 'auto-retry: Suno call failed')
+                 WHERE id=${g.id} AND status='processing'`);
+      console.log(`\x1b[33m[AUTO-RETRY]\x1b[0m gen #${g.id} rollback to error — Suno not reachable`);
     }
   }
   return retried;
