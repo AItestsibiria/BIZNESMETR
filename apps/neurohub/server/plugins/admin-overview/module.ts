@@ -853,7 +853,10 @@ async function pollProcessingGenerations(): Promise<{ scanned: number; done: num
   if (!apiKey) return { scanned: 0, done: 0, failed: 0 };
 
   // Только последние 30 минут — старше = тухляк, помечаем ошибкой.
-  const cutoff = new Date(Date.now() - 30 * 60_000).toISOString();
+  // Eugene 2026-05-08: Suno нормально завершает за 3–6 мин. Если > 12 мин
+  // зависает — считаем что Suno зашейкало (gen #662-#670, #672, #673),
+  // даём юзеру быстрый рефанд вместо 30-минутного ожидания.
+  const cutoff = new Date(Date.now() - 12 * 60_000).toISOString();
   const rows = db.all<{ id: number; taskId: string; createdAt: string }>(
     sql`SELECT id, task_id as taskId, created_at as createdAt
         FROM generations
@@ -976,7 +979,7 @@ async function pollProcessingGenerations(): Promise<{ scanned: number; done: num
     // Suno не вернул done И > 30 мин → честный timeout (теперь только если
     // Suno сам ничего не дал, и время вышло)
     if (!recovered && row.createdAt < cutoff) {
-      db.run(sql`UPDATE generations SET status='error', error_reason='MuziAi timeout > 30 min'
+      db.run(sql`UPDATE generations SET status='error', error_reason='MuziAi timeout > 12 min — Suno backend завис, баланс возвращён'
                  WHERE id=${row.id}`);
       failed += 1;
     }

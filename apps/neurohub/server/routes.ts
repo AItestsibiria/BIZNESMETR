@@ -593,7 +593,14 @@ export async function registerRoutes(
       }
       const gen = storage.getGeneration(genId);
       if (!gen) { res.status(404).json({ error: "gen not found" }); return; }
-      if (gen.status === "done") { res.json({ ok: true, alreadyDone: true }); return; }
+      // Idempotency Eugene 2026-05-08: webhook может прийти ПОСЛЕ timeout-error.
+      // Если gen уже не 'processing' — игнорируем (защита от double-spending:
+      // рефанд + бесплатный трек если Suno поздно всё-таки отдал результат).
+      if (gen.status !== "processing") {
+        console.log(`[SUNO-WEBHOOK] gen #${genId} already ${gen.status}, ignoring late webhook`);
+        res.json({ ok: true, ignored: true, currentStatus: gen.status });
+        return;
+      }
 
       const data: any = req.body || {};
       console.log(`[SUNO-WEBHOOK] gen #${genId} payload:`, JSON.stringify(data).slice(0, 600));
