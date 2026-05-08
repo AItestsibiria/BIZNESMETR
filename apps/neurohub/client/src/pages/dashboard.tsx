@@ -1973,14 +1973,16 @@ export default function DashboardPage() {
               <div className="space-y-2">
                 {(() => {
                   const gs = genSearch.toLowerCase().trim();
-                  const filtered = generations.filter(g => g.status !== "error" &&
+                  // Eugene 2026-05-08: errored gens ВКЛЮЧАЕМ в дашборд —
+                  // юзер должен видеть ошибки и иметь возможность перегенерировать.
+                  const filtered = generations.filter(g =>
                     (genTypeFilter === "all" || g.type === genTypeFilter) &&
                     (!gs ||
                     g.prompt?.toLowerCase().includes(gs) ||
                     (g as any).displayTitle?.toLowerCase().includes(gs) ||
                     (g as any).authorName?.toLowerCase().includes(gs)
                   ));
-                  if (filtered.length === 0) return <p className="text-xs text-muted-foreground text-center py-4">{gs ? "Ничего не найдено" : "Нет успешных генераций"}</p>;
+                  if (filtered.length === 0) return <p className="text-xs text-muted-foreground text-center py-4">{gs ? "Ничего не найдено" : "Нет генераций"}</p>;
                   return filtered.map((gen) => {
                   const Icon = typeIcons[gen.type] || Music;
                   const statusCfg = statusConfig[gen.status] || statusConfig.pending;
