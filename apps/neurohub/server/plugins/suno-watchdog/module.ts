@@ -422,19 +422,15 @@ router.post("/poll-now", requireAdmin, async (_req, res) => {
 });
 
 // Полная диагностика — Eugene 2026-05-08: «будь богом в этом вопросе».
-// Один POST → полный отчёт по всем точкам отказа Suno-канала.
-//   1. Проверка ключа (длина, prefix без leak'a секрета)
-//   2. /v1/balance — статус и тайминг
-//   3. /v1/media/create — РЕАЛЬНЫЙ тест-запрос (basic mode, минимальный prompt)
-//   4. Последние 20 errored gens с классификацией
-//   5. Анализ распределения ошибок: % timeout / moderation / suno_transient / other
-//   6. Текущий стейт watchdog (status, circuit, balance)
-router.post("/full-diagnose", requireAdmin, async (_req, res) => {
+// GET  /full-diagnose — без test-запроса (бесплатно, открывается в браузере)
+// POST /full-diagnose — с реальным test-запросом (~18₽, проверяет Suno end-to-end)
+async function runFullDiagnose(includeTestRequest: boolean) {
   const report: any = {
     timestamp: new Date().toISOString(),
     apiKey: { present: false, length: 0, prefix: null },
     balance: { ok: false, ms: null, status: null, balance: null, error: null },
-    testRequest: { ok: false, ms: null, status: null, taskId: null, error: null, body: null },
+    testRequest: includeTestRequest ? { ok: false, ms: null, status: null, taskId: null, error: null, body: null }
+                                    : { skipped: true, hint: "POST /full-diagnose чтобы запустить реальный test-запрос (~18₽)" },
     recentErrors: [] as any[],
     errorBreakdown: {} as Record<string, number>,
     watchdog: { ...STATE },
@@ -480,10 +476,8 @@ router.post("/full-diagnose", requireAdmin, async (_req, res) => {
     }
   }
 
-  // 3. Тестовый /media/create — basic mode, минимальный запрос
-  // Стоит ~18₽ (один Suno-pair). Eugene получит реальную таску, через минуту
-  // её можно отполлить вручную и услышать тестовую песню.
-  if (apiKey && report.balance.ok) {
+  // 3. Тестовый /media/create — только если includeTestRequest=true
+  if (includeTestRequest && apiKey && report.balance.ok) {
     const testBody = { model: "suno", prompt: "Тест, короткая весёлая песня на русском" };
     report.testRequest.body = testBody;
     const t0 = Date.now();
@@ -502,7 +496,7 @@ router.post("/full-diagnose", requireAdmin, async (_req, res) => {
       if (r.ok && data?.id) {
         report.testRequest.ok = true;
         report.testRequest.taskId = data.id;
-        report.recommendations.push(`✅ Тестовый запрос принят. taskId=${data.id}. Подожди 3-4 мин и пройдись по /api/music/status/${data.id} — если done, Suno работает. Если всё равно error → проблема системная.`);
+        report.recommendations.push(`✅ Тестовый запрос принят. taskId=${data.id}. Подожди 3-4 мин и пройдись по /api/music/status/${data.id} — если done, Suno работает.`);
       } else {
         report.testRequest.error = data?.message || data?.error?.message || `HTTP ${r.status}`;
         report.testRequest.body = data;
@@ -553,20 +547,32 @@ router.post("/full-diagnose", requireAdmin, async (_req, res) => {
   const sortedBreakdown = Object.entries(breakdown).sort((a, b) => b[1] - a[1]);
   if (sortedBreakdown.length > 0) {
     const [topKind, topCount] = sortedBreakdown[0];
-    if (topCount >= 5) {
+    if (topCount >= 3) {
       const tips: Record<string, string> = {
         invalid_key: "Доминирует invalid_key — ротация GPTUNNEL_API_KEY ОБЯЗАТЕЛЬНА.",
         low_balance: "Доминирует low_balance — пополни gptunnel.ru.",
         moderation: "Доминирует moderation — Suno отклоняет тексты. Это user-content, не системная проблема.",
-        timeout: "Доминирует timeout — GPTunnel/Suno тормозит. После добавления fetch-timeout-30s gens должны fail-fast и retry-иться корректно.",
-        suno_transient: "Доминирует suno_transient — Suno чихает (Internal server error). Auto-retry должен помогать. Если не помогает — circuit breaker откроется.",
-        bad_lyric: "Доминирует bad_lyric — invalid lyric format. Это баг autoRetryTransient (исправлен 2026-05-08): retry воспроизводит оригинальный mode по style.mode.",
+        timeout: "Доминирует timeout — GPTunnel/Suno тормозит. Fix #1 (fetch timeout) от 2026-05-08 должен помочь.",
+        suno_transient: "Доминирует suno_transient — Suno чихает (Internal server error). Auto-retry должен помогать.",
+        bad_lyric: "Доминирует bad_lyric — invalid lyric format. Fix #2 (autoRetryTransient mode) от 2026-05-08 должен закрыть это.",
         network: "Доминирует network — VPS не достаёт до gptunnel.ru. Проверь firewall/DNS.",
       };
-      report.recommendations.push(`📊 Доминирует тип «${topKind}» (${topCount}/${report.recentErrors.length}). ${tips[topKind] || "Открой /admin/v304 → 🔬 Диагностика для детальных логов."}`);
+      report.recommendations.push(`📊 Доминирует «${topKind}» (${topCount}/${report.recentErrors.length}). ${tips[topKind] || "Открой /admin/v304 → 🔬 Диагностика."}`);
     }
   }
 
+  return report;
+}
+
+// GET — открывается в браузере одной ссылкой, без trace-спалит и без test-запроса
+router.get("/full-diagnose", requireAdmin, async (_req, res) => {
+  const report = await runFullDiagnose(false);
+  res.json({ data: report, error: null });
+});
+
+// POST — то же + реальный test-запрос на /media/create (~18₽)
+router.post("/full-diagnose", requireAdmin, async (_req, res) => {
+  const report = await runFullDiagnose(true);
   res.json({ data: report, error: null });
 });
 
