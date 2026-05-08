@@ -987,21 +987,28 @@ async function pollProcessingGenerations(): Promise<{ scanned: number; done: num
   }
 
   // Eugene 2026-05-08 «реши кардинально на будущее»: auto-recovery.
-  // Если timeout-watcher пометил gen='error', а Suno потом всё-таки отдал
-  // трек — восстанавливаем gen.status='done' и сохраняем audio_url.
-  // Юзер получает: рефанд (уже сделан) + трек как 🎁 бонус. Платформа
-  // съедает стоимость (~9₽), но юзер не теряет генерацию.
-  // Сканит errored gens за последний час с error_reason LIKE '%timeout%'.
+  // Сканит ВСЕ errored gens за 24ч (расширено с 60 мин). Если у Suno реально
+  // есть готовый трек — восстанавливаем status='done'. Покрывает:
+  //   - timeout-error (Suno поздно вернул)
+  //   - empty-audio-url (Suno вернул done без url, потом url появился)
+  //   - moderation 1001 ИГНОРИРУЕМ (status=failed на Suno-стороне навсегда)
+  // Полезно после длительных Suno-зависаний — старые гены восстановятся.
   try {
-    const recoveryCutoff = new Date(Date.now() - 60 * 60_000).toISOString();
+    const recoveryCutoff = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
     const errored = db.all<{ id: number; taskId: string }>(
       sql`SELECT id, task_id as taskId
           FROM generations
           WHERE status='error'
             AND task_id IS NOT NULL AND task_id != ''
             AND created_at > ${recoveryCutoff}
-            AND error_reason LIKE '%timeout%'
-          LIMIT 30`,
+            AND (error_reason LIKE '%timeout%'
+                 OR error_reason LIKE '%пустой ответ%'
+                 OR error_reason LIKE '%Internal server error%'
+                 OR error_reason LIKE '%код%'
+                 OR error_reason LIKE '%файл недоступен%')
+            AND error_reason NOT LIKE '%модерац%'
+            AND error_reason NOT LIKE '%1001%'
+          LIMIT 50`,
     );
     for (const row of errored) {
       try {
