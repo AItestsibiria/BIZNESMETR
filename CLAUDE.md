@@ -16,6 +16,34 @@ This file provides context and conventions for AI assistants (Claude Code and ot
 
 ---
 
+## 🏆 Triumph редакция (Eugene 2026-05-08, tag `triumph-080526`)
+
+Стабильный slice работающего кода после долгого рабочего дня. Если что-то сломается, вернуться к этой точке: `git checkout triumph-080526`.
+
+Что работало на момент tag'а (commit `c699913`):
+
+- 26 плагинов loaded, registry started
+- 36 шаблонов в gen-templates plugin (свадьба, юбилей, корпоративные, детские, ethnic)
+- 3-режимная генерация (basic / audio / advanced) — текст и аудио работают
+- Voice reinforcement: 4-5 сигналов на тип (Female/Male/Duet/Instrumental) → высокая точность Suno
+- 30-сек hard cap для Yandex SpeechKit (auto-trim через ffmpeg в transcribe.ts)
+- Auto-recovery поздних треков от Suno (admin-overview pollProcessingGenerations)
+- Watchdog circuit breaker + multi-channel alerts (Telegram + Email + Console + Incident)
+- Per-user playlist persistence (sortMode/sortDir/category/trackId/currentTime per userId)
+- Регенерация errored с моргающей кнопкой → /music с предзаполненной формой
+- Track-title rule (display_title всегда сохраняется, изменяет только владелец)
+- Clone noindex для поисковиков (X-Robots-Tag header + /robots.txt)
+- Atomic refund pipeline (storage.refundGeneration + claimRefund)
+- V2 cleanup битых бонусов (cron в admin-overview)
+- Country grouping в visitor stats (объединение Russia/Россия по country_code)
+- /api/admin/v304/suno-watchdog/diag — UI диагностика
+
+Известные внешние ограничения:
+- Suno backend периодически нестабилен — auto-recovery + circuit breaker компенсируют
+- callback_url revertнут (polling-only) — webhook endpoint dormant
+
+---
+
 ## Strategy Package — MUZIAI v304 (READ FIRST)
 
 The repository hosts the implementation of the **MUZIAI v304** strategy for `podaripesnu.ru`. The full strategic specification — architecture, plugin API, event catalog, full DB DDL, 8-sprint roadmap, deployment scripts — lives in `docs/strategy/`.
