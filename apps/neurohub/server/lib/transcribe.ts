@@ -37,11 +37,9 @@ async function timed<T>(fn: () => Promise<T>): Promise<{ result: T | null; err: 
 // в ogg = быстро (без перекодирования аудио, copy stream).
 function convertToOggOpus(input: Buffer, mime: string): Promise<Buffer | null> {
   return new Promise((resolve) => {
-    if (mime.includes("ogg") || mime.includes("opus")) {
-      // Уже ogg-opus — отдаём как есть
-      resolve(input);
-      return;
-    }
+    // Eugene 2026-05-08: даже ogg/opus прогоняем через ffmpeg для гарантии
+    // -t 30 trim. Yandex 30-сек лимит должен соблюдаться независимо от
+    // того что прислали (audio-upload или прямой upload).
     const tmpDir = os.tmpdir();
     // ТЗ Eugene 13:45: mp3 (audio/mpeg) был «bin» → ffmpeg не распознавал.
     const inExt =
@@ -59,7 +57,11 @@ function convertToOggOpus(input: Buffer, mime: string): Promise<Buffer | null> {
     // BACKEND-4 fix: execFile вместо exec, no shell injection
     childProc.execFile(
       "ffmpeg",
-      ["-y", "-i", inFile, "-vn", "-c:a", "libopus", "-ar", "48000", "-ac", "1", outFile],
+      // Eugene 2026-05-08 «после 30 сек голос не распознаётся» — defense in depth.
+      // Yandex SpeechKit short-audio лимит = 30 сек / 1MB. Audio-upload уже trim'ит
+      // через ffmpeg, но при network race / browser bug может прийти больше.
+      // Здесь — 2-я линия защиты: ВСЕГДА -t 30, тогда Yandex точно примет.
+      ["-y", "-i", inFile, "-t", "30", "-vn", "-c:a", "libopus", "-ar", "48000", "-ac", "1", outFile],
       { timeout: 30_000 },
       (err) => {
         // BACKEND-5: cleanup ВСЕГДА — успех или fail
@@ -88,12 +90,15 @@ async function tryYandex(buffer: Buffer, mime: string): Promise<TranscribeAttemp
   if (!apiKey) return { provider: "yandex", ok: false, error: "YANDEX_SPEECHKIT_API_KEY missing" };
 
   const t = await timed(async () => {
-    // Конвертация если не ogg/opus уже
+    // Eugene 2026-05-08: ВСЕГДА конвертируем через ffmpeg с -t 30 (даже если
+    // mime уже ogg/opus). Audio-upload уже trim'ит, но если кто-то залил
+    // 60-сек файл напрямую в storage — здесь доp-страховка. ffmpeg на
+    // ogg→ogg практически бесплатный (re-mux + cut).
     let body = buffer;
     let format = "oggopus";
     if (mime.includes("wav")) {
       format = "lpcm";
-    } else if (!mime.includes("ogg") && !mime.includes("opus")) {
+    } else {
       const converted = await convertToOggOpus(buffer, mime);
       if (!converted) {
         return { ok: false, status: 0, body: `ffmpeg conversion failed (mime=${mime}). Установите ffmpeg на VPS.` };
