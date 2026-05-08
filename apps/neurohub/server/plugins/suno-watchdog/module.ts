@@ -494,6 +494,144 @@ router.post("/test-alert", requireAdmin, async (_req, res) => {
   res.json({ data: { sent: true }, error: null });
 });
 
+// Eugene 2026-05-08: «Проверь контейнер api key всех провайдеров может с
+// ними проблема». Probes на каждый ключ, возвращает per-provider health.
+router.get("/providers", async (req, res) => {
+  if (!isCloneStaging(req)) {
+    res.status(403).json({ data: null, error: "staging only" });
+    return;
+  }
+  const probes: Array<Promise<{ name: string; ok: boolean; ms: number | null; status: number | null; detail: string; present: boolean; prefix?: string }>> = [];
+
+  // 1. GPTunnel (music+cover+LLM)
+  probes.push((async () => {
+    const k = process.env.GPTUNNEL_API_KEY;
+    if (!k) return { name: "GPTunnel", ok: false, ms: null, status: null, detail: "ENV_MISSING", present: false };
+    const t0 = Date.now();
+    try {
+      const r = await fetch("https://gptunnel.ru/v1/balance", { headers: { Authorization: k }, signal: AbortSignal.timeout(8000) });
+      const ms = Date.now() - t0;
+      const body: any = await r.json().catch(() => null);
+      return {
+        name: "GPTunnel", ok: r.ok && typeof body?.balance === "number", ms, status: r.status,
+        detail: r.ok ? `balance=${body?.balance ?? "?"}₽` : `HTTP ${r.status}`,
+        present: true, prefix: `${k.slice(0, 4)}…${k.slice(-4)}`,
+      };
+    } catch (e) {
+      return { name: "GPTunnel", ok: false, ms: Date.now() - t0, status: null, detail: e instanceof Error ? e.message : "err", present: true, prefix: `${k.slice(0, 4)}…${k.slice(-4)}` };
+    }
+  })());
+
+  // 2. Yandex SpeechKit (STT)
+  probes.push((async () => {
+    const k = process.env.YANDEX_SPEECHKIT_API_KEY;
+    if (!k) return { name: "Yandex SpeechKit", ok: false, ms: null, status: null, detail: "ENV_MISSING", present: false };
+    const t0 = Date.now();
+    try {
+      // Пустой POST → должен вернуть 400/422 с validation. Это значит ключ ОК.
+      const r = await fetch("https://stt.api.cloud.yandex.net/speech/v1/stt:recognize?topic=general&lang=ru-RU&format=oggopus", {
+        method: "POST",
+        headers: { Authorization: `Api-Key ${k}` },
+        body: Buffer.from(""),
+        signal: AbortSignal.timeout(8000),
+      });
+      const ms = Date.now() - t0;
+      // 400 = validation = key OK. 401 = unauthorized = key bad.
+      const valid = r.status >= 400 && r.status < 500 && r.status !== 401 && r.status !== 403;
+      return { name: "Yandex SpeechKit", ok: valid, ms, status: r.status, detail: valid ? "auth OK (validation rejected empty body)" : `HTTP ${r.status}`, present: true, prefix: `${k.slice(0, 4)}…${k.slice(-4)}` };
+    } catch (e) {
+      return { name: "Yandex SpeechKit", ok: false, ms: Date.now() - t0, status: null, detail: e instanceof Error ? e.message : "err", present: true, prefix: `${k.slice(0, 4)}…${k.slice(-4)}` };
+    }
+  })());
+
+  // 3. OpenAI (fallback Whisper STT)
+  probes.push((async () => {
+    const k = process.env.OPENAI_API_KEY;
+    if (!k) return { name: "OpenAI", ok: false, ms: null, status: null, detail: "ENV_MISSING (опционально)", present: false };
+    const t0 = Date.now();
+    try {
+      const r = await fetch("https://api.openai.com/v1/models", { headers: { Authorization: `Bearer ${k}` }, signal: AbortSignal.timeout(8000) });
+      const ms = Date.now() - t0;
+      return { name: "OpenAI", ok: r.ok, ms, status: r.status, detail: r.ok ? "auth OK" : `HTTP ${r.status}`, present: true, prefix: `${k.slice(0, 6)}…${k.slice(-4)}` };
+    } catch (e) {
+      return { name: "OpenAI", ok: false, ms: Date.now() - t0, status: null, detail: e instanceof Error ? e.message : "err", present: true, prefix: `${k.slice(0, 6)}…${k.slice(-4)}` };
+    }
+  })());
+
+  // 4. Telegram bot (alerts + auth)
+  probes.push((async () => {
+    const k = process.env.TELEGRAM_BOT_TOKEN || "8364453587:AAHp-Rujm1WU3hm6F3Lq0rmPp7iGHWzmTa0";
+    if (!k) return { name: "Telegram bot", ok: false, ms: null, status: null, detail: "ENV_MISSING", present: false };
+    const t0 = Date.now();
+    try {
+      const r = await fetch(`https://api.telegram.org/bot${k}/getMe`, { signal: AbortSignal.timeout(8000) });
+      const ms = Date.now() - t0;
+      const body: any = await r.json().catch(() => null);
+      return { name: "Telegram bot", ok: !!body?.ok && !!body?.result?.username, ms, status: r.status, detail: body?.result?.username ? `@${body.result.username}` : (body?.description || `HTTP ${r.status}`), present: true, prefix: `${k.slice(0, 8)}…` };
+    } catch (e) {
+      return { name: "Telegram bot", ok: false, ms: Date.now() - t0, status: null, detail: e instanceof Error ? e.message : "err", present: true };
+    }
+  })());
+
+  // 5. SMTP (отправка email-confirmation, agent alerts)
+  probes.push((async () => {
+    const host = process.env.SMTP_HOST;
+    const user = process.env.SMTP_USER;
+    const pass = process.env.SMTP_PASS;
+    if (!host || !user || !pass) return { name: "SMTP", ok: false, ms: null, status: null, detail: "ENV_MISSING (нужны host/user/pass)", present: false };
+    const t0 = Date.now();
+    try {
+      const nodemailer: any = (await import("nodemailer")).default;
+      const transporter = nodemailer.createTransport({
+        host, port: Number(process.env.SMTP_PORT) || 465,
+        secure: (Number(process.env.SMTP_PORT) || 465) === 465,
+        auth: { user, pass },
+      });
+      await transporter.verify();
+      return { name: "SMTP", ok: true, ms: Date.now() - t0, status: 200, detail: `auth OK (${user})`, present: true, prefix: user };
+    } catch (e) {
+      return { name: "SMTP", ok: false, ms: Date.now() - t0, status: null, detail: e instanceof Error ? e.message.slice(0, 100) : "err", present: true };
+    }
+  })());
+
+  // 6. Robokassa (платежи) — env-only check, нет cheap-probe
+  probes.push((async () => {
+    const login = process.env.ROBO_LOGIN;
+    const p1 = process.env.ROBO_PASSWORD_1;
+    const p2 = process.env.ROBO_PASSWORD_2;
+    if (!login || !p1 || !p2) return { name: "Robokassa", ok: false, ms: null, status: null, detail: "ENV_MISSING (login/p1/p2)", present: false };
+    return { name: "Robokassa", ok: true, ms: 0, status: 200, detail: `creds present (${login})`, present: true, prefix: login };
+  })());
+
+  // 7. Anthropic (если используется)
+  probes.push((async () => {
+    const k = process.env.ANTHROPIC_API_KEY;
+    if (!k) return { name: "Anthropic", ok: false, ms: null, status: null, detail: "ENV_MISSING (опционально)", present: false };
+    const t0 = Date.now();
+    try {
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "x-api-key": k, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+        body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 1, messages: [{ role: "user", content: "test" }] }),
+        signal: AbortSignal.timeout(8000),
+      });
+      const ms = Date.now() - t0;
+      return { name: "Anthropic", ok: r.ok || r.status === 400, ms, status: r.status, detail: r.ok ? "auth OK" : `HTTP ${r.status}`, present: true, prefix: `${k.slice(0, 8)}…${k.slice(-4)}` };
+    } catch (e) {
+      return { name: "Anthropic", ok: false, ms: Date.now() - t0, status: null, detail: e instanceof Error ? e.message : "err", present: true };
+    }
+  })());
+
+  const results = await Promise.all(probes);
+  const summary = {
+    total: results.length,
+    ok: results.filter((r) => r.ok).length,
+    fail: results.filter((r) => !r.ok && r.present).length,
+    missing: results.filter((r) => !r.present).length,
+  };
+  res.json({ data: { providers: results, summary, timestamp: new Date().toISOString() }, error: null });
+});
+
 router.post("/reset-circuit", requireAdmin, (_req, res) => {
   const wasOpen = STATE.circuitOpen;
   STATE.circuitOpen = false;
@@ -540,10 +678,12 @@ router.get("/diag", (_req, res) => {
   <div id="status" class="big">Готов — выбери тест ниже</div>
   <div style="margin-top:12px">
     <button onclick="runDiag(false)">🔄 Проверить Suno (бесплатно)</button>
-    <button onclick="runDiag(true)">🎵 Полный тест с Suno (~18₽)</button>
+    <button onclick="runProviders()">🔑 Все ключи (бесплатно)</button>
+    <button onclick="runDiag(true)">🎵 Полный тест Suno (~18₽)</button>
   </div>
 </div>
 
+<div id="providers"></div>
 <div id="systemTest"></div>
 <div id="summary"></div>
 
@@ -640,6 +780,45 @@ function renderDiag(d) {
   }
 
   document.getElementById("summary").innerHTML = html;
+  document.getElementById("raw").textContent = JSON.stringify(d, null, 2);
+}
+
+function runProviders() {
+  var statusEl = document.getElementById("status");
+  statusEl.textContent = "Проверяю ключи всех провайдеров (до 15 сек)…";
+  fetch("/api/admin/v304/suno-watchdog/providers")
+    .then(function(r) { return r.json(); })
+    .then(function(j) {
+      if (j.error) throw new Error(j.error);
+      renderProviders(j.data);
+    })
+    .catch(function(e) {
+      statusEl.innerHTML = '<span class="err">Ошибка: ' + (e.message || e) + '</span>';
+    });
+}
+
+function renderProviders(d) {
+  var s = d.summary || {};
+  var cls = s.fail > 0 ? "err" : s.missing > 0 ? "warn" : "ok";
+  document.getElementById("status").innerHTML =
+    '<span class="' + cls + '">● Ключи: ' + s.ok + '/' + s.total + ' OK</span>' +
+    (s.fail > 0 ? ' <span class="err">(' + s.fail + ' битых)</span>' : '') +
+    (s.missing > 0 ? ' <span class="warn">(' + s.missing + ' не задано)</span>' : '');
+
+  var html = '<div class="panel"><div class="label">Ключи провайдеров</div>';
+  html += '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:8px">';
+  html += '<tr style="text-align:left;color:#9ca3af"><th style="padding:6px 4px">Провайдер</th><th style="padding:6px 4px">Статус</th><th style="padding:6px 4px">Prefix</th><th style="padding:6px 4px">Детали</th></tr>';
+  (d.providers || []).forEach(function(p) {
+    var c = p.ok ? "ok" : (p.present ? "err" : "warn");
+    var icon = p.ok ? "✅" : (p.present ? "❌" : "⚠️");
+    html += '<tr style="border-top:1px solid #2a2a4a"><td style="padding:6px 4px"><b>' + p.name + '</b></td>' +
+            '<td style="padding:6px 4px"><span class="' + c + '">' + icon + ' ' + (p.ok ? "OK" : (p.present ? "FAIL" : "ENV?")) + '</span></td>' +
+            '<td style="padding:6px 4px;color:#9ca3af;font-size:11px">' + (p.prefix || "—") + '</td>' +
+            '<td style="padding:6px 4px;font-size:12px">' + (p.detail || "") + (p.ms ? ' · ' + p.ms + ' мс' : '') + '</td></tr>';
+  });
+  html += '</table></div>';
+  document.getElementById("providers").innerHTML = html;
+  document.getElementById("summary").innerHTML = "";
   document.getElementById("raw").textContent = JSON.stringify(d, null, 2);
 }
 
