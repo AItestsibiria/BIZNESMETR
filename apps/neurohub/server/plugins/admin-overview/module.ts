@@ -1053,6 +1053,46 @@ async function pollProcessingGenerations(): Promise<{ scanned: number; done: num
     console.error("[AUTO-RECOVER] error:", e);
   }
 
+  // Eugene 2026-05-08: «ошибочные треки, без обложек от Suno 2 версию удаляй
+  // сразу после подтверждения об ошибочности».
+  //
+  // Бонусные v2-треки создаются с task_id = '<original>_v2' и style.isBonus=true.
+  // Если основной трек ошибся (status='error'), а v2-бонус тоже без resultUrl
+  // или сам error — он бесполезен. Soft-delete.
+  //
+  // Также удаляем v2 если у него самого error (Suno reject one из пары).
+  try {
+    const orphans = db.all<{ id: number }>(
+      sql`SELECT g.id
+          FROM generations g
+          WHERE g.task_id LIKE '%\\_v2' ESCAPE '\\'
+            AND g.deleted_at IS NULL
+            AND (
+              -- v2 сам в error/processing > 15 мин (Suno не отдал)
+              (g.status = 'error')
+              OR (g.status = 'processing' AND g.created_at < datetime('now', '-15 minutes'))
+              OR (g.status = 'done' AND (g.result_url IS NULL OR g.result_url = ''))
+              -- ИЛИ основной парный трек упал
+              OR EXISTS (
+                SELECT 1 FROM generations m
+                WHERE m.task_id = REPLACE(g.task_id, '_v2', '')
+                  AND m.status = 'error'
+                  AND m.deleted_at IS NULL
+              )
+            )
+          LIMIT 50`,
+    );
+    if (orphans.length > 0) {
+      const ids = orphans.map((o) => o.id);
+      db.run(sql`UPDATE generations
+                 SET deleted_at = datetime('now')
+                 WHERE id IN (${sql.join(ids.map((id) => sql`${id}`), sql`, `)})`);
+      console.log(`\x1b[33m[CLEANUP-V2]\x1b[0m soft-deleted ${ids.length} broken bonus tracks: ${ids.join(", ")}`);
+    }
+  } catch (e) {
+    console.error("[CLEANUP-V2] error:", e);
+  }
+
   return { scanned: rows.length, done, failed };
 }
 
