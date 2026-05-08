@@ -4184,16 +4184,18 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   setTimeout(dailyCountryBump, 5000); // на старте: чтобы было видно через 5с после запуска
 
   // ==================== TIMEOUT WATCHER ====================
-  // ТЗ Eugene 2026-05-07: расследование gens 672-679 показало что watcher
-  // помечал error через 2 мин — но Suno возвращал succeeded на 3-4 мин.
-  // Лечим тремя способами:
-  //  1) Таймаут поднят до 8 мин (Suno typical max 3 мин + buffer на retry).
-  //  2) Перед marking error — финальный poll Suno. Если succeeded → recover
-  //     в 'done' с audio_url вместо error+refund.
-  //  3) Если Suno вернул error/failed — тогда настоящий error.
+  // ТЗ Eugene 2026-05-07/05-08: gens 672-679 показали что 2-min watcher был
+  // слишком агрессивен. Поднял до 8 мин, потом 12 мин, теперь 30 мин — для
+  // консистентности с admin-overview pollProcessingGenerations cutoff.
+  // Auto-recovery в admin-overview подберёт поздние треки и без этого
+  // watcher'а.
+  // 1) Таймаут 30 мин (Suno нормально завершает за 3-6 мин, но под нагрузкой
+  //    может занимать до 25-минут).
+  // 2) Перед marking error — финальный poll Suno. Если succeeded → recover.
+  // 3) Если Suno вернул error/failed — настоящий error + refund.
   setInterval(async () => {
     try {
-      const cutoff = new Date(Date.now() - 8 * 60 * 1000).toISOString().replace("T", " ").slice(0, 19);
+      const cutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString().replace("T", " ").slice(0, 19);
       const stuck = db.select().from(generations)
         .where(and(eq(generations.status, "processing"), eq(generations.type, "music")))
         .all();
@@ -4228,7 +4230,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
           }
         }
 
-        const reason = "Превышен лимит ожидания (8 мин). Suno не завершил. Баланс возвращён.";
+        const reason = "Превышен лимит ожидания (30 мин). Suno не завершил. Баланс возвращён.";
         storage.updateGeneration(gen.id, { status: "error", errorReason: reason });
         try {
           if ((gen.cost || 0) > 0) {
