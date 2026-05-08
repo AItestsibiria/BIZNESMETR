@@ -443,8 +443,15 @@ router.post("/reset-circuit", requireAdmin, (_req, res) => {
 });
 
 router.get("/page", (_req, res) => {
+  // Перенаправляем на новый /diag (избегаем cache старого HTML)
+  res.redirect(302, "/api/admin/v304/suno-watchdog/diag");
+});
+
+// Eugene 2026-05-08 «Режим Бог реши кардинально»: новый URL = гарантированно
+// свежий HTML, никакого старого кеша. Простой ES5-compat JS, никаких ?./?? —
+// работает на iOS Safari ниже 13.4 и старых Android браузерах.
+router.get("/diag", (_req, res) => {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
-  // Cache-busting — на каждый visit свежая HTML, никакого "Загружаю..." из кеша
   res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
   res.setHeader("Pragma", "no-cache");
   res.setHeader("Expires", "0");
@@ -470,11 +477,10 @@ router.get("/page", (_req, res) => {
 
 <div class="panel">
   <div class="label">Статус</div>
-  <div id="status" class="big">Загружаю…</div>
+  <div id="status" class="big">Готов — выбери тест ниже</div>
   <div style="margin-top:12px">
-    <button id="btnGet" onclick="run(false)">🔄 Обновить (бесплатно)</button>
-    <button id="btnSys" onclick="runSystem(false)">🧪 Системный тест ключа (бесплатно)</button>
-    <button id="btnPost" onclick="run(true)">🎵 Полный тест с Suno (~18₽)</button>
+    <button onclick="runDiag(false)">🔄 Проверить Suno (бесплатно)</button>
+    <button onclick="runDiag(true)">🎵 Полный тест с Suno (~18₽)</button>
   </div>
 </div>
 
@@ -498,6 +504,87 @@ if (!token && !isStaging) {
 // На staging: показываем все кнопки даже без token
 // (бэкенд разрешает hostname=clone.muziai.ru без admin auth)
 
+// ES5-compat (для старых iOS Safari). Никаких ?., ??, async/await.
+function runDiag(includeTest) {
+  var statusEl = document.getElementById("status");
+  statusEl.textContent = includeTest ? "Делаю реальный запрос на Suno (до 35 сек)…" : "Опрашиваю Suno (до 20 сек)…";
+  var ctrl = new AbortController();
+  var timeoutMs = includeTest ? 35000 : 20000;
+  var timer = setTimeout(function() { ctrl.abort(); }, timeoutMs);
+  var headers = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = "Bearer " + token;
+  fetch("/api/admin/v304/suno-watchdog/full-diagnose", {
+    method: includeTest ? "POST" : "GET",
+    headers: headers,
+    signal: ctrl.signal,
+  }).then(function(r) {
+    clearTimeout(timer);
+    return r.json().then(function(j) { return { r: r, j: j }; });
+  }).then(function(out) {
+    if (!out.r.ok || out.j.error) throw new Error(out.j.error || ("HTTP " + out.r.status));
+    renderDiag(out.j.data);
+  }).catch(function(e) {
+    var msg = e && e.name === "AbortError" ? "Server timeout (>" + (timeoutMs/1000) + "s)" : (e && e.message ? e.message : String(e));
+    statusEl.innerHTML = '<span class="err">Ошибка: ' + msg + '</span>';
+  });
+}
+
+function renderDiag(d) {
+  var bal = d.balance || {};
+  var key = d.apiKey || {};
+  var ks = (d.keyScope && d.keyScope.mediaCreate) || {};
+  var test = d.testRequest || {};
+  var html = '';
+
+  // Сводка
+  var ok = bal.ok && key.present;
+  document.getElementById("status").innerHTML = ok ? '<span class="ok">● Ключ работает</span>' : '<span class="err">● Проблема с ключом</span>';
+
+  html += '<div class="panel"><div class="row">';
+  html += '<div><div class="label">API key</div><div class="big">' + (key.present ? '<span class="ok">' + key.prefix + '</span> (' + key.length + ' chars)' : '<span class="err">отсутствует</span>') + '</div></div>';
+  html += '<div><div class="label">Balance</div><div class="big ' + (bal.ok ? 'ok' : 'err') + '">' + (bal.ok ? bal.balance + ' ₽ · ' + bal.ms + ' мс' : 'error · ' + (bal.error || '?')) + '</div></div>';
+  html += '</div></div>';
+
+  // Scope
+  if (ks.status) {
+    var scopeOk = (ks.body && (ks.body.code === 3 || ks.body.code === 0));
+    html += '<div class="panel"><div class="label">Scope ключа /media/create</div>';
+    html += '<div class="big ' + (scopeOk ? "ok" : "err") + '">' + (scopeOk ? "✅" : "❌") + ' HTTP ' + ks.status + ' · code=' + ((ks.body && ks.body.code) || '?') + '</div>';
+    if (ks.hint) html += '<div style="margin-top:8px">' + ks.hint + '</div>';
+    html += '</div>';
+  }
+
+  // Real Suno test
+  if (test && !test.skipped) {
+    var tCls = test.ok ? "ok" : "err";
+    html += '<div class="panel"><div class="label">Live тест /media/create</div>';
+    html += '<div class="big ' + tCls + '">' + (test.ok ? '✅ taskId=' + test.taskId + ' (' + test.ms + ' мс)' : '❌ ' + (test.error || '?') + ' (' + (test.ms || '?') + ' мс)') + '</div></div>';
+  }
+
+  // Recent errors breakdown
+  if (d.errorBreakdown) {
+    var keys = Object.keys(d.errorBreakdown);
+    if (keys.length > 0) {
+      keys.sort(function(a, b) { return d.errorBreakdown[b] - d.errorBreakdown[a]; });
+      html += '<div class="panel"><div class="label">Ошибки за 24 ч</div>';
+      keys.forEach(function(k) { html += '<div>' + k + ': <b>' + d.errorBreakdown[k] + '</b></div>'; });
+      html += '</div>';
+    }
+  }
+
+  // Recommendations
+  if (d.recommendations && d.recommendations.length) {
+    html += '<div class="panel"><div class="label">Рекомендации</div><ul style="margin:0;padding-left:20px">';
+    d.recommendations.forEach(function(r) { html += '<li style="margin:4px 0">' + r + '</li>'; });
+    html += '</ul></div>';
+  }
+
+  document.getElementById("summary").innerHTML = html;
+  document.getElementById("raw").textContent = JSON.stringify(d, null, 2);
+}
+
+// Старый код run/runSystem/render/renderSystem ниже — для совместимости с
+// возможными bookmarks. Не трогает /diag flow.
 async function fetchWithTimeout(url, opts, ms) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
