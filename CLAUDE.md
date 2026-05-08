@@ -20,25 +20,34 @@ This file provides context and conventions for AI assistants (Claude Code and ot
 
 Стабильный slice работающего кода после долгого рабочего дня. Если что-то сломается, вернуться к этой точке: `git checkout triumph-080526`.
 
-Что работало на момент tag'а (commit `c699913`):
+## 🎙 Триумф в Эфир (Eugene 2026-05-08, tag `triumph-na-efire-080526`)
 
-- 26 плагинов loaded, registry started
-- 36 шаблонов в gen-templates plugin (свадьба, юбилей, корпоративные, детские, ethnic)
-- 3-режимная генерация (basic / audio / advanced) — текст и аудио работают
-- Voice reinforcement: 4-5 сигналов на тип (Female/Male/Duet/Instrumental) → высокая точность Suno
-- 30-сек hard cap для Yandex SpeechKit (auto-trim через ffmpeg в transcribe.ts)
-- Auto-recovery поздних треков от Suno (admin-overview pollProcessingGenerations)
+Готовая к эфиру редакция (всё кроме audio-модуля). Восстановить: `git checkout triumph-na-efire-080526`.
+
+В scope:
+- Полный refund pipeline (atomic claimRefund + storage.refundGeneration единый entry-point)
+- Auto-recovery поздних Suno треков (admin-overview cron, 30-мин cutoff)
 - Watchdog circuit breaker + multi-channel alerts (Telegram + Email + Console + Incident)
+- 60-мин error-rate window для упорных проблем
 - Per-user playlist persistence (sortMode/sortDir/category/trackId/currentTime per userId)
 - Регенерация errored с моргающей кнопкой → /music с предзаполненной формой
 - Track-title rule (display_title всегда сохраняется, изменяет только владелец)
 - Clone noindex для поисковиков (X-Robots-Tag header + /robots.txt)
-- Atomic refund pipeline (storage.refundGeneration + claimRefund)
 - V2 cleanup битых бонусов (cron в admin-overview)
-- Country grouping в visitor stats (объединение Russia/Россия по country_code)
-- /api/admin/v304/suno-watchdog/diag — UI диагностика
+- Country grouping в visitor stats (объединение Russia/Россия по country_code, English только)
+- Live banner «Идёт процесс генерации» в /music и /dashboard
+- Voice reinforcement (4-5 сигналов: EN+RU+brackets+style+lyrics) — высокая точность Suno
+- /diag UI с проверкой ВСЕХ ключей провайдеров (GPTunnel + Yandex + OpenAI + Telegram + SMTP + Robokassa + Anthropic)
+- Copy-reports-button везде где отчёт
+- 3-min choice panel при долгой генерации (подождать / открыть дашборд)
+- Suno→MuziAi branding в user-facing
+- F-pack: NULL task_id fix + errorReason enforce + позитивные сообщения + lifecycle-stats endpoint
+- 26 плагинов loaded
 
-Известные внешние ограничения:
+НЕ в scope (audio-модуль):
+- Mic recording → Yandex STT → Suno генерация по голосу. Работает, но stability не гарантируется триумфом. Если ломается — фиксить отдельно, не трогая остальной код.
+
+Известные внешние ограничения (не наш контроль):
 - Suno backend периодически нестабилен — auto-recovery + circuit breaker компенсируют
 - callback_url revertнут (polling-only) — webhook endpoint dormant
 
