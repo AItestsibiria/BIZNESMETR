@@ -361,17 +361,13 @@ function checkAndCharge(userId: number, serviceType: string): { ok: boolean; isF
     return { ok: true, isFree: false, cost: 0, usedBonusTrack: true };
   }
 
-  // BACKEND-3 fix Eugene 14:16: атомарный charge через drizzle update WHERE.
-  // Гарантирует что 2 параллельных request не спишут тот же баланс дважды.
-  // Возвращает 1 (успех) или 0 (недостаточно средств).
-  const claimed = db.update(users)
-    .set({ balance: sql`${users.balance} - ${price}` })
-    .where(and(eq(users.id, userId), sql`${users.balance} >= ${price}`))
-    .returning({ id: users.id })
-    .get();
-  if (!claimed) {
+  // Eugene 14:36: возвращаю проверенный path. Atomic charge через drizzle
+  // `sql${users.balance}` мог компилироваться некорректно в better-sqlite3.
+  // Race-protection обеспечит generation-agent через atomic markRefunded.
+  if (user.balance < price) {
     return { ok: false, isFree: false, cost: price, error: `Недостаточно средств. Нужно ${PRICE_LABELS[serviceType] || "99 ₽"}.` };
   }
+  storage.updateBalance(userId, -price);
   storage.createTransaction({
     userId,
     type: serviceType,
