@@ -414,6 +414,133 @@ router.post("/reset-circuit", requireAdmin, (_req, res) => {
   res.json({ data: { wasOpen, nowOpen: false }, error: null });
 });
 
+// Self-contained HTML страница — Eugene 2026-05-08: «дай ссылку которая
+// просто работает в браузере». Страница читает localStorage.token (его
+// браузер сохраняет после логина) и шлёт его как Bearer на /full-diagnose.
+// PUBLIC: HTML без секретов; защищена сама диагностика requireAdmin'ом.
+router.get("/page", (_req, res) => {
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.send(`<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Suno Watchdog · Диагностика</title>
+<style>
+  body { font: 14px -apple-system,Segoe UI,sans-serif; background:#0b0b14; color:#e6e6f0; margin:0; padding:20px; }
+  h1 { font-size:20px; margin:0 0 16px; color:#a78bfa; }
+  .panel { background:#16162b; border:1px solid #2a2a4a; border-radius:12px; padding:16px; margin-bottom:12px; }
+  .ok { color:#4ade80; } .warn { color:#fbbf24; } .err { color:#ef4444; }
+  pre { background:#0e0e1c; padding:12px; border-radius:8px; overflow:auto; font:12px ui-monospace,Menlo,monospace; max-height:600px; }
+  button { background:linear-gradient(90deg,#7c3aed,#ec4899); color:#fff; border:0; padding:10px 18px; border-radius:8px; font-weight:600; cursor:pointer; margin-right:8px; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  .label { color:#9ca3af; font-size:12px; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px; }
+  .row { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:8px; }
+  .row > div { flex:1; min-width:160px; }
+  .big { font-size:18px; font-weight:600; }
+  .rec li { margin:6px 0; }
+  a { color:#a78bfa; }
+</style></head><body>
+<h1>🔬 Suno Watchdog · Диагностика</h1>
+
+<div class="panel">
+  <div class="label">Статус</div>
+  <div id="status" class="big">Загружаю…</div>
+  <div style="margin-top:12px">
+    <button id="btnGet" onclick="run(false)">🔄 Обновить (бесплатно)</button>
+    <button id="btnPost" onclick="run(true)">🎵 Полный тест (~18₽)</button>
+  </div>
+</div>
+
+<div id="summary"></div>
+
+<div class="panel">
+  <div class="label">Полный JSON-отчёт</div>
+  <pre id="raw">…</pre>
+</div>
+
+<script>
+const token = localStorage.getItem("token");
+if (!token) {
+  document.getElementById("status").innerHTML = '<span class="err">Не залогинен.</span> Открой <a href="/#/login">/#/login</a> и вернись сюда.';
+  document.getElementById("btnGet").disabled = true;
+  document.getElementById("btnPost").disabled = true;
+}
+
+async function run(includeTest) {
+  const status = document.getElementById("status");
+  status.textContent = includeTest ? "Делаю реальный запрос на Suno…" : "Опрашиваю watchdog…";
+  document.getElementById("btnGet").disabled = true;
+  document.getElementById("btnPost").disabled = true;
+  try {
+    const r = await fetch("/api/admin/v304/suno-watchdog/full-diagnose", {
+      method: includeTest ? "POST" : "GET",
+      headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+    });
+    const j = await r.json();
+    if (!r.ok || j.error) { throw new Error(j.error || "HTTP " + r.status); }
+    render(j.data);
+  } catch (e) {
+    status.innerHTML = '<span class="err">Ошибка: ' + (e.message || e) + '</span>';
+  } finally {
+    document.getElementById("btnGet").disabled = false;
+    document.getElementById("btnPost").disabled = false;
+  }
+}
+
+function render(d) {
+  const wd = d.watchdog || {};
+  const statusCls = wd.status === "up" ? "ok" : wd.status === "low_balance" ? "warn" : "err";
+  document.getElementById("status").innerHTML =
+    '<span class="' + statusCls + '">● ' + (wd.status || "?").toUpperCase() + '</span>' +
+    (wd.circuitOpen ? ' <span class="err">(circuit OPEN)</span>' : '');
+
+  let html = "";
+
+  // Ключ + баланс
+  html += '<div class="panel"><div class="row">';
+  html += '<div><div class="label">API key</div><div class="big">' +
+          (d.apiKey?.present ? '<span class="ok">' + d.apiKey.prefix + '</span> (' + d.apiKey.length + ' chars)'
+                              : '<span class="err">отсутствует</span>') + '</div></div>';
+  const balCls = d.balance?.ok ? "ok" : "err";
+  const balText = d.balance?.ok ? (d.balance.balance + ' ₽ · ' + d.balance.ms + ' мс')
+                                : ('error · ' + (d.balance?.error || '?'));
+  html += '<div><div class="label">Balance</div><div class="big ' + balCls + '">' + balText + '</div></div>';
+  html += '</div></div>';
+
+  // Тест-запрос
+  if (d.testRequest && !d.testRequest.skipped) {
+    const tCls = d.testRequest.ok ? "ok" : "err";
+    html += '<div class="panel"><div class="label">Test /media/create</div>';
+    html += '<div class="big ' + tCls + '">' + (d.testRequest.ok
+            ? '✅ taskId=' + d.testRequest.taskId + ' (' + d.testRequest.ms + ' мс)'
+            : '❌ ' + (d.testRequest.error || '?') + ' (' + (d.testRequest.ms || '?') + ' мс)') + '</div></div>';
+  }
+
+  // Распределение ошибок
+  const eb = d.errorBreakdown || {};
+  const ebKeys = Object.keys(eb);
+  if (ebKeys.length) {
+    html += '<div class="panel"><div class="label">Ошибки за 24ч</div>';
+    ebKeys.sort((a,b) => eb[b] - eb[a]).forEach(k => {
+      html += '<div>' + k + ': <b>' + eb[k] + '</b></div>';
+    });
+    html += '</div>';
+  }
+
+  // Рекомендации
+  if (d.recommendations?.length) {
+    html += '<div class="panel"><div class="label">Рекомендации</div><ul class="rec">';
+    d.recommendations.forEach(r => { html += '<li>' + r + '</li>'; });
+    html += '</ul></div>';
+  }
+
+  document.getElementById("summary").innerHTML = html;
+  document.getElementById("raw").textContent = JSON.stringify(d, null, 2);
+}
+
+if (token) run(false);
+</script>
+</body></html>`);
+});
+
 router.post("/poll-now", requireAdmin, async (_req, res) => {
   await pollBalance();
   scanGenerationErrorRate();
