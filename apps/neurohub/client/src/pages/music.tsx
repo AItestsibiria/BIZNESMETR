@@ -932,6 +932,30 @@ export default function MusicPage() {
           ) : mode === "audio" ? (
             <>
               {/* === АУДИО-РЕЖИМ — микрофон ИЛИ файл === */}
+              {/* Eugene 2026-05-08 «усиль контроль точка: генерация аудио,
+                  распознавание, генерация текста». Visual status-strip:
+                  юзер видит на каком шаге пайплайн прямо сейчас. */}
+              <div className="grid grid-cols-4 gap-1.5 mb-3">
+                {[
+                  { label: "🎤 Запись", active: !!audioFile, current: !audioFile && !audioUploadSha },
+                  { label: "📤 Загрузка", active: !!audioUploadSha, current: audioUploading },
+                  { label: "🔤 Распознавание", active: !!audioLyrics, current: transcribing },
+                  { label: "🎵 Готов к генерации", active: !!audioLyrics && audioLyrics.length >= 50, current: false },
+                ].map((step, i) => (
+                  <div
+                    key={i}
+                    className={`text-center text-[10px] sm:text-xs py-1.5 px-1 rounded-md border transition-all ${
+                      step.active
+                        ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                        : step.current
+                          ? "border-purple-500/40 bg-purple-500/10 text-purple-300 animate-pulse"
+                          : "border-white/10 bg-white/5 text-muted-foreground/60"
+                    }`}
+                  >
+                    {step.label}
+                  </div>
+                ))}
+              </div>
               <div className="space-y-3">
                 <Label className="text-sm text-muted-foreground">🎤 Запись с микрофона (до 30 секунд)</Label>
                 <MicRecorder

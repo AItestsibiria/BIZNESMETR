@@ -1,14 +1,13 @@
 // MicRecorder — запись с микрофона через MediaRecorder API.
-// ТЗ Eugene 2026-05-07 11:55: «человек открывает окно, нажимает запись,
-// надиктовывает / напевает, по стопу — Blob уходит на /api/gen/upload
-// → cover. Если не нравится → кнопка «Перегенерировать».»
+// ТЗ Eugene 2026-05-08: после записи кнопка «Запись» становится «Перезапись»
+// (одним кликом начинает новую запись), отдельная «Удалить» только очищает.
 //
 // Не использует внешних зависимостей — чистый Web API.
 // Поддержка mp4/webm/ogg в зависимости от браузера.
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Mic, Square, Play, Pause, Trash2 } from "lucide-react";
+import { Mic, Square, Play, Pause, Trash2, RotateCcw } from "lucide-react";
 
 interface MicRecorderProps {
   maxSeconds?: number;
@@ -199,9 +198,21 @@ export function MicRecorder({ maxSeconds = DEFAULT_MAX, onRecorded, disabled }: 
               {playing ? <Pause className="w-4 h-4 mr-2" /> : <Play className="w-4 h-4 mr-2" />}
               Прослушать ({fmt(seconds)})
             </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={reset} data-testid="btn-mic-reset">
+            {/* Eugene 2026-05-08: «Перезапись» одним кликом запускает новую
+                запись (clear + start). «Удалить» — отдельная кнопка, только
+                чистит без новой записи. */}
+            <Button
+              type="button"
+              onClick={() => { reset(); start(); }}
+              className="bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500"
+              data-testid="btn-mic-rerecord"
+            >
+              <RotateCcw className="w-4 h-4 mr-2" />
+              Перезапись
+            </Button>
+            <Button type="button" variant="ghost" size="sm" onClick={reset} data-testid="btn-mic-delete">
               <Trash2 className="w-4 h-4 mr-1" />
-              Перезаписать
+              Удалить
             </Button>
           </>
         )}
