@@ -2291,7 +2291,8 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       console.log(`[MUSIC] GPTunnel response for gen #${gen.id}:`, JSON.stringify(data).slice(0, 300));
 
       if (!resp.ok || data.error || (data.code && data.code !== 0)) {
-        storage.updateGeneration(gen.id, { status: "error" });
+        const apiErrText = data.error?.message || data.message || `HTTP ${resp.status}`;
+        storage.updateGeneration(gen.id, { status: "error", errorReason: `MuziAi отклонил запрос: ${apiErrText}` });
         if (!charge.isFree) {
           storage.refundGeneration({ genId: gen.id, userId, cost: gen.cost || 9900, type: "music", description: `Возврат: ошибка генерации #${gen.id}` });
         }
@@ -2323,10 +2324,13 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
 
       const taskId = data.id;
       if (!taskId) {
-        console.error(`[MUSIC] No taskId from GPTunnel for gen #${gen.id}`);
-        storage.updateGeneration(gen.id, { status: "error" });
+        // Eugene 2026-05-08 audit C: ранний фикс zombie-gens. Без taskId
+        // никто не сможет polling сделать → зависание до 30-мин cutoff.
+        // Сразу error+refund+errorReason.
+        console.error(`[MUSIC] No taskId from GPTunnel for gen #${gen.id} — refunding immediately`);
+        storage.updateGeneration(gen.id, { status: "error", errorReason: "Не получили task_id от MuziAi. Это редкая сетевая проблема. Баланс возвращён, попробуйте ещё раз." });
         if (!charge.isFree) {
-          storage.refundGeneration({ genId: gen.id, userId, cost: gen.cost || 9900, type: "music", description: `Возврат: ошибка создания задачи #${gen.id}` });
+          storage.refundGeneration({ genId: gen.id, userId, cost: gen.cost || 9900, type: "music", description: `Возврат: нет task_id #${gen.id}` });
         }
         res.status(500).json({ message: "Ошибка создания трека. Попробуйте снова." });
         return;
@@ -2365,7 +2369,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
           if (!audioUrl) {
             // Result arrived but no URL — mark as error
             console.error(`[MUSIC] Gen #${gen.id}: done but no audio URL`);
-            storage.updateGeneration(gen.id, { status: "error", errorReason: "Сервис MuziAi вернул ответ без аудио-URL. Баланс возвращён." });
+            storage.updateGeneration(gen.id, { status: "error", errorReason: "MuziAi не прислала аудио. Баланс восстановлен — попробуйте ещё раз, обычно второй раз получается." });
             // рефанд при отсутствии audioUrl (атомарно — orphan-scanner не задвоит)
             try {
               storage.refundGeneration({ genId: gen.id, userId: gen.userId, cost: gen.cost, type: "music", description: `Возврат: пустой ответ MuziAi #${gen.id}` });
@@ -2418,7 +2422,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
                 }
               } else {
                 console.error(`[MUSIC] Gen #${gen.id}: URL returned ${check.status}`);
-                storage.updateGeneration(gen.id, { status: "error", errorReason: "Аудио-файл недоступен (HTTP " + check.status + "). Баланс возвращён." });
+                storage.updateGeneration(gen.id, { status: "error", errorReason: "Файл временно не пришёл. Баланс восстановлен — попробуйте ещё раз через минуту." });
                 try {
                   storage.refundGeneration({ genId: gen.id, userId: gen.userId, cost: gen.cost, type: "music", description: `Возврат: файл недоступен #${gen.id}` });
                 } catch {}
@@ -2459,19 +2463,20 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
             console.log(`[MUSIC] Gen #${gen.id}: partial success, using succeeded track`);
             saveGenFiles(gen.id).catch(() => {});
           } else {
-            storage.updateGeneration(gen.id, { status: "error" });
             data.status = "error";
-            // Понятное сообщение для автора о причине
+            // Понятное позитивное сообщение для автора о причине
             const rawMsg = String(data.message || "").toLowerCase();
             if (data.code === 1001 || rawMsg.includes("sensitive")) {
-              data.userMessage = "Текст песни или описание стиля было отклонено модерацией MuziAi (ругательства, жестокость, откровенные сцены, имена публичных людей, защищённые бренды). Попробуйте перефразировать. Баланс возвращён.";
+              data.userMessage = "MuziAi-модерация попросила перефразировать (имена публичных людей, бренды, агрессивные слова — частые причины). Баланс уже на месте, попробуйте ещё раз с другим текстом.";
             } else if (rawMsg.includes("timeout") || rawMsg.includes("timed out")) {
-              data.userMessage = "Сервис не ответил вовремя. Попробуйте ещё раз. Баланс возвращён.";
+              data.userMessage = "MuziAi думала дольше обычного. Баланс восстановлен — давайте попробуем ещё раз?";
             } else if (data.message) {
-              data.userMessage = `Ошибка MuziAi: ${data.message}. Баланс возвращён.`;
+              data.userMessage = `Не получилось этот раз: ${data.message}. Баланс возвращён, попробуйте снова.`;
             } else {
-              data.userMessage = "Не удалось создать трек. Баланс возвращён.";
+              data.userMessage = "На этот раз не получилось — баланс уже на месте, попробуйте ещё раз.";
             }
+            // Сразу пишем errorReason в gen чтобы юзер видел причину в дашборде
+            storage.updateGeneration(gen.id, { status: "error", errorReason: data.userMessage });
             // Возврат средств при ошибке генерации (атомарно — claim-once)
             if (gen.cost > 0) {
               if (storage.refundGeneration({ genId: gen.id, userId: gen.userId, cost: gen.cost, type: "music", description: `Возврат: ошибка генерации #${gen.id}` })) {
@@ -2482,8 +2487,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
               storage.createTransaction({ userId: gen.userId, type: "music", amount: 0, description: `🎁 Возврат подарочного трека: ошибка #${gen.id}` });
               console.log(`[REFUND] Bonus track Music #${gen.id}`);
             }
-            // Сохраняем расшифрованную причину для UI
-            try { storage.updateGeneration(gen.id, { errorReason: data.userMessage }); } catch {}
+            // errorReason уже сохранён выше в одном вызове — больше не дублируем
           }
         }
       }
@@ -2591,7 +2595,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       }
 
       if (!data || !data.id || data.status === "failed") {
-        storage.updateGeneration(gen.id, { status: "error" });
+        storage.updateGeneration(gen.id, { status: "error", errorReason: "Режим Кавер сейчас недоступен. Баланс возвращён, попробуйте через пару минут." });
         if (!charge.isFree) {
           storage.refundGeneration({ genId: gen.id, userId, cost: gen.cost || 9900, type: "music", description: `Возврат: режим Кавер недоступен #${gen.id}` });
         }
@@ -2725,7 +2729,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       }
 
       if (!data || !data.id || data.status === "failed") {
-        storage.updateGeneration(gen.id, { status: "error" });
+        storage.updateGeneration(gen.id, { status: "error", errorReason: "Режим Продление сейчас недоступен. Баланс возвращён, попробуйте через пару минут." });
         if (!charge.isFree) {
           storage.refundGeneration({ genId: gen.id, userId, cost: gen.cost || 9900, type: "music", description: `Возврат: режим Продление недоступен #${gen.id}` });
         }
@@ -2789,7 +2793,8 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       const data = await resp.json();
 
       if (!resp.ok) {
-        storage.updateGeneration(gen.id, { status: "error" });
+        const apiErrText = data.error?.message || data.message || `HTTP ${resp.status}`;
+        storage.updateGeneration(gen.id, { status: "error", errorReason: `Не удалось создать обложку: ${apiErrText}. Баланс возвращён.` });
         storage.refundGeneration({ genId: gen.id, userId, cost: gen.cost || 9900, type: "cover", description: `Возврат: ошибка генерации #${gen.id}` });
         res.status(500).json({ message: data.error?.message || "Ошибка API" });
         return;
@@ -4233,7 +4238,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
           }
         }
 
-        const reason = "Превышен лимит ожидания (30 мин). MuziAi не завершил. Баланс возвращён.";
+        const reason = "MuziAi думала больше 30 минут — иногда такое бывает. Баланс восстановлен, можно попробовать ещё раз.";
         storage.updateGeneration(gen.id, { status: "error", errorReason: reason });
         try {
           if ((gen.cost || 0) > 0) {

@@ -980,7 +980,7 @@ async function pollProcessingGenerations(): Promise<{ scanned: number; done: num
     // Suno не вернул done И > 30 мин → честный timeout (теперь только если
     // Suno сам ничего не дал, и время вышло)
     if (!recovered && row.createdAt < cutoff) {
-      db.run(sql`UPDATE generations SET status='error', error_reason='MuziAi timeout > 30 min — баланс возвращён'
+      db.run(sql`UPDATE generations SET status='error', error_reason='MuziAi думала больше 30 минут — иногда такое бывает. Баланс восстановлен, можно попробовать ещё раз.'
                  WHERE id=${row.id}`);
       failed += 1;
     }

@@ -451,10 +451,9 @@ export default function MusicPage() {
           setShowLongWait(false);
           stopBgMusic();
           toast({
-            title: "Ожидание прервано",
-            description: "Прошло 30 мин, треки появятся в дашборде когда Suno завершит. Баланс возвращён если генерация не удалась.",
-            variant: "destructive",
-            duration: 12000,
+            title: "Трек ещё готовится 🎵",
+            description: "Прошло 30 мин — давайте посмотрим в дашборде. Когда MuziAi закончит, трек появится сам. Баланс в безопасности.",
+            duration: 10000,
           });
           await refreshUser();
           return;

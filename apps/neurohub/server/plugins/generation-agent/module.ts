@@ -274,10 +274,48 @@ router.post("/refund-orphans", requireAdmin, async (_req, res) => {
   res.json({ data: { scanned: n, refunded: STATS.refunded, refundedKopeks: STATS.refundedKopeks }, error: null });
 });
 
+// GET /api/admin/v304/gen-agent/lifecycle-stats — Eugene 2026-05-08: единая
+// сводка по всему pipeline'у генерации. Показывает: текущие в processing,
+// ошибки за 24h, рефанды за 24h, recovered (auto-recovery), bonus tracks.
+router.get("/lifecycle-stats", requireAdmin, async (_req, res) => {
+  const processing = db.get<{ c: number }>(sql`SELECT count(*) as c FROM generations WHERE status='processing' AND type='music'`)?.c ?? 0;
+  const oldestProcessing = db.get<{ created_at: string }>(sql`SELECT created_at FROM generations WHERE status='processing' AND type='music' ORDER BY created_at LIMIT 1`);
+  const done24h = db.get<{ c: number }>(sql`SELECT count(*) as c FROM generations WHERE status='done' AND type='music' AND created_at > datetime('now', '-24 hours')`)?.c ?? 0;
+  const errors24h = db.get<{ c: number }>(sql`SELECT count(*) as c FROM generations WHERE status='error' AND type='music' AND created_at > datetime('now', '-24 hours')`)?.c ?? 0;
+  const refunded24h = db.get<{ c: number }>(sql`SELECT count(*) as c FROM transactions WHERE type='music' AND amount > 0 AND description LIKE 'Возврат%' AND created_at > datetime('now', '-24 hours')`)?.c ?? 0;
+  const recovered24h = db.get<{ c: number }>(sql`SELECT count(*) as c FROM generations WHERE status='done' AND json_extract(style, '$.recoveredAfterTimeout') = json('true') AND created_at > datetime('now', '-24 hours')`)?.c ?? 0;
+  const bonus24h = db.get<{ c: number }>(sql`SELECT count(*) as c FROM generations WHERE status='done' AND cost = 0 AND type='music' AND created_at > datetime('now', '-24 hours')`)?.c ?? 0;
+  const success_rate = (done24h + errors24h) > 0 ? ((done24h / (done24h + errors24h)) * 100).toFixed(1) : null;
+
+  res.json({
+    data: {
+      processing,
+      oldestProcessingAt: oldestProcessing?.created_at ?? null,
+      last24h: {
+        done: done24h,
+        errors: errors24h,
+        refunded: refunded24h,
+        recovered: recovered24h,
+        bonusTracks: bonus24h,
+        successRate: success_rate,
+      },
+      agentStats: STATS,
+      crons: [
+        { name: "admin-overview.anthem-poller", purpose: "poll Suno → done/error" },
+        { name: "generation-agent.refund-orphans", purpose: "refund errored without refund" },
+        { name: "generation-agent.auto-retry-transient", purpose: "retry transient errors" },
+        { name: "admin-overview.cleanup-v2", purpose: "soft-delete битых v2-бонусов" },
+        { name: "suno-watchdog.balance-poll", purpose: "balance + circuit breaker" },
+      ],
+    },
+    error: null,
+  });
+});
+
 const generationAgentModule: Module = {
   name: "generation-agent",
   version: "0.1.0",
-  description: "Центральный observer генераций: refund-страховка + статистика + классификация ошибок.",
+  description: "Контролёр всего lifecycle gen: refund-страховка + auto-retry transient + классификация ошибок + lifecycle-stats. Координирует с admin-overview poll и suno-watchdog circuit.",
   routes: { prefix: "admin/v304/gen-agent", router },
   publishes: ["gen.refunded", "gen.completed"],
   jobs: [
