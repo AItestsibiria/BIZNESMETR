@@ -494,10 +494,9 @@ if (!token && !isStaging) {
   document.getElementById("status").innerHTML = '<span class="err">Не залогинен.</span> Открой <a href="/#/login">/#/login</a> и вернись сюда.';
   document.getElementById("btnGet").disabled = true;
   document.getElementById("btnPost").disabled = true;
-} else if (!token && isStaging) {
-  // POST стоит 18₽ — не разрешаем без admin token
-  document.getElementById("btnPost").style.display = "none";
 }
+// На staging: показываем все кнопки даже без token
+// (бэкенд разрешает hostname=clone.muziai.ru без admin auth)
 
 async function run(includeTest) {
   const status = document.getElementById("status");
@@ -1100,7 +1099,19 @@ router.get("/system-test", async (req, res) => {
   res.json({ data: report, error: null });
 });
 
-router.post("/system-test", requireAdmin, async (_req, res) => {
+router.post("/system-test", async (req, res) => {
+  // На clone.muziai.ru live-test без логина (Eugene 2026-05-08 «Live опцию используй»).
+  // На prod-доменах — admin Bearer обязателен. После теста этот bypass удаляем.
+  if (!isCloneStaging(req)) {
+    const t = (req.headers.authorization || "").toString().replace(/^Bearer\s+/, "") || (req.query as any).token;
+    if (!t) { res.status(401).json({ data: null, error: "unauthorized" }); return; }
+    try {
+      const sess = db.get<{ userId: number }>(sql`SELECT user_id as userId FROM sessions WHERE token = ${t}`);
+      if (!sess?.userId) { res.status(401).json({ data: null, error: "unauthorized" }); return; }
+      const u = db.select().from(users).where(eq(users.id, sess.userId)).get();
+      if (!u || u.role !== "admin") { res.status(403).json({ data: null, error: "forbidden" }); return; }
+    } catch { res.status(401).json({ data: null, error: "unauthorized" }); return; }
+  }
   const report = await runSystemTest(true);
   res.json({ data: report, error: null });
 });
@@ -1129,7 +1140,18 @@ router.get("/full-diagnose", async (req, res) => {
 });
 
 // POST — то же + реальный test-запрос на /media/create (~18₽)
-router.post("/full-diagnose", requireAdmin, async (_req, res) => {
+// Eugene 2026-05-08 «Live опцию используй» — на clone без логина для одной проверки.
+router.post("/full-diagnose", async (req, res) => {
+  if (!isCloneStaging(req)) {
+    const t = (req.headers.authorization || "").toString().replace(/^Bearer\s+/, "") || (req.query as any).token;
+    if (!t) { res.status(401).json({ data: null, error: "unauthorized" }); return; }
+    try {
+      const sess = db.get<{ userId: number }>(sql`SELECT user_id as userId FROM sessions WHERE token = ${t}`);
+      if (!sess?.userId) { res.status(401).json({ data: null, error: "unauthorized" }); return; }
+      const u = db.select().from(users).where(eq(users.id, sess.userId)).get();
+      if (!u || u.role !== "admin") { res.status(403).json({ data: null, error: "forbidden" }); return; }
+    } catch { res.status(401).json({ data: null, error: "unauthorized" }); return; }
+  }
   const report = await runFullDiagnose(true);
   res.json({ data: report, error: null });
 });
