@@ -473,10 +473,12 @@ router.get("/page", (_req, res) => {
   <div id="status" class="big">Загружаю…</div>
   <div style="margin-top:12px">
     <button id="btnGet" onclick="run(false)">🔄 Обновить (бесплатно)</button>
-    <button id="btnPost" onclick="run(true)">🎵 Полный тест (~18₽)</button>
+    <button id="btnSys" onclick="runSystem(false)">🧪 Системный тест ключа (бесплатно)</button>
+    <button id="btnPost" onclick="run(true)">🎵 Полный тест с Suno (~18₽)</button>
   </div>
 </div>
 
+<div id="systemTest"></div>
 <div id="summary"></div>
 
 <div class="panel">
@@ -600,7 +602,72 @@ function render(d) {
   document.getElementById("raw").textContent = JSON.stringify(d, null, 2);
 }
 
-if (token) run(false);
+async function runSystem(includeLive) {
+  const status = document.getElementById("status");
+  status.textContent = includeLive ? "Системный тест с live Suno…" : "Прогоняю системные probe'ы…";
+  document.getElementById("btnGet").disabled = true;
+  document.getElementById("btnSys").disabled = true;
+  document.getElementById("btnPost").disabled = true;
+  try {
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = "Bearer " + token;
+    const r = await fetch("/api/admin/v304/suno-watchdog/system-test", {
+      method: includeLive ? "POST" : "GET",
+      headers,
+    });
+    const j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || "HTTP " + r.status);
+    renderSystem(j.data);
+  } catch (e) {
+    status.innerHTML = '<span class="err">Ошибка: ' + (e.message || e) + '</span>';
+  } finally {
+    document.getElementById("btnGet").disabled = false;
+    document.getElementById("btnSys").disabled = false;
+    document.getElementById("btnPost").disabled = false;
+  }
+}
+
+function renderSystem(d) {
+  const sumCls = d.summary.criticalFails > 0 ? "err" : d.summary.failed > 0 ? "warn" : "ok";
+  document.getElementById("status").innerHTML =
+    '<span class="' + sumCls + '">● Системный тест: ' + d.summary.passed + '/' + d.summary.total +
+    ' прошли</span>' + (d.summary.criticalFails > 0 ? ' <span class="err">(' + d.summary.criticalFails + ' критичных)</span>' : '');
+
+  let html = '<div class="panel"><div class="label">API key</div>' +
+             '<div class="big">' + (d.apiKey?.prefix || "?") + ' (' + (d.apiKey?.length || "?") + ' chars)</div></div>';
+
+  // Latency
+  if (d.latency?.p50 != null) {
+    html += '<div class="panel"><div class="label">Латентность с VPS clone → gptunnel.ru</div>';
+    html += '<div class="row">';
+    html += '<div><div class="label">p50</div><div class="big">' + d.latency.p50 + ' мс</div></div>';
+    html += '<div><div class="label">p95</div><div class="big">' + d.latency.p95 + ' мс</div></div>';
+    html += '<div><div class="label">max</div><div class="big">' + d.latency.max + ' мс</div></div>';
+    html += '</div>';
+    html += '<div style="margin-top:8px;color:#9ca3af;font-size:12px">Samples: [' + d.latency.samples.join(", ") + ']</div>';
+    html += '</div>';
+  }
+
+  // Tests table
+  html += '<div class="panel"><div class="label">Probes (' + d.tests.length + ')</div>';
+  html += '<table style="width:100%;border-collapse:collapse;font-size:13px">';
+  html += '<tr style="text-align:left;color:#9ca3af"><th style="padding:6px 4px">Тест</th><th style="padding:6px 4px">HTTP</th><th style="padding:6px 4px">мс</th><th style="padding:6px 4px">Детали</th></tr>';
+  d.tests.forEach(function(t) {
+    const cls = t.ok ? "ok" : "err";
+    const mark = t.ok ? "✅" : "❌";
+    html += '<tr style="border-top:1px solid #2a2a4a"><td style="padding:6px 4px"><b>' + t.name + '</b></td>' +
+            '<td style="padding:6px 4px"><span class="' + cls + '">' + mark + ' ' + (t.status ?? "—") + '</span></td>' +
+            '<td style="padding:6px 4px">' + (t.ms ?? "—") + '</td>' +
+            '<td style="padding:6px 4px">' + (t.detail || "") + '</td></tr>';
+  });
+  html += '</table></div>';
+
+  document.getElementById("systemTest").innerHTML = html;
+  document.getElementById("summary").innerHTML = "";
+  document.getElementById("raw").textContent = JSON.stringify(d, null, 2);
+}
+
+if (token || isStaging) run(false);
 </script>
 </body></html>`);
 });
@@ -831,6 +898,212 @@ async function runFullDiagnose(includeTestRequest: boolean) {
 
   return report;
 }
+
+// ============== SYSTEM TEST (comprehensive API-key audit) ==============
+// Eugene 2026-05-08: «СДЕЛАЙ системно ВСЕ ТЕСТЫ НА API KEY от VPS Clone».
+// Прогоняет 10+ probe'ов на gptunnel.ru с VPS clone, выявляет ВСЕ способы
+// сбоя ключа: auth-формат, scope, schema-валидация на каждую Suno-модель,
+// network latency, concurrent rate-limit, /media/result поведение.
+
+interface ProbeResult {
+  name: string;
+  ok: boolean;
+  ms: number | null;
+  status: number | null;
+  detail: string;
+  body?: any;
+}
+
+async function probeFetch(opts: {
+  name: string; url: string; method?: string; headers: Record<string, string>;
+  body?: any; timeoutMs?: number; expectOkPredicate?: (status: number, body: any) => boolean;
+}): Promise<ProbeResult> {
+  const t0 = Date.now();
+  try {
+    const r = await fetch(opts.url, {
+      method: opts.method || "GET",
+      headers: opts.headers,
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+      signal: AbortSignal.timeout(opts.timeoutMs || 10_000),
+    });
+    const ms = Date.now() - t0;
+    const text = await r.text();
+    let body: any;
+    try { body = JSON.parse(text); } catch { body = { raw: text.slice(0, 300) }; }
+    const okFn = opts.expectOkPredicate || ((st) => st < 400);
+    const ok = okFn(r.status, body);
+    return {
+      name: opts.name,
+      ok,
+      ms,
+      status: r.status,
+      detail: ok ? `OK · code=${body?.code ?? "?"}` : `code=${body?.code ?? "?"} · ${(body?.message || body?.error || "fail").toString().slice(0, 100)}`,
+      body,
+    };
+  } catch (e) {
+    return {
+      name: opts.name,
+      ok: false,
+      ms: Date.now() - t0,
+      status: null,
+      detail: `network: ${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
+}
+
+async function runSystemTest(includeLive: boolean) {
+  const apiKey = process.env.GPTUNNEL_API_KEY;
+  const report: any = {
+    timestamp: new Date().toISOString(),
+    apiKey: apiKey ? { present: true, length: apiKey.length, prefix: apiKey.slice(0, 4) + "…" + apiKey.slice(-4) } : { present: false },
+    tests: [] as ProbeResult[],
+    latency: { samples: [] as number[], p50: null, p95: null, max: null },
+    summary: { total: 0, passed: 0, failed: 0, criticalFails: 0 },
+  };
+
+  if (!apiKey) {
+    report.tests.push({ name: "api_key_present", ok: false, ms: 0, status: null, detail: "GPTUNNEL_API_KEY env пуст" });
+    return report;
+  }
+
+  // GPTunnel считает 200 + code=0 успехом, 200 + code=3 — валидационной ошибкой
+  // (но это значит auth/proxy в порядке). 401/403 = ключ невалиден.
+  const proxyHealthy = (st: number, body: any) =>
+    (st === 200 || st === 400 || st === 422) && (body?.code === 0 || body?.code === 3 || body?.id || body?.balance !== undefined || body?.issues);
+
+  // === Группа A: Auth-формат ===
+  report.tests.push(await probeFetch({
+    name: "auth_bare_key",
+    url: "https://gptunnel.ru/v1/balance",
+    headers: { Authorization: apiKey },
+    expectOkPredicate: (st) => st === 200,
+  }));
+  report.tests.push(await probeFetch({
+    name: "auth_bearer_prefix",
+    url: "https://gptunnel.ru/v1/balance",
+    headers: { Authorization: `Bearer ${apiKey}` },
+    expectOkPredicate: (st) => st === 200,
+  }));
+  report.tests.push(await probeFetch({
+    name: "auth_x_api_key",
+    url: "https://gptunnel.ru/v1/balance",
+    headers: { "X-API-Key": apiKey },
+    expectOkPredicate: (st) => st === 200,
+  }));
+
+  // === Группа B: Балансовая инфа ===
+  report.tests.push(await probeFetch({
+    name: "balance_v1",
+    url: "https://gptunnel.ru/v1/balance",
+    headers: { Authorization: apiKey },
+    expectOkPredicate: (st, b) => st === 200 && typeof b?.balance === "number",
+  }));
+
+  // === Группа C: /media/create probe — auth scope + schema discovery ===
+  report.tests.push(await probeFetch({
+    name: "media_create_empty",
+    url: "https://gptunnel.ru/v1/media/create",
+    method: "POST",
+    headers: { Authorization: apiKey, "Content-Type": "application/json" },
+    body: {},
+    expectOkPredicate: proxyHealthy,
+  }));
+
+  // === Группа D: Schema каждой Suno-модели ===
+  for (const model of ["suno", "suno-cover", "suno-edit", "suno-extend"]) {
+    report.tests.push(await probeFetch({
+      name: `schema_${model}`,
+      url: "https://gptunnel.ru/v1/media/create",
+      method: "POST",
+      headers: { Authorization: apiKey, "Content-Type": "application/json" },
+      body: { model },
+      expectOkPredicate: proxyHealthy,
+    }));
+  }
+
+  // === Группа E: /media/result с bogus task_id ===
+  report.tests.push(await probeFetch({
+    name: "media_result_bogus",
+    url: "https://gptunnel.ru/v1/media/result",
+    method: "POST",
+    headers: { Authorization: apiKey, "Content-Type": "application/json" },
+    body: { task_id: "bogus-test-id-watchdog" },
+    expectOkPredicate: (st, b) => st < 500 && (b?.code !== undefined || b?.message !== undefined),
+  }));
+
+  // === Группа F: Latency (5 быстрых пингов на /v1/balance) ===
+  for (let i = 0; i < 5; i++) {
+    const t0 = Date.now();
+    try {
+      await fetch("https://gptunnel.ru/v1/balance", {
+        headers: { Authorization: apiKey },
+        signal: AbortSignal.timeout(5000),
+      });
+      report.latency.samples.push(Date.now() - t0);
+    } catch {
+      report.latency.samples.push(-1);
+    }
+  }
+  const valid = report.latency.samples.filter((x: number) => x > 0).sort((a: number, b: number) => a - b);
+  if (valid.length > 0) {
+    report.latency.p50 = valid[Math.floor(valid.length / 2)];
+    report.latency.p95 = valid[Math.floor(valid.length * 0.95)] ?? valid[valid.length - 1];
+    report.latency.max = valid[valid.length - 1];
+  }
+
+  // === Группа G: Concurrent rate-limit probe (3 параллельных balance) ===
+  const concurrentT0 = Date.now();
+  const concurrent = await Promise.all([1, 2, 3].map(() => fetch("https://gptunnel.ru/v1/balance", {
+    headers: { Authorization: apiKey },
+    signal: AbortSignal.timeout(5000),
+  }).then(r => r.status).catch(() => -1)));
+  const concurrentOk = concurrent.filter(s => s === 200).length;
+  report.tests.push({
+    name: "concurrent_3x",
+    ok: concurrentOk === 3,
+    ms: Date.now() - concurrentT0,
+    status: concurrent.find(s => s !== 200) ?? 200,
+    detail: `${concurrentOk}/3 вернули 200, ответы: [${concurrent.join(", ")}]`,
+  });
+
+  // === Группа H: Live test (только includeLive=true, ~18₽) ===
+  if (includeLive) {
+    report.tests.push(await probeFetch({
+      name: "live_suno_minimal",
+      url: "https://gptunnel.ru/v1/media/create",
+      method: "POST",
+      headers: { Authorization: apiKey, "Content-Type": "application/json" },
+      body: { model: "suno", prompt: "Тест короткая весёлая песня на русском" },
+      timeoutMs: 30_000,
+      expectOkPredicate: (st, b) => st === 200 && b?.code === 0 && !!b?.id,
+    }));
+  }
+
+  // === Сводка ===
+  report.summary.total = report.tests.length;
+  report.summary.passed = report.tests.filter((t: ProbeResult) => t.ok).length;
+  report.summary.failed = report.tests.filter((t: ProbeResult) => !t.ok).length;
+  // Критичные = balance_v1, auth_bare_key, media_create_empty
+  report.summary.criticalFails = report.tests.filter((t: ProbeResult) =>
+    !t.ok && ["auth_bare_key", "balance_v1", "media_create_empty"].includes(t.name)
+  ).length;
+
+  return report;
+}
+
+router.get("/system-test", async (req, res) => {
+  if (!isCloneStaging(req)) {
+    res.status(403).json({ data: null, error: "staging only" });
+    return;
+  }
+  const report = await runSystemTest(false);
+  res.json({ data: report, error: null });
+});
+
+router.post("/system-test", requireAdmin, async (_req, res) => {
+  const report = await runSystemTest(true);
+  res.json({ data: report, error: null });
+});
 
 // GET — на staging-инстансе (clone.muziai.ru) разрешён без логина.
 // Eugene 2026-05-08: «не хочу логиниться, дай simpler». На prod-доменах
