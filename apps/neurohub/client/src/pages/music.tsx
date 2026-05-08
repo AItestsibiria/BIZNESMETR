@@ -392,56 +392,80 @@ export default function MusicPage() {
     // /api/music/generate (тот же endpoint что Текст·Расширенный).
     // ТЗ Eugene 13:53 «реши кардинально» — без отдельного audio-cover.
     if (mode === "audio") {
+      // ТЗ Eugene 14:39 «возьми из text-mode и поставь в audio».
+      // Точная копия рабочего text-mode pipeline: тот же loop, тот же body.
       const finalLyrics = audioLyrics.trim();
       if (!finalLyrics || finalLyrics.length < 50) {
         toast({ title: "Текст слишком короткий", description: "Нужно минимум 50 символов lyrics. Запиши голос ещё раз или дополни вручную.", variant: "destructive" });
         return;
       }
-      try {
-        setLoading(true);
-        startBgMusic();
-        // Style: из user-stylePrompt или авто-suggestion от LLM
-        const finalStyle = (audioMode === "advanced" && stylePrompt.trim())
-          ? stylePrompt.trim()
-          : (audioSuggestion?.genre || "pop");
-        // Body — точный pattern Текст·Расширенный (lyrics path), reuse-working-rule
-        const body: any = {
-          style: finalStyle,
-          category: "song",
-          lyrics: finalLyrics,
-          instrumental,
-          isDuet,
-          voiceType: instrumental ? "instrumental" : isDuet ? "duet" : voice,
-          authorName: authorName.trim(),
-          isPublic: !isPrivate,
-        };
-        if (!instrumental && !isDuet) body.voice = voice;
-        if (audioSuggestion?.title || title) body.title = audioSuggestion?.title || title;
-        console.log("[AUDIO-FLOW] step 3/3: generate", body);
-        const res = await apiRequest("POST", "/api/music/generate", body);
-        const data = await res.json();
-        console.log("[AUDIO-FLOW] generate response", data);
-        if (data?.id) {
-          toast({ title: "🎵 Песня запущена", description: `gen #${data.id} — открываю.` });
-          setTimeout(() => navigate(`/track/${data.id}`), 800);
-        } else {
-          throw new Error(data?.message || data?.error || JSON.stringify(data));
-        }
-      } catch (err: any) {
-        const msg = err?.message || "ошибка";
-        let detail = msg;
+      // Для audio используем selectedStyles если есть, иначе суггестию LLM, иначе pop
+      const audioStyles = audioMode === "advanced" && selectedStyles.length > 0
+        ? selectedStyles
+        : [stylePrompt.trim() || audioSuggestion?.genre || "pop"];
+      setLoading(true);
+      startBgMusic();
+      setResultUrl(null);
+      let lastIdAudio: number | null = null;
+      let errorCountAudio = 0;
+      let lastErrorAudio = "";
+      for (let i = 0; i < audioStyles.length; i++) {
+        const s = audioStyles[i];
         try {
-          const m = msg.match(/^\d+:\s*(.+)$/);
-          if (m) {
-            const parsed = JSON.parse(m[1]);
-            detail = parsed.message || parsed.error || m[1];
+          // Тот же fullStyle-enrichment как у text-mode (Eugene 14:39)
+          let fullStyle = s;
+          if (tempo) fullStyle += `, ${tempo} tempo`;
+          if (isDuet) fullStyle += `, male and female duet, duet vocals`;
+          if (mood) fullStyle += `, ${mood.toLowerCase()} mood`;
+          if (bpm) fullStyle += `, ${bpm} BPM`;
+          if (stylePrompt.trim() && audioMode === "advanced" && !s.includes(stylePrompt.trim())) {
+            fullStyle += `, ${stylePrompt.trim()}`;
           }
-        } catch {}
-        // Полная ошибка в console — Eugene снимет F12
-        console.error("[AUDIO-FLOW] generate failed:", msg);
-        toast({ title: "Не удалось создать песню", description: detail.slice(0, 300), variant: "destructive", duration: 10000 });
-      } finally {
-        setLoading(false);
+          const body: any = { category: "song" };
+          if (fullStyle) body.style = fullStyle;
+          body.lyrics = finalLyrics;
+          if (audioSuggestion?.title || title) body.title = audioSuggestion?.title || title;
+          body.instrumental = instrumental;
+          body.isDuet = isDuet;
+          body.voiceType = instrumental ? "instrumental" : isDuet ? "duet" : voice;
+          if (!instrumental && !isDuet) body.voice = voice;
+          body.authorName = authorName.trim();
+          body.isPublic = !isPrivate;
+          console.log("[AUDIO-FLOW] step 3/3 generate body:", body);
+
+          const res = await apiRequest("POST", "/api/music/generate", body);
+          const data = await res.json();
+          console.log("[AUDIO-FLOW] generate response:", data);
+          if (data?.id) lastIdAudio = data.id;
+          if (!data?.taskId) errorCountAudio++;
+        } catch (err: any) {
+          errorCountAudio++;
+          let serverMsg = "";
+          try {
+            const m = err.message?.match(/^\d+:\s*(.+)$/);
+            if (m) {
+              const parsed = JSON.parse(m[1]);
+              serverMsg = parsed.message || parsed.error || "";
+            }
+          } catch {}
+          if (err.message?.includes("402")) {
+            toast({ title: "Недостаточно средств", description: serverMsg || `Запустилось ${i} из ${audioStyles.length}.`, variant: "destructive" });
+            break;
+          }
+          if (serverMsg) lastErrorAudio = serverMsg;
+        }
+      }
+      setLoading(false);
+      if (lastIdAudio) {
+        toast({ title: "🎵 Песня запущена", description: `gen #${lastIdAudio} — открываю.` });
+        setTimeout(() => navigate(`/track/${lastIdAudio}`), 800);
+      } else {
+        toast({
+          title: "Не удалось создать песню",
+          description: lastErrorAudio || "Сервер не вернул taskId. Проверь логи в /admin/v304.",
+          variant: "destructive",
+          duration: 10000,
+        });
       }
       return;
     }
