@@ -295,11 +295,24 @@ async function pollBalance(): Promise<void> {
 }
 
 function scanGenerationErrorRate(): void {
+  // Eugene 2026-05-08: считаем ТОЛЬКО Suno-системные ошибки.
+  // Исключаем:
+  //   - moderation (code 1001 / sensitive / 'модерац') — это user content
+  //   - auto-recovered (style.recoveredAfterTimeout=true) — статус 'done',
+  //     уже не error
+  // Иначе watchdog ложно срабатывает на user-input проблемах.
+  const errorFilter = sql`
+    AND (error_reason IS NULL
+         OR (error_reason NOT LIKE '%модерац%'
+             AND error_reason NOT LIKE '%сенситив%'
+             AND error_reason NOT LIKE '%sensitive%'
+             AND error_reason NOT LIKE '%1001%'))
+  `;
   // Берём gens за последние 5/15/60 мин и считаем error-rate
   const r5: any = db.get(sql`
     SELECT
       COUNT(*) AS total,
-      SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS errors
+      SUM(CASE WHEN status = 'error' ${errorFilter} THEN 1 ELSE 0 END) AS errors
     FROM generations
     WHERE created_at > datetime('now', '-5 minutes')
       AND type = 'music'
@@ -307,7 +320,7 @@ function scanGenerationErrorRate(): void {
   const r15: any = db.get(sql`
     SELECT
       COUNT(*) AS total,
-      SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS errors
+      SUM(CASE WHEN status = 'error' ${errorFilter} THEN 1 ELSE 0 END) AS errors
     FROM generations
     WHERE created_at > datetime('now', '-15 minutes')
       AND type = 'music'
@@ -315,7 +328,7 @@ function scanGenerationErrorRate(): void {
   const r60: any = db.get(sql`
     SELECT
       COUNT(*) AS total,
-      SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS errors
+      SUM(CASE WHEN status = 'error' ${errorFilter} THEN 1 ELSE 0 END) AS errors
     FROM generations
     WHERE created_at > datetime('now', '-60 minutes')
       AND type = 'music'
