@@ -36,7 +36,7 @@ const ERROR_RATE_5M_MIN_VOLUME = 3;    // минимум 3 gen чтобы дел
 const ERROR_RATE_60M_THRESHOLD = 0.7;  // 70% за час при volume>=5 = down
 const ERROR_RATE_60M_MIN_VOLUME = 5;
 const DEDUPE_MINUTES = 30;             // не повторять алёрт раньше 30 мин
-const PING_TIMEOUT_MS = 10_000;
+const PING_TIMEOUT_MS = 5_000;
 
 interface WatchdogState {
   status: "up" | "low_balance" | "down" | "unknown";
@@ -442,12 +442,12 @@ router.post("/reset-circuit", requireAdmin, (_req, res) => {
   res.json({ data: { wasOpen, nowOpen: false }, error: null });
 });
 
-// Self-contained HTML страница — Eugene 2026-05-08: «дай ссылку которая
-// просто работает в браузере». Страница читает localStorage.token (его
-// браузер сохраняет после логина) и шлёт его как Bearer на /full-diagnose.
-// PUBLIC: HTML без секретов; защищена сама диагностика requireAdmin'ом.
 router.get("/page", (_req, res) => {
   res.setHeader("Content-Type", "text/html; charset=utf-8");
+  // Cache-busting — на каждый visit свежая HTML, никакого "Загружаю..." из кеша
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
   res.send(`<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Suno Watchdog · Диагностика</title>
@@ -498,23 +498,29 @@ if (!token && !isStaging) {
 // На staging: показываем все кнопки даже без token
 // (бэкенд разрешает hostname=clone.muziai.ru без admin auth)
 
+async function fetchWithTimeout(url, opts, ms) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  try { return await fetch(url, Object.assign({}, opts, { signal: ctrl.signal })); }
+  finally { clearTimeout(t); }
+}
+
 async function run(includeTest) {
   const status = document.getElementById("status");
-  status.textContent = includeTest ? "Делаю реальный запрос на Suno…" : "Опрашиваю watchdog…";
+  status.textContent = includeTest ? "Делаю реальный запрос на Suno (до 30 сек)…" : "Опрашиваю watchdog (до 15 сек)…";
   document.getElementById("btnGet").disabled = true;
   document.getElementById("btnPost").disabled = true;
   try {
     const headers = { "Content-Type": "application/json" };
     if (token) headers["Authorization"] = "Bearer " + token;
-    const r = await fetch("/api/admin/v304/suno-watchdog/full-diagnose", {
-      method: includeTest ? "POST" : "GET",
-      headers,
-    });
+    const r = await fetchWithTimeout("/api/admin/v304/suno-watchdog/full-diagnose",
+      { method: includeTest ? "POST" : "GET", headers }, includeTest ? 35000 : 20000);
     const j = await r.json();
     if (!r.ok || j.error) { throw new Error(j.error || "HTTP " + r.status); }
     render(j.data);
   } catch (e) {
-    status.innerHTML = '<span class="err">Ошибка: ' + (e.message || e) + '</span>';
+    const msg = e?.name === "AbortError" ? "Server timeout (>15s) — GPTunnel либо тормозит, либо упал" : (e.message || e);
+    status.innerHTML = '<span class="err">Ошибка: ' + msg + '</span>';
   } finally {
     document.getElementById("btnGet").disabled = false;
     document.getElementById("btnPost").disabled = false;
@@ -603,22 +609,21 @@ function render(d) {
 
 async function runSystem(includeLive) {
   const status = document.getElementById("status");
-  status.textContent = includeLive ? "Системный тест с live Suno…" : "Прогоняю системные probe'ы…";
+  status.textContent = includeLive ? "Системный тест с live Suno (до 60 сек)…" : "Прогоняю 12 probe'ов (до 30 сек)…";
   document.getElementById("btnGet").disabled = true;
   document.getElementById("btnSys").disabled = true;
   document.getElementById("btnPost").disabled = true;
   try {
     const headers = { "Content-Type": "application/json" };
     if (token) headers["Authorization"] = "Bearer " + token;
-    const r = await fetch("/api/admin/v304/suno-watchdog/system-test", {
-      method: includeLive ? "POST" : "GET",
-      headers,
-    });
+    const r = await fetchWithTimeout("/api/admin/v304/suno-watchdog/system-test",
+      { method: includeLive ? "POST" : "GET", headers }, includeLive ? 65000 : 35000);
     const j = await r.json();
     if (!r.ok || j.error) throw new Error(j.error || "HTTP " + r.status);
     renderSystem(j.data);
   } catch (e) {
-    status.innerHTML = '<span class="err">Ошибка: ' + (e.message || e) + '</span>';
+    const msg = e?.name === "AbortError" ? "Server timeout — GPTunnel или сервер тормозит" : (e.message || e);
+    status.innerHTML = '<span class="err">Ошибка: ' + msg + '</span>';
   } finally {
     document.getElementById("btnGet").disabled = false;
     document.getElementById("btnSys").disabled = false;
@@ -715,7 +720,7 @@ async function runFullDiagnose(includeTestRequest: boolean) {
     try {
       const r = await fetch("https://gptunnel.ru/v1/balance", {
         headers: { Authorization: apiKey },
-        signal: AbortSignal.timeout(10_000),
+        signal: AbortSignal.timeout(5_000),
       });
       report.balance.ms = Date.now() - t0;
       report.balance.status = r.status;
@@ -751,7 +756,7 @@ async function runFullDiagnose(includeTestRequest: boolean) {
         method: "POST",
         headers: { Authorization: apiKey, "Content-Type": "application/json" },
         body: JSON.stringify({}),
-        signal: AbortSignal.timeout(15_000),
+        signal: AbortSignal.timeout(5_000),
       });
       report.keyScope.mediaCreate.ms = Date.now() - t0;
       report.keyScope.mediaCreate.status = r.status;
@@ -791,7 +796,7 @@ async function runFullDiagnose(includeTestRequest: boolean) {
           method: "POST",
           headers: { Authorization: apiKey, "Content-Type": "application/json" },
           body: JSON.stringify({ model: "suno" }),
-          signal: AbortSignal.timeout(15_000),
+          signal: AbortSignal.timeout(5_000),
         });
         const text2 = await r2.text();
         let body2: any;
