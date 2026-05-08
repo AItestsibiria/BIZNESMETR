@@ -173,18 +173,24 @@ async function autoRetryTransient() {
       continue;
     }
 
+    // Eugene 2026-05-08 АК-аудит: воспроизводим ОРИГИНАЛЬНЫЙ payload.
+    // Раньше угадывали mode по длине g.prompt — длинный rawPrompt (>50ch)
+    // ошибочно интерпретировался как lyric → Suno возвращал 400 «invalid lyric».
+    // Теперь /api/music/generate сохраняет mode/lyric/basicPrompt в style JSON.
     const styleStr = meta.style || "";
     const title = meta.title || "Песня";
-    const lyric = g.prompt || "";
+    const originalMode = meta.mode || "basic";
     const sunoBody: any = { model: "suno" };
-    if (lyric.length >= 50) {
+    if (originalMode === "custom" && meta.lyric) {
       sunoBody.mode = "custom";
-      sunoBody.lyric = lyric.slice(0, 3000);
+      sunoBody.lyric = String(meta.lyric).slice(0, 3000);
       sunoBody.title = String(title).slice(0, 80);
-      if (styleStr) sunoBody.tags = String(styleStr).slice(0, 200);
+      if (meta.tags || styleStr) sunoBody.tags = String(meta.tags || styleStr).slice(0, 200);
     } else {
-      sunoBody.prompt = lyric.slice(0, 400) || "Песня";
-      if (styleStr) sunoBody.tags = String(styleStr).slice(0, 200);
+      // basic mode: используем basicPrompt если есть, иначе fallback на gen.prompt
+      const basicPrompt = meta.basicPrompt || g.prompt || "Песня";
+      sunoBody.prompt = String(basicPrompt).slice(0, 400);
+      if (meta.tags || styleStr) sunoBody.tags = String(meta.tags || styleStr).slice(0, 200);
     }
 
     let sunoOk = false;

@@ -318,6 +318,14 @@ function authMiddleware(req: Request, res: Response, next: NextFunction): void {
   next();
 }
 
+// Eugene 2026-05-08 АК-аудит: добавляем timeout. Раньше fetch висел
+// бесконечно при сетевых сбоях GPTunnel — таблица гнала зависшие 'processing'
+// gens, timeout-watcher через 8 мин их рефандил. Теперь fail-fast.
+//   /media/create   — 30 сек (Suno только принимает запрос, реальная генерация
+//                     потом poll'ится отдельно)
+//   /media/result   — 15 сек (один poll-запрос)
+//   /balance        — 10 сек
+//   default         — 30 сек
 async function gptunnelFetch(path: string, options: RequestInit = {}) {
   const url = `${GPTUNNEL_BASE}${path}`;
   const headers: Record<string, string> = {
@@ -327,7 +335,10 @@ async function gptunnelFetch(path: string, options: RequestInit = {}) {
   if (options.body) {
     headers["Content-Type"] = "application/json";
   }
-  return fetch(url, { ...options, headers });
+  let timeoutMs = 30_000;
+  if (path.includes("/media/result")) timeoutMs = 15_000;
+  else if (path.includes("/balance")) timeoutMs = 10_000;
+  return fetch(url, { ...options, headers, signal: options.signal ?? AbortSignal.timeout(timeoutMs) });
 }
 
 // Price per service type (in kopecks)
@@ -2088,6 +2099,24 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       }
 
       console.log(`[MUSIC] gen #${gen.id} voiceType=${norm.voiceType} mode=${payload.mode || "basic"} prompt=${(payload.prompt || "").length}ch lyrics=${(payload.lyric || "").length}ch tags="${(payload.tags || "").slice(0, 100)}"`);
+
+      // Eugene 2026-05-08 АК-аудит: сохраняем актуальный mode + voiceType в style.
+      // Это нужно для autoRetryTransient — иначе retry угадывал mode по длине
+      // gen.prompt и при длинном prompt (>50ch) ошибочно отправлял custom-mode
+      // с обычным promtом как lyric → Suno 400.
+      try {
+        const existingMeta = JSON.parse(gen.style || "{}");
+        const updatedMeta = {
+          ...existingMeta,
+          mode: payload.mode || "basic",
+          voiceType: norm.voiceType,
+          tags: payload.tags || null,
+          // храним lyric отдельно от prompt чтобы retry мог точно воспроизвести
+          lyric: payload.lyric || null,
+          basicPrompt: payload.mode === "custom" ? null : (payload.prompt || null),
+        };
+        db.update(generations).set({ style: JSON.stringify(updatedMeta) }).where(eq(generations.id, gen.id)).run();
+      } catch {}
 
       const resp = await gptunnelFetch("/media/create", {
         method: "POST",

@@ -421,6 +421,155 @@ router.post("/poll-now", requireAdmin, async (_req, res) => {
   res.json({ data: STATE, error: null });
 });
 
+// Полная диагностика — Eugene 2026-05-08: «будь богом в этом вопросе».
+// Один POST → полный отчёт по всем точкам отказа Suno-канала.
+//   1. Проверка ключа (длина, prefix без leak'a секрета)
+//   2. /v1/balance — статус и тайминг
+//   3. /v1/media/create — РЕАЛЬНЫЙ тест-запрос (basic mode, минимальный prompt)
+//   4. Последние 20 errored gens с классификацией
+//   5. Анализ распределения ошибок: % timeout / moderation / suno_transient / other
+//   6. Текущий стейт watchdog (status, circuit, balance)
+router.post("/full-diagnose", requireAdmin, async (_req, res) => {
+  const report: any = {
+    timestamp: new Date().toISOString(),
+    apiKey: { present: false, length: 0, prefix: null },
+    balance: { ok: false, ms: null, status: null, balance: null, error: null },
+    testRequest: { ok: false, ms: null, status: null, taskId: null, error: null, body: null },
+    recentErrors: [] as any[],
+    errorBreakdown: {} as Record<string, number>,
+    watchdog: { ...STATE },
+    recommendations: [] as string[],
+  };
+
+  // 1. API key check
+  const apiKey = process.env.GPTUNNEL_API_KEY;
+  if (apiKey) {
+    report.apiKey = {
+      present: true,
+      length: apiKey.length,
+      prefix: apiKey.slice(0, 4) + "…" + apiKey.slice(-4),
+    };
+  } else {
+    report.recommendations.push("⚠️ GPTUNNEL_API_KEY НЕ установлен в env. Все Suno-запросы упадут.");
+  }
+
+  // 2. Balance ping
+  if (apiKey) {
+    const t0 = Date.now();
+    try {
+      const r = await fetch("https://gptunnel.ru/v1/balance", {
+        headers: { Authorization: apiKey },
+        signal: AbortSignal.timeout(10_000),
+      });
+      report.balance.ms = Date.now() - t0;
+      report.balance.status = r.status;
+      if (r.ok) {
+        const data: any = await r.json();
+        report.balance.ok = true;
+        report.balance.balance = data?.balance;
+      } else {
+        report.balance.error = `HTTP ${r.status}`;
+        if (r.status === 401 || r.status === 403) {
+          report.recommendations.push(`🔑 Ключ невалиден (HTTP ${r.status}). Ротация: gptunnel.ru → новый ключ → /admin → 🔑 Секреты`);
+        }
+      }
+    } catch (e) {
+      report.balance.ms = Date.now() - t0;
+      report.balance.error = e instanceof Error ? e.message : String(e);
+      report.recommendations.push(`🌐 GPTunnel недоступен: ${report.balance.error}. Проверь VPS network: curl -m 10 https://gptunnel.ru/v1/balance -H "Authorization: \\$GPTUNNEL_API_KEY"`);
+    }
+  }
+
+  // 3. Тестовый /media/create — basic mode, минимальный запрос
+  // Стоит ~18₽ (один Suno-pair). Eugene получит реальную таску, через минуту
+  // её можно отполлить вручную и услышать тестовую песню.
+  if (apiKey && report.balance.ok) {
+    const testBody = { model: "suno", prompt: "Тест, короткая весёлая песня на русском" };
+    report.testRequest.body = testBody;
+    const t0 = Date.now();
+    try {
+      const r = await fetch("https://gptunnel.ru/v1/media/create", {
+        method: "POST",
+        headers: { Authorization: apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify(testBody),
+        signal: AbortSignal.timeout(30_000),
+      });
+      report.testRequest.ms = Date.now() - t0;
+      report.testRequest.status = r.status;
+      const text = await r.text();
+      let data: any;
+      try { data = JSON.parse(text); } catch { data = { raw: text.slice(0, 500) }; }
+      if (r.ok && data?.id) {
+        report.testRequest.ok = true;
+        report.testRequest.taskId = data.id;
+        report.recommendations.push(`✅ Тестовый запрос принят. taskId=${data.id}. Подожди 3-4 мин и пройдись по /api/music/status/${data.id} — если done, Suno работает. Если всё равно error → проблема системная.`);
+      } else {
+        report.testRequest.error = data?.message || data?.error?.message || `HTTP ${r.status}`;
+        report.testRequest.body = data;
+        report.recommendations.push(`❌ /media/create вернул ошибку: ${report.testRequest.error}. Это и есть причина падений генераций.`);
+      }
+    } catch (e) {
+      report.testRequest.ms = Date.now() - t0;
+      report.testRequest.error = e instanceof Error ? e.message : String(e);
+      report.recommendations.push(`❌ /media/create timeout/network: ${report.testRequest.error}. Возможно gptunnel.ru тормозит — это причина 'timeout > 30 min' в gens.`);
+    }
+  }
+
+  // 4. Последние 20 errored gens с классификацией
+  const recentErrors: any = db.all(sql`
+    SELECT id, user_id as userId, error_reason as errorReason, created_at as createdAt, cost
+    FROM generations
+    WHERE status = 'error' AND type = 'music'
+      AND created_at > datetime('now', '-24 hours')
+    ORDER BY id DESC
+    LIMIT 20
+  `);
+  report.recentErrors = (recentErrors || []).map((g: any) => ({
+    id: g.id,
+    userId: g.userId,
+    cost: g.cost,
+    errorReason: (g.errorReason || "?").slice(0, 200),
+    createdAt: g.createdAt,
+  }));
+
+  // 5. Распределение ошибок (классификация)
+  const breakdown: Record<string, number> = {};
+  for (const g of report.recentErrors) {
+    const r = (g.errorReason || "").toLowerCase();
+    let cls = "other";
+    if (r.includes("sensitive") || r.includes("1001")) cls = "moderation";
+    else if (r.includes("invalid") && r.includes("token")) cls = "invalid_key";
+    else if (r.includes("invalid") && r.includes("lyric")) cls = "bad_lyric";
+    else if (r.includes("timeout") || r.includes("> 30") || r.includes("> 8")) cls = "timeout";
+    else if (r.includes("network") || r.includes("fetch failed")) cls = "network";
+    else if (r.includes("internal server error")) cls = "suno_transient";
+    else if (r.includes("audio") && r.includes("недоступен")) cls = "audio_unavailable";
+    else if (r.includes("insufficient") || r.includes("balance") || r.includes("low")) cls = "low_balance";
+    breakdown[cls] = (breakdown[cls] ?? 0) + 1;
+  }
+  report.errorBreakdown = breakdown;
+
+  // 6. Доминирующий тип ошибок → конкретная рекомендация
+  const sortedBreakdown = Object.entries(breakdown).sort((a, b) => b[1] - a[1]);
+  if (sortedBreakdown.length > 0) {
+    const [topKind, topCount] = sortedBreakdown[0];
+    if (topCount >= 5) {
+      const tips: Record<string, string> = {
+        invalid_key: "Доминирует invalid_key — ротация GPTUNNEL_API_KEY ОБЯЗАТЕЛЬНА.",
+        low_balance: "Доминирует low_balance — пополни gptunnel.ru.",
+        moderation: "Доминирует moderation — Suno отклоняет тексты. Это user-content, не системная проблема.",
+        timeout: "Доминирует timeout — GPTunnel/Suno тормозит. После добавления fetch-timeout-30s gens должны fail-fast и retry-иться корректно.",
+        suno_transient: "Доминирует suno_transient — Suno чихает (Internal server error). Auto-retry должен помогать. Если не помогает — circuit breaker откроется.",
+        bad_lyric: "Доминирует bad_lyric — invalid lyric format. Это баг autoRetryTransient (исправлен 2026-05-08): retry воспроизводит оригинальный mode по style.mode.",
+        network: "Доминирует network — VPS не достаёт до gptunnel.ru. Проверь firewall/DNS.",
+      };
+      report.recommendations.push(`📊 Доминирует тип «${topKind}» (${topCount}/${report.recentErrors.length}). ${tips[topKind] || "Открой /admin/v304 → 🔬 Диагностика для детальных логов."}`);
+    }
+  }
+
+  res.json({ data: report, error: null });
+});
+
 const sunoWatchdogModule: Module = {
   name: "suno-watchdog",
   version: "0.1.0",
