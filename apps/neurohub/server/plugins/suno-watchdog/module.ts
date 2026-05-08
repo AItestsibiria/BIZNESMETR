@@ -485,11 +485,16 @@ router.get("/page", (_req, res) => {
 </div>
 
 <script>
+// Staging hostname → GET идёт без логина. Если есть token — добавим Bearer.
 const token = localStorage.getItem("token");
-if (!token) {
-  document.getElementById("status").innerHTML = '<span class="err">Не залогинен.</span> Открой <a href="/#/login">/#/login</a> (egnovoselov@gmail.com) и вернись сюда — токен сохранится в браузере, дальше всё работает в один клик.';
+const isStaging = location.hostname.includes("clone.muziai.ru") || location.hostname === "localhost" || location.hostname === "127.0.0.1";
+if (!token && !isStaging) {
+  document.getElementById("status").innerHTML = '<span class="err">Не залогинен.</span> Открой <a href="/#/login">/#/login</a> и вернись сюда.';
   document.getElementById("btnGet").disabled = true;
   document.getElementById("btnPost").disabled = true;
+} else if (!token && isStaging) {
+  // POST стоит 18₽ — не разрешаем без admin token
+  document.getElementById("btnPost").style.display = "none";
 }
 
 async function run(includeTest) {
@@ -498,9 +503,11 @@ async function run(includeTest) {
   document.getElementById("btnGet").disabled = true;
   document.getElementById("btnPost").disabled = true;
   try {
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = "Bearer " + token;
     const r = await fetch("/api/admin/v304/suno-watchdog/full-diagnose", {
       method: includeTest ? "POST" : "GET",
-      headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+      headers,
     });
     const j = await r.json();
     if (!r.ok || j.error) { throw new Error(j.error || "HTTP " + r.status); }
@@ -533,7 +540,20 @@ function render(d) {
   html += '<div><div class="label">Balance</div><div class="big ' + balCls + '">' + balText + '</div></div>';
   html += '</div></div>';
 
-  // Тест-запрос
+  // Scope-проверка ключа на /media/create (без charge'а)
+  if (d.keyScope?.mediaCreate) {
+    const k = d.keyScope.mediaCreate;
+    const cls = k.status === 422 || k.status === 400 ? "ok"
+              : k.status === 401 || k.status === 403 ? "err"
+              : k.status === 500 || k.status === 502 || k.status === 503 ? "err"
+              : "warn";
+    html += '<div class="panel"><div class="label">Scope ключа на /media/create</div>';
+    html += '<div class="big ' + cls + '">HTTP ' + (k.status || "?") + ' (' + (k.ms || "?") + ' мс)</div>';
+    if (k.hint) html += '<div style="margin-top:8px">' + k.hint + '</div>';
+    html += '</div>';
+  }
+
+  // Тест-запрос (live, ~18₽)
   if (d.testRequest && !d.testRequest.skipped) {
     const tCls = d.testRequest.ok ? "ok" : "err";
     html += '<div class="panel"><div class="label">Test /media/create</div>';
@@ -584,6 +604,7 @@ async function runFullDiagnose(includeTestRequest: boolean) {
     timestamp: new Date().toISOString(),
     apiKey: { present: false, length: 0, prefix: null },
     balance: { ok: false, ms: null, status: null, balance: null, error: null },
+    keyScope: { mediaCreate: { reachable: false, ms: null, status: null, body: null, hint: null } },
     testRequest: includeTestRequest ? { ok: false, ms: null, status: null, taskId: null, error: null, body: null }
                                     : { skipped: true, hint: "POST /full-diagnose чтобы запустить реальный test-запрос (~18₽)" },
     recentErrors: [] as any[],
@@ -631,7 +652,47 @@ async function runFullDiagnose(includeTestRequest: boolean) {
     }
   }
 
-  // 3. Тестовый /media/create — только если includeTestRequest=true
+  // 3. Scope-проверка ключа на /media/create БЕЗ charge'а:
+  //    шлём заведомо невалидный payload {} → GPTunnel должен вернуть 422
+  //    с validation issues ДО передачи в Suno (без списания).
+  //    Если 200 → unexpected, если 401/403 → ключ без media-scope,
+  //    если 500 → GPTunnel/Suno proxy сломан, если 422 → ключ работает.
+  if (apiKey) {
+    const t0 = Date.now();
+    try {
+      const r = await fetch("https://gptunnel.ru/v1/media/create", {
+        method: "POST",
+        headers: { Authorization: apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify({}), // намеренно пустой — должен fail валидацию
+        signal: AbortSignal.timeout(15_000),
+      });
+      report.keyScope.mediaCreate.ms = Date.now() - t0;
+      report.keyScope.mediaCreate.status = r.status;
+      const text = await r.text();
+      let body: any;
+      try { body = JSON.parse(text); } catch { body = { raw: text.slice(0, 500) }; }
+      report.keyScope.mediaCreate.body = body;
+      report.keyScope.mediaCreate.reachable = r.status > 0;
+      if (r.status === 401 || r.status === 403) {
+        report.keyScope.mediaCreate.hint = "🚫 Ключ НЕ имеет media-scope. Это объясняет все 'Internal server error': GPTunnel возвращает что-то странное вместо 401. Нужен новый ключ с media/Suno scope.";
+        report.recommendations.push("🔑 Ключ без media-scope. На gptunnel.ru → выпусти НОВЫЙ ключ с явным правом на /media/create. Старый только balance умеет.");
+      } else if (r.status === 422 || r.status === 400) {
+        report.keyScope.mediaCreate.hint = `✅ Ключ принимается /media/create (валидация ${r.status}). Scope OK. Значит 'Internal server error' идёт от Suno backend, не от ключа.`;
+      } else if (r.status === 500 || r.status === 502 || r.status === 503) {
+        report.keyScope.mediaCreate.hint = `⚠️ /media/create возвращает ${r.status} даже на пустой body. GPTunnel proxy сам сломан. Это не наш ключ.`;
+        report.recommendations.push(`🌐 GPTunnel /media/create отвечает ${r.status} даже на пустой запрос. Сервис лежит на их стороне. Связаться с поддержкой.`);
+      } else if (r.status === 200) {
+        report.keyScope.mediaCreate.hint = `❓ Неожиданно: пустой body вернул 200. Возможно payload прошёл и заюзал кредит — проверь баланс.`;
+      } else {
+        report.keyScope.mediaCreate.hint = `❓ HTTP ${r.status}. Не классифицирован.`;
+      }
+    } catch (e) {
+      report.keyScope.mediaCreate.ms = Date.now() - t0;
+      report.keyScope.mediaCreate.hint = `❌ Не достучался до /media/create: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  }
+
+  // 4. Тестовый /media/create РЕАЛЬНЫЙ — только если includeTestRequest=true
   if (includeTestRequest && apiKey && report.balance.ok) {
     const testBody = { model: "suno", prompt: "Тест, короткая весёлая песня на русском" };
     report.testRequest.body = testBody;
@@ -719,7 +780,25 @@ async function runFullDiagnose(includeTestRequest: boolean) {
   return report;
 }
 
-router.get("/full-diagnose", requireAdmin, async (_req, res) => {
+// GET — на staging-инстансе (clone.muziai.ru) разрешён без логина.
+// Eugene 2026-05-08: «не хочу логиниться, дай simpler». На prod-доменах
+// (если кода когда-то окажется) — требуется admin Bearer как раньше.
+function isCloneStaging(req: any): boolean {
+  const host = (req?.get?.("host") || req?.headers?.host || "").toString().toLowerCase();
+  return host.includes("clone.muziai.ru") || host.startsWith("localhost") || host.startsWith("127.0.0.1");
+}
+
+router.get("/full-diagnose", async (req, res) => {
+  if (!isCloneStaging(req)) {
+    const t = (req.headers.authorization || "").toString().replace(/^Bearer\s+/, "") || (req.query as any).token;
+    if (!t) { res.status(401).json({ data: null, error: "unauthorized" }); return; }
+    try {
+      const sess = db.get<{ userId: number }>(sql`SELECT user_id as userId FROM sessions WHERE token = ${t}`);
+      if (!sess?.userId) { res.status(401).json({ data: null, error: "unauthorized" }); return; }
+      const u = db.select().from(users).where(eq(users.id, sess.userId)).get();
+      if (!u || u.role !== "admin") { res.status(403).json({ data: null, error: "forbidden" }); return; }
+    } catch { res.status(401).json({ data: null, error: "unauthorized" }); return; }
+  }
   const report = await runFullDiagnose(false);
   res.json({ data: report, error: null });
 });
