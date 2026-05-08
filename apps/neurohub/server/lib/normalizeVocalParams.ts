@@ -142,34 +142,46 @@ export function normalizeVocalParams(input: NormalizeInput): NormalizeOutput {
   // Сохраняем оригинал lyrics ДО возможной перезаписи каркасом duet.
   const originalLyrics = lyrics;
 
-  // Добавляем правильные маркеры (с русскими дублями для надёжности —
-  // Suno обучена на mixed-language тегах, RU-маркеры повышают точность).
+  // Eugene 2026-05-08 «усиль выбор вокала»: МНОЖЕСТВЕННОЕ подкрепление —
+  // Suno обучена на mixed-language тегах, чем больше консистентных сигналов
+  // тем точнее результат:
+  //   1. Voice как ПЕРВЫЙ тег в style (Suno даёт больше веса первым тегам)
+  //   2. [Voice Marker] в НАЧАЛЕ lyrics (структурный приоритет)
+  //   3. Дублирование на EN+RU (международные модели понимают оба)
+  //   4. Структурный тег + словесное описание вместе
   switch (voiceType) {
     case "male":
-      style = deduplicateCommaList(`${style}, Male Vocal, male voice, мужской вокал`.replace(/^,\s*/, ""));
-      if (prompt) prompt = `${prompt}\n[Male Vocal]`.trim();
+      // Voice — первый в style (приоритет Suno парсера)
+      style = deduplicateCommaList(`Male Vocal, male voice, deep male singer, мужской вокал, ${style}`.replace(/,\s*$/, ""));
+      // Структурный тег в начале lyrics (Suno уважает first-token)
+      if (lyrics) lyrics = `[Male Vocal]\n${lyrics}`.trim();
+      // Prompt: ENG в начале, RU дубль в конце
+      if (prompt) prompt = `Male vocal. ${prompt}\n[Male Vocal] мужской вокал`.trim();
       break;
     case "female":
-      style = deduplicateCommaList(`${style}, Female Vocal, female voice, женский вокал`.replace(/^,\s*/, ""));
-      if (prompt) prompt = `${prompt}\n[Female Vocal]`.trim();
+      style = deduplicateCommaList(`Female Vocal, female voice, female singer, женский вокал, ${style}`.replace(/,\s*$/, ""));
+      if (lyrics) lyrics = `[Female Vocal]\n${lyrics}`.trim();
+      if (prompt) prompt = `Female vocal. ${prompt}\n[Female Vocal] женский вокал`.trim();
       break;
     case "duet":
-      style = deduplicateCommaList(`${style}, male and female duet vocals, duet, дуэт`.replace(/^,\s*/, ""));
-      // Если в lyrics уже есть [Male] или [Female] — оставляем как есть,
-      // НЕ перезаписываем (ТЗ §6: «если в prompt уже есть [Male]/[Female]/
-      // [Together], не ломать структуру»). Каркас добавляем только когда
-      // структура пустая.
+      style = deduplicateCommaList(`male and female duet vocals, duet, мужской и женский дуэт, дуэт, ${style}`.replace(/,\s*$/, ""));
+      // Если в lyrics уже есть [Male] или [Female] — оставляем как есть.
+      // Каркас добавляем только когда структура пустая.
       {
         const hasMale = new RegExp(TAG_MALE.source, TAG_MALE.flags).test(originalLyrics);
         const hasFemale = new RegExp(TAG_FEMALE.source, TAG_FEMALE.flags).test(originalLyrics);
         if (originalLyrics && !hasMale && !hasFemale) {
-          lyrics = `[Male]\n${originalLyrics}\n\n[Female]\n\n[Together]\n`;
+          // Distribute lines: первый куплет — мужской, второй — женский, припев — together
+          lyrics = `[Duet vocals]\n[Male]\n${originalLyrics}\n\n[Female]\n\n[Together]\n`;
+        } else if (originalLyrics) {
+          // Уже есть структура — добавляем явный duet-маркер сверху
+          lyrics = `[Duet vocals]\n${originalLyrics}`.trim();
         }
       }
       break;
     case "instrumental":
-      style = deduplicateCommaList(`${style}, instrumental, no vocals, без вокала`.replace(/^,\s*/, ""));
-      if (prompt) prompt = `Instrumental, no vocals. ${prompt}`.trim();
+      style = deduplicateCommaList(`instrumental, no vocals, без вокала, instrumental music only, ${style}`.replace(/,\s*$/, ""));
+      if (prompt) prompt = `Instrumental track, no vocals, no singing. ${prompt}`.trim();
       lyrics = ""; // инструментальная без текста
       break;
     case "auto":
