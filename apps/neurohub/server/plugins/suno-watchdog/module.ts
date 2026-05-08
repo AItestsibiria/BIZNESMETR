@@ -845,11 +845,11 @@ function copyAll(btn) {
   var parts = [];
   parts.push("=== Suno Watchdog Diag (" + new Date().toISOString() + ") ===");
   if (status) parts.push("Статус: " + (status.textContent || ""));
-  if (providers && providers.innerText) parts.push("\n--- Провайдеры ---\n" + providers.innerText);
-  if (systemTest && systemTest.innerText) parts.push("\n--- Системный тест ---\n" + systemTest.innerText);
-  if (summary && summary.innerText) parts.push("\n--- Сводка ---\n" + summary.innerText);
-  if (raw && raw.textContent && raw.textContent !== "…") parts.push("\n--- Полный JSON ---\n" + raw.textContent);
-  copyToClipboard(parts.join("\n"), btn);
+  if (providers && providers.innerText) parts.push("\\n--- Провайдеры ---\\n" + providers.innerText);
+  if (systemTest && systemTest.innerText) parts.push("\\n--- Системный тест ---\\n" + systemTest.innerText);
+  if (summary && summary.innerText) parts.push("\\n--- Сводка ---\\n" + summary.innerText);
+  if (raw && raw.textContent && raw.textContent !== "…") parts.push("\\n--- Полный JSON ---\\n" + raw.textContent);
+  copyToClipboard(parts.join("\\n"), btn);
 }
 function copyToClipboard(text, btn) {
   var done = function() {
