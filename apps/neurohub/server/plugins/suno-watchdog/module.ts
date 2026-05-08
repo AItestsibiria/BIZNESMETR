@@ -457,11 +457,19 @@ router.get("/page", (_req, res) => {
 </div>
 
 <script>
+// На clone.muziai.ru GET работает без Bearer (staging). POST (~18₽) требует
+// admin-токен — поэтому если пользователь не залогинен, скрываем POST-кнопку.
 const token = localStorage.getItem("token");
+const isStaging = location.hostname.includes("clone.muziai.ru") || location.hostname === "localhost" || location.hostname === "127.0.0.1";
 if (!token) {
-  document.getElementById("status").innerHTML = '<span class="err">Не залогинен.</span> Открой <a href="/#/login">/#/login</a> и вернись сюда.';
-  document.getElementById("btnGet").disabled = true;
-  document.getElementById("btnPost").disabled = true;
+  if (isStaging) {
+    // Staging: GET-диагностика без логина, POST скрываем.
+    document.getElementById("btnPost").style.display = "none";
+  } else {
+    document.getElementById("status").innerHTML = '<span class="err">Не залогинен.</span> Открой <a href="/#/login">/#/login</a> и вернись сюда.';
+    document.getElementById("btnGet").disabled = true;
+    document.getElementById("btnPost").disabled = true;
+  }
 }
 
 async function run(includeTest) {
@@ -470,9 +478,11 @@ async function run(includeTest) {
   document.getElementById("btnGet").disabled = true;
   document.getElementById("btnPost").disabled = true;
   try {
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = "Bearer " + token;
     const r = await fetch("/api/admin/v304/suno-watchdog/full-diagnose", {
       method: includeTest ? "POST" : "GET",
-      headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+      headers,
     });
     const j = await r.json();
     if (!r.ok || j.error) { throw new Error(j.error || "HTTP " + r.status); }
@@ -691,8 +701,27 @@ async function runFullDiagnose(includeTestRequest: boolean) {
   return report;
 }
 
-// GET — открывается в браузере одной ссылкой, без trace-спалит и без test-запроса
-router.get("/full-diagnose", requireAdmin, async (_req, res) => {
+// GET — открывается в браузере одной ссылкой, без trace-спалит и без test-запроса.
+// На clone.muziai.ru работает БЕЗ логина (Eugene 2026-05-08 «сделай проще»):
+// staging-инстанс, prod это отдельный VPS — данные не утекают на сайте, который продаёт.
+function isCloneStaging(req: any): boolean {
+  const host = (req?.get?.("host") || req?.headers?.host || "").toString().toLowerCase();
+  return host.includes("clone.muziai.ru") || host.startsWith("localhost") || host.startsWith("127.0.0.1");
+}
+
+router.get("/full-diagnose", async (req, res) => {
+  if (!isCloneStaging(req)) {
+    // На prod-доменах требуем admin как раньше
+    const userId = (() => {
+      const t = (req.headers.authorization || "").toString().replace(/^Bearer\s+/, "") || (req.query as any).token;
+      if (!t) return null;
+      try { return db.get<{ userId: number }>(sql`SELECT user_id as userId FROM sessions WHERE token = ${t}`)?.userId ?? null; }
+      catch { return null; }
+    })();
+    if (!userId) { res.status(401).json({ data: null, error: "unauthorized" }); return; }
+    const u = db.select().from(users).where(eq(users.id, userId)).get();
+    if (!u || (u.role !== "admin")) { res.status(403).json({ data: null, error: "forbidden" }); return; }
+  }
   const report = await runFullDiagnose(false);
   res.json({ data: report, error: null });
 });
