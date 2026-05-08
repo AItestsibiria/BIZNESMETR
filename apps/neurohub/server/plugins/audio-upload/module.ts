@@ -160,6 +160,40 @@ router.post("/upload", requireAuth, upload.single("audio"), async (req, res) => 
       // дадим хотя бы сохранить запись для отладки.
     }
   }
+
+  // Eugene 2026-05-08 «режим бог» / docs-first audit: Yandex SpeechKit
+  // short-audio лимит = 1MB. Если после ffmpeg финальный буфер всё ещё
+  // больше — повторяем с пониженным битрейтом 64k моно (вместо 128k стерео).
+  // Это уменьшает размер ровно вдвое, для речи 30 сек 64kbps mono даёт
+  // ~240KB, гарантированно влезает.
+  const YANDEX_MAX = 1024 * 1024; // 1MB
+  if (finalBuffer.length > YANDEX_MAX && finalExt === "mp3") {
+    console.warn(`[UPLOAD] finalBuffer ${finalBuffer.length}B > Yandex 1MB лимит — re-encode 64k mono`);
+    const tmpIn = path.join(userDir, `_recompress-${sha}.mp3`);
+    const tmpOut = path.join(userDir, `_recompress-${sha}-out.mp3`);
+    try {
+      fs.writeFileSync(tmpIn, finalBuffer);
+      await new Promise<void>((resolve, reject) => {
+        const args = ["-y", "-i", tmpIn, "-t", "30", "-vn", "-c:a", "libmp3lame", "-b:a", "64k", "-ac", "1", "-ar", "22050", tmpOut];
+        const child = childProc.execFile("ffmpeg", args, { timeout: 30_000 }, (err) => err ? reject(err) : resolve());
+        child.on("error", reject);
+      });
+      const recompressed = fs.readFileSync(tmpOut);
+      if (recompressed.length <= YANDEX_MAX) {
+        finalBuffer = recompressed;
+        console.log(`[UPLOAD] re-encoded to ${recompressed.length}B (fits Yandex)`);
+      } else {
+        console.error(`[UPLOAD] re-encoded ${recompressed.length}B всё равно > 1MB — Yandex откажется`);
+      }
+      try { fs.unlinkSync(tmpIn); } catch {}
+      try { fs.unlinkSync(tmpOut); } catch {}
+    } catch (e) {
+      console.error("[UPLOAD] recompress failed:", e);
+      try { fs.unlinkSync(tmpIn); } catch {}
+      try { fs.unlinkSync(tmpOut); } catch {}
+    }
+  }
+
   const filename = `${sha}.${finalExt}`;
   const storagePath = path.join(userDir, filename);
   try {

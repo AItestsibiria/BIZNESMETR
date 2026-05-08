@@ -430,7 +430,26 @@ export default function MusicPage() {
       const pendingTasks = new Set(taskIds);
       const errorMessages: string[] = [];
       let doneCount = 0;
+      // Eugene 2026-05-08 docs-first audit: client-side 30-мин hard timeout.
+      // Если сервер не закроет polling сам (admin-overview cron), фронт сам
+      // прекратит спам /api/music/status каждые 5 сек.
+      const startedAt = Date.now();
+      const MAX_POLL_MS = 30 * 60 * 1000;
       pollRef.current = setInterval(async () => {
+        if (Date.now() - startedAt > MAX_POLL_MS) {
+          if (pollRef.current) clearInterval(pollRef.current);
+          setPolling(false);
+          setLoading(false);
+          stopBgMusic();
+          toast({
+            title: "Ожидание прервано",
+            description: "Прошло 30 мин, треки появятся в дашборде когда Suno завершит. Баланс возвращён если генерация не удалась.",
+            variant: "destructive",
+            duration: 12000,
+          });
+          await refreshUser();
+          return;
+        }
         for (const tid of [...pendingTasks]) {
           try {
             const r = await apiRequest("GET", `/api/music/status/${tid}`);

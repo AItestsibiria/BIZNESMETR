@@ -2372,10 +2372,13 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
             } catch {}
             data.status = "error";
           } else {
-            // Verify URL is accessible
+            // Verify URL is accessible AND содержит реальный mp3 (>=100KB).
+            // Eugene 2026-05-08 docs-first: HEAD без size-check пропускает
+            // битые/preview-обрубки 0-1 сек. Защита от ложных done.
             try {
-              const check = await fetch(audioUrl, { method: "HEAD" });
-              if (check.ok) {
+              const check = await fetch(audioUrl, { method: "HEAD", signal: AbortSignal.timeout(8_000) });
+              const cl = Number(check.headers.get("content-length") || 0);
+              if (check.ok && (cl === 0 || cl >= 100_000)) {
                 storage.updateGeneration(gen.id, {
                   status: "done",
                   resultUrl: audioUrl,
