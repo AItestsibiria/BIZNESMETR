@@ -12,6 +12,7 @@ import NodeID3 from "node-id3";
 import fs from "fs";
 import path from "path";
 import { normalizeVocalParams } from "./lib/normalizeVocalParams";
+import { isSunoCircuitOpen } from "./plugins/suno-watchdog/module";
 
 const AUTHORS_DIR = process.env.AUTHORS_DIR || path.join(process.cwd(), "authors");
 
@@ -2000,6 +2001,13 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const userId = (req as any).userId;
     const user = storage.getUser(userId);
     if (!user) { res.status(404).json({ message: "Пользователь не найден" }); return; }
+    // Suno-watchdog circuit breaker — Eugene 2026-05-08 «Реши кардинально».
+    // Если Suno глобально недоступен (баланс=0, ключ невалид, error-rate>80%)
+    // — отказываем СРАЗУ, до charge. Иначе юзер бы получил error+refund цикл.
+    if (isSunoCircuitOpen()) {
+      res.status(503).json({ message: "Suno временно недоступен. Watchdog обнаружил проблему — мы уже работаем над ней. Попробуйте через 5–10 минут." });
+      return;
+    }
     const { prompt, style, lyrics, title, instrumental, voice, voiceType, isDuet, authorName, isPublic, category } = req.body;
     if (!prompt && !lyrics) {
       res.status(400).json({ message: "Опишите желаемый трек или вставьте текст" });
@@ -2297,6 +2305,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const userId = (req as any).userId;
     const user = storage.getUser(userId);
     if (!user) { res.status(404).json({ message: "Автор не найден" }); return; }
+    if (isSunoCircuitOpen()) { res.status(503).json({ message: "Suno временно недоступен. Watchdog обнаружил проблему. Попробуйте через 5–10 минут." }); return; }
     const { sourceId, newStyle, voice, voiceType, isDuet, instrumental, isPublic, category, authorName } = req.body;
     if (!sourceId) { res.status(400).json({ message: "Исходный трек не указан" }); return; }
     if (!newStyle || newStyle.length < 3) { res.status(400).json({ message: "Опишите новый стиль" }); return; }
@@ -2408,6 +2417,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const userId = (req as any).userId;
     const user = storage.getUser(userId);
     if (!user) { res.status(404).json({ message: "Автор не найден" }); return; }
+    if (isSunoCircuitOpen()) { res.status(503).json({ message: "Suno временно недоступен. Watchdog обнаружил проблему. Попробуйте через 5–10 минут." }); return; }
     const { sourceId, continueAt, prompt, lyrics, voice, isPublic, category, authorName } = req.body;
     if (!sourceId) { res.status(400).json({ message: "Исходный трек не указан" }); return; }
     if (continueAt === undefined || continueAt < 0) {
@@ -4038,6 +4048,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const userId = (req as any).userId;
     const genId = parseInt(req.params.id, 10);
     if (!genId) { res.status(400).json({ message: "Неверный ID" }); return; }
+    if (isSunoCircuitOpen()) { res.status(503).json({ message: "Suno временно недоступен. Watchdog обнаружил проблему. Попробуйте через 5–10 минут." }); return; }
     const oldGen = storage.getGeneration(genId);
     if (!oldGen || oldGen.userId !== userId) { res.status(404).json({ message: "Генерация не найдена" }); return; }
     if (oldGen.status !== "error") { res.status(400).json({ message: "Можно регенерировать только треки с ошибкой" }); return; }

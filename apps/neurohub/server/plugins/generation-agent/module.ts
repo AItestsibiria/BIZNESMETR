@@ -21,6 +21,7 @@ import { Router } from "express";
 import { sql } from "drizzle-orm";
 import { db, storage } from "../../storage";
 import { requireAdmin } from "../../core/adminAuth";
+import { isSunoCircuitOpen } from "../suno-watchdog/module";
 import type { BootContext, Module } from "../../core";
 
 let bootRefs: { eventBus: BootContext["eventBus"]; logger: BootContext["logger"] } | null = null;
@@ -126,6 +127,12 @@ function isTransientError(reason: string): boolean {
 async function autoRetryTransient() {
   const apiKey = process.env.GPTUNNEL_API_KEY;
   if (!apiKey) return 0;
+  // Watchdog circuit breaker — если Suno глобально down, retry бесполезен.
+  // orphan-scan дальше рефандит errored gens, юзеры получают деньги назад.
+  if (isSunoCircuitOpen()) {
+    console.log(`\x1b[33m[AUTO-RETRY]\x1b[0m skipped — suno-watchdog circuit open`);
+    return 0;
+  }
   // Берём свежие transient errors (< 5 мин), retry_count < 2, НЕ возвращённые.
   const candidates = db.all<{ id: number; userId: number; prompt: string; style: string;
     errorReason: string | null; cost: number; type: string }>(
