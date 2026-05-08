@@ -21,6 +21,7 @@ import AdminV304Page from "./pages/admin-v304";
 import TemplatesPage from "./pages/templates";
 import BackgroundMusic from "./components/background-music";
 import { ErrorBoundary } from "./components/error-boundary";
+import { PlayerProvider } from "./lib/player-agent";
 
 // Wrapper для рендера каждой страницы внутри ErrorBoundary с именем —
 // чтобы вместо чёрного экрана при runtime-ошибке показать стек.
@@ -80,7 +81,9 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <AppContent />
+        <PlayerProvider>
+          <AppContent />
+        </PlayerProvider>
       </AuthProvider>
     </QueryClientProvider>
   );
