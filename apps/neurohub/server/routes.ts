@@ -2242,10 +2242,14 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
 
       console.log(`[MUSIC] gen #${gen.id} voiceType=${norm.voiceType} mode=${payload.mode || "basic"} prompt=${(payload.prompt || "").length}ch lyrics=${(payload.lyric || "").length}ch tags="${(payload.tags || "").slice(0, 100)}"`);
 
+      // Eugene 2026-05-08 «название всегда сохраняй»: persist autoTitle в
+      // displayTitle (юзер видит в дашборде) И в style.title (для retry).
+      // Только сам юзер может потом менять displayTitle через /rename endpoint.
+      try {
+        db.update(generations).set({ displayTitle: autoTitle.slice(0, 200) }).where(eq(generations.id, gen.id)).run();
+      } catch {}
+
       // Eugene 2026-05-08 АК-аудит: сохраняем актуальный mode + voiceType в style.
-      // Это нужно для autoRetryTransient — иначе retry угадывал mode по длине
-      // gen.prompt и при длинном prompt (>50ch) ошибочно отправлял custom-mode
-      // с обычным promtом как lyric → Suno 400.
       try {
         const existingMeta = JSON.parse(gen.style || "{}");
         const updatedMeta = {
@@ -2253,6 +2257,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
           mode: payload.mode || "basic",
           voiceType: norm.voiceType,
           tags: payload.tags || null,
+          title: autoTitle, // ПРАВИЛО: всегда сохраняем полное название
           // храним lyric отдельно от prompt чтобы retry мог точно воспроизвести
           lyric: payload.lyric || null,
           basicPrompt: payload.mode === "custom" ? null : (payload.prompt || null),
@@ -2538,6 +2543,11 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         authorName: authorName || user.name || "Аноним",
       });
 
+      // Правило Eugene 2026-05-08: всегда сохраняем название (для кавера = от source)
+      try {
+        db.update(generations).set({ displayTitle: `Кавер · ${sourceTitle.slice(0, 150)}` }).where(eq(generations.id, gen.id)).run();
+      } catch {}
+
       // Public URL the Suno service can fetch
       const audioUrl = `https://muziai.ru/api/stream/${source.id}`;
       const sourceTaskId = source.taskId || "";
@@ -2644,6 +2654,11 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         isPublic: isPublic === false ? 0 : 1,
         authorName: authorName || user.name || "Аноним",
       });
+
+      // Правило Eugene 2026-05-08: всегда сохраняем название
+      try {
+        db.update(generations).set({ displayTitle: `${sourceTitle.slice(0, 150)} (продолжение)` }).where(eq(generations.id, gen.id)).run();
+      } catch {}
 
       const norm = normalizeVocalParams({
         prompt: prompt || sourceStyle,
@@ -4289,6 +4304,11 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       } else {
         payload.prompt = (effectivePrompt || rawLyrics || "Песня").slice(0, 400);
       }
+
+      // Правило Eugene 2026-05-08: всегда сохраняем название
+      try {
+        db.update(generations).set({ displayTitle: autoTitle.slice(0, 200) }).where(eq(generations.id, newGen.id)).run();
+      } catch {}
 
       const resp = await gptunnelFetch("/media/create", { method: "POST", body: JSON.stringify(payload) });
       const data = await resp.json();
