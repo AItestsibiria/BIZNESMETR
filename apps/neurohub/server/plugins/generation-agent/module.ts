@@ -111,7 +111,77 @@ function classifyError(reason: string): string {
   if (r.includes("network")) return "network";
   if (r.includes("insufficient") || r.includes("balance")) return "low_balance";
   if (r.includes("audio") && r.includes("недоступен")) return "audio_unavailable";
+  if (r.includes("internal server error") || r === "internal server error.") return "suno_transient";
   return "other";
+}
+
+// Транзиентные ошибки Suno (их internal/server) — авто-ретрай.
+function isTransientError(reason: string): boolean {
+  const cls = classifyError(reason);
+  return cls === "suno_transient" || cls === "network" || cls === "timeout";
+}
+
+// Auto-retry: для свежих transient-error gens пробуем повторно
+// отправить в Suno (с теми же параметрами + ретёр-флаг в style).
+async function autoRetryTransient() {
+  const apiKey = process.env.GPTUNNEL_API_KEY;
+  if (!apiKey) return 0;
+  // Берём свежие transient errors (< 5 мин) с retry_count < 2
+  const candidates = db.all<{ id: number; userId: number; prompt: string; style: string;
+    errorReason: string | null; cost: number; type: string }>(
+    sql`SELECT id, user_id as userId, prompt, style, error_reason as errorReason, cost, type
+        FROM generations
+        WHERE status = 'error'
+          AND created_at > datetime('now', '-5 minutes')
+          AND type = 'music'
+          AND (json_extract(style, '$.retryCount') IS NULL OR CAST(json_extract(style, '$.retryCount') AS INTEGER) < 2)
+        LIMIT 10`,
+  );
+  let retried = 0;
+  for (const g of candidates) {
+    if (!isTransientError(g.errorReason ?? "")) continue;
+    let meta: any = {};
+    try { meta = JSON.parse(g.style || "{}"); } catch {}
+    const retryCount = (meta.retryCount ?? 0) + 1;
+    meta.retryCount = retryCount;
+    meta.retryAt = new Date().toISOString();
+    // Восстановим status='processing' и пошлём в Suno снова
+    const styleStr = meta.style || "";
+    const title = meta.title || "Песня";
+    const lyric = g.prompt || ""; // в /music/generate gen.prompt = lyrics
+    const sunoBody: any = { model: "suno" };
+    if (lyric.length >= 50) {
+      sunoBody.mode = "custom";
+      sunoBody.lyric = lyric.slice(0, 3000);
+      sunoBody.title = String(title).slice(0, 80);
+      if (styleStr) sunoBody.tags = String(styleStr).slice(0, 200);
+    } else {
+      sunoBody.prompt = lyric.slice(0, 400) || "Песня";
+      if (styleStr) sunoBody.tags = String(styleStr).slice(0, 200);
+    }
+    try {
+      const r = await fetch("https://gptunnel.ru/v1/media/create", {
+        method: "POST",
+        headers: { Authorization: apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify(sunoBody),
+        signal: AbortSignal.timeout(20_000),
+      });
+      const text = await r.text();
+      let data: any; try { data = JSON.parse(text); } catch { data = { raw: text }; }
+      if (r.ok && data?.id) {
+        db.run(sql`UPDATE generations
+                   SET status='processing', task_id=${data.id}, error_reason=NULL,
+                       style=${JSON.stringify(meta)}
+                   WHERE id=${g.id}`);
+        retried += 1;
+        console.log(`\x1b[33m[AUTO-RETRY]\x1b[0m gen #${g.id} re-submitted to Suno (attempt ${retryCount}, taskId=${data.id})`);
+        bootRefs?.eventBus.emit("gen.auto_retry", { genId: g.id, attempt: retryCount }, "generation-agent");
+      }
+    } catch (e) {
+      // продолжаем с другими
+    }
+  }
+  return retried;
 }
 
 async function aggregateStats() {
@@ -173,6 +243,20 @@ const generationAgentModule: Module = {
           await aggregateStats();
         } catch (e) {
           STATS.lastError = e instanceof Error ? e.message : String(e);
+        }
+      },
+    },
+    {
+      // Авто-ретрай transient ошибок Suno (Eugene 14:46): юзер ничего
+      // не делает — Suno burped, мы повторяем за него. До 2 попыток.
+      name: "auto-retry-transient",
+      schedule: "every_minute",
+      handler: async () => {
+        try {
+          const n = await autoRetryTransient();
+          if (n > 0) console.log(`\x1b[33m[AUTO-RETRY]\x1b[0m re-submitted ${n} transient-error gens`);
+        } catch (e) {
+          console.error("[AUTO-RETRY] error:", e);
         }
       },
     },
