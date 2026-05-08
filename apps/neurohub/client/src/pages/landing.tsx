@@ -476,20 +476,24 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           document.getElementById('playlist-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }, 300);
       } else {
-        // Auto-select first music track so the big player is visible immediately
-        const firstMusic = data.find((t: any) => t.type === "music" && t.audioUrl);
-        if (firstMusic) {
-          setPlayingId(firstMusic.id);
-          setTrackDuration(firstMusic.duration || 0);
-          playingTrackRef.current = firstMusic;
-          // Prepare audio but don't play
-          const audio = new Audio(firstMusic.audioUrl);
-          audio.volume = 0.5;
-          audio.preload = "metadata";
-          audioRef.current = audio;
-          audio.onloadedmetadata = () => {
-            if (audio.duration && isFinite(audio.duration)) setTrackDuration(audio.duration);
-          };
+        // Auto-select first music track — НО только если нет восстановленного
+        // playingId из session И нет global-audio в фоне (Eugene 14:13).
+        const hasGlobalAudio = typeof window !== "undefined" && (window as any).__muziaiAudio;
+        if (!playingId && !hasGlobalAudio) {
+          const firstMusic = data.find((t: any) => t.type === "music" && t.audioUrl);
+          if (firstMusic) {
+            setPlayingId(firstMusic.id);
+            setTrackDuration(firstMusic.duration || 0);
+            playingTrackRef.current = firstMusic;
+            // Prepare audio but don't play
+            const audio = new Audio(firstMusic.audioUrl);
+            audio.volume = 0.5;
+            audio.preload = "metadata";
+            audioRef.current = audio;
+            audio.onloadedmetadata = () => {
+              if (audio.duration && isFinite(audio.duration)) setTrackDuration(audio.duration);
+            };
+          }
         }
       }
     }).catch(() => {});
@@ -549,7 +553,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('storage', onStorage);
       if (bc) try { bc.close(); } catch {}
-      audioRef.current?.pause();
+      // НЕ паузим — global window.__muziaiAudio продолжает играть на других страницах (Eugene 14:09)
     };
   }, []);
 
