@@ -1044,7 +1044,7 @@ export default function MusicPage() {
                         return;
                       }
                       if (tJson?.data?.warning) {
-                        toast({ title: "⚠ Whisper не распознал", description: tJson.data.warning, variant: "destructive" });
+                        toast({ title: "⚠ Не удалось распознать", description: tJson.data.warning, variant: "destructive" });
                       }
                       if (tJson?.data?.transcript) setAudioTranscript(tJson.data.transcript);
                       if (tJson?.data?.suggestion) {
@@ -1060,7 +1060,7 @@ export default function MusicPage() {
                           variant: "destructive"
                         });
                       } else if (tJson?.data?.fallbackToManual) {
-                        toast({ title: "📝 Введите текст вручную", description: "Whisper недоступен — наберите описание ниже" });
+                        toast({ title: "📝 Введите текст вручную", description: "Yandex SpeechKit временно недоступен — наберите описание ниже" });
                       }
                     } catch (err) {
                       const m = err instanceof Error ? err.message : "fail";

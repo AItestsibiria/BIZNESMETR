@@ -426,12 +426,15 @@ router.post("/transcribe", requireAuth, async (req, res) => {
     const transcript = result.transcript;
 
     if (!transcript) {
-      const summary = result.attempts.map((a) => `${a.provider}: ${a.ok ? "OK" : (a.error?.slice(0, 60) ?? "fail")}`).join(" | ");
+      // Eugene 2026-05-09: оставили только Yandex SpeechKit — никаких
+      // упоминаний Whisper / OpenAI / GPTunnel в user-facing.
+      const yandexAttempt = result.attempts.find((a) => a.provider === "yandex");
+      const reason = yandexAttempt?.error?.slice(0, 100) || "пустой результат";
       return res.json({
         data: {
           transcript: "",
           suggestion: null,
-          warning: `Не удалось распознать. Попробованные: ${summary}. Введите текст вручную ниже.`,
+          warning: `Yandex SpeechKit не распознал речь (${reason}). Введите текст вручную ниже.`,
           fallbackToManual: true,
           attempts: result.attempts,
         },
