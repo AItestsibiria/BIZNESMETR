@@ -61,12 +61,23 @@ const moods = [
 ];
 
 function Equalizer({ playing }: { playing: boolean }) {
+  // Spectrum-analyzer стиль (Eugene 2026-05-09 DJ hi-tech): низкие частоты
+  // снизу — тёплые цвета (red→orange), верхние частоты — холодные (cyan→violet).
+  // Имитирует визуализацию частотного спектра реального hardware-микшера.
+  const spectrumColor = (i: number): string => {
+    const r = i / 19;
+    if (r < 0.20) return "from-red-500 via-orange-400 to-amber-300";
+    if (r < 0.40) return "from-orange-500 via-amber-400 to-yellow-300";
+    if (r < 0.60) return "from-emerald-500 via-emerald-300 to-emerald-100";
+    if (r < 0.80) return "from-cyan-500 via-cyan-300 to-cyan-100";
+    return "from-violet-500 via-violet-300 to-violet-100";
+  };
   return (
     <div className="flex items-end gap-[2px] h-10">
       {Array.from({ length: 20 }).map((_, i) => (
         <div
           key={i}
-          className={`w-[3px] rounded-full bg-gradient-to-t from-purple-500 via-blue-500 to-cyan-400 transition-all ${
+          className={`w-[3px] rounded-full bg-gradient-to-t ${spectrumColor(i)} transition-all ${
             playing ? "equalizer-bar" : ""
           }`}
           style={{
@@ -1004,15 +1015,26 @@ export default function MusicPage() {
                 ].map((step, i) => (
                   <div
                     key={i}
-                    className={`text-center text-[10px] sm:text-xs py-1.5 px-1 rounded-md border transition-all ${
+                    className={`relative text-center text-[10px] sm:text-xs py-2 px-1 rounded-md border hardware-button overflow-hidden transition-all ${
                       step.active
-                        ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+                        ? "border-emerald-500/50 bg-gradient-to-b from-emerald-500/15 to-emerald-500/5 text-emerald-200"
                         : step.current
-                          ? "border-purple-500/40 bg-purple-500/10 text-purple-300 animate-pulse"
-                          : "border-white/10 bg-white/5 text-muted-foreground/60"
+                          ? "border-purple-500/50 bg-gradient-to-b from-purple-500/15 to-purple-500/5 text-purple-200"
+                          : "border-white/10 bg-white/[0.03] text-muted-foreground/60"
                     }`}
                   >
-                    {step.label}
+                    <span className="inline-flex items-center gap-1.5 font-display">
+                      {step.active && <span className="led-indicator text-emerald-400" />}
+                      {step.current && !step.active && <span className="led-indicator text-purple-400" />}
+                      {step.label}
+                    </span>
+                    {(step.active || step.current) && (
+                      <span
+                        className={`absolute left-0 bottom-0 h-[2px] ${
+                          step.active ? "w-full bg-emerald-400/80 shadow-[0_0_8px_rgba(52,211,153,0.6)]" : "w-1/2 bg-purple-400/80 shadow-[0_0_8px_rgba(167,139,250,0.6)] animate-pulse"
+                        }`}
+                      />
+                    )}
                   </div>
                 ))}
               </div>
