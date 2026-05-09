@@ -324,6 +324,21 @@ export default function MusicPage() {
     ta.style.height = "auto";
     ta.style.height = `${Math.max(ta.scrollHeight + 2, 240)}px`;
   }, [audioLyrics]);
+  // Scroll-to-tabs если страница открыта с ?tab=* (Eugene 2026-05-09:
+  // «Новости ссылка на аудио должна приводить на окно генерации аудио»).
+  // На mobile форма уезжает ниже viewport — без скролла юзер видит page-title
+  // и думает что страница пустая. После mount делаем smooth-scroll к Mode Toggle.
+  const modeTabsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    try {
+      const hasTabParam = new URLSearchParams(window.location.hash.split("?")[1] || "").has("tab");
+      if (!hasTabParam) return;
+      const t = setTimeout(() => {
+        modeTabsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 250);
+      return () => clearTimeout(t);
+    } catch {}
+  }, []);
   // Внутри Расширенного — старая Simple/Lyrics подвкладка (была prev top-mode).
   const [legacyMode, setLegacyMode] = useState<"simple" | "advanced">(
     regeneratePayload?.mode === "advanced" ? "advanced" : "simple",
@@ -832,7 +847,7 @@ export default function MusicPage() {
 
         {/* Mode Toggle — 3 режима. Аудио слева, синий, с микрофоном+эквалайзером.
             Затем «Текст Простой» / «Текст Расширенный» (ТЗ Eugene 2026-05-07). */}
-        <div className="mb-6 flex items-start justify-between gap-3 flex-wrap">
+        <div ref={modeTabsRef} className="mb-6 flex items-start justify-between gap-3 flex-wrap scroll-mt-24">
           <Tabs value={mode} onValueChange={(v) => setMode(v as any)}>
             <TabsList className="bg-black/30 border border-white/10 h-auto p-1 gap-1 backdrop-blur-md">
               <TabsTrigger
