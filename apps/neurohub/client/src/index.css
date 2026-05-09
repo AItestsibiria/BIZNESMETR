@@ -372,6 +372,80 @@
   50% { background-position: 100% 50%; }
 }
 
+/* DJ hi-tech utilities (Eugene 2026-05-09) === */
+
+@keyframes ledPulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 6px currentColor, 0 0 12px currentColor; }
+  50%      { opacity: 0.55; box-shadow: 0 0 3px currentColor, 0 0 6px currentColor; }
+}
+
+/* LED-индикатор — маленькая «лампочка» рядом с активным режимом */
+.led-indicator {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: ledPulse 1.6s ease-in-out infinite;
+}
+
+/* Hardware-button — inset shadow «глубины» + top highlight + neon edge.
+   Применяется к mode-tabs и voice tiles. */
+.hardware-button {
+  position: relative;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.5),
+    0 1px 2px rgba(0, 0, 0, 0.4);
+  transition: box-shadow 200ms ease, transform 100ms ease;
+}
+
+.hardware-button:active {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.6),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.hardware-button[data-active="true"],
+.hardware-button[data-state="active"] {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 0 18px rgba(34, 211, 238, 0.18),
+    0 0 18px rgba(34, 211, 238, 0.35),
+    0 0 36px rgba(139, 92, 246, 0.22);
+}
+
+/* Neon-ring — тонкая светящаяся обводка */
+.neon-ring-cyan {
+  box-shadow:
+    inset 0 0 0 1px rgba(34, 211, 238, 0.5),
+    0 0 14px rgba(34, 211, 238, 0.4);
+}
+
+.neon-ring-purple {
+  box-shadow:
+    inset 0 0 0 1px rgba(167, 139, 250, 0.5),
+    0 0 14px rgba(139, 92, 246, 0.4);
+}
+
+/* Subtle scan-lines overlay для DJ-hardware feel */
+.scan-lines::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    180deg,
+    transparent 0,
+    transparent 2px,
+    rgba(255, 255, 255, 0.015) 2px,
+    rgba(255, 255, 255, 0.015) 3px
+  );
+  border-radius: inherit;
+  z-index: 0;
+}
+
 @keyframes cosmicDisclosureIn {
   0%   { opacity: 0; transform: scaleY(0.85) translateY(-6px); filter: blur(6px); }
   60%  { opacity: 1; }

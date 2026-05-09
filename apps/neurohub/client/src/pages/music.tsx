@@ -777,7 +777,7 @@ export default function MusicPage() {
             <Music className="w-5 h-5 text-white" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-white" data-testid="text-music-title">Музыка + Вокал</h1>
+            <h1 className="text-xl font-bold text-white font-display tracking-wide" data-testid="text-music-title">Музыка + Вокал</h1>
             <p className="text-sm text-muted-foreground">Полноценная песня с помощью MuziAi</p>
           </div>
           <span className="ml-auto price-badge" data-testid="badge-price-music">299 ₽</span>
@@ -834,35 +834,38 @@ export default function MusicPage() {
             Затем «Текст Простой» / «Текст Расширенный» (ТЗ Eugene 2026-05-07). */}
         <div className="mb-6 flex items-start justify-between gap-3 flex-wrap">
           <Tabs value={mode} onValueChange={(v) => setMode(v as any)}>
-            <TabsList className="bg-white/5 border border-white/10 h-auto p-1 gap-1">
+            <TabsList className="bg-black/30 border border-white/10 h-auto p-1 gap-1 backdrop-blur-md">
               <TabsTrigger
                 value="audio"
-                className="group data-[state=active]:bg-gradient-to-r data-[state=active]:from-cyan-500/30 data-[state=active]:to-blue-500/20 data-[state=active]:text-white data-[state=active]:shadow-[0_0_24px_rgba(34,211,238,0.4)] px-4 py-2 rounded-lg transition-all"
+                className="group hardware-button data-[state=active]:bg-gradient-to-b data-[state=active]:from-cyan-500/25 data-[state=active]:to-cyan-500/5 data-[state=active]:text-white px-4 py-2 rounded-lg transition-all"
                 data-testid="tab-audio"
               >
                 <span className="inline-flex items-center gap-2">
                   <StudioMicEq size="sm" />
-                  <span className="font-medium">Аудио</span>
+                  <span className="font-medium font-display tracking-wide">Аудио</span>
+                  {mode === "audio" && <span className="led-indicator text-cyan-400" />}
                 </span>
               </TabsTrigger>
               <TabsTrigger
                 value="basic"
-                className="data-[state=active]:bg-purple-500/20 data-[state=active]:text-white px-3 py-2 rounded-lg"
+                className="hardware-button data-[state=active]:bg-gradient-to-b data-[state=active]:from-purple-500/25 data-[state=active]:to-purple-500/5 data-[state=active]:text-white px-3 py-2 rounded-lg transition-all"
                 data-testid="tab-basic"
               >
                 <span className="inline-flex items-center gap-1.5">
                   <FileText className="w-4 h-4 text-purple-300" />
-                  Текст · Простой
+                  <span className="font-medium font-display tracking-wide">Текст · Простой</span>
+                  {mode === "basic" && <span className="led-indicator text-purple-400" />}
                 </span>
               </TabsTrigger>
               <TabsTrigger
                 value="advanced"
-                className="data-[state=active]:bg-violet-500/20 data-[state=active]:text-white px-3 py-2 rounded-lg"
+                className="hardware-button data-[state=active]:bg-gradient-to-b data-[state=active]:from-violet-500/25 data-[state=active]:to-violet-500/5 data-[state=active]:text-white px-3 py-2 rounded-lg transition-all"
                 data-testid="tab-advanced"
               >
                 <span className="inline-flex items-center gap-1.5">
                   <Settings2 className="w-4 h-4 text-violet-300" />
-                  Текст · Расширенный
+                  <span className="font-medium font-display tracking-wide">Текст · Расширенный</span>
+                  {mode === "advanced" && <span className="led-indicator text-violet-400" />}
                 </span>
               </TabsTrigger>
             </TabsList>
@@ -941,28 +944,28 @@ export default function MusicPage() {
                 <Label className="text-sm text-muted-foreground">Голос</Label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-1 rounded-2xl bg-gradient-to-br from-white/[0.03] to-transparent border border-white/[0.06]">
                   <button type="button"
-                    className={`h-14 rounded-xl border flex flex-col items-center justify-center gap-0.5 text-sm font-medium transition-all ${!instrumental && !isDuet && voice === "female" ? "border-purple-400/60 bg-gradient-to-br from-purple-500/30 to-pink-500/20 text-purple-100 shadow-lg shadow-purple-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
+                    className={`h-14 rounded-xl border hardware-button flex flex-col items-center justify-center gap-0.5 text-sm font-medium transition-all ${!instrumental && !isDuet && voice === "female" ? "border-purple-400/60 bg-gradient-to-br from-purple-500/30 to-pink-500/20 text-purple-100 shadow-lg shadow-purple-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
                     onClick={() => { setInstrumental(false); setIsDuet(false); setVoice("female"); }}
                     data-testid="btn-basic-female">
                     <span className="text-lg leading-none">👩‍🎤</span>
                     <span className="text-[11px] leading-none">Женский</span>
                   </button>
                   <button type="button"
-                    className={`h-14 rounded-xl border flex flex-col items-center justify-center gap-0.5 text-sm font-medium transition-all ${!instrumental && !isDuet && voice === "male" ? "border-blue-400/60 bg-gradient-to-br from-blue-500/30 to-cyan-500/20 text-blue-100 shadow-lg shadow-blue-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
+                    className={`h-14 rounded-xl border hardware-button flex flex-col items-center justify-center gap-0.5 text-sm font-medium transition-all ${!instrumental && !isDuet && voice === "male" ? "border-blue-400/60 bg-gradient-to-br from-blue-500/30 to-cyan-500/20 text-blue-100 shadow-lg shadow-blue-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
                     onClick={() => { setInstrumental(false); setIsDuet(false); setVoice("male"); }}
                     data-testid="btn-basic-male">
                     <span className="text-lg leading-none">👨‍🎤</span>
                     <span className="text-[11px] leading-none">Мужской</span>
                   </button>
                   <button type="button"
-                    className={`h-14 rounded-xl border flex flex-col items-center justify-center gap-0.5 text-sm font-medium transition-all ${isDuet ? "border-pink-400/60 bg-gradient-to-br from-pink-500/30 to-rose-500/20 text-pink-100 shadow-lg shadow-pink-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
+                    className={`h-14 rounded-xl border hardware-button flex flex-col items-center justify-center gap-0.5 text-sm font-medium transition-all ${isDuet ? "border-pink-400/60 bg-gradient-to-br from-pink-500/30 to-rose-500/20 text-pink-100 shadow-lg shadow-pink-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
                     onClick={() => { setInstrumental(false); setIsDuet(true); }}
                     data-testid="btn-basic-duet">
                     <span className="text-lg leading-none">👩‍🎤👨‍🎤</span>
                     <span className="text-[11px] leading-none">Дуэт</span>
                   </button>
                   <button type="button"
-                    className={`h-14 rounded-xl border flex flex-col items-center justify-center gap-0.5 text-sm font-medium transition-all ${instrumental ? "border-amber-400/60 bg-gradient-to-br from-amber-500/30 to-orange-500/20 text-amber-100 shadow-lg shadow-amber-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
+                    className={`h-14 rounded-xl border hardware-button flex flex-col items-center justify-center gap-0.5 text-sm font-medium transition-all ${instrumental ? "border-amber-400/60 bg-gradient-to-br from-amber-500/30 to-orange-500/20 text-amber-100 shadow-lg shadow-amber-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
                     onClick={() => { setIsDuet(false); setInstrumental(true); }}
                     data-testid="btn-basic-instrumental">
                     <span className="text-lg leading-none">🎻</span>
@@ -1221,25 +1224,25 @@ export default function MusicPage() {
                 <Label className="text-sm text-muted-foreground">Голос для кавера</Label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-1 rounded-2xl bg-gradient-to-br from-white/[0.03] to-transparent border border-white/[0.06]">
                   <button type="button"
-                    className={`h-14 rounded-xl border flex flex-col items-center justify-center gap-0.5 text-sm font-medium transition-all ${!instrumental && !isDuet && voice === "female" ? "border-purple-400/60 bg-gradient-to-br from-purple-500/30 to-pink-500/20 text-purple-100 shadow-lg shadow-purple-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
+                    className={`h-14 rounded-xl border hardware-button flex flex-col items-center justify-center gap-0.5 text-sm font-medium transition-all ${!instrumental && !isDuet && voice === "female" ? "border-purple-400/60 bg-gradient-to-br from-purple-500/30 to-pink-500/20 text-purple-100 shadow-lg shadow-purple-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
                     onClick={() => { setInstrumental(false); setIsDuet(false); setVoice("female"); }}>
                     <span className="text-lg leading-none">👩‍🎤</span>
                     <span className="text-[11px] leading-none">Женский</span>
                   </button>
                   <button type="button"
-                    className={`h-14 rounded-xl border flex flex-col items-center justify-center gap-0.5 text-sm font-medium transition-all ${!instrumental && !isDuet && voice === "male" ? "border-blue-400/60 bg-gradient-to-br from-blue-500/30 to-cyan-500/20 text-blue-100 shadow-lg shadow-blue-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
+                    className={`h-14 rounded-xl border hardware-button flex flex-col items-center justify-center gap-0.5 text-sm font-medium transition-all ${!instrumental && !isDuet && voice === "male" ? "border-blue-400/60 bg-gradient-to-br from-blue-500/30 to-cyan-500/20 text-blue-100 shadow-lg shadow-blue-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
                     onClick={() => { setInstrumental(false); setIsDuet(false); setVoice("male"); }}>
                     <span className="text-lg leading-none">👨‍🎤</span>
                     <span className="text-[11px] leading-none">Мужской</span>
                   </button>
                   <button type="button"
-                    className={`h-14 rounded-xl border flex flex-col items-center justify-center gap-0.5 text-sm font-medium transition-all ${isDuet ? "border-pink-400/60 bg-gradient-to-br from-pink-500/30 to-rose-500/20 text-pink-100 shadow-lg shadow-pink-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
+                    className={`h-14 rounded-xl border hardware-button flex flex-col items-center justify-center gap-0.5 text-sm font-medium transition-all ${isDuet ? "border-pink-400/60 bg-gradient-to-br from-pink-500/30 to-rose-500/20 text-pink-100 shadow-lg shadow-pink-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
                     onClick={() => { setInstrumental(false); setIsDuet(true); }}>
                     <span className="text-lg leading-none">👩‍🎤👨‍🎤</span>
                     <span className="text-[11px] leading-none">Дуэт</span>
                   </button>
                   <button type="button"
-                    className={`h-14 rounded-xl border flex flex-col items-center justify-center gap-0.5 text-sm font-medium transition-all ${instrumental ? "border-amber-400/60 bg-gradient-to-br from-amber-500/30 to-orange-500/20 text-amber-100 shadow-lg shadow-amber-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
+                    className={`h-14 rounded-xl border hardware-button flex flex-col items-center justify-center gap-0.5 text-sm font-medium transition-all ${instrumental ? "border-amber-400/60 bg-gradient-to-br from-amber-500/30 to-orange-500/20 text-amber-100 shadow-lg shadow-amber-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
                     onClick={() => { setIsDuet(false); setInstrumental(true); }}>
                     <span className="text-lg leading-none">🎻</span>
                     <span className="text-[11px] leading-none">Инструментал</span>
