@@ -14,7 +14,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { InlineAuth } from "@/components/inline-auth";
-import { Music, Loader2, Download, Play, Pause, Volume2, Copy, Check, RefreshCcw, ChevronDown, Sparkles, Sliders, Mic, FileText, Settings2, Share2 } from "lucide-react";
+import { Music, Loader2, Download, Play, Pause, Volume2, Copy, Check, RefreshCcw, ChevronDown, Sparkles, Sliders, Mic, FileText, Settings2, Share2, LayoutDashboard, Pencil } from "lucide-react";
 import { HelpBuddy } from "@/components/help-buddy";
 import { MicRecorder } from "@/components/mic-recorder";
 import { StudioMicEq } from "@/components/studio-mic-eq";
@@ -2020,32 +2020,59 @@ export default function MusicPage() {
               </div>
             )}
 
-            <div className="flex gap-3">
+            {/* CTA bar — Eugene 2026-05-09 (Phase 4 audit C):
+                «человек должен скользить из любого места по генерации».
+                4 действия одной строкой, на mobile flex-wrap по 2. */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" data-testid="music-result-cta-bar">
               <Button
-                className="flex-1 btn-gradient rounded-xl h-11"
+                className="btn-gradient rounded-xl h-11 font-display tracking-wide"
                 onClick={handleDownload}
                 data-testid="button-download-music"
               >
-                <Download className="w-4 h-4 mr-2" />
-                Скачать трек
+                <Download className="w-4 h-4 mr-1.5" />
+                Скачать
               </Button>
               <Button
                 variant="outline"
-                className="flex-1 rounded-xl h-11 border-purple-500/30 hover:bg-purple-500/10 text-purple-300"
+                className="hardware-button rounded-xl h-11 border-purple-500/30 bg-purple-500/[0.06] hover:bg-purple-500/15 text-purple-200 font-display tracking-wide backdrop-blur-md"
                 onClick={() => {
-                  // Reset result, keep text, highlight unused styles
                   setResultUrl(null);
                   setHighlightStyles(true);
-                  // Keep only unused styles pre-selected, or clear to let user pick
                   setSelectedStyles([]);
-                  // Scroll to top of form
                   window.scrollTo({ top: 0, behavior: "smooth" });
                   toast({ title: "Выберите новый стиль", description: "Подсвечены стили, которые вы ещё не пробовали" });
                 }}
                 data-testid="button-retry-style"
               >
-                <RefreshCcw className="w-4 h-4 mr-2" />
-                Другой стиль
+                <RefreshCcw className="w-4 h-4 mr-1.5" />
+                Ещё один
+              </Button>
+              <Button
+                variant="outline"
+                className="hardware-button rounded-xl h-11 border-cyan-500/30 bg-cyan-500/[0.06] hover:bg-cyan-500/15 text-cyan-200 font-display tracking-wide backdrop-blur-md"
+                onClick={() => {
+                  const url = window.location.origin + "/#/music";
+                  if (navigator.share) {
+                    navigator.share({ title: "Мой трек на MuziAi", url }).catch(() => {});
+                  } else {
+                    navigator.clipboard.writeText(url).then(() => {
+                      toast({ title: "Ссылка скопирована" });
+                    }).catch(() => {});
+                  }
+                }}
+                data-testid="button-share-music"
+              >
+                <Share2 className="w-4 h-4 mr-1.5" />
+                Поделиться
+              </Button>
+              <Button
+                variant="outline"
+                className="hardware-button rounded-xl h-11 border-white/15 bg-white/[0.04] hover:bg-white/10 text-white/90 font-display tracking-wide backdrop-blur-md"
+                onClick={() => { window.location.hash = "#/dashboard"; }}
+                data-testid="button-goto-dashboard"
+              >
+                <LayoutDashboard className="w-4 h-4 mr-1.5" />
+                Дашборд
               </Button>
             </div>
           </div>
