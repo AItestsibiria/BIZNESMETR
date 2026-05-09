@@ -1625,16 +1625,20 @@ function createNew(){
 
   // Helper: try to serve a local file, return true if served
   function tryServeLocal(gen: any, wantImage: boolean, res: Response, asDownload?: string): boolean {
-    if (!gen.localPath) return false;
     // Determine the local file path
-    let localFile: string;
+    let localFile: string | null = null;
     if (wantImage) {
-      // Image is stored alongside audio as .jpg
-      localFile = path.join(AUTHORS_DIR, gen.localPath.replace(/\.[^.]+$/, ".jpg"));
-    } else {
-      localFile = path.join(AUTHORS_DIR, gen.localPath);
+      // Eugene 2026-05-09: плейлист рендерит обложки через /api/stream/:id?type=image.
+      // Используем тот же fallback что и в /api/cover/:id.jpg — иначе обложки
+      // тех gens, у которых localPath=null или указывает на не-сохранённый mp3,
+      // не находятся, и UI показывает значок ноты.
+      const resolved = resolveCoverPath(gen);
+      if (resolved) localFile = resolved;
+    } else if (gen.localPath) {
+      const cand = path.join(AUTHORS_DIR, gen.localPath);
+      if (fs.existsSync(cand)) localFile = cand;
     }
-    if (!fs.existsSync(localFile)) return false;
+    if (!localFile || !fs.existsSync(localFile)) return false;
 
     const ext = path.extname(localFile).toLowerCase();
     const ctMap: Record<string, string> = { ".mp3": "audio/mpeg", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".txt": "text/plain; charset=utf-8" };
