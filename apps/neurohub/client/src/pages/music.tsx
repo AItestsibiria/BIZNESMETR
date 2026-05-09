@@ -350,6 +350,36 @@ export default function MusicPage() {
       return () => clearTimeout(t);
     } catch {}
   }, []);
+  // Swipe handlers для mode-tabs (Eugene Phase 4 audit C):
+  // на mobile свайп влево/вправо переключает между Аудио ↔ Простой ↔ Расширенный.
+  const swipeStartX = useRef<number | null>(null);
+  const swipeStartY = useRef<number | null>(null);
+  const handleSwipeStart = (e: React.TouchEvent) => {
+    // Игнорируем свайп на input/textarea/button/select — они нужны для скролла/селекта
+    const t = e.target as HTMLElement;
+    if (t.closest("input, textarea, select, button, [role='slider'], [contenteditable]")) {
+      swipeStartX.current = null;
+      return;
+    }
+    swipeStartX.current = e.touches[0].clientX;
+    swipeStartY.current = e.touches[0].clientY;
+  };
+  const handleSwipeEnd = (e: React.TouchEvent) => {
+    if (swipeStartX.current == null || swipeStartY.current == null) return;
+    const endX = e.changedTouches[0].clientX;
+    const endY = e.changedTouches[0].clientY;
+    const dx = endX - swipeStartX.current;
+    const dy = endY - swipeStartY.current;
+    swipeStartX.current = null;
+    swipeStartY.current = null;
+    // Горизонтальный свайп: |dx| > 60px И угол ≤ 30° (|dy| < |dx|/2).
+    if (Math.abs(dx) < 60 || Math.abs(dy) > Math.abs(dx) / 2) return;
+    const order: Array<"audio" | "basic" | "advanced"> = ["audio", "basic", "advanced"];
+    const idx = order.indexOf(mode);
+    if (idx === -1) return;
+    if (dx < 0 && idx < order.length - 1) setMode(order[idx + 1]);
+    else if (dx > 0 && idx > 0) setMode(order[idx - 1]);
+  };
   // Внутри Расширенного — старая Simple/Lyrics подвкладка (была prev top-mode).
   const [legacyMode, setLegacyMode] = useState<"simple" | "advanced">(
     regeneratePayload?.mode === "advanced" ? "advanced" : "simple",
@@ -961,7 +991,12 @@ export default function MusicPage() {
         </div>
 
         {/* Form */}
-        <div className="gradient-border p-6 rounded-2xl space-y-5 mb-6">
+        <div
+          className="gradient-border p-6 rounded-2xl space-y-5 mb-6 touch-pan-y"
+          onTouchStart={handleSwipeStart}
+          onTouchEnd={handleSwipeEnd}
+          data-testid="music-form"
+        >
           {/* === БАЗОВЫЙ РЕЖИМ — минимум полей, без выбора стиля === */}
           {mode === "basic" ? (
             <>
