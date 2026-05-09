@@ -446,6 +446,22 @@ function OverviewTab({ toast: _t }: { toast: any }) {
     }
   };
 
+  // Eugene 2026-05-09: ручной refresh jpg-индекса для плейлиста.
+  const [coversRefreshing, setCoversRefreshing] = useState(false);
+  const refreshCoversIndex = async () => {
+    setCoversRefreshing(true);
+    try {
+      const r = await apiRequest("POST", "/api/admin/v304/covers/refresh-index");
+      const j = await r.json();
+      if (j.error) throw new Error(j.error);
+      _t({ title: "Обложки обновлены", description: `Авторов: ${j.data.totalAuthors}, JPG: ${j.data.totalJpg}. Обнови плейлист (F5).` });
+    } catch (e: any) {
+      _t({ title: "Ошибка refresh", description: e.message, variant: "destructive" });
+    } finally {
+      setCoversRefreshing(false);
+    }
+  };
+
   if (overview.isLoading || health.isLoading) {
     return <div className="p-8 text-center text-muted-foreground">Загрузка дашборда…</div>;
   }
@@ -477,9 +493,14 @@ function OverviewTab({ toast: _t }: { toast: any }) {
       <Card className="border-blue-500/30 bg-gradient-to-br from-blue-500/5 to-transparent">
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base flex items-center gap-2">🩺 Sync-check (целостность после deploy)</CardTitle>
-          <Button onClick={runSyncCheck} disabled={syncLoading} size="sm" className="bg-gradient-to-r from-blue-500 to-cyan-500">
-            {syncLoading ? "Проверяю…" : "🔄 Запустить проверку"}
-          </Button>
+          <div className="flex gap-2">
+            <Button onClick={refreshCoversIndex} disabled={coversRefreshing} size="sm" variant="outline" title="Сбрасывает кэш и пересканирует authors/<author>/<id>.jpg. Используй после rsync обложек / если плейлист показывает дефолтную картинку.">
+              {coversRefreshing ? "Обновляю…" : "🖼 Обновить обложки"}
+            </Button>
+            <Button onClick={runSyncCheck} disabled={syncLoading} size="sm" className="bg-gradient-to-r from-blue-500 to-cyan-500">
+              {syncLoading ? "Проверяю…" : "🔄 Запустить проверку"}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="text-xs text-muted-foreground">

@@ -310,6 +310,38 @@ router.get("/sync-check", requireAdmin, async (_req, res) => {
   res.json({ data: report, error: null });
 });
 
+// Eugene 2026-05-09: ручной сброс jpg-индекса в routes.ts.
+// Используется после массовой загрузки обложек / rsync authors/ из clone,
+// чтобы не ждать 5-минутный TTL и обложки в плейлисте подтянулись сразу.
+// Также возвращает счётчик jpg-файлов в authors/ — быстрый sanity check.
+router.post("/covers/refresh-index", requireAdmin, async (_req, res) => {
+  try {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const refresh = (globalThis as any).__refreshJpgIndex;
+    if (typeof refresh === "function") refresh();
+
+    const AUTHORS_DIR = process.env.AUTHORS_DIR || path.join(process.cwd(), "authors");
+    let totalJpg = 0;
+    let totalAuthors = 0;
+    try {
+      for (const sub of fs.readdirSync(AUTHORS_DIR)) {
+        const subPath = path.join(AUTHORS_DIR, sub);
+        try {
+          if (!fs.statSync(subPath).isDirectory()) continue;
+          totalAuthors += 1;
+          for (const f of fs.readdirSync(subPath)) {
+            if (/^\d+\.jpg$/.test(f)) totalJpg += 1;
+          }
+        } catch {}
+      }
+    } catch {}
+    res.json({ data: { ok: true, refreshed: true, totalAuthors, totalJpg, hint: "Cache invalidated. Next /api/cover/:id.jpg request will rebuild fallback index." }, error: null });
+  } catch (e) {
+    res.status(500).json({ data: null, error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
 router.get("/overview", requireAdmin, (_req, res) => {
   try {
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();

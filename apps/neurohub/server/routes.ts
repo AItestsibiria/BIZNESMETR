@@ -1756,6 +1756,37 @@ function createNew(){
   });
 
   // Helper: resolve cover file path for a generation
+  // Eugene 2026-05-09: fallback-индекс <gen.id>.jpg в любой подпапке AUTHORS_DIR.
+  // Поднимает обложки которые сохранились в файловую систему, но потеряли связь
+  // с DB (localPath=null после миграции / частичного сбоя saveGenFiles).
+  // Индекс кэшируется на 5 мин — после backfill/refresh инвалидация через
+  // /api/admin/v304/covers/refresh-index.
+  let __jpgIndex: Map<number, string> | null = null;
+  let __jpgIndexAt = 0;
+  const __JPG_INDEX_TTL_MS = 5 * 60 * 1000;
+  function getJpgIndex(): Map<number, string> {
+    const now = Date.now();
+    if (__jpgIndex && now - __jpgIndexAt < __JPG_INDEX_TTL_MS) return __jpgIndex;
+    const idx = new Map<number, string>();
+    try {
+      for (const sub of fs.readdirSync(AUTHORS_DIR)) {
+        const subPath = path.join(AUTHORS_DIR, sub);
+        try {
+          if (!fs.statSync(subPath).isDirectory()) continue;
+          for (const f of fs.readdirSync(subPath)) {
+            const m = f.match(/^(\d+)\.jpg$/);
+            if (m) idx.set(parseInt(m[1], 10), path.join(subPath, f));
+          }
+        } catch {}
+      }
+    } catch {}
+    __jpgIndex = idx;
+    __jpgIndexAt = now;
+    return idx;
+  }
+  // Public helper for admin endpoint to bust cache after manual cover ops
+  (globalThis as any).__refreshJpgIndex = () => { __jpgIndex = null; __jpgIndexAt = 0; };
+
   function resolveCoverPath(gen: any): string | null {
     if (gen.coverGenId) {
       const cover = db.select().from(generations).where(eq(generations.id, gen.coverGenId)).get();
@@ -1772,6 +1803,8 @@ function createNew(){
       const f = path.join(AUTHORS_DIR, gen.localPath);
       if (fs.existsSync(f)) return f;
     }
+    const byId = getJpgIndex().get(gen.id);
+    if (byId && fs.existsSync(byId)) return byId;
     return null;
   }
 
