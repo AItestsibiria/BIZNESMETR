@@ -885,13 +885,13 @@ export default function MusicPage() {
               </TabsTrigger>
               <TabsTrigger
                 value="advanced"
-                className="hardware-button data-[state=active]:bg-gradient-to-b data-[state=active]:from-violet-500/25 data-[state=active]:to-violet-500/5 data-[state=active]:text-white px-3 py-2 rounded-lg transition-all"
+                className="hardware-button data-[state=active]:bg-gradient-to-b data-[state=active]:from-purple-600/30 data-[state=active]:to-purple-600/5 data-[state=active]:text-white px-3 py-2 rounded-lg transition-all"
                 data-testid="tab-advanced"
               >
                 <span className="inline-flex items-center gap-1.5">
-                  <Settings2 className="w-4 h-4 text-violet-300" />
+                  <Settings2 className="w-4 h-4 text-purple-200" />
                   <span className="font-medium font-display tracking-wide">Текст · Расширенный</span>
-                  {mode === "advanced" && <span className="led-indicator text-violet-400" />}
+                  {mode === "advanced" && <span className="led-indicator text-purple-300" />}
                 </span>
               </TabsTrigger>
             </TabsList>
@@ -919,7 +919,7 @@ export default function MusicPage() {
                 text: <>Описал одной фразой — MuziAi подобрал стиль. Быстро, качество среднее.</>,
               },
               {
-                icon: <Settings2 />, color: "text-violet-300", label: "Текст · Расширенный",
+                icon: <Settings2 />, color: "text-purple-200", label: "Текст · Расширенный",
                 text: <>Полный контроль: жанр, BPM, темп, текст, мульти-стиль. Самый точный.</>,
               },
             ]}
@@ -934,17 +934,31 @@ export default function MusicPage() {
         {mode === "audio" && (
           <div className="mb-4">
             <Tabs value={audioMode} onValueChange={(v) => setAudioMode(v as any)}>
-              <TabsList className="bg-white/5 border border-white/10">
-                <TabsTrigger value="simple" className="data-[state=active]:bg-cyan-500/20 data-[state=active]:text-white" data-testid="tab-audio-simple">
+              <TabsList className="bg-black/30 border border-white/10 backdrop-blur-md">
+                <TabsTrigger value="simple" className="hardware-button data-[state=active]:bg-gradient-to-b data-[state=active]:from-cyan-400/15 data-[state=active]:to-cyan-400/[0.04] data-[state=active]:text-white font-display tracking-wide" data-testid="tab-audio-simple">
                   Простой
                 </TabsTrigger>
-                <TabsTrigger value="advanced" className="data-[state=active]:bg-cyan-500/20 data-[state=active]:text-white" data-testid="tab-audio-advanced">
+                <TabsTrigger value="advanced" className="hardware-button data-[state=active]:bg-gradient-to-b data-[state=active]:from-cyan-500/30 data-[state=active]:to-cyan-500/5 data-[state=active]:text-white font-display tracking-wide" data-testid="tab-audio-advanced">
                   Расширенный
                 </TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
         )}
+
+        {/* Breadcrumb текущего режима — Eugene 2026-05-09 (Phase 3 audit):
+            «юзер видит за 1 секунду я в режиме Y семейства X». */}
+        <div className="mb-3 text-[11px] text-muted-foreground font-display tracking-wider flex items-center gap-1.5" data-testid="breadcrumb-mode">
+          <span className={mode === "audio" ? "text-cyan-300" : "text-purple-300"}>
+            {mode === "audio" ? "🎤 Аудио" : "📄 Текст"}
+          </span>
+          <span className="text-muted-foreground/40">·</span>
+          <span className="text-white/80">
+            {mode === "audio"
+              ? (audioMode === "simple" ? "Простой" : "Расширенный")
+              : mode === "basic" ? "Простой" : "Расширенный"}
+          </span>
+        </div>
 
         {/* Form */}
         <div className="gradient-border p-6 rounded-2xl space-y-5 mb-6">
