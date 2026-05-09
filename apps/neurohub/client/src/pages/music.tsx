@@ -555,7 +555,7 @@ export default function MusicPage() {
           const body: any = { category: "song" };
           if (fullStyle) body.style = fullStyle;
           body.lyrics = finalLyrics;
-          if (audioSuggestion?.title || title) body.title = audioSuggestion?.title || title;
+          if (title || audioSuggestion?.title) body.title = title || audioSuggestion?.title;
           body.instrumental = instrumental;
           body.isDuet = isDuet;
           body.voiceType = instrumental ? "instrumental" : isDuet ? "duet" : voice;

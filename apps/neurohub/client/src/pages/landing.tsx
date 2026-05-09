@@ -894,7 +894,33 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   return (<>
     {/* News section */}
     <section className="relative z-[1] py-10 px-4 border-t border-white/[0.04]">
-      <div className="max-w-2xl mx-auto">
+      <div className="max-w-2xl mx-auto space-y-4">
+        {/* 9 мая 2026 — audio mode launch */}
+        <div className="glass-card rounded-2xl p-6 border border-cyan-500/20">
+          <div className="flex items-start gap-3">
+            <span className="text-2xl">🎤</span>
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-medium">Новости</span>
+                <span className="text-[10px] text-muted-foreground">9 мая 2026</span>
+              </div>
+              <h3 className="text-lg font-bold text-white mb-2">Аудио со смартфона</h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Появилась уникальная возможность генерации трека по{" "}
+                <a
+                  href="#/music?tab=audio"
+                  onClick={() => { try { localStorage.removeItem("music_mode"); localStorage.removeItem("music_audio_mode"); } catch {} }}
+                  className="text-cyan-400 hover:text-cyan-300 underline decoration-dotted underline-offset-2 transition-colors font-medium"
+                >
+                  аудио
+                </a>{" "}
+                со смартфона. Запиши голосом — получишь готовый трек.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* 12 апреля 2026 — Поехали */}
         <div className="glass-card rounded-2xl p-6 border border-purple-500/10">
           <div className="flex items-start gap-3">
             <span className="text-2xl">🚀</span>
