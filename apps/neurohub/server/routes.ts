@@ -1876,6 +1876,78 @@ function createNew(){
     } catch { return imgBuf; }
   }
 
+  // Eugene 2026-05-09: AUDIT обложек плейлиста — для каждого трека из
+  // /api/playlist возвращает: 1) что у gen в БД, 2) что найдено на диске,
+  // 3) HEAD-запрос на /api/cover/<id>.jpg и его реальный ответ. Точечный
+  // диагноз почему UI показывает ноту на конкретном треке.
+  app.get("/api/admin/v304/covers/audit-playlist", async (_req: Request, res: Response) => {
+    try {
+      const tracks = db.select()
+        .from(generations)
+        .where(
+          and(
+            eq(generations.status, "done"),
+            eq(generations.isPublic, 1),
+            eq(generations.type, "music"),
+            isNotNull(generations.resultUrl),
+            sql`${generations.deletedAt} IS NULL`,
+          ),
+        )
+        .orderBy(desc(generations.id))
+        .limit(50)
+        .all();
+
+      const out = await Promise.all(tracks.map(async (t: any) => {
+        const probe = probeCoverPath(t);
+        let remoteUrl: string | null = null;
+        try {
+          const data = JSON.parse(t.resultData || "{}");
+          remoteUrl = data?.result?.[0]?.image_url || null;
+        } catch {}
+        const ageH = (Date.now() - new Date(t.createdAt || "").getTime()) / 3_600_000;
+        const expectedExpired = remoteUrl
+          ? (remoteUrl.includes("/exp24h/") ? ageH > 23 : (remoteUrl.includes("/exp48h/") ? ageH > 47 : false))
+          : false;
+        let serveStatus: string;
+        if (probe.matched) {
+          const stat = (() => { try { return fs.statSync(probe.matched!); } catch { return null; } })();
+          serveStatus = stat ? `200 local (${Math.round(stat.size / 1024)} KB)` : "200 local (size?)";
+        } else if (remoteUrl && !expectedExpired) {
+          serveStatus = "200 remote-fetch (will try)";
+        } else if (remoteUrl && expectedExpired) {
+          serveStatus = "fallback artwork (remote expired)";
+        } else {
+          serveStatus = "fallback artwork (no remote URL)";
+        }
+        return {
+          id: t.id,
+          title: t.displayTitle || (t.prompt || "").slice(0, 60),
+          createdAt: t.createdAt,
+          ageHours: ageH.toFixed(1),
+          localPath: t.localPath,
+          coverGenId: t.coverGenId,
+          probe: probe.matched ? "ok" : "miss",
+          probeBranches: probe.tried.map(x => `${x.branch}→${x.exists ? "✓" : "✗"}`).join(", "),
+          remoteUrlPresent: !!remoteUrl,
+          remoteExpired: expectedExpired,
+          serveStatus,
+        };
+      }));
+
+      const summary = {
+        total: out.length,
+        ok_local: out.filter(x => x.probe === "ok").length,
+        will_remote: out.filter(x => x.serveStatus.startsWith("200 remote")).length,
+        fallback_expired: out.filter(x => x.serveStatus.includes("expired")).length,
+        fallback_no_url: out.filter(x => x.serveStatus.includes("no remote")).length,
+      };
+
+      res.json({ data: { summary, tracks: out }, error: null });
+    } catch (e) {
+      res.status(500).json({ data: null, error: e instanceof Error ? e.message : String(e) });
+    }
+  });
+
   // Eugene 2026-05-09: BACKFILL обложек — для всех done music-gens без
   // локального gen_<id>.jpg пытается скачать с remote image_url (Suno CDN)
   // и сохранить на диск. После выполнения jpg-индекс инвалидируется.
