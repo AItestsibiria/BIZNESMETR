@@ -1760,17 +1760,18 @@ function createNew(){
   });
 
   // Helper: resolve cover file path for a generation
-  // Eugene 2026-05-09: fallback-индекс <gen.id>.jpg в любой подпапке AUTHORS_DIR.
-  // Поднимает обложки которые сохранились в файловую систему, но потеряли связь
-  // с DB (localPath=null после миграции / частичного сбоя saveGenFiles).
-  // Индекс кэшируется на 5 мин — после backfill/refresh инвалидация через
-  // /api/admin/v304/covers/refresh-index.
-  let __jpgIndex: Map<number, string> | null = null;
-  let __jpgIndexAt = 0;
-  const __JPG_INDEX_TTL_MS = 5 * 60 * 1000;
-  function getJpgIndex(): Map<number, string> {
+  // Eugene 2026-05-09: AGGRESSIVE FALLBACK — индекс по gen.id для всех
+  // image-расширений в любой подпапке AUTHORS_DIR. Был длинный путь
+  // багов (3 root cause подряд) — теперь проще и громче: при каждом
+  // resolveCoverPath проверяем максимально широкий набор паттернов имён.
+  // Кэш 5 мин, инвалидация через /api/admin/v304/covers/refresh-index.
+  // ИНДЕКС ВКЛЮЧАЕТ: gen_<id>.{jpg,jpeg,png,webp} И <id>.{jpg,jpeg,png,webp}
+  let __coverIndex: Map<number, string> | null = null;
+  let __coverIndexAt = 0;
+  const __COVER_INDEX_TTL_MS = 5 * 60 * 1000;
+  function getCoverIndex(): Map<number, string> {
     const now = Date.now();
-    if (__jpgIndex && now - __jpgIndexAt < __JPG_INDEX_TTL_MS) return __jpgIndex;
+    if (__coverIndex && now - __coverIndexAt < __COVER_INDEX_TTL_MS) return __coverIndex;
     const idx = new Map<number, string>();
     try {
       for (const sub of fs.readdirSync(AUTHORS_DIR)) {
@@ -1778,40 +1779,79 @@ function createNew(){
         try {
           if (!fs.statSync(subPath).isDirectory()) continue;
           for (const f of fs.readdirSync(subPath)) {
-            // saveToAuthorFolder сохраняет как `gen_<id>.<ext>` (см. routes.ts:53),
-            // допускаем также legacy-формат `<id>.<ext>` без префикса.
-            const m = f.match(/^(?:gen_)?(\d+)\.jpg$/i);
-            if (m) idx.set(parseInt(m[1], 10), path.join(subPath, f));
+            const m = f.match(/^(?:gen_)?(\d+)\.(jpg|jpeg|png|webp)$/i);
+            if (m) {
+              const id = parseInt(m[1], 10);
+              if (!idx.has(id)) idx.set(id, path.join(subPath, f));
+            }
           }
         } catch {}
       }
     } catch {}
-    __jpgIndex = idx;
-    __jpgIndexAt = now;
+    __coverIndex = idx;
+    __coverIndexAt = now;
     return idx;
   }
-  // Public helper for admin endpoint to bust cache after manual cover ops
-  (globalThis as any).__refreshJpgIndex = () => { __jpgIndex = null; __jpgIndexAt = 0; };
+  (globalThis as any).__refreshJpgIndex = () => { __coverIndex = null; __coverIndexAt = 0; };
 
-  function resolveCoverPath(gen: any): string | null {
+  // Diagnostic helper — возвращает массив всех попыток поиска (для cover-debug endpoint)
+  function probeCoverPath(gen: any): { tried: Array<{ branch: string; path: string; exists: boolean }>; matched: string | null } {
+    const tried: Array<{ branch: string; path: string; exists: boolean }> = [];
+    const tryPath = (branch: string, p: string): string | null => {
+      const exists = fs.existsSync(p);
+      tried.push({ branch, path: p, exists });
+      return exists ? p : null;
+    };
+
+    // 1. coverGenId → его localPath напрямую
     if (gen.coverGenId) {
       const cover = db.select().from(generations).where(eq(generations.id, gen.coverGenId)).get();
       if (cover?.localPath) {
-        const f = path.join(AUTHORS_DIR, cover.localPath);
-        if (fs.existsSync(f)) return f;
+        const m = tryPath("coverGenId.localPath", path.join(AUTHORS_DIR, cover.localPath));
+        if (m) return { tried, matched: m };
+      } else {
+        tried.push({ branch: "coverGenId.localPath", path: "(cover gen has no localPath)", exists: false });
       }
     }
+
+    // 2. own localPath с заменой расширения на .jpg/.png/.webp/.jpeg
     if (gen.localPath) {
-      const jpgPath = path.join(AUTHORS_DIR, gen.localPath.replace(/\.[^.]+$/, ".jpg"));
-      if (fs.existsSync(jpgPath)) return jpgPath;
+      for (const ext of ["jpg", "jpeg", "png", "webp"]) {
+        const m = tryPath(`localPath→.${ext}`, path.join(AUTHORS_DIR, gen.localPath.replace(/\.[^.]+$/, `.${ext}`)));
+        if (m) return { tried, matched: m };
+      }
+      // Для type=cover localPath сам по себе — это уже изображение
+      if (gen.type === "cover") {
+        const m = tryPath("type=cover.localPath", path.join(AUTHORS_DIR, gen.localPath));
+        if (m) return { tried, matched: m };
+      }
     }
-    if (gen.type === "cover" && gen.localPath) {
-      const f = path.join(AUTHORS_DIR, gen.localPath);
-      if (fs.existsSync(f)) return f;
+
+    // 3. Жесткий fallback по индексу <id>.<ext>
+    const byId = getCoverIndex().get(gen.id);
+    if (byId) {
+      const m = tryPath("coverIndex[id]", byId);
+      if (m) return { tried, matched: m };
+    } else {
+      tried.push({ branch: "coverIndex[id]", path: "(not in index)", exists: false });
     }
-    const byId = getJpgIndex().get(gen.id);
-    if (byId && fs.existsSync(byId)) return byId;
-    return null;
+
+    // 4. Жесткий fallback по индексу coverGenId.<ext> (на случай если cover gen имеет файл, но не localPath)
+    if (gen.coverGenId) {
+      const byCoverId = getCoverIndex().get(gen.coverGenId);
+      if (byCoverId) {
+        const m = tryPath("coverIndex[coverGenId]", byCoverId);
+        if (m) return { tried, matched: m };
+      } else {
+        tried.push({ branch: "coverIndex[coverGenId]", path: "(not in index)", exists: false });
+      }
+    }
+
+    return { tried, matched: null };
+  }
+
+  function resolveCoverPath(gen: any): string | null {
+    return probeCoverPath(gen).matched;
   }
 
   // Helper: add MuziAi watermark to image buffer
@@ -1836,6 +1876,51 @@ function createNew(){
     } catch { return imgBuf; }
   }
 
+  // Eugene 2026-05-09: diagnostic endpoint — за каждый запрошенный gen.id
+  // вернёт точную карту того что искалось, что найдено, что было пропущено.
+  // Используется когда обложка не отображается, чтобы понять root cause
+  // (gen существует? какой localPath? что в индексе? итд).
+  app.get("/api/admin/v304/cover-debug/:id", async (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const gen = db.select().from(generations).where(eq(generations.id, id)).get();
+      if (!gen) {
+        return res.json({ data: { found: false, reason: "gen not in DB" }, error: null });
+      }
+      const probe = probeCoverPath(gen);
+      const idxSize = getCoverIndex().size;
+      let cover: any = null;
+      if (gen.coverGenId) {
+        cover = db.select().from(generations).where(eq(generations.id, gen.coverGenId)).get();
+      }
+      let resultData: any = null;
+      try { resultData = JSON.parse(gen.resultData || "{}"); } catch {}
+      const remoteImageUrl = resultData?.result?.[0]?.image_url || null;
+      res.json({
+        data: {
+          gen: {
+            id: gen.id,
+            type: gen.type,
+            status: gen.status,
+            localPath: gen.localPath,
+            coverGenId: gen.coverGenId,
+            authorName: gen.authorName,
+            createdAt: gen.createdAt,
+          },
+          coverGen: cover ? { id: cover.id, type: cover.type, localPath: cover.localPath } : null,
+          remoteImageUrl,
+          probe,
+          coverIndexSize: idxSize,
+          coverServeUrl: `/api/cover/${gen.id}.jpg`,
+          finalEndpoint: probe.matched ? "200 (will serve local file)" : (remoteImageUrl ? "200 (will fetch remote image)" : "200 (will serve artwork-512.png fallback)"),
+        },
+        error: null,
+      });
+    } catch (e) {
+      res.status(500).json({ data: null, error: e instanceof Error ? e.message : String(e) });
+    }
+  });
+
   // Cover image per track — resolves coverGenId, local jpg, remote fallback
   // ?wm=1 for watermark, ?size=96|128|256|384|512 for resizing (Safari MediaSession)
   app.get("/api/cover/:id.jpg", async (req: Request, res: Response) => {
@@ -1858,7 +1943,10 @@ function createNew(){
           buf = await sharp(buf).resize(targetSize, targetSize, { fit: 'cover' }).jpeg({ quality: 85 }).toBuffer();
         }
         res.setHeader("Content-Type", "image/jpeg");
-        res.setHeader("Cache-Control", "public, max-age=3600");
+        // Eugene 2026-05-09: на время отладки обложек — no-cache, чтобы любой
+        // фикс на сервере мгновенно проявлялся в UI без хард-рефреша.
+        // Когда стабилизируется — вернуть public, max-age=3600.
+        res.setHeader("Cache-Control", "no-cache, must-revalidate");
         res.send(buf);
         return;
       }

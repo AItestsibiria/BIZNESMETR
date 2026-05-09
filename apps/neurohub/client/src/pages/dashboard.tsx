@@ -743,8 +743,13 @@ function ReferralInfo() {
 }
 
 function getCoverUrl(gen: any): string {
-  if (gen.coverGenId) return `/api/stream/${gen.coverGenId}`;
-  return `/api/stream/${gen.id}?type=image`;
+  // Eugene 2026-05-09: единый endpoint /api/cover/<id>.jpg для всех обложек.
+  // Раньше использовался /api/stream/:id?type=image — у него своя логика
+  // resolveCoverPath, которая накопила баги (3 root cause подряд). Теперь
+  // и плейлист, и cover-only генерации идут через /api/cover/.
+  // ?v=<id> — cache-bust на случай если браузер закэшировал прошлый 404/fallback.
+  const coverId = gen.coverGenId || gen.id;
+  return `/api/cover/${coverId}.jpg?v=${gen.id}`;
 }
 
 function formatDur(seconds: number): string {
