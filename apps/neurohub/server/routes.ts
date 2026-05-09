@@ -3170,8 +3170,24 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
 
         if (t.type === "music") {
           audioUrl = `/api/stream/${t.id}`;
-          // Always use track's own image endpoint with cache-busting
-          imageUrl = `/api/cover/${t.id}.jpg?v=${t.coverGenId || 'suno'}`;
+          // Eugene 2026-05-09 ТОЧЕЧНЫЙ ВЫСТРЕЛ: cache-bust по mtime файла.
+          // Раньше ?v=${coverGenId || 'suno'} был СТАТИЧЕН — браузер один
+          // раз кэшировал ответ (даже если это был 404 / artwork-fallback)
+          // и pull-to-refresh на iPad-Safari ничего не делал. Теперь:
+          //   - если файл есть на диске — v = mtime в секундах. При любом
+          //     изменении файла URL меняется → браузер перезапрашивает.
+          //   - если файла нет — v = поминутный timestamp (минимум раз в
+          //     минуту перетягиваем обложку, не залипает на 404).
+          let coverV: string = String(t.coverGenId || "suno");
+          try {
+            const localCover = resolveCoverPath(t);
+            if (localCover) {
+              coverV = String(Math.floor(fs.statSync(localCover).mtimeMs / 1000));
+            } else {
+              coverV = `m${Math.floor(Date.now() / 60000)}`;
+            }
+          } catch {}
+          imageUrl = `/api/cover/${t.id}.jpg?v=${coverV}`;
           try {
             const data = JSON.parse(t.resultData || "{}");
             if (Array.isArray(data.result) && data.result[0]) {
