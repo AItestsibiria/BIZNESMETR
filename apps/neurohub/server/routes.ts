@@ -2090,69 +2090,134 @@ function createNew(){
     }
   });
 
-  // Cover image per track — resolves coverGenId, local jpg, remote fallback
-  // ?wm=1 for watermark, ?size=96|128|256|384|512 for resizing (Safari MediaSession)
+  // Cover image per track — Perplexity-2026-05-09 рефакторинг.
+  // 1) resolveCoverPath возвращает абсолютный путь.
+  // 2) fs.realpathSync — снимает симлинки + проверяет реальное существование.
+  // 3) realpath сравнивается с realpath(AUTHORS_DIR) — защита от path traversal.
+  // 4) res.sendFile(realPath) без неправильного root (передаём абсолют, никаких options).
+  // 5) Content-Type: image/jpeg ставится явно перед sendFile.
+  // 6) HEAD: sendFile сам отдаёт headers без body (Express обрабатывает корректно).
+  // 7) Все ошибки — console.error с id + path.
+  // ?wm=1 для watermark, ?size=96|128|256|384|512 для resize (Safari MediaSession).
+  // При наличии любой трансформации идём через buffer + res.send (sharp/jimp).
+  let __authorsRealPath: string | null = null;
+  const getAuthorsRealPath = (): string => {
+    if (__authorsRealPath) return __authorsRealPath;
+    try { __authorsRealPath = fs.realpathSync(AUTHORS_DIR); } catch { __authorsRealPath = AUTHORS_DIR; }
+    return __authorsRealPath;
+  };
+
   app.get("/api/cover/:id.jpg", async (req: Request, res: Response) => {
+    const genId = parseInt(req.params.id);
     try {
-      const genId = parseInt(req.params.id);
       const gen = db.select().from(generations).where(eq(generations.id, genId)).get();
-      if (!gen || gen.status !== "done") { res.status(404).end(); return; }
-      const wantWm = req.query.wm === "1";
-      const targetSize = parseInt(req.query.size as string) || 0;
-      const sharp = require('sharp');
-
-      // CORS for Safari MediaSession artwork
-      res.setHeader("Access-Control-Allow-Origin", "*");
-
-      const coverPath = resolveCoverPath(gen);
-      if (coverPath) {
-        let buf = fs.readFileSync(coverPath);
-        if (wantWm) buf = await addWatermark(buf);
-        if (targetSize > 0 && targetSize <= 512) {
-          buf = await sharp(buf).resize(targetSize, targetSize, { fit: 'cover' }).jpeg({ quality: 85 }).toBuffer();
-        }
-        res.setHeader("Content-Type", "image/jpeg");
-        // Eugene 2026-05-09: на время отладки обложек — no-cache, чтобы любой
-        // фикс на сервере мгновенно проявлялся в UI без хард-рефреша.
-        // Когда стабилизируется — вернуть public, max-age=3600.
-        res.setHeader("Cache-Control", "no-cache, must-revalidate");
-        res.send(buf);
-        return;
+      if (!gen || gen.status !== "done") {
+        console.warn(`[cover-serve] miss gen id=${genId} (not found or not done)`);
+        return res.status(404).end();
       }
 
-      // Remote fallback
+      res.setHeader("Access-Control-Allow-Origin", "*");
+
+      const wantWm = req.query.wm === "1";
+      const targetSize = parseInt(req.query.size as string) || 0;
+      const needsTransform = wantWm || (targetSize > 0 && targetSize <= 512);
+
+      const coverPath = resolveCoverPath(gen);
+
+      if (coverPath) {
+        // realpath — снимает симлинки, проверяет реальное существование
+        let realPath: string | null = null;
+        try {
+          realPath = fs.realpathSync(coverPath);
+        } catch (e) {
+          console.error(`[cover-serve] realpath failed id=${genId} coverPath=${coverPath}:`, e instanceof Error ? e.message : e);
+        }
+
+        if (realPath) {
+          const authorsReal = getAuthorsRealPath();
+          if (!realPath.startsWith(authorsReal + path.sep) && realPath !== authorsReal) {
+            console.error(`[cover-serve] path traversal blocked id=${genId} realPath=${realPath} authorsReal=${authorsReal}`);
+            return res.status(403).end();
+          }
+
+          res.setHeader("Content-Type", "image/jpeg");
+          res.setHeader("Cache-Control", "no-cache, must-revalidate");
+
+          if (needsTransform) {
+            try {
+              const sharp = require("sharp");
+              let buf = fs.readFileSync(realPath);
+              if (wantWm) buf = await addWatermark(buf);
+              if (targetSize > 0 && targetSize <= 512) {
+                buf = await sharp(buf).resize(targetSize, targetSize, { fit: "cover" }).jpeg({ quality: 85 }).toBuffer();
+              }
+              return res.send(buf);
+            } catch (e) {
+              console.error(`[cover-serve] transform failed id=${genId} path=${realPath}:`, e instanceof Error ? e.message : e);
+              return res.status(500).end();
+            }
+          }
+
+          // Прямой sendFile — корректно обрабатывает HEAD, Range, Content-Length.
+          return res.sendFile(realPath, (err) => {
+            if (err) {
+              console.error(`[cover-serve] sendFile failed id=${genId} path=${realPath}:`, err.message || err);
+            }
+          });
+        }
+      }
+
+      // Remote fallback (Suno CDN) — для свежих треков чьи jpg ещё не скачаны.
       try {
         const data = JSON.parse(gen.resultData || "{}");
-        if (Array.isArray(data.result) && data.result[0]?.image_url) {
-          const upstream = await fetch(data.result[0].image_url);
+        const imgUrl = Array.isArray(data.result) ? data.result[0]?.image_url : null;
+        if (imgUrl) {
+          const upstream = await fetch(imgUrl);
           if (upstream.ok) {
             let buf = Buffer.from(await upstream.arrayBuffer());
             if (wantWm) buf = await addWatermark(buf);
             if (targetSize > 0 && targetSize <= 512) {
-              buf = await sharp(buf).resize(targetSize, targetSize, { fit: 'cover' }).jpeg({ quality: 85 }).toBuffer();
+              const sharp = require("sharp");
+              buf = await sharp(buf).resize(targetSize, targetSize, { fit: "cover" }).jpeg({ quality: 85 }).toBuffer();
             }
             res.setHeader("Content-Type", "image/jpeg");
             res.setHeader("Cache-Control", "public, max-age=3600");
-            res.send(buf);
-            return;
+            return res.send(buf);
+          } else {
+            console.warn(`[cover-serve] remote upstream id=${genId} status=${upstream.status} url=${imgUrl}`);
           }
         }
-      } catch {}
+      } catch (e) {
+        console.error(`[cover-serve] remote fallback failed id=${genId}:`, e instanceof Error ? e.message : e);
+      }
 
       // Final fallback — MuziAi artwork
       const artworkPath = path.join(process.cwd(), "dist", "public", "artwork-512.png");
       if (fs.existsSync(artworkPath)) {
-        let buf = fs.readFileSync(artworkPath);
-        if (targetSize > 0 && targetSize <= 512) {
-          buf = await sharp(buf).resize(targetSize, targetSize, { fit: 'cover' }).jpeg({ quality: 85 }).toBuffer();
-          res.setHeader("Content-Type", "image/jpeg");
-        } else {
+        try {
+          if (targetSize > 0 && targetSize <= 512) {
+            const sharp = require("sharp");
+            const buf = await sharp(fs.readFileSync(artworkPath)).resize(targetSize, targetSize, { fit: "cover" }).jpeg({ quality: 85 }).toBuffer();
+            res.setHeader("Content-Type", "image/jpeg");
+            res.setHeader("Cache-Control", "public, max-age=604800");
+            return res.send(buf);
+          }
           res.setHeader("Content-Type", "image/png");
+          res.setHeader("Cache-Control", "public, max-age=604800");
+          return res.sendFile(artworkPath, (err) => {
+            if (err) console.error(`[cover-serve] artwork sendFile failed id=${genId}:`, err.message || err);
+          });
+        } catch (e) {
+          console.error(`[cover-serve] artwork serve failed id=${genId}:`, e instanceof Error ? e.message : e);
+          return res.status(500).end();
         }
-        res.setHeader("Cache-Control", "public, max-age=604800");
-        res.send(buf);
-      } else { res.status(404).end(); }
-    } catch { res.status(500).end(); }
+      }
+      console.warn(`[cover-serve] no artwork file id=${genId} expectedPath=${artworkPath}`);
+      return res.status(404).end();
+    } catch (e) {
+      console.error(`[cover-serve] unexpected id=${genId}:`, e instanceof Error ? e.message : e);
+      return res.status(500).end();
+    }
   });
 
   // Stream audio/image for inline playback (no Content-Disposition: attachment)
