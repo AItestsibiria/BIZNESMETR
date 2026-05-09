@@ -316,6 +316,14 @@ export default function MusicPage() {
       return () => clearTimeout(t);
     }
   }, [audioTranscript, audioLyrics]);
+  // Auto-expand lyrics textarea после Re Текст (Eugene 2026-05-09: «новый текст в раскрытом положении»).
+  const lyricsTextareaRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const ta = lyricsTextareaRef.current;
+    if (!ta || !audioLyrics) return;
+    ta.style.height = "auto";
+    ta.style.height = `${Math.max(ta.scrollHeight + 2, 240)}px`;
+  }, [audioLyrics]);
   // Внутри Расширенного — старая Simple/Lyrics подвкладка (была prev top-mode).
   const [legacyMode, setLegacyMode] = useState<"simple" | "advanced">(
     regeneratePayload?.mode === "advanced" ? "advanced" : "simple",
@@ -1146,7 +1154,7 @@ export default function MusicPage() {
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="h-7 text-[11px] border-cyan-500/40 text-cyan-300 hover:bg-cyan-500/10"
+                        className="h-7 text-[11px] border-cyan-500/30 bg-cyan-500/[0.08] text-cyan-200 backdrop-blur-md hover:bg-cyan-500/20 hover:border-cyan-400/60 hover:text-white shadow-[inset_0_0_12px_rgba(34,211,238,0.08)]"
                         disabled={rewriting || !audioTranscript}
                         onClick={async () => {
                           setRewriting(true);
@@ -1186,11 +1194,12 @@ export default function MusicPage() {
                       </Button>
                     </div>
                     <Textarea
+                      ref={lyricsTextareaRef}
                       value={audioLyrics}
                       onChange={(e) => setAudioLyrics(e.target.value)}
                       rows={10}
                       placeholder="LLM напишет текст из вашего голоса. Если нет — наберите вручную."
-                      className="bg-background/60 border-cyan-500/30 text-sm leading-relaxed font-medium resize-y"
+                      className="bg-background/60 border-cyan-500/30 text-sm leading-relaxed font-medium resize-y overflow-hidden"
                       data-testid="textarea-audio-lyrics"
                     />
                     <input
