@@ -580,6 +580,69 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     };
   }, []);
 
+  // Eugene 2026-05-09: featured-track auto-play через 5 сек после загрузки
+  // плейлиста — играет "Встала страна". Если browser autoplay-policy
+  // отказывает (default на iOS Safari) — ждём первый user gesture
+  // (любой клик/touch/scroll/keydown) и стартуем тогда.
+  // Не запускаем если что-то уже играет (cross-page survival).
+  useEffect(() => {
+    if (!tracks.length) return;
+    const alreadyPlaying = typeof window !== "undefined" &&
+      (window as any).__muziaiAudio &&
+      !(window as any).__muziaiAudio.paused;
+    if (alreadyPlaying) return;
+
+    const featured = tracks.find((t: any) =>
+      t.type === "music" && t.audioUrl &&
+      (
+        ((t.displayTitle || "").toLowerCase().includes("встала страна")) ||
+        ((t.prompt || "").toLowerCase().includes("встала страна"))
+      )
+    );
+    if (!featured) return;
+
+    let cancelled = false;
+    let onGesture: ((e: Event) => void) | null = null;
+    const cleanupGesture = () => {
+      if (!onGesture) return;
+      document.removeEventListener("click", onGesture);
+      document.removeEventListener("touchstart", onGesture);
+      document.removeEventListener("keydown", onGesture);
+      document.removeEventListener("scroll", onGesture);
+      onGesture = null;
+    };
+
+    const tryAutoPlay = () => {
+      if (cancelled) return;
+      playTrack(featured);
+      // playTrack() внутри вызывает audio.play().catch(() => {}) — если
+      // browser autoplay-policy отказал, audio останется paused.
+      // Через 250ms проверяем и при необходимости вешаем listener.
+      setTimeout(() => {
+        if (cancelled) return;
+        const a = audioRef.current;
+        if (!a || !a.paused) return; // успешно играет
+        onGesture = () => {
+          cleanupGesture();
+          if (cancelled || !audioRef.current) return;
+          audioRef.current.play().catch(() => {});
+        };
+        document.addEventListener("click", onGesture, { once: true });
+        document.addEventListener("touchstart", onGesture, { once: true });
+        document.addEventListener("keydown", onGesture, { once: true });
+        document.addEventListener("scroll", onGesture, { once: true, passive: true });
+      }, 250);
+    };
+
+    const t = setTimeout(tryAutoPlay, 5000);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+      cleanupGesture();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tracks]);
+
   // Re-fetch when sort mode changes
   useEffect(() => {
     fetch(`/api/playlist?sort=${sortMode}&dir=${sortDir}&_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).then(data => {
