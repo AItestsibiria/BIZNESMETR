@@ -446,17 +446,27 @@ function OverviewTab({ toast: _t }: { toast: any }) {
     }
   };
 
-  // Eugene 2026-05-09: ручной refresh jpg-индекса для плейлиста.
+  // Eugene 2026-05-09: единая кнопка «Обновить обложки» = backfill (скачать
+  // с Suno CDN недостающие) + refresh jpg-индекса.
   const [coversRefreshing, setCoversRefreshing] = useState(false);
   const refreshCoversIndex = async () => {
     setCoversRefreshing(true);
     try {
-      const r = await apiRequest("POST", "/api/admin/v304/covers/refresh-index");
-      const j = await r.json();
-      if (j.error) throw new Error(j.error);
-      _t({ title: "Обложки обновлены", description: `Авторов: ${j.data.totalAuthors}, JPG: ${j.data.totalJpg}. Обнови плейлист (F5).` });
+      // 1) Backfill — скачивает все недостающие jpg
+      const bf = await apiRequest("POST", "/api/admin/v304/covers/backfill");
+      const bfj = await bf.json();
+      if (bfj.error) throw new Error(bfj.error);
+
+      // 2) Refresh — сбрасывает jpg-индекс чтобы новые файлы подхватились
+      const rf = await apiRequest("POST", "/api/admin/v304/covers/refresh-index");
+      const rfj = await rf.json();
+      if (rfj.error) throw new Error(rfj.error);
+
+      const d = bfj.data;
+      const summary = `📥 ${d.downloaded} скачано · 📁 ${rfj.data.totalJpg} JPG в индексе · ⏳ ${d.expired} истекли · ⚠️ ${d.failed} ошибок`;
+      _t({ title: "Обложки обновлены", description: summary });
     } catch (e: any) {
-      _t({ title: "Ошибка refresh", description: e.message, variant: "destructive" });
+      _t({ title: "Ошибка обновления", description: e.message, variant: "destructive" });
     } finally {
       setCoversRefreshing(false);
     }
@@ -493,8 +503,8 @@ function OverviewTab({ toast: _t }: { toast: any }) {
       <Card className="border-blue-500/30 bg-gradient-to-br from-blue-500/5 to-transparent">
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base flex items-center gap-2">🩺 Sync-check (целостность после deploy)</CardTitle>
-          <div className="flex gap-2">
-            <Button onClick={refreshCoversIndex} disabled={coversRefreshing} size="sm" variant="outline" title="Сбрасывает кэш и пересканирует authors/<author>/<id>.jpg. Используй после rsync обложек / если плейлист показывает дефолтную картинку.">
+          <div className="flex gap-2 flex-wrap">
+            <Button onClick={refreshCoversIndex} disabled={coversRefreshing} size="sm" variant="outline" className="border-amber-500/40" title="Скачивает с Suno CDN все недостающие обложки + сбрасывает кэш индекса. Один клик — один раз и навсегда.">
               {coversRefreshing ? "Обновляю…" : "🖼 Обновить обложки"}
             </Button>
             <Button onClick={runSyncCheck} disabled={syncLoading} size="sm" className="bg-gradient-to-r from-blue-500 to-cyan-500">

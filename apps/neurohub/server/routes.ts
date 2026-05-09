@@ -1876,6 +1876,103 @@ function createNew(){
     } catch { return imgBuf; }
   }
 
+  // Eugene 2026-05-09: BACKFILL обложек — для всех done music-gens без
+  // локального gen_<id>.jpg пытается скачать с remote image_url (Suno CDN)
+  // и сохранить на диск. После выполнения jpg-индекс инвалидируется.
+  // Это "навсегда" решение для треков чьи обложки были только в remote URL
+  // и не успели сохраниться (Suno CDN exp48h истёк, или saveGenFiles упал).
+  app.post("/api/admin/v304/covers/backfill", async (req: Request, res: Response) => {
+    try {
+      const gens = db.select().from(generations).where(
+        and(
+          eq(generations.status, "done"),
+          eq(generations.type, "music"),
+          sql`${generations.deletedAt} IS NULL`,
+        )
+      ).all();
+
+      let scanned = 0, downloaded = 0, skipped = 0, failed = 0, expired = 0, noUrl = 0;
+      const samples: Array<{ id: number; status: string; reason?: string }> = [];
+
+      for (const gen of gens) {
+        scanned++;
+        // Уже есть локальная обложка — пропускаем
+        if (resolveCoverPath(gen)) { skipped++; continue; }
+
+        // Достаём remote image_url из resultData
+        let imageUrl: string | null = null;
+        try {
+          const data = JSON.parse(gen.resultData || "{}");
+          imageUrl = data?.result?.[0]?.image_url || null;
+        } catch {}
+        if (!imageUrl) {
+          noUrl++;
+          if (samples.length < 10) samples.push({ id: gen.id, status: "no-url" });
+          continue;
+        }
+
+        // Suno temporary URLs (exp48h/exp24h) — проверяем возраст создания
+        if (imageUrl.includes("/exp48h/") || imageUrl.includes("/exp24h/")) {
+          const ageH = (Date.now() - new Date(gen.createdAt || "").getTime()) / 3_600_000;
+          const limit = imageUrl.includes("/exp24h/") ? 23 : 47;
+          if (ageH > limit) {
+            expired++;
+            if (samples.length < 10) samples.push({ id: gen.id, status: "expired", reason: `${ageH.toFixed(1)}h > ${limit}h` });
+            continue;
+          }
+        }
+
+        // Скачиваем и сохраняем как gen_<id>.jpg в authors/<author>/
+        try {
+          const r = await fetch(imageUrl, { signal: AbortSignal.timeout(8000) });
+          if (!r.ok) {
+            failed++;
+            if (samples.length < 10) samples.push({ id: gen.id, status: "fetch-failed", reason: `HTTP ${r.status}` });
+            continue;
+          }
+          const buf = Buffer.from(await r.arrayBuffer());
+          if (buf.length < 500) {
+            failed++;
+            if (samples.length < 10) samples.push({ id: gen.id, status: "fetch-failed", reason: `tiny buf ${buf.length}` });
+            continue;
+          }
+          const folder = sanitizeFolderName(gen.authorName || "anon");
+          const dir = path.join(AUTHORS_DIR, folder);
+          fs.mkdirSync(dir, { recursive: true });
+          fs.writeFileSync(path.join(dir, `gen_${gen.id}.jpg`), buf);
+          downloaded++;
+        } catch (e) {
+          failed++;
+          if (samples.length < 10) samples.push({ id: gen.id, status: "fetch-error", reason: e instanceof Error ? e.message.slice(0, 80) : "?" });
+        }
+      }
+
+      // Сбрасываем jpg-индекс чтобы новые файлы сразу подхватились
+      const refresh = (globalThis as any).__refreshJpgIndex;
+      if (typeof refresh === "function") refresh();
+
+      res.json({
+        data: {
+          scanned,
+          downloaded,
+          skipped,
+          failed,
+          expired,
+          noUrl,
+          samples,
+          hint: downloaded > 0
+            ? `✅ Скачано ${downloaded} обложек. Жми "🖼 Обновить обложки" в админке (если кэш ещё не сброшен) и хард-рефреш плейлиста.`
+            : (expired + noUrl + failed > 0
+              ? `Ничего не скачано: ${expired} истекли, ${noUrl} без remote-URL, ${failed} fetch-failed. Эти треки потеряли обложку безвозвратно.`
+              : `Все ${skipped} треков уже имеют обложки на диске.`),
+        },
+        error: null,
+      });
+    } catch (e) {
+      res.status(500).json({ data: null, error: e instanceof Error ? e.message : String(e) });
+    }
+  });
+
   // Eugene 2026-05-09: diagnostic endpoint — за каждый запрошенный gen.id
   // вернёт точную карту того что искалось, что найдено, что было пропущено.
   // Используется когда обложка не отображается, чтобы понять root cause
