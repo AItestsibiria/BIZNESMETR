@@ -13,6 +13,7 @@ import fs from "fs";
 import path from "path";
 import { normalizeVocalParams } from "./lib/normalizeVocalParams";
 import { isSunoCircuitOpen } from "./plugins/suno-watchdog/module";
+import { requireAdmin } from "./core/adminAuth";
 
 const AUTHORS_DIR = process.env.AUTHORS_DIR || path.join(process.cwd(), "authors");
 
@@ -1930,8 +1931,8 @@ function createNew(){
       });
     }
   };
-  app.get("/api/admin/v304/email-test", emailTestHandler);
-  app.post("/api/admin/v304/email-test", emailTestHandler);
+  app.get("/api/admin/v304/email-test", requireAdmin, emailTestHandler);
+  app.post("/api/admin/v304/email-test", requireAdmin, emailTestHandler);
 
   // Eugene 2026-05-09: AUDIO PIPELINE TEST — проходит всю цепочку
   // голос → текст → песня и возвращает статус каждой точки.
@@ -1949,7 +1950,7 @@ function createNew(){
   //   7. ffmpeg installed (для конвертации в Yandex format)
   //   8. UPLOADS_DIR writable
   //   9. AUTHORS_DIR writable
-  app.get("/api/admin/v304/audio-test", async (_req: Request, res: Response) => {
+  app.get("/api/admin/v304/audio-test", requireAdmin, async (_req: Request, res: Response) => {
     const checks: Array<{ step: string; status: "ok" | "fail" | "skip"; detail: string }> = [];
     const add = (step: string, status: "ok" | "fail" | "skip", detail: string) => {
       checks.push({ step, status, detail });
@@ -2123,7 +2124,7 @@ function createNew(){
   // /api/playlist возвращает: 1) что у gen в БД, 2) что найдено на диске,
   // 3) HEAD-запрос на /api/cover/<id>.jpg и его реальный ответ. Точечный
   // диагноз почему UI показывает ноту на конкретном треке.
-  app.get("/api/admin/v304/covers/audit-playlist", async (_req: Request, res: Response) => {
+  app.get("/api/admin/v304/covers/audit-playlist", requireAdmin, async (_req: Request, res: Response) => {
     try {
       const tracks = db.select()
         .from(generations)
@@ -2196,7 +2197,7 @@ function createNew(){
   // и сохранить на диск. После выполнения jpg-индекс инвалидируется.
   // Это "навсегда" решение для треков чьи обложки были только в remote URL
   // и не успели сохраниться (Suno CDN exp48h истёк, или saveGenFiles упал).
-  app.post("/api/admin/v304/covers/backfill", async (req: Request, res: Response) => {
+  app.post("/api/admin/v304/covers/backfill", requireAdmin, async (req: Request, res: Response) => {
     try {
       const gens = db.select().from(generations).where(
         and(
@@ -2292,7 +2293,7 @@ function createNew(){
   // вернёт точную карту того что искалось, что найдено, что было пропущено.
   // Используется когда обложка не отображается, чтобы понять root cause
   // (gen существует? какой localPath? что в индексе? итд).
-  app.get("/api/admin/v304/cover-debug/:id", async (req: Request, res: Response) => {
+  app.get("/api/admin/v304/cover-debug/:id", requireAdmin, async (req: Request, res: Response) => {
     try {
       const id = parseInt(req.params.id);
       const gen = db.select().from(generations).where(eq(generations.id, id)).get();
@@ -4662,7 +4663,9 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const ADMIN_ALERT_EMAIL = process.env.ADMIN_ALERT_EMAIL || "egnovoselo@gmail.com";
     const THRESHOLD = 750; // ₽
     const SECRET = req.query.secret || req.headers["x-cron-secret"];
-    const EXPECTED_SECRET = process.env.CRON_SECRET || "muziai-balance-cron-2026";
+    // Eugene 2026-05-09 SECURITY: убран hardcoded fallback. Если CRON_SECRET
+    // не задан в .env — endpoint работает только через JWT (admin auth).
+    const EXPECTED_SECRET = process.env.CRON_SECRET || "";
 
     // Allow either admin auth OR cron secret (so cron can call without login)
     const authHeader = req.headers.authorization || "";
@@ -4675,7 +4678,9 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         if (u?.email === "egnovoselov@gmail.com") isAdmin = true;
       } catch {}
     }
-    if (!isAdmin && SECRET !== EXPECTED_SECRET) {
+    // Eugene 2026-05-09 SECURITY: явная проверка что EXPECTED_SECRET задан.
+    // Если не задан в .env — endpoint работает только через JWT, query.secret игнорируется.
+    if (!isAdmin && (!EXPECTED_SECRET || SECRET !== EXPECTED_SECRET)) {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
