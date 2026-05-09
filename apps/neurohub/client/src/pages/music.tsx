@@ -1060,7 +1060,14 @@ export default function MusicPage() {
                           variant: "destructive"
                         });
                       } else if (tJson?.data?.fallbackToManual) {
-                        toast({ title: "📝 Введите текст вручную", description: "Yandex SpeechKit временно недоступен — наберите описание ниже" });
+                        // Eugene 2026-05-09: показываем точную причину (warning),
+                        // которая теперь содержит реальный ответ Yandex
+                        // (HTTP status / empty result / ffmpeg fail / network).
+                        toast({
+                          title: "📝 Не распознано — введите текст вручную",
+                          description: tJson.data.warning || "Yandex SpeechKit временно недоступен. Наберите описание ниже.",
+                          variant: "destructive",
+                        });
                       }
                     } catch (err) {
                       const m = err instanceof Error ? err.message : "fail";

@@ -87,13 +87,14 @@ function convertToOggOpus(input: Buffer, mime: string): Promise<Buffer | null> {
 async function tryYandex(buffer: Buffer, mime: string): Promise<TranscribeAttempt> {
   const apiKey = process.env.YANDEX_SPEECHKIT_API_KEY;
   const folderId = process.env.YANDEX_FOLDER_ID;
+  console.log(`[YANDEX-STT] in: bufferSize=${buffer.length} mime=${mime} hasKey=${!!apiKey} keyLen=${apiKey?.length || 0} folderId=${folderId || "<none>"}`);
   if (!apiKey) return { provider: "yandex", ok: false, error: "YANDEX_SPEECHKIT_API_KEY missing" };
+  if (buffer.length < 1000) {
+    console.warn(`[YANDEX-STT] buffer too small (${buffer.length} bytes) — likely empty recording`);
+    return { provider: "yandex", ok: false, error: `buffer too small: ${buffer.length} bytes — запись похоже пустая` };
+  }
 
   const t = await timed(async () => {
-    // Eugene 2026-05-08: ВСЕГДА конвертируем через ffmpeg с -t 30 (даже если
-    // mime уже ogg/opus). Audio-upload уже trim'ит, но если кто-то залил
-    // 60-сек файл напрямую в storage — здесь доp-страховка. ffmpeg на
-    // ogg→ogg практически бесплатный (re-mux + cut).
     let body = buffer;
     let format = "oggopus";
     if (mime.includes("wav")) {
@@ -101,8 +102,10 @@ async function tryYandex(buffer: Buffer, mime: string): Promise<TranscribeAttemp
     } else {
       const converted = await convertToOggOpus(buffer, mime);
       if (!converted) {
-        return { ok: false, status: 0, body: `ffmpeg conversion failed (mime=${mime}). Установите ffmpeg на VPS.` };
+        console.error(`[YANDEX-STT] ffmpeg conversion failed mime=${mime} bufferSize=${buffer.length}`);
+        return { ok: false, status: 0, body: `ffmpeg conversion failed (mime=${mime}). Возможно битый/неподдерживаемый формат записи с iPad/Safari.` };
       }
+      console.log(`[YANDEX-STT] ffmpeg ok: ${buffer.length} → ${converted.length} bytes ogg/opus`);
       body = converted;
       format = "oggopus";
     }
@@ -114,23 +117,39 @@ async function tryYandex(buffer: Buffer, mime: string): Promise<TranscribeAttemp
     if (folderId) url.searchParams.set("folderId", folderId);
     if (format === "lpcm") url.searchParams.set("sampleRateHertz", "48000");
 
+    console.log(`[YANDEX-STT] sending: url=${url.toString()} bodySize=${body.length}`);
     const r = await fetch(url.toString(), {
       method: "POST",
       headers: { Authorization: `Api-Key ${apiKey}` },
       body,
       signal: AbortSignal.timeout(60_000),
     });
-    return { ok: r.ok, status: r.status, body: await r.text().catch(() => "") };
+    const txt = await r.text().catch(() => "");
+    console.log(`[YANDEX-STT] response: status=${r.status} body=${txt.slice(0, 200)}`);
+    return { ok: r.ok, status: r.status, body: txt };
   });
-  if (t.err) return { provider: "yandex", ok: false, error: String(t.err), durationMs: t.ms };
+  if (t.err) {
+    console.error(`[YANDEX-STT] exception:`, t.err);
+    return { provider: "yandex", ok: false, error: `network/timeout: ${String(t.err).slice(0, 150)}`, durationMs: t.ms };
+  }
   const r = t.result!;
-  if (!r.ok) return { provider: "yandex", ok: false, httpStatus: r.status, error: r.body.slice(0, 200), durationMs: t.ms };
+  if (!r.ok) return { provider: "yandex", ok: false, httpStatus: r.status, error: `Yandex HTTP ${r.status}: ${r.body.slice(0, 200)}`, durationMs: t.ms };
   try {
     const json = JSON.parse(r.body);
     const text = String(json?.result ?? "").trim();
-    return { provider: "yandex", ok: !!text, transcript: text, error: text ? undefined : "empty result", httpStatus: 200, durationMs: t.ms };
+    if (!text) {
+      console.warn(`[YANDEX-STT] empty result — Yandex не услышал речь в ${buffer.length}-байтовом аудио. Возможно тишина или слишком короткая запись.`);
+    }
+    return {
+      provider: "yandex",
+      ok: !!text,
+      transcript: text,
+      error: text ? undefined : `Yandex вернул HTTP 200 result="" — речь не распознана. Запись: ${buffer.length} bytes mime=${mime}. Попробуй говорить громче, ближе к микрофону, минимум 3 сек.`,
+      httpStatus: 200,
+      durationMs: t.ms,
+    };
   } catch (e) {
-    return { provider: "yandex", ok: false, error: `parse: ${r.body.slice(0, 100)}`, durationMs: t.ms };
+    return { provider: "yandex", ok: false, error: `parse error: ${r.body.slice(0, 100)}`, durationMs: t.ms };
   }
 }
 
