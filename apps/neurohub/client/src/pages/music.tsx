@@ -1051,6 +1051,14 @@ export default function MusicPage() {
                         setAudioSuggestion(tJson.data.suggestion);
                         if (tJson.data.suggestion.lyrics) setAudioLyrics(tJson.data.suggestion.lyrics);
                         toast({ title: "✅ Текст готов", description: "Можете править или нажать ReТекст для другого варианта." });
+                      } else if (tJson?.data?.llmError) {
+                        // Eugene 2026-05-09: транскрипт получен, но LLM не сделал lyrics.
+                        // Показываем точную ошибку чтобы было понятно что чинить.
+                        toast({
+                          title: "⚠ Транскрипция получена, но генерация текста упала",
+                          description: tJson.data.llmError,
+                          variant: "destructive"
+                        });
                       } else if (tJson?.data?.fallbackToManual) {
                         toast({ title: "📝 Введите текст вручную", description: "Whisper недоступен — наберите описание ниже" });
                       }

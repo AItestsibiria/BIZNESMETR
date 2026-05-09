@@ -440,7 +440,11 @@ router.post("/transcribe", requireAuth, async (req, res) => {
     }
 
     // 2. LLM rewrite + подбор шаблона
+    // Eugene 2026-05-09: было silent catch — если GPTunnel падает (битый ключ,
+    // модель недоступна, лимит), suggestion=null и юзер видит транскрипт но без
+    // lyrics. Теперь логируем + возвращаем llmError в response.
     let suggestion: any = null;
+    let llmError: string | null = null;
     try {
       const r = await fetch("https://gptunnel.ru/v1/chat/completions", {
         method: "POST",
@@ -481,15 +485,29 @@ router.post("/transcribe", requireAuth, async (req, res) => {
         const data: any = await r.json();
         const content = data?.choices?.[0]?.message?.content;
         if (content) {
-          try { suggestion = JSON.parse(content); } catch {}
+          try { suggestion = JSON.parse(content); } catch (parseErr) {
+            llmError = `LLM вернул не-JSON ответ: ${content.slice(0, 100)}`;
+            console.error(`[TRANSCRIBE-LLM] JSON.parse failed for content: ${content.slice(0, 200)}`);
+          }
+        } else {
+          llmError = "LLM вернул пустой content";
+          console.error(`[TRANSCRIBE-LLM] empty content. Full response: ${JSON.stringify(data).slice(0, 300)}`);
         }
+      } else {
+        const errText = await r.text().catch(() => "");
+        llmError = `GPTunnel /chat вернул HTTP ${r.status}: ${errText.slice(0, 200)}`;
+        console.error(`[TRANSCRIBE-LLM] HTTP ${r.status}: ${errText.slice(0, 300)}`);
       }
-    } catch {}
+    } catch (e) {
+      llmError = `LLM network/timeout: ${e instanceof Error ? e.message : String(e)}`;
+      console.error(`[TRANSCRIBE-LLM] exception:`, e instanceof Error ? e.message : e);
+    }
 
     res.json({
       data: {
         transcript,
         suggestion,
+        llmError,
         uploadSha: sha,
       },
       error: null,
