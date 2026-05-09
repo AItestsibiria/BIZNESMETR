@@ -3928,6 +3928,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const raw = db.$client;
     let dateFilter = '';
     if (period === 'day') dateFilter = "AND ga.created_at >= datetime('now', '-1 day')";
+    else if (period === 'yesterday') dateFilter = "AND ga.created_at >= datetime('now', '-2 days') AND ga.created_at < datetime('now', '-1 day')";
     else if (period === 'week') dateFilter = "AND ga.created_at >= datetime('now', '-7 days')";
     else if (period === 'month') dateFilter = "AND ga.created_at >= datetime('now', '-30 days')";
     else if (period === 'year') dateFilter = "AND ga.created_at >= datetime('now', '-365 days')";
@@ -3960,8 +3961,10 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const raw = db.$client;
     let dateFilter = '';
     if (period === 'day') dateFilter = "AND ga.created_at >= datetime('now', '-1 day')";
+    else if (period === 'yesterday') dateFilter = "AND ga.created_at >= datetime('now', '-2 days') AND ga.created_at < datetime('now', '-1 day')";
     else if (period === 'week') dateFilter = "AND ga.created_at >= datetime('now', '-7 days')";
     else if (period === 'month') dateFilter = "AND ga.created_at >= datetime('now', '-30 days')";
+    else if (period === 'year') dateFilter = "AND ga.created_at >= datetime('now', '-365 days')";
     const rows = raw.prepare(`SELECT ga.gen_id, g.display_title, g.prompt, g.type, g.author_name,
       COUNT(*) as downloads,
       MAX(ga.created_at) as last_download

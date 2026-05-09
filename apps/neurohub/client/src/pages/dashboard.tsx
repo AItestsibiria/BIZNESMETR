@@ -42,7 +42,7 @@ const statusConfig: Record<string, { label: string; icon: typeof Clock; color: s
 
 function TopGenStats() {
   const [genStats, setGenStats] = useState<any>(null);
-  const [statPeriod, setStatPeriod] = useState('all');
+  const [statPeriod, setStatPeriod] = useState('day');
   const [detailId, setDetailId] = useState<number | null>(null);
   const [detail, setDetail] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'activity' | 'downloads'>('activity');
@@ -63,9 +63,9 @@ function TopGenStats() {
           </button>
         </div>
         <div className="flex gap-1">
-          {(['day','week','month','year','all'] as const).map(p => (
+          {(['yesterday','day','week','month','year','all'] as const).map(p => (
             <button key={p} onClick={() => setStatPeriod(p)} className={`text-[10px] px-2 py-0.5 rounded ${statPeriod === p ? 'bg-purple-500/20 text-purple-300' : 'text-muted-foreground hover:text-white'}`}>
-              {p === 'day' ? 'День' : p === 'week' ? 'Нед.' : p === 'month' ? 'Мес.' : p === 'year' ? 'Год' : 'Всё'}
+              {p === 'yesterday' ? 'Вчера' : p === 'day' ? 'Сегодня' : p === 'week' ? 'Нед.' : p === 'month' ? 'Мес.' : p === 'year' ? 'Год' : 'Всё'}
             </button>
           ))}
         </div>
