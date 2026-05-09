@@ -1007,7 +1007,13 @@ export async function registerRoutes(
   });
 
   // ==================== TELEGRAM AUTH ====================
-  const TELEGRAM_BOT_TOKEN = "8364453587:AAHp-Rujm1WU3hm6F3Lq0rmPp7iGHWzmTa0";
+  // Eugene 2026-05-09: токен вынесен в env (раньше был захардкожен и попал
+  // в публичный репо). Если процесс стартует без TELEGRAM_BOT_TOKEN — log
+  // warning, Telegram-логин работать не будет до прописывания в .env.
+  const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
+  if (!TELEGRAM_BOT_TOKEN) {
+    console.warn("[telegram-auth] TELEGRAM_BOT_TOKEN не установлен — login через Telegram отключён");
+  }
 
   function verifyTelegramAuth(data: Record<string, string>): boolean {
     const crypto = require("crypto");
@@ -4467,10 +4473,10 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   // GPTunnel balance check — called by cron (08:00 and 18:00 MSK) or manually by admin
   // Sends email alert to ADMIN_ALERT_EMAIL when balance drops below threshold
   app.get("/api/admin/check-gptunnel-balance", async (req: Request, res: Response) => {
-    const ADMIN_ALERT_EMAIL = "egnovoselo@gmail.com";
+    const ADMIN_ALERT_EMAIL = process.env.ADMIN_ALERT_EMAIL || "egnovoselo@gmail.com";
     const THRESHOLD = 750; // ₽
     const SECRET = req.query.secret || req.headers["x-cron-secret"];
-    const EXPECTED_SECRET = "muziai-balance-cron-2026";
+    const EXPECTED_SECRET = process.env.CRON_SECRET || "muziai-balance-cron-2026";
 
     // Allow either admin auth OR cron secret (so cron can call without login)
     const authHeader = req.headers.authorization || "";
