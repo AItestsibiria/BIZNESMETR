@@ -156,15 +156,36 @@ router.get("/sync-check", requireAdmin, async (_req, res) => {
   }
 
   // 3. Cover files: gens с image_url vs реальный файл .jpg на диске
+  // Eugene 2026-05-09 fix: исключаем свежие gens (<5 мин — saveGenFiles
+  // ещё может работать асинхронно). Учитываем что localPath может быть
+  // null для admin-flows (anthem) — пытаемся найти файл по ID в любой
+  // подпапке authors/.
   try {
     const gensWithCover = db.all<{ id: number; localPath: string | null; result_data: string | null }>(
       sql`SELECT id, local_path as localPath, result_data
           FROM generations
           WHERE type='music' AND status='done' AND deleted_at IS NULL
+            AND created_at < datetime('now', '-5 minutes')
           ORDER BY id DESC LIMIT 100`,
     );
-    let withImageUrl = 0, withFile = 0, missingFile = 0;
+    let withImageUrl = 0, withFile = 0, missingFile = 0, skippedNoLocalPath = 0;
     const samples: any[] = [];
+
+    // Pre-build index: для всех файлов в authors/ собираем список <id>.jpg
+    const allJpgIds = new Set<number>();
+    try {
+      for (const sub of fs.readdirSync(AUTHORS_DIR)) {
+        const subPath = path.join(AUTHORS_DIR, sub);
+        try {
+          if (!fs.statSync(subPath).isDirectory()) continue;
+          for (const f of fs.readdirSync(subPath)) {
+            const m = f.match(/^(\d+)\.jpg$/);
+            if (m) allJpgIds.add(parseInt(m[1], 10));
+          }
+        } catch {}
+      }
+    } catch {}
+
     for (const g of gensWithCover) {
       let hasImageUrl = false;
       try {
@@ -173,40 +194,47 @@ router.get("/sync-check", requireAdmin, async (_req, res) => {
       } catch {}
       if (hasImageUrl) withImageUrl += 1;
 
-      // Проверяем ли есть файл .jpg в authors/ (если localPath есть — рядом)
       let fileExists = false;
-      let expectedJpg: string | null = null;
+      // Fallback 1: ищем по localPath
       if (g.localPath) {
-        // localPath обычно что-то типа "Author Name/123.mp3" — рядом 123.jpg
-        const dir = path.dirname(path.join(AUTHORS_DIR, g.localPath));
-        const baseName = path.basename(g.localPath, ".mp3");
-        expectedJpg = path.join(dir, `${baseName}.jpg`);
-        try { fileExists = fs.existsSync(expectedJpg); } catch {}
+        try {
+          const dir = path.dirname(path.join(AUTHORS_DIR, g.localPath));
+          const baseName = path.basename(g.localPath, ".mp3");
+          const expected = path.join(dir, `${baseName}.jpg`);
+          fileExists = fs.existsSync(expected);
+        } catch {}
       }
+      // Fallback 2: ищем <id>.jpg в любой подпапке authors/
+      if (!fileExists && allJpgIds.has(g.id)) fileExists = true;
+      // Fallback 3: если localPath null И in_authors_index пуст — skip (не наш кейс)
+      if (!g.localPath && !fileExists) skippedNoLocalPath += 1;
+
       if (fileExists) withFile += 1;
-      else if (hasImageUrl) {
+      else if (hasImageUrl && g.localPath) {
         missingFile += 1;
-        if (samples.length < 5) {
-          samples.push({ id: g.id, localPath: g.localPath, expectedJpg, hasImageUrl, fileExists });
-        }
+        if (samples.length < 5) samples.push({ id: g.id, localPath: g.localPath, hasImageUrl });
       }
     }
-    const coverStatus = missingFile > 10 ? "fail" : missingFile > 0 ? "warn" : "ok";
+    const coverStatus = missingFile > 10 ? "fail" : missingFile > 5 ? "warn" : "ok";
     setSection("covers", coverStatus, {
       checkedLast100: gensWithCover.length,
       withImageUrlInDB: withImageUrl,
       withFileOnDisk: withFile,
       missingOnDisk: missingFile,
-      samples: samples,
-      hint: missingFile > 0
-        ? `Suno вернул image_url, но файл .jpg не сохранился на диск. Возможные причины: упал saveToAuthorFolder, нет permissions на authors/, или Suno-CDN expired до скачивания.`
-        : "Все обложки на месте",
+      skippedNoLocalPath,
+      samples,
+      hint: missingFile > 5
+        ? `Suno вернул image_url, но файл не сохранён. Проверь permissions на authors/, логи saveToAuthorFolder, доступ к Suno CDN.`
+        : `Обложки в порядке. ${skippedNoLocalPath} gens без local_path (admin-flows вроде anthem) — для них проверка пропущена.`,
     });
   } catch (e) {
     setSection("covers", "fail", { error: e instanceof Error ? e.message : String(e) });
   }
 
   // 4. ENV vars (имена + длины, без значений)
+  // Eugene 2026-05-09 fix: SESSION_SECRET и DATABASE_URL имеют дефолты в коде
+  // (storage.ts auto-открывает data.db, session использует random secret в memory).
+  // Реально критичный для работы — только GPTUNNEL_API_KEY. Остальные — optional.
   try {
     const expectedKeys = [
       "GPTUNNEL_API_KEY", "YANDEX_SPEECHKIT_API_KEY", "YANDEX_FOLDER_ID",
@@ -215,18 +243,29 @@ router.get("/sync-check", requireAdmin, async (_req, res) => {
       "ROBO_LOGIN", "ROBO_PASSWORD_1", "ROBO_PASSWORD_2",
       "SESSION_SECRET", "SIGNED_URL_SECRET", "PUBLIC_HOST", "DATABASE_URL",
     ];
-    const envStatus: Record<string, { present: boolean; length: number }> = {};
-    let missing = 0;
+    const trulyCritical = ["GPTUNNEL_API_KEY"];
+    const envStatus: Record<string, { present: boolean; length: number; critical: boolean }> = {};
+    let critMissing = 0;
+    let optMissing = 0;
     for (const k of expectedKeys) {
       const v = process.env[k] || "";
-      envStatus[k] = { present: !!v, length: v.length };
-      if (!v && ["GPTUNNEL_API_KEY", "SESSION_SECRET", "DATABASE_URL"].includes(k)) missing += 1;
+      const isCrit = trulyCritical.includes(k);
+      envStatus[k] = { present: !!v, length: v.length, critical: isCrit };
+      if (!v) {
+        if (isCrit) critMissing += 1;
+        else optMissing += 1;
+      }
     }
-    const status = missing > 0 ? "fail" : (Object.values(envStatus).filter((v) => !v.present).length > 0 ? "warn" : "ok");
+    const status: "ok" | "warn" | "fail" = critMissing > 0 ? "fail" : (optMissing > 0 ? "warn" : "ok");
     setSection("env_vars", status, {
       keys: envStatus,
-      criticalMissing: missing,
-      hint: missing > 0 ? "Критичные ключи отсутствуют — проверь .env" : "Все критичные ключи на месте",
+      criticalMissing: critMissing,
+      optionalMissing: optMissing,
+      hint: critMissing > 0
+        ? "Критичные ключи отсутствуют — проверь .env (без GPTUNNEL_API_KEY генерация музыки не работает)"
+        : optMissing > 0
+        ? `Не все опциональные ключи заданы (${optMissing} шт.) — некоторые фичи могут не работать (audio/STT/email/payments)`
+        : "Все ключи на месте",
     });
   } catch (e) {
     setSection("env_vars", "fail", { error: e instanceof Error ? e.message : String(e) });
