@@ -1933,6 +1933,192 @@ function createNew(){
   app.get("/api/admin/v304/email-test", emailTestHandler);
   app.post("/api/admin/v304/email-test", emailTestHandler);
 
+  // Eugene 2026-05-09: AUDIO PIPELINE TEST — проходит всю цепочку
+  // голос → текст → песня и возвращает статус каждой точки.
+  // Контрольные точки:
+  //   1. ENV keys: YANDEX_SPEECHKIT_API_KEY / OPENAI_API_KEY /
+  //      GPTUNNEL_API_KEY / ANTHROPIC_API_KEY — наличие + length
+  //   2. Yandex SpeechKit /stt:recognize — auth-only тест (отправка
+  //      минимального garbage audio): 401 = ключ битый, 400 = auth ok
+  //   3. OpenAI /v1/models — 200 = auth ok, 401 = битый
+  //   4. GPTunnel /v1/balance — JSON с balance = ok
+  //   5. GPTunnel /v1/chat/completions — мини-тест rewrite модели
+  //      gpt-4o-mini (платно, ~0.5₽ за запрос — но необходимо для
+  //      проверки что lyrics-генерация работает)
+  //   6. Anthropic /v1/models — 200 = auth ok
+  //   7. ffmpeg installed (для конвертации в Yandex format)
+  //   8. UPLOADS_DIR writable
+  //   9. AUTHORS_DIR writable
+  app.get("/api/admin/v304/audio-test", async (_req: Request, res: Response) => {
+    const checks: Array<{ step: string; status: "ok" | "fail" | "skip"; detail: string }> = [];
+    const add = (step: string, status: "ok" | "fail" | "skip", detail: string) => {
+      checks.push({ step, status, detail });
+    };
+
+    // 1. ENV keys
+    const yk = process.env.YANDEX_SPEECHKIT_API_KEY || "";
+    const ok = process.env.OPENAI_API_KEY || "";
+    const gk = process.env.GPTUNNEL_API_KEY || "";
+    const ak = process.env.ANTHROPIC_API_KEY || "";
+    add("ENV: YANDEX_SPEECHKIT_API_KEY", yk ? "ok" : "fail", yk ? `length=${yk.length}` : "не задан");
+    add("ENV: OPENAI_API_KEY", ok ? "ok" : "skip", ok ? `length=${ok.length}` : "не задан (опционально)");
+    add("ENV: GPTUNNEL_API_KEY", gk ? "ok" : "fail", gk ? `length=${gk.length}` : "не задан — без него не работает LLM rewrite");
+    add("ENV: ANTHROPIC_API_KEY", ak ? "ok" : "skip", ak ? `length=${ak.length}` : "не задан (опционально)");
+
+    // 2. Yandex SpeechKit auth check
+    if (yk) {
+      try {
+        const r = await fetch("https://stt.api.cloud.yandex.net/speech/v1/stt:recognize?topic=general&lang=ru-RU&format=oggopus", {
+          method: "POST",
+          headers: { Authorization: `Api-Key ${yk}` },
+          body: Buffer.from("AAAAAAAAAA"),
+          signal: AbortSignal.timeout(8000),
+        });
+        const text = await r.text().catch(() => "");
+        if (r.status === 400 || /bad audio|format|invalid request/i.test(text)) {
+          add("Yandex /stt:recognize auth", "ok", `HTTP ${r.status} (400 на garbage = auth работает)`);
+        } else if (r.status === 401 || /unauthorized/i.test(text)) {
+          add("Yandex /stt:recognize auth", "fail", `HTTP ${r.status}: ключ невалиден`);
+        } else {
+          add("Yandex /stt:recognize auth", "ok", `HTTP ${r.status}: ${text.slice(0, 80)}`);
+        }
+      } catch (e) {
+        add("Yandex /stt:recognize auth", "fail", `network: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    } else {
+      add("Yandex /stt:recognize auth", "skip", "ключ не задан");
+    }
+
+    // 3. OpenAI auth
+    if (ok) {
+      try {
+        const r = await fetch("https://api.openai.com/v1/models", {
+          headers: { Authorization: `Bearer ${ok}` },
+          signal: AbortSignal.timeout(8000),
+        });
+        add("OpenAI /v1/models", r.status === 200 ? "ok" : "fail", `HTTP ${r.status}`);
+      } catch (e) {
+        add("OpenAI /v1/models", "fail", `network: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    } else {
+      add("OpenAI /v1/models", "skip", "ключ не задан");
+    }
+
+    // 4. GPTunnel balance
+    if (gk) {
+      try {
+        const r = await fetch("https://gptunnel.ru/v1/balance", {
+          headers: { Authorization: gk },
+          signal: AbortSignal.timeout(8000),
+        });
+        const text = await r.text().catch(() => "");
+        if (r.ok && text.includes("balance")) {
+          add("GPTunnel /v1/balance", "ok", `HTTP 200: ${text.slice(0, 100)}`);
+        } else {
+          add("GPTunnel /v1/balance", "fail", `HTTP ${r.status}: ${text.slice(0, 100)}`);
+        }
+      } catch (e) {
+        add("GPTunnel /v1/balance", "fail", `network: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    } else {
+      add("GPTunnel /v1/balance", "fail", "ключ не задан");
+    }
+
+    // 5. GPTunnel LLM rewrite (gpt-4o-mini) — небольшой запрос
+    if (gk) {
+      try {
+        const r = await fetch("https://gptunnel.ru/v1/chat/completions", {
+          method: "POST",
+          headers: { Authorization: gk, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "gpt-4o-mini",
+            messages: [
+              { role: "user", content: "Скажи слово 'ok' и больше ничего." },
+            ],
+            max_tokens: 5,
+            temperature: 0,
+          }),
+          signal: AbortSignal.timeout(15_000),
+        });
+        const text = await r.text().catch(() => "");
+        if (r.ok) {
+          let content = "";
+          try {
+            const j = JSON.parse(text);
+            content = j?.choices?.[0]?.message?.content || "";
+          } catch {}
+          add("GPTunnel /chat (gpt-4o-mini rewrite)", content ? "ok" : "fail",
+              content ? `модель ответила: "${content.slice(0, 50)}"` : `HTTP 200 но content пустой: ${text.slice(0, 100)}`);
+        } else {
+          add("GPTunnel /chat (gpt-4o-mini rewrite)", "fail", `HTTP ${r.status}: ${text.slice(0, 150)}`);
+        }
+      } catch (e) {
+        add("GPTunnel /chat (gpt-4o-mini rewrite)", "fail", `network: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    } else {
+      add("GPTunnel /chat (gpt-4o-mini rewrite)", "skip", "GPTUNNEL_API_KEY не задан");
+    }
+
+    // 6. Anthropic
+    if (ak) {
+      try {
+        const r = await fetch("https://api.anthropic.com/v1/models", {
+          headers: { "x-api-key": ak, "anthropic-version": "2023-06-01" },
+          signal: AbortSignal.timeout(8000),
+        });
+        add("Anthropic /v1/models", r.status === 200 ? "ok" : "fail", `HTTP ${r.status}`);
+      } catch (e) {
+        add("Anthropic /v1/models", "fail", `network: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    } else {
+      add("Anthropic /v1/models", "skip", "ключ не задан");
+    }
+
+    // 7. ffmpeg
+    try {
+      const childProc = await import("child_process");
+      const ver = childProc.execSync("ffmpeg -version 2>&1 | head -1", { encoding: "utf-8", timeout: 5000 });
+      add("ffmpeg", "ok", ver.trim().slice(0, 80));
+    } catch (e) {
+      add("ffmpeg", "fail", `не установлен: ${e instanceof Error ? e.message.slice(0, 80) : "?"}`);
+    }
+
+    // 8. UPLOADS_DIR writable
+    const uploadsDir = process.env.UPLOADS_DIR || "/var/www/neurohub/uploads";
+    try {
+      const test = path.join(uploadsDir, ".write-test-" + Date.now());
+      fs.writeFileSync(test, "x");
+      fs.unlinkSync(test);
+      add("UPLOADS_DIR writable", "ok", uploadsDir);
+    } catch (e) {
+      add("UPLOADS_DIR writable", "fail", `${uploadsDir}: ${e instanceof Error ? e.message : "?"}`);
+    }
+
+    // 9. AUTHORS_DIR writable
+    try {
+      const test = path.join(AUTHORS_DIR, ".write-test-" + Date.now());
+      fs.writeFileSync(test, "x");
+      fs.unlinkSync(test);
+      add("AUTHORS_DIR writable", "ok", AUTHORS_DIR);
+    } catch (e) {
+      add("AUTHORS_DIR writable", "fail", `${AUTHORS_DIR}: ${e instanceof Error ? e.message : "?"}`);
+    }
+
+    const summary = {
+      total: checks.length,
+      ok: checks.filter(c => c.status === "ok").length,
+      fail: checks.filter(c => c.status === "fail").length,
+      skip: checks.filter(c => c.status === "skip").length,
+      verdict: checks.some(c => c.status === "fail" && /YANDEX|GPTUNNEL/.test(c.step))
+        ? "❌ Цепочка не работает — критичные ключи (YANDEX/GPTUNNEL) битые"
+        : checks.every(c => c.status !== "fail")
+        ? "✅ Все точки в порядке — аудио-цепочка должна работать"
+        : "⚠ Есть проблемы — проверь fail-пункты",
+    };
+
+    res.json({ data: { summary, checks }, error: null });
+  });
+
   // Eugene 2026-05-09: AUDIT обложек плейлиста — для каждого трека из
   // /api/playlist возвращает: 1) что у gen в БД, 2) что найдено на диске,
   // 3) HEAD-запрос на /api/cover/<id>.jpg и его реальный ответ. Точечный
