@@ -1876,6 +1876,50 @@ function createNew(){
     } catch { return imgBuf; }
   }
 
+  // Eugene 2026-05-09: тестовая отправка email через текущий SMTP-канал.
+  // Использование: POST/GET /api/admin/v304/email-test?to=<address>
+  // Возвращает: { sent, to, messageId, accepted, rejected, response }.
+  // Если SMTP сломан — error с текстом ошибки nodemailer'а.
+  const emailTestHandler = async (req: Request, res: Response) => {
+    const to = (req.query.to as string) || ((req.body as any)?.to as string) || "";
+    if (!to || !/.+@.+\..+/.test(to)) {
+      return res.status(400).json({ data: null, error: "?to=<valid-email> required" });
+    }
+    try {
+      const info = await mailTransport.sendMail({
+        from: `"MuziAi" <${CLIENT_EMAIL}>`,
+        replyTo: CLIENT_EMAIL,
+        to,
+        subject: "MuziAi — тест почты",
+        text:
+          `Это тестовое письмо от MuziAi.\n\n` +
+          `Время отправки: ${new Date().toISOString()}\n` +
+          `Получатель: ${to}\n` +
+          `Если вы получили это сообщение — SMTP работает.\n\n— MuziAi`,
+      });
+      res.json({
+        data: {
+          sent: true,
+          to,
+          messageId: info.messageId || null,
+          accepted: info.accepted || [],
+          rejected: info.rejected || [],
+          response: info.response || null,
+          envelope: info.envelope || null,
+        },
+        error: null,
+      });
+    } catch (e) {
+      console.error(`[email-test] failed to=${to}:`, e instanceof Error ? e.message : e);
+      res.status(500).json({
+        data: { sent: false, to },
+        error: e instanceof Error ? e.message : String(e),
+      });
+    }
+  };
+  app.get("/api/admin/v304/email-test", emailTestHandler);
+  app.post("/api/admin/v304/email-test", emailTestHandler);
+
   // Eugene 2026-05-09: AUDIT обложек плейлиста — для каждого трека из
   // /api/playlist возвращает: 1) что у gen в БД, 2) что найдено на диске,
   // 3) HEAD-запрос на /api/cover/<id>.jpg и его реальный ответ. Точечный
