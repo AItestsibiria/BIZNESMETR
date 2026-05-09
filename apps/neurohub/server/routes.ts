@@ -731,6 +731,7 @@ export async function registerRoutes(
     const period = String(req.query.period || "all");
     let dateFilter = "";
     if (period === "today") dateFilter = "WHERE last_visit >= datetime('now','-1 day')";
+    else if (period === "yesterday") dateFilter = "WHERE last_visit >= datetime('now','-2 days') AND last_visit < datetime('now','-1 day')";
     else if (period === "week") dateFilter = "WHERE last_visit >= datetime('now','-7 days')";
     else if (period === "month") dateFilter = "WHERE last_visit >= datetime('now','-30 days')";
 
@@ -3989,9 +3990,10 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
     res.setHeader("Cache-Control", "no-store");
     const genId = parseInt(req.params.id);
-    const period = String(req.query.period || "all"); // today | week | month | all
+    const period = String(req.query.period || "all"); // yesterday | today | week | month | all
     let dateFilter = "";
     if (period === "today") dateFilter = "AND created_at >= datetime('now','-1 day')";
+    else if (period === "yesterday") dateFilter = "AND created_at >= datetime('now','-2 days') AND created_at < datetime('now','-1 day')";
     else if (period === "week") dateFilter = "AND created_at >= datetime('now','-7 days')";
     else if (period === "month") dateFilter = "AND created_at >= datetime('now','-30 days')";
 

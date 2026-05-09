@@ -120,7 +120,7 @@ function TopGenStats() {
 
 // Admin-only: попап с фильтром по периоду и списком прослушиваний с городами/IP
 function GeoActivityDialog({ genId, open, onClose, title }: { genId: number | null; open: boolean; onClose: () => void; title: string }) {
-  const [period, setPeriod] = useState<"today" | "week" | "month" | "all">("week");
+  const [period, setPeriod] = useState<"yesterday" | "today" | "week" | "month" | "all">("week");
   const [data, setData] = useState<any | null>(null);
   const [loading, setLoading] = useState(false);
   const [showAllIps, setShowAllIps] = useState(false);
@@ -145,6 +145,7 @@ function GeoActivityDialog({ genId, open, onClose, title }: { genId: number | nu
         {/* Фильтр периода */}
         <div className="flex gap-1 mt-2">
           {[
+            { v: "yesterday", label: "Вчера" },
             { v: "today", label: "Сегодня" },
             { v: "week",  label: "Неделя" },
             { v: "month", label: "Месяц" },
@@ -344,7 +345,7 @@ function AdminStats() {
 
   // Период для фильтра посетителей
   // Eugene 2026-05-08 «по умолчанию за день»
-  const [visitorPeriod, setVisitorPeriod] = useState<"today" | "week" | "month" | "all">("today");
+  const [visitorPeriod, setVisitorPeriod] = useState<"yesterday" | "today" | "week" | "month" | "all">("today");
   const [showAllIps, setShowAllIps] = useState(false);
   useEffect(() => {
     if (showVisitors) {
@@ -519,6 +520,7 @@ function AdminStats() {
           {/* Фильтр периода */}
           <div className="flex gap-1 mb-3">
             {[
+              { v: "yesterday", label: "Вчера" },
               { v: "today", label: "Сегодня" },
               { v: "week",  label: "Неделя" },
               { v: "month", label: "Месяц" },
