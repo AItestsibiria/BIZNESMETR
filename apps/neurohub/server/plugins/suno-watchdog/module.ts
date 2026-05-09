@@ -1372,23 +1372,13 @@ const sunoWatchdogModule: Module = {
   description: "Глобальный мониторинг Suno: balance + error-rate + multi-channel alerts + circuit breaker.",
   routes: { prefix: "admin/v304/suno-watchdog", router },
   publishes: ["suno.circuit.open", "suno.circuit.close"],
+  // Eugene 2026-05-09: GPTunnel balance-poll в авто-режиме отключён
+  // (стоил ~18₽ за каждый автозапрос). Оставляем только error-rate scan
+  // — он не делает платных вызовов, читает локальную БД.
+  // Балансовая проверка теперь только ВРУЧНУЮ через админ-кнопку:
+  //   - GET  /api/admin/v304/gptunnel-balance (admin-overview/module.ts)
+  //   - POST /api/admin/v304/suno-watchdog/poll-now (этот плагин)
   jobs: [
-    {
-      name: "suno-balance-poll",
-      schedule: "every_minute",
-      handler: async () => {
-        try {
-          // poll баланса каждые ~5 мин (раз в 5 минут запуска cron)
-          const now = Date.now();
-          const lastCheck = STATE.balanceCheckedAt ? new Date(STATE.balanceCheckedAt).getTime() : 0;
-          if (now - lastCheck >= 5 * 60_000 || !STATE.balanceCheckedAt) {
-            await pollBalance();
-          }
-        } catch (e) {
-          bootRefs?.logger.error("[suno-watchdog] balance-poll failed", { error: e instanceof Error ? e.message : String(e) });
-        }
-      },
-    },
     {
       name: "suno-error-rate-scan",
       schedule: "every_minute",
@@ -1404,12 +1394,13 @@ const sunoWatchdogModule: Module = {
   ],
   onLoad: async (ctx) => {
     bootRefs = { eventBus: ctx.eventBus, logger: ctx.logger };
-    ctx.logger.info("suno-watchdog online", {
+    ctx.logger.info("suno-watchdog online (auto balance-poll DISABLED — manual only)", {
       thresholdKopeks: LOW_BALANCE_THRESHOLD_KOPEKS,
       dedupeMinutes: DEDUPE_MINUTES,
     });
-    // Первый poll сразу при старте чтобы иметь стейт
-    setTimeout(() => { pollBalance().catch(() => {}); }, 3000);
+    // Eugene 2026-05-09: убрал автоматический pollBalance() при старте
+    // (был при каждом перезапуске процесса = ~18₽ × N restartов / день).
+    // Теперь баланс берётся только когда админ нажмёт кнопку в /admin.
   },
   healthCheck: () => {
     const sev = STATE.status === "down" ? "degraded" : (STATE.status === "low_balance" ? "degraded" : "ok");
