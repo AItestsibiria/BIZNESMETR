@@ -211,9 +211,16 @@ function roboSignature(values: string[], password: string): string {
 }
 
 // Gmail SMTP — tissan2021 for transport + client-facing from/replyTo
-const GMAIL_USER = "tissan2021@gmail.com";
-const GMAIL_APP_PASSWORD = "qjgb vdds ralp juom";
-const CLIENT_EMAIL = "tissan2021@gmail.com"; // matches SMTP user to avoid 'on behalf of' header
+// Eugene 2026-05-09: GMAIL_APP_PASSWORD вынесен в process.env. Старый
+// хардкод утёк в публичный репозиторий и должен быть отозван в Google
+// (myaccount.google.com/apppasswords) и заменён новым App Password.
+// GMAIL_USER пока остаётся константой; перенос в env — отдельный шаг.
+const GMAIL_USER = process.env.GMAIL_USER || "tissan2021@gmail.com";
+const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD || "";
+const CLIENT_EMAIL = process.env.GMAIL_USER || "tissan2021@gmail.com"; // matches SMTP user to avoid 'on behalf of' header
+if (!GMAIL_APP_PASSWORD) {
+  console.warn("[smtp] GMAIL_APP_PASSWORD не установлен в .env — отправка email не будет работать");
+}
 
 const mailTransport = nodemailer.createTransport({
   service: "gmail",
