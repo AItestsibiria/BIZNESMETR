@@ -303,6 +303,19 @@ export default function MusicPage() {
   const [audioSuggestion, setAudioSuggestion] = useState<{ genre?: string; bpm?: number; templateSlug?: string; title?: string } | null>(null);
   const [rewriting, setRewriting] = useState(false);
   const [rewriteHint, setRewriteHint] = useState("");
+  // Cosmic disclosure для транскрипции «Что я услышал» (Eugene 2026-05-09).
+  // На смартфоне раскрывается полупрозрачным, закрытие — cosmic-fade анимация.
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [transcriptExiting, setTranscriptExiting] = useState(false);
+  // Авто-открытие пока lyrics не сгенерированы; авто-закрытие когда lyrics появились.
+  useEffect(() => {
+    if (audioTranscript && !audioLyrics) setTranscriptOpen(true);
+    if (audioLyrics && transcriptOpen && !transcriptExiting) {
+      setTranscriptExiting(true);
+      const t = setTimeout(() => { setTranscriptOpen(false); setTranscriptExiting(false); }, 420);
+      return () => clearTimeout(t);
+    }
+  }, [audioTranscript, audioLyrics]);
   // Внутри Расширенного — старая Simple/Lyrics подвкладка (была prev top-mode).
   const [legacyMode, setLegacyMode] = useState<"simple" | "advanced">(
     regeneratePayload?.mode === "advanced" ? "advanced" : "simple",
@@ -1086,17 +1099,37 @@ export default function MusicPage() {
                     Распознаю голос и пишу текст песни… (15-30 сек)
                   </div>
                 )}
-                {/* Транскрипция — сворачивается когда lyrics готовы (Eugene 13:21) */}
+                {/* Транскрипция — cosmic disclosure (Eugene 2026-05-09). Полупрозрачное
+                    раскрытие на смартфоне, закрытие — cosmic-fade. Авто-сворачивание
+                    после готовности lyrics (Eugene 13:21). */}
                 {audioTranscript && (
-                  <details className="group" open={!audioLyrics}>
-                    <summary className="cursor-pointer list-none p-2.5 rounded-lg border border-cyan-500/20 bg-cyan-500/5 text-[11px] text-cyan-300 flex items-center gap-2 hover:bg-cyan-500/10">
-                      <ChevronDown className="w-3 h-3 transition-transform group-open:rotate-180" />
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (transcriptExiting) return;
+                        if (transcriptOpen) {
+                          setTranscriptExiting(true);
+                          setTimeout(() => { setTranscriptOpen(false); setTranscriptExiting(false); }, 420);
+                        } else {
+                          setTranscriptOpen(true);
+                        }
+                      }}
+                      className="w-full cursor-pointer list-none p-2.5 rounded-lg border border-cyan-500/20 bg-cyan-500/5 text-[11px] text-cyan-300 flex items-center gap-2 hover:bg-cyan-500/10 transition-colors"
+                      data-testid="btn-transcript-toggle"
+                    >
+                      <ChevronDown className={`w-3 h-3 transition-transform ${transcriptOpen ? "rotate-180" : ""}`} />
                       📝 Что я услышал ({audioTranscript.length} симв.)
-                    </summary>
-                    <div className="mt-2 px-3 py-2 text-xs italic text-muted-foreground leading-relaxed">
-                      {audioTranscript}
-                    </div>
-                  </details>
+                    </button>
+                    {transcriptOpen && (
+                      <div
+                        className={`mt-2 px-3 py-2 text-xs italic text-muted-foreground leading-relaxed rounded-lg border border-cyan-500/15 bg-cyan-500/[0.06] sm:bg-transparent sm:border-transparent backdrop-blur-md sm:backdrop-blur-none ${transcriptExiting ? "cosmic-disclosure-exit" : "cosmic-disclosure-enter"}`}
+                        data-testid="text-transcript"
+                      >
+                        {audioTranscript}
+                      </div>
+                    )}
+                  </div>
                 )}
                 {audioSuggestion && (audioSuggestion.genre || audioSuggestion.templateSlug) && (
                   <div className="flex flex-wrap gap-2 text-[10px]">
