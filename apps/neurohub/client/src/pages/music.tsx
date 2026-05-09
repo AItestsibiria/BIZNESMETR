@@ -254,6 +254,18 @@ export default function MusicPage() {
   })();
 
   const [mode, setMode] = useState<"basic" | "audio" | "advanced">(() => {
+    // Eugene 2026-05-09: ОДНОКРАТНАЯ МИГРАЦИЯ — у всех у кого в localStorage
+    // сохранён старый music_mode (basic/audio/advanced любой) — сбрасываем
+    // его и форсируем новый default 'audio'. Маркер music_mode_v2='1'
+    // предотвращает повторный сброс. После миграции выбор юзера снова
+    // запоминается как обычно (saved value > default).
+    try {
+      if (!localStorage.getItem("music_mode_v2")) {
+        localStorage.removeItem("music_mode");
+        localStorage.removeItem("music_audio_mode");
+        localStorage.setItem("music_mode_v2", "1");
+      }
+    } catch {}
     // Eugene 2026-05-09: дефолт переведён на 'audio' (раньше был 'basic').
     // Регенерация (как и раньше) — форсирует 'advanced' если есть длинная
     // лирика. URL ?tab= и сохранённый выбор имеют приоритет над дефолтом.
