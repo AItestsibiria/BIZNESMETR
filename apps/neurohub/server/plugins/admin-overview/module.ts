@@ -179,7 +179,9 @@ router.get("/sync-check", requireAdmin, async (_req, res) => {
         try {
           if (!fs.statSync(subPath).isDirectory()) continue;
           for (const f of fs.readdirSync(subPath)) {
-            const m = f.match(/^(\d+)\.jpg$/);
+            // saveToAuthorFolder уровня routes.ts:53 сохраняет как gen_<id>.jpg.
+            // legacy-формат <id>.jpg тоже учитываем.
+            const m = f.match(/^(?:gen_)?(\d+)\.jpg$/i);
             if (m) allJpgIds.add(parseInt(m[1], 10));
           }
         } catch {}
@@ -331,7 +333,7 @@ router.post("/covers/refresh-index", requireAdmin, async (_req, res) => {
           if (!fs.statSync(subPath).isDirectory()) continue;
           totalAuthors += 1;
           for (const f of fs.readdirSync(subPath)) {
-            if (/^\d+\.jpg$/.test(f)) totalJpg += 1;
+            if (/^(?:gen_)?\d+\.jpg$/i.test(f)) totalJpg += 1;
           }
         } catch {}
       }

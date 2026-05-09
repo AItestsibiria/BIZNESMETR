@@ -1774,7 +1774,9 @@ function createNew(){
         try {
           if (!fs.statSync(subPath).isDirectory()) continue;
           for (const f of fs.readdirSync(subPath)) {
-            const m = f.match(/^(\d+)\.jpg$/);
+            // saveToAuthorFolder сохраняет как `gen_<id>.<ext>` (см. routes.ts:53),
+            // допускаем также legacy-формат `<id>.<ext>` без префикса.
+            const m = f.match(/^(?:gen_)?(\d+)\.jpg$/i);
             if (m) idx.set(parseInt(m[1], 10), path.join(subPath, f));
           }
         } catch {}
