@@ -429,6 +429,22 @@ function OverviewTab({ toast: _t }: { toast: any }) {
     queryFn: () => fetcher<HealthCheck>("/api/_v304/health-check-all"),
     refetchInterval: 60000,
   });
+  // Eugene 2026-05-08: ручная проверка синхронизации после deploy.
+  const [syncReport, setSyncReport] = useState<any>(null);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const runSyncCheck = async () => {
+    setSyncLoading(true);
+    setSyncReport(null);
+    try {
+      const r = await apiRequest("GET", "/api/admin/v304/sync-check");
+      const j = await r.json();
+      setSyncReport(j.data);
+    } catch (e: any) {
+      _t({ title: "Ошибка sync-check", description: e.message, variant: "destructive" });
+    } finally {
+      setSyncLoading(false);
+    }
+  };
 
   if (overview.isLoading || health.isLoading) {
     return <div className="p-8 text-center text-muted-foreground">Загрузка дашборда…</div>;
@@ -456,6 +472,55 @@ function OverviewTab({ toast: _t }: { toast: any }) {
   return (
     <div className="space-y-6">
       <CriticalIncidentsCard />
+
+      {/* Eugene 2026-05-08 sync-check после deploy */}
+      <Card className="border-blue-500/30 bg-gradient-to-br from-blue-500/5 to-transparent">
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">🩺 Sync-check (целостность после deploy)</CardTitle>
+          <Button onClick={runSyncCheck} disabled={syncLoading} size="sm" className="bg-gradient-to-r from-blue-500 to-cyan-500">
+            {syncLoading ? "Проверяю…" : "🔄 Запустить проверку"}
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="text-xs text-muted-foreground">
+            Проверяет: БД integrity + counts, authors/ folder, обложки треков (image_url vs файлы на диске), ENV-vars, ffmpeg, диск, плагины.
+          </div>
+          {syncReport && (
+            <div className="space-y-2">
+              <div className="flex gap-3 text-sm">
+                <span className="px-3 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 font-semibold">✅ {syncReport.summary.ok || 0} ok</span>
+                <span className="px-3 py-1 rounded-lg bg-amber-500/15 text-amber-300 font-semibold">⚠️ {syncReport.summary.warn || 0} warn</span>
+                <span className="px-3 py-1 rounded-lg bg-rose-500/15 text-rose-300 font-semibold">❌ {syncReport.summary.fail || 0} fail</span>
+                <button
+                  className="ml-auto text-xs px-2 py-1 rounded bg-white/5 hover:bg-white/10"
+                  onClick={() => {
+                    navigator.clipboard.writeText(JSON.stringify(syncReport, null, 2)).then(() => _t({ title: "Скопировано в буфер" }));
+                  }}
+                >
+                  📋 Копировать
+                </button>
+              </div>
+              {Object.entries(syncReport.sections).map(([name, val]: [string, any]) => {
+                const cls = val.status === "ok" ? "border-emerald-500/30 bg-emerald-500/5"
+                  : val.status === "warn" ? "border-amber-500/30 bg-amber-500/5"
+                  : "border-rose-500/30 bg-rose-500/5";
+                const icon = val.status === "ok" ? "✅" : val.status === "warn" ? "⚠️" : "❌";
+                return (
+                  <details key={name} className={`rounded-lg border ${cls} p-3`}>
+                    <summary className="cursor-pointer text-sm font-semibold flex items-center gap-2">
+                      {icon} {name} <span className="text-xs opacity-60">[{val.status.toUpperCase()}]</span>
+                    </summary>
+                    <pre className="mt-2 text-xs overflow-auto max-h-60 bg-black/20 rounded p-2">{JSON.stringify(val, null, 2)}</pre>
+                  </details>
+                );
+              })}
+              <div className="text-[10px] text-muted-foreground/60 mt-2">
+                {new Date(syncReport.timestamp).toLocaleString("ru-RU")}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <div className={`rounded-2xl border bg-gradient-to-br ${heroBg} p-6 sm:p-8`}>
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">

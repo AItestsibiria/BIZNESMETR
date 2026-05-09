@@ -70,6 +70,207 @@ function recordEdit(
 
 const router = Router();
 
+// Eugene 2026-05-08 «По итогу добавь тест с панель админа проверка
+// синхронизации всех данных авторов, треков, обложек и выводи результат».
+//
+// /api/admin/v304/sync-check — единый endpoint для проверки целостности
+// всего что должно быть на проде после deploy:
+//   - БД (integrity, счётчики users/gens/transactions)
+//   - Authors folder (существование, размер, доступность)
+//   - Cover files (gens с image_url vs реальные файлы на диске)
+//   - ENV-vars (имена ключей которые должны быть, без значений)
+//   - Plugins (loaded count)
+//   - PM2 process info через /api/_status
+//   - Disk usage
+//
+// Возвращает структурированный отчёт + статусы (ok/warn/fail) по каждой
+// секции. Для UI в /admin/v304.
+router.get("/sync-check", requireAdmin, async (_req, res) => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const childProc = await import("node:child_process");
+  const AUTHORS_DIR = process.env.AUTHORS_DIR || "/var/www/neurohub/authors";
+  const report: any = {
+    timestamp: new Date().toISOString(),
+    sections: {},
+    summary: { ok: 0, warn: 0, fail: 0 },
+  };
+  const setSection = (name: string, status: "ok" | "warn" | "fail", details: any) => {
+    report.sections[name] = { status, ...details };
+    report.summary[status] = (report.summary[status] || 0) + 1;
+  };
+
+  // 1. БД integrity + counts
+  try {
+    const integrity = db.get<{ ic: string }>(sql`PRAGMA integrity_check`);
+    const users = db.get<{ c: number }>(sql`SELECT count(*) as c FROM users`)?.c ?? 0;
+    const gensTotal = db.get<{ c: number }>(sql`SELECT count(*) as c FROM generations WHERE deleted_at IS NULL`)?.c ?? 0;
+    const gensDone = db.get<{ c: number }>(sql`SELECT count(*) as c FROM generations WHERE status='done' AND deleted_at IS NULL`)?.c ?? 0;
+    const gensError = db.get<{ c: number }>(sql`SELECT count(*) as c FROM generations WHERE status='error' AND deleted_at IS NULL`)?.c ?? 0;
+    const gensProcessing = db.get<{ c: number }>(sql`SELECT count(*) as c FROM generations WHERE status='processing'`)?.c ?? 0;
+    const transactions = db.get<{ c: number }>(sql`SELECT count(*) as c FROM transactions`)?.c ?? 0;
+    const ok = (integrity?.ic === "ok" || (integrity as any)?.integrity_check === "ok");
+    setSection("database", ok ? "ok" : "fail", {
+      integrity: ok ? "ok" : JSON.stringify(integrity),
+      counts: { users, generations: gensTotal, done: gensDone, error: gensError, processing: gensProcessing, transactions },
+    });
+  } catch (e) {
+    setSection("database", "fail", { error: e instanceof Error ? e.message : String(e) });
+  }
+
+  // 2. Authors folder
+  try {
+    const exists = fs.existsSync(AUTHORS_DIR);
+    if (!exists) {
+      setSection("authors_folder", "fail", { path: AUTHORS_DIR, error: "не существует" });
+    } else {
+      const stat = fs.statSync(AUTHORS_DIR);
+      const writable = (() => {
+        try { fs.accessSync(AUTHORS_DIR, fs.constants.W_OK); return true; } catch { return false; }
+      })();
+      const subdirs = fs.readdirSync(AUTHORS_DIR).filter((f) => {
+        try { return fs.statSync(path.join(AUTHORS_DIR, f)).isDirectory(); } catch { return false; }
+      });
+      let totalFiles = 0, totalSize = 0;
+      for (const sub of subdirs) {
+        try {
+          const subPath = path.join(AUTHORS_DIR, sub);
+          const files = fs.readdirSync(subPath);
+          totalFiles += files.length;
+          for (const f of files) {
+            try { totalSize += fs.statSync(path.join(subPath, f)).size; } catch {}
+          }
+        } catch {}
+      }
+      setSection("authors_folder", writable ? "ok" : "warn", {
+        path: AUTHORS_DIR,
+        permissions: stat.mode.toString(8).slice(-3),
+        writable,
+        authorCount: subdirs.length,
+        totalFiles,
+        totalSizeMB: +(totalSize / 1024 / 1024).toFixed(1),
+      });
+    }
+  } catch (e) {
+    setSection("authors_folder", "fail", { error: e instanceof Error ? e.message : String(e) });
+  }
+
+  // 3. Cover files: gens с image_url vs реальный файл .jpg на диске
+  try {
+    const gensWithCover = db.all<{ id: number; localPath: string | null; result_data: string | null }>(
+      sql`SELECT id, local_path as localPath, result_data
+          FROM generations
+          WHERE type='music' AND status='done' AND deleted_at IS NULL
+          ORDER BY id DESC LIMIT 100`,
+    );
+    let withImageUrl = 0, withFile = 0, missingFile = 0;
+    const samples: any[] = [];
+    for (const g of gensWithCover) {
+      let hasImageUrl = false;
+      try {
+        const data = JSON.parse(g.result_data || "{}");
+        if (data?.result?.[0]?.image_url || data?.imageUrl) hasImageUrl = true;
+      } catch {}
+      if (hasImageUrl) withImageUrl += 1;
+
+      // Проверяем ли есть файл .jpg в authors/ (если localPath есть — рядом)
+      let fileExists = false;
+      let expectedJpg: string | null = null;
+      if (g.localPath) {
+        // localPath обычно что-то типа "Author Name/123.mp3" — рядом 123.jpg
+        const dir = path.dirname(path.join(AUTHORS_DIR, g.localPath));
+        const baseName = path.basename(g.localPath, ".mp3");
+        expectedJpg = path.join(dir, `${baseName}.jpg`);
+        try { fileExists = fs.existsSync(expectedJpg); } catch {}
+      }
+      if (fileExists) withFile += 1;
+      else if (hasImageUrl) {
+        missingFile += 1;
+        if (samples.length < 5) {
+          samples.push({ id: g.id, localPath: g.localPath, expectedJpg, hasImageUrl, fileExists });
+        }
+      }
+    }
+    const coverStatus = missingFile > 10 ? "fail" : missingFile > 0 ? "warn" : "ok";
+    setSection("covers", coverStatus, {
+      checkedLast100: gensWithCover.length,
+      withImageUrlInDB: withImageUrl,
+      withFileOnDisk: withFile,
+      missingOnDisk: missingFile,
+      samples: samples,
+      hint: missingFile > 0
+        ? `Suno вернул image_url, но файл .jpg не сохранился на диск. Возможные причины: упал saveToAuthorFolder, нет permissions на authors/, или Suno-CDN expired до скачивания.`
+        : "Все обложки на месте",
+    });
+  } catch (e) {
+    setSection("covers", "fail", { error: e instanceof Error ? e.message : String(e) });
+  }
+
+  // 4. ENV vars (имена + длины, без значений)
+  try {
+    const expectedKeys = [
+      "GPTUNNEL_API_KEY", "YANDEX_SPEECHKIT_API_KEY", "YANDEX_FOLDER_ID",
+      "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "TELEGRAM_BOT_TOKEN",
+      "SMTP_HOST", "SMTP_USER", "SMTP_PASS",
+      "ROBO_LOGIN", "ROBO_PASSWORD_1", "ROBO_PASSWORD_2",
+      "SESSION_SECRET", "SIGNED_URL_SECRET", "PUBLIC_HOST", "DATABASE_URL",
+    ];
+    const envStatus: Record<string, { present: boolean; length: number }> = {};
+    let missing = 0;
+    for (const k of expectedKeys) {
+      const v = process.env[k] || "";
+      envStatus[k] = { present: !!v, length: v.length };
+      if (!v && ["GPTUNNEL_API_KEY", "SESSION_SECRET", "DATABASE_URL"].includes(k)) missing += 1;
+    }
+    const status = missing > 0 ? "fail" : (Object.values(envStatus).filter((v) => !v.present).length > 0 ? "warn" : "ok");
+    setSection("env_vars", status, {
+      keys: envStatus,
+      criticalMissing: missing,
+      hint: missing > 0 ? "Критичные ключи отсутствуют — проверь .env" : "Все критичные ключи на месте",
+    });
+  } catch (e) {
+    setSection("env_vars", "fail", { error: e instanceof Error ? e.message : String(e) });
+  }
+
+  // 5. ffmpeg installed?
+  try {
+    const out = childProc.execSync("which ffmpeg && ffmpeg -version | head -1 2>&1", { encoding: "utf-8", timeout: 5000 });
+    setSection("ffmpeg", "ok", { path: out.split("\n")[0], version: out.split("\n")[1] || "?" });
+  } catch (e) {
+    setSection("ffmpeg", "fail", { error: "ffmpeg не найден — установи: apt-get install -y ffmpeg" });
+  }
+
+  // 6. Disk usage
+  try {
+    const out = childProc.execSync("df -h /var/www | tail -1 | awk '{print $5}'", { encoding: "utf-8", timeout: 5000 }).trim();
+    const pct = parseInt(out.replace("%", ""), 10);
+    const status = pct > 90 ? "fail" : pct > 75 ? "warn" : "ok";
+    setSection("disk", status, { usage_pct: pct, raw: out });
+  } catch (e) {
+    setSection("disk", "warn", { error: e instanceof Error ? e.message : String(e) });
+  }
+
+  // 7. Plugins (count via internal /api/_status — running on same process)
+  try {
+    const r = await fetch("http://127.0.0.1:5000/api/_status", { signal: AbortSignal.timeout(3000) });
+    if (r.ok) {
+      const d: any = await r.json();
+      const loaded = d?.data?.pluginsLoaded?.length ?? 0;
+      const failed = d?.data?.pluginsFailed?.length ?? 0;
+      setSection("plugins", failed > 0 ? "fail" : loaded >= 26 ? "ok" : "warn", {
+        loaded, failed,
+        failedList: d?.data?.pluginsFailed ?? [],
+      });
+    } else {
+      setSection("plugins", "warn", { error: `HTTP ${r.status}` });
+    }
+  } catch (e) {
+    setSection("plugins", "warn", { error: e instanceof Error ? e.message : String(e) });
+  }
+
+  res.json({ data: report, error: null });
+});
+
 router.get("/overview", requireAdmin, (_req, res) => {
   try {
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
