@@ -46,6 +46,9 @@
   --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   --font-serif: Georgia, serif;
   --font-mono: 'JetBrains Mono', monospace;
+  /* Display-шрифт для cosmic / DJ hi-tech акцентов (Eugene 2026-05-09).
+     Default: Space Grotesk. Сменить — в index.html и здесь. */
+  --font-display: 'Space Grotesk', 'Inter', system-ui, sans-serif;
   --radius: .625rem;
   --shadow-2xs: 0px 1px 2px 0px hsl(0 0% 0% / 0.04);
   --shadow-xs: 0px 1px 3px 0px hsl(0 0% 0% / 0.06);
@@ -141,6 +144,20 @@
 }
 
 /* === SOUNDAI CUSTOM STYLES === */
+
+/* Display-шрифт (Eugene 2026-05-09): применять на h1, hero-CTA, /music page-title.
+   tracking-wider добавляет cosmic-feel; weight 600 на больших размерах. */
+.font-display {
+  font-family: var(--font-display);
+  font-feature-settings: "ss01" on, "ss02" on;
+  letter-spacing: 0.005em;
+}
+
+.font-display-spread {
+  font-family: var(--font-display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
 
 /* Gradient text utility */
 .gradient-text {
