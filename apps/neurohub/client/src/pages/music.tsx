@@ -254,10 +254,9 @@ export default function MusicPage() {
   })();
 
   const [mode, setMode] = useState<"basic" | "audio" | "advanced">(() => {
-    // ТЗ Eugene 2026-05-07: 3 режима по частоте использования.
-    // Default — basic (минимум полей). Запоминаем выбор пользователя.
-    // Eugene 2026-05-08: при регенерации форсируем 'advanced' если был
-    // custom режим у исходного трека → форма откроется в правильном виде.
+    // Eugene 2026-05-09: дефолт переведён на 'audio' (раньше был 'basic').
+    // Регенерация (как и раньше) — форсирует 'advanced' если есть длинная
+    // лирика. URL ?tab= и сохранённый выбор имеют приоритет над дефолтом.
     if (regeneratePayload) {
       return regeneratePayload.lyrics && regeneratePayload.lyrics.length >= 50 ? "advanced" : "basic";
     }
@@ -267,12 +266,13 @@ export default function MusicPage() {
       const saved = localStorage.getItem("music_mode");
       if (saved === "basic" || saved === "audio" || saved === "advanced") return saved;
     } catch {}
-    return "basic";
+    return "audio";
   });
   useEffect(() => { try { localStorage.setItem("music_mode", mode); } catch {} }, [mode]);
   const [audioMode, setAudioMode] = useState<"simple" | "advanced">(() => {
+    // Eugene 2026-05-09: дефолт переведён на 'advanced' (раньше был 'simple').
     try { const s = localStorage.getItem("music_audio_mode"); if (s === "simple" || s === "advanced") return s; } catch {}
-    return "simple";
+    return "advanced";
   });
   useEffect(() => { try { localStorage.setItem("music_audio_mode", audioMode); } catch {} }, [audioMode]);
   // Аудио-вход: пользовательский upload (mp3) для cover/extend режима.
