@@ -14,6 +14,12 @@
 //                          └──── seek/skip ─────┘
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  setLockScreenTrack,
+  setLockScreenPlaybackState,
+  setLockScreenPosition,
+  clearLockScreen,
+} from "@/lib/lockscreen";
 
 export interface Track {
   id: number;
@@ -256,71 +262,45 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (list[prevIdx]) play(list[prevIdx]);
   }, [current, play]);
 
-  // MediaSession API (Eugene 2026-05-10: «на lockscreen не показываются обложки»).
-  // Браузер на смартфоне показывает на lock-screen / пульте уведомлений
-  // обложку + название + кнопки play/pause/skip когда есть metadata.
+  // MediaSession lockscreen (Eugene 2026-05-10 «обложки кардинально»).
+  // Используем готовый helper /lib/lockscreen.ts — он уже знает iOS-кейсы
+  // (prewarm cover, абсолютные URL, multiple sizes, first-write retry).
+  // setLockScreenTrack вызывается в play() ДО audio.play(), здесь
+  // только sync state/position/cleanup.
   useEffect(() => {
-    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
     if (!current) {
-      try { navigator.mediaSession.metadata = null; } catch {}
+      clearLockScreen();
       return;
     }
-    const url = current.imageUrl;
-    const artwork = url
-      ? [
-          { src: url, sizes: "96x96", type: "image/jpeg" },
-          { src: url, sizes: "192x192", type: "image/jpeg" },
-          { src: url, sizes: "256x256", type: "image/jpeg" },
-          { src: url, sizes: "384x384", type: "image/jpeg" },
-          { src: url, sizes: "512x512", type: "image/jpeg" },
-        ]
-      : [];
-    try {
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: current.prompt || (current as any).display_title || "Трек",
-        artist: current.authorName || "MuziAi",
-        album: "MuziAi",
-        artwork,
-      });
-    } catch {}
-  }, [current]);
-  // playbackState — браузер показывает кнопку play или pause соответственно
-  useEffect(() => {
-    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
-    try {
-      navigator.mediaSession.playbackState = status === "playing" ? "playing" : status === "paused" ? "paused" : "none";
-    } catch {}
-  }, [status]);
-  // Action handlers — браузер делегирует кнопки play/pause/prev/next с lockscreen
-  useEffect(() => {
-    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
-    const ms: any = navigator.mediaSession;
-    try { ms.setActionHandler("play", () => play()); } catch {}
-    try { ms.setActionHandler("pause", () => pause()); } catch {}
-    try { ms.setActionHandler("previoustrack", () => prev()); } catch {}
-    try { ms.setActionHandler("nexttrack", () => next()); } catch {}
-    try { ms.setActionHandler("seekto", (e: any) => { if (e?.seekTime != null) seek(e.seekTime); }); } catch {}
-    return () => {
-      try {
-        ms.setActionHandler("play", null);
-        ms.setActionHandler("pause", null);
-        ms.setActionHandler("previoustrack", null);
-        ms.setActionHandler("nexttrack", null);
-        ms.setActionHandler("seekto", null);
-      } catch {}
+    // Re-apply при смене current (если play() уже отработал)
+    const handlers = {
+      play: () => play(),
+      pause: () => pause(),
+      previoustrack: () => prev(),
+      nexttrack: () => next(),
+      seekto: (sec: number) => seek(sec),
     };
-  }, [play, pause, prev, next, seek]);
-  // setPositionState — позволяет lockscreen-плееру показывать прогресс-бар
+    setLockScreenTrack(
+      {
+        id: current.id,
+        title: current.prompt || (current as any).display_title || "Трек",
+        artist: current.authorName ? `MuziAi · ${current.authorName}` : "MuziAi",
+        album: "MuziAi",
+      },
+      handlers,
+      (current as any).updatedAt || (current as any).updated_at || undefined,
+    ).catch(() => {});
+  }, [current, play, pause, prev, next, seek]);
+  // playbackState и position — отдельно, чтобы не пересоздавать metadata на каждый tick
   useEffect(() => {
-    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
-    if (!duration || !isFinite(duration) || duration <= 0) return;
-    try {
-      (navigator.mediaSession as any).setPositionState?.({
-        duration,
-        position: Math.min(currentTime, duration),
-        playbackRate: 1,
-      });
-    } catch {}
+    setLockScreenPlaybackState(
+      status === "playing" ? "playing" : status === "paused" ? "paused" : "none",
+    );
+  }, [status]);
+  useEffect(() => {
+    if (duration && isFinite(duration) && duration > 0) {
+      setLockScreenPosition(duration, currentTime);
+    }
   }, [currentTime, duration]);
 
   const value: PlayerContextValue = {
