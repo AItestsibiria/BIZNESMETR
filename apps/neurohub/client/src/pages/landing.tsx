@@ -431,6 +431,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   );
   const tracksRef = useRef<any[]>([]);
   useEffect(() => { tracksRef.current = tracks; }, [tracks]);
+  // Eugene 2026-05-10: ref для отфильтрованного списка (с учётом
+  // categoryFilter+searchQuery). handleEnded/skipNext/skipPrev должны
+  // использовать ИМЕННО видимый юзеру плейлист, иначе после конца трека
+  // плеер берёт следующий из всего списка и вылезает не тот параметр
+  // (например инструментальный когда юзер фильтровал вокальные).
+  const filteredMusicRef = useRef<any[]>([]);
 
   // На mount если уже играет глобальный audio — восстанавливаем UI state
   useEffect(() => {
@@ -722,13 +728,26 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       if (timerRef.current) clearInterval(timerRef.current);
       const mode = repeatModeRef.current;
       const cur = playingTrackRef.current;
-      const musicTracks = tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+      // Eugene 2026-05-10 fix: используем ОТФИЛЬТРОВАННЫЙ список (то что
+      // видит юзер на экране с учётом category+search), а не весь tracks.
+      // Если фильтр пуст — fallback на весь список.
+      const filteredList = filteredMusicRef.current;
+      const musicTracks = filteredList && filteredList.length > 0
+        ? filteredList
+        : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
       if (mode === "one") {
         audio.currentTime = 0;
         audio.play().catch(() => {});
         return;
       }
       const idx = cur ? musicTracks.findIndex(t => t.id === cur.id) : -1;
+      // Если текущий трек НЕ в фильтре (юзер сменил фильтр пока играло) —
+      // не переключаем автоматически, останавливаемся.
+      if (idx < 0) {
+        setPlayingId(null);
+        unmuteBgMusic();
+        return;
+      }
       if (mode === "all") {
         const nextIdx = (idx + 1) % musicTracks.length;
         playTrack(musicTracks[nextIdx]);
@@ -834,10 +853,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   };
 
   const skipNext = () => {
-    // BUG-1 fix: используем tracksRef.current чтобы не было гонки с
-    // refresh-интервалом, который обновляет tracks state пока пользователь
-    // быстро жмёт next/prev (Eugene 14:14).
-    const musicTracks = tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+    // Eugene 2026-05-10 fix: учёт user-filter (category+search). Если
+    // фильтр активен — листаем только по нему. Иначе fallback на полный.
+    const filtered = filteredMusicRef.current;
+    const musicTracks = filtered && filtered.length > 0
+      ? filtered
+      : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
     if (musicTracks.length === 0) return;
     const idx = musicTracks.findIndex(t => t.id === playingId);
     const nextIdx = idx >= 0 ? (idx + 1) % musicTracks.length : 0;
@@ -860,13 +881,19 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // Filter by category + search
   const categoryFiltered = categoryFilter === 'all' ? musicTracks : musicTracks.filter(t => (t.category || 'song') === categoryFilter);
   const filteredMusic = categoryFiltered.filter(matchesSearch);
+  // Sync ref для auto-next / skipNext / skipPrev — должен видеть текущий filter
+  filteredMusicRef.current = filteredMusic;
   const totalPages = Math.max(1, Math.ceil(filteredMusic.length / TRACKS_PER_PAGE));
   const safePage = Math.min(currentPage, totalPages);
 
   const paginatedMusic = filteredMusic.slice((safePage - 1) * TRACKS_PER_PAGE, safePage * TRACKS_PER_PAGE);
 
   const skipPrev = () => {
-    const list = tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+    // Eugene 2026-05-10 fix: учёт user-filter (как и skipNext)
+    const filtered = filteredMusicRef.current;
+    const list = filtered && filtered.length > 0
+      ? filtered
+      : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
     if (list.length === 0) return;
     const idx = list.findIndex(t => t.id === playingId);
     const prev = idx > 0 ? idx - 1 : list.length - 1;
