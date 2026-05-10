@@ -817,6 +817,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
 
 
   const togglePlay = (track: any) => {
+    // Eugene 2026-05-10: deadzone последние 2 сек трека — не реагируем
+    // на play-клик, ждём auto-next. Иначе юзер случайно перезапускает
+    // и сбивает плейлист.
+    if (audioRef.current && playingId === track.id) {
+      const a = audioRef.current;
+      if (a.duration && isFinite(a.duration) && a.duration - a.currentTime < 2) {
+        return;
+      }
+    }
     if (playingId === track.id) {
       if (audioRef.current?.paused) {
         audioRef.current.play().catch(() => {});
