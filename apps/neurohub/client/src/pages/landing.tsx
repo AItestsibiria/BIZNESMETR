@@ -782,6 +782,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     // and re-applies metadata to work around iOS first-write drop.
     const msTitle = track.displayTitle || track.prompt?.slice(0, 60) || 'MuziAi';
     const msArtist = track.authorName ? `MuziAi · ${track.authorName}` : 'MuziAi';
+    // Eugene 2026-05-10 (Apple WebKit guidance): audio.play() ДОЛЖЕН быть
+    // в синхронной части user-gesture handler, иначе iOS rejects с
+    // NotAllowedError. Поэтому play() ПЕРВЫМ, setLockScreenTrack —
+    // отдельно (он внутри теперь fire-and-forget prewarm, не блокирует).
+    audio.play().then(() => setLockScreenPlaybackState('playing')).catch(() => {});
     setLockScreenTrack(
       { id: track.id, title: msTitle, artist: msArtist, album: 'MuziAi' },
       {
@@ -823,9 +828,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         },
       },
       (track as any).coverGenId || track.id
-    ).then(() => {
-      audio.play().then(() => setLockScreenPlaybackState('playing')).catch(() => {});
-    });
+    );
     setPlayingId(track.id);
     muteBgMusic();
 
