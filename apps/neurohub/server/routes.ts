@@ -2703,7 +2703,10 @@ function createNew(){
               fs.writeFileSync(taggedPath, taggedBuffer);
             }
             // sendFile с tagged-вариантом — поддерживает Range, etag, conditional GET.
-            res.setHeader("Cache-Control", "public, max-age=86400");
+            // Eugene 2026-05-10: max-age=60 (не 86400) чтобы старые kэшированные
+            // mp3 без ID3 быстро инвалидировались на всех устройствах после
+            // деплоя. ETag всё равно делает 304 для unchanged content.
+            res.setHeader("Cache-Control", "public, max-age=60, must-revalidate");
             return res.sendFile(taggedPath, (err) => {
               if (err) console.error(`[stream] sendFile tagged failed id=${gen.id}:`, err.message || err);
             });

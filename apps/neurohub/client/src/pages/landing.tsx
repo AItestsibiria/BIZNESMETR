@@ -691,6 +691,18 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     } else {
       audio = new Audio(track.audioUrl);
       audioRef.current = audio;
+      // Eugene 2026-05-10 (Apple WebKit): <audio> ДОЛЖЕН быть в DOM, иначе
+      // iOS Safari не считает страницу «foreground media playing» и не
+      // показывает Now Playing / lockscreen контролы. new Audio() сам по
+      // себе вне DOM. Добавляем hidden audio в body — один раз, переиспользуем.
+      try {
+        audio.setAttribute("playsinline", "");
+        audio.preload = "auto";
+        audio.style.display = "none";
+        if (typeof document !== "undefined" && !audio.parentNode) {
+          document.body.appendChild(audio);
+        }
+      } catch {}
     }
     audio.volume = 0.5;
     playingTrackRef.current = track;

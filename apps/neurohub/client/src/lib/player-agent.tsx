@@ -184,6 +184,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     } else {
       audio = new Audio(t.audioUrl);
       audioRef.current = audio;
+      // Eugene 2026-05-10: audio ДОЛЖЕН быть в DOM для iOS lockscreen.
+      try {
+        audio.setAttribute("playsinline", "");
+        audio.preload = "auto";
+        audio.style.display = "none";
+        if (typeof document !== "undefined" && !audio.parentNode) {
+          document.body.appendChild(audio);
+        }
+      } catch {}
     }
     audio.volume = volume;
     if (typeof window !== "undefined") {
