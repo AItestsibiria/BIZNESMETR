@@ -171,15 +171,21 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       return;
     }
     if (!t) return;
-    // Создаём новый Audio и заменяем global
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.onended = null;
-      audioRef.current.onerror = null;
+    // Eugene 2026-05-10 fix «авто-переход не воспроизводит»: переиспользуем
+    // тот же audio-element (меняем src), чтобы сохранить user-gesture chain
+    // на iOS Safari. new Audio() в onended-callback rejected with NotAllowedError.
+    let audio = audioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.onended = null;
+      audio.onerror = null;
+      audio.onloadedmetadata = null;
+      try { audio.src = t.audioUrl; } catch {}
+    } else {
+      audio = new Audio(t.audioUrl);
+      audioRef.current = audio;
     }
-    const audio = new Audio(t.audioUrl);
     audio.volume = volume;
-    audioRef.current = audio;
     if (typeof window !== "undefined") {
       (window as any).__muziaiAudio = audio;
       (window as any).__muziaiTrack = t;

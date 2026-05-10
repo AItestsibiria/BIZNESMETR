@@ -675,16 +675,24 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
 
   const playTrack = (track: any) => {
     if (timerRef.current) clearInterval(timerRef.current);
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.onended = null;
-      audioRef.current.onerror = null;
-      audioRef.current.onloadedmetadata = null;
-
+    // Eugene 2026-05-10 fix «авто-переход не воспроизводит»: на iOS Safari
+    // создание new Audio() в onended-callback теряет user-gesture chain
+    // и audio.play() rejects with NotAllowedError. Решение — переиспользуем
+    // тот же audio-element, меняем только src. User gesture chain сохраняется.
+    let audio = audioRef.current;
+    const isReuse = !!audio;
+    if (audio) {
+      audio.pause();
+      audio.onended = null;
+      audio.onerror = null;
+      audio.onloadedmetadata = null;
+      audio.ontimeupdate = null;
+      try { audio.src = track.audioUrl; } catch {}
+    } else {
+      audio = new Audio(track.audioUrl);
+      audioRef.current = audio;
     }
-    const audio = new Audio(track.audioUrl);
     audio.volume = 0.5;
-    audioRef.current = audio;
     playingTrackRef.current = track;
     // Сохраняем в global для cross-page survival (Eugene 14:09)
     if (typeof window !== "undefined") {
