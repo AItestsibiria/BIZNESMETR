@@ -69,7 +69,7 @@ export default function TemplatesPage() {
   return (
     <div className="container mx-auto px-4 sm:px-6 py-8 sm:py-12 max-w-6xl">
       <div className="mb-8">
-        <h1 className="text-3xl sm:text-4xl font-bold mb-2">Шаблоны песен</h1>
+        <h1 className="text-3xl sm:text-4xl font-bold mb-2">Музыкальные события</h1>
         <p className="text-muted-foreground">
           {data?.length ?? 0} готовых сценариев. Клик — и текст с настройками
           перенесётся на страницу генерации.
