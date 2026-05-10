@@ -765,6 +765,65 @@ export async function registerRoutes(
     res.json({ period, total: total?.c || 0, rows });
   });
 
+  // Diagnostic: check ID3 embed для трека (Eugene 2026-05-10).
+  // Открой https://muziai.ru/api/diag/cover-id3?id=N — сервер вернёт JSON
+  // с информацией: есть ли mp3 файл, есть ли cover, создан ли tagged.mp3,
+  // встроен ли APIC frame. Auth не требуется (read-only diagnostic).
+  app.get("/api/diag/cover-id3", (req: Request, res: Response) => {
+    const id = parseInt(req.query.id as string);
+    if (!id) { res.status(400).json({ error: "?id=N required" }); return; }
+    try {
+      const gen = db.select().from(generations).where(eq(generations.id, id)).get();
+      if (!gen) { res.json({ id, found: false }); return; }
+      const out: any = {
+        id: gen.id,
+        type: gen.type,
+        status: gen.status,
+        localPath: gen.localPath || null,
+        hasResultUrl: !!gen.resultUrl,
+      };
+      if (gen.localPath) {
+        const mp3Path = path.join(AUTHORS_DIR, gen.localPath);
+        out.mp3Exists = fs.existsSync(mp3Path);
+        if (out.mp3Exists) {
+          out.mp3SizeKB = Math.round(fs.statSync(mp3Path).size / 1024);
+          const taggedPath = mp3Path.replace(/\.mp3$/, ".tagged.mp3");
+          out.taggedExists = fs.existsSync(taggedPath);
+          if (out.taggedExists) {
+            const taggedSize = fs.statSync(taggedPath).size;
+            out.taggedSizeKB = Math.round(taggedSize / 1024);
+            // Read first 10 bytes — должно быть "ID3" (47 44 33) для ID3v2
+            const fd = fs.openSync(taggedPath, "r");
+            const buf = Buffer.alloc(10);
+            fs.readSync(fd, buf, 0, 10, 0);
+            fs.closeSync(fd);
+            out.startsWithID3 = buf.toString("ascii", 0, 3) === "ID3";
+            out.id3Version = `2.${buf[3]}.${buf[4]}`;
+            // Try parse ID3 to check artwork
+            try {
+              const tags = NodeID3.read(taggedPath);
+              out.id3Title = tags?.title;
+              out.id3Artist = tags?.artist;
+              out.id3HasArtwork = !!(tags?.image);
+              if (tags?.image && typeof tags.image === "object") {
+                out.artworkSizeKB = Math.round(((tags.image as any).imageBuffer?.length || 0) / 1024);
+                out.artworkMime = (tags.image as any).mime;
+              }
+            } catch (e) {
+              out.id3ReadError = e instanceof Error ? e.message : String(e);
+            }
+          }
+        }
+      }
+      const coverFile = resolveCoverPath(gen);
+      out.coverPathResolved = coverFile;
+      out.coverExists = coverFile ? fs.existsSync(coverFile) : false;
+      res.json(out);
+    } catch (e) {
+      res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+    }
+  });
+
   // Track visitor
   app.post("/api/track-visit", async (req: Request, res: Response) => {
     try {
