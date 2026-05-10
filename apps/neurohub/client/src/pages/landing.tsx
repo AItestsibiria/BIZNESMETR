@@ -431,6 +431,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   );
   const tracksRef = useRef<any[]>([]);
   useEffect(() => { tracksRef.current = tracks; }, [tracks]);
+  // Eugene 2026-05-10: ref для отфильтрованного списка (category+search).
+  // handleEnded и skip-кнопки должны использовать ИМЕННО видимый юзеру
+  // плейлист, иначе после конца трека выпадает не тот параметр.
+  const filteredMusicRef = useRef<any[]>([]);
 
   // На mount если уже играет глобальный audio — восстанавливаем UI state
   useEffect(() => {
@@ -722,7 +726,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       if (timerRef.current) clearInterval(timerRef.current);
       const mode = repeatModeRef.current;
       const cur = playingTrackRef.current;
-      const musicTracks = tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+      // Eugene 2026-05-10: учёт user-filter (category+search) в auto-next.
+      const fl = filteredMusicRef.current;
+      const musicTracks = fl && fl.length > 0 ? fl : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
       if (mode === "one") {
         audio.currentTime = 0;
         audio.play().catch(() => {});
@@ -769,16 +775,18 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           setLockScreenPlaybackState('paused');
         },
         previoustrack: () => {
-          const mt = tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+          const fl = filteredMusicRef.current;
+          const mt = fl && fl.length > 0 ? fl : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
           const cur = playingTrackRef.current;
           const idx = cur ? mt.findIndex(t => t.id === cur.id) : 0;
-          playTrack(mt[idx > 0 ? idx - 1 : mt.length - 1]);
+          if (mt[idx > 0 ? idx - 1 : mt.length - 1]) playTrack(mt[idx > 0 ? idx - 1 : mt.length - 1]);
         },
         nexttrack: () => {
-          const mt = tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+          const fl = filteredMusicRef.current;
+          const mt = fl && fl.length > 0 ? fl : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
           const cur = playingTrackRef.current;
           const idx = cur ? mt.findIndex(t => t.id === cur.id) : -1;
-          playTrack(mt[(idx + 1) % mt.length]);
+          if (mt[(idx + 1) % mt.length]) playTrack(mt[(idx + 1) % mt.length]);
         },
         seekto: (t: number) => {
           if (audioRef.current) audioRef.current.currentTime = t;
@@ -834,10 +842,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   };
 
   const skipNext = () => {
-    // BUG-1 fix: используем tracksRef.current чтобы не было гонки с
-    // refresh-интервалом, который обновляет tracks state пока пользователь
-    // быстро жмёт next/prev (Eugene 14:14).
-    const musicTracks = tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+    // Eugene 2026-05-10: учёт user-filter (как auto-next).
+    const fl = filteredMusicRef.current;
+    const musicTracks = fl && fl.length > 0 ? fl : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
     if (musicTracks.length === 0) return;
     const idx = musicTracks.findIndex(t => t.id === playingId);
     const nextIdx = idx >= 0 ? (idx + 1) % musicTracks.length : 0;
@@ -860,13 +867,16 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // Filter by category + search
   const categoryFiltered = categoryFilter === 'all' ? musicTracks : musicTracks.filter(t => (t.category || 'song') === categoryFilter);
   const filteredMusic = categoryFiltered.filter(matchesSearch);
+  filteredMusicRef.current = filteredMusic;
   const totalPages = Math.max(1, Math.ceil(filteredMusic.length / TRACKS_PER_PAGE));
   const safePage = Math.min(currentPage, totalPages);
 
   const paginatedMusic = filteredMusic.slice((safePage - 1) * TRACKS_PER_PAGE, safePage * TRACKS_PER_PAGE);
 
   const skipPrev = () => {
-    const list = tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+    // Eugene 2026-05-10: учёт user-filter (как auto-next).
+    const fl = filteredMusicRef.current;
+    const list = fl && fl.length > 0 ? fl : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
     if (list.length === 0) return;
     const idx = list.findIndex(t => t.id === playingId);
     const prev = idx > 0 ? idx - 1 : list.length - 1;
