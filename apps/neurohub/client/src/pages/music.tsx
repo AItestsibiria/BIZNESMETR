@@ -335,15 +335,18 @@ export default function MusicPage() {
     ta.style.height = "auto";
     ta.style.height = `${Math.max(ta.scrollHeight + 2, 240)}px`;
   }, [audioLyrics]);
-  // Scroll-to-tabs если страница открыта с ?tab=* (Eugene 2026-05-09:
-  // «Новости ссылка на аудио должна приводить на окно генерации аудио»).
-  // На mobile форма уезжает ниже viewport — без скролла юзер видит page-title
-  // и думает что страница пустая. После mount делаем smooth-scroll к Mode Toggle.
+  // Scroll-to-tabs если страница открыта со ссылки которая выставила
+  // sessionStorage._pendingMusicScroll (Eugene 2026-05-09 «Новости ссылка
+  // на аудио должна приводить на окно генерации»; 2026-05-10 fix: ушли с
+  // ?tab=audio query — wouter useHashLocation такое не парсит и роут падал
+  // в NotFoundPage). После использования флаг удаляется.
   const modeTabsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     try {
       const hasTabParam = new URLSearchParams(window.location.hash.split("?")[1] || "").has("tab");
-      if (!hasTabParam) return;
+      const pendingScroll = sessionStorage.getItem("_pendingMusicScroll") === "1";
+      if (!hasTabParam && !pendingScroll) return;
+      if (pendingScroll) sessionStorage.removeItem("_pendingMusicScroll");
       const t = setTimeout(() => {
         modeTabsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       }, 250);

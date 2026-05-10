@@ -908,15 +908,20 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               <p className="text-sm text-muted-foreground leading-relaxed">
                 Появилась уникальная возможность генерации трека по{" "}
                 <a
-                  href="#/music?tab=audio"
+                  href="#/music"
                   onClick={() => {
                     // Eugene 2026-05-09: жёстко выставляем mode=audio + sub=advanced
                     // в localStorage ДО перехода — чтобы /music сразу открыл
                     // Аудио · Расширенный с формой параметров (а не дефолтные).
+                    // Eugene 2026-05-10 fix: убран ?tab=audio из href — wouter
+                    // useHashLocation парсил «/music?tab=audio» как path (с query)
+                    // и не находил роут → NotFoundPage (та самая «ошибка»).
+                    // Маркер для scroll-to-tabs идёт через sessionStorage.
                     try {
                       localStorage.setItem("music_mode", "audio");
                       localStorage.setItem("music_audio_mode", "advanced");
                       localStorage.setItem("music_mode_v2", "1");
+                      sessionStorage.setItem("_pendingMusicScroll", "1");
                     } catch {}
                   }}
                   className="text-cyan-400 hover:text-cyan-300 underline decoration-dotted underline-offset-2 transition-colors font-medium"
