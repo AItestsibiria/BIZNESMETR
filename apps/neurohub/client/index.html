@@ -55,6 +55,31 @@
           window.location.replace(target);
         }
       })();
+      // Eugene 2026-05-10: миграция legacy URL'ов вида #/music?tab=audio
+      // (закладки/кэш браузера/share-ссылки старой версии). Wouter useHashLocation
+      // не парсит query в hash и Switch падал в NotFoundPage. Перехватываем
+      // ДО монтирования React, ставим mode в localStorage и чистим hash.
+      (function () {
+        try {
+          var h = location.hash || "";
+          var qi = h.indexOf("?");
+          if (qi < 0) return;
+          var path = h.slice(1, qi); // убираем ведущий #
+          var query = h.slice(qi + 1);
+          if (path !== "/music" && path !== "/music/") return;
+          var params = new URLSearchParams(query);
+          var tab = params.get("tab");
+          if (!tab) return;
+          if (tab === "audio" || tab === "basic" || tab === "advanced") {
+            localStorage.setItem("music_mode", tab);
+            if (tab === "audio") localStorage.setItem("music_audio_mode", "advanced");
+            localStorage.setItem("music_mode_v2", "1");
+            sessionStorage.setItem("_pendingMusicScroll", "1");
+          }
+          // Чистим hash чтобы wouter увидел только /music
+          history.replaceState(null, "", location.pathname + location.search + "#" + path);
+        } catch (e) {}
+      })();
     </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
