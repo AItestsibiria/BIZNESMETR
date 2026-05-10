@@ -918,7 +918,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               <p className="text-sm text-muted-foreground leading-relaxed">
                 Появилась уникальная возможность генерации трека по{" "}
                 <a
-                  href="#/music?tab=audio"
+                  href="#/music"
                   onClick={() => {
                     // Eugene 2026-05-09: жёстко выставляем mode=audio + sub=advanced
                     // в localStorage ДО перехода — чтобы /music сразу открыл
