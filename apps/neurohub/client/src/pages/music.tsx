@@ -385,6 +385,12 @@ export default function MusicPage() {
     regeneratePayload?.mode === "advanced" ? "advanced" : "simple",
   );
   const [prompt, setPrompt] = useState(regeneratePayload?.prompt || "");
+  // Текст песни для basic-режима (Eugene 2026-05-10): «если пользователь
+  // ввёл слова — песня должна быть смыслово основана из этих слов и их
+  // обязательно применять». В body.lyrics шлём literal text, Suno
+  // обязан использовать точно (в advanced режиме уже работает так).
+  const [basicLyrics, setBasicLyrics] = useState("");
+  const [basicLyricsOpen, setBasicLyricsOpen] = useState(false);
   const [style, setStyle] = useState(regeneratePayload?.style || transferred?.style || "pop");
   const [selectedStyles, setSelectedStyles] = useState<string[]>([regeneratePayload?.style || transferred?.style || "pop"]);
   const [lyrics, setLyrics] = useState(regeneratePayload?.lyrics || transferred?.lyrics || "");
@@ -733,6 +739,10 @@ export default function MusicPage() {
         if (fullStyle) body.style = fullStyle;
         if (isBasic) {
           body.prompt = prompt;
+          // Eugene 2026-05-10: если юзер ввёл свой текст в basic mode —
+          // обязательно передаём его как lyrics. Suno использует точно
+          // (тот же flow что в advanced mode).
+          if (basicLyrics.trim()) body.lyrics = basicLyrics.trim();
         } else if (legacyMode === "simple") {
           body.prompt = prompt;
         } else {
@@ -1014,6 +1024,43 @@ export default function MusicPage() {
                   Стиль и темп выберет MuziAi автоматически. Достаточно описать настроение и тему.
                 </p>
               </div>
+
+              {/* Текст песни — Eugene 2026-05-10: «если пользователь ввёл слова,
+                  песня должна быть смыслово основана из этих слов и их обязательно
+                  применять». Collapsible — не загромождает базовую форму. */}
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setBasicLyricsOpen(!basicLyricsOpen)}
+                  className="w-full flex items-center justify-between p-2.5 rounded-lg border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 text-purple-200 text-xs font-display tracking-wide transition-colors"
+                  data-testid="btn-basic-lyrics-toggle"
+                >
+                  <span className="flex items-center gap-2">
+                    <FileText className="w-3.5 h-3.5" />
+                    🎵 Текст песни (необязательно)
+                    {basicLyrics.trim() && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/30 text-purple-100">{basicLyrics.length} симв.</span>
+                    )}
+                  </span>
+                  <ChevronDown className={`w-3 h-3 transition-transform ${basicLyricsOpen ? "rotate-180" : ""}`} />
+                </button>
+                {basicLyricsOpen && (
+                  <div className="mt-2 space-y-2 cosmic-disclosure-enter">
+                    <Textarea
+                      placeholder="Свои слова, фразы, имена. AI обязательно использует их в песне. Можно построчно (как куплеты) или просто перечислить ключевые слова."
+                      value={basicLyrics}
+                      onChange={(e) => setBasicLyrics(e.target.value)}
+                      rows={5}
+                      className="bg-background/50 border-purple-500/20 input-glow resize-none text-sm"
+                      data-testid="input-basic-lyrics"
+                    />
+                    <p className="text-[10px] text-muted-foreground/70">
+                      💡 Если поле заполнено — Suno возьмёт ваши слова как основу. Если пусто — придумает текст сам по описанию выше.
+                    </p>
+                  </div>
+                )}
+              </div>
+
               {/* Voice — 4 равные ячейки, единый shell (Eugene 13:18) */}
               <div className="space-y-2">
                 <Label className="text-sm text-muted-foreground">Голос</Label>
