@@ -189,6 +189,39 @@ ssh root@72.56.1.149 'sed -i "/^ИМЯ_КЛЮЧА=/d" /var/www/neurohub/.env \
 - Явному «стоп» / «отмени» / «пауза» от Eugene
 - Случаям когда блокер не разрешён (нужен ввод от Eugene)
 
+### Client error monitoring rule (Eugene 2026-05-10)
+
+**Все React/JS-ошибки со всех страниц собираются автоматически и доступны на admin'е для анализа.** Любая uncaught runtime ошибка, unhandled promise rejection, или React ErrorBoundary catch — отправляется на `/api/client-errors` и хранится в `client_errors` таблице.
+
+**Источник:** `apps/neurohub/client/src/lib/error-logger.ts` (`installClientErrorLogger()` подключён в `main.tsx`):
+- `window.error` — uncaught runtime errors
+- `unhandledrejection` — Promise rejections без `.catch()`
+- React ErrorBoundary (`components/error-boundary.tsx`) — `componentDidCatch` отдаёт через `reportClientError({source: "react", ...})`
+
+**Что хранится в БД:** `id, ts, source ∈ {window|promise|react}, message (≤500), stack (≤4000), url, user_agent, page_name, ip, user_id, created_at`.
+
+**Защита:**
+- Dedup идентичных ошибок в окне 30 сек (не флудим бэк один и тот же стек)
+- Rate-limit 5 запросов/мин per session
+- `sendBeacon` если доступен (надёжнее на unload), иначе `fetch keepalive`
+- Body limit 16kb на endpoint
+
+**Что делает Claude когда видит ошибку:**
+1. **Открыть** `https://muziai.ru/api/admin/client-errors?period=hour|day|week` — список топ-ошибок (group by message+source) с count, last_ts, last_stack, last_url, last_page
+2. **Анализ:** прочитать `last_stack` и `last_url` → найти source файл и строку → reproduce mental model
+3. **Предложить варианты исправления** в формате (по `Decreasing-reliability options rule`):
+   - **[Самое надёжное]** — proper fix, root cause
+   - **[Среднее]** — компромисс
+   - **[Быстрое]** — patch
+   - **[Не рекомендую]** — try/catch silencer
+4. **Не молча патчить** — Eugene должен видеть варианты и выбрать. Если ошибка очевидно тривиальна (TypeError на null) — сделать «самое надёжное» сразу, отметить в commit message что катализатор был client-error.
+5. После фикса добавить запись в `docs/strategy/PITFALLS.md` если класс ошибки новый.
+
+**Не применяется к:**
+- Намеренным `throw` внутри handler'ов которые уже catch'нуты (они в БД не попадают)
+- Network ошибкам (это `fetch().catch(...)`, не runtime)
+- Console warnings (только errors)
+
 ### Deploy countdown rule (Eugene 2026-05-08)
 
 **После каждого `git push` ВСЕГДА запускаю обратный отсчёт через `Bash run_in_background` с print'ами каждые 30 сек.** Чтобы Eugene видел сколько осталось до конца auto-deploy (типичные 90 сек), не жал refresh раньше времени.

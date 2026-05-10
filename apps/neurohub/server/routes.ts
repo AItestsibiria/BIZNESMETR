@@ -688,6 +688,83 @@ export async function registerRoutes(
   app.post("/api/suno/webhook", sunoWebhookHandler);
   app.get("/api/suno/webhook", sunoWebhookHandler); // на случай если GPTunnel шлёт GET
 
+  // Client errors collector (Eugene 2026-05-10): фронт через
+  // /lib/error-logger.ts шлёт runtime/promise/react ошибки. Хранятся в
+  // SQLite таблице client_errors (CREATE IF NOT EXISTS). Без auth — анон
+  // тоже может выкинуть ошибку. Rate-limit на client side (5/мин/сессия)
+  // + dedup. На admin для просмотра — отдельный endpoint /api/admin/client-errors.
+  try {
+    db.$client.exec(`
+      CREATE TABLE IF NOT EXISTS client_errors (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts INTEGER NOT NULL,
+        source TEXT NOT NULL,
+        message TEXT NOT NULL,
+        stack TEXT,
+        url TEXT,
+        user_agent TEXT,
+        page_name TEXT,
+        ip TEXT,
+        user_id INTEGER,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_client_errors_ts ON client_errors(ts DESC);
+      CREATE INDEX IF NOT EXISTS idx_client_errors_message ON client_errors(message);
+    `);
+  } catch (e) {
+    console.warn("[client-errors] migration failed:", e);
+  }
+  app.post("/api/client-errors", express.json({ limit: "16kb" }), (req: Request, res: Response) => {
+    try {
+      const b = req.body || {};
+      const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || 'unknown';
+      const userId = (req as any).userId || null;
+      db.$client.prepare(`
+        INSERT INTO client_errors (ts, source, message, stack, url, user_agent, page_name, ip, user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        Number(b.ts) || Date.now(),
+        String(b.source || "unknown").slice(0, 20),
+        String(b.message || "").slice(0, 500),
+        b.stack ? String(b.stack).slice(0, 4000) : null,
+        b.url ? String(b.url).slice(0, 500) : null,
+        b.userAgent ? String(b.userAgent).slice(0, 200) : null,
+        b.pageName ? String(b.pageName).slice(0, 64) : null,
+        ip,
+        userId,
+      );
+      res.status(204).end();
+    } catch (e) {
+      res.status(204).end(); // Молча — даже если БД упала, фронт не должен падать
+    }
+  });
+
+  // Admin: список последних client errors с группировкой
+  app.get("/api/admin/client-errors", authMiddleware, (req: Request, res: Response) => {
+    const user = storage.getUser((req as any).userId);
+    if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
+    res.setHeader("Cache-Control", "no-store");
+    const period = String(req.query.period || "day");
+    const sinceMs = period === "hour" ? Date.now() - 3600_000
+      : period === "day" ? Date.now() - 86400_000
+      : period === "week" ? Date.now() - 7 * 86400_000
+      : 0;
+    const raw = db.$client;
+    const rows = raw.prepare(`
+      SELECT message, source, COUNT(*) as count, MAX(ts) as last_ts,
+        (SELECT stack FROM client_errors e2 WHERE e2.message = e1.message AND e2.stack IS NOT NULL ORDER BY ts DESC LIMIT 1) as last_stack,
+        (SELECT url FROM client_errors e2 WHERE e2.message = e1.message ORDER BY ts DESC LIMIT 1) as last_url,
+        (SELECT page_name FROM client_errors e2 WHERE e2.message = e1.message ORDER BY ts DESC LIMIT 1) as last_page
+      FROM client_errors e1
+      WHERE ts >= ?
+      GROUP BY message, source
+      ORDER BY count DESC, last_ts DESC
+      LIMIT 50
+    `).all(sinceMs);
+    const total = raw.prepare("SELECT COUNT(*) as c FROM client_errors WHERE ts >= ?").get(sinceMs) as any;
+    res.json({ period, total: total?.c || 0, rows });
+  });
+
   // Track visitor
   app.post("/api/track-visit", async (req: Request, res: Response) => {
     try {
