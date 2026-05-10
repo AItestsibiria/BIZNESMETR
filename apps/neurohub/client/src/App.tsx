@@ -1,4 +1,4 @@
-import { Switch, Route, Router } from "wouter";
+import { Switch, Route, Router, useLocation } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./lib/queryClient";
@@ -44,11 +44,25 @@ if (typeof window !== 'undefined') {
   fetch('/api/track-visit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fingerprint: fpHash, pageUrl: location.href, sessionId: sid }) }).catch(() => {});
 }
 
+// PageTransition (Eugene 2026-05-10): «при нажатии на смену страницы
+// сделай это плавно — плейлист как от ветра скатертью волнами».
+// Каждый location-change перерендеривает контент с key={loc} →
+// CSS-анимация .page-wave-enter играет на mount нового роута.
+function PageTransition({ children }: { children: React.ReactNode }) {
+  const [loc] = useLocation();
+  return (
+    <div key={loc} className="page-wave-enter">
+      {children}
+    </div>
+  );
+}
+
 function AppContent() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Router hook={useHashLocation}>
         <Navbar />
+        <PageTransition>
         <Switch>
           <Route path="/" component={LandingPage} />
           <Route path="/play/:id" component={TrackPage} />
@@ -71,6 +85,7 @@ function AppContent() {
           <Route path="/templates" component={withBoundary(TemplatesPage, "templates")} />
           <Route component={NotFoundPage} />
         </Switch>
+        </PageTransition>
       </Router>
       <Toaster />
       <BackgroundMusic />

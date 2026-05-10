@@ -1212,8 +1212,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           </div>
         )}
 
-        {/* Track list (music only) */}
-        <div className="glass-card rounded-xl overflow-hidden divide-y divide-white/[0.04]">
+        {/* Track list (music only) — Eugene 2026-05-10: playlist-wave =
+            staggered animation «как от ветра скатертью волнами» */}
+        <div key={`page-${safePage}-${categoryFilter}-${searchQuery}`} className="playlist-wave glass-card rounded-xl overflow-hidden divide-y divide-white/[0.04]">
           {paginatedMusic.map((track, idx) => {
             const isMusic = true;
             const isCover = false;
