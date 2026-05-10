@@ -2668,7 +2668,52 @@ function createNew(){
 
       const wantImage = req.query.type === "image";
 
-      // Try local file first
+      // Eugene 2026-05-10 «обложки тупик — связь с файлом воспроизведения как
+      // на скачивании»: при стриме music с локальным mp3 embed-им cover в ID3-tag,
+      // ТАК ЖЕ как делаем в /api/download. iOS Safari читает ID3-tag для
+      // lockscreen artwork — без него обложек на lockscreen не было.
+      // Cache на диск: <mp3>.tagged.mp3 — создаётся один раз, переиспользуется
+      // (Range support через sendFile сохраняется).
+      if (!wantImage && gen.type === "music" && gen.localPath) {
+        const mp3Path = path.join(AUTHORS_DIR, gen.localPath);
+        const taggedPath = mp3Path.replace(/\.mp3$/, ".tagged.mp3");
+        try {
+          if (fs.existsSync(mp3Path)) {
+            const mp3Stat = fs.statSync(mp3Path);
+            const taggedStat = fs.existsSync(taggedPath) ? fs.statSync(taggedPath) : null;
+            // Создаём tagged-вариант если отсутствует ИЛИ устарел (mtime mp3 > tagged)
+            if (!taggedStat || taggedStat.mtimeMs < mp3Stat.mtimeMs) {
+              const mp3Buffer = fs.readFileSync(mp3Path);
+              const authorName = gen.authorName || "";
+              const title = gen.displayTitle || gen.prompt?.slice(0, 80) || "MuziAi Track";
+              const tags: any = {
+                title,
+                artist: authorName ? `MuziAi · ${authorName}` : 'MuziAi',
+                album: "MuziAi.ru",
+                comment: { language: "rus", text: "https://muziai.ru" },
+              };
+              const coverFile = resolveCoverPath(gen);
+              if (coverFile && fs.existsSync(coverFile)) {
+                try {
+                  const coverBuf = fs.readFileSync(coverFile);
+                  tags.image = { mime: "image/jpeg", type: { id: 3, name: "front cover" }, description: "Cover", imageBuffer: coverBuf };
+                } catch {}
+              }
+              const taggedBuffer = NodeID3.write(tags, mp3Buffer);
+              fs.writeFileSync(taggedPath, taggedBuffer);
+            }
+            // sendFile с tagged-вариантом — поддерживает Range, etag, conditional GET.
+            res.setHeader("Cache-Control", "public, max-age=86400");
+            return res.sendFile(taggedPath, (err) => {
+              if (err) console.error(`[stream] sendFile tagged failed id=${gen.id}:`, err.message || err);
+            });
+          }
+        } catch (e) {
+          console.error(`[stream] ID3 embed failed id=${gen.id}, fallback to raw:`, e instanceof Error ? e.message : e);
+        }
+      }
+
+      // Try local file first (без ID3 — для image / non-music / при ID3-fail)
       if (tryServeLocal(gen, wantImage, res)) return;
 
       // Fallback to remote URL
