@@ -268,17 +268,27 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (list[prevIdx]) play(list[prevIdx]);
   }, [current, play]);
 
-  // MediaSession lockscreen (Eugene 2026-05-10 «обложки кардинально»).
-  // Используем готовый helper /lib/lockscreen.ts — он уже знает iOS-кейсы
-  // (prewarm cover, абсолютные URL, multiple sizes, first-write retry).
-  // setLockScreenTrack вызывается в play() ДО audio.play(), здесь
-  // только sync state/position/cleanup.
+  // MediaSession lockscreen (Eugene 2026-05-10 «обложки тотально»).
+  // КРИТИЧЕСКОЕ: на лендинге audio запускается через landing.tsx
+  // (своя инстанция audio + свой setLockScreenTrack). Player-agent в это
+  // время НЕ ВЛАДЕЕТ track-ом (current === null). Раньше я делал
+  // clearLockScreen() при !current — это стирало metadata которое только
+  // что поставил landing.tsx. Тотальный fix: trogat lockscreen ТОЛЬКО
+  // когда player-agent сам владеет current.
+  // Отслеживаем «я был владельцем» через prevOwnedRef — чтобы при выключении
+  // player-agent (current → null после был ≠ null) корректно очистить.
+  const prevOwnedRef = useRef(false);
   useEffect(() => {
     if (!current) {
-      clearLockScreen();
+      // Чистим lockscreen ТОЛЬКО если до этого сами держали трек
+      // (иначе стираем чужой metadata от landing.tsx / dashboard.tsx).
+      if (prevOwnedRef.current) {
+        clearLockScreen();
+        prevOwnedRef.current = false;
+      }
       return;
     }
-    // Re-apply при смене current (если play() уже отработал)
+    prevOwnedRef.current = true;
     const handlers = {
       play: () => play(),
       pause: () => pause(),
@@ -297,17 +307,19 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       (current as any).updatedAt || (current as any).updated_at || undefined,
     ).catch(() => {});
   }, [current, play, pause, prev, next, seek]);
-  // playbackState и position — отдельно, чтобы не пересоздавать metadata на каждый tick
+  // playbackState и position — только когда мы владеем current.
   useEffect(() => {
+    if (!current) return; // Не перетираем чужой playbackState от landing.tsx
     setLockScreenPlaybackState(
       status === "playing" ? "playing" : status === "paused" ? "paused" : "none",
     );
-  }, [status]);
+  }, [status, current]);
   useEffect(() => {
+    if (!current) return;
     if (duration && isFinite(duration) && duration > 0) {
       setLockScreenPosition(duration, currentTime);
     }
-  }, [currentTime, duration]);
+  }, [currentTime, duration, current]);
 
   const value: PlayerContextValue = {
     current, queue, currentTime, duration, status, repeat, volume,

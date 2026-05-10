@@ -113,6 +113,14 @@ export async function setLockScreenTrack(
   bind("previoustrack", handlers.previoustrack);
   bind("nexttrack", handlers.nexttrack);
 
+  // Eugene 2026-05-10: явно отключаем seekbackward/forward — иначе на iOS
+  // часто появляются стрелки «±15 сек» вместо prev/next track. iOS
+  // выбирает между ними по приоритету: если seekbackward/forward
+  // зарегистрированы — они вытесняют previous/nexttrack из UI.
+  try { navigator.mediaSession.setActionHandler("seekbackward", null); } catch {}
+  try { navigator.mediaSession.setActionHandler("seekforward", null); } catch {}
+  try { navigator.mediaSession.setActionHandler("stop", null); } catch {}
+
   if (handlers.seekto) {
     try {
       navigator.mediaSession.setActionHandler("seekto", details => {

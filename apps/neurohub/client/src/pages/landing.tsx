@@ -796,16 +796,27 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           setLockScreenPlaybackState('paused');
         },
         previoustrack: () => {
-          const mt = tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+          // Eugene 2026-05-10: учёт user-filter (как auto-next/skip-кнопки)
+          const filtered = filteredMusicRef.current;
+          const mt = filtered && filtered.length > 0
+            ? filtered
+            : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
           const cur = playingTrackRef.current;
           const idx = cur ? mt.findIndex(t => t.id === cur.id) : 0;
-          playTrack(mt[idx > 0 ? idx - 1 : mt.length - 1]);
+          if (mt[idx > 0 ? idx - 1 : mt.length - 1]) {
+            playTrack(mt[idx > 0 ? idx - 1 : mt.length - 1]);
+          }
         },
         nexttrack: () => {
-          const mt = tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+          const filtered = filteredMusicRef.current;
+          const mt = filtered && filtered.length > 0
+            ? filtered
+            : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
           const cur = playingTrackRef.current;
           const idx = cur ? mt.findIndex(t => t.id === cur.id) : -1;
-          playTrack(mt[(idx + 1) % mt.length]);
+          if (mt[(idx + 1) % mt.length]) {
+            playTrack(mt[(idx + 1) % mt.length]);
+          }
         },
         seekto: (t: number) => {
           if (audioRef.current) audioRef.current.currentTime = t;
