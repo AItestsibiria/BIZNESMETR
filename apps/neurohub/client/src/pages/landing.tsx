@@ -925,7 +925,21 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         {/* 9 мая 2026 — audio mode launch */}
         <div className="glass-card rounded-2xl p-6 border border-cyan-500/20">
           <div className="flex items-start gap-3">
-            <span className="text-2xl">🎤</span>
+            {/* Eugene 2026-05-10: смартфон с ноткой студийного микрофона —
+                inline SVG, чтобы был именно «студийный mic в телефоне», а не
+                просто эмоджи. Цвет — cyan семейство (соответствует рамке). */}
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" className="shrink-0 text-cyan-300" aria-label="Смартфон + студийный микрофон" role="img">
+              <rect x="5.5" y="2" width="13" height="20" rx="2.6" stroke="currentColor" strokeWidth="1.4" fill="rgba(34,211,238,0.06)" />
+              <line x1="10.7" y1="3.7" x2="13.3" y2="3.7" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round" />
+              <circle cx="12" cy="20.3" r="0.6" stroke="currentColor" strokeWidth="0.6" fill="none" />
+              <rect x="9.7" y="5.5" width="4.6" height="7" rx="2.3" stroke="currentColor" strokeWidth="1.1" fill="rgba(167,139,250,0.18)" />
+              <line x1="10.4" y1="7.4" x2="13.6" y2="7.4" stroke="currentColor" strokeWidth="0.55" strokeLinecap="round" />
+              <line x1="10.4" y1="9" x2="13.6" y2="9" stroke="currentColor" strokeWidth="0.55" strokeLinecap="round" />
+              <line x1="10.4" y1="10.6" x2="13.6" y2="10.6" stroke="currentColor" strokeWidth="0.55" strokeLinecap="round" />
+              <line x1="12" y1="12.5" x2="12" y2="16.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+              <path d="M 8.7 14.5 Q 8.7 16.5 12 16.5 Q 15.3 16.5 15.3 14.5" stroke="currentColor" strokeWidth="1" fill="none" strokeLinecap="round" />
+              <line x1="9.5" y1="18" x2="14.5" y2="18" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+            </svg>
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-medium">Новости</span>
