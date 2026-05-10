@@ -937,6 +937,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                       localStorage.setItem("music_audio_mode", "advanced");
                       localStorage.setItem("music_mode_v2", "1");
                     } catch {}
+                    // Eugene 2026-05-10: страница /music должна открыться сверху.
+                    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
                   }}
                   className="text-cyan-400 hover:text-cyan-300 underline decoration-dotted underline-offset-2 transition-colors font-medium"
                 >
