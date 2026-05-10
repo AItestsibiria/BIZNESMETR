@@ -914,7 +914,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     {/* News section */}
     <section className="relative z-[1] py-10 px-4 border-t border-white/[0.04]">
       <div className="max-w-2xl mx-auto space-y-4">
-        {/* 10 мая 2026 — Музыка под событие */}
+        {/* 9 мая 2026 — Музыка под событие */}
         <a
           href="#/templates"
           onClick={() => { window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior }); }}
@@ -925,7 +925,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-medium">Новости</span>
-                <span className="text-[10px] text-muted-foreground">10 мая 2026</span>
+                <span className="text-[10px] text-muted-foreground">9 мая 2026</span>
               </div>
               <h3 className="text-lg font-bold text-white mb-2">Музыка под любое событие</h3>
               <p className="text-sm text-muted-foreground leading-relaxed">
