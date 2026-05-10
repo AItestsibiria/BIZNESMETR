@@ -431,12 +431,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   );
   const tracksRef = useRef<any[]>([]);
   useEffect(() => { tracksRef.current = tracks; }, [tracks]);
-  // Eugene 2026-05-10: ref для отфильтрованного списка (с учётом
-  // categoryFilter+searchQuery). handleEnded/skipNext/skipPrev должны
-  // использовать ИМЕННО видимый юзеру плейлист, иначе после конца трека
-  // плеер берёт следующий из всего списка и вылезает не тот параметр
-  // (например инструментальный когда юзер фильтровал вокальные).
-  const filteredMusicRef = useRef<any[]>([]);
 
   // На mount если уже играет глобальный audio — восстанавливаем UI state
   useEffect(() => {
@@ -675,36 +669,16 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
 
   const playTrack = (track: any) => {
     if (timerRef.current) clearInterval(timerRef.current);
-    // Eugene 2026-05-10 fix «авто-переход не воспроизводит»: на iOS Safari
-    // создание new Audio() в onended-callback теряет user-gesture chain
-    // и audio.play() rejects with NotAllowedError. Решение — переиспользуем
-    // тот же audio-element, меняем только src. User gesture chain сохраняется.
-    let audio = audioRef.current;
-    const isReuse = !!audio;
-    if (audio) {
-      audio.pause();
-      audio.onended = null;
-      audio.onerror = null;
-      audio.onloadedmetadata = null;
-      audio.ontimeupdate = null;
-      try { audio.src = track.audioUrl; } catch {}
-    } else {
-      audio = new Audio(track.audioUrl);
-      audioRef.current = audio;
-      // Eugene 2026-05-10 (Apple WebKit): <audio> ДОЛЖЕН быть в DOM, иначе
-      // iOS Safari не считает страницу «foreground media playing» и не
-      // показывает Now Playing / lockscreen контролы. new Audio() сам по
-      // себе вне DOM. Добавляем hidden audio в body — один раз, переиспользуем.
-      try {
-        audio.setAttribute("playsinline", "");
-        audio.preload = "auto";
-        audio.style.display = "none";
-        if (typeof document !== "undefined" && !audio.parentNode) {
-          document.body.appendChild(audio);
-        }
-      } catch {}
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.onended = null;
+      audioRef.current.onerror = null;
+      audioRef.current.onloadedmetadata = null;
+
     }
+    const audio = new Audio(track.audioUrl);
     audio.volume = 0.5;
+    audioRef.current = audio;
     playingTrackRef.current = track;
     // Сохраняем в global для cross-page survival (Eugene 14:09)
     if (typeof window !== "undefined") {
@@ -748,26 +722,13 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       if (timerRef.current) clearInterval(timerRef.current);
       const mode = repeatModeRef.current;
       const cur = playingTrackRef.current;
-      // Eugene 2026-05-10 fix: используем ОТФИЛЬТРОВАННЫЙ список (то что
-      // видит юзер на экране с учётом category+search), а не весь tracks.
-      // Если фильтр пуст — fallback на весь список.
-      const filteredList = filteredMusicRef.current;
-      const musicTracks = filteredList && filteredList.length > 0
-        ? filteredList
-        : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+      const musicTracks = tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
       if (mode === "one") {
         audio.currentTime = 0;
         audio.play().catch(() => {});
         return;
       }
       const idx = cur ? musicTracks.findIndex(t => t.id === cur.id) : -1;
-      // Если текущий трек НЕ в фильтре (юзер сменил фильтр пока играло) —
-      // не переключаем автоматически, останавливаемся.
-      if (idx < 0) {
-        setPlayingId(null);
-        unmuteBgMusic();
-        return;
-      }
       if (mode === "all") {
         const nextIdx = (idx + 1) % musicTracks.length;
         playTrack(musicTracks[nextIdx]);
@@ -794,11 +755,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     // and re-applies metadata to work around iOS first-write drop.
     const msTitle = track.displayTitle || track.prompt?.slice(0, 60) || 'MuziAi';
     const msArtist = track.authorName ? `MuziAi · ${track.authorName}` : 'MuziAi';
-    // Eugene 2026-05-10 (Apple WebKit guidance): audio.play() ДОЛЖЕН быть
-    // в синхронной части user-gesture handler, иначе iOS rejects с
-    // NotAllowedError. Поэтому play() ПЕРВЫМ, setLockScreenTrack —
-    // отдельно (он внутри теперь fire-and-forget prewarm, не блокирует).
-    audio.play().then(() => setLockScreenPlaybackState('playing')).catch(() => {});
     setLockScreenTrack(
       { id: track.id, title: msTitle, artist: msArtist, album: 'MuziAi' },
       {
@@ -813,34 +769,25 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           setLockScreenPlaybackState('paused');
         },
         previoustrack: () => {
-          // Eugene 2026-05-10: учёт user-filter (как auto-next/skip-кнопки)
-          const filtered = filteredMusicRef.current;
-          const mt = filtered && filtered.length > 0
-            ? filtered
-            : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+          const mt = tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
           const cur = playingTrackRef.current;
           const idx = cur ? mt.findIndex(t => t.id === cur.id) : 0;
-          if (mt[idx > 0 ? idx - 1 : mt.length - 1]) {
-            playTrack(mt[idx > 0 ? idx - 1 : mt.length - 1]);
-          }
+          playTrack(mt[idx > 0 ? idx - 1 : mt.length - 1]);
         },
         nexttrack: () => {
-          const filtered = filteredMusicRef.current;
-          const mt = filtered && filtered.length > 0
-            ? filtered
-            : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+          const mt = tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
           const cur = playingTrackRef.current;
           const idx = cur ? mt.findIndex(t => t.id === cur.id) : -1;
-          if (mt[(idx + 1) % mt.length]) {
-            playTrack(mt[(idx + 1) % mt.length]);
-          }
+          playTrack(mt[(idx + 1) % mt.length]);
         },
         seekto: (t: number) => {
           if (audioRef.current) audioRef.current.currentTime = t;
         },
       },
       (track as any).coverGenId || track.id
-    );
+    ).then(() => {
+      audio.play().then(() => setLockScreenPlaybackState('playing')).catch(() => {});
+    });
     setPlayingId(track.id);
     muteBgMusic();
 
@@ -887,12 +834,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   };
 
   const skipNext = () => {
-    // Eugene 2026-05-10 fix: учёт user-filter (category+search). Если
-    // фильтр активен — листаем только по нему. Иначе fallback на полный.
-    const filtered = filteredMusicRef.current;
-    const musicTracks = filtered && filtered.length > 0
-      ? filtered
-      : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+    // BUG-1 fix: используем tracksRef.current чтобы не было гонки с
+    // refresh-интервалом, который обновляет tracks state пока пользователь
+    // быстро жмёт next/prev (Eugene 14:14).
+    const musicTracks = tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
     if (musicTracks.length === 0) return;
     const idx = musicTracks.findIndex(t => t.id === playingId);
     const nextIdx = idx >= 0 ? (idx + 1) % musicTracks.length : 0;
@@ -915,19 +860,13 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // Filter by category + search
   const categoryFiltered = categoryFilter === 'all' ? musicTracks : musicTracks.filter(t => (t.category || 'song') === categoryFilter);
   const filteredMusic = categoryFiltered.filter(matchesSearch);
-  // Sync ref для auto-next / skipNext / skipPrev — должен видеть текущий filter
-  filteredMusicRef.current = filteredMusic;
   const totalPages = Math.max(1, Math.ceil(filteredMusic.length / TRACKS_PER_PAGE));
   const safePage = Math.min(currentPage, totalPages);
 
   const paginatedMusic = filteredMusic.slice((safePage - 1) * TRACKS_PER_PAGE, safePage * TRACKS_PER_PAGE);
 
   const skipPrev = () => {
-    // Eugene 2026-05-10 fix: учёт user-filter (как и skipNext)
-    const filtered = filteredMusicRef.current;
-    const list = filtered && filtered.length > 0
-      ? filtered
-      : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+    const list = tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
     if (list.length === 0) return;
     const idx = list.findIndex(t => t.id === playingId);
     const prev = idx > 0 ? idx - 1 : list.length - 1;
@@ -959,21 +898,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         {/* 9 мая 2026 — audio mode launch */}
         <div className="glass-card rounded-2xl p-6 border border-cyan-500/20">
           <div className="flex items-start gap-3">
-            {/* Eugene 2026-05-10: смартфон с ноткой студийного микрофона —
-                inline SVG, чтобы был именно «студийный mic в телефоне», а не
-                просто эмоджи. Цвет — cyan семейство (соответствует рамке). */}
-            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" className="shrink-0 text-cyan-300" aria-label="Смартфон + студийный микрофон" role="img">
-              <rect x="5.5" y="2" width="13" height="20" rx="2.6" stroke="currentColor" strokeWidth="1.4" fill="rgba(34,211,238,0.06)" />
-              <line x1="10.7" y1="3.7" x2="13.3" y2="3.7" stroke="currentColor" strokeWidth="0.8" strokeLinecap="round" />
-              <circle cx="12" cy="20.3" r="0.6" stroke="currentColor" strokeWidth="0.6" fill="none" />
-              <rect x="9.7" y="5.5" width="4.6" height="7" rx="2.3" stroke="currentColor" strokeWidth="1.1" fill="rgba(167,139,250,0.18)" />
-              <line x1="10.4" y1="7.4" x2="13.6" y2="7.4" stroke="currentColor" strokeWidth="0.55" strokeLinecap="round" />
-              <line x1="10.4" y1="9" x2="13.6" y2="9" stroke="currentColor" strokeWidth="0.55" strokeLinecap="round" />
-              <line x1="10.4" y1="10.6" x2="13.6" y2="10.6" stroke="currentColor" strokeWidth="0.55" strokeLinecap="round" />
-              <line x1="12" y1="12.5" x2="12" y2="16.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
-              <path d="M 8.7 14.5 Q 8.7 16.5 12 16.5 Q 15.3 16.5 15.3 14.5" stroke="currentColor" strokeWidth="1" fill="none" strokeLinecap="round" />
-              <line x1="9.5" y1="18" x2="14.5" y2="18" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
-            </svg>
+            <span className="text-2xl">🎤</span>
             <div>
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-medium">Новости</span>
@@ -983,20 +908,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               <p className="text-sm text-muted-foreground leading-relaxed">
                 Появилась уникальная возможность генерации трека по{" "}
                 <a
-                  href="#/music"
+                  href="#/music?tab=audio"
                   onClick={() => {
                     // Eugene 2026-05-09: жёстко выставляем mode=audio + sub=advanced
                     // в localStorage ДО перехода — чтобы /music сразу открыл
                     // Аудио · Расширенный с формой параметров (а не дефолтные).
-                    // Eugene 2026-05-10 fix: убран ?tab=audio из href — wouter
-                    // useHashLocation парсил «/music?tab=audio» как path (с query)
-                    // и не находил роут → NotFoundPage (та самая «ошибка»).
-                    // Маркер для scroll-to-tabs идёт через sessionStorage.
                     try {
                       localStorage.setItem("music_mode", "audio");
                       localStorage.setItem("music_audio_mode", "advanced");
                       localStorage.setItem("music_mode_v2", "1");
-                      sessionStorage.setItem("_pendingMusicScroll", "1");
                     } catch {}
                   }}
                   className="text-cyan-400 hover:text-cyan-300 underline decoration-dotted underline-offset-2 transition-colors font-medium"
@@ -1227,9 +1147,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           </div>
         )}
 
-        {/* Track list (music only) — Eugene 2026-05-10: playlist-wave =
-            staggered animation «как от ветра скатертью волнами» */}
-        <div key={`page-${safePage}-${categoryFilter}-${searchQuery}`} className="playlist-wave glass-card rounded-xl overflow-hidden divide-y divide-white/[0.04]">
+        {/* Track list (music only) */}
+        <div className="glass-card rounded-xl overflow-hidden divide-y divide-white/[0.04]">
           {paginatedMusic.map((track, idx) => {
             const isMusic = true;
             const isCover = false;

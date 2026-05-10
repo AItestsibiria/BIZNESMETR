@@ -12,32 +12,6 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.json" />
-    <!-- Eugene 2026-05-10: на staging-доменах (clone.muziai.ru, IP-only,
-         localhost) inject meta robots noindex + canonical → muziai.ru,
-         чтобы поисковики не индексировали clone как второй проект.
-         Должно идти ДО fonts/main.tsx, чтобы crawler увидел сразу. -->
-    <script>
-      (function () {
-        var host = (location.hostname || "").toLowerCase();
-        var isStaging = host.indexOf("clone.") === 0
-          || host.indexOf("staging.") === 0
-          || host === "localhost"
-          || host === "127.0.0.1"
-          || /^\d+\.\d+\.\d+\.\d+$/.test(host);
-        if (!isStaging) return;
-        var meta = document.createElement("meta");
-        meta.name = "robots";
-        meta.content = "noindex, nofollow, noarchive, nosnippet, noimageindex";
-        document.head.appendChild(meta);
-        var canon = document.createElement("link");
-        canon.rel = "canonical";
-        canon.href = "https://muziai.ru" + location.pathname + location.search + location.hash;
-        document.head.appendChild(canon);
-        // Override og:url, og:title чтобы при случайном share или превью не
-        // тащили clone-домен.
-        document.title = "MuziAi — staging";
-      })();
-    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -54,31 +28,6 @@
           var target = '/' + window.location.search + '#/' + m[1] + '/' + m[2];
           window.location.replace(target);
         }
-      })();
-      // Eugene 2026-05-10: миграция legacy URL'ов вида #/music?tab=audio
-      // (закладки/кэш браузера/share-ссылки старой версии). Wouter useHashLocation
-      // не парсит query в hash и Switch падал в NotFoundPage. Перехватываем
-      // ДО монтирования React, ставим mode в localStorage и чистим hash.
-      (function () {
-        try {
-          var h = location.hash || "";
-          var qi = h.indexOf("?");
-          if (qi < 0) return;
-          var path = h.slice(1, qi); // убираем ведущий #
-          var query = h.slice(qi + 1);
-          if (path !== "/music" && path !== "/music/") return;
-          var params = new URLSearchParams(query);
-          var tab = params.get("tab");
-          if (!tab) return;
-          if (tab === "audio" || tab === "basic" || tab === "advanced") {
-            localStorage.setItem("music_mode", tab);
-            if (tab === "audio") localStorage.setItem("music_audio_mode", "advanced");
-            localStorage.setItem("music_mode_v2", "1");
-            sessionStorage.setItem("_pendingMusicScroll", "1");
-          }
-          // Чистим hash чтобы wouter увидел только /music
-          history.replaceState(null, "", location.pathname + location.search + "#" + path);
-        } catch (e) {}
       })();
     </script>
     <script type="module" src="/src/main.tsx"></script>

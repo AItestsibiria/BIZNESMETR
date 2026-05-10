@@ -14,7 +14,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { InlineAuth } from "@/components/inline-auth";
-import { Music, Loader2, Download, Play, Pause, Volume2, Copy, Check, RefreshCcw, ChevronDown, Sparkles, Sliders, Mic, FileText, Settings2, Share2, LayoutDashboard, Pencil } from "lucide-react";
+import { Music, Loader2, Download, Play, Pause, Volume2, Copy, Check, RefreshCcw, ChevronDown, Sparkles, Sliders, Mic, FileText, Settings2, Share2 } from "lucide-react";
 import { HelpBuddy } from "@/components/help-buddy";
 import { MicRecorder } from "@/components/mic-recorder";
 import { StudioMicEq } from "@/components/studio-mic-eq";
@@ -335,65 +335,26 @@ export default function MusicPage() {
     ta.style.height = "auto";
     ta.style.height = `${Math.max(ta.scrollHeight + 2, 240)}px`;
   }, [audioLyrics]);
-  // Scroll-to-tabs если страница открыта со ссылки которая выставила
-  // sessionStorage._pendingMusicScroll (Eugene 2026-05-09 «Новости ссылка
-  // на аудио должна приводить на окно генерации»; 2026-05-10 fix: ушли с
-  // ?tab=audio query — wouter useHashLocation такое не парсит и роут падал
-  // в NotFoundPage). После использования флаг удаляется.
+  // Scroll-to-tabs если страница открыта с ?tab=* (Eugene 2026-05-09:
+  // «Новости ссылка на аудио должна приводить на окно генерации аудио»).
+  // На mobile форма уезжает ниже viewport — без скролла юзер видит page-title
+  // и думает что страница пустая. После mount делаем smooth-scroll к Mode Toggle.
   const modeTabsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     try {
       const hasTabParam = new URLSearchParams(window.location.hash.split("?")[1] || "").has("tab");
-      const pendingScroll = sessionStorage.getItem("_pendingMusicScroll") === "1";
-      if (!hasTabParam && !pendingScroll) return;
-      if (pendingScroll) sessionStorage.removeItem("_pendingMusicScroll");
+      if (!hasTabParam) return;
       const t = setTimeout(() => {
         modeTabsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       }, 250);
       return () => clearTimeout(t);
     } catch {}
   }, []);
-  // Swipe handlers для mode-tabs (Eugene Phase 4 audit C):
-  // на mobile свайп влево/вправо переключает между Аудио ↔ Простой ↔ Расширенный.
-  const swipeStartX = useRef<number | null>(null);
-  const swipeStartY = useRef<number | null>(null);
-  const handleSwipeStart = (e: React.TouchEvent) => {
-    // Игнорируем свайп на input/textarea/button/select — они нужны для скролла/селекта
-    const t = e.target as HTMLElement;
-    if (t.closest("input, textarea, select, button, [role='slider'], [contenteditable]")) {
-      swipeStartX.current = null;
-      return;
-    }
-    swipeStartX.current = e.touches[0].clientX;
-    swipeStartY.current = e.touches[0].clientY;
-  };
-  const handleSwipeEnd = (e: React.TouchEvent) => {
-    if (swipeStartX.current == null || swipeStartY.current == null) return;
-    const endX = e.changedTouches[0].clientX;
-    const endY = e.changedTouches[0].clientY;
-    const dx = endX - swipeStartX.current;
-    const dy = endY - swipeStartY.current;
-    swipeStartX.current = null;
-    swipeStartY.current = null;
-    // Горизонтальный свайп: |dx| > 60px И угол ≤ 30° (|dy| < |dx|/2).
-    if (Math.abs(dx) < 60 || Math.abs(dy) > Math.abs(dx) / 2) return;
-    const order: Array<"audio" | "basic" | "advanced"> = ["audio", "basic", "advanced"];
-    const idx = order.indexOf(mode);
-    if (idx === -1) return;
-    if (dx < 0 && idx < order.length - 1) setMode(order[idx + 1]);
-    else if (dx > 0 && idx > 0) setMode(order[idx - 1]);
-  };
   // Внутри Расширенного — старая Simple/Lyrics подвкладка (была prev top-mode).
   const [legacyMode, setLegacyMode] = useState<"simple" | "advanced">(
     regeneratePayload?.mode === "advanced" ? "advanced" : "simple",
   );
   const [prompt, setPrompt] = useState(regeneratePayload?.prompt || "");
-  // Текст песни для basic-режима (Eugene 2026-05-10): «если пользователь
-  // ввёл слова — песня должна быть смыслово основана из этих слов и их
-  // обязательно применять». В body.lyrics шлём literal text, Suno
-  // обязан использовать точно (в advanced режиме уже работает так).
-  const [basicLyrics, setBasicLyrics] = useState("");
-  const [basicLyricsOpen, setBasicLyricsOpen] = useState(false);
   const [style, setStyle] = useState(regeneratePayload?.style || transferred?.style || "pop");
   const [selectedStyles, setSelectedStyles] = useState<string[]>([regeneratePayload?.style || transferred?.style || "pop"]);
   const [lyrics, setLyrics] = useState(regeneratePayload?.lyrics || transferred?.lyrics || "");
@@ -465,8 +426,8 @@ export default function MusicPage() {
         stopBgMusic();
         if (pollRef.current) clearInterval(pollRef.current);
         toast({
-          title: "Попробуем ещё раз",
-          description: "Текст сохранён — отредактируйте и пробуйте снова",
+          title: "Ошибка генерации",
+          description: "Текст сохранён — отредактируйте и попробуйте снова",
           variant: "destructive",
         });
       }
@@ -681,8 +642,8 @@ export default function MusicPage() {
         setLoading(false);
         stopBgMusic();
         toast({
-          title: "Попробуем ещё раз",
-          description: lastErrorAudio || "Не дождались taskId — повторите запрос. Если повторяется, загляните в /admin/v304.",
+          title: "Не удалось создать песню",
+          description: lastErrorAudio || "Сервер не вернул taskId. Проверь логи в /admin/v304.",
           variant: "destructive",
           duration: 10000,
         });
@@ -742,10 +703,6 @@ export default function MusicPage() {
         if (fullStyle) body.style = fullStyle;
         if (isBasic) {
           body.prompt = prompt;
-          // Eugene 2026-05-10: если юзер ввёл свой текст в basic mode —
-          // обязательно передаём его как lyrics. Suno использует точно
-          // (тот же flow что в advanced mode).
-          if (basicLyrics.trim()) body.lyrics = basicLyrics.trim();
         } else if (legacyMode === "simple") {
           body.prompt = prompt;
         } else {
@@ -804,8 +761,8 @@ export default function MusicPage() {
       setLoading(false);
       stopBgMusic();
       toast({
-        title: "Сейчас починим — повтори",
-        description: lastErrorMsg || "Текст сохранён, можно нажать «Создать» ещё раз.",
+        title: "Ошибка создания",
+        description: lastErrorMsg || "Текст сохранён. Попробуйте снова.",
         variant: "destructive",
       });
     }
@@ -1004,12 +961,7 @@ export default function MusicPage() {
         </div>
 
         {/* Form */}
-        <div
-          className="gradient-border p-6 rounded-2xl space-y-5 mb-6 touch-pan-y"
-          onTouchStart={handleSwipeStart}
-          onTouchEnd={handleSwipeEnd}
-          data-testid="music-form"
-        >
+        <div className="gradient-border p-6 rounded-2xl space-y-5 mb-6">
           {/* === БАЗОВЫЙ РЕЖИМ — минимум полей, без выбора стиля === */}
           {mode === "basic" ? (
             <>
@@ -1027,43 +979,6 @@ export default function MusicPage() {
                   Стиль и темп выберет MuziAi автоматически. Достаточно описать настроение и тему.
                 </p>
               </div>
-
-              {/* Текст песни — Eugene 2026-05-10: «если пользователь ввёл слова,
-                  песня должна быть смыслово основана из этих слов и их обязательно
-                  применять». Collapsible — не загромождает базовую форму. */}
-              <div>
-                <button
-                  type="button"
-                  onClick={() => setBasicLyricsOpen(!basicLyricsOpen)}
-                  className="w-full flex items-center justify-between p-2.5 rounded-lg border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/10 text-purple-200 text-xs font-display tracking-wide transition-colors"
-                  data-testid="btn-basic-lyrics-toggle"
-                >
-                  <span className="flex items-center gap-2">
-                    <FileText className="w-3.5 h-3.5" />
-                    🎵 Текст песни (необязательно)
-                    {basicLyrics.trim() && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/30 text-purple-100">{basicLyrics.length} симв.</span>
-                    )}
-                  </span>
-                  <ChevronDown className={`w-3 h-3 transition-transform ${basicLyricsOpen ? "rotate-180" : ""}`} />
-                </button>
-                {basicLyricsOpen && (
-                  <div className="mt-2 space-y-2 cosmic-disclosure-enter">
-                    <Textarea
-                      placeholder="Свои слова, фразы, имена. AI обязательно использует их в песне. Можно построчно (как куплеты) или просто перечислить ключевые слова."
-                      value={basicLyrics}
-                      onChange={(e) => setBasicLyrics(e.target.value)}
-                      rows={5}
-                      className="bg-background/50 border-purple-500/20 input-glow resize-none text-sm"
-                      data-testid="input-basic-lyrics"
-                    />
-                    <p className="text-[10px] text-muted-foreground/70">
-                      💡 Если поле заполнено — Suno возьмёт ваши слова как основу. Если пусто — придумает текст сам по описанию выше.
-                    </p>
-                  </div>
-                )}
-              </div>
-
               {/* Voice — 4 равные ячейки, единый shell (Eugene 13:18) */}
               <div className="space-y-2">
                 <Label className="text-sm text-muted-foreground">Голос</Label>
@@ -1204,7 +1119,7 @@ export default function MusicPage() {
                         return;
                       }
                       if (tJson?.data?.warning) {
-                        toast({ title: "🎤 Голос пока не разобрали", description: tJson.data.warning, variant: "destructive" });
+                        toast({ title: "⚠ Не удалось распознать", description: tJson.data.warning, variant: "destructive" });
                       }
                       if (tJson?.data?.transcript) setAudioTranscript(tJson.data.transcript);
                       if (tJson?.data?.suggestion) {
@@ -1215,7 +1130,7 @@ export default function MusicPage() {
                         // Eugene 2026-05-09: транскрипт получен, но LLM не сделал lyrics.
                         // Показываем точную ошибку чтобы было понятно что чинить.
                         toast({
-                          title: "📝 Услышали — текст пишется ещё раз",
+                          title: "⚠ Транскрипция получена, но генерация текста упала",
                           description: tJson.data.llmError,
                           variant: "destructive"
                         });
@@ -1224,15 +1139,15 @@ export default function MusicPage() {
                         // которая теперь содержит реальный ответ Yandex
                         // (HTTP status / empty result / ffmpeg fail / network).
                         toast({
-                          title: "📝 Лучше набери текст — так точнее",
-                          description: tJson.data.warning || "Yandex отдыхает. Опиши ниже своими словами — получится точнее.",
+                          title: "📝 Не распознано — введите текст вручную",
+                          description: tJson.data.warning || "Yandex SpeechKit временно недоступен. Наберите описание ниже.",
                           variant: "destructive",
                         });
                       }
                     } catch (err) {
                       const m = err instanceof Error ? err.message : "fail";
                       console.error("[AUDIO-FLOW] error", err);
-                      toast({ title: "🔄 Попробуем ещё раз", description: m, variant: "destructive" });
+                      toast({ title: "❌ Ошибка обработки", description: m, variant: "destructive" });
                     } finally {
                       setAudioUploading(false);
                       setTranscribing(false);
@@ -1319,10 +1234,10 @@ export default function MusicPage() {
                               setAudioSuggestion(s);
                               if (s.lyrics) setAudioLyrics(s.lyrics);
                             } else {
-                              toast({ title: "LLM думает дольше — повтори", description: j?.error || "Ответ пустой, попробуем ещё раз", variant: "destructive" });
+                              toast({ title: "Не удалось переписать", description: j?.error || "LLM вернул пусто", variant: "destructive" });
                             }
                           } catch (err) {
-                            toast({ title: "Сейчас починим", description: err instanceof Error ? err.message : "fail", variant: "destructive" });
+                            toast({ title: "Ошибка", description: err instanceof Error ? err.message : "fail", variant: "destructive" });
                           } finally {
                             setRewriting(false);
                           }
@@ -2105,59 +2020,32 @@ export default function MusicPage() {
               </div>
             )}
 
-            {/* CTA bar — Eugene 2026-05-09 (Phase 4 audit C):
-                «человек должен скользить из любого места по генерации».
-                4 действия одной строкой, на mobile flex-wrap по 2. */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" data-testid="music-result-cta-bar">
+            <div className="flex gap-3">
               <Button
-                className="btn-gradient rounded-xl h-11 font-display tracking-wide"
+                className="flex-1 btn-gradient rounded-xl h-11"
                 onClick={handleDownload}
                 data-testid="button-download-music"
               >
-                <Download className="w-4 h-4 mr-1.5" />
-                Скачать
+                <Download className="w-4 h-4 mr-2" />
+                Скачать трек
               </Button>
               <Button
                 variant="outline"
-                className="hardware-button rounded-xl h-11 border-purple-500/30 bg-purple-500/[0.06] hover:bg-purple-500/15 text-purple-200 font-display tracking-wide backdrop-blur-md"
+                className="flex-1 rounded-xl h-11 border-purple-500/30 hover:bg-purple-500/10 text-purple-300"
                 onClick={() => {
+                  // Reset result, keep text, highlight unused styles
                   setResultUrl(null);
                   setHighlightStyles(true);
+                  // Keep only unused styles pre-selected, or clear to let user pick
                   setSelectedStyles([]);
+                  // Scroll to top of form
                   window.scrollTo({ top: 0, behavior: "smooth" });
                   toast({ title: "Выберите новый стиль", description: "Подсвечены стили, которые вы ещё не пробовали" });
                 }}
                 data-testid="button-retry-style"
               >
-                <RefreshCcw className="w-4 h-4 mr-1.5" />
-                Ещё один
-              </Button>
-              <Button
-                variant="outline"
-                className="hardware-button rounded-xl h-11 border-cyan-500/30 bg-cyan-500/[0.06] hover:bg-cyan-500/15 text-cyan-200 font-display tracking-wide backdrop-blur-md"
-                onClick={() => {
-                  const url = window.location.origin + "/#/music";
-                  if (navigator.share) {
-                    navigator.share({ title: "Мой трек на MuziAi", url }).catch(() => {});
-                  } else {
-                    navigator.clipboard.writeText(url).then(() => {
-                      toast({ title: "Ссылка скопирована" });
-                    }).catch(() => {});
-                  }
-                }}
-                data-testid="button-share-music"
-              >
-                <Share2 className="w-4 h-4 mr-1.5" />
-                Поделиться
-              </Button>
-              <Button
-                variant="outline"
-                className="hardware-button rounded-xl h-11 border-white/15 bg-white/[0.04] hover:bg-white/10 text-white/90 font-display tracking-wide backdrop-blur-md"
-                onClick={() => { window.location.hash = "#/dashboard"; }}
-                data-testid="button-goto-dashboard"
-              >
-                <LayoutDashboard className="w-4 h-4 mr-1.5" />
-                Дашборд
+                <RefreshCcw className="w-4 h-4 mr-2" />
+                Другой стиль
               </Button>
             </div>
           </div>

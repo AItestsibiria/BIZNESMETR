@@ -3,7 +3,6 @@
 // ТЗ Eugene 2026-05-07: «Реши тотально проблему» с /dashboard черный.
 
 import { Component, type ErrorInfo, type ReactNode } from "react";
-import { reportClientError } from "@/lib/error-logger";
 
 interface Props {
   children: ReactNode;
@@ -27,14 +26,21 @@ export class ErrorBoundary extends Component<Props, State> {
     this.setState({ info });
     // Помимо UI — записываем в консоль для F12
     console.error(`[ErrorBoundary] ${this.props.pageName ?? "page"}:`, error, info);
-    // Отправляем через единый logger (Eugene 2026-05-10) — он делает
-    // dedup, rate-limit, sendBeacon. Source = "react".
-    reportClientError({
-      source: "react",
-      message: error.message,
-      stack: (error.stack || "") + (info.componentStack ? `\n\n--- componentStack ---\n${info.componentStack}` : ""),
-      pageName: this.props.pageName,
-    });
+    // И отправляем на сервер для логирования (best-effort)
+    try {
+      fetch("/api/_client-error", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          page: this.props.pageName,
+          message: error.message,
+          stack: error.stack?.slice(0, 4000),
+          componentStack: info.componentStack?.slice(0, 2000),
+          url: typeof window !== "undefined" ? window.location.href : "",
+          ts: new Date().toISOString(),
+        }),
+      }).catch(() => {});
+    } catch {}
   }
 
   render() {

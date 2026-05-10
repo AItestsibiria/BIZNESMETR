@@ -40,8 +40,7 @@ function playCosmicChime() {
   } catch {}
 }
 import { useAuth } from "@/lib/auth";
-import { usePlayer } from "@/lib/player-agent";
-import { Music, Menu, X, LogOut, LayoutDashboard, User, Play } from "lucide-react";
+import { Music, Menu, X, LogOut, LayoutDashboard, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -53,7 +52,6 @@ import {
 
 export default function Navbar() {
   const { user, logout } = useAuth();
-  const { current: currentTrack } = usePlayer();
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const isLanding = location === "/" || location === "";
@@ -164,24 +162,6 @@ export default function Navbar() {
               <span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent">Muzi</span><span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">Ai</span>
             </span>
           </Link>
-
-          {/* Current track breadcrumb (Eugene 2026-05-09 Phase 4):
-              «человек должен скользить из любого места по генерации».
-              Виден только если player-agent имеет current track. Клик —
-              переход на страницу трека. На mobile скрыт (mini-player хватает). */}
-          {currentTrack && (
-            <Link
-              href={`/track/${currentTrack.id}`}
-              className="hidden md:flex items-center gap-1.5 ml-2 px-2.5 py-1 rounded-lg bg-white/[0.03] border border-white/10 hover:bg-cyan-500/[0.08] hover:border-cyan-500/30 transition-colors group"
-              data-testid="navbar-breadcrumb-track"
-              title={`Открыть трек: ${currentTrack.prompt || "трек"}`}
-            >
-              <Play className="w-3 h-3 text-cyan-400 group-hover:text-cyan-300 fill-current" />
-              <span className="text-[11px] text-muted-foreground group-hover:text-white font-display tracking-wide truncate max-w-[200px]">
-                {currentTrack.prompt || (currentTrack as any).display_title || "Текущий трек"}
-              </span>
-            </Link>
-          )}
 
           {/* Desktop Nav */}
           <div className="hidden md:flex items-center gap-1">

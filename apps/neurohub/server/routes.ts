@@ -688,83 +688,6 @@ export async function registerRoutes(
   app.post("/api/suno/webhook", sunoWebhookHandler);
   app.get("/api/suno/webhook", sunoWebhookHandler); // на случай если GPTunnel шлёт GET
 
-  // Client errors collector (Eugene 2026-05-10): фронт через
-  // /lib/error-logger.ts шлёт runtime/promise/react ошибки. Хранятся в
-  // SQLite таблице client_errors (CREATE IF NOT EXISTS). Без auth — анон
-  // тоже может выкинуть ошибку. Rate-limit на client side (5/мин/сессия)
-  // + dedup. На admin для просмотра — отдельный endpoint /api/admin/client-errors.
-  try {
-    db.$client.exec(`
-      CREATE TABLE IF NOT EXISTS client_errors (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        ts INTEGER NOT NULL,
-        source TEXT NOT NULL,
-        message TEXT NOT NULL,
-        stack TEXT,
-        url TEXT,
-        user_agent TEXT,
-        page_name TEXT,
-        ip TEXT,
-        user_id INTEGER,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
-      );
-      CREATE INDEX IF NOT EXISTS idx_client_errors_ts ON client_errors(ts DESC);
-      CREATE INDEX IF NOT EXISTS idx_client_errors_message ON client_errors(message);
-    `);
-  } catch (e) {
-    console.warn("[client-errors] migration failed:", e);
-  }
-  app.post("/api/client-errors", express.json({ limit: "16kb" }), (req: Request, res: Response) => {
-    try {
-      const b = req.body || {};
-      const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || 'unknown';
-      const userId = (req as any).userId || null;
-      db.$client.prepare(`
-        INSERT INTO client_errors (ts, source, message, stack, url, user_agent, page_name, ip, user_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        Number(b.ts) || Date.now(),
-        String(b.source || "unknown").slice(0, 20),
-        String(b.message || "").slice(0, 500),
-        b.stack ? String(b.stack).slice(0, 4000) : null,
-        b.url ? String(b.url).slice(0, 500) : null,
-        b.userAgent ? String(b.userAgent).slice(0, 200) : null,
-        b.pageName ? String(b.pageName).slice(0, 64) : null,
-        ip,
-        userId,
-      );
-      res.status(204).end();
-    } catch (e) {
-      res.status(204).end(); // Молча — даже если БД упала, фронт не должен падать
-    }
-  });
-
-  // Admin: список последних client errors с группировкой
-  app.get("/api/admin/client-errors", authMiddleware, (req: Request, res: Response) => {
-    const user = storage.getUser((req as any).userId);
-    if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
-    res.setHeader("Cache-Control", "no-store");
-    const period = String(req.query.period || "day");
-    const sinceMs = period === "hour" ? Date.now() - 3600_000
-      : period === "day" ? Date.now() - 86400_000
-      : period === "week" ? Date.now() - 7 * 86400_000
-      : 0;
-    const raw = db.$client;
-    const rows = raw.prepare(`
-      SELECT message, source, COUNT(*) as count, MAX(ts) as last_ts,
-        (SELECT stack FROM client_errors e2 WHERE e2.message = e1.message AND e2.stack IS NOT NULL ORDER BY ts DESC LIMIT 1) as last_stack,
-        (SELECT url FROM client_errors e2 WHERE e2.message = e1.message ORDER BY ts DESC LIMIT 1) as last_url,
-        (SELECT page_name FROM client_errors e2 WHERE e2.message = e1.message ORDER BY ts DESC LIMIT 1) as last_page
-      FROM client_errors e1
-      WHERE ts >= ?
-      GROUP BY message, source
-      ORDER BY count DESC, last_ts DESC
-      LIMIT 50
-    `).all(sinceMs);
-    const total = raw.prepare("SELECT COUNT(*) as c FROM client_errors WHERE ts >= ?").get(sinceMs) as any;
-    res.json({ period, total: total?.c || 0, rows });
-  });
-
   // Track visitor
   app.post("/api/track-visit", async (req: Request, res: Response) => {
     try {
@@ -799,44 +722,7 @@ export async function registerRoutes(
   });
 
   // Admin: visitor stats summary
-  // Helper: cross-server fetch агрегированных counts (Eugene 2026-05-10:
-  // «трафик clone объединить количество на MuziAi»). Активируется через envars
-  // CLONE_STATS_FETCH_URL + CLONE_STATS_FETCH_TOKEN. На clone эти envars не
-  // ставим — поведение не меняется. На muziai prod — устанавливаем оба и
-  // эндпоинт начинает суммировать local + remote.
-  async function fetchCloneVisitorCounts(period: string): Promise<any | null> {
-    const url = process.env.CLONE_STATS_FETCH_URL;
-    const token = process.env.CLONE_STATS_FETCH_TOKEN;
-    if (!url || !token) return null;
-    try {
-      const r = await fetch(`${url}?period=${encodeURIComponent(period)}`, {
-        headers: { Authorization: `Bearer ${token}` },
-        signal: AbortSignal.timeout(5000),
-      });
-      if (!r.ok) return null;
-      return await r.json();
-    } catch {
-      return null;
-    }
-  }
-  function mergeAggregatedArrays(localArr: any[], remoteArr: any[], keyField: string): any[] {
-    const map = new Map<string, any>();
-    for (const arr of [localArr, remoteArr]) {
-      for (const row of (arr || [])) {
-        const k = String((row as any)[keyField] ?? "??");
-        const ex = map.get(k);
-        if (ex) {
-          ex.visitors = (ex.visitors || 0) + ((row as any).visitors || 0);
-          ex.visits = (ex.visits || 0) + ((row as any).visits || 0);
-        } else {
-          map.set(k, { ...(row as any) });
-        }
-      }
-    }
-    return Array.from(map.values()).sort((x: any, y: any) => (y.visitors || 0) - (x.visitors || 0));
-  }
-
-  app.get("/api/admin/visitor-stats", authMiddleware, async (req: Request, res: Response) => {
+  app.get("/api/admin/visitor-stats", authMiddleware, (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);
     if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
     res.setHeader("Cache-Control", "no-store");
@@ -911,12 +797,7 @@ export async function registerRoutes(
     const byDevice = raw.prepare("SELECT device, COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors GROUP BY device").all();
     const byBrowser = raw.prepare("SELECT browser, COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors GROUP BY browser ORDER BY c DESC LIMIT 5").all();
 
-    // Накопительный итог с clone (Eugene 2026-05-10): если envars
-    // CLONE_STATS_FETCH_URL + CLONE_STATS_FETCH_TOKEN установлены —
-    // суммируем local (muziai) + remote (clone). На clone envars нет —
-    // поведение не меняется. byIp намеренно НЕ объединяется (privacy).
-    const remoteCounts = await fetchCloneVisitorCounts(period);
-    const result: any = {
+    res.json({
       total: total?.c || 0,
       today: todayC?.c || 0,
       week: weekC?.c || 0,
@@ -928,71 +809,6 @@ export async function registerRoutes(
       byIp,
       byDevice,
       byBrowser,
-    };
-    if (remoteCounts) {
-      result.merged = true;
-      result.localTotal = result.total;
-      result.cloneTotal = remoteCounts.total || 0;
-      result.total += remoteCounts.total || 0;
-      result.today += remoteCounts.today || 0;
-      result.week += remoteCounts.week || 0;
-      result.periodTotal += remoteCounts.periodTotal || 0;
-      result.periodVisits += remoteCounts.periodVisits || 0;
-      result.byCountry = mergeAggregatedArrays(byCountry as any[], remoteCounts.byCountry || [], "countryCode").slice(0, 30);
-      result.byCity = mergeAggregatedArrays(byCity as any[], remoteCounts.byCity || [], "name").slice(0, 50);
-    }
-    res.json(result);
-  });
-
-  // Internal endpoint для cross-server merge (Eugene 2026-05-10).
-  // Защищён INTERNAL_STATS_TOKEN — на clone устанавливается, на muziai
-  // не нужен (он только потребитель). Возвращает только агрегаты, БЕЗ
-  // персональных данных (нет byIp).
-  app.get("/api/internal/visitor-counts", (req: Request, res: Response) => {
-    const auth = req.headers.authorization || "";
-    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-    const expected = process.env.INTERNAL_STATS_TOKEN;
-    if (!expected || !token || token !== expected) {
-      res.status(401).json({ error: "unauthorized" });
-      return;
-    }
-    res.setHeader("Cache-Control", "no-store");
-    const period = String(req.query.period || "all");
-    let dateFilter = "";
-    if (period === "today") dateFilter = "WHERE last_visit >= datetime('now','-1 day')";
-    else if (period === "yesterday") dateFilter = "WHERE last_visit >= datetime('now','-2 days') AND last_visit < datetime('now','-1 day')";
-    else if (period === "week") dateFilter = "WHERE last_visit >= datetime('now','-7 days')";
-    else if (period === "month") dateFilter = "WHERE last_visit >= datetime('now','-30 days')";
-    const raw = db.$client;
-    const today = new Date().toISOString().slice(0, 10);
-    const week = new Date(Date.now() - 7 * 86400000).toISOString();
-    const total = raw.prepare("SELECT COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors").get() as any;
-    const todayC = raw.prepare("SELECT COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors WHERE date(last_visit) = ?").get(today) as any;
-    const weekC = raw.prepare("SELECT COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors WHERE last_visit >= ?").get(week) as any;
-    const periodTotal = raw.prepare(`SELECT COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors ${dateFilter}`).get() as any;
-    const periodVisits = raw.prepare(`SELECT COALESCE(SUM(visits), 0) as c FROM visitors ${dateFilter}`).get() as any;
-    const byCountry = raw.prepare(`
-      SELECT COALESCE(country_code, '??') as countryCode, MAX(country) as country, MAX(country) as name,
-        COUNT(DISTINCT COALESCE(fingerprint, ip)) as visitors, COALESCE(SUM(visits), 0) as visits
-      FROM visitors ${dateFilter ? dateFilter + " AND" : "WHERE"} country IS NOT NULL AND country != ''
-      GROUP BY country_code ORDER BY visitors DESC LIMIT 30
-    `).all();
-    const byCity = raw.prepare(`
-      SELECT city, COALESCE(country_code, '??') as countryCode, MAX(country) as country,
-        (city || ', ' || COALESCE(MAX(country), '')) as name,
-        COUNT(DISTINCT COALESCE(fingerprint, ip)) as visitors, COALESCE(SUM(visits), 0) as visits
-      FROM visitors ${dateFilter ? dateFilter + " AND" : "WHERE"} city IS NOT NULL AND city != ''
-      GROUP BY city, country_code ORDER BY visitors DESC LIMIT 50
-    `).all();
-    res.json({
-      source: "remote",
-      total: total?.c || 0,
-      today: todayC?.c || 0,
-      week: weekC?.c || 0,
-      periodTotal: periodTotal?.c || 0,
-      periodVisits: periodVisits?.c || 0,
-      byCountry,
-      byCity,
     });
   });
 
@@ -2668,55 +2484,7 @@ function createNew(){
 
       const wantImage = req.query.type === "image";
 
-      // Eugene 2026-05-10 «обложки тупик — связь с файлом воспроизведения как
-      // на скачивании»: при стриме music с локальным mp3 embed-им cover в ID3-tag,
-      // ТАК ЖЕ как делаем в /api/download. iOS Safari читает ID3-tag для
-      // lockscreen artwork — без него обложек на lockscreen не было.
-      // Cache на диск: <mp3>.tagged.mp3 — создаётся один раз, переиспользуется
-      // (Range support через sendFile сохраняется).
-      if (!wantImage && gen.type === "music" && gen.localPath) {
-        const mp3Path = path.join(AUTHORS_DIR, gen.localPath);
-        const taggedPath = mp3Path.replace(/\.mp3$/, ".tagged.mp3");
-        try {
-          if (fs.existsSync(mp3Path)) {
-            const mp3Stat = fs.statSync(mp3Path);
-            const taggedStat = fs.existsSync(taggedPath) ? fs.statSync(taggedPath) : null;
-            // Создаём tagged-вариант если отсутствует ИЛИ устарел (mtime mp3 > tagged)
-            if (!taggedStat || taggedStat.mtimeMs < mp3Stat.mtimeMs) {
-              const mp3Buffer = fs.readFileSync(mp3Path);
-              const authorName = gen.authorName || "";
-              const title = gen.displayTitle || gen.prompt?.slice(0, 80) || "MuziAi Track";
-              const tags: any = {
-                title,
-                artist: authorName ? `MuziAi · ${authorName}` : 'MuziAi',
-                album: "MuziAi.ru",
-                comment: { language: "rus", text: "https://muziai.ru" },
-              };
-              const coverFile = resolveCoverPath(gen);
-              if (coverFile && fs.existsSync(coverFile)) {
-                try {
-                  const coverBuf = fs.readFileSync(coverFile);
-                  tags.image = { mime: "image/jpeg", type: { id: 3, name: "front cover" }, description: "Cover", imageBuffer: coverBuf };
-                } catch {}
-              }
-              const taggedBuffer = NodeID3.write(tags, mp3Buffer);
-              fs.writeFileSync(taggedPath, taggedBuffer);
-            }
-            // sendFile с tagged-вариантом — поддерживает Range, etag, conditional GET.
-            // Eugene 2026-05-10: max-age=60 (не 86400) чтобы старые kэшированные
-            // mp3 без ID3 быстро инвалидировались на всех устройствах после
-            // деплоя. ETag всё равно делает 304 для unchanged content.
-            res.setHeader("Cache-Control", "public, max-age=60, must-revalidate");
-            return res.sendFile(taggedPath, (err) => {
-              if (err) console.error(`[stream] sendFile tagged failed id=${gen.id}:`, err.message || err);
-            });
-          }
-        } catch (e) {
-          console.error(`[stream] ID3 embed failed id=${gen.id}, fallback to raw:`, e instanceof Error ? e.message : e);
-        }
-      }
-
-      // Try local file first (без ID3 — для image / non-music / при ID3-fail)
+      // Try local file first
       if (tryServeLocal(gen, wantImage, res)) return;
 
       // Fallback to remote URL
@@ -4152,27 +3920,8 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     res.json({ ok: true });
   });
 
-  // Generic remote fetch helper для накопительного итога (Eugene 2026-05-10:
-  // «все точки накопительным итогом с clone to MuziAI»). Использует те же
-  // envars CLONE_STATS_FETCH_URL_BASE + CLONE_STATS_FETCH_TOKEN.
-  async function fetchCloneInternal(path: string, qs: string): Promise<any | null> {
-    const base = process.env.CLONE_STATS_FETCH_URL_BASE; // например https://clone.muziai.ru
-    const token = process.env.CLONE_STATS_FETCH_TOKEN;
-    if (!base || !token) return null;
-    try {
-      const r = await fetch(`${base}${path}?${qs}`, {
-        headers: { Authorization: `Bearer ${token}` },
-        signal: AbortSignal.timeout(5000),
-      });
-      if (!r.ok) return null;
-      return await r.json();
-    } catch {
-      return null;
-    }
-  }
-
   // Admin: generation activity stats
-  app.get("/api/admin/gen-stats", authMiddleware, async (req: Request, res: Response) => {
+  app.get("/api/admin/gen-stats", authMiddleware, (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);
     if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
     const period = (req.query.period as string) || 'all';
@@ -4192,7 +3941,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       COUNT(*) as total
       FROM gen_activity ga JOIN generations g ON ga.gen_id = g.id
       WHERE 1=1 ${dateFilter}
-      GROUP BY ga.gen_id ORDER BY total DESC LIMIT 10`).all() as any[];
+      GROUP BY ga.gen_id ORDER BY total DESC LIMIT 10`).all();
     // Totals (no 'ga' alias here — strip it from dateFilter)
     const totalsDateFilter = dateFilter.replace(/ga\./g, '');
     const totals = raw.prepare(`SELECT
@@ -4200,108 +3949,14 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       SUM(CASE WHEN action='download' THEN 1 ELSE 0 END) as downloads,
       SUM(CASE WHEN action='copy' THEN 1 ELSE 0 END) as copies,
       SUM(CASE WHEN action='share' THEN 1 ELSE 0 END) as shares,
-      COUNT(*) as total FROM gen_activity WHERE 1=1 ${totalsDateFilter}`).get() as any;
-
-    // Накопительный итог с clone (Eugene 2026-05-10).
-    const remote = await fetchCloneInternal("/api/internal/gen-stats", `period=${encodeURIComponent(period)}`);
-    let mergedTop = top.map((t: any) => ({ ...t, source: "muziai" }));
-    let mergedTotals = totals;
-    let merged = false;
-    if (remote) {
-      merged = true;
-      mergedTop = [
-        ...top.map((t: any) => ({ ...t, source: "muziai" })),
-        ...(remote.top || []).map((t: any) => ({ ...t, source: "clone" })),
-      ].sort((a: any, b: any) => (b.total || 0) - (a.total || 0)).slice(0, 10);
-      mergedTotals = {
-        plays: (totals?.plays || 0) + (remote.totals?.plays || 0),
-        downloads: (totals?.downloads || 0) + (remote.totals?.downloads || 0),
-        copies: (totals?.copies || 0) + (remote.totals?.copies || 0),
-        shares: (totals?.shares || 0) + (remote.totals?.shares || 0),
-        total: (totals?.total || 0) + (remote.totals?.total || 0),
-      };
-    }
-    res.json({ top: mergedTop, totals: mergedTotals, merged });
-  });
-
-  // Internal: gen-stats (Eugene 2026-05-10) — для cross-server merge.
-  app.get("/api/internal/gen-stats", (req: Request, res: Response) => {
-    const auth = req.headers.authorization || "";
-    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-    const expected = process.env.INTERNAL_STATS_TOKEN;
-    if (!expected || !token || token !== expected) { res.status(401).json({ error: "unauthorized" }); return; }
-    res.setHeader("Cache-Control", "no-store");
-    const period = (req.query.period as string) || 'all';
-    const raw = db.$client;
-    let dateFilter = '';
-    if (period === 'day') dateFilter = "AND ga.created_at >= datetime('now', '-1 day')";
-    else if (period === 'yesterday') dateFilter = "AND ga.created_at >= datetime('now', '-2 days') AND ga.created_at < datetime('now', '-1 day')";
-    else if (period === 'week') dateFilter = "AND ga.created_at >= datetime('now', '-7 days')";
-    else if (period === 'month') dateFilter = "AND ga.created_at >= datetime('now', '-30 days')";
-    else if (period === 'year') dateFilter = "AND ga.created_at >= datetime('now', '-365 days')";
-    const top = raw.prepare(`SELECT ga.gen_id, g.display_title, g.prompt, g.type, g.author_name,
-      SUM(CASE WHEN ga.action='play' THEN 1 ELSE 0 END) as plays,
-      SUM(CASE WHEN ga.action='download' THEN 1 ELSE 0 END) as downloads,
-      SUM(CASE WHEN ga.action='copy' THEN 1 ELSE 0 END) as copies,
-      SUM(CASE WHEN ga.action='share' THEN 1 ELSE 0 END) as shares,
-      COUNT(*) as total
-      FROM gen_activity ga JOIN generations g ON ga.gen_id = g.id
-      WHERE 1=1 ${dateFilter}
-      GROUP BY ga.gen_id ORDER BY total DESC LIMIT 10`).all();
-    const totalsDateFilter = dateFilter.replace(/ga\./g, '');
-    const totals = raw.prepare(`SELECT
-      SUM(CASE WHEN action='play' THEN 1 ELSE 0 END) as plays,
-      SUM(CASE WHEN action='download' THEN 1 ELSE 0 END) as downloads,
-      SUM(CASE WHEN action='copy' THEN 1 ELSE 0 END) as copies,
-      SUM(CASE WHEN action='share' THEN 1 ELSE 0 END) as shares,
       COUNT(*) as total FROM gen_activity WHERE 1=1 ${totalsDateFilter}`).get();
-    res.json({ source: "remote", top, totals });
+    res.json({ top, totals });
   });
 
   // Top-20 downloads (admin)
-  app.get("/api/admin/top-downloads", authMiddleware, async (req: Request, res: Response) => {
+  app.get("/api/admin/top-downloads", authMiddleware, (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);
     if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
-    const period = (req.query.period as string) || 'all';
-    const raw = db.$client;
-    let dateFilter = '';
-    if (period === 'day') dateFilter = "AND ga.created_at >= datetime('now', '-1 day')";
-    else if (period === 'yesterday') dateFilter = "AND ga.created_at >= datetime('now', '-2 days') AND ga.created_at < datetime('now', '-1 day')";
-    else if (period === 'week') dateFilter = "AND ga.created_at >= datetime('now', '-7 days')";
-    else if (period === 'month') dateFilter = "AND ga.created_at >= datetime('now', '-30 days')";
-    else if (period === 'year') dateFilter = "AND ga.created_at >= datetime('now', '-365 days')";
-    const rows = raw.prepare(`SELECT ga.gen_id, g.display_title, g.prompt, g.type, g.author_name,
-      COUNT(*) as downloads,
-      MAX(ga.created_at) as last_download
-      FROM gen_activity ga JOIN generations g ON ga.gen_id = g.id
-      WHERE ga.action='download' ${dateFilter}
-      GROUP BY ga.gen_id ORDER BY downloads DESC LIMIT 20`).all() as any[];
-    const totalDateFilter = dateFilter.replace(/ga\./g, '');
-    const totalDownloads = raw.prepare(`SELECT COUNT(*) as total FROM gen_activity WHERE action='download' ${totalDateFilter}`).get();
-
-    // Накопительный итог с clone.
-    const remote = await fetchCloneInternal("/api/internal/top-downloads", `period=${encodeURIComponent(period)}`);
-    let mergedRows = rows.map((r: any) => ({ ...r, source: "muziai" }));
-    let mergedTotal = (totalDownloads as any)?.total || 0;
-    let merged = false;
-    if (remote) {
-      merged = true;
-      mergedRows = [
-        ...rows.map((r: any) => ({ ...r, source: "muziai" })),
-        ...(remote.rows || []).map((r: any) => ({ ...r, source: "clone" })),
-      ].sort((a: any, b: any) => (b.downloads || 0) - (a.downloads || 0)).slice(0, 20);
-      mergedTotal += remote.totalDownloads || 0;
-    }
-    res.json({ rows: mergedRows, totalDownloads: mergedTotal, merged });
-  });
-
-  // Internal: top-downloads (Eugene 2026-05-10)
-  app.get("/api/internal/top-downloads", (req: Request, res: Response) => {
-    const auth = req.headers.authorization || "";
-    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-    const expected = process.env.INTERNAL_STATS_TOKEN;
-    if (!expected || !token || token !== expected) { res.status(401).json({ error: "unauthorized" }); return; }
-    res.setHeader("Cache-Control", "no-store");
     const period = (req.query.period as string) || 'all';
     const raw = db.$client;
     let dateFilter = '';
@@ -4318,7 +3973,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       GROUP BY ga.gen_id ORDER BY downloads DESC LIMIT 20`).all();
     const totalDateFilter = dateFilter.replace(/ga\./g, '');
     const totalDownloads = raw.prepare(`SELECT COUNT(*) as total FROM gen_activity WHERE action='download' ${totalDateFilter}`).get();
-    res.json({ source: "remote", rows, totalDownloads: (totalDownloads as any)?.total || 0 });
+    res.json({ rows, totalDownloads: (totalDownloads as any)?.total || 0 });
   });
 
   // Per-generation activity detail

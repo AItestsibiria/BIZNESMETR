@@ -469,47 +469,6 @@
   pointer-events: none;
 }
 
-/* Eugene 2026-05-10: «при смене страницы плавно — плейлист как от
-   ветра скатертью волнами». Page-transition + playlist staggered wave. */
-@keyframes pageWaveIn {
-  0%   { opacity: 0; transform: translateY(10px) scale(0.992); filter: blur(2px); }
-  60%  { opacity: 1; transform: translateY(-2px) scale(1.003); filter: blur(0); }
-  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
-}
-
-.page-wave-enter {
-  animation: pageWaveIn 0.55s cubic-bezier(0.22, 0.94, 0.4, 1) both;
-}
-
-@keyframes playlistWave {
-  0%   { opacity: 0; transform: translateX(-14px) skewX(-1.2deg); filter: blur(1.5px); }
-  50%  { opacity: 1; transform: translateX(2px) skewX(0.3deg); filter: blur(0); }
-  100% { opacity: 1; transform: translateX(0) skewX(0); filter: blur(0); }
-}
-
-.playlist-wave > * {
-  animation: playlistWave 0.5s cubic-bezier(0.22, 0.94, 0.4, 1) both;
-}
-.playlist-wave > *:nth-child(1)  { animation-delay: 0ms; }
-.playlist-wave > *:nth-child(2)  { animation-delay: 35ms; }
-.playlist-wave > *:nth-child(3)  { animation-delay: 70ms; }
-.playlist-wave > *:nth-child(4)  { animation-delay: 105ms; }
-.playlist-wave > *:nth-child(5)  { animation-delay: 140ms; }
-.playlist-wave > *:nth-child(6)  { animation-delay: 175ms; }
-.playlist-wave > *:nth-child(7)  { animation-delay: 210ms; }
-.playlist-wave > *:nth-child(8)  { animation-delay: 245ms; }
-.playlist-wave > *:nth-child(9)  { animation-delay: 280ms; }
-.playlist-wave > *:nth-child(10) { animation-delay: 315ms; }
-.playlist-wave > *:nth-child(n+11) { animation-delay: 350ms; }
-
-/* Reduce motion friends */
-@media (prefers-reduced-motion: reduce) {
-  .page-wave-enter,
-  .playlist-wave > * {
-    animation: none;
-  }
-}
-
 .btn-cosmic {
   background: linear-gradient(270deg, #8b5cf6, #3b82f6, #06b6d4, #a855f7, #ec4899, #8b5cf6);
   background-size: 300% 300%;

@@ -52,11 +52,12 @@ function prewarmCover(trackId: number | string, bust?: string | number): Promise
     if (typeof window === "undefined") { resolve(); return; }
     const img = new Image();
     const qs = bust ? `&v=${encodeURIComponent(String(bust))}` : "";
-    const url = `${ORIGIN}/api/cover/${trackId}.jpg?size=512${qs}`;
-    img.src = url;
-    img.onload = () => resolve();
-    img.onerror = () => { console.warn(`[lockscreen] prewarm failed: ${url}`); resolve(); };
-    setTimeout(resolve, 1500);
+    img.src = `${ORIGIN}/api/cover/${trackId}.jpg?size=512${qs}`;
+    const done = () => resolve();
+    img.onload = done;
+    img.onerror = done;
+    // Safety timeout — don't block playback if network is slow
+    setTimeout(done, 1500);
   });
 }
 
@@ -71,12 +72,8 @@ export async function setLockScreenTrack(
 ): Promise<void> {
   if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
 
-  // 1. Pre-warm fire-and-forget. Apple WebKit docs: `await` внутри
-  // user-gesture handler ломает gesture chain → audio.play() будет
-  // rejected с NotAllowedError → iOS ignores metadata. Prewarm всё
-  // равно полезен (image оседает в HTTP-кэше для следующего render
-  // через MediaSession), но мы не блокируемся на нём.
-  void prewarmCover(meta.id, coverBust);
+  // 1. Pre-warm image
+  await prewarmCover(meta.id, coverBust);
 
   // 2. Build artwork array with multiple absolute https URLs
   const artwork = buildArtwork(meta.id, coverBust);
@@ -115,14 +112,6 @@ export async function setLockScreenTrack(
   bind("pause", handlers.pause);
   bind("previoustrack", handlers.previoustrack);
   bind("nexttrack", handlers.nexttrack);
-
-  // Eugene 2026-05-10: явно отключаем seekbackward/forward — иначе на iOS
-  // часто появляются стрелки «±15 сек» вместо prev/next track. iOS
-  // выбирает между ними по приоритету: если seekbackward/forward
-  // зарегистрированы — они вытесняют previous/nexttrack из UI.
-  try { navigator.mediaSession.setActionHandler("seekbackward", null); } catch {}
-  try { navigator.mediaSession.setActionHandler("seekforward", null); } catch {}
-  try { navigator.mediaSession.setActionHandler("stop", null); } catch {}
 
   if (handlers.seekto) {
     try {

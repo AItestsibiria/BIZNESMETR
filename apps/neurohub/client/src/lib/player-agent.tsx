@@ -14,12 +14,6 @@
 //                          └──── seek/skip ─────┘
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import {
-  setLockScreenTrack,
-  setLockScreenPlaybackState,
-  setLockScreenPosition,
-  clearLockScreen,
-} from "@/lib/lockscreen";
 
 export interface Track {
   id: number;
@@ -171,30 +165,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       return;
     }
     if (!t) return;
-    // Eugene 2026-05-10 fix «авто-переход не воспроизводит»: переиспользуем
-    // тот же audio-element (меняем src), чтобы сохранить user-gesture chain
-    // на iOS Safari. new Audio() в onended-callback rejected with NotAllowedError.
-    let audio = audioRef.current;
-    if (audio) {
-      audio.pause();
-      audio.onended = null;
-      audio.onerror = null;
-      audio.onloadedmetadata = null;
-      try { audio.src = t.audioUrl; } catch {}
-    } else {
-      audio = new Audio(t.audioUrl);
-      audioRef.current = audio;
-      // Eugene 2026-05-10: audio ДОЛЖЕН быть в DOM для iOS lockscreen.
-      try {
-        audio.setAttribute("playsinline", "");
-        audio.preload = "auto";
-        audio.style.display = "none";
-        if (typeof document !== "undefined" && !audio.parentNode) {
-          document.body.appendChild(audio);
-        }
-      } catch {}
+    // Создаём новый Audio и заменяем global
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.onended = null;
+      audioRef.current.onerror = null;
     }
+    const audio = new Audio(t.audioUrl);
     audio.volume = volume;
+    audioRef.current = audio;
     if (typeof window !== "undefined") {
       (window as any).__muziaiAudio = audio;
       (window as any).__muziaiTrack = t;
@@ -276,59 +255,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const prevIdx = idx > 0 ? idx - 1 : list.length - 1;
     if (list[prevIdx]) play(list[prevIdx]);
   }, [current, play]);
-
-  // MediaSession lockscreen (Eugene 2026-05-10 «обложки тотально»).
-  // КРИТИЧЕСКОЕ: на лендинге audio запускается через landing.tsx
-  // (своя инстанция audio + свой setLockScreenTrack). Player-agent в это
-  // время НЕ ВЛАДЕЕТ track-ом (current === null). Раньше я делал
-  // clearLockScreen() при !current — это стирало metadata которое только
-  // что поставил landing.tsx. Тотальный fix: trogat lockscreen ТОЛЬКО
-  // когда player-agent сам владеет current.
-  // Отслеживаем «я был владельцем» через prevOwnedRef — чтобы при выключении
-  // player-agent (current → null после был ≠ null) корректно очистить.
-  const prevOwnedRef = useRef(false);
-  useEffect(() => {
-    if (!current) {
-      // Чистим lockscreen ТОЛЬКО если до этого сами держали трек
-      // (иначе стираем чужой metadata от landing.tsx / dashboard.tsx).
-      if (prevOwnedRef.current) {
-        clearLockScreen();
-        prevOwnedRef.current = false;
-      }
-      return;
-    }
-    prevOwnedRef.current = true;
-    const handlers = {
-      play: () => play(),
-      pause: () => pause(),
-      previoustrack: () => prev(),
-      nexttrack: () => next(),
-      seekto: (sec: number) => seek(sec),
-    };
-    setLockScreenTrack(
-      {
-        id: current.id,
-        title: current.prompt || (current as any).display_title || "Трек",
-        artist: current.authorName ? `MuziAi · ${current.authorName}` : "MuziAi",
-        album: "MuziAi",
-      },
-      handlers,
-      (current as any).updatedAt || (current as any).updated_at || undefined,
-    ).catch(() => {});
-  }, [current, play, pause, prev, next, seek]);
-  // playbackState и position — только когда мы владеем current.
-  useEffect(() => {
-    if (!current) return; // Не перетираем чужой playbackState от landing.tsx
-    setLockScreenPlaybackState(
-      status === "playing" ? "playing" : status === "paused" ? "paused" : "none",
-    );
-  }, [status, current]);
-  useEffect(() => {
-    if (!current) return;
-    if (duration && isFinite(duration) && duration > 0) {
-      setLockScreenPosition(duration, currentTime);
-    }
-  }, [currentTime, duration, current]);
 
   const value: PlayerContextValue = {
     current, queue, currentTime, duration, status, repeat, volume,
