@@ -927,9 +927,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-medium">Новости</span>
                 <span className="text-[10px] text-muted-foreground">9 мая 2026</span>
               </div>
-              <h3 className="text-lg font-bold text-white mb-2">Музыка под любое событие</h3>
+              <h3 className="text-lg font-bold text-white mb-2">Музыка под любое <span className="gradient-text">Событие</span></h3>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Свадьба, день рождения, корпоратив, гимн компании — выбери событие и MuziAi напишет идеальный трек по готовому шаблону.
+                Свадьба, день рождения, корпоратив, гимн компании — выбери <span className="gradient-text font-semibold">Событие</span> и MuziAi напишет идеальный трек по готовому шаблону.
               </p>
             </div>
           </div>
