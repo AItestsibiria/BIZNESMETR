@@ -52,12 +52,12 @@ function prewarmCover(trackId: number | string, bust?: string | number): Promise
     if (typeof window === "undefined") { resolve(); return; }
     const img = new Image();
     const qs = bust ? `&v=${encodeURIComponent(String(bust))}` : "";
-    img.src = `${ORIGIN}/api/cover/${trackId}.jpg?size=512${qs}`;
-    const done = () => resolve();
-    img.onload = done;
-    img.onerror = done;
+    const url = `${ORIGIN}/api/cover/${trackId}.jpg?size=512${qs}`;
+    img.src = url;
+    img.onload = () => { console.log(`[lockscreen] prewarm OK ${url} (${img.naturalWidth}x${img.naturalHeight})`); resolve(); };
+    img.onerror = (e) => { console.warn(`[lockscreen] prewarm FAILED ${url}`, e); resolve(); };
     // Safety timeout — don't block playback if network is slow
-    setTimeout(done, 1500);
+    setTimeout(() => { console.warn(`[lockscreen] prewarm TIMEOUT ${url}`); resolve(); }, 1500);
   });
 }
 
@@ -70,13 +70,24 @@ export async function setLockScreenTrack(
   handlers: LockScreenHandlers,
   coverBust?: string | number
 ): Promise<void> {
-  if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+  const tag = "[lockscreen]";
+  if (typeof navigator === "undefined") {
+    console.warn(`${tag} no navigator (SSR?)`);
+    return;
+  }
+  if (!("mediaSession" in navigator)) {
+    console.warn(`${tag} mediaSession API not supported`);
+    return;
+  }
+  console.log(`${tag} setLockScreenTrack START id=${meta.id} title="${meta.title}"`);
 
   // 1. Pre-warm image
   await prewarmCover(meta.id, coverBust);
+  console.log(`${tag} prewarm done`);
 
   // 2. Build artwork array with multiple absolute https URLs
   const artwork = buildArtwork(meta.id, coverBust);
+  console.log(`${tag} artwork URLs:`, artwork.map(a => a.src));
 
   // 3. Set metadata
   const apply = () => {
@@ -99,8 +110,12 @@ export async function setLockScreenTrack(
     }
   };
   apply();
+  console.log(`${tag} metadata applied 1st time, current:`, navigator.mediaSession.metadata);
   // 4. Re-apply after 300ms to work around iOS first-write drop bug
-  setTimeout(apply, 300);
+  setTimeout(() => {
+    apply();
+    console.log(`${tag} metadata re-applied @300ms, current:`, navigator.mediaSession.metadata);
+  }, 300);
 
   // 5. Register action handlers
   const bind = (name: MediaSessionAction, fn?: () => void) => {
