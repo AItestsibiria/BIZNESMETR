@@ -462,8 +462,8 @@ export default function MusicPage() {
         stopBgMusic();
         if (pollRef.current) clearInterval(pollRef.current);
         toast({
-          title: "Ошибка генерации",
-          description: "Текст сохранён — отредактируйте и попробуйте снова",
+          title: "Попробуем ещё раз",
+          description: "Текст сохранён — отредактируйте и пробуйте снова",
           variant: "destructive",
         });
       }
@@ -678,8 +678,8 @@ export default function MusicPage() {
         setLoading(false);
         stopBgMusic();
         toast({
-          title: "Не удалось создать песню",
-          description: lastErrorAudio || "Сервер не вернул taskId. Проверь логи в /admin/v304.",
+          title: "Попробуем ещё раз",
+          description: lastErrorAudio || "Не дождались taskId — повторите запрос. Если повторяется, загляните в /admin/v304.",
           variant: "destructive",
           duration: 10000,
         });
@@ -801,8 +801,8 @@ export default function MusicPage() {
       setLoading(false);
       stopBgMusic();
       toast({
-        title: "Ошибка создания",
-        description: lastErrorMsg || "Текст сохранён. Попробуйте снова.",
+        title: "Сейчас починим — повтори",
+        description: lastErrorMsg || "Текст сохранён, можно нажать «Создать» ещё раз.",
         variant: "destructive",
       });
     }
@@ -1201,7 +1201,7 @@ export default function MusicPage() {
                         return;
                       }
                       if (tJson?.data?.warning) {
-                        toast({ title: "⚠ Не удалось распознать", description: tJson.data.warning, variant: "destructive" });
+                        toast({ title: "🎤 Голос пока не разобрали", description: tJson.data.warning, variant: "destructive" });
                       }
                       if (tJson?.data?.transcript) setAudioTranscript(tJson.data.transcript);
                       if (tJson?.data?.suggestion) {
@@ -1212,7 +1212,7 @@ export default function MusicPage() {
                         // Eugene 2026-05-09: транскрипт получен, но LLM не сделал lyrics.
                         // Показываем точную ошибку чтобы было понятно что чинить.
                         toast({
-                          title: "⚠ Транскрипция получена, но генерация текста упала",
+                          title: "📝 Услышали — текст пишется ещё раз",
                           description: tJson.data.llmError,
                           variant: "destructive"
                         });
@@ -1221,15 +1221,15 @@ export default function MusicPage() {
                         // которая теперь содержит реальный ответ Yandex
                         // (HTTP status / empty result / ffmpeg fail / network).
                         toast({
-                          title: "📝 Не распознано — введите текст вручную",
-                          description: tJson.data.warning || "Yandex SpeechKit временно недоступен. Наберите описание ниже.",
+                          title: "📝 Лучше набери текст — так точнее",
+                          description: tJson.data.warning || "Yandex отдыхает. Опиши ниже своими словами — получится точнее.",
                           variant: "destructive",
                         });
                       }
                     } catch (err) {
                       const m = err instanceof Error ? err.message : "fail";
                       console.error("[AUDIO-FLOW] error", err);
-                      toast({ title: "❌ Ошибка обработки", description: m, variant: "destructive" });
+                      toast({ title: "🔄 Попробуем ещё раз", description: m, variant: "destructive" });
                     } finally {
                       setAudioUploading(false);
                       setTranscribing(false);
@@ -1316,10 +1316,10 @@ export default function MusicPage() {
                               setAudioSuggestion(s);
                               if (s.lyrics) setAudioLyrics(s.lyrics);
                             } else {
-                              toast({ title: "Не удалось переписать", description: j?.error || "LLM вернул пусто", variant: "destructive" });
+                              toast({ title: "LLM думает дольше — повтори", description: j?.error || "Ответ пустой, попробуем ещё раз", variant: "destructive" });
                             }
                           } catch (err) {
-                            toast({ title: "Ошибка", description: err instanceof Error ? err.message : "fail", variant: "destructive" });
+                            toast({ title: "Сейчас починим", description: err instanceof Error ? err.message : "fail", variant: "destructive" });
                           } finally {
                             setRewriting(false);
                           }
