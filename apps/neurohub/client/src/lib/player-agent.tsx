@@ -256,6 +256,73 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (list[prevIdx]) play(list[prevIdx]);
   }, [current, play]);
 
+  // MediaSession API (Eugene 2026-05-10: «на lockscreen не показываются обложки»).
+  // Браузер на смартфоне показывает на lock-screen / пульте уведомлений
+  // обложку + название + кнопки play/pause/skip когда есть metadata.
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    if (!current) {
+      try { navigator.mediaSession.metadata = null; } catch {}
+      return;
+    }
+    const url = current.imageUrl;
+    const artwork = url
+      ? [
+          { src: url, sizes: "96x96", type: "image/jpeg" },
+          { src: url, sizes: "192x192", type: "image/jpeg" },
+          { src: url, sizes: "256x256", type: "image/jpeg" },
+          { src: url, sizes: "384x384", type: "image/jpeg" },
+          { src: url, sizes: "512x512", type: "image/jpeg" },
+        ]
+      : [];
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: current.prompt || (current as any).display_title || "Трек",
+        artist: current.authorName || "MuziAi",
+        album: "MuziAi",
+        artwork,
+      });
+    } catch {}
+  }, [current]);
+  // playbackState — браузер показывает кнопку play или pause соответственно
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    try {
+      navigator.mediaSession.playbackState = status === "playing" ? "playing" : status === "paused" ? "paused" : "none";
+    } catch {}
+  }, [status]);
+  // Action handlers — браузер делегирует кнопки play/pause/prev/next с lockscreen
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    const ms: any = navigator.mediaSession;
+    try { ms.setActionHandler("play", () => play()); } catch {}
+    try { ms.setActionHandler("pause", () => pause()); } catch {}
+    try { ms.setActionHandler("previoustrack", () => prev()); } catch {}
+    try { ms.setActionHandler("nexttrack", () => next()); } catch {}
+    try { ms.setActionHandler("seekto", (e: any) => { if (e?.seekTime != null) seek(e.seekTime); }); } catch {}
+    return () => {
+      try {
+        ms.setActionHandler("play", null);
+        ms.setActionHandler("pause", null);
+        ms.setActionHandler("previoustrack", null);
+        ms.setActionHandler("nexttrack", null);
+        ms.setActionHandler("seekto", null);
+      } catch {}
+    };
+  }, [play, pause, prev, next, seek]);
+  // setPositionState — позволяет lockscreen-плееру показывать прогресс-бар
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+    if (!duration || !isFinite(duration) || duration <= 0) return;
+    try {
+      (navigator.mediaSession as any).setPositionState?.({
+        duration,
+        position: Math.min(currentTime, duration),
+        playbackRate: 1,
+      });
+    } catch {}
+  }, [currentTime, duration]);
+
   const value: PlayerContextValue = {
     current, queue, currentTime, duration, status, repeat, volume,
     play, pause, toggle, seek, next, prev, setQueue, setRepeat, setVolume,
