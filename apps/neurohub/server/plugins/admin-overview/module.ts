@@ -1503,6 +1503,128 @@ router.post("/transcribe-verify", requireAdmin, async (req, res) => {
   }
 });
 
+// Secrets inventory + per-secret check (Eugene 2026-05-10).
+// «В админке показывай дату установки секретов, кнопкой проверить,
+// вверху проверить все».
+const SECRET_NAMES = [
+  "TELEGRAM_BOT_TOKEN",
+  "ANTHROPIC_API_KEY",
+  "GPTUNNEL_API_KEY",
+  "YANDEX_SPEECHKIT_API_KEY",
+  "YANDEX_FOLDER_ID",
+  "OPENAI_API_KEY",
+  "GMAIL_APP_PASSWORD",
+  "SMTP_HOST",
+  "ROBO_PASSWORD_1",
+  "ROBO_PASSWORD_2",
+  "SESSION_SECRET",
+  "CRON_SECRET",
+  "SIGNED_URL_SECRET",
+  "INTERNAL_STATS_TOKEN",
+  "MAX_BOT_TOKEN",
+  "VK_ACCESS_TOKEN",
+];
+
+function envFileMtime(): string | null {
+  // Пытаемся прочитать .env mtime — общая дата последнего обновления секретов
+  for (const p of ["/var/www/neurohub/.env", "./.env", "../.env"]) {
+    try {
+      if (fs.existsSync(p)) {
+        return new Date(fs.statSync(p).mtimeMs).toISOString();
+      }
+    } catch {}
+  }
+  return null;
+}
+
+async function checkSecret(name: string): Promise<{ ok: boolean; detail: string }> {
+  const val = process.env[name] || "";
+  if (!val) return { ok: false, detail: "не задан" };
+  try {
+    switch (name) {
+      case "TELEGRAM_BOT_TOKEN": {
+        const r = await fetch(`https://api.telegram.org/bot${val}/getMe`, { signal: AbortSignal.timeout(5000) });
+        const j: any = await r.json().catch(() => null);
+        if (j?.ok) return { ok: true, detail: `@${j.result?.username || "bot"}` };
+        return { ok: false, detail: `tg ${r.status}: ${j?.description || "fail"}` };
+      }
+      case "ANTHROPIC_API_KEY": {
+        const r = await fetch("https://api.anthropic.com/v1/models", {
+          headers: { "x-api-key": val, "anthropic-version": "2023-06-01" },
+          signal: AbortSignal.timeout(5000),
+        });
+        return r.ok ? { ok: true, detail: "models accessible" } : { ok: false, detail: `anthropic ${r.status}` };
+      }
+      case "OPENAI_API_KEY": {
+        const r = await fetch("https://api.openai.com/v1/models", {
+          headers: { Authorization: `Bearer ${val}` },
+          signal: AbortSignal.timeout(5000),
+        });
+        return r.ok ? { ok: true, detail: "models accessible" } : { ok: false, detail: `openai ${r.status}` };
+      }
+      case "GPTUNNEL_API_KEY": {
+        const r = await fetch("https://gptunnel.ru/v1/balance", {
+          headers: { Authorization: `Bearer ${val}` },
+          signal: AbortSignal.timeout(5000),
+        });
+        if (r.ok) {
+          const j: any = await r.json().catch(() => null);
+          return { ok: true, detail: `balance: ${j?.balance ?? "?"} ${j?.currency ?? ""}` };
+        }
+        return { ok: false, detail: `gptunnel ${r.status}` };
+      }
+      case "YANDEX_SPEECHKIT_API_KEY":
+      case "YANDEX_FOLDER_ID":
+      case "SESSION_SECRET":
+      case "CRON_SECRET":
+      case "SIGNED_URL_SECRET":
+      case "INTERNAL_STATS_TOKEN":
+      case "ROBO_PASSWORD_1":
+      case "ROBO_PASSWORD_2":
+      case "MAX_BOT_TOKEN":
+      case "VK_ACCESS_TOKEN":
+        return { ok: true, detail: `length=${val.length}` };
+      case "GMAIL_APP_PASSWORD":
+      case "SMTP_HOST":
+        return { ok: true, detail: `length=${val.length}` };
+      default:
+        return { ok: true, detail: `length=${val.length}` };
+    }
+  } catch (e) {
+    return { ok: false, detail: e instanceof Error ? e.message.slice(0, 60) : "fail" };
+  }
+}
+
+router.get("/secrets", requireAdmin, async (_req, res) => {
+  const mtime = envFileMtime();
+  const items = SECRET_NAMES.map(name => {
+    const val = process.env[name] || "";
+    return {
+      name,
+      configured: !!val,
+      length: val.length,
+      masked: val ? `${val.slice(0, 4)}…${val.slice(-3)}` : null,
+    };
+  });
+  res.json({ data: { envFileMtime: mtime, items }, error: null });
+});
+
+router.post("/secrets/:name/check", requireAdmin, async (req, res) => {
+  const name = req.params.name;
+  if (!SECRET_NAMES.includes(name)) {
+    return res.status(400).json({ data: null, error: "unknown secret" });
+  }
+  const r = await checkSecret(name);
+  res.json({ data: { name, ...r, checkedAt: new Date().toISOString() }, error: null });
+});
+
+router.post("/secrets/check-all", requireAdmin, async (_req, res) => {
+  const results = await Promise.all(
+    SECRET_NAMES.map(async name => ({ name, ...(await checkSecret(name)) })),
+  );
+  res.json({ data: { checkedAt: new Date().toISOString(), results }, error: null });
+});
+
 router.post("/poll-now", requireAdmin, async (_req, res) => {
   try {
     const result = await pollProcessingGenerations();
