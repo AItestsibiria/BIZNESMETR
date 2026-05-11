@@ -1212,7 +1212,7 @@ p{color:#888;font-size:14px;margin:0}
 <div class="logo">🎵</div>
 <h2>Войти через Telegram</h2>
 <p>Нажмите кнопку ниже</p>
-<script async src="https://telegram.org/js/telegram-widget.js?23" data-telegram-login="Biznesmetr_bot" data-size="large" data-auth-url="https://muziai.ru/api/auth/telegram-redirect" data-request-access="write"></script>
+<script async src="https://telegram.org/js/telegram-widget.js?23" data-telegram-login="muziaipodari_bot" data-size="large" data-auth-url="https://muziai.ru/api/auth/telegram-redirect" data-request-access="write"></script>
 <div class="spinner" id="sp"></div>
 <p id="msg"></p>
 <div id="linkForm" style="display:none;max-width:320px;width:100%">
