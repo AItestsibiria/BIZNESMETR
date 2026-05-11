@@ -116,11 +116,14 @@ const STARTUP_KEYBOARD = {
 // === Persona по hash(userId) (Eugene 2026-05-11) ===
 // Каждый юзер видит свою постоянную «куратор-девушку» — стабильно
 // от первого сообщения до последнего. Разные юзеры — разные имена.
-const PERSONAS: Array<{ name: string; age: number; gender: "ж"; tone: string }> = [
-  { name: "Аня",     age: 27, gender: "ж", tone: "тёплая, заботливая, эмпатичная" },
-  { name: "Татьяна", age: 29, gender: "ж", tone: "энергичная, дружелюбная, с лёгким юмором" },
-  { name: "Мария",   age: 28, gender: "ж", tone: "вежливая, профессиональная, аккуратная" },
-  { name: "Ольга",   age: 30, gender: "ж", tone: "спокойная, внимательная, доброжелательная" },
+// Eugene 2026-05-11: каждая персона имеет свой эмоджи-аватар, который
+// ставится в начале сообщения как «именная иконка». Полные аватарки/gif
+// + sync с сайтом — отдельной задачей.
+const PERSONAS: Array<{ name: string; age: number; gender: "ж"; tone: string; avatar: string }> = [
+  { name: "Аня",     age: 27, gender: "ж", tone: "тёплая, заботливая, эмпатичная", avatar: "🎀" },
+  { name: "Татьяна", age: 29, gender: "ж", tone: "энергичная, дружелюбная, с лёгким юмором", avatar: "✨" },
+  { name: "Мария",   age: 28, gender: "ж", tone: "вежливая, профессиональная, аккуратная", avatar: "💎" },
+  { name: "Ольга",   age: 30, gender: "ж", tone: "спокойная, внимательная, доброжелательная", avatar: "🌸" },
 ];
 function personaFor(userKey: string) {
   let h = 0;
@@ -296,7 +299,7 @@ router.post("/webhook", async (req, res) => {
       const { sessionId } = findOrCreateSession(chatId, fromId);
       saveMessage(sessionId, "user", `[кнопка] ${data}`);
       await sendMessage(chatId, `${reply}\n\n— ${p.name}`);
-      saveMessage(sessionId, "bot", reply);
+      saveMessage(sessionId, "bot", replyWithAvatar);
       return;
     }
 
@@ -313,8 +316,8 @@ router.post("/webhook", async (req, res) => {
     if (text === "/start" || text === "/start@muziaipodari_bot") {
       const p = personaFor(fromId);
       const hello = existingUserId
-        ? `С возвращением 🎵 Я ${p.name}, помогу с MuziAi. Спрашивай что угодно — или жми кнопку ниже.`
-        : `Здравствуйте! Я ${p.name} из MuziAi 🎵\nПомогу подобрать песню под событие, расскажу про возможности.\n\nА вы для какого случая думаете песню?`;
+        ? `${p.avatar} С возвращением 🎵 Я ${p.name}, помогу с MuziAi. Спрашивай что угодно — или жми кнопку ниже.`
+        : `${p.avatar} Здравствуйте! Я ${p.name} из MuziAi 🎵\nПомогу подобрать песню под событие, расскажу про возможности.\n\nА вы для какого случая думаете песню?`;
       saveMessage(sessionId, "user", text);
       await sendMessage(chatId, hello, STARTUP_KEYBOARD);
       saveMessage(sessionId, "bot", hello);
@@ -324,7 +327,10 @@ router.post("/webhook", async (req, res) => {
     saveMessage(sessionId, "user", text);
     const history = loadHistory(sessionId);
     const reply = await generateReply(fromId, text, history);
-    await sendMessage(chatId, reply);
+    const p = personaFor(fromId);
+    // Эмоджи-аватар персоны в начале сообщения — визуальная подпись.
+    const replyWithAvatar = `${p.avatar} ${reply}`;
+    await sendMessage(chatId, replyWithAvatar);
     saveMessage(sessionId, "bot",reply);
     bootRefs?.eventBus?.emit?.("chatbot.reply_sent", { channel: "telegram", sessionId, chatId }, "telegram-bot");
   } catch (e) {
