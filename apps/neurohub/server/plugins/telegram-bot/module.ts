@@ -21,40 +21,11 @@
 import { Router } from "express";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { db } from "../../storage";
 import { chatbotSessions, chatbotMessages, users } from "@shared/schema";
 import type { BootContext, Module } from "../../core";
 import { confirmNonce as confirmTgLoginNonce, hasValidNonce as hasTgLoginNonce } from "../../lib/tgLoginNonces";
-
-// Knowledge base — читаем из docs/strategy/KNOWLEDGE-BASE-BOT.md
-// Eugene 2026-05-11: «помощник собирает базу знаний, обновляется когда
-// меняем функции». Файл коммитится с любыми изменениями цен/режимов/
-// шаблонов. Бот reload'ит по запросу /bot-kb/reload или на старте.
-let kbCache: { text: string; mtime: number } = { text: "", mtime: 0 };
-function kbPath(): string | null {
-  for (const p of [
-    "/opt/muziai-src/docs/strategy/KNOWLEDGE-BASE-BOT.md",
-    "/var/www/neurohub/docs/strategy/KNOWLEDGE-BASE-BOT.md",
-    path.join(process.cwd(), "docs/strategy/KNOWLEDGE-BASE-BOT.md"),
-    path.join(process.cwd(), "../../docs/strategy/KNOWLEDGE-BASE-BOT.md"),
-  ]) {
-    try { if (fs.existsSync(p)) return p; } catch {}
-  }
-  return null;
-}
-function loadKB(force = false): string {
-  const p = kbPath();
-  if (!p) return "";
-  try {
-    const stat = fs.statSync(p);
-    if (!force && kbCache.text && stat.mtimeMs === kbCache.mtime) return kbCache.text;
-    const text = fs.readFileSync(p, "utf-8");
-    kbCache = { text, mtime: stat.mtimeMs };
-    return text;
-  } catch { return kbCache.text || ""; }
-}
+import { personaFor, loadKB, buildPersonaSystem, kbPath } from "../../lib/consultantPersona";
 
 const TELEGRAM_API = "https://api.telegram.org";
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN || "";
@@ -97,6 +68,29 @@ async function sendMessage(chatId: number | string, text: string, replyMarkup?: 
   }
 }
 
+// Eugene 2026-05-11: образ помощника на первом /start — фото с
+// silhouette певицы (тот же образ что floating-consultant на сайте).
+// Telegram кэширует фото после первой отправки — последующие отправки
+// мгновенные. Базовый URL — PUBLIC_BASE_URL или muziai.ru.
+async function sendConsultantPhoto(chatId: number | string, caption: string, replyMarkup?: any): Promise<void> {
+  try {
+    const base = process.env.PUBLIC_BASE_URL || "https://muziai.ru";
+    const photoUrl = `${base}/api/assets/consultant-avatar.png?size=512`;
+    const body: any = {
+      chat_id: chatId,
+      photo: photoUrl,
+      caption,
+      parse_mode: "HTML",
+    };
+    if (replyMarkup) body.reply_markup = replyMarkup;
+    await tgApi("sendPhoto", body);
+  } catch (e) {
+    bootRefs?.logger.warn?.("[telegram-bot] sendPhoto failed, fallback to text", { chatId, error: String(e) });
+    // Fallback на текст если sendPhoto не сработал
+    await sendMessage(chatId, caption, replyMarkup);
+  }
+}
+
 // Меню действий на /start — InlineKeyboard для быстрого выбора.
 const STARTUP_KEYBOARD = {
   inline_keyboard: [
@@ -114,39 +108,8 @@ const STARTUP_KEYBOARD = {
   ],
 };
 
-// === Persona по hash(userId) (Eugene 2026-05-11) ===
-// Каждый юзер видит свою постоянную «куратор-девушку» — стабильно
-// от первого сообщения до последнего. Разные юзеры — разные имена.
-// Eugene 2026-05-11: каждая персона имеет свой эмоджи-аватар, который
-// ставится в начале сообщения как «именная иконка». Полные аватарки/gif
-// + sync с сайтом — отдельной задачей.
-const PERSONAS: Array<{ name: string; age: number; gender: "ж"; tone: string; avatar: string }> = [
-  { name: "Аня",     age: 27, gender: "ж", tone: "тёплая, заботливая, эмпатичная", avatar: "🎀" },
-  { name: "Татьяна", age: 29, gender: "ж", tone: "энергичная, дружелюбная, с лёгким юмором", avatar: "✨" },
-  { name: "Мария",   age: 28, gender: "ж", tone: "вежливая, профессиональная, аккуратная", avatar: "💎" },
-  { name: "Ольга",   age: 30, gender: "ж", tone: "спокойная, внимательная, доброжелательная", avatar: "🌸" },
-];
-function personaFor(userKey: string) {
-  let h = 0;
-  const s = String(userKey || "anon");
-  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-  return PERSONAS[Math.abs(h) % PERSONAS.length];
-}
-
-function buildPersonaSystem(userKey: string): string {
-  const p = personaFor(userKey);
-  const greetingExample = p.gender === "м" ? `Готов помочь` : `Готова помочь`;
-  const kb = loadKB() || "[база знаний временно недоступна — отвечай вежливо, спроси email/детали]";
-  return `Ты — ${p.name}, ${p.age} лет, support-агент сервиса MuziAi (muziai.ru). ${p.tone}. Отвечаешь живо, на «ты» если юзер так пишет, иначе на «вы». Кратко (2-4 предложения для обычного вопроса). Эмодзи умеренно — 1-2 на сообщение. ${greetingExample}.
-
-ВАЖНО: ниже актуальная база знаний по продукту. Опирайся только на неё — не выдумывай факты, цены, шаблоны. Если в базе нет ответа — честно скажи «уточню у команды и вернусь».
-
----ACTUAL_KNOWLEDGE_BASE---
-${kb}
----END_KB---
-
-Говори живо, как живой человек, не как AI. Не используй markdown-списки (•, **, ##) — это чат, не документация.`;
-}
+// Persona, KB, prompt — теперь в shared lib (lib/consultantPersona.ts).
+// Используется обоими ботами (telegram + max) — единый tone + playbook.
 
 // Backup-LLM (Eugene 2026-05-11): Claude primary, OpenAI fallback.
 // Если Claude недоступен — переключаемся на OpenAI с тем же prompt'ом
@@ -362,14 +325,16 @@ router.post("/webhook", async (req, res) => {
       return;
     }
 
-    // /start — приветственное сообщение
+    // /start — приветствие с фото-образом помощника (Eugene 2026-05-11).
+    // sendPhoto с avatar URL → caption с текстом → Telegram кэширует
+    // картинку, повторные /start от того же юзера показываются мгновенно.
     if (text === "/start" || text === "/start@muziaipodari_bot") {
       const p = personaFor(fromId);
       const hello = existingUserId
-        ? `${p.avatar} С возвращением 🎵 Я ${p.name}, помогу с MuziAi. Спрашивай что угодно — или жми кнопку ниже.`
-        : `${p.avatar} Здравствуйте! Я ${p.name} из MuziAi 🎵\nПомогу подобрать песню под событие, расскажу про возможности.\n\nА вы для какого случая думаете песню?`;
+        ? `${p.avatar} С возвращением! Я ${p.name}, помогу с песней. Что хотите сделать?`
+        : `${p.avatar} Привет! Я ${p.name} из MuziAi. Помогу подобрать песню под событие — для какого случая думаете?`;
       saveMessage(sessionId, "user", text);
-      await sendMessage(chatId, hello, STARTUP_KEYBOARD);
+      await sendConsultantPhoto(chatId, hello, STARTUP_KEYBOARD);
       saveMessage(sessionId, "bot", hello);
       return;
     }
@@ -381,7 +346,7 @@ router.post("/webhook", async (req, res) => {
     // Эмоджи-аватар персоны в начале сообщения — визуальная подпись.
     const replyWithAvatar = `${p.avatar} ${reply}`;
     await sendMessage(chatId, replyWithAvatar);
-    saveMessage(sessionId, "bot",reply);
+    saveMessage(sessionId, "bot", replyWithAvatar);
     bootRefs?.eventBus?.emit?.("chatbot.reply_sent", { channel: "telegram", sessionId, chatId }, "telegram-bot");
   } catch (e) {
     bootRefs?.logger.error?.("[telegram-bot] webhook error", { error: String(e) });

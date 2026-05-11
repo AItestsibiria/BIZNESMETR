@@ -1,21 +1,21 @@
 // Max-bot helper (Eugene 2026-05-11): отвечает в Max через тот же KB+persona
 // что и telegram-bot. Webhook: /api/max-bot/webhook
+// Refactored: persona + KB + prompt → shared lib (lib/consultantPersona).
 import { Router } from "express";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import type { BootContext, Module } from "../../core";
+import { personaFor, buildPersonaSystem } from "../../lib/consultantPersona";
 
 const MAX_API = "https://platform-api.max.ru";
 const TOKEN = () => process.env.MAX_BOT_TOKEN || "";
 let bootRefs: { eventBus: BootContext["eventBus"]; logger: BootContext["logger"] } | null = null;
 
-async function maxApi(p: string, body: any): Promise<any> {
+async function maxApi(p: string, body: any, method: "POST" | "GET" = "POST"): Promise<any> {
   const tok = TOKEN();
   if (!tok) throw new Error("MAX_BOT_TOKEN missing");
   const r = await fetch(`${MAX_API}${p}`, {
-    method: "POST",
+    method,
     headers: { Authorization: tok, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: method === "POST" ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(10_000),
   });
   if (!r.ok) {
@@ -24,48 +24,29 @@ async function maxApi(p: string, body: any): Promise<any> {
   }
   return r.json().catch(() => null);
 }
-async function sendMessage(chatId: string, text: string) {
+async function sendMessage(chatId: string, text: string, attachments?: any[]) {
   try {
-    await maxApi(`/messages?chat_id=${encodeURIComponent(chatId)}`, { text });
+    const body: any = { text };
+    if (attachments && attachments.length) body.attachments = attachments;
+    await maxApi(`/messages?chat_id=${encodeURIComponent(chatId)}`, body);
   } catch (e) {
     bootRefs?.logger.warn?.("[max-bot] sendMessage failed", { chatId, error: String(e) });
   }
 }
-
-const PERSONAS = [
-  { name: "Аня",     age: 27, tone: "тёплая, эмпатичная",        avatar: "🎀" },
-  { name: "Татьяна", age: 29, tone: "энергичная, с юмором",      avatar: "✨" },
-  { name: "Мария",   age: 28, tone: "вежливая, аккуратная",      avatar: "💎" },
-  { name: "Ольга",   age: 30, tone: "спокойная, доброжелательная", avatar: "🌸" },
-];
-function personaFor(userKey: string) {
-  let h = 0; const s = String(userKey || "anon");
-  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-  return PERSONAS[Math.abs(h) % PERSONAS.length];
-}
-
-let kbCache: { text: string; mtime: number } = { text: "", mtime: 0 };
-function loadKB(): string {
-  for (const p of [
-    "/opt/muziai-src/docs/strategy/KNOWLEDGE-BASE-BOT.md",
-    "/var/www/neurohub/docs/strategy/KNOWLEDGE-BASE-BOT.md",
-    path.join(process.cwd(), "docs/strategy/KNOWLEDGE-BASE-BOT.md"),
-  ]) {
-    try {
-      if (!fs.existsSync(p)) continue;
-      const stat = fs.statSync(p);
-      if (kbCache.text && stat.mtimeMs === kbCache.mtime) return kbCache.text;
-      const text = fs.readFileSync(p, "utf-8");
-      kbCache = { text, mtime: stat.mtimeMs };
-      return text;
-    } catch {}
+// Eugene 2026-05-11: образ помощника на /start — тот же singer-silhouette
+// что в Telegram + на сайте. Max API принимает attachment с type=image.
+async function sendConsultantPhoto(chatId: string, caption: string) {
+  try {
+    const base = process.env.PUBLIC_BASE_URL || "https://muziai.ru";
+    const photoUrl = `${base}/api/assets/consultant-avatar.png?size=512`;
+    await maxApi(`/messages?chat_id=${encodeURIComponent(chatId)}`, {
+      text: caption,
+      attachments: [{ type: "image", payload: { url: photoUrl } }],
+    });
+  } catch (e) {
+    bootRefs?.logger.warn?.("[max-bot] sendPhoto failed, fallback to text", { chatId, error: String(e) });
+    await sendMessage(chatId, caption);
   }
-  return kbCache.text || "";
-}
-function buildSystem(userKey: string): string {
-  const p = personaFor(userKey);
-  const kb = loadKB() || "[KB недоступен]";
-  return `Ты — ${p.name}, ${p.age} лет, support-агент MuziAi. ${p.tone}. Отвечай кратко (2-4 предложения), 1-2 эмодзи, на «вы» если юзер не на «ты». Не упоминай AI/бот, представляйся ${p.name}.\n\nБаза знаний:\n${kb}\n\nГовори живо как человек, без markdown-списков.`;
 }
 
 async function tryClaude(sys: string, text: string): Promise<string | null> {
@@ -99,7 +80,7 @@ async function tryGPTunnel(sys: string, text: string): Promise<string | null> {
   } catch { return null; }
 }
 async function generateReply(userKey: string, text: string): Promise<string> {
-  const sys = buildSystem(userKey);
+  const sys = buildPersonaSystem(userKey);
   const c = await tryClaude(sys, text);
   if (c) return c;
   const o = await tryGPTunnel(sys, text);
@@ -120,7 +101,8 @@ router.post("/webhook", async (req, res) => {
     if (!chatId || !text) return;
     const p = personaFor(fromId);
     if (text === "/start") {
-      await sendMessage(chatId, `${p.avatar} Здравствуйте! Я ${p.name} из MuziAi 🎵\nПомогу подобрать песню под событие. Для какого случая думаете песню?`);
+      const hello = `${p.avatar} Привет! Я ${p.name} из MuziAi. Помогу подобрать песню под событие — для какого случая думаете?`;
+      await sendConsultantPhoto(chatId, hello);
       return;
     }
     const reply = await generateReply(fromId, text);

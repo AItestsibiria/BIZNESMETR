@@ -1267,6 +1267,45 @@ export async function registerRoutes(
     }
   });
 
+  // Consultant avatar PNG (Eugene 2026-05-11): рендерит SVG → PNG через
+  // sharp для Telegram/Max sendPhoto. Кэш через mtime.
+  let consultantPngCache: { buf: Buffer; mtime: number; size: number } | null = null;
+  app.get("/api/assets/consultant-avatar.png", async (req: Request, res: Response) => {
+    try {
+      const size = Math.min(1024, Math.max(64, parseInt(String(req.query.size || "512")) || 512));
+      const svgCandidates = [
+        path.join(process.cwd(), "dist/public/consultant-avatar.svg"),
+        path.join(process.cwd(), "client/public/consultant-avatar.svg"),
+        path.join(process.cwd(), "../neurohub/client/public/consultant-avatar.svg"),
+      ];
+      let svgPath: string | null = null;
+      for (const p of svgCandidates) {
+        try { if (fs.existsSync(p)) { svgPath = p; break; } } catch {}
+      }
+      if (!svgPath) {
+        res.status(404).send("avatar not found");
+        return;
+      }
+      const stat = fs.statSync(svgPath);
+      if (consultantPngCache && consultantPngCache.mtime === stat.mtimeMs && consultantPngCache.size === size) {
+        res.setHeader("Content-Type", "image/png");
+        res.setHeader("Cache-Control", "public, max-age=86400");
+        res.send(consultantPngCache.buf);
+        return;
+      }
+      const sharp = require("sharp");
+      const svgBuf = fs.readFileSync(svgPath);
+      const png = await sharp(svgBuf).resize(size, size, { fit: "cover" }).png().toBuffer();
+      consultantPngCache = { buf: png, mtime: stat.mtimeMs, size };
+      res.setHeader("Content-Type", "image/png");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      res.send(png);
+    } catch (e: any) {
+      console.error("[CONSULTANT-AVATAR] Error:", e);
+      res.status(500).send("render error");
+    }
+  });
+
   // Telegram auth redirect handler — Telegram redirects here with user data in query params
   app.get("/api/auth/telegram-redirect", async (req: Request, res: Response) => {
     try {
