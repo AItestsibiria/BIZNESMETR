@@ -175,8 +175,11 @@ async function tryClaude(system: string, text: string, history: Array<{ role: st
   }
 }
 
-async function tryOpenAI(system: string, text: string, history: Array<{ role: string; content: string }>): Promise<string | null> {
-  const key = process.env.OPENAI_API_KEY || "";
+// Backup через GPTunnel (Eugene 2026-05-11 «2» — использовать GPTunnel
+// вместо native OpenAI). GPTunnel поддерживает OpenAI-compatible API,
+// тот же кошелёк что у Suno.
+async function tryGPTunnel(system: string, text: string, history: Array<{ role: string; content: string }>): Promise<string | null> {
+  const key = process.env.GPTUNNEL_API_KEY || "";
   if (!key) return null;
   try {
     const msgs = [
@@ -184,21 +187,21 @@ async function tryOpenAI(system: string, text: string, history: Array<{ role: st
       ...history.slice(-10).map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
       { role: "user", content: text },
     ];
-    const r = await fetch("https://api.openai.com/v1/chat/completions", {
+    const r = await fetch("https://gptunnel.ru/v1/chat/completions", {
       method: "POST",
-      headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+      headers: { "Authorization": key, "Content-Type": "application/json" },
       body: JSON.stringify({ model: "gpt-4o-mini", max_tokens: 400, messages: msgs }),
       signal: AbortSignal.timeout(15_000),
     });
     if (!r.ok) {
-      bootRefs?.logger.warn?.("[telegram-bot] openai non-ok", { status: r.status });
+      bootRefs?.logger.warn?.("[telegram-bot] gptunnel non-ok", { status: r.status });
       return null;
     }
     const j: any = await r.json();
     const c = j?.choices?.[0]?.message?.content;
     return typeof c === "string" && c.length > 0 ? c.slice(0, 3500) : null;
   } catch (e) {
-    bootRefs?.logger.warn?.("[telegram-bot] openai error", { error: String(e) });
+    bootRefs?.logger.warn?.("[telegram-bot] gptunnel error", { error: String(e) });
     return null;
   }
 }
@@ -208,8 +211,8 @@ async function generateReply(userKey: string, userText: string, history: Array<{
   // 1. Primary: Claude
   const c = await tryClaude(system, userText, history);
   if (c) return c;
-  // 2. Backup: OpenAI
-  const o = await tryOpenAI(system, userText, history);
+  // 2. Backup: GPTunnel (OpenAI-compatible, тот же кошелёк что у Suno)
+  const o = await tryGPTunnel(system, userText, history);
   if (o) return o;
   // 3. Both failed → fallback hardcoded
   return `Здравствуйте! Я ${personaFor(userKey).name} 🎵 Чуть-чуть тормозит — попробуйте через минуту.`;
@@ -391,7 +394,7 @@ const telegramBotModule: Module = {
     ctx.logger.info("telegram-bot online", {
       token: TOKEN() ? "configured" : "missing",
       anthropic: ANTHROPIC_KEY() ? "configured" : "missing",
-      openai_fallback: !!process.env.OPENAI_API_KEY,
+      gptunnel_fallback: !!process.env.GPTUNNEL_API_KEY,
       kb_loaded: kb.length > 0 ? `${kb.length} chars` : "missing",
     });
   },
