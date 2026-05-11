@@ -26,15 +26,27 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql://biznesmetr:biznesmetr@postgres:5432/biznesmetr?schema=public
-    ports:
-      - "127.0.0.1:3000:3000"
+    expose:
+      - "3000"
     volumes:
       # Mount the Google service account JSON read-only at runtime.
       - ./secrets/google-credentials.json:/run/secrets/google-credentials.json:ro
 
-# TODO(muziai): add reverse proxy (Caddy/Traefik/nginx) service here once
-# we know which one MuziAI uses. It must terminate HTTPS for PUBLIC_URL
-# and forward the webhook path(s) to the app service.
+  caddy:
+    # TODO(muziai): swap for nginx/Traefik if that's what MuziAI uses.
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
 
 volumes:
   pgdata:
+  caddy_data:
+  caddy_config:

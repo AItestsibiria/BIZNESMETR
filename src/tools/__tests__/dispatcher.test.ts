@@ -10,6 +10,20 @@ jest.mock('../../integrations/sheets', () => ({
   },
 }))
 
+jest.mock('../../integrations/gcal', () => ({
+  calendarClient: {
+    createEvent: jest.fn().mockResolvedValue({
+      id: 'evt-1',
+      title: 'Встреча',
+      start: '2026-05-12T15:00:00.000Z',
+      end: '2026-05-12T16:00:00.000Z',
+      location: null,
+      htmlLink: null,
+    }),
+    listUpcoming: jest.fn().mockResolvedValue([]),
+  },
+}))
+
 const ctx = { externalChatId: 'chat-1' }
 
 describe('tools dispatcher', () => {
@@ -40,11 +54,35 @@ describe('tools dispatcher', () => {
   it('exposes JSON-schema-shaped tool definitions to Claude', () => {
     const defs = getToolDefinitionsForClaude()
     const names = defs.map((d) => d.name).sort()
-    expect(names).toEqual(['create_task', 'draft_text', 'list_tasks', 'update_task'])
+    expect(names).toEqual([
+      'create_task',
+      'draft_text',
+      'gcal_create_event',
+      'gcal_list_upcoming',
+      'list_tasks',
+      'update_task',
+    ])
     for (const def of defs) {
       expect(def.input_schema.type).toBe('object')
       expect(typeof def.input_schema.properties).toBe('object')
     }
+  })
+
+  it('gcal_create_event normalises ISO inputs and returns an event', async () => {
+    const res = await runTool(
+      'gcal_create_event',
+      { title: 'Встреча', start: '2026-05-12T15:00:00.000Z' },
+      ctx,
+    )
+    expect(res.ok).toBe(true)
+    if (res.ok) {
+      expect(res.result).toMatchObject({ id: 'evt-1', title: 'Встреча' })
+    }
+  })
+
+  it('gcal_create_event rejects invalid date string', async () => {
+    const res = await runTool('gcal_create_event', { title: 'X', start: '' }, ctx)
+    expect(res.ok).toBe(false)
   })
 
   it('list_tasks forwards filters and limit', async () => {

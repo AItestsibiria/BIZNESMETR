@@ -3,9 +3,12 @@ import type Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
 import { logger } from '../logger'
 import { sheetsClient, type TaskRow } from '../integrations/sheets'
+import { calendarClient } from '../integrations/gcal'
 import {
   CreateTaskInputSchema,
   DraftTextInputSchema,
+  GcalCreateEventInputSchema,
+  GcalListUpcomingInputSchema,
   ListTasksInputSchema,
   UpdateTaskInputSchema,
 } from './schemas'
@@ -97,7 +100,43 @@ const draftText = defineTool({
   },
 })
 
-const tools = [createTask, listTasks, updateTask, draftText] as const
+const gcalCreateEvent = defineTool({
+  name: 'gcal_create_event',
+  description:
+    'Create an event in the user\'s Google Calendar. Use when scheduling a meeting, call, deadline, or reminder. Pass ISO datetime strings.',
+  schema: GcalCreateEventInputSchema,
+  handler: async (input) => {
+    const event = await calendarClient.createEvent({
+      title: input.title,
+      start: input.start,
+      ...(input.end !== undefined ? { end: input.end } : {}),
+      ...(input.description !== undefined ? { description: input.description } : {}),
+      ...(input.location !== undefined ? { location: input.location } : {}),
+      ...(input.attendees !== undefined ? { attendees: input.attendees } : {}),
+    })
+    return event
+  },
+})
+
+const gcalListUpcoming = defineTool({
+  name: 'gcal_list_upcoming',
+  description:
+    'List upcoming calendar events in the next N hours. Use for "what is on my schedule today / this week".',
+  schema: GcalListUpcomingInputSchema,
+  handler: async (input) => {
+    const events = await calendarClient.listUpcoming({ hours: input.hours, max: input.max })
+    return { count: events.length, events }
+  },
+})
+
+const tools = [
+  createTask,
+  listTasks,
+  updateTask,
+  draftText,
+  gcalCreateEvent,
+  gcalListUpcoming,
+] as const
 
 export function getToolDefinitionsForClaude(): Anthropic.Messages.Tool[] {
   return tools.map((t) => ({

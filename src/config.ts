@@ -47,6 +47,7 @@ const schema = z.object({
 
   GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(),
   HUB_SHEET_ID: z.string().optional(),
+  GOOGLE_CALENDAR_ID: z.string().default('primary'),
   DEFAULT_TZ: z.string().default('Europe/Moscow'),
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),

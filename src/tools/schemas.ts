@@ -36,7 +36,26 @@ export const DraftTextInputSchema = z.object({
   language: z.string().default('ru'),
 })
 
+export const GcalCreateEventInputSchema = z.object({
+  title: z.string().min(1).max(200),
+  start: z
+    .string()
+    .min(1)
+    .describe('ISO 8601 start datetime in DEFAULT_TZ, e.g. 2026-05-12T15:00:00'),
+  end: z.string().min(1).optional().describe('ISO 8601 end datetime; defaults to start + 60min'),
+  description: z.string().max(2000).optional(),
+  location: z.string().max(200).optional(),
+  attendees: z.array(z.string().email()).max(20).optional(),
+})
+
+export const GcalListUpcomingInputSchema = z.object({
+  hours: z.number().int().positive().max(720).default(24).describe('Look-ahead window in hours'),
+  max: z.number().int().positive().max(50).default(20),
+})
+
 export type CreateTaskInput = z.infer<typeof CreateTaskInputSchema>
 export type ListTasksInput = z.infer<typeof ListTasksInputSchema>
 export type UpdateTaskInput = z.infer<typeof UpdateTaskInputSchema>
 export type DraftTextInput = z.infer<typeof DraftTextInputSchema>
+export type GcalCreateEventInput = z.infer<typeof GcalCreateEventInputSchema>
+export type GcalListUpcomingInput = z.infer<typeof GcalListUpcomingInputSchema>
