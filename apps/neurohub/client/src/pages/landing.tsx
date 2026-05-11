@@ -922,9 +922,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/20 text-green-300 font-medium">Новости</span>
                 <span className="text-[10px] text-muted-foreground">12 апреля 2026</span>
               </div>
-              <h3 className="text-lg font-bold text-white mb-2">«Поехали»</h3>
+              <h3 className="text-lg font-bold text-white mb-2">«Поехали» 🎁</h3>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                MuziAi запущен в пробном режиме. До момента оплаты все функции работают — создавайте треки, тексты и обложки.
+                При регистрации дарим <span className="text-emerald-300 font-semibold">1 трек в подарок</span> — попробуй MuziAi бесплатно. Все функции открыты: создавай треки, тексты и обложки.
               </p>
               <p className="text-sm text-muted-foreground leading-relaxed mt-2">
                 По всем вопросам <a href="#" onClick={openMail} className="text-purple-400 hover:text-purple-300 transition-colors">пишите нам</a>
