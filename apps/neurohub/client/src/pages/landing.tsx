@@ -924,23 +924,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               </div>
               <h3 className="text-lg font-bold text-white mb-2">«Поехали»</h3>
 
-              {/* Подарок-коробка с нотами в гамме MuziAi — анимация открытия и
-                  вылета нот к звёздам (Eugene 2026-05-11). Один раз на загрузке.
-                  Если юзер залогинен (клиент) — статичный без анимаций.
-                  Если лид — анимация раз в день (по localStorage). */}
-              <div
-                ref={(el) => {
-                  if (!el) return;
-                  if (user) { el.classList.add("gift-static"); return; }
-                  try {
-                    const today = new Date().toISOString().slice(0, 10);
-                    const last = localStorage.getItem("_giftSeen");
-                    if (last === today) { el.classList.add("gift-static"); return; }
-                    localStorage.setItem("_giftSeen", today);
-                  } catch {}
-                }}
-                className="my-3 relative rounded-xl border border-purple-500/30 bg-gradient-to-br from-purple-500/[0.12] via-blue-500/[0.10] to-cyan-500/[0.10] p-3 overflow-hidden gift-stage"
-              >
+              {/* Eugene 2026-05-11: образ из новости убран — оставляем
+                  только текст с подсветкой 'трек в подарок'. Анимированная
+                  подарок-коробка отвлекала. */}
+              <div className="hidden">
                 {/* Звёзды на фоне (~20% сцены сверху) */}
                 <svg viewBox="0 0 200 60" className="absolute inset-0 w-full h-full pointer-events-none" aria-hidden="true">
                   <g>
@@ -1008,7 +995,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               </div>
 
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Зарегистрируйся и попробуй MuziAi — бонусный трек уже на счету.
+                При регистрации дарим <span className="text-emerald-300 font-semibold">1 трек в подарок</span> 🎁 — попробуй MuziAi бесплатно.
               </p>
               <p className="text-sm text-muted-foreground leading-relaxed mt-2">
                 По всем вопросам <a href="#" onClick={openMail} className="text-purple-400 hover:text-purple-300 transition-colors">пишите нам</a>
