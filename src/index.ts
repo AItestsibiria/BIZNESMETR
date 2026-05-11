@@ -6,6 +6,7 @@ import { prisma } from './db'
 import { TelegramAdapter } from './messengers/telegram'
 import { MaxAdapter } from './messengers/max'
 import { buildIncomingHandler } from './core/router'
+import { startDigestScheduler } from './core/scheduler'
 import { sheetsClient } from './integrations/sheets'
 import type { MessengerAdapter } from './messengers/adapter'
 
@@ -50,12 +51,15 @@ async function main(): Promise<void> {
     }
   }
 
+  const digest = startDigestScheduler((channel) => adapters[channel])
+
   const server = app.listen(config.PORT, () => {
     logger.info({ port: config.PORT, env: config.NODE_ENV }, 'BIZNESMETR is up')
   })
 
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'Shutting down')
+    digest?.stop()
     server.close()
     await prisma.$disconnect()
     process.exit(0)

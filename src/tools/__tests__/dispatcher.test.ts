@@ -24,6 +24,20 @@ jest.mock('../../integrations/gcal', () => ({
   },
 }))
 
+jest.mock('../../integrations/gmail', () => ({
+  gmailClient: {
+    createDraft: jest.fn().mockResolvedValue({ id: 'draft-1' }),
+    search: jest.fn().mockResolvedValue([]),
+  },
+}))
+
+jest.mock('../../integrations/github', () => ({
+  githubClient: {
+    listMyOpenPRs: jest.fn().mockResolvedValue([]),
+    listMyOpenIssues: jest.fn().mockResolvedValue([]),
+  },
+}))
+
 const ctx = { externalChatId: 'chat-1' }
 
 describe('tools dispatcher', () => {
@@ -59,6 +73,10 @@ describe('tools dispatcher', () => {
       'draft_text',
       'gcal_create_event',
       'gcal_list_upcoming',
+      'github_my_issues',
+      'github_my_prs',
+      'gmail_draft',
+      'gmail_search',
       'list_tasks',
       'update_task',
     ])
@@ -100,5 +118,24 @@ describe('tools dispatcher', () => {
     if (res.ok) {
       expect(res.result).toMatchObject({ ok: false })
     }
+  })
+
+  it('gmail_draft validates email and creates a draft', async () => {
+    const bad = await runTool('gmail_draft', { to: 'not-an-email', subject: 'X', body: 'Y' }, ctx)
+    expect(bad.ok).toBe(false)
+
+    const good = await runTool(
+      'gmail_draft',
+      { to: 'ceo@example.com', subject: 'Привет', body: 'Тело письма.' },
+      ctx,
+    )
+    expect(good.ok).toBe(true)
+    if (good.ok) expect(good.result).toMatchObject({ draftId: 'draft-1' })
+  })
+
+  it('github_my_prs returns a count and list', async () => {
+    const res = await runTool('github_my_prs', { limit: 5 }, ctx)
+    expect(res.ok).toBe(true)
+    if (res.ok) expect(res.result).toMatchObject({ count: 0, prs: [] })
   })
 })

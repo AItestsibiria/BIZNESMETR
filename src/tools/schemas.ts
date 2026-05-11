@@ -53,9 +53,34 @@ export const GcalListUpcomingInputSchema = z.object({
   max: z.number().int().positive().max(50).default(20),
 })
 
+export const GmailDraftInputSchema = z.object({
+  to: z.string().email(),
+  subject: z.string().min(1).max(200),
+  body: z.string().min(1).max(20000),
+  cc: z.string().optional(),
+  bcc: z.string().optional(),
+})
+
+export const GmailSearchInputSchema = z.object({
+  query: z.string().min(1).describe('Gmail search syntax, e.g. "from:foo@bar.com newer_than:7d"'),
+  max: z.number().int().positive().max(50).default(10),
+})
+
+export const GithubMyPrsInputSchema = z.object({
+  limit: z.number().int().positive().max(50).default(20),
+})
+
+export const GithubMyIssuesInputSchema = z.object({
+  limit: z.number().int().positive().max(50).default(20),
+})
+
 export type CreateTaskInput = z.infer<typeof CreateTaskInputSchema>
 export type ListTasksInput = z.infer<typeof ListTasksInputSchema>
 export type UpdateTaskInput = z.infer<typeof UpdateTaskInputSchema>
 export type DraftTextInput = z.infer<typeof DraftTextInputSchema>
 export type GcalCreateEventInput = z.infer<typeof GcalCreateEventInputSchema>
 export type GcalListUpcomingInput = z.infer<typeof GcalListUpcomingInputSchema>
+export type GmailDraftInput = z.infer<typeof GmailDraftInputSchema>
+export type GmailSearchInput = z.infer<typeof GmailSearchInputSchema>
+export type GithubMyPrsInput = z.infer<typeof GithubMyPrsInputSchema>
+export type GithubMyIssuesInput = z.infer<typeof GithubMyIssuesInputSchema>

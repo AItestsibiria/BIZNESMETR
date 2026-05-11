@@ -48,7 +48,14 @@ const schema = z.object({
   GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(),
   HUB_SHEET_ID: z.string().optional(),
   GOOGLE_CALENDAR_ID: z.string().default('primary'),
+  GMAIL_USER_EMAIL: z.string().email().optional(),
   DEFAULT_TZ: z.string().default('Europe/Moscow'),
+
+  GITHUB_TOKEN: z.string().optional(),
+  GITHUB_OWNER: z.string().optional(),
+
+  DIGEST_CRON: z.string().optional(),
+  DIGEST_CHAT_IDS: csvStrings,
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 })

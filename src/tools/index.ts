@@ -4,11 +4,17 @@ import { z } from 'zod'
 import { logger } from '../logger'
 import { sheetsClient, type TaskRow } from '../integrations/sheets'
 import { calendarClient } from '../integrations/gcal'
+import { gmailClient } from '../integrations/gmail'
+import { githubClient } from '../integrations/github'
 import {
   CreateTaskInputSchema,
   DraftTextInputSchema,
   GcalCreateEventInputSchema,
   GcalListUpcomingInputSchema,
+  GithubMyIssuesInputSchema,
+  GithubMyPrsInputSchema,
+  GmailDraftInputSchema,
+  GmailSearchInputSchema,
   ListTasksInputSchema,
   UpdateTaskInputSchema,
 } from './schemas'
@@ -129,6 +135,55 @@ const gcalListUpcoming = defineTool({
   },
 })
 
+const gmailDraft = defineTool({
+  name: 'gmail_draft',
+  description:
+    'Create a Gmail draft. Use when the user asks to "draft an email", "set up a reply to X", etc. Does NOT send — the user reviews and sends manually.',
+  schema: GmailDraftInputSchema,
+  handler: async (input) => {
+    const { id } = await gmailClient.createDraft({
+      to: input.to,
+      subject: input.subject,
+      body: input.body,
+      ...(input.cc !== undefined ? { cc: input.cc } : {}),
+      ...(input.bcc !== undefined ? { bcc: input.bcc } : {}),
+    })
+    return { draftId: id }
+  },
+})
+
+const gmailSearch = defineTool({
+  name: 'gmail_search',
+  description:
+    'Search the user\'s Gmail using Gmail search syntax. Use for "find letter from X", "what did Y write last week", etc.',
+  schema: GmailSearchInputSchema,
+  handler: async (input) => {
+    const results = await gmailClient.search(input.query, input.max)
+    return { count: results.length, results }
+  },
+})
+
+const githubMyPrs = defineTool({
+  name: 'github_my_prs',
+  description:
+    'List open pull requests authored by the user. Use for "what PRs do I have open", "stuck reviews", etc.',
+  schema: GithubMyPrsInputSchema,
+  handler: async (input) => {
+    const prs = await githubClient.listMyOpenPRs({ limit: input.limit })
+    return { count: prs.length, prs }
+  },
+})
+
+const githubMyIssues = defineTool({
+  name: 'github_my_issues',
+  description: 'List open GitHub issues authored by the user. Use for "what issues am I tracking".',
+  schema: GithubMyIssuesInputSchema,
+  handler: async (input) => {
+    const issues = await githubClient.listMyOpenIssues({ limit: input.limit })
+    return { count: issues.length, issues }
+  },
+})
+
 const tools = [
   createTask,
   listTasks,
@@ -136,6 +191,10 @@ const tools = [
   draftText,
   gcalCreateEvent,
   gcalListUpcoming,
+  gmailDraft,
+  gmailSearch,
+  githubMyPrs,
+  githubMyIssues,
 ] as const
 
 export function getToolDefinitionsForClaude(): Anthropic.Messages.Tool[] {
