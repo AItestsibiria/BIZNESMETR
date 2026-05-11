@@ -917,14 +917,66 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         <div className="glass-card rounded-2xl p-6 border border-purple-500/10">
           <div className="flex items-start gap-3">
             <span className="text-2xl">🚀</span>
-            <div>
+            <div className="flex-1">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/20 text-green-300 font-medium">Новости</span>
                 <span className="text-[10px] text-muted-foreground">12 апреля 2026</span>
               </div>
-              <h3 className="text-lg font-bold text-white mb-2">«Поехали» 🎁</h3>
+              <h3 className="text-lg font-bold text-white mb-2">«Поехали»</h3>
+
+              {/* Подарок-коробка с нотами в гамме MuziAi (purple→blue→cyan) */}
+              <div className="my-3 relative rounded-xl border border-purple-500/30 bg-gradient-to-br from-purple-500/[0.12] via-blue-500/[0.10] to-cyan-500/[0.10] p-3 overflow-hidden">
+                {/* Sparkles фон — едва заметные ноты */}
+                <svg viewBox="0 0 200 60" className="absolute inset-0 w-full h-full pointer-events-none opacity-25" aria-hidden="true">
+                  <g fill="none" stroke="rgba(167,139,250,0.6)" strokeWidth="0.6">
+                    <circle cx="20" cy="15" r="1.6" fill="rgba(167,139,250,0.6)" stroke="none" />
+                    <line x1="21.6" y1="15" x2="21.6" y2="6" />
+                    <circle cx="170" cy="42" r="1.4" fill="rgba(34,211,238,0.6)" stroke="none" />
+                    <line x1="171.4" y1="42" x2="171.4" y2="34" stroke="rgba(34,211,238,0.6)" />
+                    <circle cx="50" cy="48" r="1" fill="rgba(96,165,250,0.5)" stroke="none" />
+                    <circle cx="140" cy="12" r="1" fill="rgba(167,139,250,0.5)" stroke="none" />
+                  </g>
+                </svg>
+                <div className="relative flex items-center gap-3">
+                  {/* Подарочная коробка SVG */}
+                  <svg viewBox="0 0 48 48" className="w-12 h-12 shrink-0 drop-shadow-[0_0_10px_rgba(139,92,246,0.45)]" aria-hidden="true">
+                    <defs>
+                      <linearGradient id="giftBox" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0%" stopColor="#a78bfa" />
+                        <stop offset="50%" stopColor="#60a5fa" />
+                        <stop offset="100%" stopColor="#22d3ee" />
+                      </linearGradient>
+                      <linearGradient id="giftRibbon" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#f0abfc" />
+                        <stop offset="100%" stopColor="#a78bfa" />
+                      </linearGradient>
+                    </defs>
+                    {/* Тело коробки */}
+                    <rect x="8" y="20" width="32" height="22" rx="2" fill="url(#giftBox)" />
+                    {/* Крышка */}
+                    <rect x="6" y="16" width="36" height="6" rx="1.5" fill="url(#giftBox)" opacity="0.95" />
+                    {/* Вертикальная лента */}
+                    <rect x="22" y="16" width="4" height="26" fill="url(#giftRibbon)" />
+                    {/* Бант */}
+                    <ellipse cx="20" cy="15" rx="5" ry="3" fill="url(#giftRibbon)" />
+                    <ellipse cx="28" cy="15" rx="5" ry="3" fill="url(#giftRibbon)" />
+                    <circle cx="24" cy="15" r="1.6" fill="#fde68a" />
+                    {/* Нота на коробке */}
+                    <circle cx="14" cy="32" r="1.8" fill="#fde68a" />
+                    <line x1="15.8" y1="32" x2="15.8" y2="25" stroke="#fde68a" strokeWidth="0.8" />
+                    <path d="M 15.8 25 Q 19 26 18 29" stroke="#fde68a" strokeWidth="0.8" fill="none" />
+                  </svg>
+                  <div className="flex-1">
+                    <div className="text-[11px] uppercase tracking-wider text-purple-300/80 font-display">подарок при регистрации</div>
+                    <div className="text-base font-bold bg-gradient-to-r from-purple-300 via-blue-300 to-cyan-300 bg-clip-text text-transparent">
+                      1 трек бесплатно 🎵
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <p className="text-sm text-muted-foreground leading-relaxed">
-                При регистрации дарим <span className="text-emerald-300 font-semibold">1 трек в подарок</span> — попробуй MuziAi бесплатно. Все функции открыты: создавай треки, тексты и обложки.
+                Зарегистрируйся и попробуй MuziAi — бонусный трек уже на счету.
               </p>
               <p className="text-sm text-muted-foreground leading-relaxed mt-2">
                 По всем вопросам <a href="#" onClick={openMail} className="text-purple-400 hover:text-purple-300 transition-colors">пишите нам</a>
