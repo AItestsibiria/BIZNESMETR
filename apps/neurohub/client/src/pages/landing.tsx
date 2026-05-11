@@ -924,10 +924,22 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               </div>
               <h3 className="text-lg font-bold text-white mb-2">«Поехали»</h3>
 
-              {/* Eugene 2026-05-11: образ из новости убран — оставляем
-                  только текст с подсветкой 'трек в подарок'. Анимированная
-                  подарок-коробка отвлекала. */}
-              <div className="hidden">
+              {/* Подарок-коробка с нотами в гамме MuziAi. Анимация открытия
+                  играет 1 раз для лида в день; для клиентов и повторных
+                  визитов — статичная (gift-static). */}
+              <div
+                ref={(el) => {
+                  if (!el) return;
+                  if (user) { el.classList.add("gift-static"); return; }
+                  try {
+                    const today = new Date().toISOString().slice(0, 10);
+                    const last = localStorage.getItem("_giftSeen");
+                    if (last === today) { el.classList.add("gift-static"); return; }
+                    localStorage.setItem("_giftSeen", today);
+                  } catch {}
+                }}
+                className="my-3 relative rounded-xl border border-purple-500/30 bg-gradient-to-br from-purple-500/[0.12] via-blue-500/[0.10] to-cyan-500/[0.10] p-3 overflow-hidden gift-stage"
+              >
                 {/* Звёзды на фоне (~20% сцены сверху) */}
                 <svg viewBox="0 0 200 60" className="absolute inset-0 w-full h-full pointer-events-none" aria-hidden="true">
                   <g>
