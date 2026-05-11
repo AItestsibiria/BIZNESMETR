@@ -33,6 +33,7 @@ import adminOverviewModule from "./plugins/admin-overview/module";
 import incidentTrackerModule from "./plugins/incident-tracker/module";
 import audioUploadModule from "./plugins/audio-upload/module";
 import maxChannelModule from "./plugins/max-channel/module";
+import telegramBotModule from "./plugins/telegram-bot/module";
 import generationAgentModule from "./plugins/generation-agent/module";
 import sunoWatchdogModule from "./plugins/suno-watchdog/module";
 import * as fs from "node:fs";
@@ -249,6 +250,7 @@ app.post("/api/_client-error", express.json(), (req, res) => {
     { name: "incident-tracker", module: incidentTrackerModule },
     { name: "audio-upload", module: audioUploadModule },
     { name: "max-channel", module: maxChannelModule },
+    { name: "telegram-bot", module: telegramBotModule },
     { name: "generation-agent", module: generationAgentModule },
     { name: "suno-watchdog", module: sunoWatchdogModule },
   ];
