@@ -21,9 +21,39 @@
 import { Router } from "express";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { db } from "../../storage";
 import { chatbotSessions, chatbotMessages, users } from "@shared/schema";
 import type { BootContext, Module } from "../../core";
+
+// Knowledge base — читаем из docs/strategy/KNOWLEDGE-BASE-BOT.md
+// Eugene 2026-05-11: «помощник собирает базу знаний, обновляется когда
+// меняем функции». Файл коммитится с любыми изменениями цен/режимов/
+// шаблонов. Бот reload'ит по запросу /bot-kb/reload или на старте.
+let kbCache: { text: string; mtime: number } = { text: "", mtime: 0 };
+function kbPath(): string | null {
+  for (const p of [
+    "/opt/muziai-src/docs/strategy/KNOWLEDGE-BASE-BOT.md",
+    "/var/www/neurohub/docs/strategy/KNOWLEDGE-BASE-BOT.md",
+    path.join(process.cwd(), "docs/strategy/KNOWLEDGE-BASE-BOT.md"),
+    path.join(process.cwd(), "../../docs/strategy/KNOWLEDGE-BASE-BOT.md"),
+  ]) {
+    try { if (fs.existsSync(p)) return p; } catch {}
+  }
+  return null;
+}
+function loadKB(force = false): string {
+  const p = kbPath();
+  if (!p) return "";
+  try {
+    const stat = fs.statSync(p);
+    if (!force && kbCache.text && stat.mtimeMs === kbCache.mtime) return kbCache.text;
+    const text = fs.readFileSync(p, "utf-8");
+    kbCache = { text, mtime: stat.mtimeMs };
+    return text;
+  } catch { return kbCache.text || ""; }
+}
 
 const TELEGRAM_API = "https://api.telegram.org";
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN || "";
@@ -83,29 +113,16 @@ function personaFor(userKey: string) {
 function buildPersonaSystem(userKey: string): string {
   const p = personaFor(userKey);
   const greetingExample = p.gender === "м" ? `Готов помочь` : `Готова помочь`;
+  const kb = loadKB() || "[база знаний временно недоступна — отвечай вежливо, спроси email/детали]";
   return `Ты — ${p.name}, ${p.age} лет, support-агент сервиса MuziAi (muziai.ru). ${p.tone}. Отвечаешь живо, на «ты» если юзер так пишет, иначе на «вы». Кратко (2-4 предложения для обычного вопроса). Эмодзи умеренно — 1-2 на сообщение. ${greetingExample}.
 
-База знаний MuziAi:
-- Это российский AI-сервис генерации песен и музыки
-- Цены: трек 299₽, текст песни 99₽, обработка 99₽, пакет 10 треков 2990₽
-- 3 режима генерации:
-  • 🎤 Аудио — наговори голосом идею, AI сам напишет текст и сгенерирует трек (самый быстрый)
-  • 📄 Текст·Простой — опиши одной фразой что хочешь
-  • ⚙ Текст·Расширенный — полный контроль: жанр, BPM, темп, lyrics, мульти-стиль
-- Голос: мужской / женский / дуэт / инструментал
-- Шаблоны «Музыкальные События»: свадьба, день рождения, корпоратив, гимн компании, и др.
-- Авторизация: email/пароль, Telegram Login Widget, авто-привязка по chat_id
-- Сайт: https://muziai.ru
-- Поддержка: через этого бота @muziaipodari_bot
+ВАЖНО: ниже актуальная база знаний по продукту. Опирайся только на неё — не выдумывай факты, цены, шаблоны. Если в базе нет ответа — честно скажи «уточню у команды и вернусь».
 
-Стиль ответов:
-- Не упоминай что ты AI или бот. Если спросят — представляйся именем выше
-- Если технический вопрос — отвечай конкретно
-- Если проблема — сочувствуй, проси описать подробнее (трек id, экран, что нажимали)
-- Если про деньги/возврат — поясни прайс, попроси email чтобы найти аккаунт
-- Никогда не обещай скидки или акции которых нет
-- Не выдавай админ-инфо (баланс GPTunnel, секреты, etc.)
-- Всегда на русском`;
+---ACTUAL_KNOWLEDGE_BASE---
+${kb}
+---END_KB---
+
+Говори живо, как живой человек, не как AI. Не используй markdown-списки (•, **, ##) — это чат, не документация.`;
 }
 
 // Backup-LLM (Eugene 2026-05-11): Claude primary, OpenAI fallback.
@@ -298,6 +315,17 @@ router.get("/setup-webhook", async (req, res) => {
   }
 });
 
+// Reload knowledge base (без рестарта pm2). Защищено secret.
+router.get("/kb/reload", (req, res) => {
+  const secret = String(req.query.secret || "");
+  const allowed = [process.env.CRON_SECRET, process.env.SESSION_SECRET].filter(Boolean) as string[];
+  if (allowed.length === 0 || !allowed.includes(secret)) {
+    return res.status(403).json({ ok: false, error: "secret required" });
+  }
+  const text = loadKB(true);
+  res.json({ ok: !!text, length: text.length, path: kbPath() });
+});
+
 router.get("/info", async (_req, res) => {
   if (!TOKEN()) return res.json({ configured: false });
   try {
@@ -317,9 +345,12 @@ const telegramBotModule: Module = {
   routes: { prefix: "telegram", router },
   onLoad: async (ctx) => {
     bootRefs = { eventBus: ctx.eventBus, logger: ctx.logger };
+    const kb = loadKB(true);
     ctx.logger.info("telegram-bot online", {
       token: TOKEN() ? "configured" : "missing",
       anthropic: ANTHROPIC_KEY() ? "configured" : "missing",
+      openai_fallback: !!process.env.OPENAI_API_KEY,
+      kb_loaded: kb.length > 0 ? `${kb.length} chars` : "missing",
     });
   },
   healthCheck: () => {
