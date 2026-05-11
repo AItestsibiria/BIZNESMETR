@@ -64,23 +64,24 @@ async function sendMessage(chatId: number | string, text: string): Promise<void>
   }
 }
 
-// === Persona rotation по дням недели (Eugene 2026-05-10) ===
-// Аня (27), Татьяна (29), Сергей (30), Мария (28) — чередуются по дням.
-// Юзер видит разных агентов в разные дни, но имя стабильно в течение одного дня.
+// === Persona по hash(userId) (Eugene 2026-05-11) ===
+// Каждый юзер видит свою постоянную «куратор-девушку» — стабильно
+// от первого сообщения до последнего. Разные юзеры — разные имена.
 const PERSONAS: Array<{ name: string; age: number; gender: "ж" | "м"; tone: string }> = [
   { name: "Аня",     age: 27, gender: "ж", tone: "тёплая, заботливая, эмпатичная" },
   { name: "Татьяна", age: 29, gender: "ж", tone: "энергичная, дружелюбная, с лёгким юмором" },
   { name: "Сергей",  age: 30, gender: "м", tone: "спокойный, уверенный, по делу" },
   { name: "Мария",   age: 28, gender: "ж", tone: "вежливая, профессиональная, аккуратная" },
 ];
-function currentPersona() {
-  // 7 дней / 4 имени — Пн=Аня, Вт=Татьяна, Ср=Сергей, Чт=Мария, Пт=Аня, Сб=Татьяна, Вс=Сергей
-  const day = new Date().getDay(); // 0=Вс, 1=Пн, ..., 6=Сб
-  return PERSONAS[day % PERSONAS.length];
+function personaFor(userKey: string) {
+  let h = 0;
+  const s = String(userKey || "anon");
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  return PERSONAS[Math.abs(h) % PERSONAS.length];
 }
 
-function buildPersonaSystem(): string {
-  const p = currentPersona();
+function buildPersonaSystem(userKey: string): string {
+  const p = personaFor(userKey);
   const greetingExample = p.gender === "м" ? `Готов помочь` : `Готова помочь`;
   return `Ты — ${p.name}, ${p.age} лет, support-агент сервиса MuziAi (muziai.ru). ${p.tone}. Отвечаешь живо, на «ты» если юзер так пишет, иначе на «вы». Кратко (2-4 предложения для обычного вопроса). Эмодзи умеренно — 1-2 на сообщение. ${greetingExample}.
 
@@ -107,10 +108,10 @@ function buildPersonaSystem(): string {
 - Всегда на русском`;
 }
 
-async function generateReply(userText: string, history: Array<{ role: "user" | "assistant"; content: string }>): Promise<string> {
+async function generateReply(userKey: string, userText: string, history: Array<{ role: "user" | "assistant"; content: string }>): Promise<string> {
   const key = ANTHROPIC_KEY();
   if (!key) {
-    return `Здравствуйте! Я ${currentPersona().name} из MuziAi 🎵 Скоро отвечу подробнее — небольшая задержка.`;
+    return `Здравствуйте! Я ${personaFor(userKey).name} из MuziAi 🎵 Скоро отвечу подробнее — небольшая задержка.`;
   }
   try {
     const messages = [
@@ -127,7 +128,7 @@ async function generateReply(userText: string, history: Array<{ role: "user" | "
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 400,
-        system: buildPersonaSystem(),
+        system: buildPersonaSystem(userKey),
         messages,
       }),
       signal: AbortSignal.timeout(20_000),
@@ -135,17 +136,17 @@ async function generateReply(userText: string, history: Array<{ role: "user" | "
     if (!r.ok) {
       const t = await r.text().catch(() => "");
       bootRefs?.logger.warn?.("[telegram-bot] anthropic non-ok", { status: r.status, body: t.slice(0, 200) });
-      return `Здравствуйте! Я ${currentPersona().name} 🎵 Чуть-чуть тормозит — попробуйте через минуту.`;
+      return `Здравствуйте! Я ${personaFor(userKey).name} 🎵 Чуть-чуть тормозит — попробуйте через минуту.`;
     }
     const j: any = await r.json();
     const content = j?.content?.[0]?.text;
     if (typeof content === "string" && content.length > 0) {
       return content.slice(0, 3500);
     }
-    return `Здравствуйте! Я ${currentPersona().name} 🎵 Я тут — расскажите, чем помочь.`;
+    return `Здравствуйте! Я ${personaFor(userKey).name} 🎵 Я тут — расскажите, чем помочь.`;
   } catch (e) {
     bootRefs?.logger.warn?.("[telegram-bot] generateReply failed", { error: String(e) });
-    return `Здравствуйте! Я ${currentPersona().name} 🎵 Что-то сложно сейчас — попробуйте чуть позже.`;
+    return `Здравствуйте! Я ${personaFor(userKey).name} 🎵 Что-то сложно сейчас — попробуйте чуть позже.`;
   }
 }
 
@@ -219,7 +220,7 @@ router.post("/webhook", async (req, res) => {
 
     // /start — приветственное сообщение
     if (text === "/start" || text === "/start@muziaipodari_bot") {
-      const p = currentPersona();
+      const p = personaFor(fromId);
       const hello = existingUserId
         ? `С возвращением 🎵 Я ${p.name}, помогу с MuziAi. Спрашивай что угодно.`
         : `Здравствуйте! Я ${p.name} из MuziAi 🎵\nПомогу подобрать песню, расскажу про цены и возможности.\nСайт: https://muziai.ru\n\nЧто хотите создать?`;
@@ -231,7 +232,7 @@ router.post("/webhook", async (req, res) => {
 
     saveMessage(sessionId, "user", text);
     const history = loadHistory(sessionId);
-    const reply = await generateReply(text, history);
+    const reply = await generateReply(fromId, text, history);
     await sendMessage(chatId, reply);
     saveMessage(sessionId, "bot",reply);
     bootRefs?.eventBus?.emit?.("chatbot.reply_sent", { channel: "telegram", sessionId, chatId }, "telegram-bot");
