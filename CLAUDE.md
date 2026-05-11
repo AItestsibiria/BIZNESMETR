@@ -186,6 +186,13 @@ ssh root@72.56.1.149 'sed -i "/^ИМЯ_КЛЮЧА=/d" /var/www/neurohub/.env \
 - Visual avatar того же образа на сайте + в Telegram (один SVG/img)
 - При появлении новых ботов / каналов — добавлять туда тот же набор персон с тем же hash-выбором
 
+### Max bot docs reference (Eugene 2026-05-11)
+
+Документация Max business API для настройки бота:
+- https://dev.max.ru/docs/maxbusiness/selectionservices
+
+При работе с `plugins/max-bot/module.ts` и `plugins/max-channel/module.ts` сначала свериться с этой страницей: правильный endpoint для регистрации webhook (subscriptions), формат payload update'ов (поля `chat_id` / `sender` / `body.text`), поддержка inline keyboards и selection services. Текущий MVP в max-bot был сделан по аналогии с Telegram API — может потребовать правок после изучения.
+
 ### Knowledge-base sync rule (Eugene 2026-05-11)
 
 **При изменении любых публичных параметров MuziAi (цены, режимы генерации, шаблоны, голоса, бонусная программа, реферальная) — в том же коммите обновляй `docs/strategy/KNOWLEDGE-BASE-BOT.md`.**
