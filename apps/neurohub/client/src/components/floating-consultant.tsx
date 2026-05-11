@@ -71,6 +71,14 @@ export function FloatingConsultant() {
             >
               <span>📱</span> Telegram
             </a>
+            <a
+              href="https://max.ru/messages/Muziaipodari_bot"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.06] transition-colors text-[12px] text-white/90"
+            >
+              <span>💬</span> Max
+            </a>
             <button
               type="button"
               onClick={() => { window.location.hash = "#/music"; }}
