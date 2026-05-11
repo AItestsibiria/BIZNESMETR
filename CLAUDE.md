@@ -6,61 +6,128 @@ This file provides context and conventions for AI assistants (Claude Code and ot
 
 ## Current Repository State
 
-> **Heads up:** As of the last update, this repository contains **only this `CLAUDE.md`** — no source code, `package.json`, Prisma schema, or test files have been committed yet. The conventions below describe the **target stack and patterns** the project will follow once implementation begins.
->
-> When you add the first code, scaffold it to match the conventions in this document, then update this section to reflect what actually exists.
+BIZNESMETR is being built as a **personal assistant to a CEO**: one chat (Telegram now, MAX later) that routes everything — drafting text, creating/listing tasks, eventually calendar/mail/GitHub/CRM — through Claude with tool use.
 
-**Currently in the repo:**
-- `CLAUDE.md` (this file)
+**Sprint 1 scaffolding is in place** (caркас), but the project has not been run end-to-end yet. Stubs marked `// TODO(muziai)` are waiting on patterns from the MuziAI project (Telegram handler details, deploy pipeline, reverse proxy config). See `references/TODO_FROM_MUZIAI.md` for the list and `references/REQUEST_TO_MUZIAI.md` for the brief sent to that team.
+
+**Project layout:**
+
+```
+/
+├── prisma/
+│   └── schema.prisma            # User, Message, Fact
+├── src/
+│   ├── index.ts                 # Express entry, mounts webhooks
+│   ├── config.ts                # env loading + Zod validation
+│   ├── logger.ts                # pino logger (use this, never console.*)
+│   ├── db.ts                    # shared PrismaClient
+│   ├── claude.ts                # Anthropic SDK + tool-use loop
+│   ├── messengers/
+│   │   ├── adapter.ts           # MessengerAdapter interface
+│   │   ├── telegram.ts          # Telegraf-based Telegram adapter (stub)
+│   │   └── max.ts               # MAX adapter stub (Sprint 2)
+│   ├── core/
+│   │   ├── auth.ts              # whitelist check
+│   │   ├── memory.ts            # user upsert + history load/save
+│   │   └── router.ts            # incoming → Claude → reply
+│   ├── tools/
+│   │   ├── index.ts             # tool registry + runTool dispatcher
+│   │   └── schemas.ts           # Zod schemas for tool inputs
+│   └── integrations/
+│       └── sheets.ts            # Google Sheets TaskStore
+├── references/
+│   ├── REQUEST_TO_MUZIAI.md     # forwardable brief
+│   └── TODO_FROM_MUZIAI.md      # list of pending integration points
+├── Dockerfile
+├── docker-compose.yml
+├── package.json
+├── tsconfig.json
+├── .env.example
+├── .dockerignore
+└── .gitignore
+```
 
 **Branches:**
-- `main` — empty (docs only)
+- `main` — empty (docs only — Sprint 1 scaffolding lives on the working branch)
 - `claude/<description>-<id>` — Claude Code working branches
 
 ---
 
 ## Project Overview
 
-**BIZNESMETR / Acme API** is a planned business metrics REST API platform.
+**BIZNESMETR** is a personal CEO assistant: a single Telegram/MAX entry point that dispatches messages to tools (tasks in Google Sheets, soon Calendar / Gmail / GitHub / CRM) via Claude.
 
 **Repository:** `aitestsibiria/biznesmetr`
 **Primary remote:** `origin`
 **Runtime:** Node.js 20
-**Planned stack:** Express · PostgreSQL · Prisma ORM · TypeScript (strict) · Jest · Zod
+**Stack:** Express · TypeScript (strict) · PostgreSQL + Prisma · Telegraf · Anthropic SDK · googleapis · Zod · pino
+
+**Hosting target:** self-hosted VPS, deployed via Docker Compose, reverse-proxied (Caddy/Traefik TBD per MuziAI conventions).
 
 ---
 
-## Commands (planned)
-
-These scripts are not yet defined in any `package.json`. Add them when scaffolding the project:
+## Commands
 
 ```bash
-npm run dev            # Start development server
-npm run test           # Run tests (Jest)
-npm run lint           # ESLint + Prettier check
-npm run build          # Production build
-npm run db:test:reset  # Reset local test DB — REQUIRED before running tests
+npm run dev              # Start dev server with hot reload (tsx watch)
+npm run build            # tsc → dist/
+npm run start            # Run built output
+npm run typecheck        # tsc --noEmit
+npm run lint             # ESLint
+npm run format           # Prettier write
+npm run test             # Jest
+npm run db:migrate:dev   # Apply Prisma migrations locally
+npm run db:migrate       # Apply migrations in prod (used by Docker entrypoint)
+npm run db:test:reset    # Reset test DB — REQUIRED before running tests
+npm run db:generate      # prisma generate (after schema changes)
 ```
 
 ---
 
-## Architecture (target)
+## Architecture
 
-- **Framework:** Express REST API
-- **Database:** PostgreSQL accessed via Prisma ORM
-- **Request handlers:** `src/handlers/` — one file per resource/route group
-- **Shared types:** `src/types/` — TypeScript interfaces and Zod schemas shared across the app
-- **Logger:** `src/logger.ts` — single shared logger module
+### Request flow (one inbound message)
 
-### Response Shape
-
-Every endpoint returns the same envelope — no exceptions:
-
-```ts
-{ data: T | null, error: string | null }
+```
+[Telegram | MAX]
+    │ webhook (Express)
+    ▼
+[MessengerAdapter]  → InboundMessage { channel, userId, chatId, text, ... }
+    ▼
+[core/router.ts]
+    ├─ auth.isAllowed()         (whitelist check)
+    ├─ memory.upsertUser()
+    ├─ memory.loadHistory()     (last N turns from Postgres)
+    ├─ memory.saveMessage(user)
+    ▼
+[claude.runClaude()]            (Anthropic SDK + tool-use loop)
+    ├─ rounds:
+    │   ├─ messages.create() with tools
+    │   ├─ stop_reason === 'tool_use' → runTool() → push tool_result → loop
+    │   └─ otherwise → return text
+    ▼
+[memory.saveMessage(assistant)]
+[MessengerAdapter.send()]
 ```
 
-On success, set `data` and leave `error` null. On failure, set `error` and leave `data` null. Never expose stack traces or internal error messages to the client.
+### Tools (Claude-callable)
+
+Defined in `src/tools/index.ts`, validated by Zod schemas in `src/tools/schemas.ts`:
+
+- `create_task` — append a row to the `Tasks` sheet
+- `list_tasks` — read tasks, filter by status/project
+- `update_task` — patch a row by id
+- `draft_text` — structured marker so Claude produces a draft in its next text turn
+
+Add a new tool by:
+1. Adding a Zod schema in `tools/schemas.ts`.
+2. Calling `defineTool(...)` in `tools/index.ts` and adding it to the `tools` array.
+3. The router and Claude loop pick it up automatically — no wiring needed.
+
+### Two data stores, intentionally
+
+- **PostgreSQL (Prisma)** — internal state Claude needs: users, conversation history, facts. Not user-facing.
+- **Google Sheets** — user-facing tasks hub. The CEO can open it, share it, edit it manually. The `SheetsClient` is the only writer; the `TaskStore` abstraction will let us move to Postgres-backed UI later without rewriting tools.
 
 ---
 
@@ -68,41 +135,39 @@ On success, set `data` and leave `error` null. On failure, set `error` and leave
 
 ### Validation
 
-Use **Zod** for all request body and query-param validation. Define schemas in `src/types/` when shared; colocate them in the handler file when route-specific.
-
-```ts
-import { z } from 'zod'
-
-const CreateWidgetSchema = z.object({
-  name: z.string().min(1),
-  value: z.number().positive(),
-})
-```
-
-Parse at the handler boundary before any business logic runs.
+Always use **Zod** at boundaries: env (`config.ts`), tool inputs (`tools/schemas.ts`), inbound webhook payloads. Parse before any business logic.
 
 ### Logging
 
-Use the **`logger` module** — never `console.log`, `console.error`, etc.
+Use the **`logger` module** (`src/logger.ts`) — never `console.log` / `console.error`. Pino, JSON in prod, pretty in dev, with redaction for tokens and auth headers.
 
 ```ts
-import { logger } from '../logger'
-
-logger.info('Widget created', { widgetId })
-logger.error('Failed to create widget', { error })
+import { logger } from './logger'
+logger.info({ userId }, 'Handled message')
+logger.error({ error }, 'Failed to send reply')
 ```
 
 ### TypeScript
 
-- **Strict mode is on.** The compiler will reject unused imports — remove them.
-- Do not use `any`. Use `unknown` and narrow with type guards or Zod `.parse()`.
-- Do not silence TypeScript errors with `// @ts-ignore` or `// @ts-expect-error` without a comment explaining why.
+- **Strict mode is on**, plus `noUnusedLocals`, `noUnusedParameters`, `exactOptionalPropertyTypes`. Remove unused imports.
+- No `any`. Use `unknown` and narrow with type guards or Zod `.parse()`.
+- Don't silence errors with `// @ts-ignore` / `// @ts-expect-error` without a one-line comment explaining why.
+- With `exactOptionalPropertyTypes`, do **not** pass `{ key: undefined }` — spread conditionally: `...(value !== undefined ? { key: value } : {})`.
 
-### Error Handling
+### Error handling
 
-- Catch errors at the handler level; return `{ data: null, error: 'Human-readable message' }`.
-- Never let raw Prisma errors, Zod errors, or Node errors propagate to the HTTP response body.
-- Log the full error internally before sending the sanitized response.
+- Catch in the router (`core/router.ts`) and tool dispatcher (`tools/index.ts`).
+- User-facing replies on failure are short and human ("Что-то пошло не так на моей стороне."). Never expose stack traces, Prisma error details, or internal paths.
+- Tools return `{ ok: true, result } | { ok: false, error }` to the Claude loop; failed tool results are sent back with `is_error: true` so the model can recover.
+
+### Adding integrations
+
+New integration (Calendar, Gmail, GitHub, CRM):
+1. `src/integrations/<name>.ts` — client + typed methods, like `sheets.ts`.
+2. New tool(s) in `src/tools/` that call it.
+3. Env vars in `.env.example` + `config.ts` schema.
+
+Keep clients side-effect free at module load — lazy-init in a method, like `SheetsClient.client()`.
 
 ---
 
@@ -111,14 +176,14 @@ logger.error('Failed to create widget', { error })
 Tests use a **real local PostgreSQL database** — not mocks.
 
 ```bash
-# Always reset the test DB before a test run
 npm run db:test:reset
 npm run test
 ```
 
-- Test files live alongside source files or in a `__tests__/` subdirectory.
-- Seed data and fixtures go through Prisma directly — no raw SQL in tests.
-- Each test suite is responsible for cleaning up the data it creates.
+- Test files alongside source files or in a `__tests__/` subdirectory.
+- Seed data and fixtures go through Prisma — no raw SQL.
+- Each suite cleans up data it creates.
+- Google APIs in tests: prefer recording fixtures or stubbing the `SheetsClient` at the integration boundary; do not hit live Sheets in CI.
 
 ---
 
@@ -130,9 +195,7 @@ npm run test
 | `develop` | Integration branch for features |
 | `feature/<description>` | New features |
 | `fix/<description>` | Bug fixes |
-| `claude/<description>-<id>` | Branches created by Claude Code (auto-generated) |
-
-Claude Code branches follow the pattern `claude/<short-description>-<random-suffix>`, e.g. `claude/add-claude-documentation-6rVqM`.
+| `claude/<description>-<id>` | Branches created by Claude Code |
 
 **Never push directly to `main`.** All changes go through pull requests.
 
@@ -146,18 +209,15 @@ Use [Conventional Commits](https://www.conventionalcommits.org/):
 <type>(<scope>): <short summary>
 
 [optional body]
-
-[optional footer]
 ```
 
-Common types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`
+Common types: `feat`, `fix`, `refactor`, `test`, `docs`, `chore`.
 
 Examples:
 ```
-feat(handlers): add GET /widgets endpoint with pagination
-fix(auth): handle expired token refresh correctly
-test(handlers): add coverage for widget creation errors
-docs: update CLAUDE.md to reflect current repo state
+feat(tools): add gcal_create_event tool
+fix(telegram): handle voice messages without text
+chore(docker): align entrypoint with MuziAI pattern
 ```
 
 ---
@@ -166,46 +226,69 @@ docs: update CLAUDE.md to reflect current repo state
 
 ### Before Making Changes
 
-1. **Verify what exists.** Run `ls` / `git ls-files` before assuming a file or directory is present — this repo is mostly empty, and references to `src/handlers/`, `src/types/`, etc. in this doc describe **intent**, not current reality.
+1. **Verify what exists.** Run `ls` / `git ls-files` before assuming a file is present — some directories (`secrets/`, `.github/workflows/`) don't exist yet.
 2. **Read the relevant files first.** Never edit code you haven't read.
-3. **Follow existing patterns.** Once handlers exist, check nearby ones for how validation, logging, and responses are structured before writing new code.
-4. **Scope changes to what was asked.** Do not refactor surrounding code, add docstrings, or clean up unrelated areas.
+3. **Follow existing patterns.** Look at `tools/index.ts` before adding a tool; look at `integrations/sheets.ts` before adding an integration.
+4. **Scope changes to what was asked.** Don't refactor surrounding code, don't add docstrings, don't clean up unrelated areas.
+5. **Respect `// TODO(muziai)` markers** — those are waiting on external input. Don't replace them with guesses; if you need to extend them, do so without removing the marker.
 
 ### Critical Rules
 
 - Always use the `logger` module — never `console.log`.
-- Always validate request input with Zod before touching business logic.
-- Always return `{ data, error }` — never a bare object or array.
-- Never expose stack traces, Prisma error details, or internal paths to the client.
-- Remove all unused imports — TypeScript strict mode will fail the build otherwise.
+- Always validate inputs with Zod before touching business logic.
+- Never expose stack traces, Prisma errors, or token strings to the client / user.
+- Remove all unused imports — strict TS fails the build otherwise.
+- Don't pass `undefined` as an explicit property value with `exactOptionalPropertyTypes` on — spread conditionally.
 - Before claiming tests pass, run `npm run db:test:reset` then `npm run test`.
 
 ### Security
 
 - Never introduce command injection, SQL injection, XSS, or other OWASP Top 10 vulnerabilities.
-- Use Prisma's parameterized queries — never string-interpolate user input into queries.
-- Do not log secrets, tokens, passwords, or PII.
+- Use Prisma's parameterized queries — never string-interpolate user input.
+- Never log secrets, tokens, passwords, or PII. The logger has a redact list — extend it if you add a new sensitive field.
+- The Google service account JSON lives outside the repo (`secrets/google-credentials.json`, mounted read-only). Don't commit it; `.gitignore` already excludes the path.
+- Telegram webhook secret token (`TELEGRAM_WEBHOOK_SECRET`) must be set in prod — Telegraf verifies it on every update.
 
 ### Git Workflow for AI Assistants
 
-- Develop on the designated feature branch (check the task description or system prompt).
-- Commit with descriptive messages following the Conventional Commits format above.
-- Push using `git push -u origin <branch-name>`.
+- Develop on the designated feature branch (see task description / system prompt).
+- Commit with Conventional Commits messages.
+- Push with `git push -u origin <branch-name>`.
 - Do **not** create a pull request unless explicitly asked.
 - Do **not** force-push or rebase published commits.
 
 ---
 
-## Environment Variables (planned)
+## Environment Variables
+
+See `.env.example` for the full list with comments. Highlights:
 
 | Variable | Required | Description |
 |---|---|---|
-| `NODE_ENV` | Yes | `development`, `test`, or `production` |
-| `DATABASE_URL` | Yes | Prisma connection string for the main DB |
-| `TEST_DATABASE_URL` | Yes | Separate DB used by Jest — never the main DB |
+| `NODE_ENV` | yes | `development` / `test` / `production` |
+| `DATABASE_URL` | yes | Postgres connection string |
+| `ANTHROPIC_API_KEY` | yes | Claude API key |
+| `TELEGRAM_BOT_TOKEN` | for Telegram | BotFather token |
+| `TELEGRAM_WEBHOOK_SECRET` | recommended | Telegraf verifies this header on each update |
+| `ALLOWED_TELEGRAM_USER_IDS` | yes | Comma-separated whitelist of numeric Telegram user ids |
+| `GOOGLE_APPLICATION_CREDENTIALS` | yes | Path to service-account JSON (mounted at `/run/secrets/...` in Docker) |
+| `HUB_SHEET_ID` | yes | Google Sheets workbook id |
+| `DEFAULT_TZ` | no | Default timezone, used by tools for date parsing (Europe/Moscow) |
+| `LOG_LEVEL` | no | pino level |
 
-Store secrets in `.env` (git-ignored). Commit `.env.example` with placeholder values only.
+Store secrets in `.env` (git-ignored). Commit `.env.example` with placeholders only.
 
 ---
 
-*Last updated: 2026-05-11 — Marked the document as forward-looking; repo currently contains only `CLAUDE.md` with no source code yet.*
+## Roadmap
+
+- **Sprint 1 (current):** scaffold + Telegram + Sheets + tasks. ← we are here
+- **Sprint 2:** MAX adapter, Google Calendar, morning digest at 09:00.
+- **Sprint 3:** Gmail (drafts, search, summarize); IMAP for corporate mail.
+- **Sprint 4:** GitHub coupling (PR status, stuck reviews, CI failures).
+- **Sprint 5:** CRM / 1С — spec depends on the specific systems.
+- **Sprint 6:** proactive layer — alerts on deadlines, new leads, important mail.
+
+---
+
+*Last updated: 2026-05-11 — Sprint 1 caркас committed; integrations stubbed with `// TODO(muziai)` markers awaiting MuziAI patterns.*

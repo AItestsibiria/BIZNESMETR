@@ -1,0 +1,53 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Channel {
+  TELEGRAM
+  MAX
+}
+
+model User {
+  id                String    @id @default(cuid())
+  channel           Channel
+  externalUserId    String
+  displayName       String?
+  isAllowed         Boolean   @default(false)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  messages          Message[]
+  facts             Fact[]
+
+  @@unique([channel, externalUserId])
+}
+
+model Message {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role          String
+  content       String    @db.Text
+  toolCalls     Json?
+  toolResults   Json?
+  createdAt     DateTime  @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model Fact {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  key       String
+  value     String    @db.Text
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([userId, key])
+}

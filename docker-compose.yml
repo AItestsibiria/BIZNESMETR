@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: biznesmetr
+      POSTGRES_PASSWORD: biznesmetr
+      POSTGRES_DB: biznesmetr
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U biznesmetr -d biznesmetr"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://biznesmetr:biznesmetr@postgres:5432/biznesmetr?schema=public
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      # Mount the Google service account JSON read-only at runtime.
+      - ./secrets/google-credentials.json:/run/secrets/google-credentials.json:ro
+
+# TODO(muziai): add reverse proxy (Caddy/Traefik/nginx) service here once
+# we know which one MuziAI uses. It must terminate HTTPS for PUBLIC_URL
+# and forward the webhook path(s) to the app service.
+
+volumes:
+  pgdata:
