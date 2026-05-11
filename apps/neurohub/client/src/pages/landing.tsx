@@ -1010,6 +1010,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                 Сейчас тестируем платформу. Зарегистрируйтесь сегодня — как только откроем генерацию, попробуете подарочный трек первыми.
               </p>
               <p className="text-sm text-muted-foreground leading-relaxed mt-2">
+                💡 Давайте пока подготовим вместе <span className="text-cyan-300 font-medium">текст или смысл</span> вашей будущей песни-поздравления — это уже работает в окне генерации.
+              </p>
+              <p className="text-sm text-muted-foreground leading-relaxed mt-2">
                 По всем вопросам <a href="#" onClick={openMail} className="text-purple-400 hover:text-purple-300 transition-colors">пишите нам</a>
               </p>
             </div>
