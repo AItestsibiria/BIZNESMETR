@@ -2691,11 +2691,8 @@ function createNew(){
 
   // ==================== LYRICS ====================
   app.post("/api/lyrics/generate", authMiddleware, async (req: Request, res: Response) => {
-    // Eugene 2026-05-10: maintenance-mode для generation. Env GENERATION_MAINTENANCE=1 →
-    // юзер видит баннер «тестовые работы, скоро запускаемся».
-    if (process.env.GENERATION_MAINTENANCE === "1") {
-      return res.status(503).json({ message: "🛠 Проводятся тестовые работы. Слушайте треки на сайте и изучайте функции — скоро запускаемся!", maintenance: true });
-    }
+    // Eugene 2026-05-11: lyrics ВСЕГДА доступен (даже в maintenance), чтобы
+    // юзеры готовили тексты будущих песен. Maintenance блокирует только музыку.
     const userId = (req as any).userId;
     const user = storage.getUser(userId);
     if (!user) { res.status(404).json({ message: "Пользователь не найден" }); return; }
@@ -2773,7 +2770,11 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   // ==================== MUSIC (SUNO) ====================
   app.post("/api/music/generate", authMiddleware, async (req: Request, res: Response) => {
     if (process.env.GENERATION_MAINTENANCE === "1") {
-      return res.status(503).json({ message: "🛠 Проводятся тестовые работы. Слушайте треки на сайте и изучайте функции — скоро запускаемся!", maintenance: true });
+      return res.status(503).json({
+        message: "🛠 Скоро запускаемся! Пока поработайте над текстом будущей песни — это уже работает: /lyrics. Сохраните его, и когда откроем генерацию музыки — превратим в трек одним кликом.",
+        maintenance: true,
+        suggestion: { action: "lyrics", url: "/#/lyrics" },
+      });
     }
     const userId = (req as any).userId;
     const user = storage.getUser(userId);
