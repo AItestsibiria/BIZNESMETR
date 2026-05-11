@@ -24,7 +24,18 @@ export function FloatingConsultant() {
       dismissedRef.current = saved;
       if (saved >= MAX_DISMISS) return;
     } catch {}
-    timerRef.current = window.setTimeout(() => setVisible(true), APPEAR_DELAY_MS);
+    timerRef.current = window.setTimeout(() => {
+      setVisible(true);
+      // Eugene 2026-05-11: при первом появлении в сессии автоматически
+      // раскрываем новостное приветствие — рассказываем что можно сейчас.
+      try {
+        const greetedKey = "_helperGreeted";
+        if (!sessionStorage.getItem(greetedKey)) {
+          sessionStorage.setItem(greetedKey, "1");
+          window.setTimeout(() => setExpanded(true), 1200);
+        }
+      } catch {}
+    }, APPEAR_DELAY_MS);
     return () => { if (timerRef.current) window.clearTimeout(timerRef.current); };
   }, []);
 
@@ -59,10 +70,16 @@ export function FloatingConsultant() {
           </div>
         )}
 
-        {/* Expanded меню */}
+        {/* Expanded меню — с новостями для лида (Eugene 2026-05-11) */}
         {expanded && (
-          <div className="absolute bottom-full right-0 mb-2 w-44 p-2 rounded-xl bg-background/40 backdrop-blur-xl border border-white/10 animate-in fade-in slide-in-from-bottom-2 duration-200 shadow-lg">
-            <div className="text-[10px] text-white/60 mb-1.5 px-1">Чем помочь?</div>
+          <div className="absolute bottom-full right-0 mb-2 w-64 p-3 rounded-xl bg-background/50 backdrop-blur-xl border border-purple-500/30 animate-in fade-in slide-in-from-bottom-2 duration-200 shadow-[0_8px_32px_rgba(139,92,246,0.25)]">
+            <div className="text-[11px] font-display tracking-wide text-white/95 mb-1.5 leading-relaxed">
+              Привет 🎵 Сейчас тестируем платформу. Можно <span className="text-cyan-300">создавать треки и слушать готовые</span>.
+            </div>
+            <div className="text-[10px] text-white/70 mb-2 leading-relaxed">
+              Зарегистрируйся — на счёт сразу зачислится <span className="text-emerald-300 font-semibold">1 трек в подарок</span>. Как только откроем оплату — попробуешь его первым.
+            </div>
+            <div className="text-[10px] text-white/60 mb-1.5 px-0">Чем помочь?</div>
             <a
               href="https://t.me/Muziaipodari_bot"
               target="_blank"
