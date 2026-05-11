@@ -27,7 +27,10 @@ import type { BootContext, Module } from "../../core";
 
 const TELEGRAM_API = "https://api.telegram.org";
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN || "";
-const ANTHROPIC_KEY = () => process.env.ANTHROPIC_API_KEY || "";
+// Eugene 2026-05-10: отдельный bot-ключ Claude (fallback на главный).
+// Преимущества: раздельная аналитика расходов, разная модель (haiku
+// дешёвый), независимая ротация если бот зашумит.
+const ANTHROPIC_KEY = () => process.env.ANTHROPIC_API_KEY_BOT || process.env.ANTHROPIC_API_KEY || "";
 
 let bootRefs: { eventBus: BootContext["eventBus"]; logger: BootContext["logger"] } | null = null;
 
