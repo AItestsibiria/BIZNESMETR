@@ -9,6 +9,24 @@ const APPEAR_DELAY_MS = 2500;
 const MAX_DISMISS = 3;
 const SS_KEY = "_helperDismissed";
 
+// Eugene 2026-05-11: трекинг вовлечения. POST /api/engagement/track
+// для admin-дашборда (📊 Воронка). Не блокирует UI — fire-and-forget.
+function trackEngagement(
+  event: "consultant_impression" | "consultant_open" | "consultant_action",
+  meta?: Record<string, any>
+) {
+  try {
+    let sid = sessionStorage.getItem("_engagementSid");
+    if (!sid) { sid = Math.random().toString(36).slice(2, 14); sessionStorage.setItem("_engagementSid", sid); }
+    fetch("/api/engagement/track", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event, sessionId: sid, meta }),
+      keepalive: true,
+    }).catch(() => {});
+  } catch {}
+}
+
 export function FloatingConsultant() {
   const [visible, setVisible] = useState(false);
   const [exiting, setExiting] = useState(false);
@@ -24,7 +42,10 @@ export function FloatingConsultant() {
       dismissedRef.current = saved;
       if (saved >= MAX_DISMISS) return;
     } catch {}
-    timerRef.current = window.setTimeout(() => setVisible(true), APPEAR_DELAY_MS);
+    timerRef.current = window.setTimeout(() => {
+      setVisible(true);
+      trackEngagement("consultant_impression");
+    }, APPEAR_DELAY_MS);
     return () => { if (timerRef.current) window.clearTimeout(timerRef.current); };
   }, []);
 
@@ -67,28 +88,30 @@ export function FloatingConsultant() {
               href="https://t.me/Muziaipodari_bot"
               target="_blank"
               rel="noopener noreferrer"
+              onClick={() => trackEngagement("consultant_action", { action: "telegram" })}
               className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.06] transition-colors text-[12px] text-white/90"
             >
               <span>📱</span> Telegram
             </a>
             <a
-              href="https://max.ru/id7017236261_bot"
+              href="https://max.ru/id7017236261_1_bot"
               target="_blank"
               rel="noopener noreferrer"
+              onClick={() => trackEngagement("consultant_action", { action: "max" })}
               className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.06] transition-colors text-[12px] text-white/90"
             >
               <span>💬</span> Max
             </a>
             <button
               type="button"
-              onClick={() => { window.location.hash = "#/music"; }}
+              onClick={() => { trackEngagement("consultant_action", { action: "music" }); window.location.hash = "#/music"; }}
               className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.06] transition-colors text-[12px] text-white/90 text-left"
             >
               <span>🎵</span> Создать песню
             </button>
             <button
               type="button"
-              onClick={() => { window.location.hash = "#/register"; }}
+              onClick={() => { trackEngagement("consultant_action", { action: "register" }); window.location.hash = "#/register"; }}
               className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.06] transition-colors text-[12px] text-white/90 text-left"
             >
               <span>🎁</span> Регистрация
@@ -108,7 +131,7 @@ export function FloatingConsultant() {
             Pastel MuziAi gradient. */}
         <button
           type="button"
-          onClick={() => setExpanded(e => !e)}
+          onClick={() => setExpanded(e => { const next = !e; if (next) trackEngagement("consultant_open"); return next; })}
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
           aria-label="Помощник"

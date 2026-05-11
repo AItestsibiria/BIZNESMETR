@@ -356,6 +356,22 @@ export const audioUploads = sqliteTable("audio_uploads", {
 });
 export type AudioUpload = typeof audioUploads.$inferSelect;
 
+// Engagement events (Eugene 2026-05-11): воронка вовлечения для admin
+// dashboard. Считаем сколько людей пытаются — register/login/telegram/
+// generation/consultant-click. Daily breakdown в /admin → 📊 Воронка.
+export const engagementEvents = sqliteTable("engagement_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  eventType: text("event_type").notNull(), // 'email_register_attempt' | 'email_login_attempt' | 'tg_login_start' | 'tg_login_confirmed' | 'consultant_impression' | 'consultant_open' | 'consultant_action' | 'music_generate_attempt' | 'music_generate_success'
+  channel: text("channel"),                // 'site' | 'telegram' | 'max' | 'email' | null
+  userId: integer("user_id"),              // если известен
+  sessionId: text("session_id"),           // session/cookie id для дедупа
+  ip: text("ip"),
+  userAgent: text("user_agent"),
+  meta: text("meta"),                      // JSON: action name, source page, gen mode, error reason
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+export type EngagementEvent = typeof engagementEvents.$inferSelect;
+
 // Generation templates (10 пресетов, см. docs/strategy/original/02 §4.2)
 export const genTemplates = sqliteTable("gen_templates", {
   id: integer("id").primaryKey({ autoIncrement: true }),

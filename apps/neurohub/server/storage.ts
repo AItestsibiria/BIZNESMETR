@@ -346,6 +346,21 @@ try {
     );
     CREATE INDEX IF NOT EXISTS chatbot_messages_session_idx ON chatbot_messages(session_id, created_at);
 
+    -- Engagement events (Eugene 2026-05-11): воронка вовлечения.
+    CREATE TABLE IF NOT EXISTS engagement_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_type TEXT NOT NULL,
+      channel TEXT,
+      user_id INTEGER,
+      session_id TEXT,
+      ip TEXT,
+      user_agent TEXT,
+      meta TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS engagement_events_type_idx ON engagement_events(event_type, created_at DESC);
+    CREATE INDEX IF NOT EXISTS engagement_events_recent_idx ON engagement_events(created_at DESC);
+
     -- Sprint 7: admin audit log (backup-before-edit).
     CREATE TABLE IF NOT EXISTS admin_audit_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -129,6 +129,7 @@ export default function AdminV304Page() {
       <Tabs defaultValue="overview">
         <TabsList className="mb-4 flex flex-wrap">
           <TabsTrigger value="overview">Обзор</TabsTrigger>
+          <TabsTrigger value="engagement">📊 Воронка</TabsTrigger>
           <TabsTrigger value="secrets">🔑 Секреты</TabsTrigger>
           <TabsTrigger value="templates">Шаблоны</TabsTrigger>
           <TabsTrigger value="flags">Feature flags</TabsTrigger>
@@ -136,6 +137,7 @@ export default function AdminV304Page() {
           <TabsTrigger value="audit">Audit log</TabsTrigger>
         </TabsList>
         <TabsContent value="overview"><OverviewTab toast={toast} /></TabsContent>
+        <TabsContent value="engagement"><EngagementTab toast={toast} /></TabsContent>
         <TabsContent value="secrets"><SecretsTab toast={toast} /></TabsContent>
         <TabsContent value="templates"><TemplatesTab toast={toast} /></TabsContent>
         <TabsContent value="flags"><FlagsTab toast={toast} /></TabsContent>
@@ -1801,5 +1803,144 @@ function AuditTab({ toast }: { toast: any }) {
         </table>
       </CardContent>
     </Card>
+  );
+}
+
+// ============================================================
+// Engagement tab — 📊 Воронка (Eugene 2026-05-11)
+// Сколько людей пытаются подключиться: email-register/login, telegram-
+// login-start/confirmed, помощник impression/open/action, генерация
+// attempt/success. Daily breakdown + сегодняшние числа сверху.
+// ============================================================
+function EngagementTab({ toast }: { toast: any }) {
+  const { data, isLoading, refetch } = useQuery<{ ok: boolean; days: number; summary: any; daily: any[] }>({
+    queryKey: ["/api/admin/v304/engagement-stats", "30"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/admin/v304/engagement-stats?days=30");
+      return r.json();
+    },
+    refetchInterval: 60_000,
+  });
+
+  const LABELS: Record<string, string> = {
+    email_register_attempt: "📧 Регистрация email — попытки",
+    email_register_success: "📧 Регистрация email — успех",
+    email_login_attempt: "📧 Вход email — попытки",
+    email_login_success: "📧 Вход email — успех",
+    tg_login_start: "✈ Telegram login — старт",
+    tg_login_confirmed: "✈ Telegram login — подтверждено",
+    consultant_impression: "👤 Помощник появился",
+    consultant_open: "👤 Клик на помощника",
+    consultant_action: "👤 Клик на пункт меню",
+    music_generate_attempt: "🎵 Генерация — попытка",
+    music_generate_success: "🎵 Генерация — успех",
+  };
+
+  if (isLoading) return <Card><CardContent className="p-6"><Loader2 className="animate-spin" /> Загрузка…</CardContent></Card>;
+  if (!data?.summary) return <Card><CardContent className="p-6 text-muted-foreground">Нет данных. События начнут копиться с этой минуты.</CardContent></Card>;
+
+  const today = data.summary.today as Record<string, number>;
+  const period = data.summary.period as Record<string, number>;
+  const total = data.summary.totalEver as Record<string, number>;
+
+  // Группировка daily по дате → { date: { eventType: count } }
+  const byDay: Record<string, Record<string, number>> = {};
+  for (const r of data.daily) {
+    if (!byDay[r.date]) byDay[r.date] = {};
+    byDay[r.date][r.eventType] = (byDay[r.date][r.eventType] || 0) + Number(r.count || 0);
+  }
+  const dates = Object.keys(byDay).sort().reverse();
+
+  const eventOrder = [
+    "email_register_attempt", "email_register_success",
+    "email_login_attempt", "email_login_success",
+    "tg_login_start", "tg_login_confirmed",
+    "consultant_impression", "consultant_open", "consultant_action",
+    "music_generate_attempt", "music_generate_success",
+  ];
+
+  function copyReport() {
+    const lines: string[] = [];
+    lines.push(`📊 Воронка вовлечения MuziAi — ${new Date().toLocaleString("ru-RU")}`);
+    lines.push("");
+    lines.push("СЕГОДНЯ / ПОСЛЕДНИЕ 7 ДНЕЙ / ВСЕГО:");
+    for (const e of eventOrder) {
+      lines.push(`${LABELS[e] || e}: ${today[e] || 0} / ${period[e] || 0} / ${total[e] || 0}`);
+    }
+    lines.push("");
+    lines.push("ПО ДНЯМ:");
+    for (const d of dates.slice(0, 14)) {
+      lines.push(`\n${d}:`);
+      for (const e of eventOrder) {
+        if (byDay[d][e]) lines.push(`  ${LABELS[e] || e}: ${byDay[d][e]}`);
+      }
+    }
+    navigator.clipboard.writeText(lines.join("\n")).then(() => toast?.({ title: "✅ Скопировано" }));
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>📊 Воронка вовлечения</CardTitle>
+          <div className="flex gap-2">
+            <button onClick={copyReport} className="text-xs px-3 py-1 rounded bg-secondary hover:bg-secondary/70 transition">📋 Копировать</button>
+            <button onClick={() => refetch()} className="text-xs px-3 py-1 rounded bg-secondary hover:bg-secondary/70 transition">⟳ Обновить</button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <table className="w-full text-sm">
+            <thead className="text-xs text-muted-foreground border-b">
+              <tr>
+                <th className="text-left py-2 pl-2">Событие</th>
+                <th className="text-right py-2 px-3">Сегодня</th>
+                <th className="text-right py-2 px-3">7 дней</th>
+                <th className="text-right py-2 px-3 pr-2">Всего</th>
+              </tr>
+            </thead>
+            <tbody>
+              {eventOrder.map(e => (
+                <tr key={e} className="border-b border-border/30 hover:bg-secondary/30">
+                  <td className="py-2 pl-2">{LABELS[e] || e}</td>
+                  <td className="text-right py-2 px-3 font-mono">{today[e] || 0}</td>
+                  <td className="text-right py-2 px-3 font-mono text-muted-foreground">{period[e] || 0}</td>
+                  <td className="text-right py-2 px-3 pr-2 font-mono text-muted-foreground">{total[e] || 0}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>📅 По дням (30 дней)</CardTitle></CardHeader>
+        <CardContent className="overflow-x-auto">
+          {dates.length === 0 ? (
+            <p className="text-muted-foreground text-sm">Данных пока нет — события начнут появляться с этой минуты.</p>
+          ) : (
+            <table className="w-full text-xs">
+              <thead className="text-muted-foreground border-b">
+                <tr>
+                  <th className="text-left py-2 pl-2">Дата</th>
+                  {eventOrder.map(e => (
+                    <th key={e} className="text-right py-2 px-2 whitespace-nowrap">{(LABELS[e] || e).replace(/^[^\s]+\s/, "")}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {dates.map(d => (
+                  <tr key={d} className="border-b border-border/30 hover:bg-secondary/30">
+                    <td className="py-1.5 pl-2 font-mono">{d}</td>
+                    {eventOrder.map(e => (
+                      <td key={e} className="text-right py-1.5 px-2 font-mono">{byDay[d][e] || ""}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }

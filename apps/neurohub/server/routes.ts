@@ -15,6 +15,7 @@ import { normalizeVocalParams } from "./lib/normalizeVocalParams";
 import { isSunoCircuitOpen } from "./plugins/suno-watchdog/module";
 import { requireAdmin } from "./core/adminAuth";
 import { createNonce as tgCreateNonce, pollNonce as tgPollNonce, consumeNonce as tgConsumeNonce, attachUserToNonce as tgAttachUserToNonce } from "./lib/tgLoginNonces";
+import { logEngagement, getEngagementDaily, getEngagementSummary } from "./lib/engagement";
 
 const AUTHORS_DIR = process.env.AUTHORS_DIR || path.join(process.cwd(), "authors");
 
@@ -822,6 +823,7 @@ export async function registerRoutes(
       res.status(429).json({ message: "Слишком много попыток. Попробуйте позже." }); return;
     }
     if (req.body.website) { res.status(200).json({ token: "ok", user: {} }); return; }
+    logEngagement(req, "email_register_attempt", { channel: "email", meta: { email: String(req.body?.email || "").slice(0, 80) } });
     try {
       const parsed = registerSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -968,6 +970,7 @@ export async function registerRoutes(
       res.status(429).json({ message: "Слишком много попыток. Подождите 15 минут." }); return;
     }
     if (req.body.website) { res.status(200).json({ token: "ok", user: {} }); return; }
+    logEngagement(req, "email_login_attempt", { channel: "email", meta: { email: String(req.body?.email || "").slice(0, 80) } });
     try {
       const parsed = loginSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -984,6 +987,7 @@ export async function registerRoutes(
 
       const token = uuidv4();
       tokenStore.set(token, user.id);
+      logEngagement(req, "email_login_success", { channel: "email", userId: user.id });
 
       const { password: _, nameChangeToken: __nct, ...publicUser } = user;
       res.json({ token, user: publicUser });
@@ -1118,11 +1122,12 @@ export async function registerRoutes(
   // 3. Бот в webhook-handler'е вызывает confirmNonce(nonce, tgUser)
   // 4. Сайт через /poll забирает session token
 
-  app.post("/api/auth/telegram/start", (_req: Request, res: Response) => {
+  app.post("/api/auth/telegram/start", (req: Request, res: Response) => {
     try {
       const nonce = tgCreateNonce();
       const botUsername = process.env.TELEGRAM_BOT_USERNAME || "Muziaipodari_bot";
       const deepLink = `https://t.me/${botUsername}?start=login_${nonce}`;
+      logEngagement(req, "tg_login_start", { channel: "telegram", meta: { nonce: nonce.slice(0, 8) } });
       res.json({ nonce, deepLink, expiresInSec: 15 * 60 });
     } catch (e: any) {
       console.error("[TG START] Error:", e);
@@ -1248,6 +1253,7 @@ export async function registerRoutes(
 
       const token = crypto.randomBytes(32).toString("hex");
       tokenStore.set(token, user.id);
+      logEngagement(req, "tg_login_confirmed", { channel: "telegram", userId: user.id });
 
       // Передаём userId в nonce — чтобы исходная вкладка через polling
       // тоже залогинилась (если она ещё открыта).
@@ -1264,6 +1270,33 @@ export async function registerRoutes(
     } catch (e: any) {
       console.error("[TG LOGIN-URL] Error:", e);
       res.status(500).send("Ошибка авторизации");
+    }
+  });
+
+  // Engagement tracking (Eugene 2026-05-11): фронт шлёт сюда события
+  // помощника (impression / open / action). Public-endpoint, лёгкий
+  // rate-limit чтобы не флудили.
+  app.post("/api/engagement/track", (req: Request, res: Response) => {
+    const ip = req.ip || req.socket.remoteAddress || "unknown";
+    if (!rateLimit(ip + ":engage", 60, 60_000)) {
+      res.status(429).json({ ok: false }); return;
+    }
+    try {
+      const evt = String(req.body?.event || "");
+      const allowed: Record<string, true> = {
+        consultant_impression: true,
+        consultant_open: true,
+        consultant_action: true,
+        music_generate_attempt: true, // лендинг-CTA «попробовать» — отдельно от endpoint /api/music/generate
+      };
+      if (!allowed[evt]) { res.status(400).json({ ok: false, error: "unknown event" }); return; }
+      const userId = Number(req.body?.userId) || null;
+      const sessionId = String(req.body?.sessionId || "").slice(0, 64) || null;
+      const meta = req.body?.meta && typeof req.body.meta === "object" ? req.body.meta : undefined;
+      logEngagement(req, evt as any, { channel: "site", userId, sessionId, meta });
+      res.json({ ok: true });
+    } catch {
+      res.json({ ok: true }); // не блокируем фронт
     }
   });
 
@@ -2159,6 +2192,20 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
   app.get("/api/admin/v304/email-test", requireAdmin, emailTestHandler);
   app.post("/api/admin/v304/email-test", requireAdmin, emailTestHandler);
 
+  // Engagement stats (Eugene 2026-05-11): воронка вовлечения для admin
+  // dashboard. ?days=30 daily breakdown + summary today/period/total.
+  app.get("/api/admin/v304/engagement-stats", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const days = Math.min(90, Math.max(1, parseInt(String(req.query.days || "30")) || 30));
+      const summary = getEngagementSummary(Math.min(days, 30));
+      const daily = getEngagementDaily(days);
+      res.json({ ok: true, days, summary, daily });
+    } catch (e: any) {
+      console.error("[ENGAGEMENT-STATS] Error:", e);
+      res.status(500).json({ ok: false, error: String(e) });
+    }
+  });
+
   // Eugene 2026-05-09: AUDIO PIPELINE TEST — проходит всю цепочку
   // голос → текст → песня и возвращает статус каждой точки.
   // Контрольные точки:
@@ -2993,13 +3040,14 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
 
   // ==================== MUSIC (SUNO) ====================
   app.post("/api/music/generate", authMiddleware, async (req: Request, res: Response) => {
+    const userId = (req as any).userId;
+    logEngagement(req, "music_generate_attempt", { channel: "site", userId, meta: { mode: req.body?.mode || req.body?.tab || "unknown" } });
     if (process.env.GENERATION_MAINTENANCE === "1") {
       return res.status(503).json({
         message: "🛠 Скоро запускаемся! Пока зарегистрируйтесь и подумайте о смысле будущей песни — её текст можно будет написать прямо здесь, в окне генерации, как только откроем доступ.",
         maintenance: true,
       });
     }
-    const userId = (req as any).userId;
     const user = storage.getUser(userId);
     if (!user) { res.status(404).json({ message: "Пользователь не найден" }); return; }
     // Suno-watchdog circuit breaker — Eugene 2026-05-08 «Реши кардинально».
