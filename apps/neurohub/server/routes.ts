@@ -14,6 +14,7 @@ import path from "path";
 import { normalizeVocalParams } from "./lib/normalizeVocalParams";
 import { isSunoCircuitOpen } from "./plugins/suno-watchdog/module";
 import { requireAdmin } from "./core/adminAuth";
+import { createNonce as tgCreateNonce, pollNonce as tgPollNonce, consumeNonce as tgConsumeNonce } from "./lib/tgLoginNonces";
 
 const AUTHORS_DIR = process.env.AUTHORS_DIR || path.join(process.cwd(), "authors");
 
@@ -1110,6 +1111,78 @@ export async function registerRoutes(
     }
   });
 
+  // Deep-link auth (Eugene 2026-05-11): Telegram депрекейтнул OAuth-виджет
+  // (oauth.telegram.org → «deprecated»). Альтернатива:
+  // 1. Сайт зовёт /start → получает nonce + ссылку на бота
+  // 2. Юзер открывает t.me/Muziaipodari_bot?start=login_<nonce>
+  // 3. Бот в webhook-handler'е вызывает confirmNonce(nonce, tgUser)
+  // 4. Сайт через /poll забирает session token
+
+  app.post("/api/auth/telegram/start", (_req: Request, res: Response) => {
+    try {
+      const nonce = tgCreateNonce();
+      const botUsername = process.env.TELEGRAM_BOT_USERNAME || "Muziaipodari_bot";
+      const deepLink = `https://t.me/${botUsername}?start=login_${nonce}`;
+      res.json({ nonce, deepLink, expiresInSec: 15 * 60 });
+    } catch (e: any) {
+      console.error("[TG START] Error:", e);
+      res.status(500).json({ message: "Не удалось создать сессию" });
+    }
+  });
+
+  app.get("/api/auth/telegram/poll", async (req: Request, res: Response) => {
+    try {
+      const nonce = String(req.query.nonce || "");
+      if (!nonce) {
+        res.status(400).json({ status: "error", message: "nonce required" });
+        return;
+      }
+      const entry = tgPollNonce(nonce);
+      if (!entry) {
+        res.json({ status: "expired" });
+        return;
+      }
+      if (entry.status !== "confirmed" || !entry.tgUserId) {
+        res.json({ status: entry.status });
+        return;
+      }
+
+      // Confirmed → ищем или создаём юзера, выдаём token.
+      const tgId = String(entry.tgUserId);
+      const tgName = [entry.tgFirstName, entry.tgLastName].filter(Boolean).join(" ") || entry.tgUsername || "Telegram User";
+
+      let user: any = db.select().from(users).where(eq(users.telegramId, tgId)).get();
+      if (!user) {
+        // Новый юзер. Eugene 2026-05-11: «убрать 1000 ₽ при регистрации,
+        // 1 трек в подарок зачислится после открытия генерации».
+        const tgEmail = `tg_${tgId}@telegram.muziai.ru`;
+        const referralCode = crypto.randomBytes(4).toString("hex");
+        user = db.insert(users).values({
+          name: tgName,
+          email: tgEmail,
+          password: crypto.randomBytes(32).toString("hex"),
+          balance: 0,
+          emailVerified: 1,
+          telegramId: tgId,
+          referralCode,
+        }).returning().get();
+        console.log(`[TG DEEP-LINK] Created user #${user.id}: ${tgName} (tg:${tgId})`);
+      } else {
+        console.log(`[TG DEEP-LINK] Login user #${user.id}: ${user.name}`);
+      }
+
+      const token = crypto.randomBytes(32).toString("hex");
+      tokenStore.set(token, user.id);
+      tgConsumeNonce(nonce);
+
+      const { password: _, nameChangeToken: __nct, ...publicUser } = user;
+      res.json({ status: "confirmed", token, user: publicUser });
+    } catch (e: any) {
+      console.error("[TG POLL] Error:", e);
+      res.status(500).json({ status: "error", message: "Ошибка polling" });
+    }
+  });
+
   // Telegram auth redirect handler — Telegram redirects here with user data in query params
   app.get("/api/auth/telegram-redirect", async (req: Request, res: Response) => {
     try {
@@ -1195,95 +1268,123 @@ function create(){doPost({force_create:true});}
     }
   });
 
-  // Telegram Login page — serves HTML with widget
-  app.get("/telegram-login", (req: Request, res: Response) => {
+  // Telegram Login page (Eugene 2026-05-11): deep-link flow.
+  // Telegram депрекейтнул OAuth-виджет — теперь redirect через бота.
+  // Юзер тапает кнопку → t.me/Muziaipodari_bot?start=login_<nonce> →
+  // бот подтверждает у себя → сайт через polling забирает token.
+  app.get("/telegram-login", (_req: Request, res: Response) => {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.send(`<!DOCTYPE html>
 <html><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Войти через Telegram — MuziAi</title>
-<style>body{font-family:-apple-system,sans-serif;background:#09090b;color:#e0e0e0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;flex-direction:column;gap:20px}
-.logo{width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg,#8b5cf6,#3b82f6);display:flex;align-items:center;justify-content:center;font-size:24px}
-h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin:0}
-p{color:#888;font-size:14px;margin:0}
-.spinner{display:none;width:24px;height:24px;border:3px solid #333;border-top-color:#8b5cf6;border-radius:50%;animation:spin 0.8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+<style>
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#09090b;color:#e0e0e0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px}
+.card{max-width:380px;width:100%;text-align:center;display:flex;flex-direction:column;align-items:center;gap:16px}
+.logo{width:56px;height:56px;border-radius:14px;background:linear-gradient(135deg,#8b5cf6,#3b82f6);display:flex;align-items:center;justify-content:center;font-size:28px}
+h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin:0;font-size:22px}
+.sub{color:#888;font-size:14px;margin:0;line-height:1.5}
+.tg-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:14px;border-radius:14px;background:#54a9eb;color:#fff;border:none;font-size:16px;font-weight:600;cursor:pointer;text-decoration:none;transition:opacity .2s}
+.tg-btn:active{opacity:.85}
+.tg-btn svg{flex-shrink:0}
+.status{font-size:13px;color:#888;min-height:20px;margin-top:8px}
+.status.ok{color:#22c55e}
+.status.err{color:#ef4444}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid #333;border-top-color:#8b5cf6;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;margin-right:6px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.back{color:#666;font-size:13px;text-decoration:none;margin-top:24px}
+.back:hover{color:#aaa}
+.hint{margin-top:6px;font-size:12px;color:#666}
 </style>
 </head><body>
-<div class="logo">🎵</div>
-<h2>Войти через Telegram</h2>
-<p>Нажмите кнопку ниже</p>
-<script async src="https://telegram.org/js/telegram-widget.js?23" data-telegram-login="muziaipodari_bot" data-size="large" data-auth-url="https://muziai.ru/api/auth/telegram-redirect" data-request-access="write"></script>
-<div class="spinner" id="sp"></div>
-<p id="msg"></p>
-<div id="linkForm" style="display:none;max-width:320px;width:100%">
-<p style="color:#e0e0e0;font-size:15px;text-align:center;margin-bottom:12px">Уже есть аккаунт?</p>
-<input id="le" type="email" placeholder="Email" style="width:100%;padding:10px 14px;border-radius:10px;border:1px solid #333;background:#111;color:#fff;font-size:14px;margin-bottom:8px;box-sizing:border-box">
-<input id="lp" type="password" placeholder="Пароль" style="width:100%;padding:10px 14px;border-radius:10px;border:1px solid #333;background:#111;color:#fff;font-size:14px;margin-bottom:12px;box-sizing:border-box">
-<button onclick="linkAccount()" style="width:100%;padding:10px;border-radius:10px;background:linear-gradient(135deg,#8b5cf6,#3b82f6);color:white;border:none;font-size:14px;font-weight:600;cursor:pointer">Привязать и войти</button>
-<p style="text-align:center;margin-top:12px"><a href="javascript:createNew()" style="color:#888;font-size:13px;text-decoration:underline">Создать новый аккаунт</a></p>
+<div class="card">
+  <div class="logo">🎵</div>
+  <h2>Войти через Telegram</h2>
+  <p class="sub">Нажмите кнопку — откроется бот @Muziaipodari_bot.<br>В Telegram нажмите «Start» — и вы вернётесь на сайт.</p>
+  <a id="tgBtn" class="tg-btn" target="_blank" rel="noopener">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="white"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.94 8.13l-1.97 9.28c-.15.67-.54.83-1.09.52l-3.01-2.22-1.45 1.4c-.16.16-.3.3-.61.3l.21-3.04 5.56-5.02c.24-.21-.05-.33-.37-.13l-6.87 4.33-2.96-.92c-.64-.2-.66-.64.14-.95l11.57-4.46c.53-.2 1-.05.85.91z"/></svg>
+    <span>Открыть Telegram</span>
+  </a>
+  <div class="status" id="msg">Подготовка ссылки…</div>
+  <div class="hint" id="hint" style="display:none">Ждём подтверждения от Telegram…</div>
+  <a href="/#/login" class="back">← Назад ко входу</a>
 </div>
 <script>
-var tgUser=null;
-function onTelegramAuth(user) {
-  tgUser=user;
-  document.getElementById('sp').style.display='block';
-  document.getElementById('msg').textContent='Авторизация...';
-  fetch('/api/auth/telegram',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(user)})
-    .then(r=>r.json()).then(d=>{
-      if(d.token){
-        localStorage.setItem('token',d.token);
-        window.location.href='/#/dashboard';
-      } else if(d.needLink){
-        document.getElementById('sp').style.display='none';
-        document.getElementById('msg').textContent='';
-        document.getElementById('linkForm').style.display='block';
-      } else {
-        document.getElementById('msg').textContent=d.message||'Ошибка';
-        document.getElementById('sp').style.display='none';
-      }
-    }).catch(()=>{
-      document.getElementById('msg').textContent='Ошибка сети';
-      document.getElementById('sp').style.display='none';
-    });
-}
-function linkAccount(){
-  if(!tgUser)return;
-  var body=Object.assign({},tgUser,{link_email:document.getElementById('le').value,link_password:document.getElementById('lp').value});
-  document.getElementById('sp').style.display='block';
-  document.getElementById('msg').textContent='Привязка...';
-  fetch('/api/auth/telegram',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
-    .then(r=>r.json()).then(d=>{
-      if(d.token){
-        localStorage.setItem('token',d.token);
-        window.location.href='/#/dashboard';
-      } else {
-        document.getElementById('msg').textContent=d.message||'Ошибка';
-        document.getElementById('sp').style.display='none';
-      }
-    }).catch(()=>{
-      document.getElementById('msg').textContent='Ошибка сети';
-      document.getElementById('sp').style.display='none';
-    });
-}
-function createNew(){
-  if(!tgUser)return;
-  var body=Object.assign({},tgUser,{force_create:true});
-  document.getElementById('sp').style.display='block';
-  document.getElementById('msg').textContent='Создание...';
-  fetch('/api/auth/telegram',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
-    .then(r=>r.json()).then(d=>{
-      if(d.token){
-        localStorage.setItem('token',d.token);
-        window.location.href='/#/dashboard';
-      } else {
-        document.getElementById('msg').textContent=d.message||'Ошибка';
-        document.getElementById('sp').style.display='none';
-      }
-    }).catch(()=>{
-      document.getElementById('msg').textContent='Ошибка сети';
-      document.getElementById('sp').style.display='none';
-    });
-}
+(function(){
+  var btn=document.getElementById('tgBtn');
+  var msg=document.getElementById('msg');
+  var hint=document.getElementById('hint');
+  var nonce=null;
+  var polling=false;
+  var pollTimer=null;
+
+  function setStatus(text, cls){
+    msg.textContent=text;
+    msg.className='status '+(cls||'');
+  }
+
+  function start(){
+    setStatus('Подготовка ссылки…');
+    fetch('/api/auth/telegram/start',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+      .then(function(r){return r.json()})
+      .then(function(d){
+        if(!d.nonce||!d.deepLink){throw new Error('no nonce')}
+        nonce=d.nonce;
+        btn.href=d.deepLink;
+        setStatus('Готово — нажмите кнопку выше');
+      })
+      .catch(function(){setStatus('Ошибка подготовки. Перезагрузите страницу.','err')});
+  }
+
+  function startPolling(){
+    if(polling||!nonce)return;
+    polling=true;
+    hint.style.display='block';
+    setStatus('Ожидание подтверждения в Telegram…');
+    var attempts=0;
+    function tick(){
+      attempts++;
+      fetch('/api/auth/telegram/poll?nonce='+encodeURIComponent(nonce))
+        .then(function(r){return r.json()})
+        .then(function(d){
+          if(d.status==='confirmed'&&d.token){
+            localStorage.setItem('token',d.token);
+            setStatus('✓ Вход выполнен. Перенаправление…','ok');
+            setTimeout(function(){window.location.href='/#/dashboard'},400);
+            return;
+          }
+          if(d.status==='expired'||d.status==='error'){
+            setStatus('Сессия истекла. Перезагрузите страницу.','err');
+            polling=false;
+            return;
+          }
+          if(attempts>180){ // 6 минут × 2 сек
+            setStatus('Время ожидания истекло. Попробуйте снова.','err');
+            polling=false;
+            return;
+          }
+          pollTimer=setTimeout(tick,2000);
+        })
+        .catch(function(){
+          if(attempts<180)pollTimer=setTimeout(tick,3000);
+          else polling=false;
+        });
+    }
+    tick();
+  }
+
+  btn.addEventListener('click', function(){
+    setTimeout(startPolling, 100);
+  });
+
+  // На фокус возвращения окна (юзер закрыл Telegram) — продолжаем polling
+  window.addEventListener('focus', function(){
+    if(nonce&&!polling)startPolling();
+  });
+
+  start();
+})();
 </script>
 </body></html>`);
   });

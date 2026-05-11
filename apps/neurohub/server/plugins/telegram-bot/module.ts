@@ -26,6 +26,7 @@ import * as path from "node:path";
 import { db } from "../../storage";
 import { chatbotSessions, chatbotMessages, users } from "@shared/schema";
 import type { BootContext, Module } from "../../core";
+import { confirmNonce as confirmTgLoginNonce } from "../../lib/tgLoginNonces";
 
 // Knowledge base — читаем из docs/strategy/KNOWLEDGE-BASE-BOT.md
 // Eugene 2026-05-11: «помощник собирает базу знаний, обновляется когда
@@ -298,8 +299,9 @@ router.post("/webhook", async (req, res) => {
       const reply = responses[data] || `Открыть на сайте: https://muziai.ru/`;
       const { sessionId } = findOrCreateSession(chatId, fromId);
       saveMessage(sessionId, "user", `[кнопка] ${data}`);
-      await sendMessage(chatId, `${reply}\n\n— ${p.name}`);
-      saveMessage(sessionId, "bot", replyWithAvatar);
+      const fullReply = `${reply}\n\n— ${p.name}`;
+      await sendMessage(chatId, fullReply);
+      saveMessage(sessionId, "bot", fullReply);
       return;
     }
 
@@ -311,6 +313,31 @@ router.post("/webhook", async (req, res) => {
     if (!text) return;
 
     const { sessionId, existingUserId } = findOrCreateSession(chatId, fromId);
+
+    // Deep-link auth (Eugene 2026-05-11): /start login_<nonce>.
+    // Сайт сгенерировал nonce, дал юзеру ссылку
+    // t.me/Muziaipodari_bot?start=login_<nonce>. Telegram открыл бот с
+    // этой ссылкой и прислал нам «/start login_<nonce>». Подтверждаем
+    // nonce в shared store — сайт через polling забирает session token.
+    const loginMatch = text.match(/^\/start\s+login_([a-f0-9]{16,64})$/);
+    if (loginMatch) {
+      const nonce = loginMatch[1];
+      saveMessage(sessionId, "user", `[deep-link auth ${nonce.slice(0, 8)}…]`);
+      const ok = confirmTgLoginNonce(nonce, {
+        id: fromId,
+        first_name: msg.from?.first_name,
+        last_name: msg.from?.last_name,
+        username: msg.from?.username,
+      });
+      const p = personaFor(fromId);
+      const okText = `${p.avatar} Готово! ✅\nВозвращайся на сайт — ты уже вошёл. Если страница не обновилась автоматически — обнови её.`;
+      const failText = `${p.avatar} Ссылка устарела или уже использована. Открой страницу входа на сайте заново и нажми кнопку.`;
+      const reply = ok ? okText : failText;
+      await sendMessage(chatId, reply);
+      saveMessage(sessionId, "bot", reply);
+      bootRefs?.eventBus?.emit?.("auth.tg_deeplink", { sessionId, ok, nonce: nonce.slice(0, 8) }, "telegram-bot");
+      return;
+    }
 
     // /start — приветственное сообщение
     if (text === "/start" || text === "/start@muziaipodari_bot") {
@@ -392,7 +419,7 @@ const telegramBotModule: Module = {
   name: "telegram-bot",
   version: "0.1.0",
   description: "Telegram bot @muziaipodari_bot — сервисный чат с persona-LLM. Без TELEGRAM_BOT_TOKEN в env плагин неактивен (endpoints отвечают 400).",
-  publishes: ["chatbot.reply_sent"],
+  publishes: ["chatbot.reply_sent", "auth.tg_deeplink"],
   routes: { prefix: "telegram", router },
   onLoad: async (ctx) => {
     bootRefs = { eventBus: ctx.eventBus, logger: ctx.logger };
