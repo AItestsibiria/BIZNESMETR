@@ -108,46 +108,75 @@ function buildPersonaSystem(userKey: string): string {
 - Всегда на русском`;
 }
 
-async function generateReply(userKey: string, userText: string, history: Array<{ role: "user" | "assistant"; content: string }>): Promise<string> {
+// Backup-LLM (Eugene 2026-05-11): Claude primary, OpenAI fallback.
+// Если Claude недоступен — переключаемся на OpenAI с тем же prompt'ом
+// и историей. Юзер ничего не замечает.
+async function tryClaude(system: string, text: string, history: Array<{ role: string; content: string }>): Promise<string | null> {
   const key = ANTHROPIC_KEY();
-  if (!key) {
-    return `Здравствуйте! Я ${personaFor(userKey).name} из MuziAi 🎵 Скоро отвечу подробнее — небольшая задержка.`;
-  }
+  if (!key) return null;
   try {
-    const messages = [
-      ...history.slice(-10), // last 10 для контекста
-      { role: "user", content: userText },
-    ];
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: {
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
+      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 400,
-        system: buildPersonaSystem(userKey),
-        messages,
+        system,
+        messages: [...history.slice(-10), { role: "user", content: text }],
       }),
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(15_000),
     });
     if (!r.ok) {
-      const t = await r.text().catch(() => "");
-      bootRefs?.logger.warn?.("[telegram-bot] anthropic non-ok", { status: r.status, body: t.slice(0, 200) });
-      return `Здравствуйте! Я ${personaFor(userKey).name} 🎵 Чуть-чуть тормозит — попробуйте через минуту.`;
+      bootRefs?.logger.warn?.("[telegram-bot] claude non-ok", { status: r.status });
+      return null;
     }
     const j: any = await r.json();
-    const content = j?.content?.[0]?.text;
-    if (typeof content === "string" && content.length > 0) {
-      return content.slice(0, 3500);
-    }
-    return `Здравствуйте! Я ${personaFor(userKey).name} 🎵 Я тут — расскажите, чем помочь.`;
+    const c = j?.content?.[0]?.text;
+    return typeof c === "string" && c.length > 0 ? c.slice(0, 3500) : null;
   } catch (e) {
-    bootRefs?.logger.warn?.("[telegram-bot] generateReply failed", { error: String(e) });
-    return `Здравствуйте! Я ${personaFor(userKey).name} 🎵 Что-то сложно сейчас — попробуйте чуть позже.`;
+    bootRefs?.logger.warn?.("[telegram-bot] claude error", { error: String(e) });
+    return null;
   }
+}
+
+async function tryOpenAI(system: string, text: string, history: Array<{ role: string; content: string }>): Promise<string | null> {
+  const key = process.env.OPENAI_API_KEY || "";
+  if (!key) return null;
+  try {
+    const msgs = [
+      { role: "system", content: system },
+      ...history.slice(-10).map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
+      { role: "user", content: text },
+    ];
+    const r = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "gpt-4o-mini", max_tokens: 400, messages: msgs }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!r.ok) {
+      bootRefs?.logger.warn?.("[telegram-bot] openai non-ok", { status: r.status });
+      return null;
+    }
+    const j: any = await r.json();
+    const c = j?.choices?.[0]?.message?.content;
+    return typeof c === "string" && c.length > 0 ? c.slice(0, 3500) : null;
+  } catch (e) {
+    bootRefs?.logger.warn?.("[telegram-bot] openai error", { error: String(e) });
+    return null;
+  }
+}
+
+async function generateReply(userKey: string, userText: string, history: Array<{ role: "user" | "assistant"; content: string }>): Promise<string> {
+  const system = buildPersonaSystem(userKey);
+  // 1. Primary: Claude
+  const c = await tryClaude(system, userText, history);
+  if (c) return c;
+  // 2. Backup: OpenAI
+  const o = await tryOpenAI(system, userText, history);
+  if (o) return o;
+  // 3. Both failed → fallback hardcoded
+  return `Здравствуйте! Я ${personaFor(userKey).name} 🎵 Чуть-чуть тормозит — попробуйте через минуту.`;
 }
 
 // === Session helpers ===
