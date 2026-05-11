@@ -924,17 +924,38 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               </div>
               <h3 className="text-lg font-bold text-white mb-2">«Поехали»</h3>
 
-              {/* Подарок-коробка с нотами в гамме MuziAi (purple→blue→cyan) */}
-              <div className="my-3 relative rounded-xl border border-purple-500/30 bg-gradient-to-br from-purple-500/[0.12] via-blue-500/[0.10] to-cyan-500/[0.10] p-3 overflow-hidden">
-                {/* Sparkles фон — едва заметные ноты */}
-                <svg viewBox="0 0 200 60" className="absolute inset-0 w-full h-full pointer-events-none opacity-25" aria-hidden="true">
-                  <g fill="none" stroke="rgba(167,139,250,0.6)" strokeWidth="0.6">
-                    <circle cx="20" cy="15" r="1.6" fill="rgba(167,139,250,0.6)" stroke="none" />
-                    <line x1="21.6" y1="15" x2="21.6" y2="6" />
-                    <circle cx="170" cy="42" r="1.4" fill="rgba(34,211,238,0.6)" stroke="none" />
-                    <line x1="171.4" y1="42" x2="171.4" y2="34" stroke="rgba(34,211,238,0.6)" />
-                    <circle cx="50" cy="48" r="1" fill="rgba(96,165,250,0.5)" stroke="none" />
-                    <circle cx="140" cy="12" r="1" fill="rgba(167,139,250,0.5)" stroke="none" />
+              {/* Подарок-коробка с нотами в гамме MuziAi — анимация открытия и
+                  вылета нот к звёздам (Eugene 2026-05-11). */}
+              <div className="my-3 relative rounded-xl border border-purple-500/30 bg-gradient-to-br from-purple-500/[0.12] via-blue-500/[0.10] to-cyan-500/[0.10] p-3 overflow-hidden gift-stage">
+                {/* Звёзды на фоне (~20% сцены сверху) */}
+                <svg viewBox="0 0 200 60" className="absolute inset-0 w-full h-full pointer-events-none" aria-hidden="true">
+                  <g>
+                    <circle cx="20" cy="8" r="0.9" fill="#fde68a" opacity="0.9" className="gift-twinkle" style={{animationDelay:"0s"}} />
+                    <circle cx="60" cy="5" r="0.7" fill="#a78bfa" opacity="0.85" className="gift-twinkle" style={{animationDelay:"0.7s"}} />
+                    <circle cx="110" cy="9" r="0.8" fill="#22d3ee" opacity="0.9" className="gift-twinkle" style={{animationDelay:"1.4s"}} />
+                    <circle cx="160" cy="6" r="0.7" fill="#60a5fa" opacity="0.85" className="gift-twinkle" style={{animationDelay:"2.1s"}} />
+                    <circle cx="185" cy="11" r="0.9" fill="#fde68a" opacity="0.9" className="gift-twinkle" style={{animationDelay:"2.8s"}} />
+                  </g>
+                  {/* Летящие ноты — 5 штук с разной задержкой, поднимаются к звёздам */}
+                  <g className="gift-note" style={{animationDelay:"0s"}}>
+                    <circle cx="42" cy="40" r="1.6" fill="#a78bfa" />
+                    <line x1="43.6" y1="40" x2="43.6" y2="32" stroke="#a78bfa" strokeWidth="0.7" />
+                  </g>
+                  <g className="gift-note" style={{animationDelay:"0.6s"}}>
+                    <circle cx="48" cy="40" r="1.4" fill="#22d3ee" />
+                    <line x1="49.4" y1="40" x2="49.4" y2="32" stroke="#22d3ee" strokeWidth="0.7" />
+                  </g>
+                  <g className="gift-note" style={{animationDelay:"1.2s"}}>
+                    <circle cx="36" cy="40" r="1.2" fill="#60a5fa" />
+                    <line x1="37.2" y1="40" x2="37.2" y2="33" stroke="#60a5fa" strokeWidth="0.6" />
+                  </g>
+                  <g className="gift-note" style={{animationDelay:"1.8s"}}>
+                    <circle cx="54" cy="40" r="1.4" fill="#fbbf24" />
+                    <line x1="55.4" y1="40" x2="55.4" y2="32" stroke="#fbbf24" strokeWidth="0.7" />
+                  </g>
+                  <g className="gift-note" style={{animationDelay:"2.4s"}}>
+                    <circle cx="44" cy="40" r="1.1" fill="#f0abfc" />
+                    <line x1="45.1" y1="40" x2="45.1" y2="34" stroke="#f0abfc" strokeWidth="0.6" />
                   </g>
                 </svg>
                 <div className="relative flex items-center gap-3">
@@ -953,18 +974,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                     </defs>
                     {/* Тело коробки */}
                     <rect x="8" y="20" width="32" height="22" rx="2" fill="url(#giftBox)" />
-                    {/* Крышка */}
-                    <rect x="6" y="16" width="36" height="6" rx="1.5" fill="url(#giftBox)" opacity="0.95" />
-                    {/* Вертикальная лента */}
-                    <rect x="22" y="16" width="4" height="26" fill="url(#giftRibbon)" />
-                    {/* Бант */}
-                    <ellipse cx="20" cy="15" rx="5" ry="3" fill="url(#giftRibbon)" />
-                    <ellipse cx="28" cy="15" rx="5" ry="3" fill="url(#giftRibbon)" />
-                    <circle cx="24" cy="15" r="1.6" fill="#fde68a" />
-                    {/* Нота на коробке */}
-                    <circle cx="14" cy="32" r="1.8" fill="#fde68a" />
-                    <line x1="15.8" y1="32" x2="15.8" y2="25" stroke="#fde68a" strokeWidth="0.8" />
-                    <path d="M 15.8 25 Q 19 26 18 29" stroke="#fde68a" strokeWidth="0.8" fill="none" />
+                    {/* Крышка — анимируется (открывается) */}
+                    <g className="gift-lid">
+                      <rect x="6" y="16" width="36" height="6" rx="1.5" fill="url(#giftBox)" opacity="0.95" />
+                      <rect x="22" y="16" width="4" height="6" fill="url(#giftRibbon)" />
+                      <ellipse cx="20" cy="15" rx="5" ry="3" fill="url(#giftRibbon)" />
+                      <ellipse cx="28" cy="15" rx="5" ry="3" fill="url(#giftRibbon)" />
+                      <circle cx="24" cy="15" r="1.6" fill="#fde68a" />
+                    </g>
+                    {/* Вертикальная лента на теле — уже выше внутри SVG */}
                   </svg>
                   <div className="flex-1">
                     <div className="text-[11px] uppercase tracking-wider text-purple-300/80 font-display">подарок при регистрации</div>
