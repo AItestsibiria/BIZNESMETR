@@ -26,7 +26,7 @@ import * as path from "node:path";
 import { db } from "../../storage";
 import { chatbotSessions, chatbotMessages, users } from "@shared/schema";
 import type { BootContext, Module } from "../../core";
-import { confirmNonce as confirmTgLoginNonce } from "../../lib/tgLoginNonces";
+import { confirmNonce as confirmTgLoginNonce, hasValidNonce as hasTgLoginNonce } from "../../lib/tgLoginNonces";
 
 // Knowledge base — читаем из docs/strategy/KNOWLEDGE-BASE-BOT.md
 // Eugene 2026-05-11: «помощник собирает базу знаний, обновляется когда
@@ -314,28 +314,51 @@ router.post("/webhook", async (req, res) => {
 
     const { sessionId, existingUserId } = findOrCreateSession(chatId, fromId);
 
-    // Deep-link auth (Eugene 2026-05-11): /start login_<nonce>.
+    // Authorization (Eugene 2026-05-11): /start login_<nonce>.
     // Сайт сгенерировал nonce, дал юзеру ссылку
-    // t.me/Muziaipodari_bot?start=login_<nonce>. Telegram открыл бот с
-    // этой ссылкой и прислал нам «/start login_<nonce>». Подтверждаем
-    // nonce в shared store — сайт через polling забирает session token.
+    // t.me/Muziaipodari_bot?start=login_<nonce>. Бот шлёт inline-кнопку
+    // с login_url, Telegram сам подпишет данные bot-токеном и редиректит
+    // юзера на /api/auth/telegram-loginurl — это полноценная OAuth-цепочка
+    // идентичная Login Widget'у (depлекейтнутому).
+    //
+    // Fallback: одновременно подтверждаем nonce через bot-side (с tgUserId
+    // из webhook). Если по какой-то причине login_url не отработает,
+    // polling всё равно залогинит юзера через bot-confirmed flow.
     const loginMatch = text.match(/^\/start\s+login_([a-f0-9]{16,64})$/);
     if (loginMatch) {
       const nonce = loginMatch[1];
-      saveMessage(sessionId, "user", `[deep-link auth ${nonce.slice(0, 8)}…]`);
-      const ok = confirmTgLoginNonce(nonce, {
+      saveMessage(sessionId, "user", `[auth ${nonce.slice(0, 8)}…]`);
+      const p = personaFor(fromId);
+      const valid = hasTgLoginNonce(nonce);
+      if (!valid) {
+        const failText = `${p.avatar} Ссылка устарела или уже использована. Открой страницу входа на сайте заново и нажми кнопку.`;
+        await sendMessage(chatId, failText);
+        saveMessage(sessionId, "bot", failText);
+        return;
+      }
+
+      // Fallback подтверждение nonce — если юзер не нажмёт login_url
+      // кнопку, через polling всё равно залогинится по webhook'у.
+      confirmTgLoginNonce(nonce, {
         id: fromId,
         first_name: msg.from?.first_name,
         last_name: msg.from?.last_name,
         username: msg.from?.username,
       });
-      const p = personaFor(fromId);
-      const okText = `${p.avatar} Готово! ✅\nВозвращайся на сайт — ты уже вошёл. Если страница не обновилась автоматически — обнови её.`;
-      const failText = `${p.avatar} Ссылка устарела или уже использована. Открой страницу входа на сайте заново и нажми кнопку.`;
-      const reply = ok ? okText : failText;
-      await sendMessage(chatId, reply);
-      saveMessage(sessionId, "bot", reply);
-      bootRefs?.eventBus?.emit?.("auth.tg_deeplink", { sessionId, ok, nonce: nonce.slice(0, 8) }, "telegram-bot");
+
+      // Proper OAuth: inline-кнопка login_url. Telegram добавит
+      // подписанные query-params (id, hash, auth_date, first_name…)
+      // к нашему URL — handler /api/auth/telegram-loginurl проверит HMAC.
+      const loginUrl = `https://muziai.ru/api/auth/telegram-loginurl?nonce=${nonce}`;
+      const okText = `${p.avatar} Нажми кнопку ниже — это безопасный вход через Telegram. Тебя автоматически перенаправит в личный кабинет на muziai.ru.`;
+      const loginKeyboard = {
+        inline_keyboard: [[
+          { text: "🔐 Войти на сайт", login_url: { url: loginUrl, request_write_access: false } },
+        ]],
+      };
+      await sendMessage(chatId, okText, loginKeyboard);
+      saveMessage(sessionId, "bot", okText);
+      bootRefs?.eventBus?.emit?.("auth.tg_login_button_sent", { sessionId, nonce: nonce.slice(0, 8) }, "telegram-bot");
       return;
     }
 
@@ -430,6 +453,29 @@ const telegramBotModule: Module = {
       gptunnel_fallback: !!process.env.GPTUNNEL_API_KEY,
       kb_loaded: kb.length > 0 ? `${kb.length} chars` : "missing",
     });
+    // Auto-setup webhook (Eugene 2026-05-11): чтобы login через бота
+    // работал сразу после deploy без ручного вызова /setup-webhook.
+    // Берём базовый URL из env или fallback на muziai.ru (prod).
+    if (TOKEN()) {
+      const base = process.env.PUBLIC_BASE_URL || "https://muziai.ru";
+      const target = `${base}/api/telegram/webhook`;
+      try {
+        const info = await tgApi("getWebhookInfo", {});
+        const currentUrl = info?.result?.url || "";
+        if (currentUrl !== target) {
+          await tgApi("setWebhook", {
+            url: target,
+            allowed_updates: ["message", "edited_message", "callback_query"],
+            drop_pending_updates: false,
+          });
+          ctx.logger.info("[telegram-bot] webhook auto-configured", { from: currentUrl, to: target });
+        } else {
+          ctx.logger.info("[telegram-bot] webhook already configured", { url: currentUrl });
+        }
+      } catch (e) {
+        ctx.logger.warn?.("[telegram-bot] webhook auto-setup failed", { error: String(e) });
+      }
+    }
   },
   healthCheck: () => {
     return {

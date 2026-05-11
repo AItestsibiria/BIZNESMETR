@@ -14,6 +14,8 @@ export type NonceData = {
   tgFirstName?: string;
   tgLastName?: string;
   tgUsername?: string;
+  // userId после успешной авторизации (для polling-tab чтобы выдать токен)
+  userId?: number;
 };
 
 const TTL_MS = 15 * 60 * 1000; // 15 минут
@@ -60,6 +62,30 @@ export function consumeNonce(nonce: string): void {
   const entry = nonces.get(nonce);
   if (entry) entry.status = "consumed";
   nonces.delete(nonce);
+}
+
+// Помечает nonce как «юзер залогинен с этим user.id» — чтобы /poll
+// мог выдать session token. Используется в /api/auth/telegram-loginurl
+// после успешной HMAC-проверки.
+export function attachUserToNonce(nonce: string, userId: number): boolean {
+  const entry = nonces.get(nonce);
+  if (!entry) return false;
+  if (Date.now() - entry.createdAt > TTL_MS) {
+    nonces.delete(nonce);
+    return false;
+  }
+  entry.status = "confirmed";
+  entry.userId = userId;
+  return true;
+}
+
+// Существует ли nonce и валиден ли — для bot-handler'а перед отправкой
+// login_url-кнопки (не подтверждаем заранее).
+export function hasValidNonce(nonce: string): boolean {
+  const entry = nonces.get(nonce);
+  if (!entry) return false;
+  if (Date.now() - entry.createdAt > TTL_MS) return false;
+  return entry.status === "pending";
 }
 
 // Cleanup expired nonces — вызывается periodically.

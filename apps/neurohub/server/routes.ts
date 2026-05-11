@@ -14,7 +14,7 @@ import path from "path";
 import { normalizeVocalParams } from "./lib/normalizeVocalParams";
 import { isSunoCircuitOpen } from "./plugins/suno-watchdog/module";
 import { requireAdmin } from "./core/adminAuth";
-import { createNonce as tgCreateNonce, pollNonce as tgPollNonce, consumeNonce as tgConsumeNonce } from "./lib/tgLoginNonces";
+import { createNonce as tgCreateNonce, pollNonce as tgPollNonce, consumeNonce as tgConsumeNonce, attachUserToNonce as tgAttachUserToNonce } from "./lib/tgLoginNonces";
 
 const AUTHORS_DIR = process.env.AUTHORS_DIR || path.join(process.cwd(), "authors");
 
@@ -1147,28 +1147,37 @@ export async function registerRoutes(
         return;
       }
 
-      // Confirmed → ищем или создаём юзера, выдаём token.
-      const tgId = String(entry.tgUserId);
-      const tgName = [entry.tgFirstName, entry.tgLastName].filter(Boolean).join(" ") || entry.tgUsername || "Telegram User";
+      // Confirmed: есть либо userId (из login_url HMAC-handler), либо
+      // tgUserId (из бот-deeplink-fallback). Если userId — берём напрямую.
+      // Если только tgUserId — ищем/создаём юзера.
+      let user: any = null;
+      if (entry.userId) {
+        user = db.select().from(users).where(eq(users.id, entry.userId)).get();
+      } else if (entry.tgUserId) {
+        const tgId = String(entry.tgUserId);
+        const tgName = [entry.tgFirstName, entry.tgLastName].filter(Boolean).join(" ") || entry.tgUsername || "Telegram User";
+        user = db.select().from(users).where(eq(users.telegramId, tgId)).get();
+        if (!user) {
+          // Новый юзер. Eugene 2026-05-11: «убрать 1000 ₽, 1 трек в
+          // подарок зачислится после открытия генерации».
+          const tgEmail = `tg_${tgId}@telegram.muziai.ru`;
+          const referralCode = crypto.randomBytes(4).toString("hex");
+          user = db.insert(users).values({
+            name: tgName,
+            email: tgEmail,
+            password: crypto.randomBytes(32).toString("hex"),
+            balance: 0,
+            emailVerified: 1,
+            telegramId: tgId,
+            referralCode,
+          }).returning().get();
+          console.log(`[TG DEEP-LINK] Created user #${user.id}: ${tgName} (tg:${tgId})`);
+        }
+      }
 
-      let user: any = db.select().from(users).where(eq(users.telegramId, tgId)).get();
       if (!user) {
-        // Новый юзер. Eugene 2026-05-11: «убрать 1000 ₽ при регистрации,
-        // 1 трек в подарок зачислится после открытия генерации».
-        const tgEmail = `tg_${tgId}@telegram.muziai.ru`;
-        const referralCode = crypto.randomBytes(4).toString("hex");
-        user = db.insert(users).values({
-          name: tgName,
-          email: tgEmail,
-          password: crypto.randomBytes(32).toString("hex"),
-          balance: 0,
-          emailVerified: 1,
-          telegramId: tgId,
-          referralCode,
-        }).returning().get();
-        console.log(`[TG DEEP-LINK] Created user #${user.id}: ${tgName} (tg:${tgId})`);
-      } else {
-        console.log(`[TG DEEP-LINK] Login user #${user.id}: ${user.name}`);
+        res.json({ status: "pending" });
+        return;
       }
 
       const token = crypto.randomBytes(32).toString("hex");
@@ -1180,6 +1189,81 @@ export async function registerRoutes(
     } catch (e: any) {
       console.error("[TG POLL] Error:", e);
       res.status(500).json({ status: "error", message: "Ошибка polling" });
+    }
+  });
+
+  // login_url handler (Eugene 2026-05-11): Telegram редиректит сюда после
+  // тапа inline-кнопки `login_url` из бота. Query params подписаны
+  // bot-токеном через HMAC — это и есть «настоящая» Telegram OAuth.
+  // Доки: https://core.telegram.org/bots/api#loginurl + checking-authorization.
+  // Кнопка login_url работает только если домен прописан /setdomain.
+  app.get("/api/auth/telegram-loginurl", async (req: Request, res: Response) => {
+    try {
+      const tgData: Record<string, string> = {};
+      for (const [k, v] of Object.entries(req.query)) {
+        if (typeof v === "string") tgData[k] = v;
+      }
+      const nonce = String(tgData.nonce || "");
+      // nonce — наш собственный параметр, не из Telegram, поэтому
+      // исключаем из data_check_string перед HMAC.
+      const tgOnly: Record<string, string> = {};
+      for (const k of Object.keys(tgData)) {
+        if (k !== "nonce") tgOnly[k] = tgData[k];
+      }
+      if (!tgOnly.id || !tgOnly.hash) {
+        res.status(400).send("Telegram не передал данные авторизации");
+        return;
+      }
+      if (!verifyTelegramAuth(tgOnly)) {
+        console.error("[TG LOGIN-URL] HMAC mismatch", { id: tgOnly.id });
+        res.status(403).send("Неверная подпись Telegram. Откройте страницу входа заново.");
+        return;
+      }
+      const authDate = parseInt(tgOnly.auth_date || "0");
+      if (Math.abs(Date.now() / 1000 - authDate) > 86400) {
+        res.status(403).send("Сессия Telegram устарела");
+        return;
+      }
+
+      const tgId = String(tgOnly.id);
+      const tgName = [tgOnly.first_name, tgOnly.last_name].filter(Boolean).join(" ") || tgOnly.username || "Telegram User";
+
+      let user: any = db.select().from(users).where(eq(users.telegramId, tgId)).get();
+      if (!user) {
+        const tgEmail = `tg_${tgId}@telegram.muziai.ru`;
+        const referralCode = crypto.randomBytes(4).toString("hex");
+        user = db.insert(users).values({
+          name: tgName,
+          email: tgEmail,
+          password: crypto.randomBytes(32).toString("hex"),
+          balance: 0,
+          emailVerified: 1,
+          telegramId: tgId,
+          referralCode,
+        }).returning().get();
+        console.log(`[TG LOGIN-URL] Created user #${user.id}: ${tgName} (tg:${tgId})`);
+      } else {
+        console.log(`[TG LOGIN-URL] Login user #${user.id}: ${user.name}`);
+      }
+
+      const token = crypto.randomBytes(32).toString("hex");
+      tokenStore.set(token, user.id);
+
+      // Передаём userId в nonce — чтобы исходная вкладка через polling
+      // тоже залогинилась (если она ещё открыта).
+      if (nonce) tgAttachUserToNonce(nonce, user.id);
+
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Вход…</title><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="background:#09090b;color:#fff;font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;flex-direction:column;gap:14px">
+<div style="width:48px;height:48px;border-radius:12px;background:linear-gradient(135deg,#8b5cf6,#3b82f6);display:flex;align-items:center;justify-content:center;font-size:24px">✓</div>
+<p style="margin:0;font-size:16px">Вход выполнен</p>
+<p style="margin:0;color:#888;font-size:13px">Перенаправление в личный кабинет…</p>
+<script>localStorage.setItem('token','${token}');setTimeout(function(){window.location.href='/#/dashboard'},300);</script>
+</body></html>`);
+    } catch (e: any) {
+      console.error("[TG LOGIN-URL] Error:", e);
+      res.status(500).send("Ошибка авторизации");
     }
   });
 
@@ -1301,7 +1385,7 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
 <div class="card">
   <div class="logo">🎵</div>
   <h2>Войти через Telegram</h2>
-  <p class="sub">Нажмите кнопку — откроется бот @Muziaipodari_bot.<br>В Telegram нажмите «Start» — и вы вернётесь на сайт.</p>
+  <p class="sub">1. Нажмите кнопку ниже — откроется @Muziaipodari_bot<br>2. В Telegram нажмите <b>Start</b> — бот пришлёт кнопку «🔐 Войти на сайт»<br>3. Нажмите её — вы вернётесь сюда, уже залогинены</p>
   <a id="tgBtn" class="tg-btn" target="_blank" rel="noopener">
     <svg width="22" height="22" viewBox="0 0 24 24" fill="white"><path d="M12 0C5.37 0 0 5.37 0 12s5.37 12 12 12 12-5.37 12-12S18.63 0 12 0zm5.94 8.13l-1.97 9.28c-.15.67-.54.83-1.09.52l-3.01-2.22-1.45 1.4c-.16.16-.3.3-.61.3l.21-3.04 5.56-5.02c.24-.21-.05-.33-.37-.13l-6.87 4.33-2.96-.92c-.64-.2-.66-.64.14-.95l11.57-4.46c.53-.2 1-.05.85.91z"/></svg>
     <span>Открыть Telegram</span>
