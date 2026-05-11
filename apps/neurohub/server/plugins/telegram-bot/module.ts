@@ -67,11 +67,11 @@ async function sendMessage(chatId: number | string, text: string): Promise<void>
 // === Persona по hash(userId) (Eugene 2026-05-11) ===
 // Каждый юзер видит свою постоянную «куратор-девушку» — стабильно
 // от первого сообщения до последнего. Разные юзеры — разные имена.
-const PERSONAS: Array<{ name: string; age: number; gender: "ж" | "м"; tone: string }> = [
+const PERSONAS: Array<{ name: string; age: number; gender: "ж"; tone: string }> = [
   { name: "Аня",     age: 27, gender: "ж", tone: "тёплая, заботливая, эмпатичная" },
   { name: "Татьяна", age: 29, gender: "ж", tone: "энергичная, дружелюбная, с лёгким юмором" },
-  { name: "Сергей",  age: 30, gender: "м", tone: "спокойный, уверенный, по делу" },
   { name: "Мария",   age: 28, gender: "ж", tone: "вежливая, профессиональная, аккуратная" },
+  { name: "Ольга",   age: 30, gender: "ж", tone: "спокойная, внимательная, доброжелательная" },
 ];
 function personaFor(userKey: string) {
   let h = 0;
