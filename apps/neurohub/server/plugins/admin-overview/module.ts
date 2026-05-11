@@ -1618,6 +1618,31 @@ router.post("/secrets/:name/check", requireAdmin, async (req, res) => {
   res.json({ data: { name, ...r, checkedAt: new Date().toISOString() }, error: null });
 });
 
+// Telegram webhook auto-setup (Eugene 2026-05-11). Защищено requireAdmin —
+// не требует secret в URL. Просто открой залогиненным админом:
+// https://muziai.ru/api/admin/v304/telegram/setup-webhook
+router.get("/telegram/setup-webhook", requireAdmin, async (_req, res) => {
+  const tok = process.env.TELEGRAM_BOT_TOKEN || "";
+  if (!tok) return res.status(400).json({ data: null, error: "TELEGRAM_BOT_TOKEN missing in .env" });
+  const url = "https://muziai.ru/api/telegram/webhook";
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${tok}/setWebhook`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url,
+        allowed_updates: ["message", "edited_message"],
+        drop_pending_updates: true,
+      }),
+      signal: AbortSignal.timeout(8000),
+    });
+    const j: any = await r.json();
+    res.json({ data: { url, telegram: j }, error: null });
+  } catch (e) {
+    res.status(500).json({ data: null, error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
 router.post("/secrets/check-all", requireAdmin, async (_req, res) => {
   const results = await Promise.all(
     SECRET_NAMES.map(async name => ({ name, ...(await checkSecret(name)) })),
