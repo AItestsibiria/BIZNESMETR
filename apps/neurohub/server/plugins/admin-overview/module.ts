@@ -1877,21 +1877,15 @@ const adminOverviewModule: Module = {
   routes: { prefix: "admin/v304", router },
   publishes: [],
   jobs: [
-    // Поллим Suno-генерации в processing каждую минуту → переводим в done/error.
-    // Закрывает кейсы admin-launched anthem где у клиента нет авторизованного polling.
-    {
-      name: "anthem-poller",
-      schedule: "every_minute",
-      handler: async () => {
-        const r = await pollProcessingGenerations();
-        if (r.done > 0 || r.failed > 0) {
-          console.log(`\x1b[32m[ANTHEM-POLL]\x1b[0m scanned=${r.scanned} done=${r.done} failed=${r.failed}`);
-        }
-      },
-    },
+    // Eugene 2026-05-10: auto-polling Suno платных запросов ОТКЛЮЧЕН.
+    // pollProcessingGenerations() вызывает GPTunnel/Suno status — каждый
+    // запрос платный. Раньше работал каждую минуту → расход на пустые
+    // вызовы. Теперь — только через POST /api/admin/v304/poll-now
+    // (requireAdmin) по нажатию админа.
+    // Сервисные (не платные) job'ы плагина — продолжают работать.
   ],
   onLoad: async (ctx) => {
-    ctx.logger.info("admin-overview online — GET /api/admin/v304/overview + every_minute poller");
+    ctx.logger.info("admin-overview online — GET /api/admin/v304/overview (auto-poll Suno DISABLED — manual only)");
   },
   healthCheck: () => ({ status: "ok" }),
 };
