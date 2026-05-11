@@ -367,6 +367,23 @@
   to { opacity: 1; transform: scale(1); }
 }
 
+/* FloatingConsultant slow-dance (Eugene 2026-05-11) — лёгкое
+   покачивание + bob, как танец на месте в хорошем настроении. */
+@keyframes consultantDance {
+  0%   { transform: translate(0, 0) rotate(-2deg); }
+  25%  { transform: translate(-2px, -3px) rotate(1deg); }
+  50%  { transform: translate(0, -1px) rotate(2deg); }
+  75%  { transform: translate(2px, -3px) rotate(-1deg); }
+  100% { transform: translate(0, 0) rotate(-2deg); }
+}
+.consultant-dance {
+  animation: consultantDance 4.5s ease-in-out infinite;
+  transform-origin: 50% 100%;
+}
+@media (prefers-reduced-motion: reduce) {
+  .consultant-dance { animation: none; }
+}
+
 @keyframes cosmicShimmer {
   0%, 100% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
