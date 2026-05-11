@@ -1007,7 +1007,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               </div>
 
               <p className="text-sm text-muted-foreground leading-relaxed">
-                При регистрации дарим <span className="text-emerald-300 font-semibold">1 трек в подарок</span> 🎁 — попробуй MuziAi бесплатно.
+                Сейчас тестируем платформу. Зарегистрируйтесь сегодня — как только откроем генерацию, попробуете подарочный трек первыми.
               </p>
               <p className="text-sm text-muted-foreground leading-relaxed mt-2">
                 По всем вопросам <a href="#" onClick={openMail} className="text-purple-400 hover:text-purple-300 transition-colors">пишите нам</a>
