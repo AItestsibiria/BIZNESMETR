@@ -81,18 +81,37 @@ async function tgApi(method: string, body: any): Promise<any> {
   return r.json().catch(() => null);
 }
 
-async function sendMessage(chatId: number | string, text: string): Promise<void> {
+async function sendMessage(chatId: number | string, text: string, replyMarkup?: any): Promise<void> {
   try {
-    await tgApi("sendMessage", {
+    const body: any = {
       chat_id: chatId,
       text,
       parse_mode: "HTML",
       disable_web_page_preview: true,
-    });
+    };
+    if (replyMarkup) body.reply_markup = replyMarkup;
+    await tgApi("sendMessage", body);
   } catch (e) {
     bootRefs?.logger.warn?.("[telegram-bot] sendMessage failed", { chatId, error: String(e) });
   }
 }
+
+// Меню действий на /start — InlineKeyboard для быстрого выбора.
+const STARTUP_KEYBOARD = {
+  inline_keyboard: [
+    [
+      { text: "🎵 Послушать треки", url: "https://muziai.ru/" },
+      { text: "🆕 Регистрация (1 трек в подарок)", url: "https://muziai.ru/#/register" },
+    ],
+    [
+      { text: "💬 Задать вопрос", callback_data: "menu_support" },
+      { text: "🎉 Под событие", callback_data: "menu_event" },
+    ],
+    [
+      { text: "💼 Сотрудничество", callback_data: "menu_b2b" },
+    ],
+  ],
+};
 
 // === Persona по hash(userId) (Eugene 2026-05-11) ===
 // Каждый юзер видит свою постоянную «куратор-девушку» — стабильно
@@ -255,6 +274,29 @@ router.post("/webhook", async (req, res) => {
   res.status(200).send("ok"); // Сразу отвечаем 200 чтобы Telegram не ретраил
   try {
     const update = req.body || {};
+
+    // Callback queries (нажатие на InlineKeyboard кнопку)
+    if (update.callback_query) {
+      const cq = update.callback_query;
+      const chatId = String(cq.message?.chat?.id || "");
+      const fromId = String(cq.from?.id || "");
+      const data = String(cq.data || "");
+      try { await tgApi("answerCallbackQuery", { callback_query_id: cq.id }); } catch {}
+      if (!chatId) return;
+      const p = personaFor(fromId);
+      const responses: Record<string, string> = {
+        menu_support: `Расскажите подробнее — что случилось, на каком этапе? Если есть номер трека или скриншот — присылайте, разберёмся.`,
+        menu_event: `Здорово! А под какое событие — свадьба, день рождения, юбилей, корпоратив? И какой у вас есть текст или идея?\n\nЕсть готовые шаблоны: https://muziai.ru/#/templates`,
+        menu_b2b: `Сотрудничество — это интересно. Расскажите, какой формат: подкаст, реклама, B2B-лицензия треков, что-то ещё? Мы откликнемся в течение дня.`,
+      };
+      const reply = responses[data] || `Открыть на сайте: https://muziai.ru/`;
+      const { sessionId } = findOrCreateSession(chatId, fromId);
+      saveMessage(sessionId, "user", `[кнопка] ${data}`);
+      await sendMessage(chatId, `${reply}\n\n— ${p.name}`);
+      saveMessage(sessionId, "bot", reply);
+      return;
+    }
+
     const msg = update.message || update.edited_message;
     if (!msg || !msg.text || !msg.chat?.id) return;
     const chatId = String(msg.chat.id);
@@ -268,11 +310,11 @@ router.post("/webhook", async (req, res) => {
     if (text === "/start" || text === "/start@muziaipodari_bot") {
       const p = personaFor(fromId);
       const hello = existingUserId
-        ? `С возвращением 🎵 Я ${p.name}, помогу с MuziAi. Спрашивай что угодно.`
-        : `Здравствуйте! Я ${p.name} из MuziAi 🎵\nПомогу подобрать песню, расскажу про цены и возможности.\nСайт: https://muziai.ru\n\nЧто хотите создать?`;
+        ? `С возвращением 🎵 Я ${p.name}, помогу с MuziAi. Спрашивай что угодно — или жми кнопку ниже.`
+        : `Здравствуйте! Я ${p.name} из MuziAi 🎵\nПомогу подобрать песню под событие, расскажу про возможности.\n\nА вы для какого случая думаете песню?`;
       saveMessage(sessionId, "user", text);
-      await sendMessage(chatId, hello);
-      saveMessage(sessionId, "bot",hello);
+      await sendMessage(chatId, hello, STARTUP_KEYBOARD);
+      saveMessage(sessionId, "bot", hello);
       return;
     }
 
@@ -306,7 +348,7 @@ router.get("/setup-webhook", async (req, res) => {
   try {
     const r = await tgApi("setWebhook", {
       url,
-      allowed_updates: ["message", "edited_message"],
+      allowed_updates: ["message", "edited_message", "callback_query"],
       drop_pending_updates: true,
     });
     return res.json({ ok: true, telegram: r });
