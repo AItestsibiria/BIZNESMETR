@@ -390,7 +390,7 @@
 }
 .gift-lid {
   transform-origin: 6px 16px;
-  animation: giftLid 5s ease-in-out infinite;
+  animation: giftLid 5s ease-in-out 1 forwards;
 }
 @keyframes giftNoteFly {
   0%   { opacity: 0; transform: translate(0, 0) scale(0.8); }
@@ -399,17 +399,23 @@
   100% { opacity: 0; transform: translate(-8px, -38px) scale(0.9); }
 }
 .gift-note {
-  animation: giftNoteFly 4.5s ease-out infinite;
+  animation: giftNoteFly 4.5s ease-out 1 forwards;
   transform-origin: center;
+  opacity: 0;
 }
 @keyframes giftTwinkle {
   0%, 100% { opacity: 0.4; transform: scale(1); }
   50%      { opacity: 1; transform: scale(1.4); }
 }
 .gift-twinkle {
-  animation: giftTwinkle 2.2s ease-in-out infinite;
+  animation: giftTwinkle 2.2s ease-in-out 3 forwards;
   transform-origin: center;
 }
+/* Static — анимации отключены (для клиентов / повторного посещения) */
+.gift-static .gift-lid,
+.gift-static .gift-note,
+.gift-static .gift-twinkle { animation: none !important; }
+.gift-static .gift-note { opacity: 0; }
 @media (prefers-reduced-motion: reduce) {
   .gift-lid, .gift-note, .gift-twinkle { animation: none; }
 }
