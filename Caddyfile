@@ -1,0 +1,30 @@
+# Caddyfile — reasonable default for BIZNESMETR on a VPS.
+# Caddy handles automatic HTTPS via Let's Encrypt out of the box.
+#
+# TODO(muziai): if MuziAI uses nginx/Traefik instead, swap this for their
+# config. Otherwise we proceed with Caddy.
+#
+# Usage:
+#   1. Point a DNS A record (e.g. bot.example.com) to the VPS IP.
+#   2. Replace `bot.example.com` below with your real domain.
+#   3. Add a `caddy` service to docker-compose.yml that mounts this file at
+#      /etc/caddy/Caddyfile and exposes ports 80 + 443.
+
+bot.example.com {
+	encode zstd gzip
+
+	# Webhook endpoints — forwarded to the app service.
+	handle /webhooks/* {
+		reverse_proxy app:3000
+	}
+
+	# Health check — handy for uptime monitors.
+	handle /health {
+		reverse_proxy app:3000
+	}
+
+	# Everything else: 404. The bot has no public web UI.
+	handle {
+		respond 404
+	}
+}

@@ -120,7 +120,10 @@ export async function runTool(
     return { ok: false, error: `Invalid input: ${parsed.error.message}` }
   }
   try {
-    const result = await tool.handler(parsed.data, ctx)
+    // The schema and handler pair is validated by `defineTool`; the union
+    // collapses when iterating the heterogeneous registry, so we narrow here.
+    const handler = tool.handler as (input: unknown, ctx: ToolContext) => Promise<unknown>
+    const result = await handler(parsed.data, ctx)
     return { ok: true, result }
   } catch (error) {
     logger.error({ tool: name, error }, 'Tool execution failed')

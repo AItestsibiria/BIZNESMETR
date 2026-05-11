@@ -12,7 +12,8 @@ import type { IncomingHandler, MessengerAdapter, OutboundMessage } from './adapt
 export class MaxAdapter implements MessengerAdapter {
   readonly channel = Channel.MAX
 
-  constructor(private readonly _onIncoming: IncomingHandler) {
+  constructor(_onIncoming: IncomingHandler) {
+    // _onIncoming will be wired up once the MAX webhook handler is implemented.
     logger.warn('MaxAdapter is a stub — incoming handling not yet implemented')
   }
 
