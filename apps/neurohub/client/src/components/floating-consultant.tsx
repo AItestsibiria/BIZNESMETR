@@ -40,7 +40,7 @@ export function FloatingConsultant() {
           onClick={() => setHovered(h => !h)}
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
-          aria-label="Консультант MuziAi"
+          aria-label="Помощник MuziAi"
           className="block w-14 h-14 sm:w-16 sm:h-16 active:scale-95 transition-transform"
         >
           {/* Stylized девушка-силуэт с cosmic gradient.
