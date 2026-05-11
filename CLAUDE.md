@@ -4,35 +4,53 @@ This file provides context and conventions for AI assistants (Claude Code and ot
 
 ---
 
-## Project Overview
+## Current Repository State
 
-**BIZNESMETR / Acme API** is a business metrics REST API platform.
+> **Heads up:** As of the last update, this repository contains **only this `CLAUDE.md`** — no source code, `package.json`, Prisma schema, or test files have been committed yet. The conventions below describe the **target stack and patterns** the project will follow once implementation begins.
+>
+> When you add the first code, scaffold it to match the conventions in this document, then update this section to reflect what actually exists.
 
-**Repository:** `aitestsibiria/biznesmetr`  
-**Primary remote:** `origin`  
-**Runtime:** Node.js 20  
-**Stack:** Express · PostgreSQL · Prisma ORM · TypeScript (strict) · Jest · Zod
+**Currently in the repo:**
+- `CLAUDE.md` (this file)
+
+**Branches:**
+- `main` — empty (docs only)
+- `claude/<description>-<id>` — Claude Code working branches
 
 ---
 
-## Commands
+## Project Overview
+
+**BIZNESMETR / Acme API** is a planned business metrics REST API platform.
+
+**Repository:** `aitestsibiria/biznesmetr`
+**Primary remote:** `origin`
+**Runtime:** Node.js 20
+**Planned stack:** Express · PostgreSQL · Prisma ORM · TypeScript (strict) · Jest · Zod
+
+---
+
+## Commands (planned)
+
+These scripts are not yet defined in any `package.json`. Add them when scaffolding the project:
 
 ```bash
-npm run dev          # Start development server
-npm run test         # Run tests (Jest)
-npm run lint         # ESLint + Prettier check
-npm run build        # Production build
+npm run dev            # Start development server
+npm run test           # Run tests (Jest)
+npm run lint           # ESLint + Prettier check
+npm run build          # Production build
 npm run db:test:reset  # Reset local test DB — REQUIRED before running tests
 ```
 
 ---
 
-## Architecture
+## Architecture (target)
 
 - **Framework:** Express REST API
 - **Database:** PostgreSQL accessed via Prisma ORM
 - **Request handlers:** `src/handlers/` — one file per resource/route group
 - **Shared types:** `src/types/` — TypeScript interfaces and Zod schemas shared across the app
+- **Logger:** `src/logger.ts` — single shared logger module
 
 ### Response Shape
 
@@ -42,7 +60,7 @@ Every endpoint returns the same envelope — no exceptions:
 { data: T | null, error: string | null }
 ```
 
-Never break this shape. On success, set `data` and leave `error` null. On failure, set `error` and leave `data` null. Never expose stack traces or internal error messages to the client.
+On success, set `data` and leave `error` null. On failure, set `error` and leave `data` null. Never expose stack traces or internal error messages to the client.
 
 ---
 
@@ -50,7 +68,7 @@ Never break this shape. On success, set `data` and leave `error` null. On failur
 
 ### Validation
 
-Use **Zod** for all request body and query-param validation. Define schemas in `src/types/` when they are shared; colocate them in the handler file when they are route-specific.
+Use **Zod** for all request body and query-param validation. Define schemas in `src/types/` when shared; colocate them in the handler file when route-specific.
 
 ```ts
 import { z } from 'zod'
@@ -114,7 +132,7 @@ npm run test
 | `fix/<description>` | Bug fixes |
 | `claude/<description>-<id>` | Branches created by Claude Code (auto-generated) |
 
-Claude Code branches follow the pattern `claude/<short-description>-<random-suffix>`, e.g. `claude/add-claude-documentation-GOqfS`.
+Claude Code branches follow the pattern `claude/<short-description>-<random-suffix>`, e.g. `claude/add-claude-documentation-6rVqM`.
 
 **Never push directly to `main`.** All changes go through pull requests.
 
@@ -139,6 +157,7 @@ Examples:
 feat(handlers): add GET /widgets endpoint with pagination
 fix(auth): handle expired token refresh correctly
 test(handlers): add coverage for widget creation errors
+docs: update CLAUDE.md to reflect current repo state
 ```
 
 ---
@@ -147,9 +166,10 @@ test(handlers): add coverage for widget creation errors
 
 ### Before Making Changes
 
-1. **Read the relevant files first.** Never edit code you haven't read.
-2. **Follow existing patterns.** Check nearby handlers for how validation, logging, and responses are structured before writing new code.
-3. **Scope changes to what was asked.** Do not refactor surrounding code, add docstrings, or clean up unrelated areas.
+1. **Verify what exists.** Run `ls` / `git ls-files` before assuming a file or directory is present — this repo is mostly empty, and references to `src/handlers/`, `src/types/`, etc. in this doc describe **intent**, not current reality.
+2. **Read the relevant files first.** Never edit code you haven't read.
+3. **Follow existing patterns.** Once handlers exist, check nearby ones for how validation, logging, and responses are structured before writing new code.
+4. **Scope changes to what was asked.** Do not refactor surrounding code, add docstrings, or clean up unrelated areas.
 
 ### Critical Rules
 
@@ -158,7 +178,7 @@ test(handlers): add coverage for widget creation errors
 - Always return `{ data, error }` — never a bare object or array.
 - Never expose stack traces, Prisma error details, or internal paths to the client.
 - Remove all unused imports — TypeScript strict mode will fail the build otherwise.
-- Before suggesting tests pass, run `npm run db:test:reset` then `npm run test`.
+- Before claiming tests pass, run `npm run db:test:reset` then `npm run test`.
 
 ### Security
 
@@ -168,15 +188,15 @@ test(handlers): add coverage for widget creation errors
 
 ### Git Workflow for AI Assistants
 
-- Develop on the designated feature branch (check task description or system prompt).
-- Commit with descriptive messages following Conventional Commits format above.
+- Develop on the designated feature branch (check the task description or system prompt).
+- Commit with descriptive messages following the Conventional Commits format above.
 - Push using `git push -u origin <branch-name>`.
 - Do **not** create a pull request unless explicitly asked.
 - Do **not** force-push or rebase published commits.
 
 ---
 
-## Environment Variables
+## Environment Variables (planned)
 
 | Variable | Required | Description |
 |---|---|---|
@@ -188,4 +208,4 @@ Store secrets in `.env` (git-ignored). Commit `.env.example` with placeholder va
 
 ---
 
-*Last updated: 2026-04-05 — Updated with Acme API stack, conventions, and testing requirements.*
+*Last updated: 2026-05-11 — Marked the document as forward-looking; repo currently contains only `CLAUDE.md` with no source code yet.*
