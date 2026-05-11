@@ -2771,9 +2771,8 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   app.post("/api/music/generate", authMiddleware, async (req: Request, res: Response) => {
     if (process.env.GENERATION_MAINTENANCE === "1") {
       return res.status(503).json({
-        message: "🛠 Скоро запускаемся! Пока поработайте над текстом будущей песни — это уже работает: /lyrics. Сохраните его, и когда откроем генерацию музыки — превратим в трек одним кликом.",
+        message: "🛠 Скоро запускаемся! Пока зарегистрируйтесь и подумайте о смысле будущей песни — её текст можно будет написать прямо здесь, в окне генерации, как только откроем доступ.",
         maintenance: true,
-        suggestion: { action: "lyrics", url: "/#/lyrics" },
       });
     }
     const userId = (req as any).userId;

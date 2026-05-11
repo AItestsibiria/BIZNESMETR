@@ -74,10 +74,10 @@ export function FloatingConsultant() {
             </a>
             <button
               type="button"
-              onClick={() => { window.location.hash = "#/lyrics"; }}
+              onClick={() => { window.location.hash = "#/music"; }}
               className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.06] transition-colors text-[12px] text-white/90 text-left"
             >
-              <span>📝</span> Помощь с текстом
+              <span>🎵</span> Создать песню
             </button>
             <button
               type="button"
