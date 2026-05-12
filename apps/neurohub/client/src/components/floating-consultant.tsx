@@ -181,21 +181,11 @@ export function FloatingConsultant() {
               >
                 <span>💚</span> WhatsApp
               </a>
-              <button
-                type="button"
-                onClick={() => {
-                  trackEngagement("consultant_action", { action: "share_copy" });
-                  navigator.clipboard.writeText("Привет! Порекомендую Музу — крутая в подборе песен под событие. Попробуй: https://t.me/Muziaipodari_bot").catch(() => {});
-                }}
-                className="w-full flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-white/[0.06] transition-colors text-[11px] text-white/80 text-left"
-              >
-                <span>📋</span> Скопировать
-              </button>
             </div>
             <button
               type="button"
               onClick={dismiss}
-              className="w-full mt-1 px-2 py-1 rounded-lg text-[10px] text-white/50 hover:text-white/80 transition-colors"
+              className="w-full mt-2 px-3 py-2 rounded-lg bg-white/[0.04] text-[12px] text-white/70 hover:text-white hover:bg-white/[0.08] transition-colors border border-white/[0.06]"
             >
               Скрыть
             </button>
