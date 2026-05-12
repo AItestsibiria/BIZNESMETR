@@ -129,8 +129,7 @@ export default function AdminV304Page() {
       <Tabs defaultValue="overview">
         <TabsList className="mb-4 flex flex-wrap">
           <TabsTrigger value="overview">Обзор</TabsTrigger>
-          <TabsTrigger value="engagement">📊 Воронка</TabsTrigger>
-          <TabsTrigger value="learning">🧠 Самообучение</TabsTrigger>
+          <TabsTrigger value="friend">👤 Друг MuziAi</TabsTrigger>
           <TabsTrigger value="secrets">🔑 Секреты</TabsTrigger>
           <TabsTrigger value="templates">Шаблоны</TabsTrigger>
           <TabsTrigger value="flags">Feature flags</TabsTrigger>
@@ -138,8 +137,16 @@ export default function AdminV304Page() {
           <TabsTrigger value="audit">Audit log</TabsTrigger>
         </TabsList>
         <TabsContent value="overview"><OverviewTab toast={toast} /></TabsContent>
-        <TabsContent value="engagement"><EngagementTab toast={toast} /></TabsContent>
-        <TabsContent value="learning"><LearningTab toast={toast} /></TabsContent>
+        <TabsContent value="friend">
+          <div className="space-y-6">
+            <div className="p-4 rounded-2xl border border-pink-500/20 bg-gradient-to-br from-pink-500/[0.04] via-purple-500/[0.04] to-blue-500/[0.04]">
+              <h2 className="text-lg font-bold text-white mb-1">👤 Друг MuziAi — аналитика помощницы</h2>
+              <p className="text-xs text-muted-foreground">Воронка вовлечения, чат-сессии, рейтинг персон, самообучение, re-engagement</p>
+            </div>
+            <EngagementTab toast={toast} />
+            <LearningTab toast={toast} />
+          </div>
+        </TabsContent>
         <TabsContent value="secrets"><SecretsTab toast={toast} /></TabsContent>
         <TabsContent value="templates"><TemplatesTab toast={toast} /></TabsContent>
         <TabsContent value="flags"><FlagsTab toast={toast} /></TabsContent>
