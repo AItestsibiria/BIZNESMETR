@@ -106,7 +106,13 @@ router.post("/webhook", async (req, res) => {
       return;
     }
     const reply = await generateReply(fromId, text);
-    await sendMessage(chatId, `${p.avatar} ${reply}`);
+    const replyWithAvatar = `${p.avatar} ${reply}`;
+    // Образ помощницы в каждом ответе (Eugene 2026-05-11).
+    if (replyWithAvatar.length <= 1000) {
+      await sendConsultantPhoto(chatId, replyWithAvatar);
+    } else {
+      await sendMessage(chatId, replyWithAvatar);
+    }
   } catch (e) {
     bootRefs?.logger.error?.("[max-bot] webhook error", { error: String(e) });
   }

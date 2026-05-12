@@ -343,9 +343,16 @@ router.post("/webhook", async (req, res) => {
     const history = loadHistory(sessionId);
     const reply = await generateReply(fromId, text, history);
     const p = personaFor(fromId);
-    // Эмоджи-аватар персоны в начале сообщения — визуальная подпись.
     const replyWithAvatar = `${p.avatar} ${reply}`;
-    await sendMessage(chatId, replyWithAvatar);
+    // Eugene 2026-05-11: образ помощницы в каждом ответе. Caption Telegram
+    // = 1024 char. Длинные ответы (>1000) шлём текстом без фото, чтобы
+    // не обрезать. Prompt теперь strict 1-3 предложения — почти всегда
+    // влезает. Telegram кэширует picture по URL → быстрая отправка.
+    if (replyWithAvatar.length <= 1000) {
+      await sendConsultantPhoto(chatId, replyWithAvatar);
+    } else {
+      await sendMessage(chatId, replyWithAvatar);
+    }
     saveMessage(sessionId, "bot", replyWithAvatar);
     bootRefs?.eventBus?.emit?.("chatbot.reply_sent", { channel: "telegram", sessionId, chatId }, "telegram-bot");
   } catch (e) {

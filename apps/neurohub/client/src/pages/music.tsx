@@ -259,8 +259,36 @@ export default function MusicPage() {
       const qIdx = hash.indexOf("?");
       if (qIdx === -1) return null;
       const params = new URLSearchParams(hash.slice(qIdx));
-      const val = params.get("lyrics");
-      return val ? { lyrics: val, style: null, fullStyle: null, voiceType: null } : null;
+      // Eugene 2026-05-11: расширенный pre-fill через URL — бот строит
+      // ссылку https://muziai.ru/#/music?mode=...&prompt=...&lyrics=...
+      // &title=...&style=...&voice=... — pre-fill всех полей формы.
+      const urlPrompt = params.get("prompt");
+      const urlLyrics = params.get("lyrics");
+      const urlTitle = params.get("title");
+      const urlStyle = params.get("style");
+      const urlVoice = params.get("voice"); // 'female' | 'male' | 'duet' | 'instrumental'
+      if (urlPrompt || urlLyrics || urlTitle || urlStyle || urlVoice) {
+        // Engagement: юзер пришёл по pre-filled ссылке (от помощника).
+        try {
+          let sid = sessionStorage.getItem("_engagementSid");
+          if (!sid) { sid = Math.random().toString(36).slice(2, 14); sessionStorage.setItem("_engagementSid", sid); }
+          fetch("/api/engagement/track", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ event: "consultant_action", sessionId: sid, meta: { action: "music_link_open", mode: params.get("mode") || params.get("tab") || null } }),
+            keepalive: true,
+          }).catch(() => {});
+        } catch {}
+        return {
+          lyrics: urlLyrics || null,
+          style: urlStyle || null,
+          fullStyle: null,
+          voiceType: urlVoice || null,
+          prompt: urlPrompt || null,
+          title: urlTitle || null,
+        };
+      }
+      return null;
     } catch { return null; }
   })();
 
@@ -354,7 +382,7 @@ export default function MusicPage() {
   const [legacyMode, setLegacyMode] = useState<"simple" | "advanced">(
     regeneratePayload?.mode === "advanced" ? "advanced" : "simple",
   );
-  const [prompt, setPrompt] = useState(regeneratePayload?.prompt || "");
+  const [prompt, setPrompt] = useState(regeneratePayload?.prompt || transferred?.prompt || "");
   const [style, setStyle] = useState(regeneratePayload?.style || transferred?.style || "pop");
   const [selectedStyles, setSelectedStyles] = useState<string[]>([regeneratePayload?.style || transferred?.style || "pop"]);
   const [lyrics, setLyrics] = useState(regeneratePayload?.lyrics || transferred?.lyrics || "");
