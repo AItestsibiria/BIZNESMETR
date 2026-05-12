@@ -127,13 +127,19 @@ const STARTUP_KEYBOARD = {
 // Backup-LLM (Eugene 2026-05-11): Claude primary, OpenAI fallback.
 // Если Claude недоступен — переключаемся на OpenAI с тем же prompt'ом
 // и историей. Юзер ничего не замечает.
-async function tryClaude(system: string, text: string, history: Array<{ role: string; content: string }>): Promise<string | null> {
+async function tryClaude(stableSystem: string, dynamicSystem: string, text: string, history: Array<{ role: string; content: string }>): Promise<string | null> {
   const key = ANTHROPIC_KEY();
   if (!key) return null;
   try {
-    // Eugene 2026-05-11: скорость + prompt caching. System prompt стабильный
-    // (persona+KB, ~5K токенов) — кэшируем на 5 минут через cache_control.
-    // Это даёт ~85% latency-снижение и ~90% скидку cost на cached токены.
+    // Eugene 2026-05-11 (v2 speed-up): split system на stable+dynamic.
+    // Stable (persona+playbook+KB ~5K токенов) кэшируется через
+    // cache_control: ephemeral → следующие запросы 85% быстрее.
+    // Dynamic (memory/profile/learnings) меняется — отдельным блоком,
+    // НЕ ломает cache prefix.
+    const systemBlocks: any[] = [
+      { type: "text", text: stableSystem, cache_control: { type: "ephemeral" } },
+    ];
+    if (dynamicSystem) systemBlocks.push({ type: "text", text: dynamicSystem });
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -143,13 +149,11 @@ async function tryClaude(system: string, text: string, history: Array<{ role: st
       },
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
-        max_tokens: 250,
-        system: [
-          { type: "text", text: system, cache_control: { type: "ephemeral" } },
-        ],
-        messages: [...history.slice(-8), { role: "user", content: text }],
+        max_tokens: 180,
+        system: systemBlocks,
+        messages: [...history.slice(-5), { role: "user", content: text }],
       }),
-      signal: AbortSignal.timeout(12_000),
+      signal: AbortSignal.timeout(8_000),
     });
     if (!r.ok) {
       bootRefs?.logger.warn?.("[telegram-bot] claude non-ok", { status: r.status });
@@ -157,7 +161,7 @@ async function tryClaude(system: string, text: string, history: Array<{ role: st
     }
     const j: any = await r.json();
     const c = j?.content?.[0]?.text;
-    return typeof c === "string" && c.length > 0 ? c.slice(0, 2500) : null;
+    return typeof c === "string" && c.length > 0 ? c.slice(0, 2000) : null;
   } catch (e) {
     bootRefs?.logger.warn?.("[telegram-bot] claude error", { error: String(e) });
     return null;
@@ -201,15 +205,41 @@ async function generateReply(
   history: Array<{ role: "user" | "assistant"; content: string }>,
   extraSystem = ""
 ): Promise<string> {
-  const system = buildPersonaSystem(userKey) + extraSystem;
+  // Stable part (persona+playbook+KB) кэшируется через ephemeral cache_control.
+  // Dynamic part (memory/profile/learnings) — отдельным блоком.
+  const stableSystem = buildPersonaSystem(userKey);
+  const dynamicSystem = extraSystem;
   // 1. Primary: Claude
-  const c = await tryClaude(system, userText, history);
+  const c = await tryClaude(stableSystem, dynamicSystem, userText, history);
   if (c) return c;
-  // 2. Backup: GPTunnel (OpenAI-compatible, тот же кошелёк что у Suno)
-  const o = await tryGPTunnel(system, userText, history);
+  // 2. Backup: GPTunnel (OpenAI-compatible)
+  const o = await tryGPTunnel(stableSystem + dynamicSystem, userText, history);
   if (o) return o;
   // 3. Both failed → fallback hardcoded
   return `Здравствуйте! Я ${personaFor(userKey).name} 🎵 Чуть-чуть тормозит — попробуйте через минуту.`;
+}
+
+// Quick reply (Eugene 2026-05-11): для типичных коротких сообщений
+// возвращаем готовый ответ БЕЗ Claude — экономия 1-2 секунд.
+function tryQuickReply(text: string, personaName: string): string | null {
+  const t = text.trim().toLowerCase();
+  // Точные совпадения
+  if (/^(привет|здравствуй|здравствуйте|добрый день|доброе утро|добрый вечер|hi|hello)[.!\s]*$/i.test(t)) {
+    return `Привет! Я ${personaName}, помогу подобрать песню. Для какого случая думаете?`;
+  }
+  if (/^(спасибо|благодарю|thanks|thx|спс)[.!\s]*$/i.test(t)) {
+    return `Пожалуйста! Если что — пишите.`;
+  }
+  if (/^(ок|окей|ok|okay|хорошо|понятно|ясно)[.!\s]*$/i.test(t)) {
+    return `Угу. Продолжим — расскажите что хотите?`;
+  }
+  if (/^(пока|до свидания|bye|goodbye)[.!\s]*$/i.test(t)) {
+    return `До встречи! Возвращайтесь когда созреет идея 🎵`;
+  }
+  if (/^(\/help|help|помощь)[.!\s]*$/i.test(t)) {
+    return `Я помогу подобрать песню под событие. Расскажите для кого и какой повод — посоветую шаблон и подготовим текст.`;
+  }
+  return null;
 }
 
 // Lead extraction (Eugene 2026-05-11): извлекаем профиль юзера из истории.
@@ -559,6 +589,17 @@ router.post("/webhook", async (req, res) => {
     }
 
     saveMessage(sessionId, "user", text);
+    // Eugene 2026-05-11: quick-reply для коротких типичных фраз — без
+    // Claude, мгновенный ответ. Экономит 1-2 секунды на «Привет/Спасибо/Ок».
+    const p0 = personaFor(fromId);
+    const quick = tryQuickReply(text, p0.name);
+    if (quick) {
+      const footer = `\n\n— ${p0.name} · MuziAi`;
+      const replyWithAvatar = `${p0.avatar} ${quick}${footer}`;
+      await sendConsultantPhoto(chatId, replyWithAvatar);
+      saveMessage(sessionId, "bot", replyWithAvatar);
+      return;
+    }
     // Eugene 2026-05-11: typing-индикатор сразу — юзер видит что бот думает.
     try { tgApi("sendChatAction", { chat_id: chatId, action: "typing" }); } catch {}
     const history = loadHistory(sessionId);
