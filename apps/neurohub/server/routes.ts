@@ -2328,10 +2328,14 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
           COUNT(*) AS sessions,
           SUM(CASE WHEN msg_count >= 2 THEN 1 ELSE 0 END) AS multi_msg,
           SUM(CASE WHEN user_id IS NOT NULL THEN 1 ELSE 0 END) AS converted,
-          ROUND(AVG(msg_count), 1) AS avg_msgs
+          ROUND(AVG(msg_count), 1) AS avg_msgs,
+          ROUND(AVG(duration_min), 1) AS avg_min,
+          ROUND(MAX(duration_min), 1) AS max_min,
+          ROUND(SUM(duration_min), 0) AS total_min
         FROM (
           SELECT cs.id, cs.user_id,
-            (SELECT COUNT(*) FROM chatbot_messages WHERE session_id = cs.id AND role = 'user') AS msg_count
+            (SELECT COUNT(*) FROM chatbot_messages WHERE session_id = cs.id AND role = 'user') AS msg_count,
+            (julianday(cs.last_message_at) - julianday(cs.started_at)) * 24 * 60 AS duration_min
           FROM chatbot_sessions cs
           WHERE cs.last_message_at >= ${sinceFilter}
         )
@@ -2386,6 +2390,9 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
           converted: Number(totals?.converted) || 0,
           avg_msgs: Number(totals?.avg_msgs) || 0,
           conv_rate: totals?.sessions ? Math.round((Number(totals.converted) / Number(totals.sessions)) * 100) : 0,
+          avg_min: Number(totals?.avg_min) || 0,
+          max_min: Number(totals?.max_min) || 0,
+          total_min: Number(totals?.total_min) || 0,
         },
         by_persona: byPersona.map((r: any) => ({
           persona: r.persona,

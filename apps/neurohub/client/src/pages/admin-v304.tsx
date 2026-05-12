@@ -2024,6 +2024,20 @@ function ChatFunnelSection({ toast }: { toast: any }) {
               <div className="text-xl font-bold text-amber-300">{data.linked.users_generated}</div>
             </div>
           </div>
+          <div className="grid grid-cols-3 gap-3 mb-4">
+            <div className="p-3 rounded-lg bg-purple-500/[0.05] border border-purple-500/20">
+              <div className="text-[10px] text-muted-foreground">Ср. время сессии</div>
+              <div className="text-xl font-bold text-purple-200">{t.avg_min.toFixed(1)} мин</div>
+            </div>
+            <div className="p-3 rounded-lg bg-purple-500/[0.05] border border-purple-500/20">
+              <div className="text-[10px] text-muted-foreground">Макс. сессия</div>
+              <div className="text-xl font-bold text-purple-200">{t.max_min.toFixed(0)} мин</div>
+            </div>
+            <div className="p-3 rounded-lg bg-purple-500/[0.05] border border-purple-500/20">
+              <div className="text-[10px] text-muted-foreground">Думают о нас всего</div>
+              <div className="text-xl font-bold text-purple-200">{t.total_min >= 60 ? `${(t.total_min/60).toFixed(1)} ч` : `${t.total_min} мин`}</div>
+            </div>
+          </div>
           {data.top_player && (
             <div className="mb-4 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.04]">
               <div className="text-xs text-emerald-300/80 font-semibold mb-1">🏆 ТОП-ИГРОК (развиваем как основного)</div>
