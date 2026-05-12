@@ -33,13 +33,26 @@ async function sendMessage(chatId: string, text: string, attachments?: any[]) {
     bootRefs?.logger.warn?.("[max-bot] sendMessage failed", { chatId, error: String(e) });
   }
 }
-// Eugene 2026-05-11: образ помощника на /start — тот же singer-silhouette
-// что в Telegram + на сайте. Max API принимает attachment с type=image.
+// Eugene 2026-05-11/12: образ помощника. URL с cache-bust версией
+// (mtime PNG) — Max/нюанс кэшей не отдаёт устаревший файл.
+function getConsultantPhotoVersion(): string {
+  try {
+    const fs = require("node:fs");
+    const path = require("node:path");
+    for (const p of [
+      path.join(process.cwd(), "dist/public/consultant-avatar.png"),
+      path.join(process.cwd(), "client/public/consultant-avatar.png"),
+    ]) {
+      if (fs.existsSync(p)) return String(Math.floor(fs.statSync(p).mtimeMs));
+    }
+  } catch {}
+  return "1";
+}
+
 async function sendConsultantPhoto(chatId: string, caption: string) {
   try {
     const base = process.env.PUBLIC_BASE_URL || "https://muziai.ru";
-    // Прямая static PNG через nginx (Eugene 2026-05-11).
-    const photoUrl = `${base}/consultant-avatar.png`;
+    const photoUrl = `${base}/consultant-avatar.png?v=${getConsultantPhotoVersion()}`;
     await maxApi(`/messages?chat_id=${encodeURIComponent(chatId)}`, {
       text: caption,
       attachments: [{ type: "image", payload: { url: photoUrl } }],

@@ -68,18 +68,38 @@ async function sendMessage(chatId: number | string, text: string, replyMarkup?: 
   }
 }
 
-// Eugene 2026-05-11: образ помощника в КАЖДОМ ответе.
-// Решение «на 100%»: кэшируем file_id от Telegram после первой загрузки.
-// Первый sendPhoto = URL (download Telegram'ом, ~500ms). Telegram
-// возвращает file_id. Все последующие sendPhoto с file_id = 0 latency
-// (Telegram уже хранит файл). file_id хранится в process памяти —
-// при рестарте обновится автоматически с первого реквеста.
+// Eugene 2026-05-11/12: образ помощника в КАЖДОМ ответе.
+// file_id-кэш + cache-bust через mtime PNG. Если PNG обновился —
+// URL меняется (?v=<mtime>) → Telegram считает это новым файлом →
+// загружает свежую картинку → новый file_id. Старый file_id
+// автоматически сбрасывается через сверку версии.
 let cachedPhotoFileId: string | null = null;
+let cachedPhotoVersion: string | null = null;
+
+function getConsultantPhotoVersion(): string {
+  try {
+    const fs = require("node:fs");
+    const path = require("node:path");
+    for (const p of [
+      path.join(process.cwd(), "dist/public/consultant-avatar.png"),
+      path.join(process.cwd(), "client/public/consultant-avatar.png"),
+    ]) {
+      if (fs.existsSync(p)) return String(Math.floor(fs.statSync(p).mtimeMs));
+    }
+  } catch {}
+  return "1";
+}
 
 async function sendConsultantPhoto(chatId: number | string, caption: string, replyMarkup?: any): Promise<void> {
   try {
     const base = process.env.PUBLIC_BASE_URL || "https://muziai.ru";
-    const photoSource = cachedPhotoFileId || `${base}/consultant-avatar.png`;
+    const currentVersion = getConsultantPhotoVersion();
+    // Версия изменилась → сбрасываем file_id, перезагружаем картинку.
+    if (cachedPhotoVersion !== currentVersion) {
+      cachedPhotoFileId = null;
+      cachedPhotoVersion = currentVersion;
+    }
+    const photoSource = cachedPhotoFileId || `${base}/consultant-avatar.png?v=${currentVersion}`;
     const body: any = {
       chat_id: chatId,
       photo: photoSource,
