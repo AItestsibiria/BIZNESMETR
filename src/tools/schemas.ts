@@ -109,8 +109,17 @@ export const RecallFactsInputSchema = z.object({
     .string()
     .max(120)
     .optional()
-    .describe('Substring filter over the key. Empty = return everything (capped by limit).'),
+    .describe('Substring filter over key OR value (case-insensitive). Empty = return everything (capped by limit).'),
   limit: z.number().int().positive().max(50).default(20),
+})
+
+export const ForgetFactInputSchema = z.object({
+  key: z
+    .string()
+    .min(1)
+    .max(120)
+    .regex(/^[a-z0-9_.:-]+$/i, 'Use a-z 0-9 _ . : -')
+    .describe('Exact key of the fact to delete. Get it from a prior recall_facts call.'),
 })
 
 export type CreateTaskInput = z.infer<typeof CreateTaskInputSchema>
@@ -126,3 +135,4 @@ export type GithubMyIssuesInput = z.infer<typeof GithubMyIssuesInputSchema>
 export type ProjectAnalyticsInput = z.infer<typeof ProjectAnalyticsInputSchema>
 export type RememberFactInput = z.infer<typeof RememberFactInputSchema>
 export type RecallFactsInput = z.infer<typeof RecallFactsInputSchema>
+export type ForgetFactInput = z.infer<typeof ForgetFactInputSchema>

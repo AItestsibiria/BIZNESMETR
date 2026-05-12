@@ -11,6 +11,7 @@ import { projectConnectors } from '../integrations/projects'
 import {
   CreateTaskInputSchema,
   DraftTextInputSchema,
+  ForgetFactInputSchema,
   GcalCreateEventInputSchema,
   GcalListUpcomingInputSchema,
   GithubMyIssuesInputSchema,
@@ -208,13 +209,20 @@ const rememberFact = defineTool({
 const recallFacts = defineTool({
   name: 'recall_facts',
   description:
-    'Recall facts previously remembered for the user. With no query, returns the most recently updated facts. With a query, filters keys by substring (case-insensitive).',
+    'Recall facts previously remembered for the user. With no query, returns the most recently updated facts. With a query, finds facts where either the key OR the value contains the substring (case-insensitive).',
   schema: RecallFactsInputSchema,
   handler: async (input, ctx) => {
     const facts = await prisma.fact.findMany({
       where: {
         userId: ctx.userId,
-        ...(input.query ? { key: { contains: input.query, mode: 'insensitive' } } : {}),
+        ...(input.query
+          ? {
+              OR: [
+                { key: { contains: input.query, mode: 'insensitive' } },
+                { value: { contains: input.query, mode: 'insensitive' } },
+              ],
+            }
+          : {}),
       },
       orderBy: { updatedAt: 'desc' },
       take: input.limit,
@@ -227,6 +235,19 @@ const recallFacts = defineTool({
         updatedAt: f.updatedAt.toISOString(),
       })),
     }
+  },
+})
+
+const forgetFact = defineTool({
+  name: 'forget_fact',
+  description:
+    'Delete a previously remembered fact by its exact key. Use when the user says "забудь про X" or when a fact is replaced by a newer one with a different key.',
+  schema: ForgetFactInputSchema,
+  handler: async (input, ctx) => {
+    const res = await prisma.fact.deleteMany({
+      where: { userId: ctx.userId, key: input.key },
+    })
+    return { deleted: res.count > 0, key: input.key }
   },
 })
 
@@ -259,6 +280,7 @@ const tools = [
   projectAnalytics,
   rememberFact,
   recallFacts,
+  forgetFact,
 ] as const
 
 export function getToolDefinitionsForClaude(): Anthropic.Messages.Tool[] {

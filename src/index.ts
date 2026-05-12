@@ -10,6 +10,10 @@ import { startDigestScheduler } from './core/scheduler'
 import { sheetsClient } from './integrations/sheets'
 import type { MessengerAdapter } from './messengers/adapter'
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Unknown error'
+}
+
 async function main(): Promise<void> {
   const app = express()
   app.use(express.json({ limit: '1mb' }))
@@ -41,6 +45,26 @@ async function main(): Promise<void> {
 
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', uptime: process.uptime() })
+  })
+
+  app.get('/ready', async (_req, res) => {
+    const checks: Record<string, { ok: boolean; error?: string }> = {}
+    try {
+      await prisma.$queryRaw`SELECT 1`
+      checks['postgres'] = { ok: true }
+    } catch (error) {
+      checks['postgres'] = { ok: false, error: errorMessage(error) }
+    }
+    if (config.HUB_SHEET_ID) {
+      try {
+        await sheetsClient.ensureHeaders()
+        checks['sheets'] = { ok: true }
+      } catch (error) {
+        checks['sheets'] = { ok: false, error: errorMessage(error) }
+      }
+    }
+    const allOk = Object.values(checks).every((c) => c.ok)
+    res.status(allOk ? 200 : 503).json({ ready: allOk, checks })
   })
 
   if (config.HUB_SHEET_ID) {

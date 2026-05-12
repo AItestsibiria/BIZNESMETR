@@ -38,6 +38,12 @@ jest.mock('../../integrations/github', () => ({
   },
 }))
 
+interface PrismaFactFilter {
+  userId: string
+  OR?: { key?: { contains: string; mode: string }; value?: { contains: string; mode: string } }[]
+  key?: { contains: string; mode: string }
+}
+
 jest.mock('../../db', () => {
   const mem = new Map<string, { key: string; value: string; updatedAt: Date }>()
   return {
@@ -56,15 +62,30 @@ jest.mock('../../db', () => {
           mem.set(cacheKey, created)
           return Promise.resolve({ ...created })
         }),
-        findMany: jest.fn(({ where, take }: { where: { userId: string; key?: { contains: string; mode: string } }; take: number }) => {
-          const entries = [...mem.entries()]
-            .filter(([k]) => k.startsWith(`${where.userId}::`))
+        findMany: jest.fn(({ where, take }: { where: PrismaFactFilter; take: number }) => {
+          const userPrefix = `${where.userId}::`
+          const all = [...mem.entries()]
+            .filter(([k]) => k.startsWith(userPrefix))
             .map(([, v]) => v)
-            .filter((f) =>
-              where.key?.contains ? f.key.toLowerCase().includes(where.key.contains.toLowerCase()) : true,
-            )
-            .slice(0, take)
-          return Promise.resolve(entries)
+          const filtered = where.OR
+            ? all.filter((f) =>
+                where.OR!.some((clause) => {
+                  if (clause.key?.contains) {
+                    return f.key.toLowerCase().includes(clause.key.contains.toLowerCase())
+                  }
+                  if (clause.value?.contains) {
+                    return f.value.toLowerCase().includes(clause.value.contains.toLowerCase())
+                  }
+                  return false
+                }),
+              )
+            : all
+          return Promise.resolve(filtered.slice(0, take))
+        }),
+        deleteMany: jest.fn(({ where }: { where: { userId: string; key: string } }) => {
+          const cacheKey = `${where.userId}::${where.key}`
+          const existed = mem.delete(cacheKey)
+          return Promise.resolve({ count: existed ? 1 : 0 })
         }),
       },
     },
@@ -142,6 +163,7 @@ describe('tools dispatcher', () => {
     expect(names).toEqual([
       'create_task',
       'draft_text',
+      'forget_fact',
       'gcal_create_event',
       'gcal_list_upcoming',
       'github_my_issues',
@@ -245,7 +267,7 @@ describe('tools dispatcher', () => {
 
   it('remember_fact stores, recall_facts retrieves with substring filter', async () => {
     await runTool('remember_fact', { key: 'contact.ivanov.role', value: 'CFO' }, ctx)
-    await runTool('remember_fact', { key: 'deal.acme.status', value: 'negotiating' }, ctx)
+    await runTool('remember_fact', { key: 'deal.acme.status', value: 'negotiating with Ivanov' }, ctx)
 
     const all = await runTool('recall_facts', { limit: 10 }, ctx)
     expect(all.ok).toBe(true)
@@ -253,13 +275,23 @@ describe('tools dispatcher', () => {
       expect(all.result).toMatchObject({ count: 2 })
     }
 
+    // The substring matches the KEY of the first fact AND the VALUE of the second.
     const filtered = await runTool('recall_facts', { query: 'ivanov', limit: 10 }, ctx)
     expect(filtered.ok).toBe(true)
     if (filtered.ok) {
-      expect(filtered.result).toMatchObject({
-        count: 1,
-        facts: [{ key: 'contact.ivanov.role', value: 'CFO' }],
-      })
+      const result = filtered.result as { count: number }
+      expect(result.count).toBe(2)
     }
+  })
+
+  it('forget_fact removes the fact; second call returns deleted:false', async () => {
+    await runTool('remember_fact', { key: 'temp.note', value: 'one-off' }, ctx)
+    const first = await runTool('forget_fact', { key: 'temp.note' }, ctx)
+    expect(first.ok).toBe(true)
+    if (first.ok) expect(first.result).toMatchObject({ deleted: true, key: 'temp.note' })
+
+    const second = await runTool('forget_fact', { key: 'temp.note' }, ctx)
+    expect(second.ok).toBe(true)
+    if (second.ok) expect(second.result).toMatchObject({ deleted: false })
   })
 })
