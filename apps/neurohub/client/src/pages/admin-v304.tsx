@@ -1943,7 +1943,162 @@ function EngagementTab({ toast }: { toast: any }) {
           )}
         </CardContent>
       </Card>
+      <ChatFunnelSection toast={toast} />
     </div>
+  );
+}
+
+// ============================================================
+// ChatFunnelSection — отчёт по чатам + рейтинг персон (Eugene 2026-05-12)
+// Воронка: всего сессий → 2+ сообщений → конвертированы. Топ-игрок.
+// ============================================================
+function ChatFunnelSection({ toast }: { toast: any }) {
+  const { data, refetch } = useQuery<any>({
+    queryKey: ["/api/admin/v304/chat-funnel"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/admin/v304/chat-funnel?days=30");
+      return r.json();
+    },
+    refetchInterval: 90_000,
+  });
+
+  if (!data?.ok) return null;
+  const t = data.totals;
+  const personas = data.by_persona || [];
+  const channels = data.by_channel || [];
+
+  const copyReport = () => {
+    const lines: string[] = [];
+    lines.push(`💬 Чат-воронка MuziAi — ${new Date().toLocaleString("ru-RU")} (${data.days} дней)`);
+    lines.push("");
+    lines.push(`Всего сессий: ${t.sessions}`);
+    lines.push(`С 2+ сообщений: ${t.multi_msg}`);
+    lines.push(`Конвертировано (linked user): ${t.converted} (${t.conv_rate}%)`);
+    lines.push(`Средняя длина сессии: ${t.avg_msgs} сообщений`);
+    lines.push(`Дошли до генерации: ${data.linked.users_generated} юзеров`);
+    if (data.top_player) {
+      lines.push(`\n🏆 ТОП-ИГРОК: ${data.top_player.persona} — ${data.top_player.converted} конверсий из ${data.top_player.sessions} сессий`);
+    }
+    lines.push("\nПО ПЕРСОНАМ:");
+    for (const p of personas) {
+      lines.push(`  ${p.persona}: ${p.sessions} сессий, ${p.multi_msg} вовлечённых, ${p.converted} конверсий (${p.conv_rate}%)`);
+    }
+    lines.push("\nПО КАНАЛАМ:");
+    for (const c of channels) {
+      lines.push(`  ${c.channel}: ${c.sessions} сессий, ${c.multi_msg} вовлечённых, ${c.converted} конверсий`);
+    }
+    navigator.clipboard.writeText(lines.join("\n")).then(() => toast?.({ title: "✅ Скопировано" }));
+  };
+
+  return (
+    <>
+      <Card className="mt-4">
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>💬 Чат-воронка (30 дней)</CardTitle>
+          <div className="flex gap-2">
+            <button onClick={copyReport} className="text-xs px-3 py-1 rounded bg-secondary hover:bg-secondary/70 transition">📋 Копировать</button>
+            <button onClick={() => refetch()} className="text-xs px-3 py-1 rounded bg-secondary hover:bg-secondary/70 transition">⟳</button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
+            <div className="p-3 rounded-lg bg-white/[0.03] border border-white/10">
+              <div className="text-[10px] text-muted-foreground">Сессий</div>
+              <div className="text-xl font-bold text-white">{t.sessions}</div>
+            </div>
+            <div className="p-3 rounded-lg bg-white/[0.03] border border-white/10">
+              <div className="text-[10px] text-muted-foreground">С 2+ сообщ.</div>
+              <div className="text-xl font-bold text-blue-300">{t.multi_msg}</div>
+            </div>
+            <div className="p-3 rounded-lg bg-white/[0.03] border border-white/10">
+              <div className="text-[10px] text-muted-foreground">Конверсий</div>
+              <div className="text-xl font-bold text-emerald-300">{t.converted}</div>
+              <div className="text-[10px] text-muted-foreground/80">{t.conv_rate}%</div>
+            </div>
+            <div className="p-3 rounded-lg bg-white/[0.03] border border-white/10">
+              <div className="text-[10px] text-muted-foreground">Ср. сообщ./сессия</div>
+              <div className="text-xl font-bold text-purple-300">{t.avg_msgs}</div>
+            </div>
+            <div className="p-3 rounded-lg bg-white/[0.03] border border-white/10">
+              <div className="text-[10px] text-muted-foreground">→ Генерация</div>
+              <div className="text-xl font-bold text-amber-300">{data.linked.users_generated}</div>
+            </div>
+          </div>
+          {data.top_player && (
+            <div className="mb-4 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.04]">
+              <div className="text-xs text-emerald-300/80 font-semibold mb-1">🏆 ТОП-ИГРОК (развиваем как основного)</div>
+              <div className="text-sm text-white">
+                <span className="font-bold">{data.top_player.persona}</span>: {data.top_player.converted} конверсий из {data.top_player.sessions} сессий
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="mt-4">
+        <CardHeader><CardTitle>🏆 Рейтинг персон (по конверсиям)</CardTitle></CardHeader>
+        <CardContent className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-xs text-muted-foreground border-b">
+              <tr>
+                <th className="text-left py-2 pl-2">#</th>
+                <th className="text-left py-2 pl-2">Персона</th>
+                <th className="text-right py-2 px-3">Сессий</th>
+                <th className="text-right py-2 px-3">Вовлечённых</th>
+                <th className="text-right py-2 px-3">Конверсий</th>
+                <th className="text-right py-2 px-3">Rate</th>
+                <th className="text-right py-2 px-3 pr-2">Ср. msg</th>
+              </tr>
+            </thead>
+            <tbody>
+              {personas.map((p: any, i: number) => (
+                <tr key={p.persona} className={`border-b border-border/30 hover:bg-secondary/30 ${i === 0 ? "bg-emerald-500/[0.03]" : ""}`}>
+                  <td className="py-2 pl-2 font-mono text-muted-foreground">{i + 1}</td>
+                  <td className="py-2 pl-2 font-medium">{i === 0 ? `🏆 ${p.persona}` : p.persona}</td>
+                  <td className="text-right py-2 px-3 font-mono">{p.sessions}</td>
+                  <td className="text-right py-2 px-3 font-mono text-blue-300">{p.multi_msg}</td>
+                  <td className="text-right py-2 px-3 font-mono text-emerald-300">{p.converted}</td>
+                  <td className="text-right py-2 px-3 font-mono">{p.conv_rate}%</td>
+                  <td className="text-right py-2 px-3 pr-2 font-mono text-muted-foreground">{p.avg_msgs}</td>
+                </tr>
+              ))}
+              {personas.length === 0 && (
+                <tr><td colSpan={7} className="text-center text-muted-foreground p-4">Данных пока нет.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+
+      <Card className="mt-4">
+        <CardHeader><CardTitle>📡 По каналам</CardTitle></CardHeader>
+        <CardContent className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-xs text-muted-foreground border-b">
+              <tr>
+                <th className="text-left py-2 pl-2">Канал</th>
+                <th className="text-right py-2 px-3">Сессий</th>
+                <th className="text-right py-2 px-3">Вовлечённых</th>
+                <th className="text-right py-2 px-3 pr-2">Конверсий</th>
+              </tr>
+            </thead>
+            <tbody>
+              {channels.map((c: any) => (
+                <tr key={c.channel} className="border-b border-border/30 hover:bg-secondary/30">
+                  <td className="py-2 pl-2 font-medium">{c.channel}</td>
+                  <td className="text-right py-2 px-3 font-mono">{c.sessions}</td>
+                  <td className="text-right py-2 px-3 font-mono text-blue-300">{c.multi_msg}</td>
+                  <td className="text-right py-2 px-3 pr-2 font-mono text-emerald-300">{c.converted}</td>
+                </tr>
+              ))}
+              {channels.length === 0 && (
+                <tr><td colSpan={4} className="text-center text-muted-foreground p-4">Данных пока нет.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+    </>
   );
 }
 

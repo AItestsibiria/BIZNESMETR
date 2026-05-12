@@ -2314,6 +2314,108 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     }
   });
 
+  // Chat funnel (Eugene 2026-05-12): сводный отчёт по чатам для админа.
+  // Воронка: всего сессий → с 2+ сообщений → конвертированы (linked user).
+  // Разрез по personas (рейтинг продаж) и каналам.
+  app.get("/api/admin/v304/chat-funnel", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const days = Math.min(90, Math.max(1, parseInt(String(req.query.days || "30")) || 30));
+      const sinceFilter = `datetime('now', '-${days} days')`;
+
+      // Общие метрики
+      const totals = db.get<any>(sql.raw(`
+        SELECT
+          COUNT(*) AS sessions,
+          SUM(CASE WHEN msg_count >= 2 THEN 1 ELSE 0 END) AS multi_msg,
+          SUM(CASE WHEN user_id IS NOT NULL THEN 1 ELSE 0 END) AS converted,
+          ROUND(AVG(msg_count), 1) AS avg_msgs
+        FROM (
+          SELECT cs.id, cs.user_id,
+            (SELECT COUNT(*) FROM chatbot_messages WHERE session_id = cs.id AND role = 'user') AS msg_count
+          FROM chatbot_sessions cs
+          WHERE cs.last_message_at >= ${sinceFilter}
+        )
+      `));
+
+      // По personas — рейтинг
+      const byPersona = db.all<any>(sql.raw(`
+        SELECT
+          COALESCE(cs.persona_name, '—') AS persona,
+          COUNT(*) AS sessions,
+          SUM(CASE WHEN (SELECT COUNT(*) FROM chatbot_messages WHERE session_id = cs.id AND role = 'user') >= 2 THEN 1 ELSE 0 END) AS multi_msg,
+          SUM(CASE WHEN cs.user_id IS NOT NULL THEN 1 ELSE 0 END) AS converted,
+          ROUND(AVG((SELECT COUNT(*) FROM chatbot_messages WHERE session_id = cs.id AND role = 'user')), 1) AS avg_msgs
+        FROM chatbot_sessions cs
+        WHERE cs.last_message_at >= ${sinceFilter}
+        GROUP BY persona
+        ORDER BY converted DESC, multi_msg DESC
+      `)) as any[];
+
+      // По каналам
+      const byChannel = db.all<any>(sql.raw(`
+        SELECT
+          cs.channel,
+          COUNT(*) AS sessions,
+          SUM(CASE WHEN (SELECT COUNT(*) FROM chatbot_messages WHERE session_id = cs.id AND role = 'user') >= 2 THEN 1 ELSE 0 END) AS multi_msg,
+          SUM(CASE WHEN cs.user_id IS NOT NULL THEN 1 ELSE 0 END) AS converted
+        FROM chatbot_sessions cs
+        WHERE cs.last_message_at >= ${sinceFilter}
+        GROUP BY cs.channel
+        ORDER BY converted DESC, sessions DESC
+      `)) as any[];
+
+      // Cross-связь с engagement: чат → music_generate
+      const linkedConv = db.get<any>(sql.raw(`
+        SELECT COUNT(DISTINCT cs.user_id) AS users_generated
+        FROM chatbot_sessions cs
+        INNER JOIN engagement_events ee ON ee.user_id = cs.user_id
+        WHERE cs.last_message_at >= ${sinceFilter}
+          AND cs.user_id IS NOT NULL
+          AND ee.event_type IN ('music_generate_attempt', 'music_generate_success')
+      `));
+
+      // Главный игрок — топ persona по conversions
+      const topPlayer = byPersona[0] || null;
+
+      res.json({
+        ok: true,
+        days,
+        totals: {
+          sessions: Number(totals?.sessions) || 0,
+          multi_msg: Number(totals?.multi_msg) || 0,
+          converted: Number(totals?.converted) || 0,
+          avg_msgs: Number(totals?.avg_msgs) || 0,
+          conv_rate: totals?.sessions ? Math.round((Number(totals.converted) / Number(totals.sessions)) * 100) : 0,
+        },
+        by_persona: byPersona.map((r: any) => ({
+          persona: r.persona,
+          sessions: Number(r.sessions) || 0,
+          multi_msg: Number(r.multi_msg) || 0,
+          converted: Number(r.converted) || 0,
+          avg_msgs: Number(r.avg_msgs) || 0,
+          conv_rate: r.sessions ? Math.round((Number(r.converted) / Number(r.sessions)) * 100) : 0,
+        })),
+        by_channel: byChannel.map((r: any) => ({
+          channel: r.channel,
+          sessions: Number(r.sessions) || 0,
+          multi_msg: Number(r.multi_msg) || 0,
+          converted: Number(r.converted) || 0,
+        })),
+        linked: {
+          users_generated: Number(linkedConv?.users_generated) || 0,
+        },
+        top_player: topPlayer ? {
+          persona: topPlayer.persona,
+          converted: Number(topPlayer.converted) || 0,
+          sessions: Number(topPlayer.sessions) || 0,
+        } : null,
+      });
+    } catch (e: any) {
+      console.error("[CHAT-FUNNEL] Error:", e);
+      res.status(500).json({ ok: false, error: String(e) });
+    }
+  });
+
   // Eugene 2026-05-09: AUDIO PIPELINE TEST — проходит всю цепочку
   // голос → текст → песня и возвращает статус каждой точки.
   // Контрольные точки:
