@@ -901,16 +901,16 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         >
           <div className="flex items-start gap-3">
             <div className="w-14 shrink-0 flex items-start justify-center pt-1">
-              <span className="text-3xl">🎉</span>
+              <span className="text-3xl">🎁</span>
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-medium">Новости</span>
-                <span className="text-[10px] text-muted-foreground">9 мая 2026</span>
+                <span className="text-[10px] text-muted-foreground">12 апреля 2026</span>
               </div>
-              <h3 className="text-lg font-bold mb-2"><span className="text-white">Музыка под любое </span><span className="bg-gradient-to-r from-purple-400 via-blue-400 to-cyan-300 bg-clip-text text-transparent">Событие</span></h3>
+              <h3 className="text-lg font-bold mb-2"><span className="text-white">«Поехали» — </span><span className="bg-gradient-to-r from-purple-400 via-blue-400 to-cyan-300 bg-clip-text text-transparent">Событие</span></h3>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Свадьба, день рождения, корпоратив, гимн компании — выбери <span className="gradient-text font-semibold">Событие</span> и MuziAi напишет идеальный трек под готовый волшебный сценарий.
+                Зарегистрируйтесь сегодня — <span className="text-cyan-300 font-medium">1 трек в подарок</span> зачислится сразу. Под свадьбу, день рождения, корпоратив, гимн компании — выбирайте <span className="gradient-text font-semibold">Музыкальное Событие</span> (готовый волшебный сценарий) и Муза подготовит идеальный трек.
               </p>
             </div>
           </div>
