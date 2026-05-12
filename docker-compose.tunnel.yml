@@ -1,0 +1,16 @@
+# Override for tunnel-based deploys (no domain, no Caddy).
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d
+#
+# The app port is exposed only on localhost (127.0.0.1:3000); a host-level
+# tunnel daemon (Tailscale Funnel or cloudflared) forwards public HTTPS to it.
+# When a real domain + Caddy are ready, drop this override.
+
+services:
+  caddy:
+    profiles:
+      - disabled  # not started under tunnel mode
+
+  app:
+    ports:
+      - "127.0.0.1:3000:3000"
