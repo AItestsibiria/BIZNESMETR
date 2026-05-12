@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage, db } from "./storage";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
-import { registerSchema, loginSchema, users, payments, generations, transactions, promoCodes, visitors, genActivity } from "@shared/schema";
+import { registerSchema, loginSchema, users, payments, generations, transactions, promoCodes, visitors, genActivity, songDrafts } from "@shared/schema";
 import express from "express";
 import { eq, desc, sql, and, isNotNull } from "drizzle-orm";
 import nodemailer from "nodemailer";
@@ -2191,6 +2191,93 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
   };
   app.get("/api/admin/v304/email-test", requireAdmin, emailTestHandler);
   app.post("/api/admin/v304/email-test", requireAdmin, emailTestHandler);
+
+  // ==================== SONG DRAFTS (Eugene 2026-05-11) ====================
+  // Юзер сохраняет идеи/тексты будущих песен в личный кабинет, редактирует
+  // позже, нажимает «Сгенерировать» → /music с pre-filled полями.
+
+  app.get("/api/drafts", authMiddleware, (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).userId;
+      const rows = db.select().from(songDrafts).where(eq(songDrafts.userId, userId)).orderBy(desc(songDrafts.updatedAt)).all();
+      res.json({ data: rows });
+    } catch (e: any) {
+      console.error("[DRAFTS GET] Error:", e);
+      res.status(500).json({ error: "Не удалось загрузить черновики" });
+    }
+  });
+
+  app.post("/api/drafts", authMiddleware, (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).userId;
+      const { title, lyrics, prompt, style, voice, mood, tempo, bpm, source } = req.body || {};
+      const now = new Date().toISOString();
+      const row = db.insert(songDrafts).values({
+        userId,
+        title: title ? String(title).slice(0, 200) : null,
+        lyrics: lyrics ? String(lyrics).slice(0, 6000) : null,
+        prompt: prompt ? String(prompt).slice(0, 2000) : null,
+        style: style ? String(style).slice(0, 100) : null,
+        voice: voice ? String(voice).slice(0, 30) : null,
+        mood: mood ? String(mood).slice(0, 50) : null,
+        tempo: tempo ? String(tempo).slice(0, 30) : null,
+        bpm: bpm ? Number(bpm) || null : null,
+        source: source ? String(source).slice(0, 30) : null,
+        createdAt: now,
+        updatedAt: now,
+      }).returning().get();
+      res.json({ data: row });
+    } catch (e: any) {
+      console.error("[DRAFTS POST] Error:", e);
+      res.status(500).json({ error: "Не удалось сохранить черновик" });
+    }
+  });
+
+  app.put("/api/drafts/:id", authMiddleware, (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).userId;
+      const id = parseInt(req.params.id);
+      const draft = db.select().from(songDrafts).where(eq(songDrafts.id, id)).get();
+      if (!draft || draft.userId !== userId) {
+        res.status(404).json({ error: "Черновик не найден" });
+        return;
+      }
+      const { title, lyrics, prompt, style, voice, mood, tempo, bpm } = req.body || {};
+      db.update(songDrafts).set({
+        title: title !== undefined ? (title ? String(title).slice(0, 200) : null) : draft.title,
+        lyrics: lyrics !== undefined ? (lyrics ? String(lyrics).slice(0, 6000) : null) : draft.lyrics,
+        prompt: prompt !== undefined ? (prompt ? String(prompt).slice(0, 2000) : null) : draft.prompt,
+        style: style !== undefined ? (style ? String(style).slice(0, 100) : null) : draft.style,
+        voice: voice !== undefined ? (voice ? String(voice).slice(0, 30) : null) : draft.voice,
+        mood: mood !== undefined ? (mood ? String(mood).slice(0, 50) : null) : draft.mood,
+        tempo: tempo !== undefined ? (tempo ? String(tempo).slice(0, 30) : null) : draft.tempo,
+        bpm: bpm !== undefined ? (bpm ? Number(bpm) || null : null) : draft.bpm,
+        updatedAt: new Date().toISOString(),
+      }).where(eq(songDrafts.id, id)).run();
+      const updated = db.select().from(songDrafts).where(eq(songDrafts.id, id)).get();
+      res.json({ data: updated });
+    } catch (e: any) {
+      console.error("[DRAFTS PUT] Error:", e);
+      res.status(500).json({ error: "Не удалось обновить" });
+    }
+  });
+
+  app.delete("/api/drafts/:id", authMiddleware, (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).userId;
+      const id = parseInt(req.params.id);
+      const draft = db.select().from(songDrafts).where(eq(songDrafts.id, id)).get();
+      if (!draft || draft.userId !== userId) {
+        res.status(404).json({ error: "Черновик не найден" });
+        return;
+      }
+      db.delete(songDrafts).where(eq(songDrafts.id, id)).run();
+      res.json({ ok: true });
+    } catch (e: any) {
+      console.error("[DRAFTS DELETE] Error:", e);
+      res.status(500).json({ error: "Не удалось удалить" });
+    }
+  });
 
   // Engagement stats (Eugene 2026-05-11): воронка вовлечения для admin
   // dashboard. ?days=30 daily breakdown + summary today/period/total.

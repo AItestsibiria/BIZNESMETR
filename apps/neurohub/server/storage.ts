@@ -346,6 +346,24 @@ try {
     );
     CREATE INDEX IF NOT EXISTS chatbot_messages_session_idx ON chatbot_messages(session_id, created_at);
 
+    -- Song drafts (Eugene 2026-05-11): сохранённые идеи/тексты юзеров.
+    CREATE TABLE IF NOT EXISTS song_drafts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      title TEXT,
+      lyrics TEXT,
+      prompt TEXT,
+      style TEXT,
+      voice TEXT,
+      mood TEXT,
+      tempo TEXT,
+      bpm INTEGER,
+      source TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS song_drafts_user_idx ON song_drafts(user_id, updated_at DESC);
+
     -- Engagement events (Eugene 2026-05-11): воронка вовлечения.
     CREATE TABLE IF NOT EXISTS engagement_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

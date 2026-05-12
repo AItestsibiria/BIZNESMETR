@@ -356,6 +356,29 @@ export const audioUploads = sqliteTable("audio_uploads", {
 });
 export type AudioUpload = typeof audioUploads.$inferSelect;
 
+// Song drafts (Eugene 2026-05-11): юзер сохраняет идеи/тексты будущих
+// песен в личный кабинет — редактирует позже, нажимает «Сгенерировать»
+// → редирект на /music с pre-filled полями. Создаётся:
+//   - из бота (бот предлагает «сохранить идею»)
+//   - из /music (кнопка «Сохранить как черновик»)
+//   - из /dashboard (новая секция «Мои черновики»)
+export const songDrafts = sqliteTable("song_drafts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull(),
+  title: text("title"),
+  lyrics: text("lyrics"),           // готовый текст
+  prompt: text("prompt"),           // короткое описание (для basic режима)
+  style: text("style"),             // pop / rock / lullaby ...
+  voice: text("voice"),             // female / male / duet / instrumental
+  mood: text("mood"),               // happy / sad / romantic ...
+  tempo: text("tempo"),             // slow / moderate / fast / very fast
+  bpm: integer("bpm"),
+  source: text("source"),           // 'bot' | 'site' | 'dashboard' — откуда сохранено
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").default(sql`CURRENT_TIMESTAMP`),
+});
+export type SongDraft = typeof songDrafts.$inferSelect;
+
 // Engagement events (Eugene 2026-05-11): воронка вовлечения для admin
 // dashboard. Считаем сколько людей пытаются — register/login/telegram/
 // generation/consultant-click. Daily breakdown в /admin → 📊 Воронка.

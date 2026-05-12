@@ -1559,6 +1559,203 @@ function MyPlaylistWrapper() {
   }} />;
 }
 
+// MyDraftsSection (Eugene 2026-05-11): сохранённые идеи/тексты будущих
+// песен. Юзер редактирует здесь → нажимает «Сгенерировать» → откроется
+// /music с pre-filled полями.
+type SongDraft = {
+  id: number;
+  title: string | null;
+  lyrics: string | null;
+  prompt: string | null;
+  style: string | null;
+  voice: string | null;
+  mood: string | null;
+  tempo: string | null;
+  bpm: number | null;
+  source: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+function MyDraftsSection() {
+  const { toast } = useToast();
+  const [editingId, setEditingId] = useState<number | "new" | null>(null);
+  const [form, setForm] = useState<Partial<SongDraft>>({ title: "", lyrics: "", style: "pop", voice: "female", mood: "" });
+  const [expanded, setExpanded] = useState(true);
+
+  const { data, isLoading, refetch } = useQuery<{ data: SongDraft[] }>({
+    queryKey: ["/api/drafts"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/drafts");
+      return r.json();
+    },
+  });
+  const drafts = data?.data || [];
+
+  const save = async () => {
+    try {
+      const body = JSON.stringify({ ...form, source: "dashboard" });
+      const url = editingId === "new" ? "/api/drafts" : `/api/drafts/${editingId}`;
+      const method = editingId === "new" ? "POST" : "PUT";
+      const r = await apiRequest(method, url, JSON.parse(body));
+      if (!r.ok) throw new Error("save failed");
+      toast({ title: "✓ Сохранено" });
+      setEditingId(null);
+      setForm({ title: "", lyrics: "", style: "pop", voice: "female", mood: "" });
+      refetch();
+    } catch {
+      toast({ title: "Ошибка сохранения", variant: "destructive" });
+    }
+  };
+
+  const remove = async (id: number) => {
+    if (!confirm("Удалить черновик?")) return;
+    try {
+      const r = await apiRequest("DELETE", `/api/drafts/${id}`);
+      if (!r.ok) throw new Error("delete failed");
+      refetch();
+    } catch {
+      toast({ title: "Ошибка удаления", variant: "destructive" });
+    }
+  };
+
+  const generate = (d: SongDraft) => {
+    const params = new URLSearchParams();
+    if (d.lyrics && d.lyrics.length >= 50) {
+      params.set("mode", "advanced");
+      params.set("lyrics", d.lyrics);
+    } else if (d.prompt) {
+      params.set("mode", "basic");
+      params.set("prompt", d.prompt);
+    } else if (d.lyrics) {
+      params.set("mode", "advanced");
+      params.set("lyrics", d.lyrics);
+    } else {
+      params.set("mode", "advanced");
+    }
+    if (d.title) params.set("title", d.title);
+    if (d.style) params.set("style", d.style);
+    if (d.voice) params.set("voice", d.voice);
+    if (d.mood) params.set("mood", d.mood);
+    if (d.tempo) params.set("tempo", d.tempo);
+    window.location.hash = `#/music?${params.toString()}`;
+  };
+
+  return (
+    <div className="mb-6 rounded-2xl border border-white/[0.06] bg-gradient-to-br from-purple-500/[0.04] to-transparent">
+      <button
+        type="button"
+        className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-white hover:bg-white/[0.02] transition-colors rounded-2xl"
+        onClick={() => setExpanded(e => !e)}
+      >
+        <span className="flex items-center gap-2">
+          📝 <span>Мои тексты <span className="text-muted-foreground font-normal">({drafts.length})</span></span>
+        </span>
+        <span className={`text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`}>▾</span>
+      </button>
+      {expanded && (
+        <div className="px-4 pb-4 space-y-3 border-t border-white/[0.04] pt-3">
+          {isLoading && <p className="text-xs text-muted-foreground">Загружаю…</p>}
+          {!isLoading && drafts.length === 0 && editingId === null && (
+            <p className="text-xs text-muted-foreground">Сохраняйте идеи будущих песен — потом одним кликом превратите в трек.</p>
+          )}
+          {drafts.map(d => (
+            <div key={d.id} className="rounded-xl border border-white/[0.06] bg-background/40 p-3">
+              {editingId === d.id ? (
+                <DraftForm form={form} setForm={setForm} onSave={save} onCancel={() => { setEditingId(null); setForm({}); }} />
+              ) : (
+                <>
+                  <div className="flex items-start justify-between gap-2 mb-1.5">
+                    <p className="font-medium text-sm text-white truncate flex-1">{d.title || "Без названия"}</p>
+                    <span className="text-[10px] text-muted-foreground/60 whitespace-nowrap">{d.updatedAt ? new Date(d.updatedAt).toLocaleDateString("ru-RU") : ""}</span>
+                  </div>
+                  {d.lyrics && <p className="text-xs text-muted-foreground line-clamp-2 mb-2 whitespace-pre-wrap">{d.lyrics.slice(0, 200)}{d.lyrics.length > 200 ? "…" : ""}</p>}
+                  {!d.lyrics && d.prompt && <p className="text-xs text-muted-foreground line-clamp-2 mb-2">{d.prompt}</p>}
+                  <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/80 mb-2">
+                    {d.style && <span className="px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300/80">{d.style}</span>}
+                    {d.voice && <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-300/80">{d.voice === "female" ? "👩‍🎤" : d.voice === "male" ? "👨‍🎤" : d.voice === "duet" ? "👩‍🎤👨‍🎤" : "🎻"}</span>}
+                    {d.mood && <span className="px-1.5 py-0.5 rounded bg-pink-500/10 text-pink-300/80">{d.mood}</span>}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button onClick={() => generate(d)} className="text-xs px-3 py-1.5 rounded-lg btn-cosmic font-semibold text-white">
+                      🎵 Сгенерировать
+                    </button>
+                    <button onClick={() => { setEditingId(d.id); setForm(d); }} className="text-xs px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 text-muted-foreground hover:text-white transition-colors">
+                      ✏ Редактировать
+                    </button>
+                    <button onClick={() => remove(d.id)} className="text-xs px-3 py-1.5 rounded-lg border border-rose-500/20 bg-rose-500/5 text-rose-400/70 hover:text-rose-300 transition-colors">
+                      🗑
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
+          {editingId === "new" ? (
+            <div className="rounded-xl border border-purple-500/20 bg-purple-500/[0.04] p-3">
+              <DraftForm form={form} setForm={setForm} onSave={save} onCancel={() => { setEditingId(null); setForm({}); }} />
+            </div>
+          ) : (
+            <button
+              onClick={() => { setEditingId("new"); setForm({ title: "", lyrics: "", style: "pop", voice: "female", mood: "" }); }}
+              className="w-full text-xs px-3 py-2 rounded-lg border border-dashed border-white/15 text-muted-foreground hover:text-white hover:border-white/30 transition-colors"
+            >
+              ➕ Новый текст
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DraftForm({ form, setForm, onSave, onCancel }: { form: Partial<SongDraft>; setForm: (f: Partial<SongDraft>) => void; onSave: () => void; onCancel: () => void }) {
+  return (
+    <div className="space-y-2">
+      <input
+        type="text"
+        placeholder="Название (опционально)"
+        value={form.title || ""}
+        onChange={(e) => setForm({ ...form, title: e.target.value })}
+        className="w-full px-3 py-2 text-sm rounded-lg bg-background/50 border border-white/10 text-white"
+      />
+      <textarea
+        placeholder="Текст песни или идея — что и для кого…"
+        value={form.lyrics || ""}
+        onChange={(e) => setForm({ ...form, lyrics: e.target.value })}
+        rows={5}
+        className="w-full px-3 py-2 text-sm rounded-lg bg-background/50 border border-white/10 text-white resize-none"
+      />
+      <div className="grid grid-cols-2 gap-2">
+        <select value={form.style || ""} onChange={(e) => setForm({ ...form, style: e.target.value })} className="px-2 py-1.5 text-xs rounded-lg bg-background/50 border border-white/10 text-white">
+          <option value="">Стиль…</option>
+          <option value="pop">Поп</option>
+          <option value="rock">Рок</option>
+          <option value="lullaby">Колыбельная</option>
+          <option value="chanson">Шансон</option>
+          <option value="hiphop">Хип-хоп</option>
+          <option value="electronic">Электронная</option>
+          <option value="folk">Фолк</option>
+          <option value="acoustic-guitar">Акустика</option>
+          <option value="orchestral">Оркестровая</option>
+          <option value="lounge">Лаундж</option>
+        </select>
+        <select value={form.voice || ""} onChange={(e) => setForm({ ...form, voice: e.target.value })} className="px-2 py-1.5 text-xs rounded-lg bg-background/50 border border-white/10 text-white">
+          <option value="">Голос…</option>
+          <option value="female">Женский</option>
+          <option value="male">Мужской</option>
+          <option value="duet">Дуэт</option>
+          <option value="instrumental">Инструментал</option>
+        </select>
+      </div>
+      <div className="flex gap-2 pt-1">
+        <button onClick={onSave} className="flex-1 text-xs px-3 py-1.5 rounded-lg btn-cosmic font-semibold text-white">💾 Сохранить</button>
+        <button onClick={onCancel} className="text-xs px-3 py-1.5 rounded-lg border border-white/10 text-muted-foreground hover:text-white transition-colors">Отмена</button>
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const { user, refreshUser, isLoading: authLoading } = useAuth();
   const [, navigate] = useLocation();
@@ -1876,6 +2073,9 @@ export default function DashboardPage() {
             <p className="text-xs text-muted-foreground text-center mt-2">Карты МИР, Visa, MC • СБП • T-Pay</p>
           </DialogContent>
         </Dialog>
+
+        {/* My Drafts — сохранённые идеи/тексты, готовые к генерации одним кликом */}
+        <MyDraftsSection />
 
         {/* My Playlist — always uses own generations, not affected by deleted/all filters */}
         <MyPlaylistWrapper />

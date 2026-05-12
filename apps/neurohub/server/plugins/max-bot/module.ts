@@ -38,7 +38,8 @@ async function sendMessage(chatId: string, text: string, attachments?: any[]) {
 async function sendConsultantPhoto(chatId: string, caption: string) {
   try {
     const base = process.env.PUBLIC_BASE_URL || "https://muziai.ru";
-    const photoUrl = `${base}/api/assets/consultant-avatar.png?size=512`;
+    // Прямая static PNG через nginx (Eugene 2026-05-11).
+    const photoUrl = `${base}/consultant-avatar.png`;
     await maxApi(`/messages?chat_id=${encodeURIComponent(chatId)}`, {
       text: caption,
       attachments: [{ type: "image", payload: { url: photoUrl } }],
@@ -56,8 +57,13 @@ async function tryClaude(sys: string, text: string): Promise<string | null> {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 400, system: sys, messages: [{ role: "user", content: text }] }),
-      signal: AbortSignal.timeout(15_000),
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 250,
+        system: [{ type: "text", text: sys, cache_control: { type: "ephemeral" } }],
+        messages: [{ role: "user", content: text }],
+      }),
+      signal: AbortSignal.timeout(12_000),
     });
     if (!r.ok) return null;
     const j: any = await r.json();
@@ -106,8 +112,9 @@ router.post("/webhook", async (req, res) => {
       return;
     }
     const reply = await generateReply(fromId, text);
-    const replyWithAvatar = `${p.avatar} ${reply}`;
-    // Образ помощницы в каждом ответе (Eugene 2026-05-11).
+    const footer = `\n\n— ${p.name} · MuziAi`;
+    const replyWithAvatar = `${p.avatar} ${reply}${footer}`;
+    // Образ помощницы + имя в каждом ответе (Eugene 2026-05-11).
     if (replyWithAvatar.length <= 1000) {
       await sendConsultantPhoto(chatId, replyWithAvatar);
     } else {

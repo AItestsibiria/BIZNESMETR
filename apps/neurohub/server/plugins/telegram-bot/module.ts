@@ -75,7 +75,9 @@ async function sendMessage(chatId: number | string, text: string, replyMarkup?: 
 async function sendConsultantPhoto(chatId: number | string, caption: string, replyMarkup?: any): Promise<void> {
   try {
     const base = process.env.PUBLIC_BASE_URL || "https://muziai.ru";
-    const photoUrl = `${base}/api/assets/consultant-avatar.png?size=512`;
+    // Прямая static PNG через nginx — нет зависимости от sharp/cwd
+    // на prod (Eugene 2026-05-11: «нет в чате картинки»).
+    const photoUrl = `${base}/consultant-avatar.png`;
     const body: any = {
       chat_id: chatId,
       photo: photoUrl,
@@ -118,16 +120,25 @@ async function tryClaude(system: string, text: string, history: Array<{ role: st
   const key = ANTHROPIC_KEY();
   if (!key) return null;
   try {
+    // Eugene 2026-05-11: скорость + prompt caching. System prompt стабильный
+    // (persona+KB, ~5K токенов) — кэшируем на 5 минут через cache_control.
+    // Это даёт ~85% latency-снижение и ~90% скидку cost на cached токены.
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      headers: {
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
-        max_tokens: 400,
-        system,
-        messages: [...history.slice(-10), { role: "user", content: text }],
+        max_tokens: 250,
+        system: [
+          { type: "text", text: system, cache_control: { type: "ephemeral" } },
+        ],
+        messages: [...history.slice(-8), { role: "user", content: text }],
       }),
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(12_000),
     });
     if (!r.ok) {
       bootRefs?.logger.warn?.("[telegram-bot] claude non-ok", { status: r.status });
@@ -135,7 +146,7 @@ async function tryClaude(system: string, text: string, history: Array<{ role: st
     }
     const j: any = await r.json();
     const c = j?.content?.[0]?.text;
-    return typeof c === "string" && c.length > 0 ? c.slice(0, 3500) : null;
+    return typeof c === "string" && c.length > 0 ? c.slice(0, 2500) : null;
   } catch (e) {
     bootRefs?.logger.warn?.("[telegram-bot] claude error", { error: String(e) });
     return null;
@@ -173,8 +184,13 @@ async function tryGPTunnel(system: string, text: string, history: Array<{ role: 
   }
 }
 
-async function generateReply(userKey: string, userText: string, history: Array<{ role: "user" | "assistant"; content: string }>): Promise<string> {
-  const system = buildPersonaSystem(userKey);
+async function generateReply(
+  userKey: string,
+  userText: string,
+  history: Array<{ role: "user" | "assistant"; content: string }>,
+  extraSystem = ""
+): Promise<string> {
+  const system = buildPersonaSystem(userKey) + extraSystem;
   // 1. Primary: Claude
   const c = await tryClaude(system, userText, history);
   if (c) return c;
@@ -340,19 +356,42 @@ router.post("/webhook", async (req, res) => {
     }
 
     saveMessage(sessionId, "user", text);
+    // Eugene 2026-05-11: typing-индикатор сразу — юзер видит что бот думает.
+    try { tgApi("sendChatAction", { chat_id: chatId, action: "typing" }); } catch {}
     const history = loadHistory(sessionId);
-    const reply = await generateReply(fromId, text, history);
+    // Eugene 2026-05-11: память между сессиями. Если предыдущий msg был
+    // давно (> 24h) — помечаем в prompt'е чтобы бот поздоровался как со
+    // знакомым, не начинал discovery с нуля. Last seen из последнего
+    // bot-сообщения в истории.
+    let memoryHint = "";
+    try {
+      const lastBotMsg = history.slice().reverse().find(m => m.role === "assistant");
+      if (lastBotMsg) {
+        const sessionRow = db.select().from(chatbotSessions).where(eq(chatbotSessions.id, sessionId)).get() as any;
+        const lastAt = sessionRow?.lastMessageAt ? new Date(sessionRow.lastMessageAt).getTime() : 0;
+        const hoursAgo = (Date.now() - lastAt) / 3600_000;
+        if (hoursAgo > 24) {
+          memoryHint = `\n\n[ПАМЯТЬ: юзер общался с тобой ${Math.floor(hoursAgo / 24)} дн. назад. История последних сообщений ниже. Поздоровайся как со знакомым, не начинай discovery с нуля. Если знаешь имя из истории — обратись по имени.]`;
+        } else {
+          memoryHint = "\n\n[ПАМЯТЬ: продолжается прежний разговор. Не приветствуй заново.]";
+        }
+      }
+    } catch {}
+    // Eugene 2026-05-11: «Ярс — это я». Если в сообщении упоминается Ярс —
+    // это сам Eugene (основатель MuziAi). Подмешиваем admin-context.
+    const isOwner = /\bярс\b/i.test(text);
+    const ownerHint = isOwner
+      ? "\n\n[АДМИН: это Ярс — основатель MuziAi. Говори с ним коротко, конструктивно, по сути. Без sales playbook'а — он сам всё знает. Помогай с диагностикой / тестами / идеями. Можно на «ты».]"
+      : "";
+    const reply = await generateReply(fromId, text, history, memoryHint + ownerHint);
     const p = personaFor(fromId);
-    const replyWithAvatar = `${p.avatar} ${reply}`;
-    // Eugene 2026-05-11: образ помощницы в каждом ответе. Caption Telegram
-    // = 1024 char. Длинные ответы (>1000) шлём текстом без фото, чтобы
-    // не обрезать. Prompt теперь strict 1-3 предложения — почти всегда
-    // влезает. Telegram кэширует picture по URL → быстрая отправка.
-    if (replyWithAvatar.length <= 1000) {
-      await sendConsultantPhoto(chatId, replyWithAvatar);
-    } else {
-      await sendMessage(chatId, replyWithAvatar);
-    }
+    // Eugene 2026-05-11: имя менеджера + MuziAi в каждом сообщении.
+    const footer = `\n\n— ${p.name} · MuziAi`;
+    const replyWithAvatar = `${p.avatar} ${reply}${footer}`;
+    // sendPhoto убираю с обычных ответов — Telegram cache не всегда
+    // работает, скачивание каждый раз тормозит. Образ виден через
+    // bot avatar (BotFather → /setuserpic, Eugene-side).
+    await sendMessage(chatId, replyWithAvatar);
     saveMessage(sessionId, "bot", replyWithAvatar);
     bootRefs?.eventBus?.emit?.("chatbot.reply_sent", { channel: "telegram", sessionId, chatId }, "telegram-bot");
   } catch (e) {
