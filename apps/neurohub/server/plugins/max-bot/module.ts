@@ -9,6 +9,24 @@ const MAX_API = "https://platform-api.max.ru";
 const TOKEN = () => process.env.MAX_BOT_TOKEN || "";
 let bootRefs: { eventBus: BootContext["eventBus"]; logger: BootContext["logger"] } | null = null;
 
+// Eugene 2026-05-12 (Босс): dedup по update_id / message_id.
+const processedMaxMessages = new Map<string, number>();
+function isMaxMsgDup(key: string | number | undefined): boolean {
+  if (!key) return false;
+  const k = String(key);
+  const now = Date.now();
+  for (const [kk, ts] of processedMaxMessages.entries()) {
+    if (now - ts > 10 * 60_000) processedMaxMessages.delete(kk);
+  }
+  if (processedMaxMessages.has(k)) return true;
+  processedMaxMessages.set(k, now);
+  if (processedMaxMessages.size > 200) {
+    const oldest = processedMaxMessages.keys().next().value;
+    if (oldest !== undefined) processedMaxMessages.delete(oldest);
+  }
+  return false;
+}
+
 async function maxApi(p: string, body: any, method: "POST" | "GET" = "POST"): Promise<any> {
   const tok = TOKEN();
   if (!tok) throw new Error("MAX_BOT_TOKEN missing");
@@ -118,6 +136,12 @@ router.post("/webhook", async (req, res) => {
     const fromId = String(msg?.sender?.user_id ?? msg?.from?.user_id ?? msg?.user_id ?? chatId);
     const text = String(msg?.body?.text ?? msg?.text ?? "").trim();
     if (!chatId || !text) return;
+    // Dedup: Max может ретраить webhook → не отвечаем дважды на одно сообщение.
+    const dedupKey = msg?.message_id || msg?.id || msg?.body?.mid || `${chatId}:${text.slice(0,30)}:${Math.floor(Date.now()/3000)}`;
+    if (isMaxMsgDup(dedupKey)) {
+      bootRefs?.logger.info?.("[max-bot] skipping duplicate", { key: String(dedupKey).slice(0, 30) });
+      return;
+    }
     const p = personaFor(fromId);
     if (text === "/start") {
       const hello = `${p.avatar} Привет! Я ${p.name} из МузиАй. Помогу подобрать песню под событие — для какого случая думаете?`;

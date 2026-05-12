@@ -28,6 +28,26 @@ import { confirmNonce as confirmTgLoginNonce, hasValidNonce as hasTgLoginNonce }
 import { personaFor, PERSONAS, loadKB, buildPersonaSystem, kbPath } from "../../lib/consultantPersona";
 
 const TELEGRAM_API = "https://api.telegram.org";
+
+// Eugene 2026-05-12 (Босс): dedup по update_id и message_id.
+// Telegram retry'ит webhook если не получил 200 за 60 сек — может прийти
+// дубль и юзер увидит одно и то же сообщение дважды. Храним последние
+// 200 update_id в Map (TTL 10 мин). Если уже обработан → skip.
+const processedUpdates = new Map<number, number>();
+function isUpdateDup(updateId: number | undefined): boolean {
+  if (!updateId) return false;
+  const now = Date.now();
+  for (const [k, ts] of processedUpdates.entries()) {
+    if (now - ts > 10 * 60_000) processedUpdates.delete(k);
+  }
+  if (processedUpdates.has(updateId)) return true;
+  processedUpdates.set(updateId, now);
+  if (processedUpdates.size > 200) {
+    const oldest = processedUpdates.keys().next().value;
+    if (oldest !== undefined) processedUpdates.delete(oldest);
+  }
+  return false;
+}
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN || "";
 // Eugene 2026-05-10: отдельный bot-ключ Claude (fallback на главный).
 // Преимущества: раздельная аналитика расходов, разная модель (haiku
@@ -530,6 +550,11 @@ router.post("/webhook", async (req, res) => {
   res.status(200).send("ok"); // Сразу отвечаем 200 чтобы Telegram не ретраил
   try {
     const update = req.body || {};
+    // Dedup: Telegram retry'ит webhook → дубль ответа. Skip уже обработанные.
+    if (isUpdateDup(update.update_id)) {
+      bootRefs?.logger.info?.("[telegram-bot] skipping duplicate update", { update_id: update.update_id });
+      return;
+    }
 
     // Callback queries (нажатие на InlineKeyboard кнопку)
     if (update.callback_query) {

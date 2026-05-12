@@ -65,7 +65,17 @@ export function FloatingConsultant() {
       setVisible(true);
       trackEngagement("consultant_impression");
     }, APPEAR_DELAY_MS);
-    return () => { if (timerRef.current) window.clearTimeout(timerRef.current); };
+    // Listener для открытия извне (например с новости лендинга).
+    const onOpen = () => {
+      setVisible(true);
+      setExpanded(true);
+      trackEngagement("consultant_open", { trigger: "external" });
+    };
+    window.addEventListener("open-consultant", onOpen);
+    return () => {
+      if (timerRef.current) window.clearTimeout(timerRef.current);
+      window.removeEventListener("open-consultant", onOpen);
+    };
   }, []);
 
   const dismiss = () => {

@@ -857,8 +857,20 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     <section className="relative z-[1] py-10 px-4 border-t border-white/[0.04]">
       <div className="max-w-2xl mx-auto space-y-4">
         {/* 9 мая 2026 — Музыка под событие */}
-        {/* 12 мая 2026 — друг компании / помощница (Eugene) */}
-        <div className="block glass-card rounded-2xl p-6 border border-pink-500/30 hover:border-pink-500/50 transition-colors">
+        {/* 12 мая 2026 — друг компании / помощница (Eugene 2026-05-12).
+            При клике скроллит к нижнему углу и открывает меню floating-
+            consultant. Никаких внешних ссылок — юзер сам выбирает что
+            делать через её меню. */}
+        <button
+          type="button"
+          onClick={() => {
+            try {
+              window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+              setTimeout(() => window.dispatchEvent(new Event("open-consultant")), 500);
+            } catch {}
+          }}
+          className="block w-full text-left glass-card rounded-2xl p-6 border border-pink-500/30 hover:border-pink-500/50 transition-colors cursor-pointer"
+        >
           <div className="flex items-start gap-3">
             <img
               src="/consultant-avatar.svg"
@@ -873,11 +885,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               </div>
               <h3 className="text-lg font-bold mb-2"><span className="text-white">У нас появился </span><span className="bg-gradient-to-r from-pink-400 via-purple-400 to-blue-400 bg-clip-text text-transparent">друг компании</span></h3>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Пройдёт с вами весь путь — от идеи до готового трека. Поможет с регистрацией, выберет волшебный сценарий, соберёт текст. <a href="https://t.me/Muziaipodari_bot" target="_blank" rel="noopener noreferrer" className="text-pink-300 hover:text-pink-200 underline decoration-dotted underline-offset-2 font-medium">Попробуйте поговорить →</a>
+                Пройдёт с вами весь путь — от идеи до готового трека. Поможет с регистрацией, выберет волшебный сценарий, соберёт текст. <span className="text-pink-300 font-medium">Нажмите — поговорите →</span>
               </p>
             </div>
           </div>
-        </div>
+        </button>
 
         <a
           href="#/templates"

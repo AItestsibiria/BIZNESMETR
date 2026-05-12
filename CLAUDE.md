@@ -208,6 +208,20 @@ ssh root@72.56.1.149 'sed -i "/^ИМЯ_КЛЮЧА=/d" /var/www/neurohub/.env \
 
 После update KB на проде: `https://muziai.ru/api/telegram/kb/reload?secret=<CRON_SECRET>` (без рестарта pm2).
 
+### Bot-webhook-dedup rule (Eugene 2026-05-12)
+
+**Любой плагин-бот (telegram-bot, max-bot, future channels) ОБЯЗАН делать dedup входящих updates по `update_id` / `message_id`** — иначе при retry от мессенджера юзер получит одно и то же сообщение дважды.
+
+Шаблон:
+```ts
+const processed = new Map<string|number, number>();
+function isDup(id) { /* TTL 10 мин, max 200 */ }
+// В webhook handler:
+if (isDup(update.update_id)) return;
+```
+
+Применяется к каждому новому каналу при добавлении.
+
 ### Boss-form-address rule (Eugene 2026-05-12)
 
 **Обращаться к Eugene — «Босс» (с большой буквы).** Не «Eugene», не «босс», не «шеф». Только «Босс» с заглавной Б.
