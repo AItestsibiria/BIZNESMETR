@@ -1,6 +1,7 @@
-// FloatingConsultant (Eugene 2026-05-11 v3): силуэт взрослой певицы
-// 25-30 с микрофоном, в нежных фирменных цветах MuziAi (pastel
-// purple/blue/cyan). Slide-in справа, hover - 2-3 слова, click - меню.
+// FloatingConsultant (Eugene 2026-05-11 v4): деловой стиль —
+// менеджер 25-30 в пиджаке, с планшетом (намёк на работу/консультацию).
+// Pastel MuziAi gradient. Открытые глаза, закрытый рот, прямая осанка.
+// Минимум нот вокруг (1 акцентная) — для связи с музыкой.
 
 import { useEffect, useRef, useState } from "react";
 
@@ -139,84 +140,88 @@ export function FloatingConsultant() {
         >
           <svg viewBox="0 0 56 96" className="w-full h-full" aria-hidden="true">
             <defs>
-              <linearGradient id="singerSilhouette" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="rgba(196,181,253,0.85)" />
-                <stop offset="50%" stopColor="rgba(147,197,253,0.80)" />
-                <stop offset="100%" stopColor="rgba(165,243,252,0.75)" />
+              <linearGradient id="bizJacket" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="rgba(99,102,241,0.95)" />
+                <stop offset="100%" stopColor="rgba(67,56,202,0.92)" />
               </linearGradient>
-              <linearGradient id="singerHair" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="rgba(167,139,250,0.55)" />
-                <stop offset="100%" stopColor="rgba(96,165,250,0.45)" />
+              <linearGradient id="bizBlouse" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="rgba(254,243,199,0.95)" />
+                <stop offset="100%" stopColor="rgba(252,211,77,0.88)" />
               </linearGradient>
-              <radialGradient id="stageGlow" cx="50%" cy="60%" r="60%">
-                <stop offset="0%" stopColor="rgba(167,139,250,0.18)" />
-                <stop offset="100%" stopColor="rgba(167,139,250,0)" />
-              </radialGradient>
+              <linearGradient id="bizHair" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="rgba(120,80,40,0.85)" />
+                <stop offset="100%" stopColor="rgba(96,60,28,0.80)" />
+              </linearGradient>
             </defs>
-            {/* Stage glow — нежный ореол */}
-            <ellipse cx="28" cy="55" rx="26" ry="42" fill="url(#stageGlow)" />
 
-            {/* Длинные волосы за плечами (свободно, без косичек) */}
+            {/* Деловая стрижка боб до плеч */}
             <path
-              d="M 14 28 Q 8 50 12 70 Q 16 76 20 72 Q 22 50 24 38 Z
-                 M 42 28 Q 48 50 44 70 Q 40 76 36 72 Q 34 50 32 38 Z"
-              fill="url(#singerHair)"
+              d="M 17 14 Q 12 24 14 36 Q 16 40 19 38 L 19 24 Z
+                 M 39 14 Q 44 24 42 36 Q 40 40 37 38 L 37 24 Z"
+              fill="url(#bizHair)"
             />
+            <path d="M 19 12 Q 28 8 37 12 Q 38 22 36 26 Q 28 18 20 26 Q 18 22 19 12 Z" fill="url(#bizHair)" />
 
-            {/* Лицо — взрослое овальное (без детских щёк), минимум черт */}
-            <ellipse cx="28" cy="22" rx="6.5" ry="9" fill="rgba(254,243,199,0.85)" />
+            {/* Лицо — взрослое */}
+            <ellipse cx="28" cy="22" rx="6" ry="8" fill="rgba(254,226,184,0.95)" />
 
-            {/* Чёлка набок — асимметричная, взрослый стиль */}
-            <path d="M 21 16 Q 26 12 33 13 Q 35 18 33 22 Q 28 18 24 21 Q 21 20 21 16 Z" fill="url(#singerHair)" />
+            {/* Открытые глаза — взгляд вперёд (нейтральный, профессиональный) */}
+            <circle cx="25.5" cy="22" r="0.7" fill="rgba(40,30,20,0.85)" />
+            <circle cx="30.5" cy="22" r="0.7" fill="rgba(40,30,20,0.85)" />
+            {/* Брови — тонкие, ровные */}
+            <path d="M 24 20 Q 26 19.5 27 20" stroke="rgba(80,50,30,0.7)" strokeWidth="0.4" fill="none" strokeLinecap="round" />
+            <path d="M 29 20 Q 30 19.5 32 20" stroke="rgba(80,50,30,0.7)" strokeWidth="0.4" fill="none" strokeLinecap="round" />
 
-            {/* Закрытые глаза — поющая (увлечена музыкой) */}
-            <path d="M 24 22 Q 25 21 26 22" stroke="rgba(50,30,20,0.7)" strokeWidth="0.5" fill="none" strokeLinecap="round" />
-            <path d="M 30 22 Q 31 21 32 22" stroke="rgba(50,30,20,0.7)" strokeWidth="0.5" fill="none" strokeLinecap="round" />
+            {/* Лёгкая улыбка — закрытый рот (профессиональный) */}
+            <path d="M 26.5 27 Q 28 27.5 29.5 27" stroke="rgba(180,60,80,0.7)" strokeWidth="0.5" fill="none" strokeLinecap="round" />
 
-            {/* Поющий рот — приоткрыт */}
-            <ellipse cx="28" cy="27" rx="1.2" ry="0.8" fill="rgba(190,30,90,0.6)" />
-
-            {/* Серёжки — длинные нотные капли */}
-            <path d="M 21 25 L 21 28" stroke="rgba(167,139,250,0.7)" strokeWidth="0.5" />
-            <circle cx="21" cy="29" r="0.7" fill="rgba(167,139,250,0.7)" />
-            <path d="M 35 25 L 35 28" stroke="rgba(167,139,250,0.7)" strokeWidth="0.5" />
-            <circle cx="35" cy="29" r="0.7" fill="rgba(167,139,250,0.7)" />
+            {/* Серьги-точки (минимализм) */}
+            <circle cx="22" cy="24" r="0.5" fill="rgba(167,139,250,0.85)" />
+            <circle cx="34" cy="24" r="0.5" fill="rgba(167,139,250,0.85)" />
 
             {/* Шея */}
-            <rect x="25.5" y="30" width="5" height="5" rx="1.5" fill="rgba(254,243,199,0.85)" />
+            <rect x="25.5" y="29" width="5" height="4" rx="1" fill="rgba(254,226,184,0.95)" />
 
-            {/* Силуэт фигуры — деловой/сценический верх + узкие брюки */}
-            <path d="M 17 36 Q 14 44 16 56 L 22 56 L 22 40 Z M 39 36 Q 42 44 40 56 L 34 56 L 34 40 Z" fill="url(#singerSilhouette)" opacity="0.88" />
-            {/* Корпус */}
-            <path d="M 20 35 L 36 35 L 38 60 Q 28 62 18 60 Z" fill="url(#singerSilhouette)" />
-            {/* Брюки/юбка узкая */}
-            <path d="M 22 60 Q 20 78 22 90 L 27 90 L 27 60 Z" fill="rgba(76,29,149,0.7)" />
-            <path d="M 34 60 Q 36 78 34 90 L 29 90 L 29 60 Z" fill="rgba(76,29,149,0.7)" />
+            {/* Блузка под пиджаком — V-образный вырез */}
+            <path d="M 22 33 L 28 39 L 34 33 L 34 44 L 22 44 Z" fill="url(#bizBlouse)" />
 
-            {/* Левая рука прижата к корпусу */}
-            <path d="M 18 38 Q 16 48 17 58" stroke="url(#singerSilhouette)" strokeWidth="3" fill="none" strokeLinecap="round" />
+            {/* Деловой пиджак — лацканы, плечи, талия */}
+            <path d="M 18 33 L 22 33 L 28 41 L 34 33 L 38 33 L 40 58 L 16 58 Z" fill="url(#bizJacket)" />
+            {/* Лацканы — треугольные */}
+            <path d="M 22 33 L 22 42 L 28 41 Z" fill="rgba(67,56,202,0.99)" />
+            <path d="M 34 33 L 34 42 L 28 41 Z" fill="rgba(67,56,202,0.99)" />
+            {/* Пуговицы пиджака */}
+            <circle cx="28" cy="48" r="0.7" fill="rgba(180,180,200,0.9)" />
+            <circle cx="28" cy="53" r="0.7" fill="rgba(180,180,200,0.9)" />
 
-            {/* Правая рука держит микрофон — поднята к лицу */}
-            <path d="M 38 38 Q 42 32 44 28 Q 45 26 43 25" stroke="rgba(196,181,253,0.85)" strokeWidth="2.8" fill="none" strokeLinecap="round" />
+            {/* Юбка-карандаш — прямая, строгая */}
+            <path d="M 19 58 L 37 58 L 35 86 L 21 86 Z" fill="rgba(67,56,202,0.92)" />
 
-            {/* Микрофон у лица */}
-            <ellipse cx="38" cy="26" rx="2.2" ry="3" fill="rgba(50,50,60,0.85)" />
-            <line x1="38" y1="29" x2="38" y2="34" stroke="rgba(50,50,60,0.85)" strokeWidth="1.4" strokeLinecap="round" />
-            {/* Решётка микрофона */}
-            <line x1="36.2" y1="25" x2="39.8" y2="25" stroke="rgba(196,181,253,0.6)" strokeWidth="0.4" />
-            <line x1="36.2" y1="26.5" x2="39.8" y2="26.5" stroke="rgba(196,181,253,0.6)" strokeWidth="0.4" />
+            {/* Ноги */}
+            <rect x="22" y="86" width="4" height="6" fill="rgba(254,226,184,0.95)" />
+            <rect x="30" y="86" width="4" height="6" fill="rgba(254,226,184,0.95)" />
 
-            {/* Туфли */}
-            <ellipse cx="24" cy="92" rx="2.5" ry="1.2" fill="rgba(76,29,149,0.85)" />
-            <ellipse cx="32" cy="92" rx="2.5" ry="1.2" fill="rgba(76,29,149,0.85)" />
+            {/* Туфли-лодочки на низком каблуке */}
+            <ellipse cx="24" cy="93" rx="3" ry="1.5" fill="rgba(40,30,60,0.95)" />
+            <ellipse cx="32" cy="93" rx="3" ry="1.5" fill="rgba(40,30,60,0.95)" />
 
-            {/* Ноты вокруг — лёгкое сценическое настроение */}
-            <g opacity="0.65">
-              <circle cx="50" cy="14" r="1" fill="#a78bfa" />
-              <line x1="51" y1="14" x2="51" y2="9" stroke="#a78bfa" strokeWidth="0.5" />
-              <circle cx="6" cy="20" r="0.8" fill="#22d3ee" />
-              <line x1="6.8" y1="20" x2="6.8" y2="16" stroke="#22d3ee" strokeWidth="0.4" />
-              <circle cx="48" cy="48" r="0.7" fill="#60a5fa" />
+            {/* Левая рука — опущена вдоль тела */}
+            <path d="M 18 36 Q 16 48 17 60" stroke="url(#bizJacket)" strokeWidth="3.5" fill="none" strokeLinecap="round" />
+
+            {/* Правая рука — держит планшет на уровне талии */}
+            <path d="M 38 36 Q 40 48 36 56" stroke="url(#bizJacket)" strokeWidth="3.5" fill="none" strokeLinecap="round" />
+
+            {/* Планшет в руке */}
+            <rect x="30" y="52" width="10" height="8" rx="0.8" fill="rgba(40,40,60,0.95)" />
+            <rect x="31" y="53" width="8" height="6" rx="0.3" fill="rgba(99,102,241,0.6)" />
+            {/* Нота на экране планшета — связь с MuziAi */}
+            <circle cx="33" cy="57" r="0.7" fill="#a78bfa" />
+            <line x1="33.6" y1="57" x2="33.6" y2="54.5" stroke="#a78bfa" strokeWidth="0.3" />
+
+            {/* Одна акцентная нота справа сверху — единственный намёк на музыку */}
+            <g opacity="0.55">
+              <circle cx="48" cy="20" r="0.9" fill="#a78bfa" />
+              <line x1="48.8" y1="20" x2="48.8" y2="16" stroke="#a78bfa" strokeWidth="0.4" />
             </g>
           </svg>
         </button>
