@@ -171,13 +171,11 @@ async function tryClaude(stableSystem: string, dynamicSystem: string, text: stri
   const key = ANTHROPIC_KEY();
   if (!key) return null;
   try {
-    // Eugene 2026-05-11 (v2 speed-up): split system на stable+dynamic.
-    // Stable (persona+playbook+KB ~5K токенов) кэшируется через
-    // cache_control: ephemeral → следующие запросы 85% быстрее.
-    // Dynamic (memory/profile/learnings) меняется — отдельным блоком,
-    // НЕ ломает cache prefix.
+    // Eugene 2026-05-12 (speed v3): TTL 1h на cache (было ephemeral=5мин).
+    // Header `extended-cache-ttl-2025-04-11` включает long-term cache.
+    // Cold-start раз в час вместо 12 раз в час → 90% запросов на cache hit.
     const systemBlocks: any[] = [
-      { type: "text", text: stableSystem, cache_control: { type: "ephemeral" } },
+      { type: "text", text: stableSystem, cache_control: { type: "ephemeral", ttl: "1h" } },
     ];
     if (dynamicSystem) systemBlocks.push({ type: "text", text: dynamicSystem });
     const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -185,11 +183,12 @@ async function tryClaude(stableSystem: string, dynamicSystem: string, text: stri
       headers: {
         "x-api-key": key,
         "anthropic-version": "2023-06-01",
+        "anthropic-beta": "extended-cache-ttl-2025-04-11",
         "content-type": "application/json",
       },
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
-        max_tokens: 180,
+        max_tokens: 130,
         system: systemBlocks,
         messages: [...history.slice(-5), { role: "user", content: text }],
       }),
@@ -723,7 +722,7 @@ router.post("/webhook", async (req, res) => {
     const p0 = personaForSession(sessionId, fromId);
     const quick = tryQuickReply(text, p0.name);
     if (quick) {
-      const cleanQuick = quick.replace(/\s*[—\-–]+\s*(Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*MuziAi)?\s*\.?\s*$/i, "").trimEnd();
+      const cleanQuick = quick.replace(/\s*[—\-–]+\s*(Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*(MuziAi|МузиАй))?\s*\.?\s*$/i, "").trimEnd();
       const footer = `\n\n— ${p0.name} · МузиАй`;
       const replyWithAvatar = `${p0.avatar} ${cleanQuick}${footer}`;
       await sendConsultantPhoto(chatId, replyWithAvatar);
@@ -793,17 +792,14 @@ router.post("/webhook", async (req, res) => {
     const p = personaForSession(sessionId, fromId);
     // Eugene 2026-05-11: подпись Имя · МузиАй.
     // Eugene 2026-05-12: если LLM сам подписался — не дублируем.
-    const cleanReply = reply.replace(/\s*[—\-–]+\s*(Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*MuziAi)?\s*\.?\s*$/i, "").trimEnd();
+    // Eugene 2026-05-12 (Босс «реши на 100%»): убираем sendPhoto из
+    // обычных reply'ев — Telegram кэш ненадёжен (96×96 PNG отклонялся,
+    // юзер видел только текст). Образ в чате теперь через bot avatar
+    // в @BotFather → /setuserpic. SendPhoto оставлен только в /start.
+    const cleanReply = reply.replace(/\s*[—\-–]+\s*(Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*(MuziAi|МузиАй))?\s*\.?\s*$/i, "").trimEnd();
     const footer = `\n\n— ${p.name} · МузиАй`;
     const replyWithAvatar = `${p.avatar} ${cleanReply}${footer}`;
-    // Eugene 2026-05-11 v2: образ в каждом ответе. file_id-кэш
-    // делает повторные sendPhoto мгновенными (без download). Caption
-    // limit Telegram = 1024 char — длинные шлём текстом.
-    if (replyWithAvatar.length <= 1000) {
-      await sendConsultantPhoto(chatId, replyWithAvatar);
-    } else {
-      await sendMessage(chatId, replyWithAvatar);
-    }
+    await sendMessage(chatId, replyWithAvatar);
     saveMessage(sessionId, "bot", replyWithAvatar);
     bootRefs?.eventBus?.emit?.("chatbot.reply_sent", { channel: "telegram", sessionId, chatId }, "telegram-bot");
     // Eugene 2026-05-11: async update профиля юзера (имя/возраст/город/повод).

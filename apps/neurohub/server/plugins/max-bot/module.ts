@@ -87,14 +87,14 @@ async function tryClaude(sys: string, text: string): Promise<string | null> {
   try {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-beta": "extended-cache-ttl-2025-04-11", "content-type": "application/json" },
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
-        max_tokens: 250,
-        system: [{ type: "text", text: sys, cache_control: { type: "ephemeral" } }],
+        max_tokens: 130,
+        system: [{ type: "text", text: sys, cache_control: { type: "ephemeral", ttl: "1h" } }],
         messages: [{ role: "user", content: text }],
       }),
-      signal: AbortSignal.timeout(12_000),
+      signal: AbortSignal.timeout(8_000),
     });
     if (!r.ok) return null;
     const j: any = await r.json();
@@ -149,15 +149,12 @@ router.post("/webhook", async (req, res) => {
       return;
     }
     const reply = await generateReply(fromId, text);
-    const cleanReply = reply.replace(/\s*[—\-–]+\s*(Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*MuziAi)?\s*\.?\s*$/i, "").trimEnd();
+    const cleanReply = reply.replace(/\s*[—\-–]+\s*(Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*(MuziAi|МузиАй))?\s*\.?\s*$/i, "").trimEnd();
     const footer = `\n\n— ${p.name} · МузиАй`;
     const replyWithAvatar = `${p.avatar} ${cleanReply}${footer}`;
-    // Образ помощницы + имя в каждом ответе (Eugene 2026-05-11).
-    if (replyWithAvatar.length <= 1000) {
-      await sendConsultantPhoto(chatId, replyWithAvatar);
-    } else {
-      await sendMessage(chatId, replyWithAvatar);
-    }
+    // Eugene 2026-05-12 (Босс «100%»): sendPhoto только на /start.
+    // На остальных reply'ях текст с emoji-аватаром + footer.
+    await sendMessage(chatId, replyWithAvatar);
   } catch (e) {
     bootRefs?.logger.error?.("[max-bot] webhook error", { error: String(e) });
   }
