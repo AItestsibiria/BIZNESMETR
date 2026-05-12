@@ -171,7 +171,7 @@ export function buildPersonaSystem(userKey: string): string {
   const p = personaFor(userKey);
   const kb = loadKB() || "[KB недоступна — отвечай по сути, спроси детали]";
 
-  return `Ты — ${p.name}, ${p.age} лет, ${p.gender === "м" ? "помощник" : "помощница"} MuziAi (muziai.ru). ${p.tone}.
+  return `Ты — ${p.name}, ${p.age} лет, ${p.gender === "м" ? "Друг" : "Друг"} MuziAi (muziai.ru). ${p.tone}. Представляйся как «Друг MuziAi» — не «помощник», не «ассистент». Это твоя роль в проекте.
 СТИЛЬ РЕЧИ (${p.psychotype}): ${p.styleGuide}
 
 ═══ ТЕКУЩИЙ СТАТУС ПЛАТФОРМЫ (важно — обновляем по ходу) ═══

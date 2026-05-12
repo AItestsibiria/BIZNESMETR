@@ -874,7 +874,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           <div className="flex items-start gap-3">
             <img
               src="/consultant-avatar.svg"
-              alt="Помощница"
+              alt="Друг MuziAi"
               className="w-14 h-20 sm:w-16 sm:h-24 object-contain shrink-0"
               draggable={false}
             />
