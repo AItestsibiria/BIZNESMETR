@@ -142,6 +142,15 @@ export function FloatingConsultant() {
             >
               <span>🎁</span> Регистрация
             </button>
+            <a
+              href={`https://t.me/share/url?url=${encodeURIComponent("https://t.me/Muziaipodari_bot")}&text=${encodeURIComponent("Помощник по созданию песен в подарок — попробуй, тут нечто волшебное 🎵")}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => trackEngagement("consultant_action", { action: "share" })}
+              className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.06] transition-colors text-[12px] text-white/90"
+            >
+              <span>📤</span> Поделиться помощником
+            </a>
             <button
               type="button"
               onClick={dismiss}

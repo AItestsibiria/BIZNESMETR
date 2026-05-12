@@ -857,6 +857,28 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     <section className="relative z-[1] py-10 px-4 border-t border-white/[0.04]">
       <div className="max-w-2xl mx-auto space-y-4">
         {/* 9 мая 2026 — Музыка под событие */}
+        {/* 12 мая 2026 — друг компании / помощница (Eugene) */}
+        <div className="block glass-card rounded-2xl p-6 border border-pink-500/30 hover:border-pink-500/50 transition-colors">
+          <div className="flex items-start gap-3">
+            <img
+              src="/consultant-avatar.svg"
+              alt="Помощница"
+              className="w-14 h-20 sm:w-16 sm:h-24 object-contain shrink-0"
+              draggable={false}
+            />
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-300 font-medium">Новости</span>
+                <span className="text-[10px] text-muted-foreground">12 мая 2026</span>
+              </div>
+              <h3 className="text-lg font-bold mb-2"><span className="text-white">У нас появился </span><span className="bg-gradient-to-r from-pink-400 via-purple-400 to-blue-400 bg-clip-text text-transparent">друг компании</span></h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Пройдёт с вами весь путь — от идеи до готового трека. Поможет с регистрацией, выберет волшебный сценарий, соберёт текст. <a href="https://t.me/Muziaipodari_bot" target="_blank" rel="noopener noreferrer" className="text-pink-300 hover:text-pink-200 underline decoration-dotted underline-offset-2 font-medium">Попробуйте поговорить →</a>
+              </p>
+            </div>
+          </div>
+        </div>
+
         <a
           href="#/templates"
           onClick={() => { window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior }); }}
@@ -871,7 +893,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               </div>
               <h3 className="text-lg font-bold mb-2"><span className="text-white">Музыка под любое </span><span className="bg-gradient-to-r from-purple-400 via-blue-400 to-cyan-300 bg-clip-text text-transparent">Событие</span></h3>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Свадьба, день рождения, корпоратив, гимн компании — выбери <span className="gradient-text font-semibold">Событие</span> и MuziAi напишет идеальный трек по готовому шаблону.
+                Свадьба, день рождения, корпоратив, гимн компании — выбери <span className="gradient-text font-semibold">Событие</span> и MuziAi напишет идеальный трек под готовый волшебный сценарий.
               </p>
             </div>
           </div>

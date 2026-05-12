@@ -680,11 +680,13 @@ router.post("/webhook", async (req, res) => {
       ? `\n\n[ПРОФИЛЬ ЮЗЕРА (уже узнала): ${JSON.stringify(profile)}. Используй эту инфу, не переспрашивай. Если каких-то полей нет — мягко выясни в ходе разговора.]`
       : "";
     const learningsHint = loadLatestLearnings();
-    // Eugene 2026-05-12: дата + время суток в dynamic-блок.
+    // Eugene 2026-05-12: дата + время + сезон в dynamic-блок.
     const now = new Date();
     const hh = now.getHours();
     const partOfDay = hh >= 5 && hh < 11 ? "утро" : hh >= 11 && hh < 18 ? "день" : hh >= 18 && hh < 22 ? "вечер" : "ночь";
-    const todayHint = `\n\n[TODAY: ${now.toISOString().slice(0, 10)} (${now.toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long" })})]\n[TIME: ${now.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}, ${partOfDay}]`;
+    const month = now.getMonth() + 1;
+    const season = month >= 3 && month <= 5 ? "весна" : month >= 6 && month <= 8 ? "лето" : month >= 9 && month <= 11 ? "осень" : "зима";
+    const todayHint = `\n\n[TODAY: ${now.toISOString().slice(0, 10)} (${now.toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long" })})]\n[TIME: ${now.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}, ${partOfDay}]\n[SEASON: ${season}]`;
     const rawReply = await generateReply(fromId, text, history, memoryHint + ltmHint + ownerHint + profileHint + learningsHint + todayHint);
     // Eugene 2026-05-12: маркер смены помощника. LLM может вставить
     // [SWITCH_PERSONA:Имя] — код применит смену в БД и уберёт маркер.
