@@ -6,39 +6,44 @@
       <stop offset="100%" stop-color="#020617"/>
     </linearGradient>
     <linearGradient id="bizJacket" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="rgba(129,140,248,0.98)"/>
-      <stop offset="100%" stop-color="rgba(79,70,229,0.95)"/>
+      <stop offset="0%" stop-color="rgba(196,181,253,0.98)"/>
+      <stop offset="100%" stop-color="rgba(147,197,253,0.95)"/>
     </linearGradient>
     <linearGradient id="bizBlouse" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="rgba(254,243,199,0.98)"/>
-      <stop offset="100%" stop-color="rgba(252,211,77,0.92)"/>
+      <stop offset="100%" stop-color="rgba(253,224,153,0.92)"/>
     </linearGradient>
     <linearGradient id="bizHair" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="rgba(252,211,77,0.98)"/>
-      <stop offset="100%" stop-color="rgba(217,170,55,0.95)"/>
+      <stop offset="0%" stop-color="rgba(196,181,253,0.98)"/>
+      <stop offset="100%" stop-color="rgba(96,165,250,0.95)"/>
+    </linearGradient>
+    <linearGradient id="bizTrousers" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="rgba(167,139,250,0.95)"/>
+      <stop offset="100%" stop-color="rgba(124,58,237,0.90)"/>
     </linearGradient>
   </defs>
   <rect width="512" height="512" fill="url(#bg)"/>
-  <!-- Минималистичные акцент-звёзды -->
-  <circle cx="64" cy="80" r="2" fill="#a78bfa" opacity="0.6"/>
+  <circle cx="64" cy="80" r="2" fill="#a78bfa" opacity="0.55"/>
   <circle cx="448" cy="64" r="1.5" fill="#22d3ee" opacity="0.5"/>
-  <circle cx="80" cy="420" r="1.8" fill="#a78bfa" opacity="0.5"/>
-  <!-- Деловая помощница — viewBox оригинала 56x96 -->
+  <circle cx="80" cy="420" r="1.8" fill="#a78bfa" opacity="0.45"/>
   <g transform="translate(108,16) scale(5.3)">
-    <!-- Стрижка боб -->
-    <path d="M 17 14 Q 12 24 14 36 Q 16 40 19 38 L 19 24 Z M 39 14 Q 44 24 42 36 Q 40 40 37 38 L 37 24 Z" fill="url(#bizHair)"/>
-    <path d="M 19 12 Q 28 8 37 12 Q 38 22 36 26 Q 28 18 20 26 Q 18 22 19 12 Z" fill="url(#bizHair)"/>
-    <!-- Лицо -->
+    <!-- Каре фирменное -->
+    <path d="M 16 14 Q 11 24 13 34 Q 15 36 19 34 L 19 22 Z M 40 14 Q 45 24 43 34 Q 41 36 37 34 L 37 22 Z" fill="url(#bizHair)"/>
+    <path d="M 18 11 Q 28 7 38 11 Q 39 22 36 26 Q 28 17 20 26 Q 17 22 18 11 Z" fill="url(#bizHair)"/>
+    <!-- Лицо ~30 -->
     <ellipse cx="28" cy="22" rx="6" ry="8" fill="rgba(254,226,184,0.98)"/>
-    <!-- Открытые глаза -->
+    <!-- Глаза -->
     <circle cx="25.5" cy="22" r="0.7" fill="rgba(40,30,20,0.92)"/>
     <circle cx="30.5" cy="22" r="0.7" fill="rgba(40,30,20,0.92)"/>
-    <!-- Брови светлые -->
-    <path d="M 24 20 Q 26 19.5 27 20" stroke="rgba(170,130,60,0.8)" stroke-width="0.4" fill="none" stroke-linecap="round"/>
-    <path d="M 29 20 Q 30 19.5 32 20" stroke="rgba(170,130,60,0.8)" stroke-width="0.4" fill="none" stroke-linecap="round"/>
-    <!-- Весёлая улыбка пошире -->
+    <!-- Морщинки у глаз -->
+    <path d="M 23.5 22.5 Q 23 23 22.8 23.5" stroke="rgba(150,110,80,0.4)" stroke-width="0.25" fill="none" stroke-linecap="round"/>
+    <path d="M 32.5 22.5 Q 33 23 33.2 23.5" stroke="rgba(150,110,80,0.4)" stroke-width="0.25" fill="none" stroke-linecap="round"/>
+    <!-- Брови лавандовые -->
+    <path d="M 24 20 Q 26 19.5 27 20" stroke="rgba(139,92,246,0.8)" stroke-width="0.4" fill="none" stroke-linecap="round"/>
+    <path d="M 29 20 Q 30 19.5 32 20" stroke="rgba(139,92,246,0.8)" stroke-width="0.4" fill="none" stroke-linecap="round"/>
+    <!-- Улыбка -->
     <path d="M 26 27 Q 28 28.5 30 27" stroke="rgba(180,60,80,0.92)" stroke-width="0.6" fill="none" stroke-linecap="round"/>
-    <!-- Розовые щёчки -->
+    <!-- Щёчки -->
     <circle cx="23" cy="25" r="0.9" fill="rgba(244,114,182,0.4)"/>
     <circle cx="33" cy="25" r="0.9" fill="rgba(244,114,182,0.4)"/>
     <!-- Серьги -->
@@ -46,30 +51,24 @@
     <circle cx="34" cy="24" r="0.5" fill="rgba(167,139,250,0.95)"/>
     <!-- Шея -->
     <rect x="25.5" y="29" width="5" height="4" rx="1" fill="rgba(254,226,184,0.98)"/>
-    <!-- Блузка под пиджаком -->
-    <path d="M 22 33 L 28 39 L 34 33 L 34 44 L 22 44 Z" fill="url(#bizBlouse)"/>
-    <!-- Пиджак -->
-    <path d="M 18 33 L 22 33 L 28 41 L 34 33 L 38 33 L 40 58 L 16 58 Z" fill="url(#bizJacket)"/>
-    <!-- Лацканы -->
-    <path d="M 22 33 L 22 42 L 28 41 Z" fill="rgba(79,70,229,0.99)"/>
-    <path d="M 34 33 L 34 42 L 28 41 Z" fill="rgba(79,70,229,0.99)"/>
-    <!-- Пуговицы -->
-    <circle cx="28" cy="48" r="0.7" fill="rgba(200,200,220,0.95)"/>
-    <circle cx="28" cy="53" r="0.7" fill="rgba(200,200,220,0.95)"/>
-    <!-- Юбка-карандаш -->
-    <path d="M 19 58 L 37 58 L 35 86 L 21 86 Z" fill="rgba(79,70,229,0.95)"/>
-    <!-- Ноги -->
-    <rect x="22" y="86" width="4" height="6" fill="rgba(254,226,184,0.98)"/>
-    <rect x="30" y="86" width="4" height="6" fill="rgba(254,226,184,0.98)"/>
+    <!-- Блузка -->
+    <path d="M 22 33 L 28 39 L 34 33 L 34 45 L 22 45 Z" fill="url(#bizBlouse)"/>
+    <!-- Полуделовой жакет (открытый, без лацканов) -->
+    <path d="M 18 33 Q 16 35 16 38 L 17 58 L 22 58 L 22 36 Z" fill="url(#bizJacket)"/>
+    <path d="M 38 33 Q 40 35 40 38 L 39 58 L 34 58 L 34 36 Z" fill="url(#bizJacket)"/>
+    <path d="M 23 33 Q 28 31 33 33 L 33 36 L 23 36 Z" fill="url(#bizJacket)" opacity="0.7"/>
+    <!-- Прямые брюки -->
+    <path d="M 22 45 L 27 45 L 27 86 L 22 86 Z" fill="url(#bizTrousers)"/>
+    <path d="M 29 45 L 34 45 L 34 86 L 29 86 Z" fill="url(#bizTrousers)"/>
     <!-- Туфли -->
-    <ellipse cx="24" cy="93" rx="3" ry="1.5" fill="rgba(40,30,60,0.98)"/>
-    <ellipse cx="32" cy="93" rx="3" ry="1.5" fill="rgba(40,30,60,0.98)"/>
+    <ellipse cx="24.5" cy="88" rx="3" ry="1.5" fill="rgba(76,29,149,0.95)"/>
+    <ellipse cx="31.5" cy="88" rx="3" ry="1.5" fill="rgba(76,29,149,0.95)"/>
     <!-- Руки -->
     <path d="M 18 36 Q 16 48 17 60" stroke="url(#bizJacket)" stroke-width="3.5" fill="none" stroke-linecap="round"/>
     <path d="M 38 36 Q 40 48 36 56" stroke="url(#bizJacket)" stroke-width="3.5" fill="none" stroke-linecap="round"/>
     <!-- Планшет -->
     <rect x="30" y="52" width="10" height="8" rx="0.8" fill="rgba(40,40,60,0.98)"/>
-    <rect x="31" y="53" width="8" height="6" rx="0.3" fill="rgba(99,102,241,0.7)"/>
+    <rect x="31" y="53" width="8" height="6" rx="0.3" fill="rgba(147,197,253,0.7)"/>
     <circle cx="33" cy="57" r="0.7" fill="#a78bfa"/>
     <line x1="33.6" y1="57" x2="33.6" y2="54.5" stroke="#a78bfa" stroke-width="0.3"/>
     <!-- Акцентная нота -->

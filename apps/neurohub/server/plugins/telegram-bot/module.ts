@@ -594,8 +594,9 @@ router.post("/webhook", async (req, res) => {
     const p0 = personaFor(fromId);
     const quick = tryQuickReply(text, p0.name);
     if (quick) {
+      const cleanQuick = quick.replace(/\s*[—\-–]+\s*(Аня|Татьяна|Мария|Ольга)(\s*·\s*MuziAi)?\s*\.?\s*$/i, "").trimEnd();
       const footer = `\n\n— ${p0.name} · MuziAi`;
-      const replyWithAvatar = `${p0.avatar} ${quick}${footer}`;
+      const replyWithAvatar = `${p0.avatar} ${cleanQuick}${footer}`;
       await sendConsultantPhoto(chatId, replyWithAvatar);
       saveMessage(sessionId, "bot", replyWithAvatar);
       return;
@@ -645,8 +646,12 @@ router.post("/webhook", async (req, res) => {
     const reply = await generateReply(fromId, text, history, memoryHint + ltmHint + ownerHint + profileHint + learningsHint);
     const p = personaFor(fromId);
     // Eugene 2026-05-11: имя менеджера + MuziAi в каждом сообщении.
+    // Eugene 2026-05-12: если LLM уже подписался — не дублируем
+    // (regexp ловит «— Аня» / «-- Татьяна» / «— Мария · MuziAi» и т.д.
+    // в конце reply'я). Убираем подпись LLM, оставляем нашу.
+    const cleanReply = reply.replace(/\s*[—\-–]+\s*(Аня|Татьяна|Мария|Ольга)(\s*·\s*MuziAi)?\s*\.?\s*$/i, "").trimEnd();
     const footer = `\n\n— ${p.name} · MuziAi`;
-    const replyWithAvatar = `${p.avatar} ${reply}${footer}`;
+    const replyWithAvatar = `${p.avatar} ${cleanReply}${footer}`;
     // Eugene 2026-05-11 v2: образ в каждом ответе. file_id-кэш
     // делает повторные sendPhoto мгновенными (без download). Caption
     // limit Telegram = 1024 char — длинные шлём текстом.
