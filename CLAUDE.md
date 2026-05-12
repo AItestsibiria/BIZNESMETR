@@ -208,6 +208,12 @@ ssh root@72.56.1.149 'sed -i "/^ИМЯ_КЛЮЧА=/d" /var/www/neurohub/.env \
 
 После update KB на проде: `https://muziai.ru/api/telegram/kb/reload?secret=<CRON_SECRET>` (без рестарта pm2).
 
+### Boss-form-address rule (Eugene 2026-05-12)
+
+**Обращаться к Eugene — «Босс» (с большой буквы).** Не «Eugene», не «босс», не «шеф». Только «Босс» с заглавной Б.
+
+Применяется в каждом ответе ассистента, когда уместно обращение.
+
 ### News-block 3-max rule (Eugene 2026-05-12)
 
 **На главной странице (`apps/neurohub/client/src/pages/landing.tsx`) — НЕ БОЛЕЕ 3 новостей одновременно.**
