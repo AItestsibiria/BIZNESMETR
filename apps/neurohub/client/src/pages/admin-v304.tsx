@@ -2085,6 +2085,35 @@ function ChatFunnelSection({ toast }: { toast: any }) {
       </Card>
 
       <Card className="mt-4">
+        <CardHeader><CardTitle>🌍 По городам (топ-30)</CardTitle></CardHeader>
+        <CardContent className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-xs text-muted-foreground border-b">
+              <tr>
+                <th className="text-left py-2 pl-2">Город</th>
+                <th className="text-left py-2 pl-2">Страна</th>
+                <th className="text-right py-2 px-3">Сессий</th>
+                <th className="text-right py-2 px-3 pr-2">Конверсий</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(data.by_city || []).map((c: any, i: number) => (
+                <tr key={`${c.city}-${c.country}-${i}`} className="border-b border-border/30 hover:bg-secondary/30">
+                  <td className="py-2 pl-2 font-medium">{c.city}</td>
+                  <td className="py-2 pl-2 text-muted-foreground">{c.country}</td>
+                  <td className="text-right py-2 px-3 font-mono">{c.sessions}</td>
+                  <td className="text-right py-2 px-3 pr-2 font-mono text-emerald-300">{c.converted}</td>
+                </tr>
+              ))}
+              {(data.by_city || []).length === 0 && (
+                <tr><td colSpan={4} className="text-center text-muted-foreground p-4">Гео-данных нет — нужны связки chat-сессий с user_id и visitors.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+
+      <Card className="mt-4">
         <CardHeader><CardTitle>📡 По каналам</CardTitle></CardHeader>
         <CardContent className="overflow-x-auto">
           <table className="w-full text-sm">

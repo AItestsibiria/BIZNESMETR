@@ -2355,6 +2355,22 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
         ORDER BY converted DESC, multi_msg DESC
       `)) as any[];
 
+      // По городам (Eugene 2026-05-12) — JOIN с visitors через user_id.
+      const byCity = db.all<any>(sql.raw(`
+        SELECT
+          COALESCE(v.city, '—') AS city,
+          COALESCE(v.country, '—') AS country,
+          COUNT(DISTINCT cs.id) AS sessions,
+          SUM(CASE WHEN cs.user_id IS NOT NULL THEN 1 ELSE 0 END) AS converted
+        FROM chatbot_sessions cs
+        LEFT JOIN visitors v ON v.user_id = cs.user_id
+        WHERE cs.last_message_at >= ${sinceFilter}
+        GROUP BY city, country
+        HAVING sessions > 0
+        ORDER BY sessions DESC
+        LIMIT 30
+      `)) as any[];
+
       // По каналам
       const byChannel = db.all<any>(sql.raw(`
         SELECT
@@ -2406,6 +2422,12 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
           channel: r.channel,
           sessions: Number(r.sessions) || 0,
           multi_msg: Number(r.multi_msg) || 0,
+          converted: Number(r.converted) || 0,
+        })),
+        by_city: byCity.map((r: any) => ({
+          city: r.city,
+          country: r.country,
+          sessions: Number(r.sessions) || 0,
           converted: Number(r.converted) || 0,
         })),
         linked: {
