@@ -153,7 +153,7 @@ export function FloatingConsultant() {
               <span>🎁</span> Регистрация
             </button>
             <div className="border-t border-white/[0.04] my-1 pt-1">
-              <div className="text-[10px] text-white/60 px-1 mb-1">📤 Порекомендовать</div>
+              <div className="text-[10px] text-white/60 px-1 mb-1">📤 Порекомендовать Музу</div>
               <a
                 href={`https://t.me/share/url?url=${encodeURIComponent("https://t.me/Muziaipodari_bot")}&text=${encodeURIComponent("Привет! Порекомендую Музу — крутая в подборе песен под событие. Попробуй: https://t.me/Muziaipodari_bot")}`}
                 target="_blank"
@@ -164,6 +164,15 @@ export function FloatingConsultant() {
                 <span>📱</span> Telegram
               </a>
               <a
+                href={`https://max.ru/share?url=${encodeURIComponent("https://max.ru/id7017236261_bot")}&text=${encodeURIComponent("Привет! Порекомендую Музу — крутая в подборе песен под событие. Попробуй: https://max.ru/id7017236261_bot")}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => trackEngagement("consultant_action", { action: "share_max" })}
+                className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-white/[0.06] transition-colors text-[11px] text-white/80"
+              >
+                <span>💬</span> Max
+              </a>
+              <a
                 href={`https://api.whatsapp.com/send?text=${encodeURIComponent("Привет! Порекомендую Музу — крутая в подборе песен под событие. Попробуй: https://t.me/Muziaipodari_bot")}`}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -171,15 +180,6 @@ export function FloatingConsultant() {
                 className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-white/[0.06] transition-colors text-[11px] text-white/80"
               >
                 <span>💚</span> WhatsApp
-              </a>
-              <a
-                href={`https://vk.com/share.php?url=${encodeURIComponent("https://muziai.ru/")}&title=${encodeURIComponent("Муза — друг MuziAi, крутой в подборе песен под событие")}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => trackEngagement("consultant_action", { action: "share_vk" })}
-                className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-white/[0.06] transition-colors text-[11px] text-white/80"
-              >
-                <span>🌐</span> VK
               </a>
               <button
                 type="button"
