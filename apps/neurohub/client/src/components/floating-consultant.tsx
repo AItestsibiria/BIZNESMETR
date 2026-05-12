@@ -149,8 +149,8 @@ export function FloatingConsultant() {
                 <stop offset="100%" stopColor="rgba(252,211,77,0.88)" />
               </linearGradient>
               <linearGradient id="bizHair" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="rgba(120,80,40,0.85)" />
-                <stop offset="100%" stopColor="rgba(96,60,28,0.80)" />
+                <stop offset="0%" stopColor="rgba(252,211,77,0.95)" />
+                <stop offset="100%" stopColor="rgba(217,170,55,0.90)" />
               </linearGradient>
             </defs>
 
@@ -168,12 +168,15 @@ export function FloatingConsultant() {
             {/* Открытые глаза — взгляд вперёд (нейтральный, профессиональный) */}
             <circle cx="25.5" cy="22" r="0.7" fill="rgba(40,30,20,0.85)" />
             <circle cx="30.5" cy="22" r="0.7" fill="rgba(40,30,20,0.85)" />
-            {/* Брови — тонкие, ровные */}
-            <path d="M 24 20 Q 26 19.5 27 20" stroke="rgba(80,50,30,0.7)" strokeWidth="0.4" fill="none" strokeLinecap="round" />
-            <path d="M 29 20 Q 30 19.5 32 20" stroke="rgba(80,50,30,0.7)" strokeWidth="0.4" fill="none" strokeLinecap="round" />
+            {/* Брови — тонкие, светлые */}
+            <path d="M 24 20 Q 26 19.5 27 20" stroke="rgba(170,130,60,0.7)" strokeWidth="0.4" fill="none" strokeLinecap="round" />
+            <path d="M 29 20 Q 30 19.5 32 20" stroke="rgba(170,130,60,0.7)" strokeWidth="0.4" fill="none" strokeLinecap="round" />
 
-            {/* Лёгкая улыбка — закрытый рот (профессиональный) */}
-            <path d="M 26.5 27 Q 28 27.5 29.5 27" stroke="rgba(180,60,80,0.7)" strokeWidth="0.5" fill="none" strokeLinecap="round" />
+            {/* Весёлая широкая улыбка */}
+            <path d="M 26 27 Q 28 28.5 30 27" stroke="rgba(180,60,80,0.85)" strokeWidth="0.6" fill="none" strokeLinecap="round" />
+            {/* Розовые щёчки — намёк на бодрое настроение */}
+            <circle cx="23" cy="25" r="0.9" fill="rgba(244,114,182,0.35)" />
+            <circle cx="33" cy="25" r="0.9" fill="rgba(244,114,182,0.35)" />
 
             {/* Серьги-точки (минимализм) */}
             <circle cx="22" cy="24" r="0.5" fill="rgba(167,139,250,0.85)" />
