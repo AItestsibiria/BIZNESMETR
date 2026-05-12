@@ -6,6 +6,7 @@ import { sheetsClient, type TaskRow } from '../integrations/sheets'
 import { calendarClient } from '../integrations/gcal'
 import { gmailClient } from '../integrations/gmail'
 import { githubClient } from '../integrations/github'
+import { projectConnectors } from '../integrations/projects'
 import {
   CreateTaskInputSchema,
   DraftTextInputSchema,
@@ -16,6 +17,7 @@ import {
   GmailDraftInputSchema,
   GmailSearchInputSchema,
   ListTasksInputSchema,
+  ProjectAnalyticsInputSchema,
   UpdateTaskInputSchema,
 } from './schemas'
 
@@ -184,6 +186,21 @@ const githubMyIssues = defineTool({
   },
 })
 
+const projectAnalytics = defineTool({
+  name: 'project_analytics',
+  description:
+    'Pull analytics or a status snapshot from one of the user\'s external projects: MuziAI, Бизнесметр (the business-metrics platform), or ЕГРН. Use when the user asks "что по [проекту]" or "дай аналитику по [проекту]".',
+  schema: ProjectAnalyticsInputSchema,
+  handler: async (input) => {
+    const connector = projectConnectors[input.project]
+    const result = await connector.getAnalytics({
+      ...(input.topic !== undefined ? { topic: input.topic } : {}),
+      ...(input.period !== undefined ? { period: input.period } : {}),
+    })
+    return result
+  },
+})
+
 const tools = [
   createTask,
   listTasks,
@@ -195,6 +212,7 @@ const tools = [
   gmailSearch,
   githubMyPrs,
   githubMyIssues,
+  projectAnalytics,
 ] as const
 
 export function getToolDefinitionsForClaude(): Anthropic.Messages.Tool[] {

@@ -38,6 +38,44 @@ jest.mock('../../integrations/github', () => ({
   },
 }))
 
+jest.mock('../../integrations/projects', () => ({
+  projectConnectors: {
+    muziai: {
+      key: 'muziai',
+      displayName: 'MuziAI',
+      isConfigured: () => false,
+      getAnalytics: jest.fn().mockResolvedValue({
+        project: 'MuziAI',
+        configured: false,
+        summary: 'MuziAI integration is not configured yet.',
+        fetchedAt: '2026-05-11T00:00:00.000Z',
+      }),
+    },
+    biznesmetr: {
+      key: 'biznesmetr',
+      displayName: 'Бизнесметр',
+      isConfigured: () => true,
+      getAnalytics: jest.fn().mockResolvedValue({
+        project: 'Бизнесметр',
+        configured: true,
+        summary: 'Ok.',
+        fetchedAt: '2026-05-11T00:00:00.000Z',
+      }),
+    },
+    egrn: {
+      key: 'egrn',
+      displayName: 'ЕГРН',
+      isConfigured: () => false,
+      getAnalytics: jest.fn().mockResolvedValue({
+        project: 'ЕГРН',
+        configured: false,
+        summary: 'ЕГРН integration is not configured yet.',
+        fetchedAt: '2026-05-11T00:00:00.000Z',
+      }),
+    },
+  },
+}))
+
 const ctx = { externalChatId: 'chat-1' }
 
 describe('tools dispatcher', () => {
@@ -78,6 +116,7 @@ describe('tools dispatcher', () => {
       'gmail_draft',
       'gmail_search',
       'list_tasks',
+      'project_analytics',
       'update_task',
     ])
     for (const def of defs) {
@@ -137,5 +176,30 @@ describe('tools dispatcher', () => {
     const res = await runTool('github_my_prs', { limit: 5 }, ctx)
     expect(res.ok).toBe(true)
     if (res.ok) expect(res.result).toMatchObject({ count: 0, prs: [] })
+  })
+
+  it('project_analytics validates project enum', async () => {
+    const bad = await runTool('project_analytics', { project: 'unknown' }, ctx)
+    expect(bad.ok).toBe(false)
+  })
+
+  it('project_analytics reports when a connector is not configured', async () => {
+    const res = await runTool('project_analytics', { project: 'muziai' }, ctx)
+    expect(res.ok).toBe(true)
+    if (res.ok) {
+      expect(res.result).toMatchObject({ project: 'MuziAI', configured: false })
+    }
+  })
+
+  it('project_analytics returns data when configured', async () => {
+    const res = await runTool(
+      'project_analytics',
+      { project: 'biznesmetr', topic: 'Q2 revenue' },
+      ctx,
+    )
+    expect(res.ok).toBe(true)
+    if (res.ok) {
+      expect(res.result).toMatchObject({ project: 'Бизнесметр', configured: true, summary: 'Ok.' })
+    }
   })
 })

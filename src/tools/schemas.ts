@@ -74,6 +74,24 @@ export const GithubMyIssuesInputSchema = z.object({
   limit: z.number().int().positive().max(50).default(20),
 })
 
+export const ProjectAnalyticsInputSchema = z.object({
+  project: z
+    .enum(['muziai', 'biznesmetr', 'egrn'])
+    .describe(
+      'Which external project to query. muziai = MuziAI; biznesmetr = the Бизнесметр business-metrics platform; egrn = ЕГРН (real estate registry).',
+    ),
+  topic: z
+    .string()
+    .max(500)
+    .optional()
+    .describe('What specifically the user wants to know (free-form, forwarded to the project).'),
+  period: z
+    .string()
+    .max(100)
+    .optional()
+    .describe('Optional time period, e.g. "last 7 days", "Q2 2026".'),
+})
+
 export type CreateTaskInput = z.infer<typeof CreateTaskInputSchema>
 export type ListTasksInput = z.infer<typeof ListTasksInputSchema>
 export type UpdateTaskInput = z.infer<typeof UpdateTaskInputSchema>
@@ -84,3 +102,4 @@ export type GmailDraftInput = z.infer<typeof GmailDraftInputSchema>
 export type GmailSearchInput = z.infer<typeof GmailSearchInputSchema>
 export type GithubMyPrsInput = z.infer<typeof GithubMyPrsInputSchema>
 export type GithubMyIssuesInput = z.infer<typeof GithubMyIssuesInputSchema>
+export type ProjectAnalyticsInput = z.infer<typeof ProjectAnalyticsInputSchema>

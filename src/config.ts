@@ -27,6 +27,7 @@ const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
   PUBLIC_URL: z.string().url().optional(),
+  ASSISTANT_NAME: z.string().default('Таня'),
 
   DATABASE_URL: z.string().min(1),
 
@@ -56,6 +57,15 @@ const schema = z.object({
 
   DIGEST_CRON: z.string().optional(),
   DIGEST_CHAT_IDS: csvStrings,
+
+  MUZIAI_API_URL: z.string().url().optional(),
+  MUZIAI_API_TOKEN: z.string().optional(),
+
+  BIZNESMETR_HUB_URL: z.string().url().optional(),
+  BIZNESMETR_HUB_TOKEN: z.string().optional(),
+
+  EGRN_API_URL: z.string().url().optional(),
+  EGRN_API_TOKEN: z.string().optional(),
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 })
