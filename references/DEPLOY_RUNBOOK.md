@@ -1,4 +1,4 @@
-# Деплой Тани на Timeweb + Tailscale Funnel
+# Деплой Novo AI на Timeweb + Tailscale Funnel
 
 Пошаговый runbook. Все команды копируются и выполняются на сервере, кроме шага «На локальной машине», который явно помечен. Ориентировочное время: **~45–60 минут** в первый раз.
 
@@ -8,6 +8,10 @@
 > `--url` режиме даёт ephemeral URL, который пришлось бы перерегистрировать.
 
 ---
+
+> Раньше ассистент назывался «Таня». Сейчас бренд переехал на **Novo AI**;
+> в кодовой базе хост / директория / `ASSISTANT_NAME` обновлены, на функции
+> и тулзы переименование не повлияло.
 
 ## 0. Что должно быть у тебя до старта
 
@@ -62,13 +66,13 @@
 apt update && apt upgrade -y
 
 # Создать невырутового юзера
-adduser --disabled-password --gecos "" tanya
-usermod -aG sudo tanya
-mkdir -p /home/tanya/.ssh
-cp ~/.ssh/authorized_keys /home/tanya/.ssh/
-chown -R tanya:tanya /home/tanya/.ssh
-chmod 700 /home/tanya/.ssh
-chmod 600 /home/tanya/.ssh/authorized_keys
+adduser --disabled-password --gecos "" novo
+usermod -aG sudo novo
+mkdir -p /home/novo/.ssh
+cp ~/.ssh/authorized_keys /home/novo/.ssh/
+chown -R novo:novo /home/novo/.ssh
+chmod 700 /home/novo/.ssh
+chmod 600 /home/novo/.ssh/authorized_keys
 
 # Базовый firewall: пускаем только SSH (Tailscale сам пробивает наружу)
 apt install -y ufw fail2ban
@@ -83,7 +87,7 @@ systemctl restart sshd
 
 **Не закрывай старую SSH-сессию.** Открой новую вкладку и проверь:
 ```bash
-ssh tanya@<TIMEWEB_IP>
+ssh novo@<TIMEWEB_IP>
 ```
 Если входит — старую `root@` сессию можно закрыть.
 
@@ -115,7 +119,7 @@ free -h
 
 ## 3. Установить Docker
 
-Дальше все команды — от юзера `tanya`. Когда нужен root — пиши `sudo`.
+Дальше все команды — от юзера `novo`. Когда нужен root — пиши `sudo`.
 
 ```bash
 # Docker по официальному гайду
@@ -131,12 +135,12 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.
 sudo apt update
 sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-# Запустить и сделать так, чтобы tanya мог без sudo
+# Запустить и сделать так, чтобы novo мог без sudo
 sudo systemctl enable --now docker
-sudo usermod -aG docker tanya
+sudo usermod -aG docker novo
 # ВЫЙТИ и зайти заново, чтобы группа docker применилась
 exit
-ssh tanya@<TIMEWEB_IP>
+ssh novo@<TIMEWEB_IP>
 
 # Проверка
 docker run --rm hello-world
@@ -149,10 +153,10 @@ docker run --rm hello-world
 ```bash
 sudo apt install -y git
 cd ~
-git clone https://github.com/AItestsibiria/BIZNESMETR.git tanya
-cd tanya
-# Переключиться на рабочую ветку, пока main пуст
-git checkout claude/add-claude-documentation-6rVqM
+git clone https://github.com/AItestsibiria/BIZNESMETR.git novo-ai
+cd novo-ai
+# Активная ветка проекта — develop (main пока пустой)
+git checkout develop
 ```
 
 ---
@@ -161,14 +165,14 @@ git checkout claude/add-claude-documentation-6rVqM
 
 На **локальной машине** (где лежит ключ):
 ```bash
-scp /path/to/google-credentials.json tanya@<TIMEWEB_IP>:~/tanya/secrets/google-credentials.json
+scp /path/to/google-credentials.json novo@<TIMEWEB_IP>:~/novo-ai/secrets/google-credentials.json
 ```
 Если папки `secrets/` ещё нет — создай:
 ```bash
 # на сервере
-mkdir -p ~/tanya/secrets
-chmod 700 ~/tanya/secrets
-chmod 600 ~/tanya/secrets/google-credentials.json
+mkdir -p ~/novo-ai/secrets
+chmod 700 ~/novo-ai/secrets
+chmod 600 ~/novo-ai/secrets/google-credentials.json
 ```
 
 ---
@@ -176,7 +180,7 @@ chmod 600 ~/tanya/secrets/google-credentials.json
 ## 6. Подготовить .env
 
 ```bash
-cd ~/tanya
+cd ~/novo-ai
 cp .env.example .env
 nano .env
 ```
@@ -217,7 +221,7 @@ chmod 600 .env
 curl -fsSL https://tailscale.com/install.sh | sh
 
 # Подключить машину к твоему Tailnet (по GitHub/Google логину)
-sudo tailscale up --hostname=tanya
+sudo tailscale up --hostname=novo-ai
 # В выводе будет URL — открой его на локальной машине, авторизуйся.
 ```
 
@@ -230,7 +234,7 @@ tailscale status
 - В web-интерфейсе https://login.tailscale.com/admin/dns
   - **MagicDNS:** включить
   - **HTTPS Certificates:** включить (Tailscale выпустит Let's Encrypt-серт на `<host>.<tailnet>.ts.net`)
-- **Funnel access:** https://login.tailscale.com/admin/settings/funnel → включить для всех или конкретно для `tanya`
+- **Funnel access:** https://login.tailscale.com/admin/settings/funnel → включить для всех или конкретно для `novo-ai`
 
 Подними Funnel на порту 3000:
 ```bash
@@ -239,7 +243,7 @@ sudo tailscale funnel --bg 3000
 
 Выведет публичный URL вида:
 ```
-https://tanya.<TAILNET>.ts.net/
+https://novo-ai.<TAILNET>.ts.net/
 ```
 
 **Этот URL стабилен** — не меняется при перезапусках сервера. Запиши его — будем юзать в шаге 9.
@@ -249,7 +253,7 @@ https://tanya.<TAILNET>.ts.net/
 ## 8. Запустить стек
 
 ```bash
-cd ~/tanya
+cd ~/novo-ai
 docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d --build
 ```
 
@@ -267,7 +271,7 @@ docker compose logs -f app
 
 Проверь, что Funnel пробивает до приложения:
 ```bash
-curl https://tanya.<TAILNET>.ts.net/health
+curl https://novo-ai.<TAILNET>.ts.net/health
 # {"status":"ok","uptime":...}
 ```
 
@@ -278,7 +282,7 @@ curl https://tanya.<TAILNET>.ts.net/health
 ```bash
 TG_TOKEN=<TELEGRAM_BOT_TOKEN>
 TG_SECRET=<TELEGRAM_WEBHOOK_SECRET из .env>
-TG_URL=https://tanya.<TAILNET>.ts.net/webhooks/telegram
+TG_URL=https://novo-ai.<TAILNET>.ts.net/webhooks/telegram
 
 curl -X POST "https://api.telegram.org/bot${TG_TOKEN}/setWebhook" \
   -H "Content-Type: application/json" \
@@ -326,7 +330,7 @@ docker compose logs -f
 docker compose restart app
 
 # Обновить код (когда я выкачу новую версию)
-cd ~/tanya
+cd ~/novo-ai
 git pull
 docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d --build
 

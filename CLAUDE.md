@@ -48,8 +48,13 @@ BIZNESMETR is being built as a **personal assistant to a CEO**: one chat (Telegr
 ```
 
 **Branches:**
-- `main` — empty (docs only — Sprint 1 scaffolding lives on the working branch)
-- `claude/<description>-<id>` — Claude Code working branches
+- `main` — empty (docs only)
+- `develop` — **active working branch** for the Tanya MVP. All Sprint 1
+  scaffolding + Sprint 2 surface work lives here.
+- `claude/add-claude-documentation-6rVqM` — initial Claude Code branch,
+  kept as an archive. Do not push to it; use `develop`.
+- `feature/<description>` / `fix/<description>` — short-lived branches
+  off `develop` when changes get big enough to warrant a PR.
 
 ---
 
