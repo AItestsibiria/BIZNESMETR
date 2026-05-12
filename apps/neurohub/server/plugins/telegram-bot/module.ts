@@ -660,7 +660,9 @@ router.post("/webhook", async (req, res) => {
       ? `\n\n[ПРОФИЛЬ ЮЗЕРА (уже узнала): ${JSON.stringify(profile)}. Используй эту инфу, не переспрашивай. Если каких-то полей нет — мягко выясни в ходе разговора.]`
       : "";
     const learningsHint = loadLatestLearnings();
-    const rawReply = await generateReply(fromId, text, history, memoryHint + ltmHint + ownerHint + profileHint + learningsHint);
+    // Eugene 2026-05-12: сегодняшняя дата в dynamic-блок — для календаря праздников.
+    const todayHint = `\n\n[TODAY: ${new Date().toISOString().slice(0, 10)} (${new Date().toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long" })})]`;
+    const rawReply = await generateReply(fromId, text, history, memoryHint + ltmHint + ownerHint + profileHint + learningsHint + todayHint);
     // Eugene 2026-05-12: маркер смены помощника. LLM может вставить
     // [SWITCH_PERSONA:Имя] — код применит смену в БД и уберёт маркер.
     const switchMatch = rawReply.match(/\[SWITCH_PERSONA:(Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)\]/i);
