@@ -68,6 +68,29 @@ const SYSTEM_PROMPT = buildSystemPrompt()
 
 const MAX_TOOL_ROUNDS = 6
 
+/**
+ * System prompt as a cached content block. Same across all requests for the
+ * lifetime of the process, so it's a perfect candidate for prompt caching.
+ * Anthropic refunds ~90% of input-token cost on cache hits within the 5-min TTL.
+ */
+const CACHED_SYSTEM: Anthropic.Messages.TextBlockParam[] = [
+  { type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
+]
+
+/**
+ * Tool definitions with cache_control set on the LAST tool. Anthropic caches
+ * everything up to and including that marker, so this caches the entire tools
+ * array as a single block.
+ */
+function buildCachedTools(): Anthropic.Messages.Tool[] {
+  const tools = getToolDefinitionsForClaude()
+  if (tools.length === 0) return tools
+  const last = tools[tools.length - 1]!
+  return [...tools.slice(0, -1), { ...last, cache_control: { type: 'ephemeral' } }]
+}
+
+const CACHED_TOOLS = buildCachedTools()
+
 export interface ClaudeTurn {
   role: 'user' | 'assistant'
   content: string
@@ -83,7 +106,6 @@ export async function runClaude(params: {
   userMessage: string
   ctx: ToolContext
 }): Promise<ClaudeRunResult> {
-  const tools = getToolDefinitionsForClaude()
   const toolUses: { name: string; ok: boolean }[] = []
 
   const messages: Anthropic.Messages.MessageParam[] = [
@@ -94,14 +116,24 @@ export async function runClaude(params: {
     { role: 'user', content: params.userMessage },
   ]
 
+  let cacheReadTotal = 0
+  let cacheCreateTotal = 0
+  let inputTotal = 0
+  let outputTotal = 0
+
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const response = await anthropic.messages.create({
       model: config.CLAUDE_MODEL_DEFAULT,
       max_tokens: 2048,
-      system: SYSTEM_PROMPT,
-      tools,
+      system: CACHED_SYSTEM,
+      tools: CACHED_TOOLS,
       messages,
     })
+
+    cacheReadTotal += response.usage.cache_read_input_tokens ?? 0
+    cacheCreateTotal += response.usage.cache_creation_input_tokens ?? 0
+    inputTotal += response.usage.input_tokens
+    outputTotal += response.usage.output_tokens
 
     messages.push({ role: 'assistant', content: response.content })
 
@@ -111,6 +143,16 @@ export async function runClaude(params: {
         .map((b) => b.text)
         .join('\n')
         .trim()
+      logger.info(
+        {
+          rounds: round + 1,
+          input: inputTotal,
+          output: outputTotal,
+          cacheRead: cacheReadTotal,
+          cacheCreate: cacheCreateTotal,
+        },
+        'Claude turn complete',
+      )
       return { reply: text, toolUses }
     }
 
