@@ -1,3 +1,4 @@
+import { registerAudio } from "../lib/audio-bus";
 import { useLocation, useRoute } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { PenLine, Music, Image, Sparkles, ArrowRight, Zap, Download, Mic, Play, Pause, SkipForward, SkipBack, ChevronDown, ChevronUp, Share2, Repeat, Repeat1 } from "lucide-react";
@@ -513,7 +514,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             setTrackDuration(firstMusic.duration || 0);
             playingTrackRef.current = firstMusic;
             // Prepare audio but don't play
-            const audio = new Audio(firstMusic.audioUrl);
+            const audio = new Audio(firstMusic.audioUrl); registerAudio(audio);
             audio.volume = 0.5;
             audio.preload = "metadata";
             audioRef.current = audio;
@@ -622,7 +623,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       audioRef.current.onloadedmetadata = null;
 
     }
-    const audio = new Audio(track.audioUrl);
+    const audio = new Audio(track.audioUrl); registerAudio(audio);
     audio.volume = 0.5;
     audioRef.current = audio;
     playingTrackRef.current = track;

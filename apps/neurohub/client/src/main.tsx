@@ -3,6 +3,7 @@ import App from "./App";
 import "./index.css";
 import { initPixels, trackPageView } from "./lib/pixels";
 import { captureLeadTouch } from "./lib/tracking";
+import { installAudioBus } from "./lib/audio-bus";
 
 if (!window.location.hash) {
   window.location.hash = "#/";
@@ -20,5 +21,9 @@ window.addEventListener('beforeinstallprompt', (e) => {
 initPixels();
 trackPageView();
 captureLeadTouch().catch(() => undefined);
+
+// Eugene 2026-05-12 (Босс): только ОДНА песня одновременно на сайте.
+// Глобальный listener pause'ит остальные audio при play любого.
+installAudioBus();
 
 createRoot(document.getElementById("root")!).render(<App />);

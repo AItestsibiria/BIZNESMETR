@@ -237,6 +237,16 @@ if (isDup(update.update_id)) return;
 
 Применяется в каждом ответе ассистента, когда уместно обращение.
 
+### Single-audio rule (Eugene 2026-05-12)
+
+**Одновременно на сайте играет ТОЛЬКО ОДНА песня.**
+
+Реализовано через `client/src/lib/audio-bus.ts`:
+- Global listener `installAudioBus()` в `main.tsx` ловит `play` event (capture phase) у всех `<audio>` в DOM → pause остальных
+- Non-DOM `new Audio()` инстансы регистрируются через `registerAudio(audio)` чтобы тоже участвовать в singleton
+
+Применяется к: всем audio elements на сайте (player-agent, landing playlist, dashboard, music player).
+
 ### News-block 3-max rule (Eugene 2026-05-12)
 
 **На главной странице (`apps/neurohub/client/src/pages/landing.tsx`) — НЕ БОЛЕЕ 3 новостей одновременно.**

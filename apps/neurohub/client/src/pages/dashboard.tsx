@@ -1,3 +1,4 @@
+import { registerAudio } from "../lib/audio-bus";
 import { useAuth } from "@/lib/auth";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
@@ -844,7 +845,7 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
       audioRef.current.onerror = null;
       audioRef.current.onloadedmetadata = null;
     }
-    const audio = new Audio(`/api/stream/${gen.id}`);
+    const audio = new Audio(`/api/stream/${gen.id}`); registerAudio(audio);
     audio.volume = 0.5;
     audioRef.current = audio;
     playingGenRef.current = gen;
