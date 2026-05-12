@@ -38,6 +38,39 @@ jest.mock('../../integrations/github', () => ({
   },
 }))
 
+jest.mock('../../db', () => {
+  const mem = new Map<string, { key: string; value: string; updatedAt: Date }>()
+  return {
+    prisma: {
+      fact: {
+        upsert: jest.fn(({ where, update, create }: { where: { userId_key: { userId: string; key: string } }; update: { value: string }; create: { userId: string; key: string; value: string } }) => {
+          const cacheKey = `${where.userId_key.userId}::${where.userId_key.key}`
+          const existing = mem.get(cacheKey)
+          const updatedAt = new Date('2026-05-11T00:00:00.000Z')
+          if (existing) {
+            existing.value = update.value
+            existing.updatedAt = updatedAt
+            return Promise.resolve({ ...existing })
+          }
+          const created = { key: create.key, value: create.value, updatedAt }
+          mem.set(cacheKey, created)
+          return Promise.resolve({ ...created })
+        }),
+        findMany: jest.fn(({ where, take }: { where: { userId: string; key?: { contains: string; mode: string } }; take: number }) => {
+          const entries = [...mem.entries()]
+            .filter(([k]) => k.startsWith(`${where.userId}::`))
+            .map(([, v]) => v)
+            .filter((f) =>
+              where.key?.contains ? f.key.toLowerCase().includes(where.key.contains.toLowerCase()) : true,
+            )
+            .slice(0, take)
+          return Promise.resolve(entries)
+        }),
+      },
+    },
+  }
+})
+
 jest.mock('../../integrations/projects', () => ({
   projectConnectors: {
     muziai: {
@@ -76,7 +109,7 @@ jest.mock('../../integrations/projects', () => ({
   },
 }))
 
-const ctx = { externalChatId: 'chat-1' }
+const ctx = { externalChatId: 'chat-1', userId: 'user-1' }
 
 describe('tools dispatcher', () => {
   beforeEach(() => {
@@ -117,6 +150,8 @@ describe('tools dispatcher', () => {
       'gmail_search',
       'list_tasks',
       'project_analytics',
+      'recall_facts',
+      'remember_fact',
       'update_task',
     ])
     for (const def of defs) {
@@ -200,6 +235,31 @@ describe('tools dispatcher', () => {
     expect(res.ok).toBe(true)
     if (res.ok) {
       expect(res.result).toMatchObject({ project: 'Бизнесметр', configured: true, summary: 'Ok.' })
+    }
+  })
+
+  it('remember_fact validates the key pattern', async () => {
+    const bad = await runTool('remember_fact', { key: 'has spaces', value: 'x' }, ctx)
+    expect(bad.ok).toBe(false)
+  })
+
+  it('remember_fact stores, recall_facts retrieves with substring filter', async () => {
+    await runTool('remember_fact', { key: 'contact.ivanov.role', value: 'CFO' }, ctx)
+    await runTool('remember_fact', { key: 'deal.acme.status', value: 'negotiating' }, ctx)
+
+    const all = await runTool('recall_facts', { limit: 10 }, ctx)
+    expect(all.ok).toBe(true)
+    if (all.ok) {
+      expect(all.result).toMatchObject({ count: 2 })
+    }
+
+    const filtered = await runTool('recall_facts', { query: 'ivanov', limit: 10 }, ctx)
+    expect(filtered.ok).toBe(true)
+    if (filtered.ok) {
+      expect(filtered.result).toMatchObject({
+        count: 1,
+        facts: [{ key: 'contact.ivanov.role', value: 'CFO' }],
+      })
     }
   })
 })

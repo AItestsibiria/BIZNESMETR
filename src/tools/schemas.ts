@@ -92,6 +92,27 @@ export const ProjectAnalyticsInputSchema = z.object({
     .describe('Optional time period, e.g. "last 7 days", "Q2 2026".'),
 })
 
+export const RememberFactInputSchema = z.object({
+  key: z
+    .string()
+    .min(1)
+    .max(120)
+    .regex(/^[a-z0-9_.:-]+$/i, 'Use a-z 0-9 _ . : -')
+    .describe(
+      'Stable identifier for this fact. Examples: contact.ivanov.role, deal.acme.status, kpi.q2.target.',
+    ),
+  value: z.string().min(1).max(4000).describe('The fact itself, in any language.'),
+})
+
+export const RecallFactsInputSchema = z.object({
+  query: z
+    .string()
+    .max(120)
+    .optional()
+    .describe('Substring filter over the key. Empty = return everything (capped by limit).'),
+  limit: z.number().int().positive().max(50).default(20),
+})
+
 export type CreateTaskInput = z.infer<typeof CreateTaskInputSchema>
 export type ListTasksInput = z.infer<typeof ListTasksInputSchema>
 export type UpdateTaskInput = z.infer<typeof UpdateTaskInputSchema>
@@ -103,3 +124,5 @@ export type GmailSearchInput = z.infer<typeof GmailSearchInputSchema>
 export type GithubMyPrsInput = z.infer<typeof GithubMyPrsInputSchema>
 export type GithubMyIssuesInput = z.infer<typeof GithubMyIssuesInputSchema>
 export type ProjectAnalyticsInput = z.infer<typeof ProjectAnalyticsInputSchema>
+export type RememberFactInput = z.infer<typeof RememberFactInputSchema>
+export type RecallFactsInput = z.infer<typeof RecallFactsInputSchema>

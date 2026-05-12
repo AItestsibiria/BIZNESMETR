@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
 import { logger } from '../logger'
+import { prisma } from '../db'
 import { sheetsClient, type TaskRow } from '../integrations/sheets'
 import { calendarClient } from '../integrations/gcal'
 import { gmailClient } from '../integrations/gmail'
@@ -18,11 +19,14 @@ import {
   GmailSearchInputSchema,
   ListTasksInputSchema,
   ProjectAnalyticsInputSchema,
+  RecallFactsInputSchema,
+  RememberFactInputSchema,
   UpdateTaskInputSchema,
 } from './schemas'
 
 export interface ToolContext {
   externalChatId: string
+  userId: string
 }
 
 interface ToolDefinition<Schema extends z.ZodTypeAny> {
@@ -186,6 +190,46 @@ const githubMyIssues = defineTool({
   },
 })
 
+const rememberFact = defineTool({
+  name: 'remember_fact',
+  description:
+    'Store or update a long-lived factual note about the user, their contacts, deals, KPIs, etc. Use proactively whenever the user shares something worth remembering (a person\'s role, a number, a deadline, a promise). Keys are stable identifiers; calling this with an existing key overwrites the value.',
+  schema: RememberFactInputSchema,
+  handler: async (input, ctx) => {
+    const fact = await prisma.fact.upsert({
+      where: { userId_key: { userId: ctx.userId, key: input.key } },
+      update: { value: input.value },
+      create: { userId: ctx.userId, key: input.key, value: input.value },
+    })
+    return { key: fact.key, savedAt: fact.updatedAt.toISOString() }
+  },
+})
+
+const recallFacts = defineTool({
+  name: 'recall_facts',
+  description:
+    'Recall facts previously remembered for the user. With no query, returns the most recently updated facts. With a query, filters keys by substring (case-insensitive).',
+  schema: RecallFactsInputSchema,
+  handler: async (input, ctx) => {
+    const facts = await prisma.fact.findMany({
+      where: {
+        userId: ctx.userId,
+        ...(input.query ? { key: { contains: input.query, mode: 'insensitive' } } : {}),
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: input.limit,
+    })
+    return {
+      count: facts.length,
+      facts: facts.map((f) => ({
+        key: f.key,
+        value: f.value,
+        updatedAt: f.updatedAt.toISOString(),
+      })),
+    }
+  },
+})
+
 const projectAnalytics = defineTool({
   name: 'project_analytics',
   description:
@@ -213,6 +257,8 @@ const tools = [
   githubMyPrs,
   githubMyIssues,
   projectAnalytics,
+  rememberFact,
+  recallFacts,
 ] as const
 
 export function getToolDefinitionsForClaude(): Anthropic.Messages.Tool[] {

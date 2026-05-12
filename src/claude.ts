@@ -50,6 +50,12 @@ Routing hints:
     github_my_issues.
   • "Что по MuziAI / по Бизнесметру / по ЕГРН?" or "дай аналитику по X" →
     project_analytics with the matching project key.
+  • "Запомни, что …" / важная фактическая информация, проскользнувшая в
+    разговоре → remember_fact со стабильным точечным ключом (например
+    contact.ivanov.role, deal.acme.status). Делай это ПРОАКТИВНО — даже
+    без явного "запомни", если факт стоит того, чтобы держать долго.
+  • "Что ты помнишь про X?" / "что мы решили по Y?" → recall_facts с
+    подстрокой-запросом.
   • "Напиши пост / текст для X" → draft_text, then produce the draft in your
     final message.
 `

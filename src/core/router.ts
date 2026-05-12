@@ -43,7 +43,7 @@ export function buildIncomingHandler(getAdapter: (channel: InboundMessage['chann
       const result = await runClaude({
         history,
         userMessage: message.text,
-        ctx: { externalChatId: message.externalChatId },
+        ctx: { externalChatId: message.externalChatId, userId: user.id },
       })
       const reply = result.reply || 'Готово.'
       await saveMessage({ userId: user.id, role: 'assistant', content: reply })
