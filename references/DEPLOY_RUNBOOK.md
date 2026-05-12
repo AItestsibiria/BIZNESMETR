@@ -206,6 +206,10 @@ GOOGLE_CALENDAR_ID=primary
 
 DEFAULT_TZ=Europe/Moscow
 LOG_LEVEL=info
+
+# Дашборд (Basic Auth — придумай логин/пароль; именно их браузер спросит при заходе на /).
+DASHBOARD_USER=ceo
+DASHBOARD_PASSWORD=<любой случайный, например: openssl rand -hex 16>
 ```
 
 Сохрани (`Ctrl+O`, `Enter`, `Ctrl+X`) и закрой права:
@@ -290,6 +294,17 @@ curl -X POST "https://api.telegram.org/bot${TG_TOKEN}/setWebhook" \
 ```
 
 Должно вернуть `{"ok":true,"result":true,...}`.
+
+### Бонус: открыть дашборд
+
+В браузере открой:
+```
+https://novo-ai.<TAILNET>.ts.net/
+```
+Браузер спросит логин/пароль (`DASHBOARD_USER` / `DASHBOARD_PASSWORD` из `.env`).
+Внутри — живая сводка: задачи, календарь, GitHub PR'ы, статусы коннекторов
+(MuziAI / Бизнесметр / ЕГРН), память (Second Brain), статистика AI и
+системные чеки. Опрос каждые 5 секунд.
 
 Проверь, что webhook прицепился:
 ```bash

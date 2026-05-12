@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { config } from './config'
 import { logger } from './logger'
+import { recordTurn } from './metrics'
 import { getToolDefinitionsForClaude, runTool, type ToolContext } from './tools'
 
 const anthropic = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY })
@@ -153,6 +154,14 @@ export async function runClaude(params: {
         },
         'Claude turn complete',
       )
+      recordTurn({
+        input: inputTotal,
+        output: outputTotal,
+        cacheRead: cacheReadTotal,
+        cacheCreate: cacheCreateTotal,
+        toolUses: toolUses.length,
+        lastToolName: toolUses[toolUses.length - 1]?.name ?? null,
+      })
       return { reply: text, toolUses }
     }
 

@@ -18,12 +18,26 @@ bot.example.com {
 		reverse_proxy app:3000
 	}
 
-	# Health check — handy for uptime monitors.
+	# Health + readiness checks for uptime monitors.
 	handle /health {
 		reverse_proxy app:3000
 	}
+	handle /ready {
+		reverse_proxy app:3000
+	}
 
-	# Everything else: 404. The bot has no public web UI.
+	# Dashboard (HTTP Basic Auth enforced inside the app).
+	handle /dashboard* {
+		reverse_proxy app:3000
+	}
+	handle /api/dashboard/* {
+		reverse_proxy app:3000
+	}
+	handle / {
+		reverse_proxy app:3000
+	}
+
+	# Everything else: 404.
 	handle {
 		respond 404
 	}

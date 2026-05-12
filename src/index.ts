@@ -1,3 +1,4 @@
+import path from 'node:path'
 import express from 'express'
 import { Channel } from '@prisma/client'
 import { config } from './config'
@@ -8,6 +9,8 @@ import { MaxAdapter } from './messengers/max'
 import { buildIncomingHandler } from './core/router'
 import { startDigestScheduler } from './core/scheduler'
 import { sheetsClient } from './integrations/sheets'
+import { dashboardRouter } from './dashboard/api'
+import { basicAuth } from './dashboard/auth'
 import type { MessengerAdapter } from './messengers/adapter'
 
 function errorMessage(error: unknown): string {
@@ -42,6 +45,15 @@ async function main(): Promise<void> {
     // TODO(muziai/max): mount MAX webhook route here.
     logger.info('MAX adapter registered (webhook route not yet implemented)')
   }
+
+  // Dashboard (UI + API). Mount BEFORE /health so we don't accidentally
+  // serve the JSON 200 status as the dashboard page.
+  app.use('/api/dashboard', dashboardRouter())
+  const publicDir = path.resolve(__dirname, '..', 'public')
+  app.use('/dashboard', basicAuth(), express.static(publicDir))
+  app.get('/', basicAuth(), (_req, res) => {
+    res.sendFile(path.join(publicDir, 'index.html'))
+  })
 
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', uptime: process.uptime() })

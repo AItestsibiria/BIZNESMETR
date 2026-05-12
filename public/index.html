@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Novo AI · live</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --card: #181b22;
+      --border: #262a33;
+      --text: #e7e9ee;
+      --muted: #8b93a4;
+      --green: #4ade80;
+      --red: #f87171;
+      --yellow: #facc15;
+      --accent: #60a5fa;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", Helvetica, Arial, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    header {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      justify-content: space-between;
+    }
+    h1 { margin: 0; font-size: 20px; font-weight: 600; }
+    .status-dot {
+      display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+      background: var(--muted); margin-right: 6px; vertical-align: middle;
+    }
+    .status-dot.ok { background: var(--green); }
+    .status-dot.bad { background: var(--red); }
+    .status-line { color: var(--muted); font-size: 12px; }
+    main { padding: 24px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 18px;
+    }
+    .card h2 {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--muted);
+      margin: 0 0 12px;
+    }
+    .big { font-size: 32px; font-weight: 700; line-height: 1; }
+    .sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
+    ul.items { list-style: none; padding: 0; margin: 12px 0 0; }
+    ul.items li {
+      padding: 8px 0;
+      border-top: 1px solid var(--border);
+      font-size: 13px;
+    }
+    ul.items li:first-child { border-top: none; }
+    .meta { color: var(--muted); font-size: 11px; }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 99px;
+      font-size: 11px;
+      font-weight: 500;
+      background: #2a2f3a;
+      color: var(--text);
+      margin-right: 6px;
+    }
+    .badge.ok { background: rgba(74,222,128,0.15); color: var(--green); }
+    .badge.bad { background: rgba(248,113,113,0.15); color: var(--red); }
+    .badge.warn { background: rgba(250,204,21,0.15); color: var(--yellow); }
+    .row { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .error {
+      color: var(--red);
+      font-size: 12px;
+      background: rgba(248,113,113,0.08);
+      padding: 6px 8px;
+      border-radius: 6px;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+<header>
+  <h1 id="title">Novo AI · live</h1>
+  <div class="status-line">
+    <span id="status-dot" class="status-dot"></span>
+    <span id="status-text">…</span>
+    · <span id="generated-at">—</span>
+  </div>
+</header>
+<main>
+  <div class="grid">
+
+    <section class="card" id="card-tasks">
+      <h2>Задачи</h2>
+      <div class="row">
+        <div><div class="big" id="tasks-open">—</div><div class="sub">открыто</div></div>
+        <div><div class="big" id="tasks-overdue">—</div><div class="sub">просрочено</div></div>
+      </div>
+      <ul class="items" id="tasks-list"></ul>
+    </section>
+
+    <section class="card" id="card-calendar">
+      <h2>Календарь · 24ч</h2>
+      <div class="big" id="cal-count">—</div>
+      <div class="sub">встреч</div>
+      <ul class="items" id="cal-list"></ul>
+    </section>
+
+    <section class="card" id="card-github">
+      <h2>GitHub PRs</h2>
+      <div class="big" id="gh-count">—</div>
+      <div class="sub" id="gh-sub">—</div>
+      <ul class="items" id="gh-list"></ul>
+    </section>
+
+    <section class="card" id="card-projects">
+      <h2>Проекты</h2>
+      <div id="projects-list"></div>
+      <div class="sub" style="margin-top:10px">Серый — коннектор не настроен.</div>
+    </section>
+
+    <section class="card" id="card-facts">
+      <h2>Память (Second Brain)</h2>
+      <div class="big" id="facts-total">—</div>
+      <div class="sub">фактов запомнено</div>
+      <ul class="items" id="facts-list"></ul>
+    </section>
+
+    <section class="card" id="card-ai">
+      <h2>AI usage · since boot</h2>
+      <div class="row">
+        <div><div class="big" id="ai-turns">—</div><div class="sub">turn'ов</div></div>
+        <div><div class="big" id="ai-tools">—</div><div class="sub">tool вызовов</div></div>
+      </div>
+      <ul class="items">
+        <li>Input: <strong id="ai-in">—</strong> tok · Output: <strong id="ai-out">—</strong> tok</li>
+        <li>Cache read: <strong id="ai-cr">—</strong> tok · create: <strong id="ai-cc">—</strong> tok</li>
+        <li>Cache hit ratio: <strong id="ai-ratio">—</strong></li>
+        <li class="meta">last tool: <span id="ai-lasttool">—</span> · last turn: <span id="ai-lastturn">—</span></li>
+      </ul>
+    </section>
+
+    <section class="card" id="card-system">
+      <h2>Система</h2>
+      <ul class="items" id="sys-list"></ul>
+    </section>
+
+  </div>
+</main>
+<script>
+  const POLL_MS = 5000;
+
+  async function fetchSummary() {
+    const r = await fetch('/api/dashboard/summary', { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  }
+
+  function fmtTime(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  }
+  function fmtDate(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  }
+  function fmtNum(n) {
+    return new Intl.NumberFormat('ru-RU').format(n);
+  }
+  function fmtUptime(s) {
+    if (s < 60) return s + 'с';
+    if (s < 3600) return Math.floor(s/60) + 'м';
+    if (s < 86400) return Math.floor(s/3600) + 'ч ' + Math.floor((s%3600)/60) + 'м';
+    return Math.floor(s/86400) + 'д ' + Math.floor((s%86400)/3600) + 'ч';
+  }
+  function setText(id, text) { document.getElementById(id).textContent = text; }
+  function clear(el) { while (el.firstChild) el.removeChild(el.firstChild); }
+  function li(html) {
+    const el = document.createElement('li');
+    el.innerHTML = html;
+    return el;
+  }
+  function esc(s) { return String(s ?? '').replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+  function render(data) {
+    document.getElementById('title').textContent = data.assistantName + ' · live';
+    document.title = data.assistantName + ' · live';
+
+    const dot = document.getElementById('status-dot');
+    const stxt = document.getElementById('status-text');
+    dot.className = 'status-dot ' + (data.system.ready ? 'ok' : 'bad');
+    stxt.textContent = data.system.ready ? 'ready' : 'degraded';
+    setText('generated-at', 'обновлено ' + fmtTime(data.generatedAt));
+
+    // Tasks
+    setText('tasks-open', data.tasks.open);
+    setText('tasks-overdue', data.tasks.overdue);
+    const tasksList = document.getElementById('tasks-list');
+    clear(tasksList);
+    if (data.tasks.error) tasksList.appendChild(li('<span class="error">' + esc(data.tasks.error) + '</span>'));
+    data.tasks.sample.forEach((t) => {
+      const due = t.due ? '<span class="meta">до ' + esc(t.due) + '</span>' : '';
+      const pri = t.priority ? '<span class="badge ' + (t.priority === 'high' ? 'warn' : '') + '">' + esc(t.priority) + '</span>' : '';
+      tasksList.appendChild(li(pri + esc(t.title) + ' ' + due));
+    });
+
+    // Calendar
+    setText('cal-count', data.calendar.today);
+    const calList = document.getElementById('cal-list');
+    clear(calList);
+    if (data.calendar.error) calList.appendChild(li('<span class="error">' + esc(data.calendar.error) + '</span>'));
+    data.calendar.events.forEach((e) => {
+      const where = e.location ? '<span class="meta"> · ' + esc(e.location) + '</span>' : '';
+      calList.appendChild(li('<strong>' + fmtTime(e.start) + '</strong> · ' + esc(e.title) + where));
+    });
+
+    // GitHub
+    setText('gh-count', data.github.openPrs);
+    setText('gh-sub', data.github.configured ? 'открытых PR' : 'GITHUB_TOKEN не задан');
+    const ghList = document.getElementById('gh-list');
+    clear(ghList);
+    if (data.github.error) ghList.appendChild(li('<span class="error">' + esc(data.github.error) + '</span>'));
+    data.github.sample.forEach((p) => {
+      ghList.appendChild(li(
+        '<span class="meta">' + esc(p.repo) + '#' + p.number + '</span> ' +
+        '<a href="' + esc(p.url) + '" target="_blank" rel="noopener">' + esc(p.title) + '</a>'
+      ));
+    });
+
+    // Projects
+    const projList = document.getElementById('projects-list');
+    clear(projList);
+    Object.entries(data.projects).forEach(([key, p]) => {
+      const span = document.createElement('span');
+      span.className = 'badge ' + (p.configured ? 'ok' : '');
+      span.textContent = p.displayName;
+      projList.appendChild(span);
+    });
+
+    // Facts
+    setText('facts-total', fmtNum(data.facts.total));
+    const factsList = document.getElementById('facts-list');
+    clear(factsList);
+    data.facts.recent.forEach((f) => {
+      factsList.appendChild(li(
+        '<div><span class="meta">' + esc(f.key) + '</span></div>' +
+        '<div>' + esc(f.value).slice(0, 200) + '</div>'
+      ));
+    });
+
+    // AI usage
+    setText('ai-turns', fmtNum(data.ai.turns));
+    setText('ai-tools', fmtNum(data.ai.toolUses));
+    setText('ai-in', fmtNum(data.ai.inputTokens));
+    setText('ai-out', fmtNum(data.ai.outputTokens));
+    setText('ai-cr', fmtNum(data.ai.cacheReadTokens));
+    setText('ai-cc', fmtNum(data.ai.cacheCreateTokens));
+    setText('ai-ratio', data.ai.cacheHitRatio === null ? '—' : (data.ai.cacheHitRatio * 100).toFixed(1) + '%');
+    setText('ai-lasttool', data.ai.lastToolName ?? '—');
+    setText('ai-lastturn', data.ai.lastTurnAt ? fmtDate(data.ai.lastTurnAt) : '—');
+
+    // System
+    const sysList = document.getElementById('sys-list');
+    clear(sysList);
+    sysList.appendChild(li('Uptime: <strong>' + fmtUptime(data.system.uptimeSeconds) + '</strong>'));
+    Object.entries(data.system.checks).forEach(([name, c]) => {
+      const cls = c.ok ? 'ok' : 'bad';
+      const tail = c.ok ? 'OK' : esc(c.error || 'down');
+      sysList.appendChild(li('<span class="badge ' + cls + '">' + esc(name) + '</span> ' + tail));
+    });
+  }
+
+  async function tick() {
+    try {
+      const d = await fetchSummary();
+      render(d);
+    } catch (e) {
+      const dot = document.getElementById('status-dot');
+      const stxt = document.getElementById('status-text');
+      dot.className = 'status-dot bad';
+      stxt.textContent = 'нет связи';
+    }
+  }
+
+  tick();
+  setInterval(tick, POLL_MS);
+</script>
+</body>
+</html>

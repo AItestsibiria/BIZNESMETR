@@ -58,6 +58,9 @@ const schema = z.object({
   DIGEST_CRON: z.string().optional(),
   DIGEST_CHAT_IDS: csvStrings,
 
+  DASHBOARD_USER: z.string().optional(),
+  DASHBOARD_PASSWORD: z.string().optional(),
+
   MUZIAI_API_URL: z.string().url().optional(),
   MUZIAI_API_TOKEN: z.string().optional(),
 
