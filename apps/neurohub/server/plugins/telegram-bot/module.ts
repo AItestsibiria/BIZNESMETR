@@ -618,7 +618,7 @@ router.post("/webhook", async (req, res) => {
       const p = personaForSession(sessionId, fromId);
       const hello = existingUserId
         ? `${p.avatar} С возвращением! Я ${p.name}, помогу с песней. Что хотите сделать?`
-        : `${p.avatar} Привет! Я ${p.name} из MuziAi. Помогу подобрать песню под событие — для какого случая думаете?`;
+        : `${p.avatar} Привет! Я ${p.name} из МузиАй. Помогу подобрать песню под событие — для какого случая думаете?`;
       saveMessage(sessionId, "user", text);
       await sendConsultantPhoto(chatId, hello, STARTUP_KEYBOARD);
       saveMessage(sessionId, "bot", hello);
@@ -632,7 +632,7 @@ router.post("/webhook", async (req, res) => {
     const quick = tryQuickReply(text, p0.name);
     if (quick) {
       const cleanQuick = quick.replace(/\s*[—\-–]+\s*(Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*MuziAi)?\s*\.?\s*$/i, "").trimEnd();
-      const footer = `\n\n— ${p0.name} · MuziAi`;
+      const footer = `\n\n— ${p0.name} · МузиАй`;
       const replyWithAvatar = `${p0.avatar} ${cleanQuick}${footer}`;
       await sendConsultantPhoto(chatId, replyWithAvatar);
       saveMessage(sessionId, "bot", replyWithAvatar);
@@ -699,10 +699,10 @@ router.post("/webhook", async (req, res) => {
     }
     const reply = rawReply.replace(/\[SWITCH_PERSONA:[^\]]+\]\s*/gi, "").trim();
     const p = personaForSession(sessionId, fromId);
-    // Eugene 2026-05-11: подпись Имя · MuziAi.
+    // Eugene 2026-05-11: подпись Имя · МузиАй.
     // Eugene 2026-05-12: если LLM сам подписался — не дублируем.
     const cleanReply = reply.replace(/\s*[—\-–]+\s*(Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*MuziAi)?\s*\.?\s*$/i, "").trimEnd();
-    const footer = `\n\n— ${p.name} · MuziAi`;
+    const footer = `\n\n— ${p.name} · МузиАй`;
     const replyWithAvatar = `${p.avatar} ${cleanReply}${footer}`;
     // Eugene 2026-05-11 v2: образ в каждом ответе. file_id-кэш
     // делает повторные sendPhoto мгновенными (без download). Caption

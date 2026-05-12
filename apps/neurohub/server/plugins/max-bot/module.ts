@@ -120,13 +120,13 @@ router.post("/webhook", async (req, res) => {
     if (!chatId || !text) return;
     const p = personaFor(fromId);
     if (text === "/start") {
-      const hello = `${p.avatar} Привет! Я ${p.name} из MuziAi. Помогу подобрать песню под событие — для какого случая думаете?`;
+      const hello = `${p.avatar} Привет! Я ${p.name} из МузиАй. Помогу подобрать песню под событие — для какого случая думаете?`;
       await sendConsultantPhoto(chatId, hello);
       return;
     }
     const reply = await generateReply(fromId, text);
     const cleanReply = reply.replace(/\s*[—\-–]+\s*(Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*MuziAi)?\s*\.?\s*$/i, "").trimEnd();
-    const footer = `\n\n— ${p.name} · MuziAi`;
+    const footer = `\n\n— ${p.name} · МузиАй`;
     const replyWithAvatar = `${p.avatar} ${cleanReply}${footer}`;
     // Образ помощницы + имя в каждом ответе (Eugene 2026-05-11).
     if (replyWithAvatar.length <= 1000) {
