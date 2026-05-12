@@ -442,6 +442,8 @@ try {
     if (!has("fsm_data")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN fsm_data TEXT");
     // Eugene 2026-05-11: user_profile JSON для discovery (name/age/city/occasion).
     if (!has("user_profile")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN user_profile TEXT");
+    // Persona lock — сохраняем имя выбранной персоны при создании сессии.
+    if (!has("persona_name")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN persona_name TEXT");
     // Long-term memo + visit counter — прогрессия коммуникации при возврате.
     if (!has("long_term_memo")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN long_term_memo TEXT");
     if (!has("visit_count")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN visit_count INTEGER NOT NULL DEFAULT 1");

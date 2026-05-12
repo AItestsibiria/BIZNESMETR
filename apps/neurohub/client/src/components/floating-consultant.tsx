@@ -28,11 +28,29 @@ function trackEngagement(
   } catch {}
 }
 
+// Reactions при клике (Eugene 2026-05-12): игровой деловой стиль,
+// разные фразы каждый раз. Циклично прокручиваются по нажатиям.
+const CLICK_REACTIONS = [
+  "Я тут, к делу 🎵",
+  "Слушаю внимательно",
+  "Чем помочь?",
+  "Есть идея для трека?",
+  "Готова обсудить",
+  "Привет! О чём поговорим?",
+  "Что у нас сегодня?",
+  "Какой повод думаете?",
+  "Я в проекте, спрашивайте",
+  "Подберу под событие",
+];
+
 export function FloatingConsultant() {
   const [visible, setVisible] = useState(false);
   const [exiting, setExiting] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [reaction, setReaction] = useState<string | null>(null);
+  const reactionIdxRef = useRef(0);
+  const reactionTimerRef = useRef<number | null>(null);
   const dismissedRef = useRef(0);
   const timerRef = useRef<number | null>(null);
 
@@ -75,9 +93,16 @@ export function FloatingConsultant() {
     >
       <div className="relative">
         {/* Compact tooltip */}
-        {hovered && !expanded && (
+        {hovered && !expanded && !reaction && (
           <div className="absolute bottom-full right-0 mb-1.5 px-2.5 py-1 rounded-full bg-white/[0.07] backdrop-blur-md border border-white/15 text-[10px] text-white/85 whitespace-nowrap animate-in fade-in slide-in-from-bottom-1 duration-150">
             Чем помочь? 🎵
+          </div>
+        )}
+
+        {/* Click reaction bubble — игровая деловая фраза при нажатии */}
+        {reaction && (
+          <div className="absolute bottom-full right-0 mb-1.5 px-3 py-1.5 rounded-2xl bg-gradient-to-br from-purple-500/30 to-blue-500/20 backdrop-blur-md border border-purple-400/40 text-[11px] text-white font-medium whitespace-nowrap animate-in fade-in slide-in-from-bottom-2 duration-200 shadow-lg shadow-purple-500/20">
+            {reaction}
           </div>
         )}
 
@@ -132,7 +157,16 @@ export function FloatingConsultant() {
             Pastel MuziAi gradient. */}
         <button
           type="button"
-          onClick={() => setExpanded(e => { const next = !e; if (next) trackEngagement("consultant_open"); return next; })}
+          onClick={() => {
+            // Eugene 2026-05-12: показываем reaction-bubble + открываем меню.
+            // Каждое нажатие — новая фраза из массива (циклично).
+            const phrase = CLICK_REACTIONS[reactionIdxRef.current % CLICK_REACTIONS.length];
+            reactionIdxRef.current += 1;
+            setReaction(phrase);
+            if (reactionTimerRef.current) window.clearTimeout(reactionTimerRef.current);
+            reactionTimerRef.current = window.setTimeout(() => setReaction(null), 2500);
+            setExpanded(e => { const next = !e; if (next) trackEngagement("consultant_open"); return next; });
+          }}
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
           aria-label="Помощник"

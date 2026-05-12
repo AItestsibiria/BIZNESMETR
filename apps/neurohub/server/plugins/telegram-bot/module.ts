@@ -25,7 +25,7 @@ import { db } from "../../storage";
 import { chatbotSessions, chatbotMessages, users } from "@shared/schema";
 import type { BootContext, Module } from "../../core";
 import { confirmNonce as confirmTgLoginNonce, hasValidNonce as hasTgLoginNonce } from "../../lib/tgLoginNonces";
-import { personaFor, loadKB, buildPersonaSystem, kbPath } from "../../lib/consultantPersona";
+import { personaFor, PERSONAS, loadKB, buildPersonaSystem, kbPath } from "../../lib/consultantPersona";
 
 const TELEGRAM_API = "https://api.telegram.org";
 const TOKEN = () => process.env.TELEGRAM_BOT_TOKEN || "";
@@ -461,17 +461,34 @@ function findOrCreateSession(tgChatId: string, tgUserId: string): { sessionId: s
     if (u) linkedUserId = u.id;
   } catch {}
   try {
+    // Eugene 2026-05-12: lock persona при создании сессии — один помощник
+    // ведёт юзера до конца, не меняется при возврате через дни.
+    const lockedPersona = personaFor(tgUserId).name;
     db.insert(chatbotSessions).values({
       id: sessionId,
       channel: "telegram",
       externalId: tgChatId,
       userId: linkedUserId,
       state: "active",
+      personaName: lockedPersona,
       startedAt: new Date().toISOString(),
       lastMessageAt: new Date().toISOString(),
     }).run();
   } catch {}
   return { sessionId, existingUserId: linkedUserId };
+}
+
+// Eugene 2026-05-12: загружает persona по locked-имени в сессии. Fallback —
+// hash от userKey (для старых сессий без persona_name).
+function personaForSession(sessionId: string, fallbackKey: string) {
+  try {
+    const row = db.select().from(chatbotSessions).where(eq(chatbotSessions.id, sessionId)).get() as any;
+    if (row?.personaName) {
+      const locked = PERSONAS.find(p => p.name === row.personaName);
+      if (locked) return locked;
+    }
+  } catch {}
+  return personaFor(fallbackKey);
 }
 
 function saveMessage(sessionId: string, role: "user" | "bot", text: string): void {
@@ -502,14 +519,14 @@ router.post("/webhook", async (req, res) => {
       const data = String(cq.data || "");
       try { await tgApi("answerCallbackQuery", { callback_query_id: cq.id }); } catch {}
       if (!chatId) return;
-      const p = personaFor(fromId);
+      const { sessionId } = findOrCreateSession(chatId, fromId);
+      const p = personaForSession(sessionId, fromId);
       const responses: Record<string, string> = {
         menu_support: `Расскажите подробнее — что случилось, на каком этапе? Если есть номер трека или скриншот — присылайте, разберёмся.`,
         menu_event: `Здорово! А под какое событие — свадьба, день рождения, юбилей, корпоратив? И какой у вас есть текст или идея?\n\nЕсть готовые шаблоны: https://muziai.ru/#/templates`,
         menu_b2b: `Сотрудничество — это интересно. Расскажите, какой формат: подкаст, реклама, B2B-лицензия треков, что-то ещё? Мы откликнемся в течение дня.`,
       };
       const reply = responses[data] || `Открыть на сайте: https://muziai.ru/`;
-      const { sessionId } = findOrCreateSession(chatId, fromId);
       saveMessage(sessionId, "user", `[кнопка] ${data}`);
       const fullReply = `${reply}\n\n— ${p.name}`;
       await sendMessage(chatId, fullReply);
@@ -540,7 +557,7 @@ router.post("/webhook", async (req, res) => {
     if (loginMatch) {
       const nonce = loginMatch[1];
       saveMessage(sessionId, "user", `[auth ${nonce.slice(0, 8)}…]`);
-      const p = personaFor(fromId);
+      const p = personaForSession(sessionId, fromId);
       const valid = hasTgLoginNonce(nonce);
       if (!valid) {
         const failText = `${p.avatar} Ссылка устарела или уже использована. Открой страницу входа на сайте заново и нажми кнопку.`;
@@ -578,7 +595,7 @@ router.post("/webhook", async (req, res) => {
     // sendPhoto с avatar URL → caption с текстом → Telegram кэширует
     // картинку, повторные /start от того же юзера показываются мгновенно.
     if (text === "/start" || text === "/start@muziaipodari_bot") {
-      const p = personaFor(fromId);
+      const p = personaForSession(sessionId, fromId);
       const hello = existingUserId
         ? `${p.avatar} С возвращением! Я ${p.name}, помогу с песней. Что хотите сделать?`
         : `${p.avatar} Привет! Я ${p.name} из MuziAi. Помогу подобрать песню под событие — для какого случая думаете?`;
@@ -591,10 +608,10 @@ router.post("/webhook", async (req, res) => {
     saveMessage(sessionId, "user", text);
     // Eugene 2026-05-11: quick-reply для коротких типичных фраз — без
     // Claude, мгновенный ответ. Экономит 1-2 секунды на «Привет/Спасибо/Ок».
-    const p0 = personaFor(fromId);
+    const p0 = personaForSession(sessionId, fromId);
     const quick = tryQuickReply(text, p0.name);
     if (quick) {
-      const cleanQuick = quick.replace(/\s*[—\-–]+\s*(Аня|Татьяна|Мария|Ольга)(\s*·\s*MuziAi)?\s*\.?\s*$/i, "").trimEnd();
+      const cleanQuick = quick.replace(/\s*[—\-–]+\s*(Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий)(\s*·\s*MuziAi)?\s*\.?\s*$/i, "").trimEnd();
       const footer = `\n\n— ${p0.name} · MuziAi`;
       const replyWithAvatar = `${p0.avatar} ${cleanQuick}${footer}`;
       await sendConsultantPhoto(chatId, replyWithAvatar);
@@ -643,13 +660,21 @@ router.post("/webhook", async (req, res) => {
       ? `\n\n[ПРОФИЛЬ ЮЗЕРА (уже узнала): ${JSON.stringify(profile)}. Используй эту инфу, не переспрашивай. Если каких-то полей нет — мягко выясни в ходе разговора.]`
       : "";
     const learningsHint = loadLatestLearnings();
-    const reply = await generateReply(fromId, text, history, memoryHint + ltmHint + ownerHint + profileHint + learningsHint);
-    const p = personaFor(fromId);
-    // Eugene 2026-05-11: имя менеджера + MuziAi в каждом сообщении.
-    // Eugene 2026-05-12: если LLM уже подписался — не дублируем
-    // (regexp ловит «— Аня» / «-- Татьяна» / «— Мария · MuziAi» и т.д.
-    // в конце reply'я). Убираем подпись LLM, оставляем нашу.
-    const cleanReply = reply.replace(/\s*[—\-–]+\s*(Аня|Татьяна|Мария|Ольга)(\s*·\s*MuziAi)?\s*\.?\s*$/i, "").trimEnd();
+    const rawReply = await generateReply(fromId, text, history, memoryHint + ltmHint + ownerHint + profileHint + learningsHint);
+    // Eugene 2026-05-12: маркер смены помощника. LLM может вставить
+    // [SWITCH_PERSONA:Имя] — код применит смену в БД и уберёт маркер.
+    const switchMatch = rawReply.match(/\[SWITCH_PERSONA:(Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий)\]/i);
+    if (switchMatch) {
+      try {
+        db.update(chatbotSessions).set({ personaName: switchMatch[1] }).where(eq(chatbotSessions.id, sessionId)).run();
+        bootRefs?.logger.info?.("[telegram-bot] persona switched", { sessionId: sessionId.slice(0, 8), to: switchMatch[1] });
+      } catch {}
+    }
+    const reply = rawReply.replace(/\[SWITCH_PERSONA:[^\]]+\]\s*/gi, "").trim();
+    const p = personaForSession(sessionId, fromId);
+    // Eugene 2026-05-11: подпись Имя · MuziAi.
+    // Eugene 2026-05-12: если LLM сам подписался — не дублируем.
+    const cleanReply = reply.replace(/\s*[—\-–]+\s*(Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий)(\s*·\s*MuziAi)?\s*\.?\s*$/i, "").trimEnd();
     const footer = `\n\n— ${p.name} · MuziAi`;
     const replyWithAvatar = `${p.avatar} ${cleanReply}${footer}`;
     // Eugene 2026-05-11 v2: образ в каждом ответе. file_id-кэш
