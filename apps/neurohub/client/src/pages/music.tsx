@@ -312,7 +312,9 @@ export default function MusicPage() {
       return regeneratePayload.lyrics && regeneratePayload.lyrics.length >= 50 ? "advanced" : "basic";
     }
     try {
-      const tabFromUrl = new URLSearchParams(window.location.hash.split("?")[1] || "").get("tab");
+      // Eugene 2026-05-11: ?tab= и ?mode= оба валидны (бот шлёт ?mode=).
+      const _p = new URLSearchParams(window.location.hash.split("?")[1] || "");
+      const tabFromUrl = _p.get("tab") || _p.get("mode");
       if (tabFromUrl === "basic" || tabFromUrl === "audio" || tabFromUrl === "advanced") return tabFromUrl;
       const saved = localStorage.getItem("music_mode");
       if (saved === "basic" || saved === "audio" || saved === "advanced") return saved;
@@ -370,17 +372,21 @@ export default function MusicPage() {
   const modeTabsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     try {
-      const hasTabParam = new URLSearchParams(window.location.hash.split("?")[1] || "").has("tab");
+      const params = new URLSearchParams(window.location.hash.split("?")[1] || "");
+      const hasTabParam = params.has("tab") || params.has("mode") || params.has("prompt") || params.has("lyrics");
       if (!hasTabParam) return;
       const t = setTimeout(() => {
+        // Eugene 2026-05-11: при заходе по pre-filled URL — скроллим в самый
+        // верх формы чтобы юзер видел все блоки сверху вниз.
         modeTabsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       }, 250);
       return () => clearTimeout(t);
     } catch {}
   }, []);
   // Внутри Расширенного — старая Simple/Lyrics подвкладка (была prev top-mode).
+  // Eugene 2026-05-11: если URL содержит lyrics — авто-выбираем «Свой текст».
   const [legacyMode, setLegacyMode] = useState<"simple" | "advanced">(
-    regeneratePayload?.mode === "advanced" ? "advanced" : "simple",
+    regeneratePayload?.mode === "advanced" || (transferred?.lyrics && String(transferred.lyrics).length >= 50) ? "advanced" : "simple",
   );
   const [prompt, setPrompt] = useState(regeneratePayload?.prompt || transferred?.prompt || "");
   const [style, setStyle] = useState(regeneratePayload?.style || transferred?.style || "pop");
@@ -405,7 +411,10 @@ export default function MusicPage() {
   const [resultUrl, setResultUrl] = useState<string | null>(null);
   const [showInlineAuth, setShowInlineAuth] = useState(false);
   const [usedStyles, setUsedStyles] = useState<string[]>(transferred?.style ? [transferred.style] : []);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  // Eugene 2026-05-11: при заходе по pre-filled URL — все блоки сверху вниз
+  // развёрнуты, чтобы клиент сразу видел все параметры.
+  const _prefilled = !!(transferred?.prompt || transferred?.lyrics || transferred?.style || transferred?.voiceType);
+  const [showAdvanced, setShowAdvanced] = useState(_prefilled);
   // Parse fullStyle transfer: "Рок · энергичное · 170 BPM"
   const parsedTransfer = useMemo(() => {
     if (!transferred?.fullStyle) return { mood: '', tempo: '', bpm: '' };
@@ -1738,31 +1747,53 @@ export default function MusicPage() {
             </>
           )}
 
-          {/* Настроение — видно всегда в расширенном */}
-          {legacyMode === "advanced" && (
+          {/* Настроение + Темп — видно всегда в Текст·Расширенный (Eugene 2026-05-11
+              «текст также расширенно как audio»). Раньше Mood гейтился
+              legacyMode === "advanced", теперь доступен и в «По описанию». */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label className="text-sm text-muted-foreground">Настроение</Label>
-              <div className="flex flex-wrap gap-2">
-                {["Весёлое", "Грустное", "Энергичное", "Романтичное", "Агрессивное", "Спокойное", "Эпичное", "Меланхоличное"].map(m => (
+              <div className="flex flex-wrap gap-1.5">
+                {moods.filter(m => m.value !== "").map(m => (
                   <button
-                    key={m}
+                    key={m.value}
                     type="button"
                     className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-                      mood === m
-                        ? "border-purple-500 bg-purple-500/20 text-purple-300"
+                      mood === m.value
+                        ? "border-pink-500 bg-pink-500/20 text-pink-300"
                         : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20"
                     }`}
-                    onClick={() => setMood(mood === m ? "" : m)}
+                    onClick={() => setMood(mood === m.value ? "" : m.value)}
                   >
-                    {m}
+                    {m.label}
                   </button>
                 ))}
               </div>
             </div>
-          )}
+            <div className="space-y-2">
+              <Label className="text-sm text-muted-foreground">Темп</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {tempos.filter(t => t.value !== "").map(t => (
+                  <button
+                    key={t.value}
+                    type="button"
+                    className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                      tempo === t.value
+                        ? "border-blue-500 bg-blue-500/20 text-blue-300"
+                        : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20"
+                    }`}
+                    onClick={() => setTempo(tempo === t.value ? "" : t.value)}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
 
-          {/* Для опытных авторов — только в расширенном */}
-          {legacyMode === "advanced" && (
+          {/* Для опытных авторов — теперь доступно в обоих sub-tabs Текст·Расширенный.
+              Eugene 2026-05-11: «текст расширенно как audio» — BPM + расширенный
+              стиль (английский prompt) видны и в «По описанию» и в «Свой текст». */}
           <div className="border border-white/[0.06] rounded-xl overflow-hidden">
             <button
               type="button"
@@ -1825,7 +1856,6 @@ export default function MusicPage() {
               </div>
             )}
           </div>
-          )}
 
           {/* === КОНЕЦ Расширенного режима. Кнопка Generate — общая для всех 3 mode'ов === */}
             </>
