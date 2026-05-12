@@ -155,7 +155,7 @@ export function FloatingConsultant() {
             <div className="border-t border-white/[0.04] my-1 pt-1">
               <div className="text-[10px] text-white/60 px-1 mb-1">📤 Порекомендовать</div>
               <a
-                href={`https://t.me/share/url?url=${encodeURIComponent("https://t.me/Muziaipodari_bot")}&text=${encodeURIComponent("Привет! Порекомендую друга MuziAi — крутой в подборе песен под событие. Попробуй: https://t.me/Muziaipodari_bot")}`}
+                href={`https://t.me/share/url?url=${encodeURIComponent("https://t.me/Muziaipodari_bot")}&text=${encodeURIComponent("Привет! Порекомендую Музу — крутая в подборе песен под событие. Попробуй: https://t.me/Muziaipodari_bot")}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => trackEngagement("consultant_action", { action: "share_telegram" })}
@@ -164,7 +164,7 @@ export function FloatingConsultant() {
                 <span>📱</span> Telegram
               </a>
               <a
-                href={`https://api.whatsapp.com/send?text=${encodeURIComponent("Привет! Порекомендую друга MuziAi — крутой в подборе песен под событие. Попробуй: https://t.me/Muziaipodari_bot")}`}
+                href={`https://api.whatsapp.com/send?text=${encodeURIComponent("Привет! Порекомендую Музу — крутая в подборе песен под событие. Попробуй: https://t.me/Muziaipodari_bot")}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => trackEngagement("consultant_action", { action: "share_whatsapp" })}
@@ -173,7 +173,7 @@ export function FloatingConsultant() {
                 <span>💚</span> WhatsApp
               </a>
               <a
-                href={`https://vk.com/share.php?url=${encodeURIComponent("https://muziai.ru/")}&title=${encodeURIComponent("Друг MuziAi — крутой в подборе песен под событие")}`}
+                href={`https://vk.com/share.php?url=${encodeURIComponent("https://muziai.ru/")}&title=${encodeURIComponent("Муза — друг MuziAi, крутой в подборе песен под событие")}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={() => trackEngagement("consultant_action", { action: "share_vk" })}
@@ -185,7 +185,7 @@ export function FloatingConsultant() {
                 type="button"
                 onClick={() => {
                   trackEngagement("consultant_action", { action: "share_copy" });
-                  navigator.clipboard.writeText("Привет! Порекомендую друга MuziAi — крутой в подборе песен под событие. Попробуй: https://t.me/Muziaipodari_bot").catch(() => {});
+                  navigator.clipboard.writeText("Привет! Порекомендую Музу — крутая в подборе песен под событие. Попробуй: https://t.me/Muziaipodari_bot").catch(() => {});
                 }}
                 className="w-full flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-white/[0.06] transition-colors text-[11px] text-white/80 text-left"
               >
@@ -219,12 +219,12 @@ export function FloatingConsultant() {
           }}
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
-          aria-label="Друг MuziAi"
+          aria-label="Муза"
           className="block w-16 h-24 sm:w-20 sm:h-32 active:scale-95 transition-transform opacity-90 hover:opacity-100 consultant-dance"
         >
           <img
             src="/consultant-avatar.svg"
-            alt="Друг MuziAi"
+            alt="Муза"
             className="w-full h-full object-contain"
             draggable={false}
           />
