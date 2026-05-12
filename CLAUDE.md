@@ -208,6 +208,15 @@ ssh root@72.56.1.149 'sed -i "/^ИМЯ_КЛЮЧА=/d" /var/www/neurohub/.env \
 
 После update KB на проде: `https://muziai.ru/api/telegram/kb/reload?secret=<CRON_SECRET>` (без рестарта pm2).
 
+### Consultant-size-per-channel rule (Eugene 2026-05-12)
+
+**Для сайта и для чатов — РАЗНЫЕ размеры образа помощницы.**
+
+- **Сайт** (`floating-consultant.tsx`): большой image-badge (`w-16 h-24 sm:w-20 sm:h-32` = 64×96 / 80×128). Заметный, кликабельный, основной CTA.
+- **Чаты** (Telegram / Max через `consultant-avatar.png`): компактный 256×256 PNG. Не загромождает диалог, оставляет фокус на тексте.
+
+Файл `consultant-avatar.svg` (transparent) — общий source-of-truth образа. PNG для ботов генерируется через sharp resize до 256×256.
+
 ### Bot-webhook-dedup rule (Eugene 2026-05-12)
 
 **Любой плагин-бот (telegram-bot, max-bot, future channels) ОБЯЗАН делать dedup входящих updates по `update_id` / `message_id`** — иначе при retry от мессенджера юзер получит одно и то же сообщение дважды.
