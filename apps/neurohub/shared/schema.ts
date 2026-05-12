@@ -283,6 +283,14 @@ export const chatbotSessions = sqliteTable("chatbot_sessions", {
   // Обновляется async после каждых 3 сообщений. Передаётся в system prompt
   // → бот не переспрашивает и ведёт диалог глубже.
   userProfile: text("user_profile"),
+  // Long-term memo (Eugene 2026-05-11): сжатая summary предыдущих сессий
+  // (если юзер вернулся через 24h+). LLM сжимает старые сообщения в 1-2
+  // фразы — даёт бо́льший контекст без раздувания history.
+  longTermMemo: text("long_term_memo"),
+  // Счётчик возвращений (Eugene 2026-05-11): сколько раз юзер
+  // возобновлял диалог после >24h тишины. Влияет на тон («давно не
+  // виделись» / «как договаривались, перейдём к шаблону»).
+  visitCount: integer("visit_count").notNull().default(1),
   startedAt: text("started_at").default(sql`CURRENT_TIMESTAMP`),
   lastMessageAt: text("last_message_at").default(sql`CURRENT_TIMESTAMP`),
 });
@@ -360,6 +368,24 @@ export const audioUploads = sqliteTable("audio_uploads", {
   lastUsedAt: text("last_used_at"),
 });
 export type AudioUpload = typeof audioUploads.$inferSelect;
+
+// Bot learnings (Eugene 2026-05-11): самообучение. Раз в 24h LLM
+// анализирует диалоги последних 7 дней — что в успешных работает,
+// что в неуспешных нет. Insights подмешиваются в system prompt бота
+// → бот сам корректирует поведение.
+export const botLearnings = sqliteTable("bot_learnings", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  scope: text("scope").notNull().default("daily"), // 'daily' | 'weekly' | 'on-demand'
+  sampleSize: integer("sample_size").notNull().default(0),
+  successCount: integer("success_count").notNull().default(0),
+  failCount: integer("fail_count").notNull().default(0),
+  whatWorked: text("what_worked"),                  // короткий текст что работало
+  whatFailed: text("what_failed"),                  // что не работало
+  recommendations: text("recommendations"),         // конкретные рекомендации боту
+  applied: integer("applied").notNull().default(1), // 1 = подмешивается в prompt; 0 = отключено админом
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+export type BotLearning = typeof botLearnings.$inferSelect;
 
 // Song drafts (Eugene 2026-05-11): юзер сохраняет идеи/тексты будущих
 // песен в личный кабинет — редактирует позже, нажимает «Сгенерировать»

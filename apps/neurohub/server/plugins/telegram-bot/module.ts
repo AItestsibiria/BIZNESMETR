@@ -19,7 +19,7 @@
 // автоматизация ответов, человек думает что общается с девушкой 25-30».
 
 import { Router } from "express";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { db } from "../../storage";
 import { chatbotSessions, chatbotMessages, users } from "@shared/schema";
@@ -242,6 +242,157 @@ function loadUserProfile(sessionId: string): any {
   } catch { return null; }
 }
 
+// === Long-term memory (Eugene 2026-05-11) ===
+// При возврате после 24h+ — LLM сжимает старые сообщения в 1-2 фразы
+// memo. Подмешивается в prompt вместо передачи всей старой истории.
+async function maybeUpdateLongTermMemo(sessionId: string, hoursSinceLast: number): Promise<void> {
+  if (hoursSinceLast < 24) return;
+  const key = ANTHROPIC_KEY();
+  if (!key) return;
+  try {
+    const oldMessages = (db.select().from(chatbotMessages).where(eq(chatbotMessages.sessionId, sessionId)).all() as any[]).slice(0, -8);
+    if (oldMessages.length < 5) return;
+    const transcript = oldMessages.map(m => `${m.role}: ${String(m.text || "").slice(0, 250)}`).join("\n");
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 250,
+        system: "Сожми диалог в 2-3 коротких фразы: что обсуждали, к чему пришли, что осталось доделать. Только факты. Не вступление.",
+        messages: [{ role: "user", content: transcript }],
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!r.ok) return;
+    const j: any = await r.json();
+    const memo = j?.content?.[0]?.text?.slice(0, 800);
+    if (memo) {
+      db.update(chatbotSessions).set({ longTermMemo: memo }).where(eq(chatbotSessions.id, sessionId)).run();
+    }
+  } catch {}
+}
+
+function loadLongTermMemo(sessionId: string): string | null {
+  try {
+    const row = db.select().from(chatbotSessions).where(eq(chatbotSessions.id, sessionId)).get() as any;
+    return row?.longTermMemo || null;
+  } catch { return null; }
+}
+
+// === Self-learning (Eugene 2026-05-11) ===
+// Раз в 24h: LLM анализирует диалоги последних 7 дней. Классифицирует
+// успешные (юзер дошёл до конверсии) vs неуспешные. Извлекает паттерны.
+// Сохраняет в bot_learnings — последние 3 active автоматически
+// подмешиваются в system prompt → бот сам учится на ошибках.
+async function analyzeDialoguesForLearning(): Promise<void> {
+  const key = ANTHROPIC_KEY();
+  if (!key) return;
+  try {
+    // 1. Выбираем сессии последних 7 дней с минимум 4 сообщениями.
+    const sessions = db.all<any>(sql`
+      SELECT cs.id, cs.user_profile, cs.user_id,
+        (SELECT COUNT(*) FROM chatbot_messages WHERE session_id = cs.id) as msg_count
+      FROM chatbot_sessions cs
+      WHERE cs.last_message_at >= datetime('now', '-7 days')
+      AND (SELECT COUNT(*) FROM chatbot_messages WHERE session_id = cs.id) >= 4
+      ORDER BY cs.last_message_at DESC
+      LIMIT 40
+    `) as any[];
+    if (sessions.length < 4) {
+      bootRefs?.logger.info?.("[bot-learning] not enough data", { sessions: sessions.length });
+      return;
+    }
+    // 2. Достаём сообщения + классифицируем конверсию.
+    // Прокси конверсии: связан с user_id (=> зарегистрирован) ИЛИ
+    // в engagement_events есть music_link_open / register / generate
+    // за этот период от same telegram user.
+    const dialogues: Array<{ id: string; converted: boolean; transcript: string }> = [];
+    for (const s of sessions.slice(0, 30)) {
+      const msgs = db.all<any>(sql`
+        SELECT role, text FROM chatbot_messages
+        WHERE session_id = ${s.id}
+        ORDER BY created_at LIMIT 30
+      `) as any[];
+      const transcript = msgs.map((m: any) => `${m.role}: ${String(m.text || "").slice(0, 180)}`).join("\n");
+      // Прокси: linked user_id ИЛИ профиль содержит явный intent
+      const converted = !!s.user_id;
+      dialogues.push({ id: s.id, converted, transcript });
+    }
+    const conv = dialogues.filter(d => d.converted).slice(0, 8);
+    const failed = dialogues.filter(d => !d.converted).slice(0, 10);
+    const successCount = conv.length;
+    const failCount = failed.length;
+    if (successCount + failCount < 5) return;
+
+    // 3. Single Claude call — анализ + JSON.
+    const sample = (arr: Array<{ transcript: string }>, label: string) =>
+      arr.length === 0 ? `[нет данных]` : arr.map((d, i) => `--- ${label} #${i + 1} ---\n${d.transcript.slice(0, 1200)}`).join("\n\n");
+
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 800,
+        system: `Ты — аналитик помощника MuziAi. Сравни УСПЕШНЫЕ и НЕУСПЕШНЫЕ диалоги. Найди паттерны.
+
+УСПЕШНЫЕ = юзер зарегистрировался / сохранил текст / пошёл генерировать.
+НЕУСПЕШНЫЕ = юзер ушёл, не сделал действие.
+
+Верни строго JSON без markdown:
+{
+  "what_worked": "1-2 коротких фразы: что в успешных работало",
+  "what_failed": "1-2 фразы: что в неуспешных пошло не так",
+  "recommendations": "1-3 коротких рекомендации боту, конкретно и применимо в чате"
+}`,
+        messages: [{ role: "user", content: `=== УСПЕШНЫЕ (${successCount}) ===\n${sample(conv, "OK")}\n\n=== НЕУСПЕШНЫЕ (${failCount}) ===\n${sample(failed, "FAIL")}` }],
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!r.ok) {
+      bootRefs?.logger.warn?.("[bot-learning] claude non-ok", { status: r.status });
+      return;
+    }
+    const j: any = await r.json();
+    const raw = j?.content?.[0]?.text || "";
+    const jsonStr = raw.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "").trim();
+    let parsed: any;
+    try { parsed = JSON.parse(jsonStr); } catch { return; }
+    if (!parsed?.recommendations) return;
+
+    db.run(sql`
+      INSERT INTO bot_learnings (scope, sample_size, success_count, fail_count, what_worked, what_failed, recommendations, applied)
+      VALUES ('daily', ${successCount + failCount}, ${successCount}, ${failCount},
+        ${String(parsed.what_worked || "").slice(0, 600)},
+        ${String(parsed.what_failed || "").slice(0, 600)},
+        ${String(parsed.recommendations || "").slice(0, 800)},
+        1)
+    `);
+    bootRefs?.logger.info?.("[bot-learning] insight saved", {
+      sample: successCount + failCount,
+      success: successCount,
+      recommendations: String(parsed.recommendations || "").slice(0, 150),
+    });
+  } catch (e) {
+    bootRefs?.logger.error?.("[bot-learning] error", { error: String(e) });
+  }
+}
+
+function loadLatestLearnings(): string {
+  try {
+    const rows = db.all<any>(sql`
+      SELECT what_worked, recommendations FROM bot_learnings
+      WHERE applied = 1
+      ORDER BY created_at DESC
+      LIMIT 3
+    `) as any[];
+    if (!rows.length) return "";
+    return "\n\n═══ САМООБУЧЕНИЕ (что работает в успешных диалогах) ═══\n" +
+      rows.map((r: any, i: number) => `[Инсайт ${i + 1}] ${r.what_worked || ""}\n   → ${r.recommendations || ""}`).join("\n");
+  } catch { return ""; }
+}
+
 // === Session helpers ===
 function loadHistory(sessionId: string): Array<{ role: "user" | "assistant"; content: string }> {
   try {
@@ -400,24 +551,31 @@ router.post("/webhook", async (req, res) => {
     // Eugene 2026-05-11: typing-индикатор сразу — юзер видит что бот думает.
     try { tgApi("sendChatAction", { chat_id: chatId, action: "typing" }); } catch {}
     const history = loadHistory(sessionId);
-    // Eugene 2026-05-11: память между сессиями. Если предыдущий msg был
-    // давно (> 24h) — помечаем в prompt'е чтобы бот поздоровался как со
-    // знакомым, не начинал discovery с нуля. Last seen из последнего
-    // bot-сообщения в истории.
+    // Eugene 2026-05-11: память между сессиями + прогрессия visits.
+    // Если предыдущий msg был давно (> 24h) — increment visitCount,
+    // сжимаем старую историю в longTermMemo (async).
     let memoryHint = "";
+    let visitCount = 1;
     try {
+      const sessionRow = db.select().from(chatbotSessions).where(eq(chatbotSessions.id, sessionId)).get() as any;
+      visitCount = Number(sessionRow?.visitCount) || 1;
       const lastBotMsg = history.slice().reverse().find(m => m.role === "assistant");
-      if (lastBotMsg) {
-        const sessionRow = db.select().from(chatbotSessions).where(eq(chatbotSessions.id, sessionId)).get() as any;
-        const lastAt = sessionRow?.lastMessageAt ? new Date(sessionRow.lastMessageAt).getTime() : 0;
+      if (lastBotMsg && sessionRow?.lastMessageAt) {
+        const lastAt = new Date(sessionRow.lastMessageAt).getTime();
         const hoursAgo = (Date.now() - lastAt) / 3600_000;
         if (hoursAgo > 24) {
-          memoryHint = `\n\n[ПАМЯТЬ: юзер общался с тобой ${Math.floor(hoursAgo / 24)} дн. назад. История последних сообщений ниже. Поздоровайся как со знакомым, не начинай discovery с нуля. Если знаешь имя из истории — обратись по имени.]`;
+          visitCount += 1;
+          db.update(chatbotSessions).set({ visitCount }).where(eq(chatbotSessions.id, sessionId)).run();
+          maybeUpdateLongTermMemo(sessionId, hoursAgo).catch(() => {});
+          memoryHint = `\n\n[ПАМЯТЬ: это ${visitCount}-я встреча с юзером (предыдущая ${Math.floor(hoursAgo / 24)} дн. назад). Поздоровайся как со знакомым, без discovery с нуля. Если знаешь имя — обращайся по имени. Прогрессируй: 2-я встреча = глубже, 3-я+ = персональные предложения шаблонов / акций.]`;
         } else {
           memoryHint = "\n\n[ПАМЯТЬ: продолжается прежний разговор. Не приветствуй заново.]";
         }
       }
     } catch {}
+    // Long-term memo (если сохранён от прошлой долгой сессии).
+    const ltm = loadLongTermMemo(sessionId);
+    const ltmHint = ltm ? `\n\n[ВОСПОМИНАНИЕ О ПРОШЛЫХ РАЗГОВОРАХ: ${ltm}]` : "";
     // Eugene 2026-05-11: «Ярс — это я». Если в сообщении упоминается Ярс —
     // это сам Eugene (основатель MuziAi). Подмешиваем admin-context.
     const isOwner = /\bярс\b/i.test(text);
@@ -431,7 +589,8 @@ router.post("/webhook", async (req, res) => {
     const profileHint = profile && Object.values(profile).some(v => v !== null && v !== "")
       ? `\n\n[ПРОФИЛЬ ЮЗЕРА (уже узнала): ${JSON.stringify(profile)}. Используй эту инфу, не переспрашивай. Если каких-то полей нет — мягко выясни в ходе разговора.]`
       : "";
-    const reply = await generateReply(fromId, text, history, memoryHint + ownerHint + profileHint);
+    const learningsHint = loadLatestLearnings();
+    const reply = await generateReply(fromId, text, history, memoryHint + ltmHint + ownerHint + profileHint + learningsHint);
     const p = personaFor(fromId);
     // Eugene 2026-05-11: имя менеджера + MuziAi в каждом сообщении.
     const footer = `\n\n— ${p.name} · MuziAi`;
@@ -539,6 +698,15 @@ const telegramBotModule: Module = {
       } catch (e) {
         ctx.logger.warn?.("[telegram-bot] webhook auto-setup failed", { error: String(e) });
       }
+    }
+    // Self-learning scheduler (Eugene 2026-05-11): раз в 24h LLM
+    // анализирует диалоги последних 7 дней — что работало, что нет.
+    // Inсайты сохраняются в bot_learnings, последние 3 active
+    // подмешиваются в system prompt → бот сам корректирует поведение.
+    if (ANTHROPIC_KEY()) {
+      // Запуск через 5 минут после boot (даём системе устаканиться).
+      setTimeout(() => { analyzeDialoguesForLearning().catch(() => {}); }, 5 * 60_000);
+      setInterval(() => { analyzeDialoguesForLearning().catch(() => {}); }, 24 * 3600_000).unref();
     }
   },
   healthCheck: () => {

@@ -130,6 +130,7 @@ export default function AdminV304Page() {
         <TabsList className="mb-4 flex flex-wrap">
           <TabsTrigger value="overview">Обзор</TabsTrigger>
           <TabsTrigger value="engagement">📊 Воронка</TabsTrigger>
+          <TabsTrigger value="learning">🧠 Самообучение</TabsTrigger>
           <TabsTrigger value="secrets">🔑 Секреты</TabsTrigger>
           <TabsTrigger value="templates">Шаблоны</TabsTrigger>
           <TabsTrigger value="flags">Feature flags</TabsTrigger>
@@ -138,6 +139,7 @@ export default function AdminV304Page() {
         </TabsList>
         <TabsContent value="overview"><OverviewTab toast={toast} /></TabsContent>
         <TabsContent value="engagement"><EngagementTab toast={toast} /></TabsContent>
+        <TabsContent value="learning"><LearningTab toast={toast} /></TabsContent>
         <TabsContent value="secrets"><SecretsTab toast={toast} /></TabsContent>
         <TabsContent value="templates"><TemplatesTab toast={toast} /></TabsContent>
         <TabsContent value="flags"><FlagsTab toast={toast} /></TabsContent>
@@ -1942,5 +1944,98 @@ function EngagementTab({ toast }: { toast: any }) {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// ============================================================
+// LearningTab — 🧠 Самообучение (Eugene 2026-05-11)
+// Раз в 24h LLM анализирует диалоги последних 7 дней — что в успешных
+// работало, что в неуспешных нет. Insights автоматически подмешиваются
+// в system prompt бота. Админ может отключить плохой инсайт через toggle.
+// ============================================================
+function LearningTab({ toast }: { toast: any }) {
+  const { data, isLoading, refetch } = useQuery<{ ok: boolean; data: any[] }>({
+    queryKey: ["/api/admin/v304/bot-learnings"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/admin/v304/bot-learnings");
+      return r.json();
+    },
+    refetchInterval: 60_000,
+  });
+
+  const toggle = async (id: number, applied: number) => {
+    try {
+      const r = await apiRequest("PUT", `/api/admin/v304/bot-learnings/${id}`, { applied: applied ? 0 : 1 });
+      if (!r.ok) throw new Error("toggle failed");
+      refetch();
+    } catch {
+      toast?.({ title: "Ошибка", variant: "destructive" });
+    }
+  };
+
+  const copyAll = () => {
+    if (!data?.data?.length) return;
+    const lines = data.data.map((r: any) => {
+      const date = r.createdAt ? new Date(r.createdAt).toLocaleString("ru-RU") : "";
+      return `[${date}] active=${r.applied} sample=${r.sampleSize} success=${r.successCount}/${r.successCount + r.failCount}\nЧто работало: ${r.whatWorked || "-"}\nЧто не работало: ${r.whatFailed || "-"}\nРекомендации: ${r.recommendations || "-"}\n---`;
+    }).join("\n");
+    navigator.clipboard.writeText(lines).then(() => toast?.({ title: "✅ Скопировано" }));
+  };
+
+  if (isLoading) return <Card><CardContent className="p-6"><Loader2 className="animate-spin" /> Загрузка…</CardContent></Card>;
+  const rows = data?.data || [];
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle>🧠 Самообучение бота</CardTitle>
+        <div className="flex gap-2">
+          <button onClick={copyAll} className="text-xs px-3 py-1 rounded bg-secondary hover:bg-secondary/70 transition">📋 Копировать всё</button>
+          <button onClick={() => refetch()} className="text-xs px-3 py-1 rounded bg-secondary hover:bg-secondary/70 transition">⟳ Обновить</button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <p className="text-xs text-muted-foreground mb-4">
+          Раз в 24 часа бот анализирует диалоги последних 7 дней. Активные инсайты (✓) автоматически подмешиваются в system prompt — бот сам корректирует поведение. Отключи (✗) если инсайт ошибочный.
+        </p>
+        {rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Инсайтов пока нет. Первая аналитика запустится в течение 24 часов после первого диалога.</p>
+        ) : (
+          <div className="space-y-3">
+            {rows.map((r: any) => (
+              <div key={r.id} className={`p-3 rounded-xl border ${r.applied ? "border-emerald-500/20 bg-emerald-500/[0.03]" : "border-white/[0.06] bg-white/[0.02] opacity-60"}`}>
+                <div className="flex items-center justify-between mb-2 text-xs text-muted-foreground">
+                  <span>{r.createdAt ? new Date(r.createdAt).toLocaleString("ru-RU") : ""}</span>
+                  <div className="flex items-center gap-3">
+                    <span>📊 {r.sampleSize} диалогов · ✓ {r.successCount} / ✗ {r.failCount}</span>
+                    <button onClick={() => toggle(r.id, r.applied)} className={`px-2 py-0.5 rounded text-[10px] font-semibold ${r.applied ? "bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30" : "bg-white/5 text-muted-foreground hover:text-white"}`}>
+                      {r.applied ? "✓ Активен" : "✗ Отключён"}
+                    </button>
+                  </div>
+                </div>
+                {r.whatWorked && (
+                  <div className="mb-1.5 text-xs">
+                    <span className="text-emerald-300/80 font-semibold">Работало: </span>
+                    <span className="text-white/85">{r.whatWorked}</span>
+                  </div>
+                )}
+                {r.whatFailed && (
+                  <div className="mb-1.5 text-xs">
+                    <span className="text-rose-300/80 font-semibold">Не работало: </span>
+                    <span className="text-white/85">{r.whatFailed}</span>
+                  </div>
+                )}
+                {r.recommendations && (
+                  <div className="text-xs">
+                    <span className="text-purple-300/80 font-semibold">→ Рекомендация боту: </span>
+                    <span className="text-white/90">{r.recommendations}</span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

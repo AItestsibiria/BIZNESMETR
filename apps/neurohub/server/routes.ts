@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage, db } from "./storage";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
-import { registerSchema, loginSchema, users, payments, generations, transactions, promoCodes, visitors, genActivity, songDrafts } from "@shared/schema";
+import { registerSchema, loginSchema, users, payments, generations, transactions, promoCodes, visitors, genActivity, songDrafts, botLearnings } from "@shared/schema";
 import express from "express";
 import { eq, desc, sql, and, isNotNull } from "drizzle-orm";
 import nodemailer from "nodemailer";
@@ -2276,6 +2276,27 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     } catch (e: any) {
       console.error("[DRAFTS DELETE] Error:", e);
       res.status(500).json({ error: "Не удалось удалить" });
+    }
+  });
+
+  // Bot learnings (Eugene 2026-05-11): самообучение помощника.
+  app.get("/api/admin/v304/bot-learnings", requireAdmin, (_req: Request, res: Response) => {
+    try {
+      const rows = db.select().from(botLearnings).orderBy(desc(botLearnings.createdAt)).limit(50).all();
+      res.json({ ok: true, data: rows });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: String(e) });
+    }
+  });
+
+  app.put("/api/admin/v304/bot-learnings/:id", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const applied = req.body?.applied === 1 || req.body?.applied === true ? 1 : 0;
+      db.update(botLearnings).set({ applied }).where(eq(botLearnings.id, id)).run();
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: String(e) });
     }
   });
 

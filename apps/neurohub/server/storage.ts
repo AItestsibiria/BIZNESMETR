@@ -442,6 +442,28 @@ try {
     if (!has("fsm_data")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN fsm_data TEXT");
     // Eugene 2026-05-11: user_profile JSON для discovery (name/age/city/occasion).
     if (!has("user_profile")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN user_profile TEXT");
+    // Long-term memo + visit counter — прогрессия коммуникации при возврате.
+    if (!has("long_term_memo")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN long_term_memo TEXT");
+    if (!has("visit_count")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN visit_count INTEGER NOT NULL DEFAULT 1");
+  } catch (e) {
+    console.error("[MIGRATION] chatbot_sessions FSM columns failed:", e);
+  }
+
+  // Bot learnings (Eugene 2026-05-11): самообучение по диалогам.
+  try {
+    sqlite.exec(`CREATE TABLE IF NOT EXISTS bot_learnings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      scope TEXT NOT NULL DEFAULT 'daily',
+      sample_size INTEGER NOT NULL DEFAULT 0,
+      success_count INTEGER NOT NULL DEFAULT 0,
+      fail_count INTEGER NOT NULL DEFAULT 0,
+      what_worked TEXT,
+      what_failed TEXT,
+      recommendations TEXT,
+      applied INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS bot_learnings_recent_idx ON bot_learnings(created_at DESC)`);
   } catch (e) {
     console.error("[MIGRATION] chatbot_sessions FSM columns failed:", e);
   }
