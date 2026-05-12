@@ -278,6 +278,11 @@ export const chatbotSessions = sqliteTable("chatbot_sessions", {
   leadId: integer("lead_id"),
   state: text("state").notNull().default("active"),  // 'active' | 'escalated' | 'closed'
   intent: text("intent"),                       // распознанное намерение (sales / support / faq / other)
+  // Eugene 2026-05-11: профиль юзера, извлечённый LLM из истории.
+  // JSON: { name, age, city, occasion, target, mood, interests, notes }.
+  // Обновляется async после каждых 3 сообщений. Передаётся в system prompt
+  // → бот не переспрашивает и ведёт диалог глубже.
+  userProfile: text("user_profile"),
   startedAt: text("started_at").default(sql`CURRENT_TIMESTAMP`),
   lastMessageAt: text("last_message_at").default(sql`CURRENT_TIMESTAMP`),
 });

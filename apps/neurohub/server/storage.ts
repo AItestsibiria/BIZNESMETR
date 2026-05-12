@@ -440,6 +440,8 @@ try {
     if (!has("max_chat_id")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN max_chat_id TEXT");
     if (!has("fsm_state")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN fsm_state TEXT");
     if (!has("fsm_data")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN fsm_data TEXT");
+    // Eugene 2026-05-11: user_profile JSON для discovery (name/age/city/occasion).
+    if (!has("user_profile")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN user_profile TEXT");
   } catch (e) {
     console.error("[MIGRATION] chatbot_sessions FSM columns failed:", e);
   }

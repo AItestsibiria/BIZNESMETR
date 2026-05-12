@@ -201,6 +201,47 @@ async function generateReply(
   return `Здравствуйте! Я ${personaFor(userKey).name} 🎵 Чуть-чуть тормозит — попробуйте через минуту.`;
 }
 
+// Lead extraction (Eugene 2026-05-11): извлекаем профиль юзера из истории.
+// JSON: {name, age, city, occasion, target, mood, interests, notes}.
+// Fire-and-forget после каждого ответа (если history.length >= 3).
+async function updateUserProfile(sessionId: string, history: Array<{ role: string; content: string }>): Promise<void> {
+  const key = ANTHROPIC_KEY();
+  if (!key || history.length < 3) return;
+  try {
+    const transcript = history.slice(-20).map(m => `${m.role === "user" ? "Юзер" : "Бот"}: ${m.content}`).join("\n");
+    const extractSystem = `Извлеки из диалога профиль юзера и верни СТРОГО JSON без пояснений:
+{"name": "имя или null", "age": "возраст число или null", "city": "город или null", "occasion": "повод для песни или null", "target": "для кого песня (жена/мама/друг/коллега…) или null", "mood": "желаемое настроение или null", "interests": "любимые жанры или null", "notes": "важные детали 1-2 фразы или null"}
+Если данных нет — null. Не выдумывай. Только то что юзер явно сказал.`;
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 300,
+        system: extractSystem,
+        messages: [{ role: "user", content: transcript }],
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!r.ok) return;
+    const j: any = await r.json();
+    const raw = j?.content?.[0]?.text || "";
+    // Удалить markdown-обёртку если есть
+    const jsonStr = raw.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "").trim();
+    const profile = JSON.parse(jsonStr);
+    if (typeof profile !== "object" || !profile) return;
+    db.update(chatbotSessions).set({ userProfile: JSON.stringify(profile) }).where(eq(chatbotSessions.id, sessionId)).run();
+  } catch {}
+}
+
+function loadUserProfile(sessionId: string): any {
+  try {
+    const row = db.select().from(chatbotSessions).where(eq(chatbotSessions.id, sessionId)).get() as any;
+    if (!row?.userProfile) return null;
+    return JSON.parse(row.userProfile);
+  } catch { return null; }
+}
+
 // === Session helpers ===
 function loadHistory(sessionId: string): Array<{ role: "user" | "assistant"; content: string }> {
   try {
@@ -383,7 +424,14 @@ router.post("/webhook", async (req, res) => {
     const ownerHint = isOwner
       ? "\n\n[АДМИН: это Ярс — основатель MuziAi. Говори с ним коротко, конструктивно, по сути. Без sales playbook'а — он сам всё знает. Помогай с диагностикой / тестами / идеями. Можно на «ты».]"
       : "";
-    const reply = await generateReply(fromId, text, history, memoryHint + ownerHint);
+    // Eugene 2026-05-11: lead profile. Если уже извлекли имя/возраст/город
+    // из предыдущих сообщений — подмешиваем в prompt чтобы бот не
+    // переспрашивал и вёл диалог глубже.
+    const profile = loadUserProfile(sessionId);
+    const profileHint = profile && Object.values(profile).some(v => v !== null && v !== "")
+      ? `\n\n[ПРОФИЛЬ ЮЗЕРА (уже узнала): ${JSON.stringify(profile)}. Используй эту инфу, не переспрашивай. Если каких-то полей нет — мягко выясни в ходе разговора.]`
+      : "";
+    const reply = await generateReply(fromId, text, history, memoryHint + ownerHint + profileHint);
     const p = personaFor(fromId);
     // Eugene 2026-05-11: имя менеджера + MuziAi в каждом сообщении.
     const footer = `\n\n— ${p.name} · MuziAi`;
@@ -394,6 +442,11 @@ router.post("/webhook", async (req, res) => {
     await sendMessage(chatId, replyWithAvatar);
     saveMessage(sessionId, "bot", replyWithAvatar);
     bootRefs?.eventBus?.emit?.("chatbot.reply_sent", { channel: "telegram", sessionId, chatId }, "telegram-bot");
+    // Eugene 2026-05-11: async update профиля юзера (имя/возраст/город/повод).
+    // Не блокирует ответ — запускается после sendMessage, обновится к
+    // следующему сообщению юзера.
+    const fullHistory: Array<{ role: string; content: string }> = [...history, { role: "user", content: text }, { role: "assistant", content: reply }];
+    updateUserProfile(sessionId, fullHistory).catch(() => {});
   } catch (e) {
     bootRefs?.logger.error?.("[telegram-bot] webhook error", { error: String(e) });
   }
