@@ -1,0 +1,74 @@
+name: Deploy to VPS
+
+# Runs on every push to develop (staging-ish) or main (prod). The VPS host
+# pulls the new code and rebuilds docker-compose. Idempotent — re-running
+# the same commit is a no-op.
+#
+# Required GitHub secrets (Settings → Secrets and variables → Actions):
+#   VPS_HOST        — IP or hostname of the VPS (e.g. 87.123.45.67)
+#   VPS_USER        — non-root user on the VPS (we use "novo")
+#   VPS_SSH_KEY     — PRIVATE SSH key whose PUBLIC counterpart is in
+#                     ~novo/.ssh/authorized_keys on the VPS
+#   VPS_PORT        — (optional) SSH port; defaults to 22
+#
+# Optional secret:
+#   DEPLOY_COMPOSE_FILES — extra `-f` args, defaults to the tunnel override.
+#                          For domain-based deploys set it to `docker-compose.yml`.
+
+on:
+  push:
+    branches: [develop, main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: false  # finish in-flight deploys before starting a new one
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+    steps:
+      - name: Echo target
+        run: |
+          echo "Deploying ${{ github.sha }} on branch ${{ github.ref_name }}"
+
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          # Stop on any failure so the workflow status reflects reality.
+          script_stop: true
+          # The compose file list is configurable via DEPLOY_COMPOSE_FILES;
+          # default is the tunnel-mode override used in the runbook.
+          envs: GITHUB_SHA,GITHUB_REF_NAME
+          script: |
+            set -euo pipefail
+            cd ~/novo-ai
+
+            COMPOSE_FILES="${{ secrets.DEPLOY_COMPOSE_FILES || '-f docker-compose.yml -f docker-compose.tunnel.yml' }}"
+
+            echo "→ fetching latest on $GITHUB_REF_NAME"
+            git fetch origin "$GITHUB_REF_NAME"
+            git checkout "$GITHUB_REF_NAME"
+            git reset --hard "origin/$GITHUB_REF_NAME"
+
+            echo "→ rebuilding & restarting"
+            docker compose $COMPOSE_FILES up -d --build --remove-orphans
+
+            echo "→ waiting for /health"
+            for i in 1 2 3 4 5 6 7 8 9 10; do
+              if curl -fsS --max-time 3 http://127.0.0.1:3000/health > /dev/null; then
+                echo "✓ healthy"; break
+              fi
+              echo "  retry $i…"; sleep 3
+            done
+
+            echo "→ last 20 log lines"
+            docker compose $COMPOSE_FILES logs --tail=20 app || true
+
+            echo "→ done: $GITHUB_SHA on $GITHUB_REF_NAME"

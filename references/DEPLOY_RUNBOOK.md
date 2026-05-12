@@ -369,6 +369,67 @@ docker volume ls | grep pgdata
 
 ---
 
+## Авто-деплой из GitHub (после первого ручного запуска)
+
+После того как ты один раз вручную поднял Novo AI по шагам 1–10, можно
+включить автоматический деплой: каждый push в ветку `develop` / `main`
+будет за ~30 секунд прилетать на сервер.
+
+### 1. Сгенерить SSH-ключ для GitHub Actions (на сервере)
+
+```bash
+ssh novo@<TIMEWEB_IP>
+ssh-keygen -t ed25519 -N "" -C "github-actions-novo-ai" -f ~/.ssh/github_actions
+cat ~/.ssh/github_actions.pub >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+
+# Скопируй ПРИВАТНЫЙ ключ — он нужен будет в GitHub Secret:
+cat ~/.ssh/github_actions
+```
+
+Из соображений гигиены этот ключ должен быть **отдельный**, не тот, которым
+ты сам ходишь по SSH. Если что — удаляешь именно его строку из
+`authorized_keys`, не теряя свой собственный доступ.
+
+### 2. Добавить секреты в GitHub
+
+В репозитории `AItestsibiria/biznesmetr` (или Novo-Ai после переноса):
+**Settings → Secrets and variables → Actions → New repository secret**.
+
+| Name | Value |
+|---|---|
+| `VPS_HOST` | IP сервера Timeweb |
+| `VPS_USER` | `novo` |
+| `VPS_SSH_KEY` | весь приватный ключ из `~/.ssh/github_actions` целиком (включая `-----BEGIN OPENSSH PRIVATE KEY-----` и `-----END…-----`) |
+| `VPS_PORT` | (опционально) `22` |
+| `DEPLOY_COMPOSE_FILES` | (опционально) `-f docker-compose.yml -f docker-compose.tunnel.yml` — по умолчанию уже это |
+
+### 3. Проверка
+
+После добавления секретов сделай любой коммит в `develop` (например, мелкая
+правка README) и запушь. Зайди в **Actions → Deploy to VPS** — увидишь job
+с шагами:
+- `git fetch / checkout / reset --hard`
+- `docker compose up -d --build`
+- `curl /health` с ретраями
+- последние 20 строк лога приложения
+
+Зелёная галка → деплой автоматический. С этого момента ты больше **не
+заходишь на сервер вручную**, кроме случаев правки `.env` или диагностики.
+
+### 4. Откат
+
+Если новый коммит сломал прод — `git revert <sha> && git push`, Actions
+выкатит откатанную версию через 30 секунд. Или вручную:
+```bash
+ssh novo@<TIMEWEB_IP>
+cd ~/novo-ai
+git checkout <предыдущий-good-sha>
+docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d --build
+```
+
+---
+
 ## Когда появится домен
 
 1. Купи домен (.ru на reg.ru ~200₽/год, .com на namecheap ~$10/год).
