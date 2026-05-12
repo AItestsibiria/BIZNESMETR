@@ -883,7 +883,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-300 font-medium">Новости</span>
                 <span className="text-[10px] text-muted-foreground">12 мая 2026</span>
               </div>
-              <h3 className="text-lg font-bold mb-2"><span className="text-white">У нас появился </span><span className="bg-gradient-to-r from-pink-400 via-purple-400 to-blue-400 bg-clip-text text-transparent">друг компании</span></h3>
+              <h3 className="text-lg font-bold mb-2"><span className="text-white">У нас появился </span><span className="bg-gradient-to-r from-pink-400 via-purple-400 to-blue-400 bg-clip-text text-transparent">друг МузиАй</span></h3>
               <p className="text-sm text-muted-foreground leading-relaxed">
                 Пройдёт с вами весь путь — от идеи до готового трека. Поможет с регистрацией, выберет волшебный сценарий, соберёт текст. <span className="text-pink-300 font-medium">Нажмите — поговорите →</span>
               </p>
