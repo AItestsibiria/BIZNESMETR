@@ -444,6 +444,7 @@ try {
     if (!has("user_profile")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN user_profile TEXT");
     // Persona lock — сохраняем имя выбранной персоны при создании сессии.
     if (!has("persona_name")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN persona_name TEXT");
+    if (!has("last_reengaged_at")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN last_reengaged_at TEXT");
     // Long-term memo + visit counter — прогрессия коммуникации при возврате.
     if (!has("long_term_memo")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN long_term_memo TEXT");
     if (!has("visit_count")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN visit_count INTEGER NOT NULL DEFAULT 1");

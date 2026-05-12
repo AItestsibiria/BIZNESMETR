@@ -362,6 +362,73 @@ function loadLongTermMemo(sessionId: string): string | null {
 }
 
 // === Self-learning (Eugene 2026-05-11) ===
+// === Re-engagement (Eugene 2026-05-12) ===
+// Если юзер чатился, потом замолчал 2-14 дней — отправить персонализированное
+// «привет, как дела». Не чаще раза в 14 дней на одного юзера.
+// Запускается каждые 6 часов. Ограничение 10 сообщений за прогон, паузы
+// 3 сек между — чтобы не флудить Telegram API.
+async function reEngageInactiveUsers(): Promise<void> {
+  const key = ANTHROPIC_KEY();
+  if (!key) return;
+  try {
+    const candidates = db.all<any>(sql`
+      SELECT cs.id, cs.external_id, cs.persona_name, cs.user_profile, cs.long_term_memo,
+        (SELECT COUNT(*) FROM chatbot_messages WHERE session_id = cs.id) as msg_count
+      FROM chatbot_sessions cs
+      WHERE cs.channel = 'telegram'
+        AND cs.external_id IS NOT NULL
+        AND cs.last_message_at < datetime('now', '-2 days')
+        AND cs.last_message_at > datetime('now', '-14 days')
+        AND (cs.last_reengaged_at IS NULL OR cs.last_reengaged_at < datetime('now', '-14 days'))
+        AND (SELECT COUNT(*) FROM chatbot_messages WHERE session_id = cs.id) >= 3
+      LIMIT 10
+    `) as any[];
+    if (!candidates.length) {
+      bootRefs?.logger.info?.("[telegram-bot] re-engage: no candidates");
+      return;
+    }
+    bootRefs?.logger.info?.("[telegram-bot] re-engage: starting", { count: candidates.length });
+    for (const c of candidates) {
+      try {
+        const persona = (c.persona_name && PERSONAS.find(p => p.name === c.persona_name)) || personaFor(String(c.external_id));
+        const profile = c.user_profile ? JSON.parse(c.user_profile) : {};
+        const memo = c.long_term_memo || "";
+        const sys = `Ты — ${persona.name}, помощница MuziAi. Стиль: ${persona.styleGuide}.
+Юзер общался раньше но замолчал. Напиши КОРОТКОЕ (1-2 фразы) тёплое возвращение, без давления, без CTA. Не «давайте создадим трек», а просто внимание: «привет, как вы? давно не виделись, всё хорошо?». Используй имя если знаешь. Учти контекст прошлого разговора. Без подписи имени в конце.
+
+ПРОФИЛЬ: ${JSON.stringify(profile)}
+ПРЕДЫДУЩИЙ КОНТЕКСТ: ${memo}`;
+        const r = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+          body: JSON.stringify({
+            model: "claude-haiku-4-5-20251001",
+            max_tokens: 120,
+            system: sys,
+            messages: [{ role: "user", content: "Напиши возвращение." }],
+          }),
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (!r.ok) continue;
+        const j: any = await r.json();
+        const text = String(j?.content?.[0]?.text || "").trim();
+        if (!text) continue;
+        const footer = `\n\n— ${persona.name} · МузиАй`;
+        const full = `${persona.avatar} ${text}${footer}`;
+        await sendMessage(c.external_id, full);
+        db.update(chatbotSessions).set({ lastReengagedAt: new Date().toISOString() }).where(eq(chatbotSessions.id, c.id)).run();
+        saveMessage(c.id, "bot", `[re-engage] ${full}`);
+        bootRefs?.eventBus?.emit?.("chatbot.reengaged", { sessionId: c.id, persona: persona.name }, "telegram-bot");
+        await new Promise(r => setTimeout(r, 3000)); // пауза между отправками
+      } catch (e) {
+        bootRefs?.logger.warn?.("[telegram-bot] re-engage one failed", { error: String(e) });
+      }
+    }
+  } catch (e) {
+    bootRefs?.logger.error?.("[telegram-bot] re-engage scheduler error", { error: String(e) });
+  }
+}
+
 // Раз в 24h: LLM анализирует диалоги последних 7 дней. Классифицирует
 // успешные (юзер дошёл до конверсии) vs неуспешные. Извлекает паттерны.
 // Сохраняет в bot_learnings — последние 3 active автоматически
@@ -845,6 +912,9 @@ const telegramBotModule: Module = {
       // Запуск через 5 минут после boot (даём системе устаканиться).
       setTimeout(() => { analyzeDialoguesForLearning().catch(() => {}); }, 5 * 60_000);
       setInterval(() => { analyzeDialoguesForLearning().catch(() => {}); }, 24 * 3600_000).unref();
+      // Re-engagement каждые 6 часов (Eugene 2026-05-12).
+      setTimeout(() => { reEngageInactiveUsers().catch(() => {}); }, 30 * 60_000);
+      setInterval(() => { reEngageInactiveUsers().catch(() => {}); }, 6 * 3600_000).unref();
     }
   },
   healthCheck: () => {

@@ -287,6 +287,9 @@ export const chatbotSessions = sqliteTable("chatbot_sessions", {
   // (Аня/Татьяна/Мария/Ольга) при создании сессии — гарантия что
   // помощник один и тот же до конца, даже если hash-алгоритм изменится.
   personaName: text("persona_name"),
+  // Re-engagement cooldown (Eugene 2026-05-12): когда бот в последний раз
+  // проактивно писал юзеру «привет, как дела». Не чаще раза в 14 дней.
+  lastReengagedAt: text("last_reengaged_at"),
   // Long-term memo (Eugene 2026-05-11): сжатая summary предыдущих сессий
   // (если юзер вернулся через 24h+). LLM сжимает старые сообщения в 1-2
   // фразы — даёт бо́льший контекст без раздувания history.
