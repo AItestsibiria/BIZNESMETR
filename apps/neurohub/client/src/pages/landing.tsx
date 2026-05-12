@@ -873,13 +873,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           className="block w-full text-left glass-card rounded-2xl p-6 border border-pink-500/30 hover:border-pink-500/50 transition-colors cursor-pointer"
         >
           <div className="flex items-start gap-3">
-            <img
-              src="/consultant-avatar.svg"
-              alt="Муза"
-              className="w-14 h-20 sm:w-16 sm:h-24 object-contain shrink-0"
-              draggable={false}
-            />
-            <div className="flex-1">
+            <div className="w-14 shrink-0 flex items-start justify-center">
+              <img
+                src="/consultant-avatar.svg"
+                alt="Муза"
+                className="w-14 h-20 sm:w-14 sm:h-20 object-contain"
+                draggable={false}
+              />
+            </div>
+            <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-300 font-medium">Новости</span>
                 <span className="text-[10px] text-muted-foreground">12 мая 2026</span>
@@ -898,8 +900,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           className="block glass-card rounded-2xl p-6 border border-purple-500/20 hover:border-purple-500/40 transition-colors no-underline"
         >
           <div className="flex items-start gap-3">
-            <span className="text-2xl">🎉</span>
-            <div>
+            <div className="w-14 shrink-0 flex items-start justify-center pt-1">
+              <span className="text-3xl">🎉</span>
+            </div>
+            <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-medium">Новости</span>
                 <span className="text-[10px] text-muted-foreground">9 мая 2026</span>
@@ -915,8 +919,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         {/* 9 мая 2026 — audio mode launch */}
         <div className="glass-card rounded-2xl p-6 border border-cyan-500/20">
           <div className="flex items-start gap-3">
-            <span className="text-2xl">🎤</span>
-            <div>
+            <div className="w-14 shrink-0 flex items-start justify-center pt-1">
+              <span className="text-3xl">🎤</span>
+            </div>
+            <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-medium">Новости</span>
                 <span className="text-[10px] text-muted-foreground">9 мая 2026</span>
