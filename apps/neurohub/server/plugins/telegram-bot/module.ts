@@ -611,7 +611,7 @@ router.post("/webhook", async (req, res) => {
     const p0 = personaForSession(sessionId, fromId);
     const quick = tryQuickReply(text, p0.name);
     if (quick) {
-      const cleanQuick = quick.replace(/\s*[—\-–]+\s*(Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей)(\s*·\s*MuziAi)?\s*\.?\s*$/i, "").trimEnd();
+      const cleanQuick = quick.replace(/\s*[—\-–]+\s*(Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*MuziAi)?\s*\.?\s*$/i, "").trimEnd();
       const footer = `\n\n— ${p0.name} · MuziAi`;
       const replyWithAvatar = `${p0.avatar} ${cleanQuick}${footer}`;
       await sendConsultantPhoto(chatId, replyWithAvatar);
@@ -663,7 +663,7 @@ router.post("/webhook", async (req, res) => {
     const rawReply = await generateReply(fromId, text, history, memoryHint + ltmHint + ownerHint + profileHint + learningsHint);
     // Eugene 2026-05-12: маркер смены помощника. LLM может вставить
     // [SWITCH_PERSONA:Имя] — код применит смену в БД и уберёт маркер.
-    const switchMatch = rawReply.match(/\[SWITCH_PERSONA:(Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей)\]/i);
+    const switchMatch = rawReply.match(/\[SWITCH_PERSONA:(Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)\]/i);
     if (switchMatch) {
       try {
         db.update(chatbotSessions).set({ personaName: switchMatch[1] }).where(eq(chatbotSessions.id, sessionId)).run();
@@ -674,7 +674,7 @@ router.post("/webhook", async (req, res) => {
     const p = personaForSession(sessionId, fromId);
     // Eugene 2026-05-11: подпись Имя · MuziAi.
     // Eugene 2026-05-12: если LLM сам подписался — не дублируем.
-    const cleanReply = reply.replace(/\s*[—\-–]+\s*(Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей)(\s*·\s*MuziAi)?\s*\.?\s*$/i, "").trimEnd();
+    const cleanReply = reply.replace(/\s*[—\-–]+\s*(Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*MuziAi)?\s*\.?\s*$/i, "").trimEnd();
     const footer = `\n\n— ${p.name} · MuziAi`;
     const replyWithAvatar = `${p.avatar} ${cleanReply}${footer}`;
     // Eugene 2026-05-11 v2: образ в каждом ответе. file_id-кэш
