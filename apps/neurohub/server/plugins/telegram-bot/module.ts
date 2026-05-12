@@ -68,24 +68,35 @@ async function sendMessage(chatId: number | string, text: string, replyMarkup?: 
   }
 }
 
-// Eugene 2026-05-11: образ помощника на первом /start — фото с
-// silhouette певицы (тот же образ что floating-consultant на сайте).
-// Telegram кэширует фото после первой отправки — последующие отправки
-// мгновенные. Базовый URL — PUBLIC_BASE_URL или muziai.ru.
+// Eugene 2026-05-11: образ помощника в КАЖДОМ ответе.
+// Решение «на 100%»: кэшируем file_id от Telegram после первой загрузки.
+// Первый sendPhoto = URL (download Telegram'ом, ~500ms). Telegram
+// возвращает file_id. Все последующие sendPhoto с file_id = 0 latency
+// (Telegram уже хранит файл). file_id хранится в process памяти —
+// при рестарте обновится автоматически с первого реквеста.
+let cachedPhotoFileId: string | null = null;
+
 async function sendConsultantPhoto(chatId: number | string, caption: string, replyMarkup?: any): Promise<void> {
   try {
     const base = process.env.PUBLIC_BASE_URL || "https://muziai.ru";
-    // Прямая static PNG через nginx — нет зависимости от sharp/cwd
-    // на prod (Eugene 2026-05-11: «нет в чате картинки»).
-    const photoUrl = `${base}/consultant-avatar.png`;
+    const photoSource = cachedPhotoFileId || `${base}/consultant-avatar.png`;
     const body: any = {
       chat_id: chatId,
-      photo: photoUrl,
+      photo: photoSource,
       caption,
       parse_mode: "HTML",
     };
     if (replyMarkup) body.reply_markup = replyMarkup;
-    await tgApi("sendPhoto", body);
+    const resp = await tgApi("sendPhoto", body);
+    // После первой удачной загрузки — забираем file_id для следующих
+    // вызовов. Берём самый большой вариант фото (последний в массиве).
+    if (!cachedPhotoFileId) {
+      const photos = resp?.result?.photo;
+      if (Array.isArray(photos) && photos.length > 0) {
+        cachedPhotoFileId = photos[photos.length - 1].file_id;
+        bootRefs?.logger.info?.("[telegram-bot] consultant photo cached", { file_id: cachedPhotoFileId?.slice(0, 16) + "…" });
+      }
+    }
   } catch (e) {
     bootRefs?.logger.warn?.("[telegram-bot] sendPhoto failed, fallback to text", { chatId, error: String(e) });
     // Fallback на текст если sendPhoto не сработал
@@ -595,10 +606,14 @@ router.post("/webhook", async (req, res) => {
     // Eugene 2026-05-11: имя менеджера + MuziAi в каждом сообщении.
     const footer = `\n\n— ${p.name} · MuziAi`;
     const replyWithAvatar = `${p.avatar} ${reply}${footer}`;
-    // sendPhoto убираю с обычных ответов — Telegram cache не всегда
-    // работает, скачивание каждый раз тормозит. Образ виден через
-    // bot avatar (BotFather → /setuserpic, Eugene-side).
-    await sendMessage(chatId, replyWithAvatar);
+    // Eugene 2026-05-11 v2: образ в каждом ответе. file_id-кэш
+    // делает повторные sendPhoto мгновенными (без download). Caption
+    // limit Telegram = 1024 char — длинные шлём текстом.
+    if (replyWithAvatar.length <= 1000) {
+      await sendConsultantPhoto(chatId, replyWithAvatar);
+    } else {
+      await sendMessage(chatId, replyWithAvatar);
+    }
     saveMessage(sessionId, "bot", replyWithAvatar);
     bootRefs?.eventBus?.emit?.("chatbot.reply_sent", { channel: "telegram", sessionId, chatId }, "telegram-bot");
     // Eugene 2026-05-11: async update профиля юзера (имя/возраст/город/повод).
