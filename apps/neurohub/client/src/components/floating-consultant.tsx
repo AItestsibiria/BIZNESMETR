@@ -142,15 +142,46 @@ export function FloatingConsultant() {
             >
               <span>🎁</span> Регистрация
             </button>
-            <a
-              href={`https://t.me/share/url?url=${encodeURIComponent("https://t.me/Muziaipodari_bot")}&text=${encodeURIComponent("Помощник по созданию песен в подарок — попробуй, тут нечто волшебное 🎵")}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={() => trackEngagement("consultant_action", { action: "share" })}
-              className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.06] transition-colors text-[12px] text-white/90"
-            >
-              <span>📤</span> Поделиться помощником
-            </a>
+            <div className="border-t border-white/[0.04] my-1 pt-1">
+              <div className="text-[10px] text-white/60 px-1 mb-1">📤 Порекомендовать</div>
+              <a
+                href={`https://t.me/share/url?url=${encodeURIComponent("https://t.me/Muziaipodari_bot")}&text=${encodeURIComponent("Привет! Порекомендую помощницу МузиАй — крутая в подборе песен под событие. Попробуй: https://t.me/Muziaipodari_bot")}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => trackEngagement("consultant_action", { action: "share_telegram" })}
+                className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-white/[0.06] transition-colors text-[11px] text-white/80"
+              >
+                <span>📱</span> Telegram
+              </a>
+              <a
+                href={`https://api.whatsapp.com/send?text=${encodeURIComponent("Привет! Порекомендую помощницу МузиАй — крутая в подборе песен под событие. Попробуй: https://t.me/Muziaipodari_bot")}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => trackEngagement("consultant_action", { action: "share_whatsapp" })}
+                className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-white/[0.06] transition-colors text-[11px] text-white/80"
+              >
+                <span>💚</span> WhatsApp
+              </a>
+              <a
+                href={`https://vk.com/share.php?url=${encodeURIComponent("https://muziai.ru/")}&title=${encodeURIComponent("Помощница МузиАй — крутая в подборе песен под событие")}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => trackEngagement("consultant_action", { action: "share_vk" })}
+                className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-white/[0.06] transition-colors text-[11px] text-white/80"
+              >
+                <span>🌐</span> VK
+              </a>
+              <button
+                type="button"
+                onClick={() => {
+                  trackEngagement("consultant_action", { action: "share_copy" });
+                  navigator.clipboard.writeText("Привет! Порекомендую помощницу МузиАй — крутая в подборе песен под событие. Попробуй: https://t.me/Muziaipodari_bot").catch(() => {});
+                }}
+                className="w-full flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-white/[0.06] transition-colors text-[11px] text-white/80 text-left"
+              >
+                <span>📋</span> Скопировать
+              </button>
+            </div>
             <button
               type="button"
               onClick={dismiss}
@@ -179,7 +210,7 @@ export function FloatingConsultant() {
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
           aria-label="Помощник"
-          className="block w-10 h-14 sm:w-12 sm:h-20 active:scale-95 transition-transform opacity-90 hover:opacity-100 consultant-dance"
+          className="block w-16 h-24 sm:w-20 sm:h-32 active:scale-95 transition-transform opacity-90 hover:opacity-100 consultant-dance"
         >
           <img
             src="/consultant-avatar.svg"
