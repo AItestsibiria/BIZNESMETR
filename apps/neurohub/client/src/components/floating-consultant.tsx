@@ -179,7 +179,7 @@ export function FloatingConsultant() {
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
           aria-label="Помощник"
-          className="block w-16 h-24 sm:w-20 sm:h-32 active:scale-95 transition-transform opacity-90 hover:opacity-100 consultant-dance"
+          className="block w-10 h-14 sm:w-12 sm:h-20 active:scale-95 transition-transform opacity-90 hover:opacity-100 consultant-dance"
         >
           <img
             src="/consultant-avatar.svg"
