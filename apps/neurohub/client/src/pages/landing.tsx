@@ -894,27 +894,23 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           </div>
         </button>
 
-        <a
-          href="#/templates"
-          onClick={() => { window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior }); }}
-          className="block glass-card rounded-2xl p-6 border border-purple-500/20 hover:border-purple-500/40 transition-colors no-underline"
-        >
+        <div className="block glass-card rounded-2xl p-6 border border-amber-500/20">
           <div className="flex items-start gap-3">
             <div className="w-14 shrink-0 flex items-start justify-center pt-1">
-              <span className="text-3xl">🎁</span>
+              <span className="text-3xl">🛠</span>
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-medium">Новости</span>
-                <span className="text-[10px] text-muted-foreground">12 апреля 2026</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-medium">Новости</span>
+                <span className="text-[10px] text-muted-foreground">12 мая 2026</span>
               </div>
-              <h3 className="text-lg font-bold mb-2"><span className="text-white">«Поехали» — </span><span className="bg-gradient-to-r from-purple-400 via-blue-400 to-cyan-300 bg-clip-text text-transparent">Событие</span></h3>
+              <h3 className="text-lg font-bold mb-2"><span className="text-white">Финишная </span><span className="bg-gradient-to-r from-amber-300 via-yellow-300 to-orange-300 bg-clip-text text-transparent">отладка</span></h3>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Зарегистрируйтесь сегодня — <span className="text-cyan-300 font-medium">1 трек в подарок</span> зачислится сразу. Под свадьбу, день рождения, корпоратив, гимн компании — выбирайте <span className="gradient-text font-semibold">Музыкальное Событие</span> (готовый волшебный сценарий) и Муза подготовит идеальный трек.
+                Подбираем последние циферки перед запуском генерации — буквально пара дней. Текстовая часть уже работает: можно собрать слова и сохранить в кабинете. Зарегистрируйтесь — <span className="text-cyan-300 font-medium">1 трек в подарок</span> ждёт открытия.
               </p>
             </div>
           </div>
-        </a>
+        </div>
 
         {/* 9 мая 2026 — audio mode launch */}
         <div className="glass-card rounded-2xl p-6 border border-cyan-500/20">
