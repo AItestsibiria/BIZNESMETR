@@ -894,19 +894,101 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           </div>
         </button>
 
-        <div className="block glass-card rounded-2xl p-6 border border-amber-500/20">
+        {/* 12 апреля 2026 — «Поехали» (восстановлено Eugene 2026-05-12,
+            без упоминания 1000₽). Анимация gift-box + ноты у звёзд. */}
+        <div className="glass-card rounded-2xl p-6 border border-purple-500/10">
           <div className="flex items-start gap-3">
             <div className="w-14 shrink-0 flex items-start justify-center pt-1">
-              <span className="text-3xl">🛠</span>
+              <span className="text-3xl">🚀</span>
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-medium">Новости</span>
-                <span className="text-[10px] text-muted-foreground">12 мая 2026</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/20 text-green-300 font-medium">Новости</span>
+                <span className="text-[10px] text-muted-foreground">12 апреля 2026</span>
               </div>
-              <h3 className="text-lg font-bold mb-2"><span className="text-white">Финишная </span><span className="bg-gradient-to-r from-amber-300 via-yellow-300 to-orange-300 bg-clip-text text-transparent">отладка</span></h3>
+              <h3 className="text-lg font-bold text-white mb-2">«Поехали»</h3>
+
+              {/* Подарок-коробка с нотами в гамме MuziAi. Анимация открытия
+                  играет 1 раз для лида в день; для клиентов и повторных
+                  визитов — статичная (gift-static). */}
+              <div
+                ref={(el) => {
+                  if (!el) return;
+                  if (user) { el.classList.add("gift-static"); return; }
+                  try {
+                    const today = new Date().toISOString().slice(0, 10);
+                    const last = localStorage.getItem("_giftSeen");
+                    if (last === today) { el.classList.add("gift-static"); return; }
+                    localStorage.setItem("_giftSeen", today);
+                  } catch {}
+                }}
+                className="my-3 relative rounded-xl border border-purple-500/30 bg-gradient-to-br from-purple-500/[0.12] via-blue-500/[0.10] to-cyan-500/[0.10] p-3 overflow-hidden gift-stage"
+              >
+                <svg viewBox="0 0 200 60" className="absolute inset-0 w-full h-full pointer-events-none" aria-hidden="true">
+                  <g>
+                    <circle cx="20" cy="8" r="0.9" fill="#fde68a" opacity="0.9" className="gift-twinkle" style={{animationDelay:"0s"}} />
+                    <circle cx="60" cy="5" r="0.7" fill="#a78bfa" opacity="0.85" className="gift-twinkle" style={{animationDelay:"0.7s"}} />
+                    <circle cx="110" cy="9" r="0.8" fill="#22d3ee" opacity="0.9" className="gift-twinkle" style={{animationDelay:"1.4s"}} />
+                    <circle cx="160" cy="6" r="0.7" fill="#60a5fa" opacity="0.85" className="gift-twinkle" style={{animationDelay:"2.1s"}} />
+                    <circle cx="185" cy="11" r="0.9" fill="#fde68a" opacity="0.9" className="gift-twinkle" style={{animationDelay:"2.8s"}} />
+                  </g>
+                  <g className="gift-note" style={{animationDelay:"0s"}}>
+                    <circle cx="42" cy="40" r="1.6" fill="#a78bfa" />
+                    <line x1="43.6" y1="40" x2="43.6" y2="32" stroke="#a78bfa" strokeWidth="0.7" />
+                  </g>
+                  <g className="gift-note" style={{animationDelay:"0.6s"}}>
+                    <circle cx="48" cy="40" r="1.4" fill="#22d3ee" />
+                    <line x1="49.4" y1="40" x2="49.4" y2="32" stroke="#22d3ee" strokeWidth="0.7" />
+                  </g>
+                  <g className="gift-note" style={{animationDelay:"1.2s"}}>
+                    <circle cx="36" cy="40" r="1.2" fill="#60a5fa" />
+                    <line x1="37.2" y1="40" x2="37.2" y2="33" stroke="#60a5fa" strokeWidth="0.6" />
+                  </g>
+                  <g className="gift-note" style={{animationDelay:"1.8s"}}>
+                    <circle cx="54" cy="40" r="1.4" fill="#fbbf24" />
+                    <line x1="55.4" y1="40" x2="55.4" y2="32" stroke="#fbbf24" strokeWidth="0.7" />
+                  </g>
+                  <g className="gift-note" style={{animationDelay:"2.4s"}}>
+                    <circle cx="44" cy="40" r="1.1" fill="#f0abfc" />
+                    <line x1="45.1" y1="40" x2="45.1" y2="34" stroke="#f0abfc" strokeWidth="0.6" />
+                  </g>
+                </svg>
+                <div className="relative flex items-center gap-3">
+                  <svg viewBox="0 0 48 48" className="w-12 h-12 shrink-0 drop-shadow-[0_0_10px_rgba(139,92,246,0.45)]" aria-hidden="true">
+                    <defs>
+                      <linearGradient id="giftBox" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0%" stopColor="#a78bfa" />
+                        <stop offset="50%" stopColor="#60a5fa" />
+                        <stop offset="100%" stopColor="#22d3ee" />
+                      </linearGradient>
+                      <linearGradient id="giftRibbon" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#f0abfc" />
+                        <stop offset="100%" stopColor="#a78bfa" />
+                      </linearGradient>
+                    </defs>
+                    <rect x="8" y="20" width="32" height="22" rx="2" fill="url(#giftBox)" />
+                    <g className="gift-lid">
+                      <rect x="6" y="16" width="36" height="6" rx="1.5" fill="url(#giftBox)" opacity="0.95" />
+                      <rect x="22" y="16" width="4" height="6" fill="url(#giftRibbon)" />
+                      <ellipse cx="20" cy="15" rx="5" ry="3" fill="url(#giftRibbon)" />
+                      <ellipse cx="28" cy="15" rx="5" ry="3" fill="url(#giftRibbon)" />
+                      <circle cx="24" cy="15" r="1.6" fill="#fde68a" />
+                    </g>
+                  </svg>
+                  <div className="flex-1">
+                    <div className="text-[11px] uppercase tracking-wider text-purple-300/80 font-display">подарок при регистрации</div>
+                    <div className="text-base font-bold bg-gradient-to-r from-purple-300 via-blue-300 to-cyan-300 bg-clip-text text-transparent">
+                      1 трек бесплатно 🎵
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Подбираем последние циферки перед запуском генерации — буквально пара дней. Текстовая часть уже работает: можно собрать слова и сохранить в кабинете. Зарегистрируйтесь — <span className="text-cyan-300 font-medium">1 трек в подарок</span> ждёт открытия.
+                Сейчас тестируем платформу. Зарегистрируйтесь сегодня — как только откроем генерацию, попробуете подарочный трек первыми.
+              </p>
+              <p className="text-sm text-muted-foreground leading-relaxed mt-2">
+                💡 Давайте пока подготовим вместе <span className="text-cyan-300 font-medium">текст или смысл</span> вашей будущей песни-поздравления — это уже работает в окне генерации.
               </p>
             </div>
           </div>
