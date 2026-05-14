@@ -3939,6 +3939,20 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
         FROM chatbot_sessions cs
         LEFT JOIN users u ON u.id = cs.user_id
       `).get();
+      // Eugene 2026-05-14 Босс «для меня это генерация чего-нибудь за деньги».
+      // НАСТОЯЩАЯ конверсия — сессия → платная генерация. SQL: distinct
+      // sessions где userId связан с payment-transaction после старта сессии.
+      const paidConversion = raw.prepare(`
+        SELECT COUNT(DISTINCT cs.id) AS paidSessions,
+               COUNT(DISTINCT t.id) AS paidTransactions,
+               SUM(ABS(t.amount)) AS totalRevenueKopecks
+        FROM chatbot_sessions cs
+        JOIN transactions t ON t.user_id = cs.user_id
+        WHERE cs.user_id IS NOT NULL
+          AND t.amount < 0
+          AND t.created_at > cs.started_at
+          AND t.type IN ('music', 'cover', 'lyrics')
+      `).get();
 
       // Активность сейчас — сессии с сообщением за последние 5 минут
       const active5min = Number(raw.prepare(`
@@ -3994,10 +4008,13 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
           converted: conversion?.linkedSessions || 0,
           linkedSessions: conversion?.linkedSessions || 0,
           registeredAfterChat: conversion?.registeredAfterChat || 0,
+          paidSessions: paidConversion?.paidSessions || 0,
+          paidTransactions: paidConversion?.paidTransactions || 0,
+          totalRevenueRub: Math.round((paidConversion?.totalRevenueKopecks || 0) / 100),
           rate: conversion?.total ? Math.round(((conversion?.linkedSessions || 0) / conversion.total) * 100) : 0,
           rateAfterChat: conversion?.total ? Math.round(((conversion?.registeredAfterChat || 0) / conversion.total) * 100) : 0,
-          // Eugene 2026-05-14 Босс: explanation для админа в UI.
-          explanation: "linked = сессия привязана к users.id (юзер был залогинен ИЛИ зарегистрирован позже по email из чата). registeredAfterChat = users.created_at > session.started_at — чат привёл к регистрации.",
+          ratePaid: conversion?.total ? Math.round(((paidConversion?.paidSessions || 0) / conversion.total) * 100) : 0,
+          explanation: "linked = chat-сессия имеет user_id. registeredAfterChat = регистрация ПОСЛЕ старта чата. paid = СЕССИЯ → платная генерация (music/cover/lyrics списание) ПОСЛЕ старта = настоящая конверсия в выручку.",
         },
         active5min,
         daily,

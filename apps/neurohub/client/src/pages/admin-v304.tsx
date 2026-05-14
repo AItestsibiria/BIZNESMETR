@@ -1385,13 +1385,16 @@ function BotStatsTab({ toast }: { toast: any }) {
           <div className="text-2xl font-bold text-cyan-300">{fmt(data.messages.today)}</div>
           <div className="text-[10px] text-white/40">юзер {fmt(data.messages.userToday)} · бот {fmt(data.messages.botToday)}</div>
         </div>
-        <div className="rounded-xl p-3 bg-white/[0.03] border border-white/[0.06]" title={data.conversion.explanation || ""}>
-          <div className="text-[10px] text-white/50 flex items-center gap-1">Конверсия <span className="text-[9px] cursor-help opacity-50">ⓘ</span></div>
-          <div className="text-2xl font-bold text-purple-300">{data.conversion.rate}%</div>
-          <div className="text-[10px] text-white/40">{fmt(data.conversion.linkedSessions)} linked из {fmt(data.conversion.total)}</div>
-          {data.conversion.registeredAfterChat > 0 && (
-            <div className="text-[10px] text-green-300">+{fmt(data.conversion.registeredAfterChat)} зарег. после чата ({data.conversion.rateAfterChat}%)</div>
+        {/* Eugene 2026-05-14 Босс «для меня это генерация чего-нибудь за деньги»:
+            paid (платная генерация после чата) — настоящая конверсия в выручку. */}
+        <div className="rounded-xl p-3 bg-gradient-to-br from-green-500/[0.06] to-emerald-500/[0.04] border border-green-500/25" title={data.conversion.explanation || ""}>
+          <div className="text-[10px] text-green-300 flex items-center gap-1">💰 Конверсия → платные <span className="text-[9px] cursor-help opacity-50">ⓘ</span></div>
+          <div className="text-2xl font-bold text-green-200">{data.conversion.ratePaid}%</div>
+          <div className="text-[10px] text-white/50">{fmt(data.conversion.paidSessions)} сессий → {fmt(data.conversion.paidTransactions)} платных</div>
+          {data.conversion.totalRevenueRub > 0 && (
+            <div className="text-[10px] text-green-300 font-medium">{fmt(data.conversion.totalRevenueRub)} ₽ выручка из чата</div>
           )}
+          <div className="text-[10px] text-white/30 mt-1">linked: {data.conversion.rate}% · зарег. после: {data.conversion.rateAfterChat}%</div>
         </div>
         <div className="rounded-xl p-3 bg-white/[0.03] border border-white/[0.06]">
           <div className="text-[10px] text-white/50">Avg сообщений/сессия</div>
