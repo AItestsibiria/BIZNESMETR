@@ -745,6 +745,38 @@ function ReferralInfo() {
   );
 }
 
+// Eugene 2026-05-14 Босс «обложки видимые 7, остальные раскрываются».
+function CoverPickerExpandable({ covers, selectedCoverId, onAttach }: { covers: any[]; selectedCoverId?: number | null; onAttach: (c: any) => void; }) {
+  const [showAll, setShowAll] = useState(false);
+  const visible = showAll ? covers : covers.slice(0, 7);
+  return (
+    <div>
+      <p className="text-xs text-muted-foreground mb-2">Привязать обложку:</p>
+      <div className="grid grid-cols-7 gap-1.5">
+        {visible.map(cover => (
+          <button
+            key={cover.id}
+            className={`aspect-square rounded-lg overflow-hidden border-2 transition-colors ${
+              selectedCoverId === cover.id ? "border-purple-500" : "border-transparent hover:border-white/20"
+            }`}
+            onClick={() => onAttach(cover)}
+          >
+            <img src={`/api/stream/${cover.id}`} alt="" loading="lazy" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+          </button>
+        ))}
+      </div>
+      {covers.length > 7 && (
+        <button
+          onClick={() => setShowAll(s => !s)}
+          className="mt-2 w-full text-[11px] text-purple-300 hover:text-purple-200 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors"
+        >
+          {showAll ? `↑ Скрыть (${covers.length - 7})` : `↓ Показать ещё ${covers.length - 7}`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function getCoverUrl(gen: any): string {
   // Eugene 2026-05-09: единый endpoint /api/cover/<id>.jpg для всех обложек.
   // Раньше использовался /api/stream/:id?type=image — у него своя логика
@@ -2623,9 +2655,9 @@ export default function DashboardPage() {
 
                     {(selectedGen.type === "music" || selectedGen.type === "cover") && (
                       <button
-                        className={`inline-flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap border transition-colors ${
+                        className={`relative inline-flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap border transition-colors overflow-visible ${
                           selectedGen.isPublic === 1
-                            ? "border-green-500/30 bg-green-500/10 text-green-400 hover:bg-green-500/20"
+                            ? "border-green-500/40 bg-green-500/15 text-green-300 hover:bg-green-500/25 radio-air-active"
                             : selectedGen.isPublic === 2
                             ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-400"
                             : "border-white/10 bg-white/5 text-muted-foreground hover:bg-white/10"
@@ -2700,42 +2732,86 @@ export default function DashboardPage() {
                     )}
                   </div>
 
-                  {/* Existing covers to attach */}
-                  {selectedGen.type === "music" && generations && generations.filter(g => g.type === "cover" && g.status === "done" && !g.deletedAt).length > 0 && (
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-2">Привязать обложку:</p>
-                      <div className="flex gap-2 overflow-x-auto pb-1">
-                        {generations.filter(g => g.type === "cover" && g.status === "done" && !g.deletedAt).map(cover => (
-                          <button
-                            key={cover.id}
-                            className={`w-12 h-12 rounded-lg overflow-hidden shrink-0 border-2 transition-colors ${
-                              selectedGen.coverGenId === cover.id ? "border-purple-500" : "border-transparent hover:border-white/20"
-                            }`}
-                            onClick={async () => {
-                              try {
-                                await apiRequest("POST", `/api/generations/${selectedGen.id}/cover`, { coverGenId: cover.id });
-                                queryClient.invalidateQueries();
-                                toast({ title: "Обложка привязана" });
-                                setSelectedGen({ ...selectedGen, coverGenId: cover.id });
-                              } catch { toast({ title: "Ошибка", variant: "destructive" }); }
-                            }}
-                          >
-                            <img src={`/api/stream/${cover.id}`} alt="" loading="lazy" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                          </button>
-                        ))}
+                  {/* Eugene 2026-05-14 Босс «Песня/Поздравление/Инструментальная»
+                      переключатель категории трека (только для music). */}
+                  {selectedGen.type === "music" && (() => {
+                    let curCat = "song";
+                    try { const m = JSON.parse((selectedGen as any).style || "{}"); curCat = m.category || "song"; } catch {}
+                    if ((selectedGen as any).voiceType === "instrumental") curCat = "instrumental";
+                    const cats = [
+                      { val: "song", label: "🎵 Песня", color: "purple" },
+                      { val: "greeting", label: "🎉 Поздравление", color: "pink" },
+                      { val: "instrumental", label: "🎶 Инструмент.", color: "cyan" },
+                    ];
+                    return (
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1.5">Категория:</p>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {cats.map(c => (
+                            <button
+                              key={c.val}
+                              className={`text-[11px] px-1.5 py-2 rounded-lg border transition-colors ${
+                                curCat === c.val
+                                  ? c.color === "pink" ? "border-pink-500/40 bg-pink-500/15 text-pink-300"
+                                    : c.color === "cyan" ? "border-cyan-500/40 bg-cyan-500/15 text-cyan-300"
+                                    : "border-purple-500/40 bg-purple-500/15 text-purple-300"
+                                  : "border-white/10 bg-white/5 text-muted-foreground hover:text-white"
+                              }`}
+                              onClick={async () => {
+                                try {
+                                  const r = await apiRequest("POST", `/api/generations/${selectedGen.id}/category`, { category: c.val });
+                                  const j = await r.json();
+                                  if (j.ok) {
+                                    let m: any = {}; try { m = JSON.parse((selectedGen as any).style || "{}"); } catch {}
+                                    m.category = c.val;
+                                    setSelectedGen({ ...selectedGen, style: JSON.stringify(m), voiceType: j.voiceType } as any);
+                                    queryClient.invalidateQueries();
+                                    toast({ title: `Категория: ${c.label}` });
+                                  } else toast({ title: j.message || "Ошибка", variant: "destructive" });
+                                } catch (e: any) { toast({ title: e.message, variant: "destructive" }); }
+                              }}
+                            >{c.label}</button>
+                          ))}
+                        </div>
                       </div>
-                    </div>
+                    );
+                  })()}
+
+                  {/* Existing covers to attach. Eugene 2026-05-14 Босс
+                      «обложки видимые 7, остальные раскрываются». */}
+                  {selectedGen.type === "music" && generations && generations.filter(g => g.type === "cover" && g.status === "done" && !g.deletedAt).length > 0 && (
+                    <CoverPickerExpandable
+                      covers={generations.filter(g => g.type === "cover" && g.status === "done" && !g.deletedAt)}
+                      selectedCoverId={selectedGen.coverGenId}
+                      onAttach={async (cover) => {
+                        try {
+                          await apiRequest("POST", `/api/generations/${selectedGen.id}/cover`, { coverGenId: cover.id });
+                          queryClient.invalidateQueries();
+                          toast({ title: "Обложка привязана" });
+                          setSelectedGen({ ...selectedGen, coverGenId: cover.id });
+                        } catch { toast({ title: "Ошибка", variant: "destructive" }); }
+                      }}
+                    />
                   )}
 
                 </div>
               )}
-              {/* Save & Back button — always visible */}
-              <button
-                className="w-full h-12 mt-3 rounded-xl border-2 border-white/20 bg-white/5 text-white text-sm font-semibold hover:bg-white/10 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
-                onClick={() => setSelectedGen(null)}
-              >
-                Сохранить и вернуться
-              </button>
+              {/* Eugene 2026-05-14 Босс «Сохранить и вернуться зелёная /
+                  Отменить красная» — две кнопки в одной строке. */}
+              <div className="grid grid-cols-2 gap-2 mt-3">
+                <button
+                  className="h-11 rounded-xl border-2 border-green-500/40 bg-green-500/15 text-green-300 text-sm font-semibold hover:bg-green-500/25 active:scale-[0.98] transition-all flex items-center justify-center gap-1"
+                  onClick={() => setSelectedGen(null)}
+                >
+                  ✓ Сохранить и выйти
+                </button>
+                <button
+                  className="h-11 rounded-xl border-2 border-red-500/40 bg-red-500/10 text-red-300 text-sm font-semibold hover:bg-red-500/20 active:scale-[0.98] transition-all flex items-center justify-center gap-1"
+                  onClick={() => { setRenamingId(null); setSelectedGen(null); }}
+                >
+                  ✕ Отменить
+                </button>
+              </div>
             </div>
           )}
         </DialogContent>
