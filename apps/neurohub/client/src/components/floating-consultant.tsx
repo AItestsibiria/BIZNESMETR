@@ -575,19 +575,18 @@ export function FloatingConsultant() {
           aria-modal="true"
           role="dialog"
         >
-          {/* Eugene 2026-05-14 Босс «верни предыдущую прозрачность» — bg/18,
-              backdrop /10, blur-md (как было до −30% правки). */}
+          {/* Eugene 2026-05-14 Босс «можно нажимать на кнопки главной без
+              закрытия чата». Backdrop без pointer-events — клики проходят
+              сквозь, главная страница реагирует. Клик ВНЕ drawer не закрывает. */}
           <div
-            className="absolute inset-0 bg-black/10 pointer-events-auto"
-            onClick={() => setChatOpen(false)}
+            className="absolute inset-0 pointer-events-none"
           />
           <div
-            className="absolute right-0 bottom-0 sm:bottom-4 sm:right-4 w-[92vw] max-w-[420px] sm:w-[380px] flex flex-col bg-background/[0.18] backdrop-blur-md border-2 rounded-t-2xl sm:rounded-2xl border-purple-400/40 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in slide-in-from-bottom-2 duration-300 sm:!h-[520px]"
+            className="absolute right-0 bottom-0 sm:bottom-4 sm:right-4 w-[92vw] max-w-[420px] sm:w-[380px] flex flex-col bg-background/[0.18] backdrop-blur-md border-2 rounded-t-2xl sm:rounded-2xl border-purple-400/40 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in slide-in-from-bottom-2 duration-300 sm:!h-[460px]"
             style={{
-              // Eugene 2026-05-14 Босс «на смартфоне открывается низ — уменьшить»:
-              // высота 75vh снизу — не на весь экран. Юзер видит и навбар, и
-              // часть страницы. iOS safe-area для home-indicator учтена.
-              height: "min(75vh, calc(100vh - 96px - env(safe-area-inset-bottom, 0px)))",
+              // Eugene 2026-05-14 Босс «уменьши высоту чтобы кнопки главной
+              // были доступны». Mobile 60vh (было 75vh), desktop 460px (было 520).
+              height: "min(60vh, calc(100vh - 96px - env(safe-area-inset-bottom, 0px)))",
               marginBottom: "env(safe-area-inset-bottom, 0px)",
             }}
           >
@@ -795,10 +794,12 @@ export function FloatingConsultant() {
                 💡 Есть код из Telegram/Max? Введи его — подтяну наш разговор оттуда.
               </div>
             )}
-            {/* Input */}
+            {/* Input — Eugene 2026-05-14 Босс «увеличение окно и шрифт ввода
+                сообщение Музе». Шрифт 16px, padding больше, кнопка тоже
+                крупнее — input area стала доминирующей. */}
             <form
               onSubmit={(e) => { e.preventDefault(); sendChat(); }}
-              className="flex items-center gap-2 px-3 py-3 sm:py-2 border-t border-white/[0.06] shrink-0 bg-background/60"
+              className="flex items-center gap-2 px-3 py-3 border-t border-white/[0.06] shrink-0 bg-background/60"
             >
               <input
                 type="text"
@@ -807,13 +808,13 @@ export function FloatingConsultant() {
                 placeholder={chatPaired ? "Продолжаем…" : "Сообщение Музе…"}
                 maxLength={1500}
                 disabled={chatSending}
-                className="flex-1 min-w-0 bg-white/[0.05] text-[14px] text-white placeholder:text-white/40 px-3 py-2.5 sm:py-2 rounded-xl border border-white/[0.08] focus:border-purple-400/40 focus:outline-none disabled:opacity-50"
+                className="flex-1 min-w-0 bg-white/[0.07] text-[16px] text-white placeholder:text-white/40 px-4 py-3.5 rounded-xl border-2 border-purple-400/25 focus:border-purple-400/60 focus:outline-none disabled:opacity-50 font-medium"
                 autoFocus
               />
               <button
                 type="submit"
                 disabled={!chatInput.trim() || chatSending}
-                className="px-4 py-2.5 sm:py-2 rounded-xl bg-gradient-to-r from-purple-500 to-blue-500 text-white text-[13px] font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:from-purple-600 hover:to-blue-600 transition-colors shrink-0"
+                className="px-5 py-3.5 rounded-xl bg-gradient-to-r from-purple-500 to-blue-500 text-white text-[16px] font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:from-purple-600 hover:to-blue-600 transition-colors shrink-0 shadow-lg shadow-purple-500/20"
               >➤</button>
             </form>
             {/* Eugene 2026-05-14 Босс «кнопку ухожу и вернусь — внизу».
