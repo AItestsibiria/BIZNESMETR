@@ -8,54 +8,34 @@
 // 2. new Audio() (не в DOM) — регистрируется явно через registerAudio()
 //
 // При play() любого зарегистрированного — все остальные pause().
+//
+// Eugene 2026-05-14 Босс ОТКАТ: версия с pauseAllExcept() + удалённым
+// emptied cleanup создавала каскад pause-событий и блокировала Stop
+// в основном плеере. Возвращаемся к листенер-only варианту.
 
 const tracked = new Set<HTMLAudioElement>();
 let installed = false;
-
-// Eugene 2026-05-14 Босс: фикс «два трека одновременно при открытии главной».
-// Проблема была: глобальный 'play' listener ловит event ПОСЛЕ того как
-// аудио уже стартует — был быстрый промежуток когда обе песни звучали.
-// Решение: добавить pauseAllExcept() для СИНХРОННОЙ паузы старых ДО play()
-// нового. Listener остаётся как safety net.
-//
-// Дополнительно: убрали cleanup на 'emptied' (слишком ранний), чтобы
-// long-lived global audio (__muziaiAudio) оставался в set между навигациями.
-
-export function pauseAllExcept(except: HTMLAudioElement | null): void {
-  // Pause все DOM-audio (включая <audio controls>, lock-screen, mic-recorder etc)
-  if (typeof document !== "undefined") {
-    document.querySelectorAll("audio").forEach((a) => {
-      if (a !== except && !a.paused) {
-        try { a.pause(); } catch {}
-      }
-    });
-  }
-  // Pause все non-DOM (new Audio() через registerAudio)
-  for (const a of tracked) {
-    if (a !== except && !a.paused) {
-      try { a.pause(); } catch {}
-    }
-  }
-  // Pause cross-page global audio (если разные SPA-страницы создали
-  // свои audioRef, но __muziaiAudio сохраняется)
-  if (typeof window !== "undefined") {
-    const ga = (window as any).__muziaiAudio as HTMLAudioElement | undefined;
-    if (ga && ga !== except && !ga.paused) {
-      try { ga.pause(); } catch {}
-    }
-  }
-}
 
 export function installAudioBus(): void {
   if (installed || typeof document === "undefined") return;
   installed = true;
   // capture=true — ловим event 'play' до того как обработчики компонента
-  // отреагируют. Safety net на случай если pauseAllExcept не вызван
-  // прямо перед play().
+  // отреагируют. Применимо для всех <audio> в DOM.
   document.addEventListener("play", (e) => {
     const current = e.target as HTMLMediaElement | null;
     if (!current || (current.tagName !== "AUDIO" && current.tagName !== "VIDEO")) return;
-    pauseAllExcept(current as HTMLAudioElement);
+    // Pause все DOM-audio
+    document.querySelectorAll("audio").forEach((a) => {
+      if (a !== current && !a.paused) {
+        try { a.pause(); } catch {}
+      }
+    });
+    // Pause все non-DOM (зарегистрированные через registerAudio)
+    for (const a of tracked) {
+      if (a !== current && !a.paused) {
+        try { a.pause(); } catch {}
+      }
+    }
   }, true);
 }
 
@@ -66,11 +46,25 @@ export function registerAudio(audio: HTMLAudioElement): void {
   // При play этого audio — pause всех остальных (на случай если глобальный
   // listener не сработал из-за detached element).
   audio.addEventListener("play", () => {
-    pauseAllExcept(audio);
+    document.querySelectorAll("audio").forEach((a) => {
+      if (a !== audio && !a.paused) { try { a.pause(); } catch {} }
+    });
+    for (const a of tracked) {
+      if (a !== audio && !a.paused) { try { a.pause(); } catch {} }
+    }
   });
-  // Eugene 2026-05-14: убран cleanup на 'emptied' (срабатывал слишком
-  // рано — при смене src, до фактического конца). Оставляем только 'ended'
-  // — настоящий конец трека.
+  // Удаляем из set после конца / abort.
   const cleanup = () => tracked.delete(audio);
   audio.addEventListener("ended", cleanup);
+  audio.addEventListener("emptied", cleanup);
+}
+
+// Eugene 2026-05-14 Босс: pauseAllExcept оставлен как no-op stub для
+// backward compat (если где-то ещё импортируется). На практике
+// passthrough — реальный singleton обеспечивается listener'ом выше.
+export function pauseAllExcept(_except: HTMLAudioElement | null): void {
+  // Намеренно no-op. Раньше эта функция СИНХРОННО паузила всё перед play,
+  // что вызывало каскад pause/play событий → моргание + Stop не работал
+  // в основном плеере (его pause был moментально перебит другим audio).
+  // Listener-based path (выше) надёжнее.
 }

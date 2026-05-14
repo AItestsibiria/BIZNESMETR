@@ -1,4 +1,4 @@
-import { registerAudio, pauseAllExcept } from "../lib/audio-bus";
+import { registerAudio } from "../lib/audio-bus";
 import { useLocation, useRoute } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { PenLine, Music, Image, Sparkles, ArrowRight, Zap, Download, Mic, Play, Pause, SkipForward, SkipBack, ChevronDown, ChevronUp, Share2, Repeat, Repeat1 } from "lucide-react";
@@ -631,10 +631,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       audioRef.current.onloadedmetadata = null;
 
     }
-    // Eugene 2026-05-14 Босс: синхронно паузим ВСЕ другие audio (включая
-    // cross-page __muziaiAudio и DOM-audio) ДО создания нового — устраняет
-    // ситуацию «две песни играют одновременно».
-    pauseAllExcept(null);
     const audio = new Audio(track.audioUrl); registerAudio(audio);
     audio.volume = 0.5;
     audioRef.current = audio;

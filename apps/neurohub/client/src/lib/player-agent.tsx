@@ -1,4 +1,4 @@
-import { registerAudio, pauseAllExcept } from "./audio-bus";
+import { registerAudio } from "./audio-bus";
 // PlayerAgent — глобальный контроллер воспроизведения треков MuziAi.
 // ТЗ Eugene 2026-05-08 14:18:
 // - Per-user параметры (filters/sort/repeat) держатся жёстко
@@ -172,8 +172,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       audioRef.current.onended = null;
       audioRef.current.onerror = null;
     }
-    // Eugene 2026-05-14 Босс: синхронно паузим все остальные audio ДО play().
-    pauseAllExcept(null);
     const audio = new Audio(t.audioUrl); registerAudio(audio);
     audio.volume = volume;
     audioRef.current = audio;
