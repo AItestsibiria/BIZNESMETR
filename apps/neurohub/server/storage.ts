@@ -132,6 +132,10 @@ try {
   const ucn = userCols.map(c => c.name);
   if (!ucn.includes("pending_name")) sqlite.exec("ALTER TABLE users ADD COLUMN pending_name TEXT");
   if (!ucn.includes("name_change_token")) sqlite.exec("ALTER TABLE users ADD COLUMN name_change_token TEXT");
+  // Eugene 2026-05-14 Босс: правило «1000 первых из РФ + ближнее зарубежье».
+  if (!ucn.includes("country")) sqlite.exec("ALTER TABLE users ADD COLUMN country TEXT");
+  if (!ucn.includes("country_code")) sqlite.exec("ALTER TABLE users ADD COLUMN country_code TEXT");
+  if (!ucn.includes("welcome_gift_given")) sqlite.exec("ALTER TABLE users ADD COLUMN welcome_gift_given INTEGER NOT NULL DEFAULT 0");
 
   const genCols = sqlite.prepare("PRAGMA table_info(generations)").all() as { name: string }[];
   const gcn = genCols.map(c => c.name);

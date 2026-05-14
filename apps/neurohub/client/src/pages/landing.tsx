@@ -1,4 +1,4 @@
-import { registerAudio } from "../lib/audio-bus";
+import { registerAudio, pauseAllExcept } from "../lib/audio-bus";
 import { useLocation, useRoute } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { PenLine, Music, Image, Sparkles, ArrowRight, Zap, Download, Mic, Play, Pause, SkipForward, SkipBack, ChevronDown, ChevronUp, Share2, Repeat, Repeat1 } from "lucide-react";
@@ -371,10 +371,18 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const [countriesCount, setCountriesCount] = useState<number>(0);
   const [countriesList, setCountriesList] = useState<Array<{country:string;country_code:string;n:number}>>([]);
   const [showCountries, setShowCountries] = useState(false);
+  // Eugene 2026-05-14 Босс: «справа доп. панель с топом городов».
+  const [topCities, setTopCities] = useState<Array<{city:string;country:string;country_code:string;n:number}>>([]);
   useEffect(() => {
     const load = () => fetch("/api/public/countries-count", { cache: "no-store" }).then(r => r.json()).then(d => { setCountriesCount(d.countries || 0); setCountriesList(d.list || []); }).catch(() => {});
     load();
     const id = setInterval(load, 3600000);
+    return () => clearInterval(id);
+  }, []);
+  useEffect(() => {
+    const load = () => fetch("/api/public/top-cities", { cache: "no-store" }).then(r => r.json()).then(d => setTopCities(d.list || [])).catch(() => {});
+    load();
+    const id = setInterval(load, 600000); // каждые 10 мин
     return () => clearInterval(id);
   }, []);
   const NAME_TO_CC: Record<string,string> = { "United States":"US","США":"US","Russia":"RU","Россия":"RU","Germany":"DE","Германия":"DE","United Kingdom":"GB","Великобритания":"GB","Netherlands":"NL","Нидерланды":"NL","Ukraine":"UA","Украина":"UA","Saudi Arabia":"SA","Молдова":"MD","Moldova":"MD","France":"FR","Франция":"FR","Italy":"IT","Италия":"IT","Spain":"ES","Испания":"ES","Poland":"PL","Польша":"PL","Belarus":"BY","Беларусь":"BY","Kazakhstan":"KZ","Казахстан":"KZ","Turkey":"TR","Турция":"TR","China":"CN","Китай":"CN","Japan":"JP","Япония":"JP","Korea":"KR","India":"IN","Индия":"IN","Brazil":"BR","Бразилия":"BR","Canada":"CA","Канада":"CA","Australia":"AU","Австралия":"AU","Israel":"IL","Израиль":"IL","UAE":"AE","ОАЭ":"AE","Georgia":"GE","Грузия":"GE","Armenia":"AM","Армения":"AM","Azerbaijan":"AZ","Азербайджан":"AZ","Uzbekistan":"UZ","Узбекистан":"UZ","Latvia":"LV","Lithuania":"LT","Estonia":"EE","Czech Republic":"CZ","Czechia":"CZ","Switzerland":"CH","Sweden":"SE","Norway":"NO","Finland":"FI","Denmark":"DK","Austria":"AT","Belgium":"BE","Greece":"GR","Portugal":"PT","Hungary":"HU","Romania":"RO","Bulgaria":"BG","Serbia":"RS","Croatia":"HR" };
@@ -389,8 +397,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     try { const s = localStorage.getItem(`pl_v2:${user?.id || "guest"}:sortDir`); if (s === "asc" || s === "desc") return s; } catch {}
     return "asc";
   });
-  const [categoryFilter, setCategoryFilter] = useState<'all' | 'song' | 'greeting'>(() => {
-    try { const s = localStorage.getItem(`pl_v2:${user?.id || "guest"}:category`); if (s === "all" || s === "song" || s === "greeting") return s; } catch {}
+  const [categoryFilter, setCategoryFilter] = useState<'all' | 'song' | 'greeting' | 'instrumental'>(() => {
+    try { const s = localStorage.getItem(`pl_v2:${user?.id || "guest"}:category`); if (s === "all" || s === "song" || s === "greeting" || s === "instrumental") return s; } catch {}
     return "song";
   });
   // Persist каждый раз когда меняется
@@ -404,7 +412,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       const sd = localStorage.getItem(psKey("sortDir"));
       if (sd === "asc" || sd === "desc") setSortDir(sd);
       const cf = localStorage.getItem(psKey("category"));
-      if (cf === "all" || cf === "song" || cf === "greeting") setCategoryFilter(cf);
+      if (cf === "all" || cf === "song" || cf === "greeting" || cf === "instrumental") setCategoryFilter(cf);
       const tid = localStorage.getItem(psKey("trackId"));
       if (tid) setPlayingId(Number(tid));
       const ct = localStorage.getItem(psKey("currentTime"));
@@ -623,6 +631,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       audioRef.current.onloadedmetadata = null;
 
     }
+    // Eugene 2026-05-14 Босс: синхронно паузим ВСЕ другие audio (включая
+    // cross-page __muziaiAudio и DOM-audio) ДО создания нового — устраняет
+    // ситуацию «две песни играют одновременно».
+    pauseAllExcept(null);
     const audio = new Audio(track.audioUrl); registerAudio(audio);
     audio.volume = 0.5;
     audioRef.current = audio;
@@ -976,19 +988,34 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                     </g>
                   </svg>
                   <div className="flex-1">
-                    <div className="text-[11px] uppercase tracking-wider text-purple-300/80 font-display">подарок при регистрации</div>
+                    <div className="text-[11px] uppercase tracking-wider text-purple-300/80 font-display">первые 1000 при регистрации</div>
                     <div className="text-base font-bold bg-gradient-to-r from-purple-300 via-blue-300 to-cyan-300 bg-clip-text text-transparent">
                       1 трек бесплатно 🎵
                     </div>
+                    <div className="text-[10px] text-muted-foreground/80 mt-0.5">Россия и ближнее зарубежье</div>
                   </div>
                 </div>
               </div>
 
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Сейчас тестируем платформу. Зарегистрируйтесь сегодня — как только откроем генерацию, попробуете подарочный трек первыми.
+                Сейчас тестируем платформу. Подарочный трек получают <span className="text-purple-300 font-medium">первые 1000 авторов из России и ближнего зарубежья</span> — зарегистрируйтесь сегодня, чтобы попасть в число первых.
               </p>
               <p className="text-sm text-muted-foreground leading-relaxed mt-2">
-                💡 Давайте пока подготовим вместе <span className="text-cyan-300 font-medium">текст или смысл</span> вашей будущей песни-поздравления — это уже работает в окне генерации.
+                💡 Давайте пока подготовим вместе{" "}
+                <a
+                  href="#/music?mode=basic&focus=prompt"
+                  onClick={() => {
+                    // Eugene 2026-05-14 Босс: клик по «текст или смысл» →
+                    // /music с pre-fill в режим текстовой генерации,
+                    // фокус на поле "Текст или смысл песни".
+                    try {
+                      localStorage.setItem("music_mode", "basic");
+                      sessionStorage.setItem("music_focus", "prompt");
+                    } catch {}
+                  }}
+                  className="text-cyan-300 font-medium underline decoration-cyan-500/40 underline-offset-2 hover:text-cyan-200 hover:decoration-cyan-300 transition-colors cursor-pointer"
+                >текст или смысл</a>{" "}
+                вашей будущей песни-поздравления — это уже работает в окне генерации.
               </p>
             </div>
           </div>
@@ -1045,6 +1072,28 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     </section>
 
     <section id="playlist-section" className="relative z-[1] py-20 px-4 border-t border-white/[0.04]">
+      {/* Eugene 2026-05-14 Босс: топ городов справа на главной — sticky
+          aside, появляется только на больших экранах (lg+), на мобильном
+          не загромождает контент. Позиция fixed справа, выровнен по центру. */}
+      {topCities.length > 0 && (
+        <aside
+          className="hidden lg:flex flex-col fixed right-4 top-1/2 -translate-y-1/2 z-[2] w-44 max-h-[70vh] overflow-y-auto rounded-2xl border border-white/[0.06] bg-black/40 backdrop-blur-xl p-3 shadow-xl"
+          aria-label="Топ городов"
+        >
+          <div className="text-[10px] uppercase tracking-wider text-purple-300/80 font-display mb-2 text-center">
+            Города-слушатели
+          </div>
+          <ul className="space-y-1 text-xs">
+            {topCities.map((c, i) => (
+              <li key={`${c.city}-${c.country_code}-${i}`} className="flex items-center gap-1.5 text-muted-foreground/90">
+                <span className="text-base shrink-0">{flagOf(c.country_code, c.country)}</span>
+                <span className="truncate flex-1" title={`${c.city}, ${c.country}`}>{c.city}</span>
+                <span className="text-[10px] text-purple-300/70 shrink-0">{c.n}</span>
+              </li>
+            ))}
+          </ul>
+        </aside>
+      )}
       <div className="max-w-3xl mx-auto">
         <h2 className="text-2xl font-bold text-center mb-2">
           <span className="gradient-text">Плейлист сообщества</span>
@@ -1177,14 +1226,17 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
 
         {/* Expanded cover rendered inline after selected track (see renderExpandedCover below) */}
 
-        {/* Category filter */}
-        <div className="flex items-center gap-1.5 mb-3">
-          {([['all', 'Все'], ['song', '🎵 Песни'], ['greeting', '🎉 Поздравления']] as const).map(([val, label]) => (
+        {/* Category filter (Eugene 2026-05-14 Босс: вернул Инструментальную) */}
+        <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+          {([['all', 'Все'], ['song', '🎵 Песни'], ['greeting', '🎉 Поздравления'], ['instrumental', '🎶 Инструментальная']] as const).map(([val, label]) => (
             <button key={val}
               onClick={() => setCategoryFilter(val)}
               className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
                 categoryFilter === val
-                  ? val === 'greeting' ? 'border-pink-500/30 bg-pink-500/15 text-pink-300' : val === 'song' ? 'border-purple-500/30 bg-purple-500/15 text-purple-300' : 'border-white/20 bg-white/10 text-white'
+                  ? val === 'greeting' ? 'border-pink-500/30 bg-pink-500/15 text-pink-300'
+                    : val === 'song' ? 'border-purple-500/30 bg-purple-500/15 text-purple-300'
+                    : val === 'instrumental' ? 'border-cyan-500/30 bg-cyan-500/15 text-cyan-300'
+                    : 'border-white/20 bg-white/10 text-white'
                   : 'border-white/10 bg-white/5 text-muted-foreground hover:text-white'
               }`}
             >{label}</button>

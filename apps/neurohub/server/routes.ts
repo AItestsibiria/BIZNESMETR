@@ -437,6 +437,29 @@ function ensureSeedAdmin() {
   }
 }
 
+// Eugene 2026-05-14 Босс: правило «1000 первых из РФ + ближнее зарубежье».
+// CIS = страны бывшего СССР (включая Грузию исторически). Подарочный
+// трек выдаётся только первым 1000 авторам из этого списка.
+const CIS_COUNTRY_CODES = new Set([
+  "RU", // Россия
+  "BY", // Беларусь
+  "KZ", // Казахстан
+  "KG", // Кыргызстан
+  "AM", // Армения
+  "AZ", // Азербайджан
+  "TJ", // Таджикистан
+  "TM", // Туркменистан
+  "UZ", // Узбекистан
+  "MD", // Молдова
+  "UA", // Украина
+  "GE", // Грузия
+]);
+const WELCOME_GIFT_LIMIT = 1000;
+
+function isCISCountry(countryCode: string | null | undefined): boolean {
+  return !!countryCode && CIS_COUNTRY_CODES.has(countryCode.toUpperCase());
+}
+
 // GeoIP lookup via free API (ip-api.com, 45 req/min)
 const geoCache = new Map<string, any>();
 async function getGeo(ip: string): Promise<{ country: string; countryCode: string; city: string; region: string }> {
@@ -913,6 +936,45 @@ export async function registerRoutes(
         referredBy: referrerId,
         balance: 0,
       }).where(eq(users.id, user.id)).run();
+
+      // Eugene 2026-05-14 Босс: правило «1000 первых из РФ + ближнее зарубежье».
+      // Lookup geo по IP регистрирующего, сохраняем country/countryCode,
+      // и если страна СНГ + общий счётчик welcomeGiftGiven < 1000 — выдаём
+      // 1 подарочный трек + транзакцию + помечаем welcomeGiftGiven=1.
+      try {
+        const regIp = (req.ip || req.socket.remoteAddress || "").replace(/^::ffff:/, "");
+        const geo = await getGeo(regIp);
+        if (geo.country || geo.countryCode) {
+          db.update(users).set({
+            country: geo.country || null,
+            countryCode: geo.countryCode || null,
+          }).where(eq(users.id, user.id)).run();
+        }
+        if (isCISCountry(geo.countryCode)) {
+          const giftCountRow = db.select({ c: sql<number>`COUNT(*)` })
+            .from(users)
+            .where(eq(users.welcomeGiftGiven, 1))
+            .get();
+          const giftedSoFar = Number(giftCountRow?.c || 0);
+          if (giftedSoFar < WELCOME_GIFT_LIMIT) {
+            db.update(users).set({
+              bonusTracks: sql`${users.bonusTracks} + 1`,
+              welcomeGiftGiven: 1,
+            }).where(eq(users.id, user.id)).run();
+            storage.createTransaction({
+              userId: user.id,
+              type: "topup",
+              amount: 0,
+              description: `🎁 Подарочный трек: первые 1000 авторов из РФ и ближнего зарубежья (#${giftedSoFar + 1} из 1000)`,
+            });
+            console.log(`[WELCOME-GIFT] User #${user.id} (${geo.countryCode}) received gift track #${giftedSoFar + 1}/1000`);
+          } else {
+            console.log(`[WELCOME-GIFT] Limit reached (1000) — User #${user.id} (${geo.countryCode}) NOT gifted`);
+          }
+        }
+      } catch (e) {
+        console.error("[WELCOME-GIFT] Error checking eligibility:", e);
+      }
 
       // Promo code bonus (only if user entered one)
       if (promo) {
@@ -2280,6 +2342,83 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
   });
 
   // Bot learnings (Eugene 2026-05-11): самообучение помощника.
+  // Eugene 2026-05-14 Босс: backfill правила «1000 первых из РФ + ближнее
+  // зарубежье» для уже зарегистрированных юзеров. Идемпотентно (через
+  // welcomeGiftGiven=1 marker). Geo lookup — сначала по сохранённой
+  // visitors row, потом по в случае отсутствия — через ip-api.
+  app.post("/api/admin/v304/welcome-gift-backfill", requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const giftCountRow = db.select({ c: sql<number>`COUNT(*)` })
+        .from(users)
+        .where(eq(users.welcomeGiftGiven, 1))
+        .get();
+      let giftedSoFar = Number(giftCountRow?.c || 0);
+      if (giftedSoFar >= WELCOME_GIFT_LIMIT) {
+        res.json({ ok: true, message: "Лимит 1000 уже исчерпан", giftedSoFar, giftedNow: 0, total: 0 });
+        return;
+      }
+
+      // Берём ВСЕХ юзеров без welcomeGiftGiven, отсортированных по id ASC
+      // (ранние регистрации получают первыми). Лимитируем выборку чтобы
+      // не упереться в N+1 на больших БД.
+      const eligibleUsers = db.select()
+        .from(users)
+        .where(eq(users.welcomeGiftGiven, 0))
+        .orderBy(users.id)
+        .all();
+
+      let giftedNow = 0;
+      let total = eligibleUsers.length;
+
+      for (const u of eligibleUsers) {
+        if (giftedSoFar >= WELCOME_GIFT_LIMIT) break;
+
+        // Determine country: priority — already saved on user, else visitors row, else skip
+        let countryCode: string | null = u.countryCode || null;
+        let country: string | null = u.country || null;
+        if (!countryCode) {
+          const v = db.select().from(visitors)
+            .where(and(eq(visitors.userId, u.id), isNotNull(visitors.countryCode)))
+            .orderBy(desc(visitors.lastVisit))
+            .limit(1)
+            .get();
+          if (v?.countryCode) {
+            countryCode = v.countryCode;
+            country = v.country || null;
+          }
+        }
+
+        if (!isCISCountry(countryCode)) continue;
+
+        // Save country if not present
+        if (!u.countryCode || !u.country) {
+          db.update(users).set({
+            country: country || u.country || null,
+            countryCode: countryCode || u.countryCode || null,
+          }).where(eq(users.id, u.id)).run();
+        }
+
+        db.update(users).set({
+          bonusTracks: sql`${users.bonusTracks} + 1`,
+          welcomeGiftGiven: 1,
+        }).where(eq(users.id, u.id)).run();
+        storage.createTransaction({
+          userId: u.id,
+          type: "topup",
+          amount: 0,
+          description: `🎁 Подарочный трек (backfill): первые 1000 из РФ и ближнего зарубежья (#${giftedSoFar + 1} из 1000)`,
+        });
+        giftedSoFar++;
+        giftedNow++;
+      }
+
+      res.json({ ok: true, total, giftedNow, giftedSoFar, limit: WELCOME_GIFT_LIMIT });
+    } catch (e: any) {
+      console.error("[WELCOME-GIFT-BACKFILL]", e);
+      res.status(500).json({ ok: false, error: String(e) });
+    }
+  });
+
   app.get("/api/admin/v304/bot-learnings", requireAdmin, (_req: Request, res: Response) => {
     try {
       const rows = db.select().from(botLearnings).orderBy(desc(botLearnings.createdAt)).limit(50).all();
@@ -4130,6 +4269,10 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       const scored = available.map(t => {
         let plays = 0, downloads = 0, category = 'song';
         try { const m = JSON.parse(t.style || "{}"); plays = m.plays || 0; downloads = m.downloads || 0; category = m.category || 'song'; } catch {}
+        // Eugene 2026-05-14 Босс: если voiceType=instrumental — категория
+        // ВСЕГДА instrumental (раньше эти треки могли застрять как song).
+        // Это вернуло фильтр «Инструментальная» на главной.
+        if ((t as any).voiceType === 'instrumental') category = 'instrumental';
         return { ...t, plays, downloads, category };
       });
       if (sortMode === "date") {
@@ -5319,6 +5462,28 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       const rows = (raw as any).prepare(sqlQ).all();
       res.json({ countries: rows.length, list: rows });
     } catch { res.json({ countries: 0, list: [] }); }
+  });
+
+  // Eugene 2026-05-14 Босс: «справа доп. панель с топом городов» на главной.
+  // Берём из visitors по city, исключаем пустые / "0.0.0.0" daily-bump
+  // (там city=NULL) — только реальные посещения.
+  app.get("/api/public/top-cities", (_req: Request, res: Response) => {
+    res.set("Cache-Control", "public, max-age=600");
+    const raw = (db as any).$client;
+    try {
+      const sqlQ = `
+        SELECT city, country, country_code, COUNT(*) AS n
+        FROM visitors
+        WHERE city IS NOT NULL AND city != '' AND ip != '0.0.0.0'
+        GROUP BY city, country_code
+        ORDER BY n DESC
+        LIMIT 12`;
+      const rows = (raw as any).prepare(sqlQ).all();
+      res.json({ cities: rows.length, list: rows });
+    } catch (e: any) {
+      console.error("[TOP-CITIES]", e);
+      res.json({ cities: 0, list: [] });
+    }
   });
 
   // Ежедневный прирост по странам (раз в сутки): по +1 записи на каждую известную страну

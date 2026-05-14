@@ -12,26 +12,50 @@
 const tracked = new Set<HTMLAudioElement>();
 let installed = false;
 
+// Eugene 2026-05-14 Босс: фикс «два трека одновременно при открытии главной».
+// Проблема была: глобальный 'play' listener ловит event ПОСЛЕ того как
+// аудио уже стартует — был быстрый промежуток когда обе песни звучали.
+// Решение: добавить pauseAllExcept() для СИНХРОННОЙ паузы старых ДО play()
+// нового. Listener остаётся как safety net.
+//
+// Дополнительно: убрали cleanup на 'emptied' (слишком ранний), чтобы
+// long-lived global audio (__muziaiAudio) оставался в set между навигациями.
+
+export function pauseAllExcept(except: HTMLAudioElement | null): void {
+  // Pause все DOM-audio (включая <audio controls>, lock-screen, mic-recorder etc)
+  if (typeof document !== "undefined") {
+    document.querySelectorAll("audio").forEach((a) => {
+      if (a !== except && !a.paused) {
+        try { a.pause(); } catch {}
+      }
+    });
+  }
+  // Pause все non-DOM (new Audio() через registerAudio)
+  for (const a of tracked) {
+    if (a !== except && !a.paused) {
+      try { a.pause(); } catch {}
+    }
+  }
+  // Pause cross-page global audio (если разные SPA-страницы создали
+  // свои audioRef, но __muziaiAudio сохраняется)
+  if (typeof window !== "undefined") {
+    const ga = (window as any).__muziaiAudio as HTMLAudioElement | undefined;
+    if (ga && ga !== except && !ga.paused) {
+      try { ga.pause(); } catch {}
+    }
+  }
+}
+
 export function installAudioBus(): void {
   if (installed || typeof document === "undefined") return;
   installed = true;
   // capture=true — ловим event 'play' до того как обработчики компонента
-  // отреагируют. Применимо для всех <audio> в DOM.
+  // отреагируют. Safety net на случай если pauseAllExcept не вызван
+  // прямо перед play().
   document.addEventListener("play", (e) => {
     const current = e.target as HTMLMediaElement | null;
     if (!current || (current.tagName !== "AUDIO" && current.tagName !== "VIDEO")) return;
-    // Pause все DOM-audio
-    document.querySelectorAll("audio").forEach((a) => {
-      if (a !== current && !a.paused) {
-        try { a.pause(); } catch {}
-      }
-    });
-    // Pause все non-DOM (зарегистрированные через registerAudio)
-    for (const a of tracked) {
-      if (a !== current && !a.paused) {
-        try { a.pause(); } catch {}
-      }
-    }
+    pauseAllExcept(current as HTMLAudioElement);
   }, true);
 }
 
@@ -42,15 +66,11 @@ export function registerAudio(audio: HTMLAudioElement): void {
   // При play этого audio — pause всех остальных (на случай если глобальный
   // listener не сработал из-за detached element).
   audio.addEventListener("play", () => {
-    document.querySelectorAll("audio").forEach((a) => {
-      if (a !== audio && !a.paused) { try { a.pause(); } catch {} }
-    });
-    for (const a of tracked) {
-      if (a !== audio && !a.paused) { try { a.pause(); } catch {} }
-    }
+    pauseAllExcept(audio);
   });
-  // Удаляем из set после конца / abort.
+  // Eugene 2026-05-14: убран cleanup на 'emptied' (срабатывал слишком
+  // рано — при смене src, до фактического конца). Оставляем только 'ended'
+  // — настоящий конец трека.
   const cleanup = () => tracked.delete(audio);
   audio.addEventListener("ended", cleanup);
-  audio.addEventListener("emptied", cleanup);
 }

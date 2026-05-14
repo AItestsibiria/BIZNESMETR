@@ -21,6 +21,10 @@ export const users = sqliteTable("users", {
   nameChangeToken: text("name_change_token"), // токен для подтверждения смены имени
   bonusTracks: integer("bonus_tracks").notNull().default(0), // подарочные треки (отдельно от баланса)
   usedPromo: text("used_promo"), // промокод использованный при регистрации
+  // Eugene 2026-05-14 Босс: правило «1000 первых из РФ + ближнее зарубежье»
+  country: text("country"),                // напр. "Russia" / "Belarus"
+  countryCode: text("country_code"),       // ISO alpha-2: "RU", "BY", "KZ", ...
+  welcomeGiftGiven: integer("welcome_gift_given").notNull().default(0), // 1 = получил подарочный трек по правилу 1000
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 

@@ -129,22 +129,19 @@ export default function Navbar() {
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-          {/* Logo — always goes to main page and scrolls to the playlist zone */}
+          {/* Logo (Eugene 2026-05-14 Босс) — ВСЕГДА переходит на главную (top).
+              Если уже на главной — scroll к началу страницы. Никакого
+              scroll-to-playlist (это отдельное поведение для других триггеров). */}
           <Link
             href="/"
             className="flex items-center gap-2 group"
             data-testid="link-logo"
             onClick={(e: any) => {
               playCosmicChime();
-              // Mark intent to scroll to playlist after navigation completes
-              try { sessionStorage.setItem("scrollToPlaylist", "1"); } catch {}
-              // If already on main page, scroll immediately
               const currentHash = window.location.hash.replace(/^#/, "") || "/";
               if (currentHash === "/" || currentHash === "") {
                 e?.preventDefault?.();
-                const el = document.getElementById("playlist-section") || document.querySelector("[data-scroll-target='playlist']");
-                if (el) (el as HTMLElement).scrollIntoView({ behavior: "smooth", block: "start" });
-                else window.scrollTo({ top: 0, behavior: "smooth" });
+                window.scrollTo({ top: 0, behavior: "smooth" });
               }
             }}
           >

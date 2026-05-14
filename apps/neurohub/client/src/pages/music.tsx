@@ -1011,6 +1011,20 @@ export default function MusicPage() {
                   rows={5}
                   className="bg-background/50 border-white/10 input-glow resize-none"
                   data-testid="input-basic-prompt"
+                  ref={(el) => {
+                    // Eugene 2026-05-14 Босс: если пришли по deep-link
+                    // (новость 12 апреля → текст или смысл) — авто-фокус
+                    // на это поле + scroll.
+                    if (!el) return;
+                    try {
+                      if (sessionStorage.getItem("music_focus") === "prompt") {
+                        sessionStorage.removeItem("music_focus");
+                        setTimeout(() => {
+                          try { el.focus(); el.scrollIntoView({ behavior: "smooth", block: "center" }); } catch {}
+                        }, 300);
+                      }
+                    } catch {}
+                  }}
                 />
                 <p className="text-[10px] text-muted-foreground/70">
                   Стиль и темп выберет MuziAi автоматически. Достаточно описать настроение и тему.
