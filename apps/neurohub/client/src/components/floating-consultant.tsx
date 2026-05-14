@@ -142,6 +142,8 @@ export function FloatingConsultant() {
   // visibleCount растёт пошагово при клике «показать больше».
   const [visibleCount, setVisibleCount] = useState(4);
   const [shareMenuOpen, setShareMenuOpen] = useState(false);
+  // Eugene 2026-05-14 Босс «зарегистрироваться открывает меню».
+  const [registerMenuOpen, setRegisterMenuOpen] = useState(false);
 
   // Авто-скролл вниз при новом сообщении
   useEffect(() => {
@@ -402,18 +404,20 @@ export function FloatingConsultant() {
       data-testid="floating-consultant"
     >
       <div className="relative">
-        {/* Eugene 2026-05-14 Босс «облачко более овальной формы, сообщение
-            в две строки». Эллипсное borderRadius (organic shape), max-w
-            принуждает перенос на 2 строки. */}
+        {/* Eugene 2026-05-14 Босс «нажатие на облако заводит в чат».
+            Облако кликабельно — открывает чат напрямую. */}
         {!expanded && !reaction && !chatOpen && (
-          <div
-            className="absolute bottom-full right-0 mb-2 px-4 py-2.5 bg-gradient-to-br from-purple-500/30 to-blue-500/25 backdrop-blur-md border border-purple-300/40 text-[12px] font-medium text-white text-center leading-tight max-w-[160px] animate-in fade-in slide-in-from-bottom-2 duration-300 shadow-lg shadow-purple-500/20"
+          <button
+            type="button"
+            onClick={openChat}
+            className="absolute bottom-full right-0 mb-2 px-4 py-2.5 bg-gradient-to-br from-purple-500/30 to-blue-500/25 backdrop-blur-md border border-purple-300/40 text-[12px] font-medium text-white text-center leading-tight max-w-[160px] animate-in fade-in slide-in-from-bottom-2 duration-300 shadow-lg shadow-purple-500/20 hover:from-purple-500/50 hover:to-blue-500/40 hover:scale-105 transition-all cursor-pointer"
             style={{
               borderRadius: "55% 45% 45% 50% / 60% 50% 60% 40%",
             }}
+            aria-label="Открыть чат с Музой"
           >
             Заходи в чат —<br />креативить ✨
-          </div>
+          </button>
         )}
 
         {/* Click reaction bubble — игровая деловая фраза при нажатии */}
@@ -494,20 +498,52 @@ export function FloatingConsultant() {
             >
               <span>💬</span> Max
             </a>
+            {/* Eugene 2026-05-14 Босс: «Создадим песню» → сразу в чат
+                и от него диалог развиваем. */}
             <button
               type="button"
-              onClick={() => { trackEngagement("consultant_action", { action: "music" }); window.location.hash = "#/music"; }}
+              onClick={() => { trackEngagement("consultant_action", { action: "create_via_chat" }); openChat(); }}
               className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.06] transition-colors text-[12px] text-white/90 text-left"
             >
-              <span>🎵</span> Создать песню
+              <span>🎵</span> Создадим песню (в чате)
             </button>
+            {/* Eugene 2026-05-14 Босс: «Зарегистрироваться открывает меню». */}
             <button
               type="button"
-              onClick={() => { trackEngagement("consultant_action", { action: "register" }); window.location.hash = "#/register"; }}
+              onClick={() => setRegisterMenuOpen(s => !s)}
               className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.06] transition-colors text-[12px] text-white/90 text-left"
             >
-              <span>🎁</span> Регистрация
+              <span>🎁</span> Зарегистрироваться <span className="ml-auto text-[10px] text-white/40">{registerMenuOpen ? "▴" : "▾"}</span>
             </button>
+            {registerMenuOpen && (
+              <div className="ml-4 my-1 pl-2 border-l border-purple-300/20 space-y-0.5">
+                <button
+                  type="button"
+                  onClick={() => { trackEngagement("consultant_action", { action: "register_email" }); window.location.hash = "#/register"; }}
+                  className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.06] transition-colors text-[11px] text-white/85 text-left"
+                >
+                  <span>📧</span> По email (форма)
+                </button>
+                <a
+                  href="https://t.me/Muziaipodari_bot?start=register"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => trackEngagement("consultant_action", { action: "register_telegram" })}
+                  className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.06] transition-colors text-[11px] text-white/85"
+                >
+                  <span>📱</span> Через Telegram
+                </a>
+                <a
+                  href="https://max.ru/id7017236261_1_bot"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => trackEngagement("consultant_action", { action: "register_max" })}
+                  className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.06] transition-colors text-[11px] text-white/85"
+                >
+                  <span>💬</span> Через Max
+                </a>
+              </div>
+            )}
             <div className="border-t border-white/[0.04] my-1 pt-1">
               <div className="text-[10px] text-white/60 px-1 mb-1">📤 Порекомендовать Музу</div>
               <a
@@ -546,16 +582,15 @@ export function FloatingConsultant() {
         <button
           type="button"
           onClick={() => {
-            // Eugene 2026-05-14 Босс «любое нажатие перемещает в чат сразу с ней».
-            // Раньше клик открывал expanded меню — теперь сразу openChat.
-            // Reaction-bubble + chime + scale остаются.
+            // Eugene 2026-05-14 Босс v2: «при нажатии на Музи появляется меню».
+            // Облако (см. выше) — клик ведёт в чат. Сама Муза — меню.
             try { playMuzaChime(); } catch {}
             const phrase = CLICK_REACTIONS[reactionIdxRef.current % CLICK_REACTIONS.length];
             reactionIdxRef.current += 1;
             setReaction(phrase);
             if (reactionTimerRef.current) window.clearTimeout(reactionTimerRef.current);
             reactionTimerRef.current = window.setTimeout(() => setReaction(null), 2500);
-            openChat();
+            setExpanded(e => { const next = !e; if (next) trackEngagement("consultant_open"); return next; });
           }}
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
