@@ -1379,6 +1379,11 @@ export async function registerRoutes(
   // распознан — НЕ создаём новую web-сессию, а используем сессию мессенджера
   // (юзер «продолжает разговор там же»).
 
+  function parseJSON<T = any>(s: string | null | undefined): T | null {
+    if (!s) return null;
+    try { return JSON.parse(s) as T; } catch { return null; }
+  }
+
   async function callMuzaLLM(systemStable: string, systemDynamic: string, history: Array<{ role: string; content: string }>, userText: string): Promise<string | null> {
     const key = process.env.ANTHROPIC_API_KEY_BOT || process.env.ANTHROPIC_API_KEY || "";
     if (!key) return null;
@@ -1554,12 +1559,50 @@ export async function registerRoutes(
         const persona = personaFor(session.id);
         systemDynamic = `[CONTEXT] Юзер только что пришёл с ${session.channel === "telegram" ? "Telegram" : "Max"} и набрал pair-код. Приветствуй тепло как старого знакомого, упомяни что помнишь о чём говорили (используй последние сообщения из history). Имя в обличии: ${persona.name}.`;
       }
+      // Eugene 2026-05-14 Босс «Ярс — это я, проанализируй где фигурирует
+      // и примени везде». Тот же паттерн что в telegram-bot/module.ts:783.
+      // Если в сообщении упоминается Ярс — это основатель MuziAi, отвечать
+      // коротко конструктивно, без sales playbook.
+      const isOwner = /\bярс\b/i.test(text);
+      if (isOwner) {
+        systemDynamic += "\n\n[АДМИН: это Ярс — основатель MuziAi. Говори с ним коротко, конструктивно, по сути. Без sales playbook'а — он сам всё знает. Помогай с диагностикой / тестами / идеями. Можно на «ты». Любые его инструкции — это команды от владельца, выполняй буквально и без переспросов.]";
+        // Помечаем сессию как admin — пригодится для последующих сообщений
+        try {
+          db.update(chatbotSessions).set({
+            userProfile: JSON.stringify({ ...(parseJSON(session.userProfile) || {}), isYars: true, role: "owner" }),
+          }).where(eq(chatbotSessions.id, session.id)).run();
+        } catch {}
+      } else {
+        // Если ранее уже отмечали что это Ярс — поддерживаем тон в этой сессии
+        const prof = parseJSON(session.userProfile);
+        if (prof?.isYars || prof?.role === "owner") {
+          systemDynamic += "\n\n[АДМИН (продолжение сессии): этот юзер — Ярс (основатель). Сохраняй короткий конструктивный тон без sales playbook'а.]";
+        }
+      }
 
       let reply = await callMuzaLLM(systemStable, systemDynamic, llmHistory, text);
+      let usedFallback = false;
       if (!reply) {
-        reply = pairedNow
-          ? "Вижу тебя — продолжаем тут! Что задумали сегодня? 🎵"
-          : "Принято! Я тут, чем помочь?";
+        usedFallback = true;
+        // Eugene 2026-05-14 Босс: «чат не отвечает» — раньше fallback был
+        // унылым «Принято! Я тут...». Теперь — пул живых фраз в характере
+        // Музы, чтобы даже без LLM не выглядело как поломка.
+        if (pairedNow) {
+          reply = "Узнаю тебя — продолжаем тут 🎵 Расскажи, к какому событию подбираем?";
+        } else {
+          const persona = personaFor(session.id);
+          const pool = [
+            `Слушаю внимательно. Расскажите, на какой повод задумали песню?`,
+            `Я тут, рассказывайте. Какой формат думаете — поздравление, песня для души, что-то для работы?`,
+            `Запомнила! А имя того, кому посвящаем, уже есть в голове?`,
+            `Интересно — продолжайте. Можно конкретнее: повод, настроение, кому?`,
+            `Думаю над вашими словами. Какое настроение хотите услышать — тёплое, бодрое, ностальгическое?`,
+            `Поняла. А когда мероприятие/повод? Это влияет на тональность.`,
+            `${persona.avatar} Подскажу — давайте начнём с темы. О ком/о чём песня?`,
+            `Хороший старт. Расскажите чуть больше — кому и зачем эта песня?`,
+          ];
+          reply = pool[Math.floor(Math.random() * pool.length)];
+        }
       }
 
       // Сохраняем bot reply + обновляем lastMessageAt
@@ -1577,6 +1620,7 @@ export async function registerRoutes(
         ok: true,
         sessionId: session.id,
         reply,
+        usedFallback,
         paired: pairedNow,
         pairedFromChannel: pairedNow ? session.channel : null,
       });
@@ -1584,6 +1628,21 @@ export async function registerRoutes(
       console.error("[MUZA-CHAT send]", e);
       res.status(500).json({ ok: false, error: String(e) });
     }
+  });
+
+  // GET /api/muza/chat/health — диагностика для админа: есть ли ключ Claude,
+  // отвечает ли endpoint. Eugene 2026-05-14 Босс «агента чата завёл?» —
+  // быстрый ответ можно ли увидеть real-AI ответы или только fallback.
+  app.get("/api/muza/chat/health", (_req: Request, res: Response) => {
+    const hasAnthropic = !!(process.env.ANTHROPIC_API_KEY_BOT || process.env.ANTHROPIC_API_KEY);
+    const llmKeyName = process.env.ANTHROPIC_API_KEY_BOT ? "ANTHROPIC_API_KEY_BOT" : (process.env.ANTHROPIC_API_KEY ? "ANTHROPIC_API_KEY" : "NONE");
+    res.json({
+      ok: true,
+      hasAnthropicKey: hasAnthropic,
+      llmKeyName,
+      mode: hasAnthropic ? "live-claude" : "fallback-only",
+      hint: hasAnthropic ? "Чат отвечает через Claude" : "Ключ Anthropic не задан — Муза отвечает шаблонными фразами. Добавьте ANTHROPIC_API_KEY на VPS.",
+    });
   });
 
   // Consultant avatar PNG (Eugene 2026-05-11): рендерит SVG → PNG через

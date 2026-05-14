@@ -47,6 +47,39 @@ const CLICK_REACTIONS = [
 // Eugene 2026-05-14 Босс: inline-чат с Музой на сайте + cross-channel pair-code.
 type ChatMessage = { role: "user" | "bot"; text: string };
 
+// Quick-reply chips — типичные первые сообщения чтобы юзер не залипал
+// на пустом инпуте. Сменяются после первой реплики.
+const CHAT_SUGGESTIONS = [
+  "У меня день рождения у мамы 🎂",
+  "Хочу песню в подарок другу",
+  "Не знаю с чего начать",
+  "Покажи примеры",
+];
+
+// Сериализация диалога для share-переслать другу.
+function serializeChatForShare(msgs: ChatMessage[]): string {
+  const lines = msgs.map(m => {
+    const who = m.role === "user" ? "Я" : "🎀 Муза";
+    return `${who}: ${m.text}`;
+  });
+  return `Разговор с Музой (MuziAi)\n${"━".repeat(20)}\n${lines.join("\n\n")}\n${"━".repeat(20)}\n\nХочешь продолжить? Открой https://muziai.ru и кликни на Музу.`;
+}
+
+// Linkify — превращает голые URL в кликабельные ссылки внутри текста.
+function linkify(text: string): Array<{ text: string; href?: string }> {
+  const parts: Array<{ text: string; href?: string }> = [];
+  const re = /(https?:\/\/[^\s)]+)/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parts.push({ text: text.slice(last, m.index) });
+    parts.push({ text: m[0], href: m[0] });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push({ text: text.slice(last) });
+  return parts;
+}
+
 function ensureClientSessionId(): string {
   try {
     let id = sessionStorage.getItem("_muzaChatSid") || localStorage.getItem("_muzaChatSid");
@@ -80,6 +113,10 @@ export function FloatingConsultant() {
   const [chatPaired, setChatPaired] = useState<{ channel: string } | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const chatInitialized = useRef(false);
+  // Eugene 2026-05-14 Босс «3-4 сообщения видны + кнопка раскрыть 2+ раз».
+  // visibleCount растёт пошагово при клике «показать больше».
+  const [visibleCount, setVisibleCount] = useState(4);
+  const [shareMenuOpen, setShareMenuOpen] = useState(false);
 
   // Авто-скролл вниз при новом сообщении
   useEffect(() => {
@@ -123,23 +160,37 @@ export function FloatingConsultant() {
     setChatMsgs(m => [...m, { role: "user", text }]);
     setChatInput("");
     setChatSending(true);
+    // Eugene 2026-05-14 Босс «не отвечает» — добавил AbortSignal timeout 20s
+    // чтобы не зависало навсегда. Frontend гарантированно даст ответ юзеру.
+    const ctrl = new AbortController();
+    const timeoutId = window.setTimeout(() => ctrl.abort(), 20_000);
     try {
       const r = await fetch("/api/muza/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text, sessionId: sid }),
+        signal: ctrl.signal,
       });
+      window.clearTimeout(timeoutId);
+      if (!r.ok) {
+        setChatMsgs(m => [...m, { role: "bot", text: `Хм, что-то с сервером (${r.status}). Попробуй ещё раз — я тут.` }]);
+        return;
+      }
       const j = await r.json();
-      if (j?.ok) {
-        setChatMsgs(m => [...m, { role: "bot", text: j.reply || "..." }]);
+      if (j?.ok && j.reply) {
+        setChatMsgs(m => [...m, { role: "bot", text: j.reply }]);
         if (j.paired) {
           setChatPaired({ channel: j.pairedFromChannel });
         }
       } else {
-        setChatMsgs(m => [...m, { role: "bot", text: j?.error || "Что-то пошло не так — попробуй ещё раз" }]);
+        setChatMsgs(m => [...m, { role: "bot", text: j?.error || "Что-то пошло не так — попробуйте ещё раз" }]);
       }
-    } catch {
-      setChatMsgs(m => [...m, { role: "bot", text: "Сеть подвисла — попробуй через секунду" }]);
+    } catch (e: any) {
+      window.clearTimeout(timeoutId);
+      const msg = e?.name === "AbortError"
+        ? "Думаю слишком долго — наверное, провайдер сегодня медленный. Повторим?"
+        : "Сеть подвисла — попробуйте через секунду";
+      setChatMsgs(m => [...m, { role: "bot", text: msg }]);
     } finally {
       setChatSending(false);
     }
@@ -341,7 +392,7 @@ export function FloatingConsultant() {
             className="absolute right-0 bottom-0 top-0 sm:top-auto sm:bottom-4 sm:right-4 w-[92vw] max-w-[420px] sm:w-[380px] h-full sm:h-[520px] flex flex-col bg-background/95 backdrop-blur-xl border-l sm:border sm:rounded-2xl border-white/10 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in slide-in-from-right duration-300"
           >
             {/* Header */}
-            <div className="flex items-center gap-2 px-3 py-3 sm:py-2 border-b border-white/[0.06] bg-gradient-to-r from-purple-500/10 to-blue-500/5 shrink-0">
+            <div className="flex items-center gap-2 px-3 py-3 sm:py-2 border-b border-white/[0.06] bg-gradient-to-r from-purple-500/10 to-blue-500/5 shrink-0 relative">
               <img src="/consultant-avatar.svg" alt="Муза" className="w-9 h-9 sm:w-8 sm:h-8 rounded-full object-contain bg-white/5 shrink-0" />
               <div className="flex-1 min-w-0">
                 <div className="text-[13px] font-semibold text-white truncate">
@@ -354,25 +405,89 @@ export function FloatingConsultant() {
                 </div>
                 <div className="text-[10px] text-white/50 truncate">Подскажу с песней, темой, регистрацией</div>
               </div>
+              {/* Share — переслать диалог другу. Кнопка только когда есть что слать. */}
+              {chatMsgs.length >= 2 && (
+                <button
+                  type="button"
+                  onClick={() => setShareMenuOpen(s => !s)}
+                  aria-label="Поделиться диалогом"
+                  title="Поделиться диалогом"
+                  className="w-9 h-9 sm:w-7 sm:h-7 rounded-full hover:bg-white/[0.08] text-white/70 hover:text-white text-base flex items-center justify-center shrink-0"
+                >📤</button>
+              )}
               <button
                 type="button"
-                onClick={() => setChatOpen(false)}
+                onClick={() => { setChatOpen(false); setShareMenuOpen(false); }}
                 aria-label="Закрыть чат"
                 className="w-9 h-9 sm:w-7 sm:h-7 rounded-full hover:bg-white/[0.08] text-white/70 hover:text-white text-xl flex items-center justify-center shrink-0"
               >×</button>
+              {/* Share dropdown */}
+              {shareMenuOpen && (
+                <div className="absolute right-2 top-full mt-1 w-52 rounded-xl bg-background/95 backdrop-blur-xl border border-white/15 shadow-2xl p-1.5 z-10">
+                  <div className="text-[10px] text-white/50 px-2 py-1">Переслать диалог</div>
+                  {(() => {
+                    const text = encodeURIComponent(serializeChatForShare(chatMsgs));
+                    const url = encodeURIComponent("https://muziai.ru");
+                    return (
+                      <>
+                        <a href={`https://t.me/share/url?url=${url}&text=${text}`} target="_blank" rel="noopener noreferrer"
+                           onClick={() => setShareMenuOpen(false)}
+                           className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/[0.06] text-[12px] text-white/90">
+                          <span>📱</span> Telegram
+                        </a>
+                        <a href={`https://max.ru/share?url=${url}&text=${text}`} target="_blank" rel="noopener noreferrer"
+                           onClick={() => setShareMenuOpen(false)}
+                           className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/[0.06] text-[12px] text-white/90">
+                          <span>💬</span> Max
+                        </a>
+                        <a href={`https://api.whatsapp.com/send?text=${text}`} target="_blank" rel="noopener noreferrer"
+                           onClick={() => setShareMenuOpen(false)}
+                           className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/[0.06] text-[12px] text-white/90">
+                          <span>💚</span> WhatsApp
+                        </a>
+                        <button type="button"
+                                onClick={async () => {
+                                  try { await navigator.clipboard.writeText(serializeChatForShare(chatMsgs)); } catch {}
+                                  setShareMenuOpen(false);
+                                }}
+                                className="w-full flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/[0.06] text-[12px] text-white/90 text-left">
+                          <span>📋</span> Скопировать текст
+                        </button>
+                      </>
+                    );
+                  })()}
+                  <div className="border-t border-white/[0.06] mt-1 pt-1 px-2 pb-1 text-[9px] text-white/40 leading-tight">
+                    Друг может отредактировать и переслать обратно — продолжишь разговор тут.
+                  </div>
+                </div>
+              )}
             </div>
             {/* History scroll */}
             <div ref={chatScrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-2 min-h-0">
               {chatMsgs.length === 0 && (
                 <div className="text-[11px] text-white/40 text-center py-4">Загружаю…</div>
               )}
-              {chatMsgs.map((m, i) => (
+              {/* «Показать ещё N» — Eugene 2026-05-14 Босс «3-4 видны + раскрыть 2+ раз»
+                  Показываем последние visibleCount сообщений. Кнопка вверху подтягивает старые. */}
+              {chatMsgs.length > visibleCount && (
+                <div className="flex justify-center">
+                  <button type="button"
+                          onClick={() => setVisibleCount(c => c + 5)}
+                          className="text-[11px] px-3 py-1 rounded-full bg-white/[0.06] hover:bg-white/[0.10] text-white/70 border border-white/[0.08]">
+                    ↑ Показать ещё {Math.min(5, chatMsgs.length - visibleCount)} · всего {chatMsgs.length}
+                  </button>
+                </div>
+              )}
+              {chatMsgs.slice(-visibleCount).map((m, i) => (
                 <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                   <div className={`max-w-[80%] px-3 py-2 rounded-2xl text-[13px] leading-relaxed whitespace-pre-wrap break-words ${
                     m.role === "user"
                       ? "bg-gradient-to-br from-purple-500/30 to-blue-500/25 text-white border border-purple-400/30"
                       : "bg-white/[0.06] text-white/90 border border-white/[0.08]"
-                  }`}>{m.text}</div>
+                  }`}>{linkify(m.text).map((p, j) => p.href
+                      ? <a key={j} href={p.href} target="_blank" rel="noopener noreferrer" className="underline text-cyan-300 hover:text-cyan-200">{p.text}</a>
+                      : <span key={j}>{p.text}</span>
+                    )}</div>
                 </div>
               ))}
               {chatSending && (
@@ -383,6 +498,22 @@ export function FloatingConsultant() {
                 </div>
               )}
             </div>
+            {/* Quick-reply chips — Eugene 2026-05-14: только пока юзер ещё не писал
+                (или после приветствия Музы — 1 сообщение). Помогают разогнать диалог. */}
+            {chatMsgs.length <= 2 && chatMsgs.filter(m => m.role === "user").length === 0 && (
+              <div className="px-3 py-2 border-t border-white/[0.04] shrink-0 bg-white/[0.015]">
+                <div className="text-[10px] text-white/40 mb-1.5">Можно начать так:</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {CHAT_SUGGESTIONS.map((s) => (
+                    <button key={s} type="button"
+                            onClick={() => setChatInput(s)}
+                            className="text-[11px] px-2.5 py-1 rounded-full bg-white/[0.06] hover:bg-white/[0.12] text-white/80 border border-white/[0.10]">
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {/* Pair-code hint (top of input area) */}
             {!chatPaired && chatMsgs.length <= 1 && (
               <div className="px-3 py-1.5 text-[10px] text-white/40 border-t border-white/[0.04] bg-white/[0.02] shrink-0">
