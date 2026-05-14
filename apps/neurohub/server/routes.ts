@@ -3561,6 +3561,53 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     }
   });
 
+  // Eugene 2026-05-14 Босс «в дашборде количество и тех и других»:
+  // отчёт по регистрациям с разбивкой СНГ vs не-СНГ + welcome-gift counter
+  // (правило 1000 первых из РФ + ближнего зарубежья).
+  app.get("/api/admin/v304/registration-stats", requireAdmin, (_req: Request, res: Response) => {
+    try {
+      const raw = (db as any).$client;
+      const cisList = Array.from(CIS_COUNTRY_CODES);
+      const cisPlaceholders = cisList.map(() => "?").join(",");
+
+      const total = Number(raw.prepare("SELECT COUNT(*) AS c FROM users WHERE email_verified = 1").get()?.c || 0);
+      const cisCount = Number(raw.prepare(`SELECT COUNT(*) AS c FROM users WHERE email_verified = 1 AND country_code IN (${cisPlaceholders})`).get(...cisList)?.c || 0);
+      const nonCisCount = Number(raw.prepare(`SELECT COUNT(*) AS c FROM users WHERE email_verified = 1 AND country_code IS NOT NULL AND country_code != '' AND country_code NOT IN (${cisPlaceholders})`).get(...cisList)?.c || 0);
+      const unknownCount = Number(raw.prepare("SELECT COUNT(*) AS c FROM users WHERE email_verified = 1 AND (country_code IS NULL OR country_code = '')").get()?.c || 0);
+      const giftedCount = Number(raw.prepare("SELECT COUNT(*) AS c FROM users WHERE welcome_gift_given = 1").get()?.c || 0);
+
+      // Распределение по странам (топ 30)
+      const byCountry = raw.prepare(`
+        SELECT country, country_code, COUNT(*) AS n,
+               SUM(welcome_gift_given) AS gifted
+        FROM users
+        WHERE email_verified = 1 AND country_code IS NOT NULL AND country_code != ''
+        GROUP BY country_code
+        ORDER BY n DESC
+        LIMIT 30
+      `).all().map((r: any) => ({
+        ...r,
+        isCIS: CIS_COUNTRY_CODES.has(String(r.country_code).toUpperCase()),
+      }));
+
+      res.json({
+        ok: true,
+        total,
+        cis: cisCount,
+        nonCis: nonCisCount,
+        unknown: unknownCount,
+        giftedCount,
+        giftLimit: WELCOME_GIFT_LIMIT,
+        giftRemaining: Math.max(0, WELCOME_GIFT_LIMIT - giftedCount),
+        cisCountryCodes: cisList,
+        byCountry,
+      });
+    } catch (e: any) {
+      console.error("[REGISTRATION-STATS]", e);
+      res.status(500).json({ ok: false, error: String(e) });
+    }
+  });
+
   // Eugene 2026-05-14 Босс «в админе блок бот с подробной статистикой».
   // Расширенная аналитика по чату Музы для дашборда.
   app.get("/api/admin/v304/bot-stats", requireAdmin, (_req: Request, res: Response) => {

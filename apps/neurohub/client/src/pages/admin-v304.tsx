@@ -433,6 +433,84 @@ function CriticalIncidentsCard() {
   );
 }
 
+// Eugene 2026-05-14 Босс «в дашборде количество и тех и других».
+// Регистрации с разбивкой СНГ vs не-СНГ + welcome-gift counter 1000.
+function RegistrationStatsCard() {
+  const { data, isLoading } = useQuery<any>({
+    queryKey: ["/api/admin/v304/registration-stats"],
+    refetchInterval: 60_000,
+  });
+  if (isLoading || !data?.ok) return null;
+  const fmt = (n: number) => n.toLocaleString("ru-RU");
+  return (
+    <div className="rounded-2xl border border-purple-500/20 bg-gradient-to-br from-purple-500/[0.04] via-blue-500/[0.04] to-cyan-500/[0.04] p-4 mb-4">
+      <div className="flex items-baseline justify-between mb-3">
+        <h3 className="text-[15px] font-bold text-white">🌍 Регистрации</h3>
+        <span className="text-[10px] text-white/40">обновляется каждую минуту</span>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+        <div className="rounded-xl p-3 bg-white/[0.03] border border-white/[0.06]">
+          <div className="text-[10px] text-white/50">Всего</div>
+          <div className="text-2xl font-bold text-white">{fmt(data.total)}</div>
+        </div>
+        <div className="rounded-xl p-3 bg-purple-500/[0.06] border border-purple-500/20">
+          <div className="text-[10px] text-purple-300">🇷🇺 РФ + СНГ</div>
+          <div className="text-2xl font-bold text-purple-200">{fmt(data.cis)}</div>
+          <div className="text-[10px] text-white/40">в счёте 1000</div>
+        </div>
+        <div className="rounded-xl p-3 bg-cyan-500/[0.04] border border-cyan-500/15">
+          <div className="text-[10px] text-cyan-300">🌐 Не-СНГ</div>
+          <div className="text-2xl font-bold text-cyan-200">{fmt(data.nonCis)}</div>
+          <div className="text-[10px] text-white/40">без подарка</div>
+        </div>
+        <div className="rounded-xl p-3 bg-amber-500/[0.04] border border-amber-500/15">
+          <div className="text-[10px] text-amber-300">❓ Без гео</div>
+          <div className="text-2xl font-bold text-amber-200">{fmt(data.unknown)}</div>
+          <div className="text-[10px] text-white/40">IP не определился</div>
+        </div>
+      </div>
+
+      {/* Welcome-gift progress */}
+      <div className="p-3 rounded-xl bg-green-500/[0.05] border border-green-500/20 mb-3">
+        <div className="flex items-baseline justify-between mb-1.5">
+          <span className="text-[12px] font-semibold text-green-300">🎁 Подарочный трек выдан</span>
+          <span className="text-[13px] font-bold text-white">
+            {fmt(data.giftedCount)} <span className="text-white/40 font-normal">/ {fmt(data.giftLimit)}</span>
+          </span>
+        </div>
+        <div className="h-2 rounded-full bg-white/[0.06] overflow-hidden">
+          <div
+            className="h-full bg-gradient-to-r from-green-500 to-emerald-400"
+            style={{ width: `${Math.min(100, (data.giftedCount / data.giftLimit) * 100)}%` }}
+          />
+        </div>
+        <div className="text-[10px] text-white/50 mt-1.5">
+          Осталось: <b className="text-white/80">{fmt(data.giftRemaining)}</b>. Только из РФ + СНГ. Не-СНГ регистрируются, но не в счёте.
+        </div>
+      </div>
+
+      {/* По странам — TOP-30 */}
+      {data.byCountry?.length > 0 && (
+        <details className="text-[12px]">
+          <summary className="cursor-pointer text-white/70 hover:text-white py-1">📊 По странам ({data.byCountry.length}) ▾</summary>
+          <div className="mt-2 grid grid-cols-2 md:grid-cols-3 gap-1.5">
+            {data.byCountry.map((c: any) => (
+              <div key={c.country_code} className={`flex items-baseline gap-2 p-2 rounded ${c.isCIS ? "bg-purple-500/[0.06] border border-purple-500/15" : "bg-white/[0.03] border border-white/[0.05]"}`}>
+                <span className="text-[11px] font-medium text-white/90 flex-1 truncate">{c.country}</span>
+                <span className="text-[10px] text-white/40">{c.country_code}</span>
+                <span className="text-[11px] font-bold text-white">{fmt(c.n)}</span>
+                {c.isCIS && c.gifted > 0 && (
+                  <span className="text-[10px] text-green-300">🎁{c.gifted}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
 function OverviewTab({ toast: _t }: { toast: any }) {
   const overview = useQuery({
     queryKey: ["admin-overview"],
@@ -513,6 +591,10 @@ function OverviewTab({ toast: _t }: { toast: any }) {
   return (
     <div className="space-y-6">
       <CriticalIncidentsCard />
+
+      {/* Eugene 2026-05-14 Босс «в дашборде количество и тех и других»:
+          регистрации СНГ vs не-СНГ + welcome-gift counter */}
+      <RegistrationStatsCard />
 
       {/* Eugene 2026-05-08 sync-check после deploy */}
       <Card className="border-blue-500/30 bg-gradient-to-br from-blue-500/5 to-transparent">
