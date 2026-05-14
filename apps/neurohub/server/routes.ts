@@ -4020,6 +4020,106 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     });
   });
 
+  // Eugene 2026-05-14 Босс «при публикации автором админ видит список
+  // треков, подтверждает в основной/поздравлений плейлист или возвращает
+  // с reason». Pending = isPublic=2. Approve → 1 + pool. Reject → 0 + reason.
+  app.get("/api/admin/v304/pending-publications", requireAdmin, (_req: Request, res: Response) => {
+    try {
+      const raw = (db as any).$client;
+      const rows = raw.prepare(`
+        SELECT g.id, g.user_id, g.type, g.prompt, g.display_title, g.author_name,
+               g.cover_gen_id, g.created_at, g.style, g.pool,
+               u.name AS user_name, u.email AS user_email
+        FROM generations g
+        LEFT JOIN users u ON u.id = g.user_id
+        WHERE g.is_public = 2 AND g.deleted_at IS NULL
+        ORDER BY g.id DESC LIMIT 200
+      `).all();
+      // Также — треки которые «взлетели» в плейлисте (>30 plays) — кандидаты
+      // на перевод из greetings → main.
+      const trending = raw.prepare(`
+        SELECT g.id, g.display_title, g.author_name, g.pool, g.is_public,
+               u.name AS user_name
+        FROM generations g
+        LEFT JOIN users u ON u.id = g.user_id
+        WHERE g.is_public = 1 AND g.pool = 'greetings'
+          AND g.type = 'music' AND g.deleted_at IS NULL
+        ORDER BY g.id DESC LIMIT 50
+      `).all().map((r: any) => {
+        let plays = 0;
+        try { plays = JSON.parse(r.style || "{}").plays || 0; } catch {}
+        return { ...r, plays };
+      }).filter((r: any) => r.plays >= 30);
+      res.json({ ok: true, pending: rows, trending });
+    } catch (e: any) {
+      console.error("[PENDING-PUB]", e);
+      res.status(500).json({ ok: false, error: String(e) });
+    }
+  });
+
+  app.post("/api/admin/v304/publications/:id/approve", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const pool = req.body?.pool === "greetings" ? "greetings" : "main";
+      const gen = db.select().from(generations).where(eq(generations.id, id)).get();
+      if (!gen) { res.status(404).json({ ok: false, error: "Не найдено" }); return; }
+      // Mark as approved + assign pool. Ставим approvedOnce в style для
+      // последующего auto-publish без re-модерации.
+      let meta: any = {};
+      try { meta = JSON.parse(gen.style || "{}"); } catch {}
+      meta.approvedOnce = true;
+      db.update(generations).set({
+        isPublic: 1,
+        pool,
+        style: JSON.stringify(meta),
+        rejectionReason: null,
+      } as any).where(eq(generations.id, id)).run();
+      res.json({ ok: true, pool });
+    } catch (e: any) {
+      console.error("[PUB-APPROVE]", e);
+      res.status(500).json({ ok: false, error: String(e) });
+    }
+  });
+
+  app.post("/api/admin/v304/publications/:id/reject", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const reason = String(req.body?.reason || "").trim() || "Без указания причины";
+      db.update(generations).set({
+        isPublic: 0,
+        rejectionReason: reason,
+      } as any).where(eq(generations.id, id)).run();
+      res.json({ ok: true });
+    } catch (e: any) {
+      console.error("[PUB-REJECT]", e);
+      res.status(500).json({ ok: false, error: String(e) });
+    }
+  });
+
+  // Eugene 2026-05-14 Босс «при присвоении имени трека проверять совпадения».
+  // Поиск дубликатов имени среди опубликованных done music-треков.
+  app.get("/api/generations/check-title", (req: Request, res: Response) => {
+    try {
+      const title = String(req.query.title || "").trim();
+      if (!title || title.length < 2) {
+        res.json({ ok: true, matches: [] });
+        return;
+      }
+      const raw = (db as any).$client;
+      const rows = raw.prepare(`
+        SELECT id, display_title, author_name, is_public, created_at
+        FROM generations
+        WHERE type = 'music' AND status = 'done' AND deleted_at IS NULL
+          AND lower(COALESCE(display_title, '')) = lower(?)
+        ORDER BY id DESC LIMIT 5
+      `).all(title);
+      res.json({ ok: true, matches: rows, hasDuplicate: rows.length > 0 });
+    } catch (e: any) {
+      console.error("[CHECK-TITLE]", e);
+      res.status(500).json({ ok: false, error: String(e) });
+    }
+  });
+
   // Eugene 2026-05-14 Босс «отчёт по Ярс — собирай сообщения из Telegram
   // где начинается с Ярс, применяй как правила бота».
   // Сканирует все user-сообщения содержащие «Ярс», группирует по сессиям,

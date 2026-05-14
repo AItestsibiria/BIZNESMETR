@@ -167,6 +167,11 @@ try {
   if (!gcn.includes("title_change_token")) sqlite.exec("ALTER TABLE generations ADD COLUMN title_change_token TEXT");
   if (!gcn.includes("deleted_at")) sqlite.exec("ALTER TABLE generations ADD COLUMN deleted_at TEXT");
   if (!gcn.includes("error_reason")) sqlite.exec("ALTER TABLE generations ADD COLUMN error_reason TEXT");
+  // Eugene 2026-05-14 Босс «при публикации админ выбирает: основной
+  // плейлист или плейлист поздравлений». Default 'main'.
+  if (!gcn.includes("pool")) sqlite.exec("ALTER TABLE generations ADD COLUMN pool TEXT DEFAULT 'main'");
+  // Reject reason от админа когда возвращает на доработку
+  if (!gcn.includes("rejection_reason")) sqlite.exec("ALTER TABLE generations ADD COLUMN rejection_reason TEXT");
 
   // v304 Sprint 2: Suno на 100%. См. docs/strategy/original/02 §2.1.
   // Все колонки nullable — старый код v51 их не пишет, новый — пишет
