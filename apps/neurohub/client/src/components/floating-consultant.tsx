@@ -4,6 +4,7 @@
 // Минимум нот вокруг (1 акцентная) — для связи с музыкой.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 const REAPPEAR_MS = 60_000;
 const APPEAR_DELAY_MS = 2500;
@@ -291,83 +292,6 @@ export function FloatingConsultant() {
           </div>
         )}
 
-        {/* Eugene 2026-05-14 Босс: inline chat panel — Муза прямо на сайте.
-            Поддерживает cross-channel pair-code из Telegram/Max. */}
-        {chatOpen && (
-          <div className="fixed sm:absolute bottom-0 sm:bottom-full right-0 sm:mb-2 left-0 sm:left-auto z-40 w-full sm:w-[340px] h-[70vh] sm:h-[480px] flex flex-col rounded-t-2xl sm:rounded-2xl bg-background/85 backdrop-blur-xl border border-white/10 shadow-2xl shadow-purple-500/10 overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
-            {/* Header */}
-            <div className="flex items-center gap-2 px-3 py-2 border-b border-white/[0.06] bg-gradient-to-r from-purple-500/10 to-blue-500/5">
-              <img src="/consultant-avatar.svg" alt="Муза" className="w-8 h-8 rounded-full object-contain bg-white/5" />
-              <div className="flex-1 min-w-0">
-                <div className="text-[13px] font-semibold text-white truncate">
-                  Муза{chatPersona ? ` · ${chatPersona.name}` : ""}
-                  {chatPaired && (
-                    <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/20 text-green-300 font-normal">
-                      {chatPaired.channel === "telegram" ? "📱 из Telegram" : chatPaired.channel === "max" ? "💬 из Max" : "✨ привязано"}
-                    </span>
-                  )}
-                </div>
-                <div className="text-[10px] text-white/50">Подскажу с песней, голосовой темой, регистрацией</div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setChatOpen(false)}
-                aria-label="Закрыть чат"
-                className="w-7 h-7 rounded-full hover:bg-white/[0.08] text-white/70 hover:text-white text-lg flex items-center justify-center"
-              >×</button>
-            </div>
-            {/* History scroll */}
-            <div ref={chatScrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
-              {chatMsgs.length === 0 && (
-                <div className="text-[11px] text-white/40 text-center py-4">Загружаю…</div>
-              )}
-              {chatMsgs.map((m, i) => (
-                <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[78%] px-3 py-2 rounded-2xl text-[12.5px] leading-relaxed whitespace-pre-wrap break-words ${
-                    m.role === "user"
-                      ? "bg-gradient-to-br from-purple-500/30 to-blue-500/25 text-white border border-purple-400/30"
-                      : "bg-white/[0.06] text-white/90 border border-white/[0.08]"
-                  }`}>{m.text}</div>
-                </div>
-              ))}
-              {chatSending && (
-                <div className="flex justify-start">
-                  <div className="px-3 py-2 rounded-2xl bg-white/[0.06] text-white/60 text-[12px] border border-white/[0.08]">
-                    <span className="inline-block animate-pulse">пишу…</span>
-                  </div>
-                </div>
-              )}
-            </div>
-            {/* Pair-code hint (top of input area) */}
-            {!chatPaired && chatMsgs.length <= 1 && (
-              <div className="px-3 py-1.5 text-[10px] text-white/40 border-t border-white/[0.04] bg-white/[0.02]">
-                💡 Есть код из Telegram/Max? Введи его — подтяну наш разговор оттуда.
-              </div>
-            )}
-            {/* Input */}
-            <form
-              onSubmit={(e) => { e.preventDefault(); sendChat(); }}
-              className="flex items-center gap-2 px-3 py-2 border-t border-white/[0.06]"
-            >
-              <input
-                type="text"
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                placeholder={chatPaired ? "Продолжаем разговор…" : "Напишите сообщение Музе…"}
-                maxLength={1500}
-                disabled={chatSending}
-                className="flex-1 bg-white/[0.05] text-[13px] text-white placeholder:text-white/40 px-3 py-2 rounded-xl border border-white/[0.08] focus:border-purple-400/40 focus:outline-none disabled:opacity-50"
-                autoFocus
-              />
-              <button
-                type="submit"
-                disabled={!chatInput.trim() || chatSending}
-                className="px-3 py-2 rounded-xl bg-gradient-to-r from-purple-500 to-blue-500 text-white text-[12px] font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:from-purple-600 hover:to-blue-600 transition-colors"
-              >Отправить</button>
-            </form>
-          </div>
-        )}
-
         {/* Силуэт взрослой певицы с микрофоном.
             Минимум деталей лица, акцент на pose певицы.
             Pastel MuziAi gradient. */}
@@ -396,6 +320,100 @@ export function FloatingConsultant() {
           />
         </button>
       </div>
+      {/* Eugene 2026-05-14 Босс v2: inline chat panel вынесена в портал
+          к document.body — иначе родитель с transform (consultant-slide-in)
+          ломает fixed-позиционирование на мобильном (узкий столбик справа).
+          Drawer от правой границы влево, не fullscreen. */}
+      {chatOpen && typeof document !== "undefined" && createPortal(
+        <div
+          className="fixed inset-0 z-[99999] pointer-events-none"
+          aria-modal="true"
+          role="dialog"
+        >
+          {/* Полупрозрачный backdrop — клик закрывает. */}
+          <div
+            className="absolute inset-0 bg-black/40 pointer-events-auto"
+            onClick={() => setChatOpen(false)}
+          />
+          {/* Drawer: на мобильном w=92vw drawer справа полная высота —
+              «справа налево от правой границы». На десктопе 380×520 в углу. */}
+          <div
+            className="absolute right-0 bottom-0 top-0 sm:top-auto sm:bottom-4 sm:right-4 w-[92vw] max-w-[420px] sm:w-[380px] h-full sm:h-[520px] flex flex-col bg-background/95 backdrop-blur-xl border-l sm:border sm:rounded-2xl border-white/10 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in slide-in-from-right duration-300"
+          >
+            {/* Header */}
+            <div className="flex items-center gap-2 px-3 py-3 sm:py-2 border-b border-white/[0.06] bg-gradient-to-r from-purple-500/10 to-blue-500/5 shrink-0">
+              <img src="/consultant-avatar.svg" alt="Муза" className="w-9 h-9 sm:w-8 sm:h-8 rounded-full object-contain bg-white/5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="text-[13px] font-semibold text-white truncate">
+                  Муза{chatPersona ? ` · ${chatPersona.name}` : ""}
+                  {chatPaired && (
+                    <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/20 text-green-300 font-normal whitespace-nowrap">
+                      {chatPaired.channel === "telegram" ? "📱 из Telegram" : chatPaired.channel === "max" ? "💬 из Max" : "✨ привязано"}
+                    </span>
+                  )}
+                </div>
+                <div className="text-[10px] text-white/50 truncate">Подскажу с песней, темой, регистрацией</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setChatOpen(false)}
+                aria-label="Закрыть чат"
+                className="w-9 h-9 sm:w-7 sm:h-7 rounded-full hover:bg-white/[0.08] text-white/70 hover:text-white text-xl flex items-center justify-center shrink-0"
+              >×</button>
+            </div>
+            {/* History scroll */}
+            <div ref={chatScrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-2 min-h-0">
+              {chatMsgs.length === 0 && (
+                <div className="text-[11px] text-white/40 text-center py-4">Загружаю…</div>
+              )}
+              {chatMsgs.map((m, i) => (
+                <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <div className={`max-w-[80%] px-3 py-2 rounded-2xl text-[13px] leading-relaxed whitespace-pre-wrap break-words ${
+                    m.role === "user"
+                      ? "bg-gradient-to-br from-purple-500/30 to-blue-500/25 text-white border border-purple-400/30"
+                      : "bg-white/[0.06] text-white/90 border border-white/[0.08]"
+                  }`}>{m.text}</div>
+                </div>
+              ))}
+              {chatSending && (
+                <div className="flex justify-start">
+                  <div className="px-3 py-2 rounded-2xl bg-white/[0.06] text-white/60 text-[12px] border border-white/[0.08]">
+                    <span className="inline-block animate-pulse">пишу…</span>
+                  </div>
+                </div>
+              )}
+            </div>
+            {/* Pair-code hint (top of input area) */}
+            {!chatPaired && chatMsgs.length <= 1 && (
+              <div className="px-3 py-1.5 text-[10px] text-white/40 border-t border-white/[0.04] bg-white/[0.02] shrink-0">
+                💡 Есть код из Telegram/Max? Введи его — подтяну наш разговор оттуда.
+              </div>
+            )}
+            {/* Input */}
+            <form
+              onSubmit={(e) => { e.preventDefault(); sendChat(); }}
+              className="flex items-center gap-2 px-3 py-3 sm:py-2 border-t border-white/[0.06] shrink-0 bg-background/60"
+            >
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder={chatPaired ? "Продолжаем…" : "Сообщение Музе…"}
+                maxLength={1500}
+                disabled={chatSending}
+                className="flex-1 min-w-0 bg-white/[0.05] text-[14px] text-white placeholder:text-white/40 px-3 py-2.5 sm:py-2 rounded-xl border border-white/[0.08] focus:border-purple-400/40 focus:outline-none disabled:opacity-50"
+                autoFocus
+              />
+              <button
+                type="submit"
+                disabled={!chatInput.trim() || chatSending}
+                className="px-4 py-2.5 sm:py-2 rounded-xl bg-gradient-to-r from-purple-500 to-blue-500 text-white text-[13px] font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:from-purple-600 hover:to-blue-600 transition-colors shrink-0"
+              >➤</button>
+            </form>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
