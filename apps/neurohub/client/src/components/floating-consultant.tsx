@@ -557,7 +557,30 @@ export function FloatingConsultant() {
               </div>
             )}
             <div className="border-t border-white/[0.04] my-1 pt-1">
-              <div className="text-[10px] text-white/60 px-1 mb-1">📤 Порекомендовать Музу</div>
+              {/* Eugene 2026-05-14 Босс «значок поделиться зелёная стрелка
+                  вправо, открывает меню смартфона по аналогии с треками».
+                  Сначала пробуем navigator.share (native), fallback - submenu. */}
+              <button
+                type="button"
+                onClick={async () => {
+                  trackEngagement("consultant_action", { action: "share_native" });
+                  const text = "Привет! Порекомендую Музу — крутая в подборе песен под событие.";
+                  const url = "https://muziai.ru";
+                  if (typeof navigator !== "undefined" && (navigator as any).share) {
+                    try {
+                      await (navigator as any).share({ title: "MuziAi · Муза", text, url });
+                      return;
+                    } catch {}
+                  }
+                  // Fallback на desktop / отказ - показать ссылки ниже (already visible)
+                }}
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.06] transition-colors text-[12px] text-white/90 text-left mb-1"
+              >
+                <span className="text-green-400 text-base">➜</span>
+                <span>Поделиться Музой</span>
+                <span className="ml-auto text-[10px] text-white/40">(меню телефона)</span>
+              </button>
+              <div className="text-[10px] text-white/40 px-1 mb-1">или напрямую:</div>
               <a
                 href={`https://t.me/share/url?url=${encodeURIComponent("https://t.me/Muziaipodari_bot")}&text=${encodeURIComponent("Привет! Порекомендую Музу — крутая в подборе песен под событие. Попробуй: https://t.me/Muziaipodari_bot")}`}
                 target="_blank"
@@ -681,15 +704,29 @@ export function FloatingConsultant() {
                 title="Начать новый разговор"
                 className="w-9 h-9 sm:w-7 sm:h-7 rounded-full hover:bg-white/[0.08] text-white/70 hover:text-white text-sm flex items-center justify-center shrink-0"
               >🔄</button>
-              {/* Share — переслать диалог другу. Кнопка только когда есть что слать. */}
+              {/* Share - переслать диалог другу. Eugene 2026-05-14 Босс
+                  "значок поделиться зелёная стрелка вправо, native меню". */}
               {chatMsgs.length >= 2 && (
                 <button
                   type="button"
-                  onClick={() => setShareMenuOpen(s => !s)}
+                  onClick={async () => {
+                    const dialogText = serializeChatForShare(chatMsgs);
+                    if (typeof navigator !== "undefined" && (navigator as any).share) {
+                      try {
+                        await (navigator as any).share({
+                          title: "Разговор с Музой (MuziAi)",
+                          text: dialogText,
+                          url: "https://muziai.ru",
+                        });
+                        return;
+                      } catch {}
+                    }
+                    setShareMenuOpen(s => !s);
+                  }}
                   aria-label="Поделиться диалогом"
                   title="Поделиться диалогом"
-                  className="w-9 h-9 sm:w-7 sm:h-7 rounded-full hover:bg-white/[0.08] text-white/70 hover:text-white text-base flex items-center justify-center shrink-0"
-                >📤</button>
+                  className="w-9 h-9 sm:w-7 sm:h-7 rounded-full hover:bg-white/[0.08] text-green-400 hover:text-green-300 text-lg font-bold flex items-center justify-center shrink-0"
+                >➜</button>
               )}
               <button
                 type="button"
