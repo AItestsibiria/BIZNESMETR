@@ -3,7 +3,7 @@
 // Pastel MuziAi gradient. Открытые глаза, закрытый рот, прямая осанка.
 // Минимум нот вокруг (1 акцентная) — для связи с музыкой.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const REAPPEAR_MS = 60_000;
 const APPEAR_DELAY_MS = 2500;
@@ -43,6 +43,23 @@ const CLICK_REACTIONS = [
   "Подберу под событие",
 ];
 
+// Eugene 2026-05-14 Босс: inline-чат с Музой на сайте + cross-channel pair-code.
+type ChatMessage = { role: "user" | "bot"; text: string };
+
+function ensureClientSessionId(): string {
+  try {
+    let id = sessionStorage.getItem("_muzaChatSid") || localStorage.getItem("_muzaChatSid");
+    if (!id) {
+      id = Math.random().toString(36).slice(2, 14) + Date.now().toString(36);
+      sessionStorage.setItem("_muzaChatSid", id);
+      localStorage.setItem("_muzaChatSid", id);
+    }
+    return id;
+  } catch {
+    return Math.random().toString(36).slice(2, 14);
+  }
+}
+
 export function FloatingConsultant() {
   const [visible, setVisible] = useState(false);
   const [exiting, setExiting] = useState(false);
@@ -53,6 +70,79 @@ export function FloatingConsultant() {
   const reactionTimerRef = useRef<number | null>(null);
   const dismissedRef = useRef(0);
   const timerRef = useRef<number | null>(null);
+  // === Inline chat (Eugene 2026-05-14 Босс) ===
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMsgs, setChatMsgs] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatSending, setChatSending] = useState(false);
+  const [chatPersona, setChatPersona] = useState<{ name: string; avatar: string } | null>(null);
+  const [chatPaired, setChatPaired] = useState<{ channel: string } | null>(null);
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const chatInitialized = useRef(false);
+
+  // Авто-скролл вниз при новом сообщении
+  useEffect(() => {
+    if (chatScrollRef.current) {
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    }
+  }, [chatMsgs.length]);
+
+  const openChat = useCallback(async () => {
+    setExpanded(false);
+    setChatOpen(true);
+    trackEngagement("consultant_action", { action: "open_chat" });
+    if (chatInitialized.current) return;
+    chatInitialized.current = true;
+    try {
+      const sid = ensureClientSessionId();
+      const r = await fetch("/api/muza/chat/init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: sid }),
+      });
+      const j = await r.json();
+      if (j?.ok) {
+        if (j.persona) setChatPersona(j.persona);
+        if (j.paired) setChatPaired({ channel: j.pairedFromChannel });
+        const hist: ChatMessage[] = Array.isArray(j.history)
+          ? j.history.map((h: any) => ({ role: h.role === "bot" ? "bot" : "user", text: h.text }))
+          : [];
+        const greeting: ChatMessage = { role: "bot", text: String(j.greeting || "Привет!") };
+        setChatMsgs([...hist, greeting]);
+      }
+    } catch (e) {
+      setChatMsgs([{ role: "bot", text: "Что-то с сетью — но я тут. Пробуй ещё раз через секунду 🎵" }]);
+    }
+  }, []);
+
+  const sendChat = useCallback(async () => {
+    const text = chatInput.trim();
+    if (!text || chatSending) return;
+    const sid = ensureClientSessionId();
+    setChatMsgs(m => [...m, { role: "user", text }]);
+    setChatInput("");
+    setChatSending(true);
+    try {
+      const r = await fetch("/api/muza/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text, sessionId: sid }),
+      });
+      const j = await r.json();
+      if (j?.ok) {
+        setChatMsgs(m => [...m, { role: "bot", text: j.reply || "..." }]);
+        if (j.paired) {
+          setChatPaired({ channel: j.pairedFromChannel });
+        }
+      } else {
+        setChatMsgs(m => [...m, { role: "bot", text: j?.error || "Что-то пошло не так — попробуй ещё раз" }]);
+      }
+    } catch {
+      setChatMsgs(m => [...m, { role: "bot", text: "Сеть подвисла — попробуй через секунду" }]);
+    } finally {
+      setChatSending(false);
+    }
+  }, [chatInput, chatSending]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -118,8 +208,17 @@ export function FloatingConsultant() {
 
         {/* Expanded — простое меню без новостей */}
         {expanded && (
-          <div className="absolute bottom-full right-0 mb-2 w-44 p-2 rounded-xl bg-background/40 backdrop-blur-xl border border-white/10 animate-in fade-in slide-in-from-bottom-2 duration-200 shadow-lg">
+          <div className="absolute bottom-full right-0 mb-2 w-48 p-2 rounded-xl bg-background/40 backdrop-blur-xl border border-white/10 animate-in fade-in slide-in-from-bottom-2 duration-200 shadow-lg">
             <div className="text-[10px] text-white/60 mb-1.5 px-1">Чем помочь?</div>
+            {/* Eugene 2026-05-14 Босс: основная кнопка — чат прямо тут на сайте.
+                Включая cross-channel pair-code из Telegram/Max. */}
+            <button
+              type="button"
+              onClick={openChat}
+              className="w-full flex items-center gap-2 px-2 py-2 rounded-lg bg-gradient-to-r from-purple-500/20 to-blue-500/20 hover:from-purple-500/30 hover:to-blue-500/30 transition-colors text-[12px] text-white text-left font-medium border border-purple-500/30 mb-1"
+            >
+              <span>💬</span> Чат со мной здесь
+            </button>
             <a
               href="https://t.me/Muziaipodari_bot"
               target="_blank"
@@ -189,6 +288,83 @@ export function FloatingConsultant() {
             >
               Скрыть
             </button>
+          </div>
+        )}
+
+        {/* Eugene 2026-05-14 Босс: inline chat panel — Муза прямо на сайте.
+            Поддерживает cross-channel pair-code из Telegram/Max. */}
+        {chatOpen && (
+          <div className="fixed sm:absolute bottom-0 sm:bottom-full right-0 sm:mb-2 left-0 sm:left-auto z-40 w-full sm:w-[340px] h-[70vh] sm:h-[480px] flex flex-col rounded-t-2xl sm:rounded-2xl bg-background/85 backdrop-blur-xl border border-white/10 shadow-2xl shadow-purple-500/10 overflow-hidden animate-in slide-in-from-bottom-4 duration-300">
+            {/* Header */}
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-white/[0.06] bg-gradient-to-r from-purple-500/10 to-blue-500/5">
+              <img src="/consultant-avatar.svg" alt="Муза" className="w-8 h-8 rounded-full object-contain bg-white/5" />
+              <div className="flex-1 min-w-0">
+                <div className="text-[13px] font-semibold text-white truncate">
+                  Муза{chatPersona ? ` · ${chatPersona.name}` : ""}
+                  {chatPaired && (
+                    <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/20 text-green-300 font-normal">
+                      {chatPaired.channel === "telegram" ? "📱 из Telegram" : chatPaired.channel === "max" ? "💬 из Max" : "✨ привязано"}
+                    </span>
+                  )}
+                </div>
+                <div className="text-[10px] text-white/50">Подскажу с песней, голосовой темой, регистрацией</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setChatOpen(false)}
+                aria-label="Закрыть чат"
+                className="w-7 h-7 rounded-full hover:bg-white/[0.08] text-white/70 hover:text-white text-lg flex items-center justify-center"
+              >×</button>
+            </div>
+            {/* History scroll */}
+            <div ref={chatScrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
+              {chatMsgs.length === 0 && (
+                <div className="text-[11px] text-white/40 text-center py-4">Загружаю…</div>
+              )}
+              {chatMsgs.map((m, i) => (
+                <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <div className={`max-w-[78%] px-3 py-2 rounded-2xl text-[12.5px] leading-relaxed whitespace-pre-wrap break-words ${
+                    m.role === "user"
+                      ? "bg-gradient-to-br from-purple-500/30 to-blue-500/25 text-white border border-purple-400/30"
+                      : "bg-white/[0.06] text-white/90 border border-white/[0.08]"
+                  }`}>{m.text}</div>
+                </div>
+              ))}
+              {chatSending && (
+                <div className="flex justify-start">
+                  <div className="px-3 py-2 rounded-2xl bg-white/[0.06] text-white/60 text-[12px] border border-white/[0.08]">
+                    <span className="inline-block animate-pulse">пишу…</span>
+                  </div>
+                </div>
+              )}
+            </div>
+            {/* Pair-code hint (top of input area) */}
+            {!chatPaired && chatMsgs.length <= 1 && (
+              <div className="px-3 py-1.5 text-[10px] text-white/40 border-t border-white/[0.04] bg-white/[0.02]">
+                💡 Есть код из Telegram/Max? Введи его — подтяну наш разговор оттуда.
+              </div>
+            )}
+            {/* Input */}
+            <form
+              onSubmit={(e) => { e.preventDefault(); sendChat(); }}
+              className="flex items-center gap-2 px-3 py-2 border-t border-white/[0.06]"
+            >
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder={chatPaired ? "Продолжаем разговор…" : "Напишите сообщение Музе…"}
+                maxLength={1500}
+                disabled={chatSending}
+                className="flex-1 bg-white/[0.05] text-[13px] text-white placeholder:text-white/40 px-3 py-2 rounded-xl border border-white/[0.08] focus:border-purple-400/40 focus:outline-none disabled:opacity-50"
+                autoFocus
+              />
+              <button
+                type="submit"
+                disabled={!chatInput.trim() || chatSending}
+                className="px-3 py-2 rounded-xl bg-gradient-to-r from-purple-500 to-blue-500 text-white text-[12px] font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:from-purple-600 hover:to-blue-600 transition-colors"
+              >Отправить</button>
+            </form>
           </div>
         )}
 

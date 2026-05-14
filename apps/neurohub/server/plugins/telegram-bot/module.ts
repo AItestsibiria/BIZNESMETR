@@ -23,6 +23,7 @@ import { eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { db } from "../../storage";
 import { chatbotSessions, chatbotMessages, users } from "@shared/schema";
+import { getOrCreatePairCode, shouldOfferPairCode, markPairCodeOffered } from "../../lib/webChatPair";
 import type { BootContext, Module } from "../../core";
 import { confirmNonce as confirmTgLoginNonce, hasValidNonce as hasTgLoginNonce } from "../../lib/tgLoginNonces";
 import { personaFor, PERSONAS, loadKB, buildPersonaSystem, kbPath } from "../../lib/consultantPersona";
@@ -820,7 +821,23 @@ async function processIncomingText(chatId: string, fromId: string, sessionId: st
     // в @BotFather → /setuserpic. SendPhoto оставлен только в /start.
     const cleanReply = reply.replace(/\s*[—\-–]+\s*(Муза|Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*(MuziAi|МузиАй))?\s*\.?\s*$/i, "").trimEnd();
     const footer = `\n\n— Муза · МузиАй`;
-    const replyWithAvatar = `${p.avatar} ${cleanReply}${footer}`;
+
+    // Eugene 2026-05-14 Босс: cross-channel pair-code приглашение на сайт.
+    // После >= 3 сообщений в сессии + cooldown 6ч + шанс 30% — добавляем
+    // в конец ответа приглашение «продолжить на сайте, скажи код XYZ123».
+    let pairInvite = "";
+    try {
+      const msgCount = history.length;
+      if (msgCount >= 3 && shouldOfferPairCode(sessionId, "telegram") && Math.random() < 0.3) {
+        const code = getOrCreatePairCode(sessionId);
+        if (code) {
+          markPairCodeOffered(sessionId);
+          pairInvite = `\n\n✨ Кстати, у меня там на сайте уютнее: https://muziai.ru — там просто шепнёшь мне «${code}» и я подтяну весь наш разговор. Веселее, обещаю!`;
+        }
+      }
+    } catch (e) { bootRefs?.logger.warn?.("[telegram-bot] pair-code offer skipped", { error: String(e) }); }
+
+    const replyWithAvatar = `${p.avatar} ${cleanReply}${pairInvite}${footer}`;
     await sendMessage(chatId, replyWithAvatar);
     saveMessage(sessionId, "bot", replyWithAvatar);
     bootRefs?.eventBus?.emit?.("chatbot.reply_sent", { channel: "telegram", sessionId, chatId }, "telegram-bot");

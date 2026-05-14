@@ -452,6 +452,12 @@ try {
     // Long-term memo + visit counter — прогрессия коммуникации при возврате.
     if (!has("long_term_memo")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN long_term_memo TEXT");
     if (!has("visit_count")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN visit_count INTEGER NOT NULL DEFAULT 1");
+    // Eugene 2026-05-14 Босс: cross-channel pair-code (Telegram/Max → сайт).
+    if (!has("web_pair_code")) {
+      sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN web_pair_code TEXT");
+      sqlite.exec("CREATE INDEX IF NOT EXISTS chatbot_sessions_pair_code_idx ON chatbot_sessions(web_pair_code)");
+    }
+    if (!has("web_pair_code_offered_at")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN web_pair_code_offered_at TEXT");
   } catch (e) {
     console.error("[MIGRATION] chatbot_sessions FSM columns failed:", e);
   }

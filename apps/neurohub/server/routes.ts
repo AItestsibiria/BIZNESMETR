@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage, db } from "./storage";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
-import { registerSchema, loginSchema, users, payments, generations, transactions, promoCodes, visitors, genActivity, songDrafts, botLearnings, landingNews } from "@shared/schema";
+import { registerSchema, loginSchema, users, payments, generations, transactions, promoCodes, visitors, genActivity, songDrafts, botLearnings, landingNews, chatbotSessions, chatbotMessages } from "@shared/schema";
 import express from "express";
 import { eq, desc, sql, and, isNotNull } from "drizzle-orm";
 import nodemailer from "nodemailer";
@@ -16,6 +16,8 @@ import { isSunoCircuitOpen } from "./plugins/suno-watchdog/module";
 import { requireAdmin } from "./core/adminAuth";
 import { createNonce as tgCreateNonce, pollNonce as tgPollNonce, consumeNonce as tgConsumeNonce, attachUserToNonce as tgAttachUserToNonce } from "./lib/tgLoginNonces";
 import { logEngagement, getEngagementDaily, getEngagementSummary } from "./lib/engagement";
+import { buildPersonaSystem, personaFor } from "./lib/consultantPersona";
+import { findSessionByPairCode, looksLikePairCode } from "./lib/webChatPair";
 
 const AUTHORS_DIR = process.env.AUTHORS_DIR || path.join(process.cwd(), "authors");
 
@@ -1362,6 +1364,225 @@ export async function registerRoutes(
       res.json({ ok: true });
     } catch {
       res.json({ ok: true }); // не блокируем фронт
+    }
+  });
+
+  // ==================== MUZA WEB CHAT (Eugene 2026-05-14 Босс) ====================
+  // Inline-чат Музы прямо на сайте. Поддерживает cross-channel pairing —
+  // юзер набирает 6-знак код из Telegram/Max, history подтягивается.
+  //
+  // Endpoints:
+  //   POST /api/muza/chat/init — приветствие + (опц.) history, при pair-code линкуется.
+  //   POST /api/muza/chat — отправка сообщения юзера, возвращает ответ Музы.
+  //
+  // Сессия web хранится в chatbot_sessions с channel='web'. Если pairCode
+  // распознан — НЕ создаём новую web-сессию, а используем сессию мессенджера
+  // (юзер «продолжает разговор там же»).
+
+  async function callMuzaLLM(systemStable: string, systemDynamic: string, history: Array<{ role: string; content: string }>, userText: string): Promise<string | null> {
+    const key = process.env.ANTHROPIC_API_KEY_BOT || process.env.ANTHROPIC_API_KEY || "";
+    if (!key) return null;
+    try {
+      const systemBlocks: any[] = [
+        { type: "text", text: systemStable, cache_control: { type: "ephemeral", ttl: "1h" } },
+      ];
+      if (systemDynamic) systemBlocks.push({ type: "text", text: systemDynamic });
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": key,
+          "anthropic-version": "2023-06-01",
+          "anthropic-beta": "extended-cache-ttl-2025-04-11",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 250,
+          system: systemBlocks,
+          messages: [...history.slice(-8), { role: "user", content: userText }],
+        }),
+        signal: AbortSignal.timeout(12_000),
+      });
+      if (!r.ok) {
+        console.warn(`[MUZA-CHAT] Claude non-ok ${r.status}`);
+        return null;
+      }
+      const j: any = await r.json();
+      const c = j?.content?.[0]?.text;
+      return typeof c === "string" && c.length > 0 ? c.slice(0, 2000) : null;
+    } catch (e) {
+      console.warn("[MUZA-CHAT] Claude error:", e);
+      return null;
+    }
+  }
+
+  // Создать или найти web-сессию для clientSessionId.
+  function getOrCreateWebSession(clientSessionId: string) {
+    // clientSessionId — uuid от клиента, хранится в его sessionStorage.
+    // Используем его как session.id (channel='web', externalId=clientSessionId).
+    const id = `web:${clientSessionId.slice(0, 60)}`;
+    const existing = db.select().from(chatbotSessions).where(eq(chatbotSessions.id, id)).get();
+    if (existing) return existing;
+    const persona = personaFor(id);
+    db.insert(chatbotSessions).values({
+      id,
+      channel: "web",
+      externalId: clientSessionId,
+      state: "active",
+      personaName: persona.name,
+    }).run();
+    return db.select().from(chatbotSessions).where(eq(chatbotSessions.id, id)).get();
+  }
+
+  // Подгрузка последних messages для контекста + UI history.
+  function loadSessionHistory(sessionId: string, limit = 30): Array<{ role: string; text: string; createdAt: string | null }> {
+    try {
+      const rows = db.select().from(chatbotMessages)
+        .where(eq(chatbotMessages.sessionId, sessionId))
+        .orderBy(desc(chatbotMessages.id))
+        .limit(limit)
+        .all();
+      return rows.reverse().map(r => ({ role: r.role, text: r.text, createdAt: r.createdAt }));
+    } catch {
+      return [];
+    }
+  }
+
+  // POST /api/muza/chat/init — начальное приветствие + (опц.) history по pairCode.
+  app.post("/api/muza/chat/init", async (req: Request, res: Response) => {
+    try {
+      const clientSessionId = String(req.body?.sessionId || uuidv4()).slice(0, 64);
+      const pairCodeRaw = String(req.body?.pairCode || "").trim();
+
+      let paired = false;
+      let pairedFromChannel: string | null = null;
+      let session: any = null;
+
+      if (pairCodeRaw) {
+        const found = findSessionByPairCode(pairCodeRaw);
+        if (found) {
+          session = found;
+          paired = true;
+          pairedFromChannel = found.channel;
+        }
+      }
+      if (!session) {
+        session = getOrCreateWebSession(clientSessionId);
+      }
+
+      const history = loadSessionHistory(session.id, 30);
+      const persona = personaFor(session.id);
+
+      // Особое приветствие: если paired — Муза помнит что было в мессенджере.
+      let greeting: string;
+      if (paired && pairedFromChannel) {
+        const channelLabel = pairedFromChannel === "telegram" ? "Telegram" : pairedFromChannel === "max" ? "Max" : "мессенджере";
+        const lastUserMsg = history.filter(h => h.role === "user").slice(-1)[0]?.text || "";
+        const hint = lastUserMsg ? `Помню, мы говорили про «${lastUserMsg.slice(0, 60)}…». ` : "";
+        greeting = `Узнаю тебя — мы общались в ${channelLabel}. ${hint}Продолжим тут?`;
+      } else if (history.length > 0) {
+        greeting = "С возвращением! Что задумали сегодня?";
+      } else {
+        greeting = `Привет! Я — Муза. Можете звать меня ${persona.name}. Расскажите, на какой повод песня — и я подскажу как лучше собрать. ${persona.avatar}`;
+      }
+
+      res.json({
+        ok: true,
+        sessionId: session.id,
+        clientSessionId,
+        paired,
+        pairedFromChannel,
+        persona: { name: persona.name, avatar: persona.avatar },
+        history,
+        greeting,
+      });
+    } catch (e: any) {
+      console.error("[MUZA-CHAT init]", e);
+      res.status(500).json({ ok: false, error: String(e) });
+    }
+  });
+
+  // POST /api/muza/chat — отправка сообщения юзера, ответ Музы.
+  app.post("/api/muza/chat", async (req: Request, res: Response) => {
+    const ip = req.ip || req.socket.remoteAddress || "unknown";
+    if (!rateLimit(ip + ":muzachat", 30, 60_000)) {
+      res.status(429).json({ ok: false, error: "Слишком много сообщений за минуту" });
+      return;
+    }
+    try {
+      const text = String(req.body?.message || "").trim().slice(0, 1500);
+      const clientSessionId = String(req.body?.sessionId || "").slice(0, 64);
+      if (!text || !clientSessionId) {
+        res.status(400).json({ ok: false, error: "Нужны message + sessionId" });
+        return;
+      }
+
+      // Проверяем — может это pair-code (даже если уже инициализирован)
+      let session: any = null;
+      let pairedNow = false;
+      const codeInText = looksLikePairCode(text);
+      if (codeInText) {
+        const found = findSessionByPairCode(codeInText);
+        if (found && found.channel !== "web") {
+          session = found;
+          pairedNow = true;
+        }
+      }
+      if (!session) {
+        const wantId = clientSessionId.startsWith("web:") ? clientSessionId : `web:${clientSessionId}`;
+        session = db.select().from(chatbotSessions).where(eq(chatbotSessions.id, wantId)).get()
+          || getOrCreateWebSession(clientSessionId.replace(/^web:/, ""));
+      }
+
+      // Сохраняем user message
+      db.insert(chatbotMessages).values({
+        sessionId: session.id,
+        role: "user",
+        text,
+      }).run();
+
+      // History для контекста Claude (последние 8 сообщений)
+      const histAll = loadSessionHistory(session.id, 8);
+      const llmHistory = histAll.slice(0, -1).map(h => ({
+        role: h.role === "bot" ? "assistant" : "user",
+        content: h.text,
+      }));
+
+      const systemStable = buildPersonaSystem(session.id);
+      let systemDynamic = "";
+      if (pairedNow) {
+        const persona = personaFor(session.id);
+        systemDynamic = `[CONTEXT] Юзер только что пришёл с ${session.channel === "telegram" ? "Telegram" : "Max"} и набрал pair-код. Приветствуй тепло как старого знакомого, упомяни что помнишь о чём говорили (используй последние сообщения из history). Имя в обличии: ${persona.name}.`;
+      }
+
+      let reply = await callMuzaLLM(systemStable, systemDynamic, llmHistory, text);
+      if (!reply) {
+        reply = pairedNow
+          ? "Вижу тебя — продолжаем тут! Что задумали сегодня? 🎵"
+          : "Принято! Я тут, чем помочь?";
+      }
+
+      // Сохраняем bot reply + обновляем lastMessageAt
+      db.insert(chatbotMessages).values({
+        sessionId: session.id,
+        role: "bot",
+        text: reply,
+      }).run();
+      db.update(chatbotSessions)
+        .set({ lastMessageAt: new Date().toISOString() })
+        .where(eq(chatbotSessions.id, session.id))
+        .run();
+
+      res.json({
+        ok: true,
+        sessionId: session.id,
+        reply,
+        paired: pairedNow,
+        pairedFromChannel: pairedNow ? session.channel : null,
+      });
+    } catch (e: any) {
+      console.error("[MUZA-CHAT send]", e);
+      res.status(500).json({ ok: false, error: String(e) });
     }
   });
 

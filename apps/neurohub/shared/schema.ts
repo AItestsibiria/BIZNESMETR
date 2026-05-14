@@ -302,6 +302,13 @@ export const chatbotSessions = sqliteTable("chatbot_sessions", {
   // возобновлял диалог после >24h тишины. Влияет на тон («давно не
   // виделись» / «как договаривались, перейдём к шаблону»).
   visitCount: integer("visit_count").notNull().default(1),
+  // Eugene 2026-05-14 Босс: cross-channel continuity.
+  // 6-знак pair-код выдаётся при создании сессии в Telegram/Max.
+  // Юзер набирает его в чате на сайте → backend подтягивает userKey
+  // + history этой сессии → продолжение разговора с тем же контекстом.
+  webPairCode: text("web_pair_code"),
+  // Когда последний раз код выдан юзеру в чате (anti-spam, не чаще раза в 6ч).
+  webPairCodeOfferedAt: text("web_pair_code_offered_at"),
   startedAt: text("started_at").default(sql`CURRENT_TIMESTAMP`),
   lastMessageAt: text("last_message_at").default(sql`CURRENT_TIMESTAMP`),
 });
