@@ -45,6 +45,26 @@ const CLICK_REACTIONS = [
   "Подберу под событие",
 ];
 
+// Eugene 2026-05-14 Босс «вверху ответа Музы напиши её имя в цвет образа».
+// Mapping имени персоны на цвет — психотип определяет тон.
+// warm = pink (тёплые), energetic = amber (искра), analytical = cyan (точно),
+// calm = emerald (спокойствие). Применяется как text-color в name-bage.
+const PERSONA_COLOR: Record<string, string> = {
+  // adult warm
+  "Аня": "text-pink-300",     "Михаил": "text-pink-300",
+  // adult energetic
+  "Татьяна": "text-amber-300","Дмитрий": "text-amber-300",
+  // adult analytical
+  "Мария": "text-cyan-300",   "Алексей": "text-cyan-300",
+  // adult calm
+  "Ольга": "text-emerald-300","Андрей": "text-emerald-300",
+  // teens
+  "Лиза": "text-pink-300",    "Полина": "text-amber-300",
+  "Кирилл": "text-amber-300", "Артём": "text-pink-300",
+  // kids
+  "Маша": "text-pink-300",    "Лёша": "text-amber-300",
+};
+
 // Eugene 2026-05-14 Босс: inline-чат с Музой на сайте + cross-channel pair-code.
 // quickReplies — 2-3 кнопки-варианта после bot-message, клик = auto-send.
 type ChatMessage = { role: "user" | "bot"; text: string; quickReplies?: string[] };
@@ -651,8 +671,19 @@ export function FloatingConsultant() {
               )}
               {chatMsgs.slice(-visibleCount).map((m, i, arr) => {
                 const isLastBot = i === arr.length - 1 && m.role === "bot";
+                const personaName = chatPersona?.name;
+                const personaColor = (personaName && PERSONA_COLOR[personaName]) || "text-purple-300";
                 return (
-                  <div key={i} className={`flex flex-col gap-1.5 ${m.role === "user" ? "items-end" : "items-start"}`}>
+                  <div key={i} className={`flex flex-col gap-1 ${m.role === "user" ? "items-end" : "items-start"}`}>
+                    {/* Eugene 2026-05-14 Босс «вверху ответа Музы напиши её имя
+                        в цвет образа». Show над каждым bot-message в цвете персоны. */}
+                    {m.role === "bot" && personaName && (
+                      <div className={`flex items-center gap-1 px-1 text-[10px] font-semibold ${personaColor}`}>
+                        <span>{chatPersona?.avatar || "🎀"}</span>
+                        <span>{personaName}</span>
+                        <span className="text-white/30 font-normal">· Муза</span>
+                      </div>
+                    )}
                     <div className={`max-w-[80%] px-3 py-2 rounded-2xl text-[13px] leading-relaxed whitespace-pre-wrap break-words ${
                       m.role === "user"
                         ? "bg-gradient-to-br from-purple-500/30 to-blue-500/25 text-white border border-purple-400/30"
