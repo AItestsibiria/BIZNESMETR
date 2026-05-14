@@ -1553,6 +1553,29 @@ export async function registerRoutes(
     }
   }
 
+  // Eugene 2026-05-14 Босс «знакомиться взаимно + предложить угадать город».
+  // Для НЕ-залогиненных юзеров вытягиваем гео из visitors row по IP.
+  // Возвращает hint для system prompt — «попробуй угадать город X страны Y».
+  function buildVisitorGeoContext(req: Request): string {
+    try {
+      const ip = (req.ip || req.socket.remoteAddress || "").replace(/^::ffff:/, "");
+      if (!ip || ip === "127.0.0.1" || ip === "::1") return "";
+      const v = db.select().from(visitors)
+        .where(eq(visitors.ip, ip))
+        .orderBy(desc(visitors.lastVisit))
+        .limit(1)
+        .get();
+      if (!v || (!v.city && !v.country)) return "";
+      const parts: string[] = [];
+      if (v.city) parts.push(`город=${v.city}`);
+      if (v.country) parts.push(`страна=${v.country}`);
+      if (v.countryCode) parts.push(`code=${v.countryCode}`);
+      return `\n\n═══ ГЕО-FINGERPRINT ЮЗЕРА (по IP) ═══\n${parts.join(", ")}\n\n[ИГРА ЗНАКОМСТВА] Если это первое сообщение в сессии — можешь ПРЕДЛОЖИТЬ юзеру игру: «А давай я попробую угадать откуда вы? Кажется, вы из ${v.city || v.country}? Угадала?» Это сразу создаёт лёгкий момент, юзер раскрывается. Только ОДИН раз за сессию, не упоминай повторно. Если юзер не подтвердил — не настаивай, просто продолжай знакомство.\n[ВЗАИМНОЕ ЗНАКОМСТВО] Параллельно представься: «Я — Муза, можете звать меня ${"X"}». Спроси «а вас как зовут?» После имени — «приятно, ${"имя"}!»`;
+    } catch {
+      return "";
+    }
+  }
+
   // Eugene 2026-05-14 Босс «знать его треки и обсуждать прогресс... как друг».
   // Собирает контекст залогиненного автора: имя, треки, plays, top-позиции.
   // Возвращает сжатый markdown-like блок для inject в system prompt.
@@ -1768,19 +1791,43 @@ https://muziai.ru/#/music»
         ];
         greeting = returnPool[Math.floor(Math.random() * returnPool.length)];
       } else {
-        // Eugene 2026-05-14 Босс «разные фишки приветственные» — пул вариантов.
-        // Каждый раз новое: юзер не видит одну и ту же фразу.
-        const freshPool = [
+        // Eugene 2026-05-14 Босс «разные фишки приветственные + знакомиться
+        // взаимно + предложить угадать город». Сначала ищем visitor row
+        // по IP — если есть гео-fingerprint, добавляем в пул варианты с игрой.
+        let visitorGeo: { city?: string | null; country?: string | null } | null = null;
+        try {
+          const ip = (req.ip || req.socket.remoteAddress || "").replace(/^::ffff:/, "");
+          if (ip && ip !== "127.0.0.1" && ip !== "::1") {
+            const v = db.select().from(visitors)
+              .where(eq(visitors.ip, ip))
+              .orderBy(desc(visitors.lastVisit))
+              .limit(1)
+              .get();
+            if (v && (v.city || v.country)) visitorGeo = { city: v.city, country: v.country };
+          }
+        } catch {}
+
+        // Базовый пул — всегда доступен.
+        const basePool = [
           `Привет! Я — Муза. Можете звать меня ${persona.name}. На какой повод думаете песню? ${persona.avatar}`,
-          `${persona.avatar} Привет! Я Муза — помогу собрать песню под событие. Расскажите, что в голове крутится?`,
-          `Здравствуйте! Я Муза, сегодня в обличии ${persona.name}. Готовы поколдовать над текстом? 🎵`,
-          `Привет ✨ Я Муза — собираю песни под особенные моменты. Какой повод?`,
-          `${persona.avatar} Заглянули? Отлично! Я Муза — помогу с песней. Кому посвящаем?`,
-          `Привет! 🌟 Меня зовите Муза. У меня тут под рукой — все инструменты для песни. С чего начнём — повод, имя адресата, настроение?`,
-          `Эй, привет! Я Муза. Если есть повод или просто хочется попробовать — расскажите, я подскажу 🎼`,
-          `${persona.avatar} Привет-привет! Я Муза. Песня под событие — моя стихия. Поделитесь, что хотите услышать?`,
+          `${persona.avatar} Привет! Я Муза — помогу собрать песню под событие. А вас как зовут? Расскажите, что в голове крутится?`,
+          `Здравствуйте! Я Муза, сегодня в обличии ${persona.name}. Как мне к вам обращаться? И на какой повод будем колдовать? 🎵`,
+          `Привет ✨ Я Муза — собираю песни под особенные моменты. Давайте познакомимся — как вас зовут?`,
+          `${persona.avatar} Заглянули? Отлично! Я Муза — помогу с песней. Подскажите имя — буду к вам обращаться лично.`,
+          `Привет! 🌟 Меня зовите Муза. С чего начнём — расскажете о себе, или сразу к повод?`,
+          `Эй, привет! Я Муза. Чтобы мне было проще — как вас зовут?  Расскажите, какой повод 🎼`,
+          `${persona.avatar} Привет-привет! Я Муза. Давайте знакомиться — ваше имя? И что хотите услышать?`,
         ];
-        greeting = freshPool[Math.floor(Math.random() * freshPool.length)];
+        // Если знаем гео — добавляем варианты с игрой «угадаю город».
+        const geoPool: string[] = [];
+        if (visitorGeo?.city) {
+          geoPool.push(`${persona.avatar} Привет! Я — Муза. Слушайте, попробую угадать — вы из ${visitorGeo.city}? 🌍 А как мне к вам обращаться?`);
+          geoPool.push(`Привет! Я Муза. Чувствую — вы где-то в ${visitorGeo.city}? 😊 Расскажите как вас зовут — будем знакомиться.`);
+        } else if (visitorGeo?.country) {
+          geoPool.push(`${persona.avatar} Привет! Я — Муза. Кажется, вы из ${visitorGeo.country}? Угадала? И как вас зовут?`);
+        }
+        const pool = [...basePool, ...geoPool];
+        greeting = pool[Math.floor(Math.random() * pool.length)];
       }
 
       res.json({
@@ -1865,6 +1912,9 @@ https://muziai.ru/#/music»
       // Author context — для авторизованных юзеров включаем профиль + треки.
       if (authUserId) {
         systemDynamic += buildAuthorContext(authUserId);
+      } else if (session.channel === "web") {
+        // Гость: подмешиваем гео-fingerprint для игры «угадаю город»
+        systemDynamic += buildVisitorGeoContext(req);
       }
       // Eugene 2026-05-14 Босс «Ярс — это я, проанализируй где фигурирует
       // и примени везде». Тот же паттерн что в telegram-bot/module.ts:783.

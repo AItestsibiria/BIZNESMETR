@@ -236,10 +236,14 @@ export function FloatingConsultant() {
       setVisible(true);
       trackEngagement("consultant_impression");
     }, APPEAR_DELAY_MS);
-    // Listener для открытия извне (например с новости лендинга).
+    // Listener для открытия извне (новость, кнопка). Eugene 2026-05-14
+    // Босс «любое нажатие на Музу — сразу в чат, не меню».
     const onOpen = () => {
       setVisible(true);
-      setExpanded(true);
+      setExpanded(false);
+      // Открываем чат напрямую
+      try { playMuzaSparkle(); } catch {}
+      openChat();
       trackEngagement("consultant_open", { trigger: "external" });
     };
     window.addEventListener("open-consultant", onOpen);
@@ -392,15 +396,7 @@ export function FloatingConsultant() {
               >
                 <span>💬</span> Max
               </a>
-              <a
-                href={`https://api.whatsapp.com/send?text=${encodeURIComponent("Привет! Порекомендую Музу — крутая в подборе песен под событие. Попробуй: https://t.me/Muziaipodari_bot")}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => trackEngagement("consultant_action", { action: "share_whatsapp" })}
-                className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-white/[0.06] transition-colors text-[11px] text-white/80"
-              >
-                <span>💚</span> WhatsApp
-              </a>
+              {/* WhatsApp убран (Eugene 2026-05-14 Босс «в меню убираем WhatsApp») */}
             </div>
             <button
               type="button"
@@ -418,16 +414,16 @@ export function FloatingConsultant() {
         <button
           type="button"
           onClick={() => {
-            // Eugene 2026-05-12: reaction-bubble + меню.
-            // Eugene 2026-05-14 Босс «мини звуки нежный + при нажатии реагировать»:
-            // chime + ripple-bounce. Каждое нажатие — новая фраза из массива.
+            // Eugene 2026-05-14 Босс «любое нажатие перемещает в чат сразу с ней».
+            // Раньше клик открывал expanded меню — теперь сразу openChat.
+            // Reaction-bubble + chime + scale остаются.
             try { playMuzaChime(); } catch {}
             const phrase = CLICK_REACTIONS[reactionIdxRef.current % CLICK_REACTIONS.length];
             reactionIdxRef.current += 1;
             setReaction(phrase);
             if (reactionTimerRef.current) window.clearTimeout(reactionTimerRef.current);
             reactionTimerRef.current = window.setTimeout(() => setReaction(null), 2500);
-            setExpanded(e => { const next = !e; if (next) trackEngagement("consultant_open"); return next; });
+            openChat();
           }}
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
@@ -532,11 +528,7 @@ export function FloatingConsultant() {
                            className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/[0.06] text-[12px] text-white/90">
                           <span>💬</span> Max
                         </a>
-                        <a href={`https://api.whatsapp.com/send?text=${text}`} target="_blank" rel="noopener noreferrer"
-                           onClick={() => setShareMenuOpen(false)}
-                           className="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white/[0.06] text-[12px] text-white/90">
-                          <span>💚</span> WhatsApp
-                        </a>
+                        {/* WhatsApp убран (Eugene 2026-05-14 Босс) */}
                         <button type="button"
                                 onClick={async () => {
                                   try { await navigator.clipboard.writeText(serializeChatForShare(chatMsgs)); } catch {}
