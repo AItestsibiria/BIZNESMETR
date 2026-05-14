@@ -2278,9 +2278,29 @@ export default function DashboardPage() {
                           })()}
                         </p>
                       </div>
-                      {/* Mini preview for completed items */}
+                      {/* Mini preview for completed items.
+                          Eugene 2026-05-14 Босс «разделить в дашборде Suno
+                          и свои обложки». Badge показывает тип. */}
                       {gen.status === "done" && gen.resultUrl && gen.type === "cover" && (
-                        <img src={`/api/stream/${gen.id}`} alt="" loading="lazy" className="w-10 h-10 rounded-lg object-cover shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                        <div className="relative shrink-0">
+                          <img src={`/api/stream/${gen.id}`} alt="" loading="lazy" className="w-10 h-10 rounded-lg object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                          <span className="absolute -bottom-1 -right-1 text-[8px] px-1 py-0.5 rounded-full bg-purple-500/80 text-white border border-purple-300/50" title="Своя обложка от автора">👤</span>
+                        </div>
+                      )}
+                      {gen.status === "done" && gen.type === "music" && (
+                        <div className="relative shrink-0">
+                          <img src={`/api/cover/${(gen as any).coverGenId || gen.id}.jpg?v=${gen.id}`} alt="" loading="lazy" className="w-10 h-10 rounded-lg object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                          <span
+                            className={`absolute -bottom-1 -right-1 text-[8px] px-1 py-0.5 rounded-full text-white border ${
+                              (gen as any).coverGenId
+                                ? "bg-purple-500/80 border-purple-300/50"
+                                : "bg-cyan-500/80 border-cyan-300/50"
+                            }`}
+                            title={(gen as any).coverGenId ? "Своя обложка (создал автор)" : "Обложка от Suno (auto-generated)"}
+                          >
+                            {(gen as any).coverGenId ? "👤" : "🤖"}
+                          </span>
+                        </div>
                       )}
                       <div className="text-right shrink-0">
                         <p className="text-xs text-muted-foreground">{formatDate(gen.createdAt)}</p>
