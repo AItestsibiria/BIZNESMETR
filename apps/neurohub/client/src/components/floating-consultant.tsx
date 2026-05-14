@@ -412,6 +412,33 @@ export function FloatingConsultant() {
     return () => window.removeEventListener("scroll", onScroll);
   }, [visible, chatOpen]);
 
+  // Eugene 2026-05-14 Босс «3 тапа по экрану — появляется Муза когда нет,
+  // 3 тапа — исчезает медленно когда есть». Triple-tap в окне 700ms.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const taps: number[] = [];
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as HTMLElement | null;
+      // Игнорируем тапы на интерактивные элементы — не сбиваем UI
+      if (target?.closest("button,input,textarea,a,[role='button']")) return;
+      const now = Date.now();
+      taps.push(now);
+      while (taps.length > 0 && now - taps[0] > 700) taps.shift();
+      if (taps.length >= 3) {
+        taps.length = 0;
+        if (chatOpen) return;
+        if (visible) {
+          dismiss(); // плавный fade-out + REAPPEAR cooldown
+        } else {
+          if (timerRef.current) window.clearTimeout(timerRef.current);
+          setVisible(true);
+        }
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [visible, chatOpen]);
+
   if (!visible) return null;
 
   return (
