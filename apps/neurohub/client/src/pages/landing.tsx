@@ -792,13 +792,24 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     }
     if (playingId === track.id) {
       if (audioRef.current?.paused) {
-        audioRef.current.play().catch(() => {});
+        // Eugene 2026-05-14 Босс «после загрузки сайта стоит на паузе, не
+        // могу включить плей». ROOT CAUSE: audio был auto-prepared при
+        // mount (preload="metadata"). На клик audioRef.current.play()
+        // может reject из-за autoplay policy — silent catch скрывал
+        // ошибку. КАРДИНАЛЬНО: если play() reject → пересоздаём через
+        // playTrack (new Audio в same gesture, гарантированно работает).
+        audioRef.current.play()
+          .then(() => muteBgMusic())
+          .catch((err) => {
+            console.warn("[PLAYER] toggle-play() reject, force re-init:", err?.name, err?.message);
+            // Force re-init — playTrack создаст новый Audio и play() в same tick'е gesture
+            playTrack(track);
+          });
         muteBgMusic();
         timerRef.current = window.setInterval(() => {
           if (audioRef.current && !audioRef.current.paused) {
             const t = audioRef.current.currentTime;
             setCurrentTime(t);
-            // Throttle persist — каждые ~2 сек, чтобы не задалбывать localStorage
             try {
               if (Math.floor(t) % 2 === 0) localStorage.setItem(psKey("currentTime"), String(t));
             } catch {}
