@@ -250,17 +250,21 @@ export function FloatingConsultant() {
     }, 0);
   }, []);
 
-  // Eugene 2026-05-14 Босс «паузы как человек, а то механика». Helper для
-  // искусственной задержки имитирующей «Муза думает + печатает».
-  // typingDelay — основная пауза перед показом текста (пропорциональна длине).
-  // qrDelay — доп. пауза перед показом кнопок (юзер успевает прочитать ответ).
+  // Eugene 2026-05-14 Босс «плавно общаться, ответы проявлять в 2 раза
+  // медленнее. Ускорять если человек ускоряется». ADAPTIVE timing:
+  // - Базовый humanDelay в 2 раза медленнее (плавность).
+  // - Если юзер пишет БЫСТРО (gap между сообщениями < 5 сек) — ускоряемся.
+  const lastUserMsgAtRef = useRef<number>(0);
+  const userPaceRef = useRef<"slow" | "fast">("slow");
   const humanDelay = useCallback((replyLen: number) => {
-    // База 1200ms + 25ms на каждый символ, потолок 4500ms.
-    // Минимум 1.2 секунды — даже короткий ответ не появляется мгновенно.
-    const base = 1200;
-    const perChar = 25;
-    const maxMs = 4500;
-    return Math.min(maxMs, base + Math.floor(replyLen * perChar));
+    // База 2400ms + 50ms на каждый символ, потолок 9000ms (медленно, плавно).
+    const base = 2400;
+    const perChar = 50;
+    const maxMs = 9000;
+    let delay = Math.min(maxMs, base + Math.floor(replyLen * perChar));
+    // Если юзер ускорился — Муза тоже ускоряется (×0.5).
+    if (userPaceRef.current === "fast") delay = Math.floor(delay * 0.5);
+    return delay;
   }, []);
 
   // Выделил core-send в отдельную функцию чтобы вызывать с произвольным
@@ -268,6 +272,12 @@ export function FloatingConsultant() {
   const doSendMessage = useCallback(async (textArg: string) => {
     const text = textArg.trim();
     if (!text) return;
+    // Eugene 2026-05-14 Босс «ускорять если человек ускоряется». Меряем gap.
+    const now = Date.now();
+    const gap = lastUserMsgAtRef.current ? now - lastUserMsgAtRef.current : 0;
+    if (gap > 0 && gap < 8_000) userPaceRef.current = "fast";
+    else userPaceRef.current = "slow";
+    lastUserMsgAtRef.current = now;
     try { playMuzaTick(); } catch {}
     const sid = ensureClientSessionId();
     setChatMsgs(m => [...m, { role: "user", text }]);
@@ -304,10 +314,12 @@ export function FloatingConsultant() {
         setChatSending(false);
         if (j.paired) setChatPaired({ channel: j.pairedFromChannel });
         if (j.memo) setChatMemo(j.memo);
-        // Через 900-1400ms добавляем quickReplies — юзер успел прочитать.
+        // Через 1800-2800ms добавляем quickReplies — юзер успел прочитать.
+        // Если юзер быстрый — половина (900-1400ms).
         const qrList = Array.isArray(j.quickReplies) && j.quickReplies.length > 0 ? j.quickReplies : undefined;
         if (qrList) {
-          const qrDelay = 900 + Math.floor(Math.random() * 500);
+          const slowQR = 1800 + Math.floor(Math.random() * 1000);
+          const qrDelay = userPaceRef.current === "fast" ? Math.floor(slowQR * 0.5) : slowQR;
           window.setTimeout(() => {
             setChatMsgs(m => {
               if (m.length === 0) return m;
@@ -582,7 +594,7 @@ export function FloatingConsultant() {
               <img src="/consultant-avatar.svg" alt="Муза" className="w-9 h-9 sm:w-8 sm:h-8 rounded-full object-contain bg-white/5 shrink-0" />
               <div className="flex-1 min-w-0">
                 <div className="text-[13px] font-semibold text-white truncate">
-                  Муза{chatPersona ? ` · ${chatPersona.name}` : ""}
+                  Муза
                   {chatPaired && (
                     <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-green-500/20 text-green-300 font-normal whitespace-nowrap">
                       {chatPaired.channel === "telegram" ? "📱 из Telegram" : chatPaired.channel === "max" ? "💬 из Max" : "✨ привязано"}
@@ -736,11 +748,11 @@ export function FloatingConsultant() {
                             disabled={chatSending}
                             onClick={() => sendQuickReply(qr)}
                             style={{
-                              // Eugene 2026-05-14 Босс «по очереди, читать неспеша»:
-                              // delay 700ms между кнопками, длительность анимации 600ms.
-                              // Юзер успевает прочитать каждую перед появлением следующей.
-                              animation: `qrBalloon 600ms cubic-bezier(0.34, 1.56, 0.64, 1) backwards`,
-                              animationDelay: `${qi * 700}ms`,
+                              // Eugene 2026-05-14 Босс «×2 медленнее, ускорять
+                              // если человек быстрый». Adaptive stagger:
+                              // slow=1400ms между / fast=700ms.
+                              animation: `qrBalloon 800ms cubic-bezier(0.34, 1.56, 0.64, 1) backwards`,
+                              animationDelay: `${qi * (userPaceRef.current === "fast" ? 700 : 1400)}ms`,
                             }}
                             className="text-[12px] px-3 py-1.5 rounded-full bg-gradient-to-br from-purple-500/15 to-blue-500/15 hover:from-purple-500/30 hover:to-blue-500/30 text-purple-200 hover:text-white border border-purple-400/30 hover:border-purple-400/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-purple-500/10"
                           >{qr}</button>
