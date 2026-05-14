@@ -229,28 +229,13 @@ export function FloatingConsultant() {
     trackEngagement("consultant_action", { action: "chat_reset" });
   }, [initChatSession]);
 
-  // Eugene 2026-05-14 Босс «при клике продолжай» — клик на quick-reply
-  // chip = отправка этого варианта как user-message. После клика QR-кнопки
-  // у последнего bot-message убираем (одноразовый выбор).
+  // Eugene 2026-05-14 Босс «повторное нажатие учитывает изменение в дальнейшем
+  // диалоге». QR-кнопки кликабельны на ЛЮБОМ bot-message в истории.
+  // Backend extractMemoryFromHistory берёт ПОСЛЕДНЕЕ matching - перевыбор
+  // обновляет memo и применяется в дальнейших ответах Музы.
   const sendQuickReply = useCallback((variant: string) => {
     setChatInput(variant);
-    // Убираем quickReplies у последнего bot-сообщения
-    setChatMsgs(m => {
-      if (m.length === 0) return m;
-      const last = m[m.length - 1];
-      if (last.role === "bot" && last.quickReplies) {
-        return [...m.slice(0, -1), { ...last, quickReplies: undefined }];
-      }
-      return m;
-    });
-    // Отправка через timeout чтобы input обновился до sendChat
     setTimeout(() => {
-      // sendChat использует chatInput через useCallback — закрытие
-      // на старое значение если вызывать сразу. Через setTimeout state
-      // успеет обновиться, либо sendChat прочитает текущий input.
-      // Безопаснее — вызвать через ref на текущую функцию, но проще
-      // дополнить параметром.
-      // Решение: вызвать вручную fetch минуя sendChat.
       doSendMessage(variant);
     }, 0);
   }, []);
@@ -795,7 +780,9 @@ export function FloatingConsultant() {
                 </div>
               )}
               {chatMsgs.slice(-visibleCount).map((m, i, arr) => {
-                const isLastBot = i === arr.length - 1 && m.role === "bot";
+                // Eugene 2026-05-14 Босс «повторное нажатие учитывает изменение».
+                // QR-кнопки активны на всех bot-msgs (не только последнем).
+                const showQR = m.role === "bot" && m.quickReplies && m.quickReplies.length > 0;
                 return (
                   <div key={i} className={`flex flex-col gap-1 ${m.role === "user" ? "items-end" : "items-start"}`}>
                     {/* Eugene 2026-05-14 Босс «исключаем в чате остальные имена.
@@ -814,11 +801,9 @@ export function FloatingConsultant() {
                         ? <a key={j} href={p.href} target="_blank" rel="noopener noreferrer" className="underline text-cyan-300 hover:text-cyan-200">{p.text}</a>
                         : <span key={j}>{p.text}</span>
                       )}</div>
-                    {/* Eugene 2026-05-14 Босс «кнопки появляются как шарики
-                        надуваются по смыслу посередине слева направо».
-                        Stagger-animation: каждая через +200ms, scale-out → 1.
-                        justify-center — посередине. */}
-                    {isLastBot && m.quickReplies && m.quickReplies.length > 0 && (
+                    {/* Eugene 2026-05-14 Босс: QR-кнопки кликабельны на ЛЮБОМ
+                        bot-msg (повторное нажатие меняет выбор для дальнейшего). */}
+                    {showQR && (
                       <div className="flex flex-wrap gap-1.5 justify-center w-full max-w-[95%] mx-auto">
                         {m.quickReplies.map((qr, qi) => (
                           <button

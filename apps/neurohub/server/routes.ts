@@ -1675,8 +1675,13 @@ export async function registerRoutes(
   };
   function extractMemoryFromHistory(history: Array<{ role: string; text: string }>): SessionMemo {
     const memo: SessionMemo = {};
-    const userMsgs = history.filter(m => m.role === "user").map(m => m.text.toLowerCase());
-    const allText = userMsgs.join("\n");
+    // Eugene 2026-05-14 Босс «повторное нажатие учитывает изменение в дальнейшем».
+    // ОБРАТНЫЙ порядок (newest first) — break на первом match даёт ПОСЛЕДНЕЕ
+    // значение. Юзер сказал «маме», потом «папе» — берём «папе».
+    const userMsgsAll = history.filter(m => m.role === "user").map(m => m.text);
+    const userMsgsLower = userMsgsAll.map(t => t.toLowerCase());
+    // Newest-first для resolveCount=PER FACT - переопределение более свежим значением.
+    const allText = [...userMsgsLower].reverse().join("\n");
 
     // Email
     const em = allText.match(/[a-z0-9_.+-]+@[a-z0-9-]+\.[a-z0-9-.]+/i);
