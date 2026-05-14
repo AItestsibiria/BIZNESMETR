@@ -941,6 +941,10 @@ export async function registerRoutes(
       // Lookup geo по IP регистрирующего, сохраняем country/countryCode,
       // и если страна СНГ + общий счётчик welcomeGiftGiven < 1000 — выдаём
       // 1 подарочный трек + транзакцию + помечаем welcomeGiftGiven=1.
+      //
+      // Race-safe: count+update обёрнуто в sqlite.transaction (better-sqlite3
+      // serializes writes), чтобы два одновременных register не вышли за
+      // лимит 1000.
       try {
         const regIp = (req.ip || req.socket.remoteAddress || "").replace(/^::ffff:/, "");
         const geo = await getGeo(regIp);
@@ -951,25 +955,24 @@ export async function registerRoutes(
           }).where(eq(users.id, user.id)).run();
         }
         if (isCISCountry(geo.countryCode)) {
-          const giftCountRow = db.select({ c: sql<number>`COUNT(*)` })
-            .from(users)
-            .where(eq(users.welcomeGiftGiven, 1))
-            .get();
-          const giftedSoFar = Number(giftCountRow?.c || 0);
-          if (giftedSoFar < WELCOME_GIFT_LIMIT) {
-            db.update(users).set({
-              bonusTracks: sql`${users.bonusTracks} + 1`,
-              welcomeGiftGiven: 1,
-            }).where(eq(users.id, user.id)).run();
+          const raw = (db as any).$client;
+          const giftResult = raw.transaction(() => {
+            const row = raw.prepare("SELECT COUNT(*) AS c FROM users WHERE welcome_gift_given = 1").get() as { c: number };
+            const giftedSoFar = Number(row?.c || 0);
+            if (giftedSoFar >= WELCOME_GIFT_LIMIT) return { gifted: false, position: giftedSoFar };
+            raw.prepare("UPDATE users SET bonus_tracks = bonus_tracks + 1, welcome_gift_given = 1 WHERE id = ? AND welcome_gift_given = 0").run(user.id);
+            return { gifted: true, position: giftedSoFar + 1 };
+          })();
+          if (giftResult.gifted) {
             storage.createTransaction({
               userId: user.id,
               type: "topup",
               amount: 0,
-              description: `🎁 Подарочный трек: первые 1000 авторов из РФ и ближнего зарубежья (#${giftedSoFar + 1} из 1000)`,
+              description: `🎁 Подарочный трек: первые 1000 авторов из РФ и ближнего зарубежья (#${giftResult.position} из 1000)`,
             });
-            console.log(`[WELCOME-GIFT] User #${user.id} (${geo.countryCode}) received gift track #${giftedSoFar + 1}/1000`);
+            console.log(`[WELCOME-GIFT] User #${user.id} (${geo.countryCode}) received gift track #${giftResult.position}/1000`);
           } else {
-            console.log(`[WELCOME-GIFT] Limit reached (1000) — User #${user.id} (${geo.countryCode}) NOT gifted`);
+            console.log(`[WELCOME-GIFT] Limit reached (${giftResult.position}/1000) — User #${user.id} (${geo.countryCode}) NOT gifted`);
           }
         }
       } catch (e) {
@@ -2369,6 +2372,7 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
 
       let giftedNow = 0;
       let total = eligibleUsers.length;
+      const raw = (db as any).$client;
 
       for (const u of eligibleUsers) {
         if (giftedSoFar >= WELCOME_GIFT_LIMIT) break;
@@ -2390,26 +2394,32 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
 
         if (!isCISCountry(countryCode)) continue;
 
-        // Save country if not present
-        if (!u.countryCode || !u.country) {
-          db.update(users).set({
-            country: country || u.country || null,
-            countryCode: countryCode || u.countryCode || null,
-          }).where(eq(users.id, u.id)).run();
-        }
+        // Race-safe: атомарная проверка limit + apply внутри transaction.
+        const result = raw.transaction(() => {
+          const row = raw.prepare("SELECT COUNT(*) AS c FROM users WHERE welcome_gift_given = 1").get() as { c: number };
+          const c = Number(row?.c || 0);
+          if (c >= WELCOME_GIFT_LIMIT) return { applied: false, position: c };
+          if (!u.countryCode || !u.country) {
+            raw.prepare("UPDATE users SET country = COALESCE(?, country), country_code = COALESCE(?, country_code) WHERE id = ?")
+              .run(country || u.country || null, countryCode || u.countryCode || null, u.id);
+          }
+          const upd = raw.prepare("UPDATE users SET bonus_tracks = bonus_tracks + 1, welcome_gift_given = 1 WHERE id = ? AND welcome_gift_given = 0").run(u.id);
+          if (upd.changes === 0) return { applied: false, position: c };
+          return { applied: true, position: c + 1 };
+        })();
 
-        db.update(users).set({
-          bonusTracks: sql`${users.bonusTracks} + 1`,
-          welcomeGiftGiven: 1,
-        }).where(eq(users.id, u.id)).run();
-        storage.createTransaction({
-          userId: u.id,
-          type: "topup",
-          amount: 0,
-          description: `🎁 Подарочный трек (backfill): первые 1000 из РФ и ближнего зарубежья (#${giftedSoFar + 1} из 1000)`,
-        });
-        giftedSoFar++;
-        giftedNow++;
+        if (result.applied) {
+          storage.createTransaction({
+            userId: u.id,
+            type: "topup",
+            amount: 0,
+            description: `🎁 Подарочный трек (backfill): первые 1000 из РФ и ближнего зарубежья (#${result.position} из 1000)`,
+          });
+          giftedSoFar = result.position;
+          giftedNow++;
+        } else {
+          giftedSoFar = result.position;
+        }
       }
 
       res.json({ ok: true, total, giftedNow, giftedSoFar, limit: WELCOME_GIFT_LIMIT });

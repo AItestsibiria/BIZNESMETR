@@ -1003,11 +1003,13 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               <p className="text-sm text-muted-foreground leading-relaxed mt-2">
                 💡 Давайте пока подготовим вместе{" "}
                 <a
-                  href="#/music?mode=basic&focus=prompt"
+                  href="#/music"
                   onClick={() => {
                     // Eugene 2026-05-14 Босс: клик по «текст или смысл» →
-                    // /music с pre-fill в режим текстовой генерации,
-                    // фокус на поле "Текст или смысл песни".
+                    // /music в режим текстовой генерации + фокус на поле.
+                    // ВАЖНО: hash без ?query — wouter (hash-router) не парсит
+                    // query-string как часть пути и даёт 404. Параметры —
+                    // через localStorage / sessionStorage.
                     try {
                       localStorage.setItem("music_mode", "basic");
                       sessionStorage.setItem("music_focus", "prompt");
@@ -1072,28 +1074,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     </section>
 
     <section id="playlist-section" className="relative z-[1] py-20 px-4 border-t border-white/[0.04]">
-      {/* Eugene 2026-05-14 Босс: топ городов справа на главной — sticky
-          aside, появляется только на больших экранах (lg+), на мобильном
-          не загромождает контент. Позиция fixed справа, выровнен по центру. */}
-      {topCities.length > 0 && (
-        <aside
-          className="hidden lg:flex flex-col fixed right-4 top-1/2 -translate-y-1/2 z-[2] w-44 max-h-[70vh] overflow-y-auto rounded-2xl border border-white/[0.06] bg-black/40 backdrop-blur-xl p-3 shadow-xl"
-          aria-label="Топ городов"
-        >
-          <div className="text-[10px] uppercase tracking-wider text-purple-300/80 font-display mb-2 text-center">
-            Города-слушатели
-          </div>
-          <ul className="space-y-1 text-xs">
-            {topCities.map((c, i) => (
-              <li key={`${c.city}-${c.country_code}-${i}`} className="flex items-center gap-1.5 text-muted-foreground/90">
-                <span className="text-base shrink-0">{flagOf(c.country_code, c.country)}</span>
-                <span className="truncate flex-1" title={`${c.city}, ${c.country}`}>{c.city}</span>
-                <span className="text-[10px] text-purple-300/70 shrink-0">{c.n}</span>
-              </li>
-            ))}
-          </ul>
-        </aside>
-      )}
       <div className="max-w-3xl mx-auto">
         <h2 className="text-2xl font-bold text-center mb-2">
           <span className="gradient-text">Плейлист сообщества</span>
@@ -1502,7 +1482,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCountries(v => !v); }} className="text-[10px] px-2 py-1 rounded-full bg-white/5 text-white/60 border border-white/10 hover:bg-white/10 hover:text-white/90 transition-colors cursor-pointer" title="Нас слушают">🌍 {countriesCount}</button>
                                 {showCountries && createPortal(
                                   <div onClick={() => setShowCountries(false)} style={{position:'fixed',inset:0,zIndex:99999,background:'transparent',display:'flex',alignItems:'flex-end',justifyContent:'center',padding:'16px'}}>
-                                    <div style={{width:'auto',minWidth:'200px',maxWidth:'min(400px,calc(100vw-32px))',maxHeight:'70vh',overflowY:'auto',borderRadius:'16px',background:'rgba(255,255,255,0.05)',backdropFilter:'blur(24px)',WebkitBackdropFilter:'blur(24px)',border:'1px solid rgba(255,255,255,0.1)',padding:'16px',boxShadow:'0 20px 60px rgba(0,0,0,0.5)'}}>
+                                    <div onClick={(e) => e.stopPropagation()} style={{width:'auto',minWidth:'200px',maxWidth:'min(400px,calc(100vw-32px))',maxHeight:'70vh',overflowY:'auto',borderRadius:'16px',background:'rgba(255,255,255,0.05)',backdropFilter:'blur(24px)',WebkitBackdropFilter:'blur(24px)',border:'1px solid rgba(255,255,255,0.1)',padding:'16px',boxShadow:'0 20px 60px rgba(0,0,0,0.5)'}}>
                                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
                                         <p style={{fontSize:'14px',fontWeight:600,color:'rgba(255,255,255,0.95)',margin:0}}>Нас слушают</p>
                                         <button onClick={() => setShowCountries(false)} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',fontSize:'20px',cursor:'pointer',padding:'0 8px'}}>×</button>
@@ -1511,6 +1491,23 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                         {countriesList.map(c => <li key={c.country_code || c.country} style={{display:'flex',alignItems:'center',gap:'8px',fontSize:'13px',color:'rgba(255,255,255,0.85)',padding:'4px 0'}}><span style={{flex:1,wordBreak:'break-word'}}>{c.country}</span><span style={{fontSize:'18px',flexShrink:0}}>{flagOf(c.country_code, c.country)}</span></li>)}
                                         {countriesList.length === 0 && <li style={{fontSize:'12px',color:'rgba(255,255,255,0.4)'}}>Пока нет данных</li>}
                                       </ul>
+                                      {/* Eugene 2026-05-14 Босс: «города-слушатели в той же
+                                          панели что и страны». Доп. секция ниже стран. */}
+                                      {topCities.length > 0 && (
+                                        <>
+                                          <div style={{borderTop:'1px solid rgba(255,255,255,0.08)',margin:'14px 0 10px'}} />
+                                          <p style={{fontSize:'12px',fontWeight:600,color:'rgba(255,255,255,0.85)',margin:'0 0 8px',letterSpacing:'0.04em',textTransform:'uppercase'}}>Топ городов</p>
+                                          <ul style={{listStyle:'none',padding:0,margin:0,display:'flex',flexDirection:'column',gap:'4px'}}>
+                                            {topCities.map((c, i) => (
+                                              <li key={`${c.city}-${c.country_code}-${i}`} style={{display:'flex',alignItems:'center',gap:'8px',fontSize:'12px',color:'rgba(255,255,255,0.8)',padding:'2px 0'}}>
+                                                <span style={{fontSize:'16px',flexShrink:0}}>{flagOf(c.country_code, c.country)}</span>
+                                                <span style={{flex:1,wordBreak:'break-word'}} title={`${c.city}, ${c.country}`}>{c.city}</span>
+                                                <span style={{fontSize:'11px',color:'rgba(167,139,250,0.7)',flexShrink:0}}>{c.n}</span>
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        </>
+                                      )}
                                     </div>
                                   </div>,
                                   document.body
