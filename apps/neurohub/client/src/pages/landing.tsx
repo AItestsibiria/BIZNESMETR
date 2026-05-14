@@ -359,6 +359,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // Persist при изменении (throttle через ref для timeupdate)
   useEffect(() => { try { if (playingId) localStorage.setItem(psKey("trackId"), String(playingId)); else localStorage.removeItem(psKey("trackId")); } catch {} }, [playingId, psKey]);
   const [trackDuration, setTrackDuration] = useState(0);
+  // Eugene 2026-05-14 Босс «играет, но кнопка пауза отражается». audioRef.paused —
+  // прямое свойство, React не re-render. Делаем State + listeners на play/pause events.
+  const [isPlayingState, setIsPlayingState] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const expandedIdRef = useRef<number | null>(null);
   const [lyricsOpen, setLyricsOpen] = useState(false);
@@ -636,12 +639,18 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     const audio = new Audio(track.audioUrl);
     audioRef.current = audio;
 
+    // Eugene 2026-05-14 Босс: state-listeners для UI synchronization.
+    audio.addEventListener("play", () => setIsPlayingState(true));
+    audio.addEventListener("pause", () => setIsPlayingState(false));
+    audio.addEventListener("ended", () => setIsPlayingState(false));
+
     // iOS gesture budget — play() сразу после new Audio.
     const playPromise = audio.play();
     playPromise
-      .then(() => setLockScreenPlaybackState('playing'))
+      .then(() => { setLockScreenPlaybackState('playing'); setIsPlayingState(true); })
       .catch((err) => {
         console.warn("[PLAYER] audio.play() rejected (мобильный?):", err?.name, err?.message);
+        setIsPlayingState(false);
       });
 
     registerAudio(audio);
@@ -1153,7 +1162,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                     <SkipBack className="w-6 h-6 text-white/80" />
                   </button>
                   <button onClick={() => togglePlay(currentTrack)} aria-label="Воспроизведение/пауза" className="w-14 h-14 rounded-full bg-gradient-to-br from-purple-500/35 to-blue-500/30 flex items-center justify-center hover:from-purple-500/55 hover:to-blue-500/45 active:scale-95 transition-all border border-purple-500/40 shadow-lg shadow-purple-500/20">
-                    {audioRef.current?.paused ? <Play className="w-7 h-7 text-purple-100 ml-0.5" /> : <Pause className="w-7 h-7 text-purple-100" />}
+                    {isPlayingState ? <Pause className="w-7 h-7 text-purple-100" /> : <Play className="w-7 h-7 text-purple-100 ml-0.5" />}
                   </button>
                   <button onClick={skipNext} aria-label="Следующий трек" className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/15 active:bg-white/20 transition-colors border border-white/10">
                     <SkipForward className="w-6 h-6 text-white/80" />
@@ -1295,7 +1304,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             const isCover = false;
             const isLyrics = false;
             const isActive = playingId === track.id;
-            const isPlaying = isActive && audioRef.current && !audioRef.current.paused;
+            const isPlaying = isActive && isPlayingState;
             const isExpanded = expandedId === track.id;
 
             const TypeIcon = isLyrics ? PenLine : isCover ? Image : Music;
@@ -1421,7 +1430,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                 {/* Inline expanded cover — appears after selected track */}
                 {isExpanded && (() => {
                   const eActive = playingId === track.id;
-                  const ePlaying = eActive && audioRef.current && !audioRef.current.paused;
+                  const ePlaying = eActive && isPlayingState;
                   const eDateStr = track.createdAt ? new Date(track.createdAt).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" }) : "";
                   return (
                     <div className="px-2 pb-2 pt-1">
