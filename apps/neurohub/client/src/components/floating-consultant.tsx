@@ -671,17 +671,14 @@ export function FloatingConsultant() {
               )}
               {chatMsgs.slice(-visibleCount).map((m, i, arr) => {
                 const isLastBot = i === arr.length - 1 && m.role === "bot";
-                const personaName = chatPersona?.name;
-                const personaColor = (personaName && PERSONA_COLOR[personaName]) || "text-purple-300";
                 return (
                   <div key={i} className={`flex flex-col gap-1 ${m.role === "user" ? "items-end" : "items-start"}`}>
-                    {/* Eugene 2026-05-14 Босс «вверху ответа Музы напиши её имя
-                        в цвет образа». Show над каждым bot-message в цвете персоны. */}
-                    {m.role === "bot" && personaName && (
-                      <div className={`flex items-center gap-1 px-1 text-[10px] font-semibold ${personaColor}`}>
-                        <span>{chatPersona?.avatar || "🎀"}</span>
-                        <span>{personaName}</span>
-                        <span className="text-white/30 font-normal">· Муза</span>
+                    {/* Eugene 2026-05-14 Босс «исключаем в чате остальные имена.
+                        Муза всегда. Муза всегда в градиенте цветов MuziAi». */}
+                    {m.role === "bot" && (
+                      <div className="flex items-center gap-1 px-1 text-[11px] font-bold">
+                        <span>🎵</span>
+                        <span className="bg-gradient-to-r from-purple-300 via-violet-300 to-cyan-300 bg-clip-text text-transparent">Муза</span>
                       </div>
                     )}
                     <div className={`max-w-[80%] px-3 py-2 rounded-2xl text-[13px] leading-relaxed whitespace-pre-wrap break-words ${
