@@ -3702,6 +3702,58 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     }
   });
 
+  // Eugene 2026-05-14 Босс «отчёт по Ярс — собирай сообщения из Telegram
+  // где начинается с Ярс, применяй как правила бота».
+  // Сканирует все user-сообщения содержащие «Ярс», группирует по сессиям,
+  // извлекает текст после ключевого слова — это потенциальное правило.
+  app.get("/api/admin/v304/yars-rules", requireAdmin, (_req: Request, res: Response) => {
+    try {
+      const raw = (db as any).$client;
+      // Все user-сообщения с Ярс (web + telegram + max)
+      const rows = raw.prepare(`
+        SELECT m.id, m.session_id, m.text, m.created_at,
+               cs.channel, cs.persona_name, cs.user_id
+        FROM chatbot_messages m
+        JOIN chatbot_sessions cs ON cs.id = m.session_id
+        WHERE m.role = 'user' AND lower(m.text) LIKE '%ярс%'
+        ORDER BY m.id DESC
+        LIMIT 200
+      `).all();
+
+      // Извлекаем «правило» — текст после слова «Ярс»
+      const extractRule = (text: string): string => {
+        const m = text.match(/(?:^|[\s.,!?])ярс[\s.,:!?]*(.+)/i);
+        if (m && m[1]) return m[1].trim().slice(0, 500);
+        return text.slice(0, 500); // fallback — всё сообщение
+      };
+
+      const rules = rows.map((r: any) => ({
+        id: r.id,
+        sessionId: String(r.session_id).slice(0, 16),
+        channel: r.channel,
+        rule: extractRule(r.text),
+        rawText: r.text.slice(0, 500),
+        createdAt: r.created_at,
+        applied: 0, // TODO: интегрировать с bot_learnings.applied
+      }));
+
+      // Stats
+      const byChannel: Record<string, number> = {};
+      rules.forEach((r: any) => { byChannel[r.channel] = (byChannel[r.channel] || 0) + 1; });
+
+      res.json({
+        ok: true,
+        total: rules.length,
+        byChannel,
+        rules,
+        hint: "Правила извлекаются из user-сообщений содержащих «Ярс». Применение в system prompt — следующим push'ом.",
+      });
+    } catch (e: any) {
+      console.error("[YARS-RULES]", e);
+      res.status(500).json({ ok: false, error: String(e) });
+    }
+  });
+
   // Eugene 2026-05-14 Босс «в дашборде количество и тех и других»:
   // отчёт по регистрациям с разбивкой СНГ vs не-СНГ + welcome-gift counter
   // (правило 1000 первых из РФ + ближнего зарубежья).

@@ -1341,6 +1341,11 @@ function BotStatsTab({ toast }: { toast: any }) {
     queryKey: ["/api/admin/v304/bot-stats"],
     refetchInterval: 30_000,
   });
+  // Eugene 2026-05-14 Босс «отчёт по Ярс — собирай и анализируй».
+  const { data: yarsData } = useQuery<any>({
+    queryKey: ["/api/admin/v304/yars-rules"],
+    refetchInterval: 60_000,
+  });
   if (isLoading) return <div className="text-xs text-white/40">Загружаю...</div>;
   if (!data?.ok) return <div className="text-xs text-red-400">Ошибка загрузки</div>;
   const fmt = (n: number) => n.toLocaleString("ru-RU");
@@ -1436,6 +1441,41 @@ function BotStatsTab({ toast }: { toast: any }) {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Правила от Ярса — Eugene 2026-05-14 Босс «отчёт по Ярс». */}
+      {yarsData?.ok && yarsData.total > 0 && (
+        <div className="rounded-xl p-4 bg-gradient-to-br from-purple-500/[0.08] via-blue-500/[0.05] to-cyan-500/[0.05] border border-purple-500/30">
+          <div className="flex items-baseline justify-between mb-3">
+            <h3 className="text-[15px] font-bold text-white">🎯 Правила от Ярса <span className="text-[11px] text-purple-300/70 font-normal">({fmt(yarsData.total)})</span></h3>
+            <span className="text-[10px] text-white/40">из user-сообщений по ключу «Ярс»</span>
+          </div>
+          <div className="flex items-center gap-2 mb-3 text-[10px]">
+            {Object.entries(yarsData.byChannel || {}).map(([ch, n]: any) => (
+              <span key={ch} className="px-2 py-0.5 rounded-full bg-white/[0.06] text-white/70 border border-white/[0.08]">
+                {ch}: {fmt(n)}
+              </span>
+            ))}
+          </div>
+          <div className="space-y-1.5 max-h-80 overflow-y-auto">
+            {yarsData.rules.slice(0, 30).map((r: any) => (
+              <div key={r.id} className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.05]">
+                <div className="flex items-baseline gap-2 mb-1">
+                  <span className="text-[9px] text-purple-300/60 uppercase tracking-wider">{r.channel}</span>
+                  <span className="text-[9px] text-white/30">{r.sessionId}</span>
+                  <span className="text-[9px] text-white/30 ml-auto">{new Date(r.createdAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                </div>
+                <div className="text-[12px] text-white/90 leading-relaxed whitespace-pre-wrap">{r.rule}</div>
+              </div>
+            ))}
+            {yarsData.rules.length > 30 && (
+              <div className="text-[10px] text-white/40 text-center py-2">... ещё {yarsData.rules.length - 30}</div>
+            )}
+          </div>
+          <p className="text-[10px] text-white/40 mt-3 leading-relaxed">
+            💡 {yarsData.hint}
+          </p>
         </div>
       )}
 
