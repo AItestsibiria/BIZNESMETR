@@ -147,6 +147,10 @@ export function FloatingConsultant() {
   const [shareMenuOpen, setShareMenuOpen] = useState(false);
   // Eugene 2026-05-14 Босс «зарегистрироваться открывает меню».
   const [registerMenuOpen, setRegisterMenuOpen] = useState(false);
+  // Eugene 2026-05-14 Босс «при нажатии на левую часть по вертикали можно
+  // перемещать. Углы возвращают в центр». Snap-positions для chat drawer.
+  const [drawerSnap, setDrawerSnap] = useState<"br" | "bl" | "tr" | "tl" | "center">("br");
+  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
 
   // Авто-скролл вниз при новом сообщении
   useEffect(() => {
@@ -672,14 +676,58 @@ export function FloatingConsultant() {
             className="absolute inset-0 pointer-events-none"
           />
           <div
-            className="absolute right-0 bottom-0 sm:bottom-4 sm:right-4 w-[92vw] max-w-[420px] sm:w-[380px] flex flex-col bg-background/[0.18] backdrop-blur-md border-2 rounded-t-2xl sm:rounded-2xl border-purple-400/40 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in slide-in-from-bottom-2 duration-300 sm:!h-[460px]"
+            className={`absolute w-[92vw] max-w-[420px] sm:w-[380px] flex flex-col bg-background/[0.18] backdrop-blur-md border-2 rounded-2xl border-purple-400/40 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in fade-in duration-300 sm:!h-[460px] transition-all ${
+              drawerSnap === "br" ? "right-0 bottom-0 sm:bottom-4 sm:right-4" :
+              drawerSnap === "bl" ? "left-0 bottom-0 sm:bottom-4 sm:left-4" :
+              drawerSnap === "tr" ? "right-0 top-20 sm:top-20 sm:right-4" :
+              drawerSnap === "tl" ? "left-0 top-20 sm:top-20 sm:left-4" :
+              "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+            }`}
             style={{
-              // Eugene 2026-05-14 Босс «уменьши высоту чтобы кнопки главной
-              // были доступны». Mobile 60vh (было 75vh), desktop 460px (было 520).
               height: "min(60vh, calc(100vh - 96px - env(safe-area-inset-bottom, 0px)))",
-              marginBottom: "env(safe-area-inset-bottom, 0px)",
+              marginBottom: drawerSnap === "br" || drawerSnap === "bl" ? "env(safe-area-inset-bottom, 0px)" : undefined,
             }}
           >
+            {/* Eugene 2026-05-14 Босс «нажатие на левую часть по вертикали
+                перемещать. Углы возвращают в центр». Drag-handle на левой
+                полосе drawer. Touch + drag → определяем направление и snap. */}
+            <div
+              onPointerDown={(e) => {
+                dragStartRef.current = { x: e.clientX, y: e.clientY };
+              }}
+              onPointerUp={(e) => {
+                const start = dragStartRef.current;
+                dragStartRef.current = null;
+                if (!start) return;
+                const dx = e.clientX - start.x;
+                const dy = e.clientY - start.y;
+                const absDx = Math.abs(dx);
+                const absDy = Math.abs(dy);
+                if (absDx < 30 && absDy < 30) return; // tap, не drag
+                if (absDx > absDy) {
+                  // horizontal: ←→
+                  if (dx < -50) setDrawerSnap(drawerSnap === "br" ? "bl" : drawerSnap === "tr" ? "tl" : "bl");
+                  else if (dx > 50) setDrawerSnap(drawerSnap === "bl" ? "br" : drawerSnap === "tl" ? "tr" : "br");
+                } else {
+                  // vertical: ↑↓
+                  if (dy < -50) setDrawerSnap(drawerSnap === "br" ? "tr" : drawerSnap === "bl" ? "tl" : "tr");
+                  else if (dy > 50) setDrawerSnap(drawerSnap === "tr" ? "br" : drawerSnap === "tl" ? "bl" : "br");
+                }
+              }}
+              className="absolute left-0 top-0 bottom-0 w-3 cursor-grab active:cursor-grabbing z-20 hover:bg-purple-400/10 transition-colors flex items-center justify-center"
+              title="Перетащите чтобы переместить"
+              aria-label="Drag handle"
+            >
+              <div className="w-0.5 h-12 rounded-full bg-purple-400/30" />
+            </div>
+            {/* Snap to center button (top-right corner of drawer) */}
+            <button
+              type="button"
+              onClick={() => setDrawerSnap("center")}
+              aria-label="Центр"
+              title="В центр экрана"
+              className="absolute top-1 right-12 w-6 h-6 rounded text-white/40 hover:text-white text-[11px] z-20 hover:bg-white/[0.08]"
+            >⊕</button>
             {/* Header */}
             <div className="flex items-center gap-2 px-3 py-3 sm:py-2 border-b border-white/[0.06] bg-gradient-to-r from-purple-500/10 to-blue-500/5 shrink-0 relative">
               <img src="/consultant-avatar.svg" alt="Муза" className="w-9 h-9 sm:w-8 sm:h-8 rounded-full object-contain bg-white/5 shrink-0" />
@@ -708,24 +756,33 @@ export function FloatingConsultant() {
                 title="Начать новый разговор"
                 className="w-9 h-9 sm:w-7 sm:h-7 rounded-full hover:bg-white/[0.08] text-white/70 hover:text-white text-sm flex items-center justify-center shrink-0"
               >🔄</button>
-              {/* Share - переслать диалог другу. Eugene 2026-05-14 Босс
-                  "значок поделиться зелёная стрелка вправо, native меню". */}
+              {/* Share — Eugene 2026-05-14 Босс «пересылка чата выдаёт ошибку».
+                  Native share может reject из-за: 1) не https 2) text too long
+                  3) user cancel 4) browser unsupported. Логика:
+                  - text+url < 1500 → пробуем native;
+                  - reject (НЕ AbortError = user cancel) → fallback submenu;
+                  - всегда оборачиваем в try/catch чтобы не падать. */}
               {chatMsgs.length >= 2 && (
                 <button
                   type="button"
                   onClick={async () => {
                     const dialogText = serializeChatForShare(chatMsgs);
+                    const truncated = dialogText.length > 1200 ? dialogText.slice(0, 1200) + "…" : dialogText;
+                    let nativeWorked = false;
                     if (typeof navigator !== "undefined" && (navigator as any).share) {
                       try {
                         await (navigator as any).share({
-                          title: "Разговор с Музой (MuziAi)",
-                          text: dialogText,
-                          url: "https://muziai.ru",
+                          title: "Разговор с Музой",
+                          text: truncated,
                         });
-                        return;
-                      } catch {}
+                        nativeWorked = true;
+                      } catch (e: any) {
+                        if (e?.name !== "AbortError") {
+                          console.warn("[CHAT-SHARE] native rejected:", e?.name, e?.message);
+                        }
+                      }
                     }
-                    setShareMenuOpen(s => !s);
+                    if (!nativeWorked) setShareMenuOpen(s => !s);
                   }}
                   aria-label="Поделиться диалогом"
                   title="Поделиться диалогом"
