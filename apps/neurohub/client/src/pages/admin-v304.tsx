@@ -130,6 +130,7 @@ export default function AdminV304Page() {
         <TabsList className="mb-4 flex flex-wrap">
           <TabsTrigger value="overview">Обзор</TabsTrigger>
           <TabsTrigger value="friend">👤 Муза</TabsTrigger>
+          <TabsTrigger value="bot-stats">🤖 Бот</TabsTrigger>
           <TabsTrigger value="ai-keys">🤖 Ключи AI</TabsTrigger>
           <TabsTrigger value="secrets">🔑 Секреты</TabsTrigger>
           <TabsTrigger value="templates">Шаблоны</TabsTrigger>
@@ -148,6 +149,7 @@ export default function AdminV304Page() {
             <LearningTab toast={toast} />
           </div>
         </TabsContent>
+        <TabsContent value="bot-stats"><BotStatsTab toast={toast} /></TabsContent>
         <TabsContent value="ai-keys"><AiKeysTab toast={toast} /></TabsContent>
         <TabsContent value="secrets"><SecretsTab toast={toast} /></TabsContent>
         <TabsContent value="templates"><TemplatesTab toast={toast} /></TabsContent>
@@ -1248,6 +1250,133 @@ type SecretRow = {
   present: boolean;
   masked: { length: number; first8: string; hasLeadingSpace: boolean } | null;
 };
+
+// Eugene 2026-05-14 Босс «блок Бот с подробной статистикой для анализа».
+// Расширенная аналитика по чату Музы: сессии/сообщения, каналы, persona,
+// конверсия, активные сейчас, города, pair-coded переходы.
+function BotStatsTab({ toast }: { toast: any }) {
+  const { data, isLoading, refetch } = useQuery<any>({
+    queryKey: ["/api/admin/v304/bot-stats"],
+    refetchInterval: 30_000,
+  });
+  if (isLoading) return <div className="text-xs text-white/40">Загружаю...</div>;
+  if (!data?.ok) return <div className="text-xs text-red-400">Ошибка загрузки</div>;
+  const fmt = (n: number) => n.toLocaleString("ru-RU");
+  return (
+    <div className="space-y-5">
+      <div className="p-4 rounded-2xl border border-purple-500/20 bg-gradient-to-br from-purple-500/[0.04] via-blue-500/[0.04] to-cyan-500/[0.04]">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-lg font-bold text-white">🤖 Бот — детальная аналитика</h2>
+          <div className="flex items-center gap-2">
+            {data.active5min > 0 && (
+              <span className="text-[11px] px-2.5 py-1 rounded-full bg-green-500/20 text-green-300 font-medium border border-green-500/30 animate-pulse">
+                🟢 Сейчас активны: {data.active5min}
+              </span>
+            )}
+            <button onClick={() => refetch()} className="text-[11px] px-3 py-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.10] text-white/70 border border-white/[0.08]">↻ Обновить</button>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">Чат-сессии, сообщения, каналы, persona, конверсия. Auto-refresh 30s.</p>
+      </div>
+
+      {/* KPI cards: главные цифры одним взглядом */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="rounded-xl p-3 bg-white/[0.03] border border-white/[0.06]">
+          <div className="text-[10px] text-white/50">Сессий за сегодня</div>
+          <div className="text-2xl font-bold text-white">{fmt(data.sessions.today)}</div>
+          <div className="text-[10px] text-white/40">вчера: {fmt(data.sessions.yesterday)}</div>
+        </div>
+        <div className="rounded-xl p-3 bg-white/[0.03] border border-white/[0.06]">
+          <div className="text-[10px] text-white/50">Сообщений сегодня</div>
+          <div className="text-2xl font-bold text-cyan-300">{fmt(data.messages.today)}</div>
+          <div className="text-[10px] text-white/40">юзер {fmt(data.messages.userToday)} · бот {fmt(data.messages.botToday)}</div>
+        </div>
+        <div className="rounded-xl p-3 bg-white/[0.03] border border-white/[0.06]">
+          <div className="text-[10px] text-white/50">Конверсия</div>
+          <div className="text-2xl font-bold text-purple-300">{data.conversion.rate}%</div>
+          <div className="text-[10px] text-white/40">{fmt(data.conversion.converted)} из {fmt(data.conversion.total)}</div>
+        </div>
+        <div className="rounded-xl p-3 bg-white/[0.03] border border-white/[0.06]">
+          <div className="text-[10px] text-white/50">Avg сообщений/сессия</div>
+          <div className="text-2xl font-bold text-amber-300">{data.messages.avgPerSession}</div>
+          <div className="text-[10px] text-white/40">всего: {fmt(data.sessions.total)} сессий</div>
+        </div>
+      </div>
+
+      {/* По каналам */}
+      <div className="rounded-xl p-4 bg-white/[0.02] border border-white/[0.06]">
+        <h3 className="text-[14px] font-semibold text-white mb-3">📡 По каналам</h3>
+        <div className="space-y-1.5">
+          {data.channels.map((c: any) => (
+            <div key={c.channel} className="flex items-center gap-3 text-[12px] p-2 rounded bg-white/[0.03]">
+              <span className="font-medium text-white capitalize w-16">{c.channel}</span>
+              <span className="text-white/60">{fmt(c.sessions)} сессий</span>
+              <span className="text-white/40 text-[10px] ml-auto">avg визитов: {Number(c.avg_visits || 1).toFixed(1)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* По personas */}
+      <div className="rounded-xl p-4 bg-white/[0.02] border border-white/[0.06]">
+        <h3 className="text-[14px] font-semibold text-white mb-3">👥 Топ персон</h3>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5">
+          {data.personas.slice(0, 9).map((p: any) => (
+            <div key={p.name} className="flex items-center gap-2 text-[12px] p-2 rounded bg-white/[0.03]">
+              <span className="text-white/90 font-medium">{p.name}</span>
+              <span className="text-purple-300/70 text-[11px] ml-auto">{fmt(p.sessions)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Pair-codes (cross-channel) */}
+      {data.pairCodes.offered > 0 && (
+        <div className="rounded-xl p-4 bg-cyan-500/[0.04] border border-cyan-500/20">
+          <h3 className="text-[14px] font-semibold text-cyan-300 mb-2">🔗 Cross-channel pair-codes</h3>
+          <div className="text-[12px] text-white/80 space-y-1">
+            <div>Выдано кодов из мессенджеров: <b>{fmt(data.pairCodes.issued)}</b></div>
+            <div>Юзеру предложены в чате: <b>{fmt(data.pairCodes.offered)}</b></div>
+          </div>
+        </div>
+      )}
+
+      {/* Города авторов */}
+      {data.cities.length > 0 && (
+        <div className="rounded-xl p-4 bg-white/[0.02] border border-white/[0.06]">
+          <h3 className="text-[14px] font-semibold text-white mb-3">🌍 Города авторов (которые писали в чат)</h3>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5 text-[12px]">
+            {data.cities.map((c: any, i: number) => (
+              <div key={i} className="flex items-center gap-2 p-2 rounded bg-white/[0.03]">
+                <span className="text-white/90 truncate">{c.city}</span>
+                <span className="text-white/40 text-[10px] truncate">{c.country}</span>
+                <span className="text-purple-300/70 text-[11px] ml-auto">{fmt(c.sessions)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Latest 5 sessions */}
+      {data.latest.length > 0 && (
+        <div className="rounded-xl p-4 bg-white/[0.02] border border-white/[0.06]">
+          <h3 className="text-[14px] font-semibold text-white mb-3">⏱ Последние сессии</h3>
+          <div className="space-y-1.5 text-[12px]">
+            {data.latest.map((s: any) => (
+              <div key={s.id} className="flex items-baseline gap-2 p-2 rounded bg-white/[0.03]">
+                <span className="text-white/40 text-[10px]">{new Date(s.last_message_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                <span className="font-medium text-white/90">{s.persona_name || "—"}</span>
+                <span className="text-cyan-300/70 text-[11px]">{s.channel}</span>
+                <span className="text-white/50 text-[11px]">{s.msg_count} msg</span>
+                {s.last_user_msg && <span className="text-white/40 text-[11px] truncate ml-auto max-w-[40%]">«{s.last_user_msg.slice(0, 50)}»</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Eugene 2026-05-14 Босс «в админе заведи группу ключи Ai».
 // Группа AI-ключей по провайдерам с маскированным prefix + last-status

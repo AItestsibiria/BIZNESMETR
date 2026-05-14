@@ -484,18 +484,16 @@ export function FloatingConsultant() {
           aria-modal="true"
           role="dialog"
         >
-          {/* Полупрозрачный backdrop — клик закрывает. */}
+          {/* Eugene 2026-05-14 Босс «окно прозрачное, только контуры,
+              ощущение что на сайте». Backdrop почти прозрачный, лёгкое
+              затемнение для focus. Drawer тоже прозрачный с яркими
+              контурами вместо плотного фона. */}
           <div
-            className="absolute inset-0 bg-black/40 pointer-events-auto"
+            className="absolute inset-0 bg-black/15 pointer-events-auto"
             onClick={() => setChatOpen(false)}
           />
-          {/* Drawer: на мобильном w=92vw drawer справа от правой границы.
-              Eugene 2026-05-14 Босс «отражается низ окна — надо чтобы всё
-              было видно»: top смещён под navbar (72px) + safe-area-top;
-              height учитывает safe-area-bottom (iOS home-indicator).
-              На десктопе sm:!top-auto + sm:!h-[520px] переопределяют. */}
           <div
-            className="absolute right-0 bottom-0 sm:bottom-4 sm:right-4 w-[92vw] max-w-[420px] sm:w-[380px] flex flex-col bg-background/95 backdrop-blur-xl border-l sm:border sm:rounded-2xl border-white/10 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in slide-in-from-right duration-300 sm:!top-auto sm:!h-[520px]"
+            className="absolute right-0 bottom-0 sm:bottom-4 sm:right-4 w-[92vw] max-w-[420px] sm:w-[380px] flex flex-col bg-background/25 backdrop-blur-md border-l-2 sm:border-2 sm:rounded-2xl border-purple-400/40 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in slide-in-from-right duration-300 sm:!top-auto sm:!h-[520px]"
             style={{
               top: "calc(72px + env(safe-area-inset-top, 0px))",
               height: "calc(100vh - 72px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))",
@@ -631,8 +629,9 @@ export function FloatingConsultant() {
               })}
               {chatSending && (
                 <div className="flex justify-start">
-                  <div className="px-3 py-2 rounded-2xl bg-white/[0.06] text-white/60 text-[12px] border border-white/[0.08]">
-                    <span className="inline-block animate-pulse">пишу…</span>
+                  <div className="px-3 py-2 rounded-2xl bg-white/[0.06] text-white/70 text-[12px] border border-white/[0.08] flex items-center gap-1.5">
+                    <img src="/consultant-avatar.svg" alt="" className="w-5 h-5 rounded-full object-contain bg-white/5" />
+                    <span className="inline-block animate-pulse font-medium">Муза…</span>
                   </div>
                 </div>
               )}

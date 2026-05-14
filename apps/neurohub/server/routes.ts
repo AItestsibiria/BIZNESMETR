@@ -1782,7 +1782,37 @@ https://muziai.ru/#/music»
 
 После клика по ссылке — НЕ ЖДИ от юзера ответа в чате. Он переходит
 в /music и работает там. В следующем сообщении (если юзер вернётся
-в чат) спроси «ну как, получилось собрать?».`;
+в чат) спроси «ну как, получилось собрать?».
+
+═══ РЕГИСТРАЦИЯ ПРЯМО В ЧАТЕ (Eugene 2026-05-14 Босс) ═══
+Если юзер показывает интерес и НЕ авторизован — предложи зарегистрироваться
+ПРЯМО ОТСЮДА через email. Не «зайдите на /register» — а «дайте мне почту,
+я подготовлю кабинет, придёт код».
+
+Триггеры предложения регистрации:
+• После 3+ сообщений диалога (юзер уже втянулся).
+• Юзер задал предметный вопрос про создание / готовый трек / подарочный.
+• Юзер сказал что хочет попробовать.
+
+Скрипт предложения:
+«Слушайте, чтобы у вас остался ваш трек в кабинете — давайте оформим
+вход одним движением. Дайте почту — я отправлю код, и кабинет ваш.
+Никаких форм, всё прямо тут. Хотите?
+[QR:Давай почту]
+[QR:Чуть позже]
+[QR:Зачем это?]»
+
+Если юзер пишет почту в сообщении (паттерн \\S+@\\S+\\.\\S+):
+- Распознай.
+- Подтверди: «Записала! Сейчас вам прилетит код регистрации на %email%.
+  Введите его сюда — и кабинет открыт».
+- ПОДКЛЮЧЕНИЕ К ПРОЦЕССУ РЕГИСТРАЦИИ — frontend сам обработает email
+  (увидит pattern, предложит quick-register UI). Не дублируй call —
+  только подтверди готовность.
+
+ВАЖНО — email из ранних сообщений (Eugene 2026-05-14 Босс «учти инфу про почту»):
+Если юзер РАНЬШЕ в этой сессии давал email (есть в history) — НЕ переспрашивай.
+Скажи: «Кстати, у нас уже есть ваша почта — %email%. Прислать код туда?»`;
 
 
 
@@ -3229,6 +3259,126 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
       res.json({ ok: true, days, summary, daily });
     } catch (e: any) {
       console.error("[ENGAGEMENT-STATS] Error:", e);
+      res.status(500).json({ ok: false, error: String(e) });
+    }
+  });
+
+  // Eugene 2026-05-14 Босс «в админе блок бот с подробной статистикой».
+  // Расширенная аналитика по чату Музы для дашборда.
+  app.get("/api/admin/v304/bot-stats", requireAdmin, (_req: Request, res: Response) => {
+    try {
+      const raw = (db as any).$client;
+      const today = new Date().toISOString().slice(0, 10);
+      const yesterday = new Date(Date.now() - 86400_000).toISOString().slice(0, 10);
+      const weekAgo = new Date(Date.now() - 7 * 86400_000).toISOString();
+      const monthAgo = new Date(Date.now() - 30 * 86400_000).toISOString();
+
+      // Сессии: total / today / yesterday / 7d / 30d
+      const sessions = {
+        total: Number(raw.prepare("SELECT COUNT(*) AS c FROM chatbot_sessions").get()?.c || 0),
+        today: Number(raw.prepare("SELECT COUNT(*) AS c FROM chatbot_sessions WHERE date(started_at) = ?").get(today)?.c || 0),
+        yesterday: Number(raw.prepare("SELECT COUNT(*) AS c FROM chatbot_sessions WHERE date(started_at) = ?").get(yesterday)?.c || 0),
+        week: Number(raw.prepare("SELECT COUNT(*) AS c FROM chatbot_sessions WHERE started_at > ?").get(weekAgo)?.c || 0),
+        month: Number(raw.prepare("SELECT COUNT(*) AS c FROM chatbot_sessions WHERE started_at > ?").get(monthAgo)?.c || 0),
+      };
+
+      // Сообщения: total / today / by-role
+      const messages = {
+        total: Number(raw.prepare("SELECT COUNT(*) AS c FROM chatbot_messages").get()?.c || 0),
+        today: Number(raw.prepare("SELECT COUNT(*) AS c FROM chatbot_messages WHERE date(created_at) = ?").get(today)?.c || 0),
+        userToday: Number(raw.prepare("SELECT COUNT(*) AS c FROM chatbot_messages WHERE date(created_at) = ? AND role = 'user'").get(today)?.c || 0),
+        botToday: Number(raw.prepare("SELECT COUNT(*) AS c FROM chatbot_messages WHERE date(created_at) = ? AND role = 'bot'").get(today)?.c || 0),
+        avgPerSession: Number(raw.prepare("SELECT ROUND(AVG(c), 1) AS a FROM (SELECT session_id, COUNT(*) AS c FROM chatbot_messages GROUP BY session_id)").get()?.a || 0),
+      };
+
+      // Channel breakdown
+      const channels = raw.prepare(`
+        SELECT channel, COUNT(*) AS sessions, AVG(visit_count) AS avg_visits
+        FROM chatbot_sessions
+        GROUP BY channel
+        ORDER BY sessions DESC
+      `).all();
+
+      // Top persons
+      const personas = raw.prepare(`
+        SELECT persona_name AS name, COUNT(*) AS sessions
+        FROM chatbot_sessions
+        WHERE persona_name IS NOT NULL
+        GROUP BY persona_name
+        ORDER BY sessions DESC
+        LIMIT 10
+      `).all();
+
+      // Conversion: сколько сессий привязано к user_id (юзер залогинился)
+      const conversion = raw.prepare(`
+        SELECT
+          COUNT(*) AS total,
+          SUM(CASE WHEN user_id IS NOT NULL THEN 1 ELSE 0 END) AS converted
+        FROM chatbot_sessions
+      `).get();
+
+      // Активность сейчас — сессии с сообщением за последние 5 минут
+      const active5min = Number(raw.prepare(`
+        SELECT COUNT(DISTINCT session_id) AS c FROM chatbot_messages
+        WHERE created_at > datetime('now', '-5 minutes')
+      `).get()?.c || 0);
+
+      // Daily breakdown за 30 дней — sessions + messages per day
+      const daily = raw.prepare(`
+        SELECT date(started_at) AS day, COUNT(*) AS sessions
+        FROM chatbot_sessions
+        WHERE started_at > ?
+        GROUP BY day
+        ORDER BY day DESC
+        LIMIT 30
+      `).all(monthAgo);
+
+      // Топ городов из visitors авторов которые писали в чат
+      const cities = raw.prepare(`
+        SELECT v.city, v.country, v.country_code, COUNT(DISTINCT cs.id) AS sessions
+        FROM chatbot_sessions cs
+        JOIN visitors v ON v.user_id = cs.user_id
+        WHERE cs.user_id IS NOT NULL AND v.city IS NOT NULL AND v.city != ''
+        GROUP BY v.city
+        ORDER BY sessions DESC
+        LIMIT 10
+      `).all();
+
+      // Pair-codes выданные (cross-channel feature)
+      const pairCodes = {
+        issued: Number(raw.prepare("SELECT COUNT(*) AS c FROM chatbot_sessions WHERE web_pair_code IS NOT NULL").get()?.c || 0),
+        offered: Number(raw.prepare("SELECT COUNT(*) AS c FROM chatbot_sessions WHERE web_pair_code_offered_at IS NOT NULL").get()?.c || 0),
+      };
+
+      // Latest 5 sessions для quick-glance
+      const latest = raw.prepare(`
+        SELECT cs.id, cs.channel, cs.persona_name, cs.user_id, cs.started_at, cs.last_message_at,
+               (SELECT COUNT(*) FROM chatbot_messages WHERE session_id = cs.id) AS msg_count,
+               (SELECT text FROM chatbot_messages WHERE session_id = cs.id AND role = 'user' ORDER BY id DESC LIMIT 1) AS last_user_msg
+        FROM chatbot_sessions cs
+        ORDER BY last_message_at DESC
+        LIMIT 5
+      `).all();
+
+      res.json({
+        ok: true,
+        sessions,
+        messages,
+        channels,
+        personas,
+        conversion: {
+          total: conversion?.total || 0,
+          converted: conversion?.converted || 0,
+          rate: conversion?.total ? Math.round((conversion.converted / conversion.total) * 100) : 0,
+        },
+        active5min,
+        daily,
+        cities,
+        pairCodes,
+        latest,
+      });
+    } catch (e: any) {
+      console.error("[BOT-STATS]", e);
       res.status(500).json({ ok: false, error: String(e) });
     }
   });
