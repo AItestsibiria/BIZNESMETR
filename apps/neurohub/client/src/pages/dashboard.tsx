@@ -1824,8 +1824,16 @@ export default function DashboardPage() {
       return hasProcessing ? 10_000 : false;
     },
   });
-  // Активные processing gens — для статус-баннера
-  const activeGens = (generations || []).filter((g) => g.status === "processing");
+  // Активные processing gens — для статус-баннера.
+  // Eugene 2026-05-14 Босс: фильтруем СВЕЖИЕ (< 60 мин). Старше — это
+  // зависшие, баннер их не показывает. Backend cleanupStaleProcessing
+  // закрывает >24ч + broken (no taskId) автоматически каждую минуту.
+  const ACTIVE_BANNER_MAX_MIN = 60;
+  const activeGens = (generations || []).filter((g) => {
+    if (g.status !== "processing") return false;
+    const ageMin = (Date.now() - new Date(g.createdAt || "").getTime()) / 60000;
+    return ageMin < ACTIVE_BANNER_MAX_MIN;
+  });
 
   const { data: txns, isLoading: txnsLoading } = useQuery<Transaction[]>({
     queryKey: ["/api/transactions"],
@@ -2281,7 +2289,8 @@ export default function DashboardPage() {
                         </p>
                         {gen.status === "done" && (
                           <p className="text-xs text-green-400 flex items-center gap-1">
-                            ✓ Трек создан
+                            {/* Eugene 2026-05-14 Босс: правильная подпись по типу — для cover не «Трек создан». */}
+                            ✓ {gen.type === "cover" ? "Обложка создана" : gen.type === "lyrics" ? "Текст создан" : "Трек создан"}
                             {(gen.type === "music" || gen.type === "cover") && (
                               gen.isPublic === 1 ? <Globe className="w-3 h-3" /> : gen.isPublic === 2 ? <Clock className="w-3 h-3 text-yellow-400" /> : <Lock className="w-3 h-3 text-muted-foreground" />
                             )}
@@ -2486,7 +2495,10 @@ export default function DashboardPage() {
               )}
               <div className="flex items-center gap-4 text-xs text-muted-foreground">
                 <Badge variant="outline" className={statusConfig[selectedGen.status]?.color || ""}>
-                  {statusConfig[selectedGen.status]?.label || selectedGen.status}
+                  {/* Eugene 2026-05-14 Босс: подпись по типу для done — Обложка/Текст/Трек */}
+                  {selectedGen.status === "done"
+                    ? (selectedGen.type === "cover" ? "Обложка создана" : selectedGen.type === "lyrics" ? "Текст создан" : "Трек создан")
+                    : (statusConfig[selectedGen.status]?.label || selectedGen.status)}
                 </Badge>
                 <span>{formatDate(selectedGen.createdAt)}</span>
                 <span className="text-purple-400">{formatBalance(selectedGen.cost)}</span>

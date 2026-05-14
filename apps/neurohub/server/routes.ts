@@ -4413,6 +4413,40 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
 
   // Request publication (author) or toggle (admin)
   // isPublic: 0=private, 1=published, 2=pending moderation
+  // Eugene 2026-05-14 Босс: смена категории трека (Песня/Поздравление/Инструментальная).
+  // Автор может менять свой трек, admin — любой. Категория хранится в
+  // style.category. Для instrumental — синхронизируем voiceType колонку.
+  app.post("/api/generations/:id/category", authMiddleware, (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).userId;
+      const genId = parseInt(req.params.id);
+      const { category } = req.body;
+      if (!["song", "greeting", "instrumental"].includes(category)) {
+        res.status(400).json({ message: "Категория должна быть: song / greeting / instrumental" });
+        return;
+      }
+      const user = storage.getUser(userId);
+      const isAdmin = user?.email === "egnovoselov@gmail.com";
+      const gen = db.select().from(generations).where(eq(generations.id, genId)).get();
+      if (!gen) { res.status(404).json({ message: "Не найдено" }); return; }
+      if (!isAdmin && gen.userId !== userId) { res.status(403).json({ message: "Нет доступа" }); return; }
+      if (gen.type !== "music") { res.status(400).json({ message: "Категорию можно менять только у треков" }); return; }
+
+      let meta: any = {};
+      try { meta = JSON.parse(gen.style || "{}"); } catch {}
+      meta.category = category;
+      const newVoiceType = category === "instrumental" ? "instrumental" : (gen.voiceType === "instrumental" ? null : gen.voiceType);
+      db.update(generations)
+        .set({ style: JSON.stringify(meta), voiceType: newVoiceType })
+        .where(eq(generations.id, genId))
+        .run();
+      res.json({ ok: true, category, voiceType: newVoiceType });
+    } catch (e: any) {
+      console.error("[CATEGORY-CHANGE]", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.post("/api/generations/:id/privacy", authMiddleware, (req: Request, res: Response) => {
     const userId = (req as any).userId;
     const genId = parseInt(req.params.id);

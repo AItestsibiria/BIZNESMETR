@@ -489,7 +489,14 @@ export default function MusicPage() {
       try {
         const r = await apiRequest("GET", "/api/generations");
         const gens: any[] = await r.json();
-        const proc = gens.filter((g: any) => g.status === "processing");
+        // Eugene 2026-05-14 Босс: только СВЕЖИЕ processing (< 60 мин).
+        // Старые — зависшие, backend cleanupStaleProcessing их закрывает.
+        const ACTIVE_BANNER_MAX_MIN = 60;
+        const proc = gens.filter((g: any) => {
+          if (g.status !== "processing") return false;
+          const ageMin = (Date.now() - new Date(g.createdAt || "").getTime()) / 60000;
+          return ageMin < ACTIVE_BANNER_MAX_MIN;
+        });
         setActiveGens(proc);
         const processing = proc.find((g: any) => g.type === "music" && g.taskId);
         if (processing && !pollRef.current) {

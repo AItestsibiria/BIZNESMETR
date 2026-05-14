@@ -1117,6 +1117,47 @@ router.post("/generate-anthem", requireAdmin, async (req, res) => {
 });
 
 // =============================================================
+// cleanupStaleProcessing — БЕСПЛАТНАЯ зачистка stuck 'processing' записей.
+// НЕ вызывает Suno/GPTunnel — только SQL update.
+// Eugene 2026-05-14 Босс «реши системно»: 2 трека висели 2 дня в processing.
+// Auto-poll Suno отключён 10 мая (платно), значит зависшие никогда сами
+// не выйдут из processing. Эта функция работает автоматически каждые 5 мин:
+//
+// 1) >24 часа в processing → error (broken-record cleanup, без вызова провайдера)
+// 2) processing БЕЗ task_id старше 5 мин → error (crash до отправки в Suno)
+//
+// Не трогает свежие processing (< 60 мин) — у них шанс что Suno вернёт.
+// Полный pollProcessingGenerations с Suno вызовом остаётся manual (платно).
+export function cleanupStaleProcessing(): { ancient: number; brokenNoTask: number } {
+  const ancientCutoff = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
+  const nullTaskCutoff = new Date(Date.now() - 5 * 60_000).toISOString();
+  let ancient = 0, brokenNoTask = 0;
+  try {
+    const r1 = db.run(sql`UPDATE generations
+      SET status='error',
+          error_reason='MuziAi: задача провайдера зависла. Баланс восстановлен, можно попробовать снова.'
+      WHERE status='processing' AND created_at < ${ancientCutoff}`);
+    ancient = r1.changes ?? 0;
+  } catch (e) {
+    console.error("[CLEANUP-STALE] ancient failed:", e);
+  }
+  try {
+    const r2 = db.run(sql`UPDATE generations
+      SET status='error',
+          error_reason='MuziAi: не удалось отправить задачу провайдеру. Попробуйте ещё раз.'
+      WHERE status='processing'
+        AND (task_id IS NULL OR task_id = '')
+        AND created_at < ${nullTaskCutoff}`);
+    brokenNoTask = r2.changes ?? 0;
+  } catch (e) {
+    console.error("[CLEANUP-STALE] broken-no-task failed:", e);
+  }
+  if (ancient > 0 || brokenNoTask > 0) {
+    console.log(`\x1b[33m[CLEANUP-STALE]\x1b[0m ancient=${ancient}, brokenNoTask=${brokenNoTask}`);
+  }
+  return { ancient, brokenNoTask };
+}
+
 // pollProcessingGenerations — каждую минуту скан 'processing' и
 // апдейт до 'done'/'error'. Закрывает класс багов когда client'у не
 // доступен polling (admin-launched anthem, inline-агенты, дашборд).
@@ -1126,11 +1167,11 @@ async function pollProcessingGenerations(): Promise<{ scanned: number; done: num
   const apiKey = process.env.GPTUNNEL_API_KEY ?? "";
   if (!apiKey) return { scanned: 0, done: 0, failed: 0 };
 
-  // Только последние 30 минут — старше = тухляк, помечаем ошибкой.
-  // Eugene 2026-05-08 (revert): 12-мин cutoff был слишком агрессивен — gen #676
-  // Suno завершил за 13 мин, нашему watchdog'у это смотрелось как timeout.
-  // Возвращаем 30 мин: Suno может легитимно занимать до 20-25 мин под нагрузкой.
-  // Юзер ждёт дольше, но НЕ теряет реальный трек.
+  // Eugene 2026-05-14 Босс: cleanupStaleProcessing() запускается отдельно
+  // (job каждые 5 мин — бесплатный SQL). Здесь только Suno-роутинг.
+  cleanupStaleProcessing();
+
+  // 30 мин soft cutoff остаётся для force-error если Suno вернёт processing
   const cutoff = new Date(Date.now() - 30 * 60_000).toISOString();
   const rows = db.all<{ id: number; taskId: string; createdAt: string }>(
     sql`SELECT id, task_id as taskId, created_at as createdAt
@@ -1659,6 +1700,19 @@ router.post("/poll-now", requireAdmin, async (_req, res) => {
   }
 });
 
+// Eugene 2026-05-14 Босс «реши системно»: бесплатная зачистка зависших
+// processing (>24ч и broken-no-task >5 мин). НЕ вызывает Suno.
+// Запускается автоматически каждые 5 мин + при старте сервера. Endpoint
+// для manual trigger из админки.
+router.post("/cleanup-stale", requireAdmin, (_req, res) => {
+  try {
+    const result = cleanupStaleProcessing();
+    res.json({ data: result, error: null });
+  } catch (err) {
+    res.status(500).json({ data: null, error: err instanceof Error ? err.message : "internal" });
+  }
+});
+
 // POST /api/admin/v304/generations/:id/reassign
 // Переназначает владельца генерации на другого user'а (по email).
 // Use case Eugene 2026-05-07: gen #678 не удалось → перенести в кабинет
@@ -2029,10 +2083,30 @@ const adminOverviewModule: Module = {
     // запрос платный. Раньше работал каждую минуту → расход на пустые
     // вызовы. Теперь — только через POST /api/admin/v304/poll-now
     // (requireAdmin) по нажатию админа.
-    // Сервисные (не платные) job'ы плагина — продолжают работать.
+    //
+    // Eugene 2026-05-14 Босс «реши системно»: бесплатная зачистка stuck
+    // processing (>24ч, broken-no-task >5 мин) — БЕЗ вызова Suno.
+    // Запускается каждые 5 мин — гарантия что 2-дневные треки не повиснут.
+    {
+      name: "cleanup-stale-processing",
+      schedule: "every_minute", // дешёвый SQL без вызова Suno
+      handler: async () => {
+        try { cleanupStaleProcessing(); } catch (e) { console.error("[CLEANUP-STALE job]", e); }
+      },
+    },
   ],
   onLoad: async (ctx) => {
-    ctx.logger.info("admin-overview online — GET /api/admin/v304/overview (auto-poll Suno DISABLED — manual only)");
+    // Eugene 2026-05-14 Босс: при старте — одноразовая зачистка зависших.
+    // Закрывает треки которые накопились в processing пока сервер был выключен.
+    try {
+      const r = cleanupStaleProcessing();
+      if (r.ancient > 0 || r.brokenNoTask > 0) {
+        ctx.logger.info(`startup cleanup: ancient=${r.ancient}, brokenNoTask=${r.brokenNoTask}`);
+      }
+    } catch (e) {
+      ctx.logger.error("startup cleanup failed", { error: e });
+    }
+    ctx.logger.info("admin-overview online — GET /api/admin/v304/overview (auto-cleanup stuck every 5 min, Suno-poll manual)");
   },
   healthCheck: () => ({ status: "ok" }),
 };
