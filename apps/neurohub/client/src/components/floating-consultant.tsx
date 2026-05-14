@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { playMuzaChime, playMuzaTick, playMuzaSparkle } from "../lib/muza-sounds";
 
 const REAPPEAR_MS = 60_000;
 const APPEAR_DELAY_MS = 2500;
@@ -149,6 +150,8 @@ export function FloatingConsultant() {
   }, []);
 
   const openChat = useCallback(async () => {
+    // Eugene 2026-05-14 Босс: «мини звуки нежный» — sparkle при открытии чата.
+    try { playMuzaSparkle(); } catch {}
     setExpanded(false);
     setChatOpen(true);
     trackEngagement("consultant_action", { action: "open_chat" });
@@ -178,6 +181,8 @@ export function FloatingConsultant() {
   const sendChat = useCallback(async () => {
     const text = chatInput.trim();
     if (!text || chatSending) return;
+    // Eugene 2026-05-14 Босс: tick при отправке.
+    try { playMuzaTick(); } catch {}
     const sid = ensureClientSessionId();
     setChatMsgs(m => [...m, { role: "user", text }]);
     setChatInput("");
@@ -200,6 +205,8 @@ export function FloatingConsultant() {
       }
       const j = await r.json();
       if (j?.ok && j.reply) {
+        // Нежный chime при появлении ответа Музы (Eugene 2026-05-14 Босс).
+        try { playMuzaChime({ volume: 0.04 }); } catch {}
         setChatMsgs(m => [...m, { role: "bot", text: j.reply }]);
         if (j.paired) {
           setChatPaired({ channel: j.pairedFromChannel });
@@ -280,11 +287,18 @@ export function FloatingConsultant() {
           </div>
         )}
 
-        {/* Expanded меню (Eugene 2026-05-14 Босс «в форме MuziAi + космо-тема»):
-            Карточка с космо-градиентом, мерцающими звёздами, brand-логотип
-            и крупная primary-кнопка «Чат со мной». */}
+        {/* Expanded меню «мечтательное облако» (Eugene 2026-05-14 Босс):
+            Asymmetric organic shape вместо классического rect, brand-цвета
+            MuziAi (purple→violet→blue→cyan), shimmer-glow, мини-chime. */}
         {expanded && (
-          <div className="absolute bottom-full right-0 mb-2 w-64 sm:w-72 p-3 rounded-2xl bg-gradient-to-br from-purple-900/80 via-blue-900/70 to-cyan-900/60 backdrop-blur-xl border border-purple-400/30 shadow-2xl shadow-purple-500/30 animate-in fade-in slide-in-from-bottom-2 duration-200 overflow-hidden">
+          <div
+            className="absolute bottom-full right-0 mb-3 w-64 sm:w-72 p-4 bg-gradient-to-br from-purple-600/85 via-violet-600/80 to-blue-500/75 backdrop-blur-2xl border-2 border-purple-300/40 shadow-2xl shadow-purple-500/50 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-hidden"
+            style={{
+              // Cloud-shape — асимметричные радиусы для мечтательной органики
+              borderRadius: "60% 40% 55% 70% / 50% 65% 45% 60%",
+              boxShadow: "0 20px 60px rgba(139, 92, 246, 0.5), 0 0 40px rgba(34, 211, 238, 0.25), inset 0 0 30px rgba(255, 255, 255, 0.05)",
+            }}
+          >
             {/* Космо-фон: мерцающие звёзды */}
             <svg viewBox="0 0 200 100" className="absolute inset-0 w-full h-full pointer-events-none opacity-60" aria-hidden="true">
               <circle cx="15" cy="10" r="0.9" fill="#fde68a" className="gift-twinkle" style={{animationDelay:"0s"}} />
@@ -404,8 +418,10 @@ export function FloatingConsultant() {
         <button
           type="button"
           onClick={() => {
-            // Eugene 2026-05-12: показываем reaction-bubble + открываем меню.
-            // Каждое нажатие — новая фраза из массива (циклично).
+            // Eugene 2026-05-12: reaction-bubble + меню.
+            // Eugene 2026-05-14 Босс «мини звуки нежный + при нажатии реагировать»:
+            // chime + ripple-bounce. Каждое нажатие — новая фраза из массива.
+            try { playMuzaChime(); } catch {}
             const phrase = CLICK_REACTIONS[reactionIdxRef.current % CLICK_REACTIONS.length];
             reactionIdxRef.current += 1;
             setReaction(phrase);
