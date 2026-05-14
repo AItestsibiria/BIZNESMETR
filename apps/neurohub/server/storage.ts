@@ -137,6 +137,23 @@ try {
   if (!ucn.includes("country_code")) sqlite.exec("ALTER TABLE users ADD COLUMN country_code TEXT");
   if (!ucn.includes("welcome_gift_given")) sqlite.exec("ALTER TABLE users ADD COLUMN welcome_gift_given INTEGER NOT NULL DEFAULT 0");
 
+  // Eugene 2026-05-14 Босс «папка заместителей в админ-панели».
+  try {
+    sqlite.exec(`CREATE TABLE IF NOT EXISTS admin_delegates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT NOT NULL UNIQUE,
+      name TEXT,
+      note TEXT,
+      granted_by_email TEXT,
+      granted_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      expires_at TEXT,
+      revoked INTEGER NOT NULL DEFAULT 0,
+      revoked_at TEXT,
+      revoked_reason TEXT
+    )`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS admin_delegates_email_idx ON admin_delegates(email)`);
+  } catch (e) { console.error("[MIGRATION] admin_delegates failed:", e); }
+
   const genCols = sqlite.prepare("PRAGMA table_info(generations)").all() as { name: string }[];
   const gcn = genCols.map(c => c.name);
   if (!gcn.includes("local_path")) sqlite.exec("ALTER TABLE generations ADD COLUMN local_path TEXT");

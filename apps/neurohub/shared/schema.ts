@@ -345,6 +345,24 @@ export const adminAuditLog = sqliteTable("admin_audit_log", {
 
 export type AdminAuditEntry = typeof adminAuditLog.$inferSelect;
 
+// Eugene 2026-05-14 Босс «правило: всю аналитику если упоминался дашборд —
+// только админ и лицо которому передаются права заместителя».
+// Делегирование прав по email. Авторизация через стандартный auth, доступ
+// проверяется по этой таблице (email IN admin_delegates OR is ADMIN).
+export const adminDelegates = sqliteTable("admin_delegates", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  email: text("email").notNull().unique(),
+  name: text("name"),                       // человеческое имя
+  note: text("note"),                       // зачем делегировали
+  grantedByEmail: text("granted_by_email"), // кто из админов выдал
+  grantedAt: text("granted_at").default(sql`CURRENT_TIMESTAMP`),
+  expiresAt: text("expires_at"),            // ISO — null = бессрочно
+  revoked: integer("revoked").notNull().default(0),  // 1 = отозван
+  revokedAt: text("revoked_at"),
+  revokedReason: text("revoked_reason"),
+});
+export type AdminDelegate = typeof adminDelegates.$inferSelect;
+
 // Incidents — auto-detected critical problems with root-cause classification.
 // Eugene 2026-05-07: 'при любой ошибке разбирайся в первопричинах,
 // решай сразу. В логах зеленым решенные, стратегически нерешенный

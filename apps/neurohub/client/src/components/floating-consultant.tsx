@@ -561,14 +561,14 @@ export function FloatingConsultant() {
           aria-modal="true"
           role="dialog"
         >
-          {/* Eugene 2026-05-14 Босс «ещё прозрачнее на 30%». bg/13 (было 18),
-              backdrop /7 (было /10), blur уменьшен до sm. */}
+          {/* Eugene 2026-05-14 Босс «верни предыдущую прозрачность» — bg/18,
+              backdrop /10, blur-md (как было до −30% правки). */}
           <div
-            className="absolute inset-0 bg-black/[0.07] pointer-events-auto"
+            className="absolute inset-0 bg-black/10 pointer-events-auto"
             onClick={() => setChatOpen(false)}
           />
           <div
-            className="absolute right-0 bottom-0 sm:bottom-4 sm:right-4 w-[92vw] max-w-[420px] sm:w-[380px] flex flex-col bg-background/[0.13] backdrop-blur-sm border-2 rounded-t-2xl sm:rounded-2xl border-purple-400/40 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in slide-in-from-bottom-2 duration-300 sm:!h-[520px]"
+            className="absolute right-0 bottom-0 sm:bottom-4 sm:right-4 w-[92vw] max-w-[420px] sm:w-[380px] flex flex-col bg-background/[0.18] backdrop-blur-md border-2 rounded-t-2xl sm:rounded-2xl border-purple-400/40 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in slide-in-from-bottom-2 duration-300 sm:!h-[520px]"
             style={{
               // Eugene 2026-05-14 Босс «на смартфоне открывается низ — уменьшить»:
               // высота 75vh снизу — не на весь экран. Юзер видит и навбар, и

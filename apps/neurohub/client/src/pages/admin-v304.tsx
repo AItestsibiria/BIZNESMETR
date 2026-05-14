@@ -132,6 +132,7 @@ export default function AdminV304Page() {
           <TabsTrigger value="friend">👤 Муза</TabsTrigger>
           <TabsTrigger value="bot-stats">🤖 Бот</TabsTrigger>
           <TabsTrigger value="ai-keys">🤖 Ключи AI</TabsTrigger>
+          <TabsTrigger value="delegates">🤝 Заместители</TabsTrigger>
           <TabsTrigger value="secrets">🔑 Секреты</TabsTrigger>
           <TabsTrigger value="templates">Шаблоны</TabsTrigger>
           <TabsTrigger value="flags">Feature flags</TabsTrigger>
@@ -151,6 +152,7 @@ export default function AdminV304Page() {
         </TabsContent>
         <TabsContent value="bot-stats"><BotStatsTab toast={toast} /></TabsContent>
         <TabsContent value="ai-keys"><AiKeysTab toast={toast} /></TabsContent>
+        <TabsContent value="delegates"><DelegatesTab toast={toast} /></TabsContent>
         <TabsContent value="secrets"><SecretsTab toast={toast} /></TabsContent>
         <TabsContent value="templates"><TemplatesTab toast={toast} /></TabsContent>
         <TabsContent value="flags"><FlagsTab toast={toast} /></TabsContent>
@@ -1613,6 +1615,132 @@ function AiKeysTab({ toast }: { toast: any }) {
       <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] text-[11px] text-white/50">
         💡 Для ротации ключа — открой <code>CLAUDE.md</code> → «Key rotation pattern» → готовая команда с маркером <code>🔴ВПИШИ_СЮДА🔴</code>.
         Для альтернативного ключа Anthropic используй env-имя <code>ANTHROPIC_API_KEY_BACKUP</code>.
+      </div>
+    </div>
+  );
+}
+
+// Eugene 2026-05-14 Босс «правило: всю аналитику если упоминался дашборд —
+// только админ и лицо которому передаются права заместителя. Заведи папку».
+function DelegatesTab({ toast }: { toast: any }) {
+  const { data, isLoading, refetch } = useQuery<any>({
+    queryKey: ["/api/admin/v304/delegates"],
+    refetchInterval: 30_000,
+  });
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [note, setNote] = useState("");
+  const [expiresAt, setExpiresAt] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const add = async () => {
+    if (!email.trim()) { toast({ title: "Email обязателен", variant: "destructive" }); return; }
+    setBusy(true);
+    try {
+      const r = await apiRequest("POST", "/api/admin/v304/delegates", { email, name, note, expiresAt: expiresAt || null });
+      const j = await r.json();
+      if (j.ok) {
+        toast({ title: "Заместитель добавлен" });
+        setEmail(""); setName(""); setNote(""); setExpiresAt("");
+        refetch();
+      } else {
+        toast({ title: j.error || "Ошибка", variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: e.message, variant: "destructive" });
+    } finally { setBusy(false); }
+  };
+
+  const revoke = async (id: number, name: string) => {
+    if (!window.confirm(`Отозвать права у «${name}»?`)) return;
+    try {
+      const reason = window.prompt("Причина отзыва (опционально):") || "";
+      const r = await fetch(`/api/admin/v304/delegates/${id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+        credentials: "include",
+      });
+      const j = await r.json();
+      if (j.ok) { toast({ title: "Отозвано" }); refetch(); }
+      else toast({ title: j.error || "Ошибка", variant: "destructive" });
+    } catch (e: any) { toast({ title: e.message, variant: "destructive" }); }
+  };
+
+  const active = data?.delegates?.filter((d: any) => !d.revoked) || [];
+  const revoked = data?.delegates?.filter((d: any) => d.revoked) || [];
+
+  return (
+    <div className="space-y-4">
+      <div className="p-4 rounded-2xl border border-purple-500/20 bg-gradient-to-br from-purple-500/[0.04] via-blue-500/[0.04] to-cyan-500/[0.04]">
+        <h2 className="text-lg font-bold text-white mb-1">🤝 Заместители (делегирование прав)</h2>
+        <p className="text-xs text-muted-foreground">
+          Лица, которым админ передал доступ к аналитике дашборда. Авторизуются по своему email
+          (стандартный auth). Только админ может добавлять / отзывать. Все действия логируются в admin_audit_log.
+        </p>
+      </div>
+
+      {/* Add form */}
+      <div className="rounded-xl p-4 bg-white/[0.02] border border-white/[0.06] space-y-2">
+        <h3 className="text-[14px] font-semibold text-white mb-2">➕ Добавить заместителя</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@example.com *" className="px-3 py-2 rounded-lg bg-white/[0.05] border border-white/10 text-[13px] text-white placeholder:text-white/30" />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Имя (опционально)" className="px-3 py-2 rounded-lg bg-white/[0.05] border border-white/10 text-[13px] text-white placeholder:text-white/30" />
+        </div>
+        <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Зачем делегируем (опционально)" className="w-full px-3 py-2 rounded-lg bg-white/[0.05] border border-white/10 text-[13px] text-white placeholder:text-white/30" />
+        <div className="flex gap-2">
+          <input type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} placeholder="Срок (опц.)" className="flex-1 px-3 py-2 rounded-lg bg-white/[0.05] border border-white/10 text-[13px] text-white placeholder:text-white/30" />
+          <button onClick={add} disabled={busy || !email.trim()} className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-blue-500 text-white text-[13px] font-medium disabled:opacity-40 disabled:cursor-not-allowed">
+            {busy ? "..." : "Добавить"}
+          </button>
+        </div>
+      </div>
+
+      {/* Active list */}
+      <div className="rounded-xl p-4 bg-white/[0.02] border border-white/[0.06]">
+        <h3 className="text-[14px] font-semibold text-white mb-3">✅ Активные ({active.length})</h3>
+        {active.length === 0 && <div className="text-[12px] text-white/40">Пока никого нет</div>}
+        <div className="space-y-1.5">
+          {active.map((d: any) => (
+            <div key={d.id} className="flex items-baseline gap-2 p-2 rounded-lg bg-green-500/[0.04] border border-green-500/15 text-[12px]">
+              <span className="font-medium text-white">{d.name || "—"}</span>
+              <code className="text-[11px] text-cyan-300">{d.email}</code>
+              {d.note && <span className="text-[11px] text-white/50">· {d.note}</span>}
+              <span className="text-[10px] text-white/40 ml-auto">
+                выдал: {d.grantedByEmail || "—"} · {new Date(d.grantedAt).toLocaleDateString("ru-RU")}
+                {d.expiresAt && ` · до ${new Date(d.expiresAt).toLocaleDateString("ru-RU")}`}
+              </span>
+              <button onClick={() => revoke(d.id, d.name || d.email)} className="text-[11px] px-2 py-0.5 rounded bg-red-500/10 hover:bg-red-500/20 text-red-300 border border-red-500/30">
+                Отозвать
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Revoked list */}
+      {revoked.length > 0 && (
+        <details className="rounded-xl p-4 bg-white/[0.01] border border-white/[0.04]">
+          <summary className="cursor-pointer text-[13px] text-white/60">🗑 Отозванные ({revoked.length})</summary>
+          <div className="mt-2 space-y-1.5">
+            {revoked.map((d: any) => (
+              <div key={d.id} className="flex items-baseline gap-2 p-2 rounded-lg bg-white/[0.02] border border-white/[0.05] text-[11px] opacity-60">
+                <span className="line-through">{d.name || d.email}</span>
+                <code className="text-[10px] text-cyan-300/60">{d.email}</code>
+                <span className="text-[10px] text-white/40 ml-auto">
+                  отозван: {d.revokedAt && new Date(d.revokedAt).toLocaleDateString("ru-RU")}
+                  {d.revokedReason && ` · ${d.revokedReason}`}
+                </span>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+
+      <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] text-[11px] text-white/50">
+        💡 Следующий push добавит проверку email-доступа в requireAdmin — пока что список делегатов
+        ведётся для аудита и подготовки auth-механизма. Реальное переключение прав — отдельно
+        чтобы не сломать текущий admin-auth.
       </div>
     </div>
   );

@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage, db } from "./storage";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
-import { registerSchema, loginSchema, users, payments, generations, transactions, promoCodes, visitors, genActivity, songDrafts, botLearnings, landingNews, chatbotSessions, chatbotMessages } from "@shared/schema";
+import { registerSchema, loginSchema, users, payments, generations, transactions, promoCodes, visitors, genActivity, songDrafts, botLearnings, landingNews, chatbotSessions, chatbotMessages, adminDelegates } from "@shared/schema";
 import express from "express";
 import { eq, desc, sql, and, isNotNull } from "drizzle-orm";
 import nodemailer from "nodemailer";
@@ -3698,6 +3698,68 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
       res.json({ ok: true, days, summary, daily });
     } catch (e: any) {
       console.error("[ENGAGEMENT-STATS] Error:", e);
+      res.status(500).json({ ok: false, error: String(e) });
+    }
+  });
+
+  // Eugene 2026-05-14 Босс «заведи папку заместителей». Делегирование
+  // прав админа по email. Только админ может управлять списком.
+  app.get("/api/admin/v304/delegates", requireAdmin, (_req: Request, res: Response) => {
+    try {
+      const rows = db.select().from(adminDelegates).orderBy(desc(adminDelegates.id)).all();
+      res.json({ ok: true, delegates: rows });
+    } catch (e: any) {
+      console.error("[DELEGATES list]", e);
+      res.status(500).json({ ok: false, error: String(e) });
+    }
+  });
+
+  app.post("/api/admin/v304/delegates", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).userId;
+      const adminUser = storage.getUser(userId);
+      const email = String(req.body?.email || "").trim().toLowerCase();
+      const name = String(req.body?.name || "").trim() || null;
+      const note = String(req.body?.note || "").trim() || null;
+      const expiresAt = req.body?.expiresAt ? String(req.body.expiresAt) : null;
+      if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
+        res.status(400).json({ ok: false, error: "Email обязателен" });
+        return;
+      }
+      const existing = db.select().from(adminDelegates).where(eq(adminDelegates.email, email)).get();
+      if (existing) {
+        // Re-activate если был отозван
+        db.update(adminDelegates).set({
+          name, note, expiresAt,
+          revoked: 0, revokedAt: null, revokedReason: null,
+          grantedByEmail: adminUser?.email || null,
+          grantedAt: new Date().toISOString(),
+        }).where(eq(adminDelegates.id, existing.id)).run();
+      } else {
+        db.insert(adminDelegates).values({
+          email, name, note, expiresAt,
+          grantedByEmail: adminUser?.email || null,
+        }).run();
+      }
+      res.json({ ok: true });
+    } catch (e: any) {
+      console.error("[DELEGATES add]", e);
+      res.status(500).json({ ok: false, error: String(e) });
+    }
+  });
+
+  app.delete("/api/admin/v304/delegates/:id", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id);
+      const reason = String(req.body?.reason || "").trim() || "отозван админом";
+      db.update(adminDelegates).set({
+        revoked: 1,
+        revokedAt: new Date().toISOString(),
+        revokedReason: reason,
+      }).where(eq(adminDelegates.id, id)).run();
+      res.json({ ok: true });
+    } catch (e: any) {
+      console.error("[DELEGATES revoke]", e);
       res.status(500).json({ ok: false, error: String(e) });
     }
   });
