@@ -1385,10 +1385,13 @@ function BotStatsTab({ toast }: { toast: any }) {
           <div className="text-2xl font-bold text-cyan-300">{fmt(data.messages.today)}</div>
           <div className="text-[10px] text-white/40">юзер {fmt(data.messages.userToday)} · бот {fmt(data.messages.botToday)}</div>
         </div>
-        <div className="rounded-xl p-3 bg-white/[0.03] border border-white/[0.06]">
-          <div className="text-[10px] text-white/50">Конверсия</div>
+        <div className="rounded-xl p-3 bg-white/[0.03] border border-white/[0.06]" title={data.conversion.explanation || ""}>
+          <div className="text-[10px] text-white/50 flex items-center gap-1">Конверсия <span className="text-[9px] cursor-help opacity-50">ⓘ</span></div>
           <div className="text-2xl font-bold text-purple-300">{data.conversion.rate}%</div>
-          <div className="text-[10px] text-white/40">{fmt(data.conversion.converted)} из {fmt(data.conversion.total)}</div>
+          <div className="text-[10px] text-white/40">{fmt(data.conversion.linkedSessions)} linked из {fmt(data.conversion.total)}</div>
+          {data.conversion.registeredAfterChat > 0 && (
+            <div className="text-[10px] text-green-300">+{fmt(data.conversion.registeredAfterChat)} зарег. после чата ({data.conversion.rateAfterChat}%)</div>
+          )}
         </div>
         <div className="rounded-xl p-3 bg-white/[0.03] border border-white/[0.06]">
           <div className="text-[10px] text-white/50">Avg сообщений/сессия</div>

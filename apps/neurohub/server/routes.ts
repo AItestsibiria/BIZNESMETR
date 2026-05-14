@@ -3926,12 +3926,18 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
         LIMIT 10
       `).all();
 
-      // Conversion: сколько сессий привязано к user_id (юзер залогинился)
+      // Eugene 2026-05-14 Босс «отчёт пишет 2 конверсии — чем подтверждено?».
+      // Подсчёт по 2 критериям + краткое explanation:
+      // - linkedSessions: chatbot_sessions.user_id IS NOT NULL — юзер был
+      //   залогинен ИЛИ /verify-register linked сессию по email после регистрации.
+      // - registeredAfterChat: юзер был создан ПОСЛЕ начала сессии (т.е. чат
+      //   реально привёл к регистрации, а не просто открыт уже-юзером).
       const conversion = raw.prepare(`
-        SELECT
-          COUNT(*) AS total,
-          SUM(CASE WHEN user_id IS NOT NULL THEN 1 ELSE 0 END) AS converted
-        FROM chatbot_sessions
+        SELECT COUNT(*) AS total,
+               SUM(CASE WHEN cs.user_id IS NOT NULL THEN 1 ELSE 0 END) AS linkedSessions,
+               SUM(CASE WHEN cs.user_id IS NOT NULL AND u.created_at > cs.started_at THEN 1 ELSE 0 END) AS registeredAfterChat
+        FROM chatbot_sessions cs
+        LEFT JOIN users u ON u.id = cs.user_id
       `).get();
 
       // Активность сейчас — сессии с сообщением за последние 5 минут
@@ -3985,8 +3991,13 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
         personas,
         conversion: {
           total: conversion?.total || 0,
-          converted: conversion?.converted || 0,
-          rate: conversion?.total ? Math.round((conversion.converted / conversion.total) * 100) : 0,
+          converted: conversion?.linkedSessions || 0,
+          linkedSessions: conversion?.linkedSessions || 0,
+          registeredAfterChat: conversion?.registeredAfterChat || 0,
+          rate: conversion?.total ? Math.round(((conversion?.linkedSessions || 0) / conversion.total) * 100) : 0,
+          rateAfterChat: conversion?.total ? Math.round(((conversion?.registeredAfterChat || 0) / conversion.total) * 100) : 0,
+          // Eugene 2026-05-14 Босс: explanation для админа в UI.
+          explanation: "linked = сессия привязана к users.id (юзер был залогинен ИЛИ зарегистрирован позже по email из чата). registeredAfterChat = users.created_at > session.started_at — чат привёл к регистрации.",
         },
         active5min,
         daily,
