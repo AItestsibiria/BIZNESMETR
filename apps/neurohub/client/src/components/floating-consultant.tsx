@@ -125,12 +125,7 @@ export function FloatingConsultant() {
     }
   }, [chatMsgs.length]);
 
-  const openChat = useCallback(async () => {
-    setExpanded(false);
-    setChatOpen(true);
-    trackEngagement("consultant_action", { action: "open_chat" });
-    if (chatInitialized.current) return;
-    chatInitialized.current = true;
+  const initChatSession = useCallback(async () => {
     try {
       const sid = ensureClientSessionId();
       const r = await fetch("/api/muza/chat/init", {
@@ -148,10 +143,37 @@ export function FloatingConsultant() {
         const greeting: ChatMessage = { role: "bot", text: String(j.greeting || "Привет!") };
         setChatMsgs([...hist, greeting]);
       }
-    } catch (e) {
+    } catch {
       setChatMsgs([{ role: "bot", text: "Что-то с сетью — но я тут. Пробуй ещё раз через секунду 🎵" }]);
     }
   }, []);
+
+  const openChat = useCallback(async () => {
+    setExpanded(false);
+    setChatOpen(true);
+    trackEngagement("consultant_action", { action: "open_chat" });
+    if (chatInitialized.current) return;
+    chatInitialized.current = true;
+    await initChatSession();
+  }, [initChatSession]);
+
+  // Eugene 2026-05-14 Босс: кнопка «начать новый разговор» — сбрасывает
+  // локальный sessionId, backend создаёт новую session с чистой историей.
+  // Полезно когда юзер видит остатки старого диалога (например после
+  // переката fallback pool).
+  const startFreshChat = useCallback(async () => {
+    try {
+      sessionStorage.removeItem("_muzaChatSid");
+      localStorage.removeItem("_muzaChatSid");
+    } catch {}
+    setChatMsgs([]);
+    setChatPaired(null);
+    setVisibleCount(4);
+    chatInitialized.current = false;
+    chatInitialized.current = true;
+    await initChatSession();
+    trackEngagement("consultant_action", { action: "chat_reset" });
+  }, [initChatSession]);
 
   const sendChat = useCallback(async () => {
     const text = chatInput.trim();
@@ -258,18 +280,51 @@ export function FloatingConsultant() {
           </div>
         )}
 
-        {/* Expanded — простое меню без новостей */}
+        {/* Expanded меню (Eugene 2026-05-14 Босс «в форме MuziAi + космо-тема»):
+            Карточка с космо-градиентом, мерцающими звёздами, brand-логотип
+            и крупная primary-кнопка «Чат со мной». */}
         {expanded && (
-          <div className="absolute bottom-full right-0 mb-2 w-48 p-2 rounded-xl bg-background/40 backdrop-blur-xl border border-white/10 animate-in fade-in slide-in-from-bottom-2 duration-200 shadow-lg">
-            <div className="text-[10px] text-white/60 mb-1.5 px-1">Чем помочь?</div>
-            {/* Eugene 2026-05-14 Босс: основная кнопка — чат прямо тут на сайте.
-                Включая cross-channel pair-code из Telegram/Max. */}
+          <div className="absolute bottom-full right-0 mb-2 w-64 sm:w-72 p-3 rounded-2xl bg-gradient-to-br from-purple-900/80 via-blue-900/70 to-cyan-900/60 backdrop-blur-xl border border-purple-400/30 shadow-2xl shadow-purple-500/30 animate-in fade-in slide-in-from-bottom-2 duration-200 overflow-hidden">
+            {/* Космо-фон: мерцающие звёзды */}
+            <svg viewBox="0 0 200 100" className="absolute inset-0 w-full h-full pointer-events-none opacity-60" aria-hidden="true">
+              <circle cx="15" cy="10" r="0.9" fill="#fde68a" className="gift-twinkle" style={{animationDelay:"0s"}} />
+              <circle cx="50" cy="20" r="0.7" fill="#a78bfa" className="gift-twinkle" style={{animationDelay:"0.8s"}} />
+              <circle cx="100" cy="8" r="1" fill="#22d3ee" className="gift-twinkle" style={{animationDelay:"1.6s"}} />
+              <circle cx="150" cy="15" r="0.8" fill="#60a5fa" className="gift-twinkle" style={{animationDelay:"2.4s"}} />
+              <circle cx="180" cy="30" r="0.9" fill="#fde68a" className="gift-twinkle" style={{animationDelay:"3.0s"}} />
+              <circle cx="30" cy="50" r="0.7" fill="#22d3ee" className="gift-twinkle" style={{animationDelay:"0.5s"}} />
+              <circle cx="90" cy="65" r="0.8" fill="#a78bfa" className="gift-twinkle" style={{animationDelay:"1.3s"}} />
+              <circle cx="170" cy="80" r="1" fill="#60a5fa" className="gift-twinkle" style={{animationDelay:"2.1s"}} />
+            </svg>
+            {/* Brand-header */}
+            <div className="relative flex items-center gap-2 mb-3 pb-2 border-b border-white/10">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-purple-500 via-violet-400 to-blue-500 flex items-center justify-center shadow-lg shadow-purple-500/40 shrink-0">
+                <svg viewBox="0 0 24 24" className="w-4 h-4" fill="none">
+                  <path d="M3 12c1.5-3 3-5 4.5-3s2 4 3.5 2 2.5-5 4-3 2 4 3.5 2 2.5-4 3.5-2" stroke="white" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[13px] font-bold tracking-tight">
+                  <span className="bg-gradient-to-r from-purple-300 via-violet-200 to-blue-300 bg-clip-text text-transparent">Muzi</span><span className="bg-gradient-to-r from-blue-300 to-cyan-200 bg-clip-text text-transparent">Ai</span>
+                  <span className="text-white/60 font-normal ml-1">· Муза тут</span>
+                </div>
+                <div className="text-[10px] text-white/50">Выбирайте как общаться 🚀</div>
+              </div>
+            </div>
+            {/* Eugene 2026-05-14 Босс «прям побольше» — primary CTA полноширинная,
+                с космо-glow градиентом и shimmer. */}
             <button
               type="button"
               onClick={openChat}
-              className="w-full flex items-center gap-2 px-2 py-2 rounded-lg bg-gradient-to-r from-purple-500/20 to-blue-500/20 hover:from-purple-500/30 hover:to-blue-500/30 transition-colors text-[12px] text-white text-left font-medium border border-purple-500/30 mb-1"
+              className="relative w-full mb-2 px-3 py-3.5 rounded-xl bg-gradient-to-r from-purple-500 via-violet-500 to-blue-500 hover:from-purple-400 hover:via-violet-400 hover:to-blue-400 transition-all text-white text-[14px] font-semibold shadow-lg shadow-purple-500/30 border border-purple-300/30 overflow-hidden group"
             >
-              <span>💬</span> Чат со мной здесь
+              <span className="relative z-10 flex items-center justify-center gap-2">
+                <span className="text-lg">💬</span>
+                <span>Чат со мной здесь</span>
+                <span className="text-[10px] opacity-70">↗</span>
+              </span>
+              {/* Shimmer слой */}
+              <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" aria-hidden="true" />
             </button>
             <a
               href="https://t.me/Muziaipodari_bot"
@@ -405,6 +460,20 @@ export function FloatingConsultant() {
                 </div>
                 <div className="text-[10px] text-white/50 truncate">Подскажу с песней, темой, регистрацией</div>
               </div>
+              {/* Eugene 2026-05-14 Босс: новый разговор — чистый sessionId,
+                  устраняет остатки старой истории в БД. */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (chatMsgs.filter(m => m.role === "user").length > 0) {
+                    if (!window.confirm("Начать новый разговор? Текущая история сохранится в БД, но новый чат начнётся с чистого листа.")) return;
+                  }
+                  startFreshChat();
+                }}
+                aria-label="Начать новый разговор"
+                title="Начать новый разговор"
+                className="w-9 h-9 sm:w-7 sm:h-7 rounded-full hover:bg-white/[0.08] text-white/70 hover:text-white text-sm flex items-center justify-center shrink-0"
+              >🔄</button>
               {/* Share — переслать диалог другу. Кнопка только когда есть что слать. */}
               {chatMsgs.length >= 2 && (
                 <button

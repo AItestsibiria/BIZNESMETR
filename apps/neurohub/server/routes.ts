@@ -1384,42 +1384,130 @@ export async function registerRoutes(
     try { return JSON.parse(s) as T; } catch { return null; }
   }
 
-  async function callMuzaLLM(systemStable: string, systemDynamic: string, history: Array<{ role: string; content: string }>, userText: string): Promise<string | null> {
-    const key = process.env.ANTHROPIC_API_KEY_BOT || process.env.ANTHROPIC_API_KEY || "";
-    if (!key) return null;
+  // Eugene 2026-05-14 Босс «заведи альтернативный ключ» — chain из 3 ключей.
+  // Primary: ANTHROPIC_API_KEY (live чат). Если 401/403/429 — пробуем ANTHROPIC_API_KEY_BACKUP.
+  // Затем ANTHROPIC_API_KEY_BOT (используется Telegram-ботом — на крайний случай).
+  // Каждый ключ может иметь свой лимит / статус — если 1 умер, остальные подхватывают.
+  type LLMKeyAttempt = { name: string; key: string };
+  function listAnthropicKeys(): LLMKeyAttempt[] {
+    const out: LLMKeyAttempt[] = [];
+    const seen = new Set<string>();
+    const push = (name: string, key?: string) => {
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      out.push({ name, key });
+    };
+    push("ANTHROPIC_API_KEY", process.env.ANTHROPIC_API_KEY);
+    push("ANTHROPIC_API_KEY_BACKUP", process.env.ANTHROPIC_API_KEY_BACKUP);
+    push("ANTHROPIC_API_KEY_BOT", process.env.ANTHROPIC_API_KEY_BOT);
+    return out;
+  }
+
+  // Last-used tracker для admin-диагностики (last status per key)
+  const llmKeyStatus = new Map<string, { lastUsedAt: string; lastStatus: number | "timeout" | "error"; lastErrorMsg?: string }>();
+
+  // Eugene 2026-05-14 Босс «правило: если один ключ не сработал цепляй другой,
+  // отчёт админу о смене ключа». In-memory event log (last 50) + Telegram alert
+  // если ADMIN_TELEGRAM_ID настроен. Видимо в /admin/v304 → 🤖 Ключи AI.
+  type KeySwitchEvent = { at: string; provider: string; from: string; fromStatus: number | string; to: string; reason?: string };
+  const keySwitchEvents: KeySwitchEvent[] = [];
+  const LAST_ALERT_AT = new Map<string, number>(); // дебаунс — не чаще раза в час на один ключ
+
+  async function notifyAdminKeySwitch(ev: KeySwitchEvent) {
+    keySwitchEvents.unshift(ev);
+    if (keySwitchEvents.length > 50) keySwitchEvents.length = 50;
+    const alertKey = `${ev.provider}:${ev.from}`;
+    const lastAt = LAST_ALERT_AT.get(alertKey) || 0;
+    if (Date.now() - lastAt < 60 * 60_000) return; // не чаще раза в час
+    LAST_ALERT_AT.set(alertKey, Date.now());
+    const adminChat = process.env.ADMIN_TELEGRAM_ID;
+    const botToken = process.env.TELEGRAM_BOT_TOKEN;
+    console.warn(`\x1b[33m[KEY-SWITCH]\x1b[0m ${ev.provider}: ${ev.from} (${ev.fromStatus}) → ${ev.to}`);
+    if (!adminChat || !botToken) return;
     try {
-      const systemBlocks: any[] = [
-        { type: "text", text: systemStable, cache_control: { type: "ephemeral", ttl: "1h" } },
-      ];
-      if (systemDynamic) systemBlocks.push({ type: "text", text: systemDynamic });
-      const r = await fetch("https://api.anthropic.com/v1/messages", {
+      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
         method: "POST",
-        headers: {
-          "x-api-key": key,
-          "anthropic-version": "2023-06-01",
-          "anthropic-beta": "extended-cache-ttl-2025-04-11",
-          "content-type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "claude-haiku-4-5-20251001",
-          max_tokens: 250,
-          system: systemBlocks,
-          messages: [...history.slice(-8), { role: "user", content: userText }],
+          chat_id: adminChat,
+          text: `🔔 *Auto-switch ключа* (${ev.provider})\n\nПервичный: \`${ev.from}\` упал (${ev.fromStatus})\nПереключился на: \`${ev.to}\`\n\n${ev.reason ? `Причина: ${ev.reason}\n\n` : ""}Время: ${new Date(ev.at).toLocaleString("ru-RU")}`,
+          parse_mode: "Markdown",
         }),
-        signal: AbortSignal.timeout(12_000),
+        signal: AbortSignal.timeout(8_000),
       });
-      if (!r.ok) {
-        console.warn(`[MUZA-CHAT] Claude non-ok ${r.status}`);
-        return null;
-      }
-      const j: any = await r.json();
-      const c = j?.content?.[0]?.text;
-      return typeof c === "string" && c.length > 0 ? c.slice(0, 2000) : null;
     } catch (e) {
-      console.warn("[MUZA-CHAT] Claude error:", e);
-      return null;
+      console.warn("[KEY-SWITCH] не смог отправить Telegram-alert:", e);
     }
   }
+
+  async function callMuzaLLM(systemStable: string, systemDynamic: string, history: Array<{ role: string; content: string }>, userText: string): Promise<string | null> {
+    const attempts = listAnthropicKeys();
+    if (attempts.length === 0) return null;
+    const systemBlocks: any[] = [
+      { type: "text", text: systemStable, cache_control: { type: "ephemeral", ttl: "1h" } },
+    ];
+    if (systemDynamic) systemBlocks.push({ type: "text", text: systemDynamic });
+    const body = JSON.stringify({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 250,
+      system: systemBlocks,
+      messages: [...history.slice(-8), { role: "user", content: userText }],
+    });
+    let prevFailed: { name: string; status: number | string; reason?: string } | null = null;
+    for (let i = 0; i < attempts.length; i++) {
+      const { name, key } = attempts[i];
+      try {
+        const r = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "x-api-key": key,
+            "anthropic-version": "2023-06-01",
+            "anthropic-beta": "extended-cache-ttl-2025-04-11",
+            "content-type": "application/json",
+          },
+          body,
+          signal: AbortSignal.timeout(12_000),
+        });
+        llmKeyStatus.set(name, { lastUsedAt: new Date().toISOString(), lastStatus: r.status });
+        if (!r.ok) {
+          const errText = await r.text().catch(() => "");
+          llmKeyStatus.set(name, { lastUsedAt: new Date().toISOString(), lastStatus: r.status, lastErrorMsg: errText.slice(0, 200) });
+          console.warn(`[MUZA-CHAT] ${name} non-ok ${r.status} — пробую следующий ключ`);
+          prevFailed = { name, status: r.status, reason: errText.slice(0, 100) };
+          continue;
+        }
+        const j: any = await r.json();
+        const c = j?.content?.[0]?.text;
+        if (typeof c === "string" && c.length > 0) {
+          // Если этот ключ — не первый в цепочке И предыдущий упал → уведомляем админа.
+          if (prevFailed && i > 0) {
+            notifyAdminKeySwitch({
+              at: new Date().toISOString(),
+              provider: "Anthropic Claude",
+              from: prevFailed.name,
+              fromStatus: prevFailed.status,
+              to: name,
+              reason: prevFailed.reason,
+            }).catch(() => {});
+          }
+          return c.slice(0, 2000);
+        }
+        prevFailed = { name, status: "empty-response" };
+      } catch (e: any) {
+        const msg = e?.name === "AbortError" ? "timeout" : String(e?.message || e).slice(0, 200);
+        llmKeyStatus.set(name, { lastUsedAt: new Date().toISOString(), lastStatus: e?.name === "AbortError" ? "timeout" : "error", lastErrorMsg: msg });
+        console.warn(`[MUZA-CHAT] ${name} error:`, msg, "— пробую следующий ключ");
+        prevFailed = { name, status: e?.name === "AbortError" ? "timeout" : "error", reason: msg };
+      }
+    }
+    return null;
+  }
+
+  // GET /api/admin/v304/ai-keys/switches — последние key-switch events.
+  // Для отчёта о смене ключей (Eugene 2026-05-14 Босс).
+  app.get("/api/admin/v304/ai-keys/switches", requireAdmin, (_req: Request, res: Response) => {
+    res.json({ ok: true, events: keySwitchEvents });
+  });
 
   // Создать или найти web-сессию для clientSessionId.
   function getOrCreateWebSession(clientSessionId: string) {
@@ -1630,18 +1718,80 @@ export async function registerRoutes(
     }
   });
 
-  // GET /api/muza/chat/health — диагностика для админа: есть ли ключ Claude,
-  // отвечает ли endpoint. Eugene 2026-05-14 Босс «агента чата завёл?» —
-  // быстрый ответ можно ли увидеть real-AI ответы или только fallback.
+  // GET /api/muza/chat/health — диагностика для админа: есть ли ключи Claude,
+  // отвечает ли endpoint. Eugene 2026-05-14 Босс «агента чата завёл? +
+  // заведи альтернативный ключ + админ-группа Ключи Ai» — показываем
+  // chain (primary → backup → bot) с last-status каждого.
   app.get("/api/muza/chat/health", (_req: Request, res: Response) => {
-    const hasAnthropic = !!(process.env.ANTHROPIC_API_KEY_BOT || process.env.ANTHROPIC_API_KEY);
-    const llmKeyName = process.env.ANTHROPIC_API_KEY_BOT ? "ANTHROPIC_API_KEY_BOT" : (process.env.ANTHROPIC_API_KEY ? "ANTHROPIC_API_KEY" : "NONE");
+    const attempts = listAnthropicKeys();
+    const hasAny = attempts.length > 0;
     res.json({
       ok: true,
-      hasAnthropicKey: hasAnthropic,
-      llmKeyName,
-      mode: hasAnthropic ? "live-claude" : "fallback-only",
-      hint: hasAnthropic ? "Чат отвечает через Claude" : "Ключ Anthropic не задан — Муза отвечает шаблонными фразами. Добавьте ANTHROPIC_API_KEY на VPS.",
+      hasAnthropicKey: hasAny,
+      keyChain: attempts.map(a => {
+        const st = llmKeyStatus.get(a.name);
+        return {
+          name: a.name,
+          present: true,
+          length: a.key.length,
+          first8: a.key.slice(0, 8),
+          lastUsedAt: st?.lastUsedAt || null,
+          lastStatus: st?.lastStatus ?? null,
+          lastErrorMsg: st?.lastErrorMsg || null,
+        };
+      }),
+      mode: hasAny ? "live-claude" : "fallback-only",
+      hint: hasAny
+        ? `Цепочка ${attempts.length} ключ${attempts.length === 1 ? "" : "ей"} (primary → backup). Чат отвечает через Claude.`
+        : "Ни один ключ Anthropic не задан — Муза отвечает шаблонными фразами. Добавьте ANTHROPIC_API_KEY на VPS.",
+    });
+  });
+
+  // GET /api/admin/v304/ai-keys — admin-only список всех AI-ключей проекта
+  // с маскированным prefix + last-status (если использовался). Eugene
+  // 2026-05-14 Босс «в админе заведи группу ключи Ai».
+  app.get("/api/admin/v304/ai-keys", requireAdmin, (_req: Request, res: Response) => {
+    const peek = (envName: string) => {
+      const v = process.env[envName];
+      if (!v) return { present: false, length: 0, first8: "" };
+      return { present: true, length: v.length, first8: v.slice(0, 8) };
+    };
+    const claudeChain = listAnthropicKeys().map(a => ({
+      envName: a.name,
+      length: a.key.length,
+      first8: a.key.slice(0, 8),
+      ...(llmKeyStatus.get(a.name) || {}),
+    }));
+    res.json({
+      ok: true,
+      checkedAt: new Date().toISOString(),
+      groups: [
+        {
+          group: "🤖 Claude (Anthropic)",
+          purpose: "Муза-чат + Telegram-бот + Max-бот",
+          keys: claudeChain,
+          chain: claudeChain.map(k => k.envName),
+          tip: "Цепочка fallback: при 401/403/429 первого пробуется второй, потом третий.",
+        },
+        {
+          group: "🎵 GPTunnel (Suno + GPT)",
+          purpose: "Генерация музыки (Suno) + fallback LLM",
+          keys: [{ envName: "GPTUNNEL_API_KEY", ...peek("GPTUNNEL_API_KEY") }],
+        },
+        {
+          group: "🎤 Yandex SpeechKit",
+          purpose: "STT голосового ввода + TTS",
+          keys: [
+            { envName: "YANDEX_SPEECHKIT_API_KEY", ...peek("YANDEX_SPEECHKIT_API_KEY") },
+            { envName: "YANDEX_FOLDER_ID", ...peek("YANDEX_FOLDER_ID") },
+          ],
+        },
+        {
+          group: "💬 OpenAI",
+          purpose: "Whisper STT fallback",
+          keys: [{ envName: "OPENAI_API_KEY", ...peek("OPENAI_API_KEY") }],
+        },
+      ],
     });
   });
 

@@ -130,6 +130,7 @@ export default function AdminV304Page() {
         <TabsList className="mb-4 flex flex-wrap">
           <TabsTrigger value="overview">Обзор</TabsTrigger>
           <TabsTrigger value="friend">👤 Муза</TabsTrigger>
+          <TabsTrigger value="ai-keys">🤖 Ключи AI</TabsTrigger>
           <TabsTrigger value="secrets">🔑 Секреты</TabsTrigger>
           <TabsTrigger value="templates">Шаблоны</TabsTrigger>
           <TabsTrigger value="flags">Feature flags</TabsTrigger>
@@ -147,6 +148,7 @@ export default function AdminV304Page() {
             <LearningTab toast={toast} />
           </div>
         </TabsContent>
+        <TabsContent value="ai-keys"><AiKeysTab toast={toast} /></TabsContent>
         <TabsContent value="secrets"><SecretsTab toast={toast} /></TabsContent>
         <TabsContent value="templates"><TemplatesTab toast={toast} /></TabsContent>
         <TabsContent value="flags"><FlagsTab toast={toast} /></TabsContent>
@@ -1246,6 +1248,124 @@ type SecretRow = {
   present: boolean;
   masked: { length: number; first8: string; hasLeadingSpace: boolean } | null;
 };
+
+// Eugene 2026-05-14 Босс «в админе заведи группу ключи Ai».
+// Группа AI-ключей по провайдерам с маскированным prefix + last-status
+// для Claude chain (primary → backup → bot). Auto-refresh 30s.
+function AiKeysTab({ toast }: { toast: any }) {
+  const { data, isLoading, refetch } = useQuery<any>({
+    queryKey: ["/api/admin/v304/ai-keys"],
+    refetchInterval: 30_000,
+  });
+  // Eugene 2026-05-14 Босс: «отчёт админу о смене ключа» — recent events.
+  const { data: switches } = useQuery<any>({
+    queryKey: ["/api/admin/v304/ai-keys/switches"],
+    refetchInterval: 30_000,
+  });
+  return (
+    <div className="space-y-4">
+      <div className="p-4 rounded-2xl border border-purple-500/20 bg-gradient-to-br from-purple-500/[0.04] via-blue-500/[0.04] to-cyan-500/[0.04]">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-lg font-bold text-white">🤖 Ключи AI</h2>
+          <button
+            onClick={() => refetch()}
+            className="text-[11px] px-3 py-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.10] text-white/70 border border-white/[0.08]"
+          >↻ Обновить</button>
+        </div>
+        <p className="text-xs text-muted-foreground">Статус всех AI-ключей проекта. Auto-refresh каждые 30 сек. Last-status Claude-цепочки виден после первого вызова.</p>
+      </div>
+      {isLoading && <div className="text-xs text-white/40">Загружаю…</div>}
+      {data?.groups?.map((g: any) => (
+        <div key={g.group} className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
+          <div className="flex items-baseline justify-between gap-3 mb-2">
+            <h3 className="text-[15px] font-semibold text-white">{g.group}</h3>
+            <span className="text-[10px] text-white/40">{g.purpose}</span>
+          </div>
+          {g.chain && (
+            <div className="text-[10px] text-cyan-300/80 mb-2">Цепочка fallback: {g.chain.join(" → ")}</div>
+          )}
+          {g.tip && <div className="text-[10px] text-white/40 mb-2">{g.tip}</div>}
+          <div className="space-y-2">
+            {g.keys.map((k: any) => {
+              const ok = k.present !== false && k.length > 0;
+              const status = (k as any).lastStatus;
+              const statusBadge = status === 200 || (typeof status === "number" && status >= 200 && status < 300)
+                ? { label: `✓ ${status}`, color: "text-green-400 bg-green-500/10 border-green-500/20" }
+                : status === 401 || status === 403
+                ? { label: `🔒 ${status}`, color: "text-red-400 bg-red-500/10 border-red-500/20" }
+                : status === 429
+                ? { label: `⚠ 429 rate-limit`, color: "text-amber-400 bg-amber-500/10 border-amber-500/20" }
+                : typeof status === "number"
+                ? { label: `${status}`, color: "text-amber-400 bg-amber-500/10 border-amber-500/20" }
+                : status === "timeout"
+                ? { label: "⏱ timeout", color: "text-amber-400 bg-amber-500/10 border-amber-500/20" }
+                : status === "error"
+                ? { label: "✗ error", color: "text-red-400 bg-red-500/10 border-red-500/20" }
+                : { label: "—", color: "text-white/40 bg-white/[0.04] border-white/10" };
+              return (
+                <div key={k.envName} className="flex items-center gap-2 p-2 rounded-lg bg-white/[0.03] border border-white/[0.05]">
+                  <code className={`text-[12px] font-mono px-2 py-0.5 rounded ${ok ? "bg-green-500/10 text-green-300" : "bg-red-500/10 text-red-300"}`}>
+                    {k.envName}
+                  </code>
+                  <span className="text-[11px] text-white/60">
+                    {ok ? `len=${k.length}, first8=[${k.first8}]` : "не задан"}
+                  </span>
+                  {ok && (
+                    <span className={`ml-auto text-[10px] px-2 py-0.5 rounded border ${statusBadge.color}`}>
+                      {statusBadge.label}
+                    </span>
+                  )}
+                  {(k as any).lastUsedAt && (
+                    <span className="text-[10px] text-white/40">
+                      {new Date((k as any).lastUsedAt).toLocaleString("ru-RU", { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" })}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {(g as any).keys.some((k: any) => (k as any).lastErrorMsg) && (
+            <div className="mt-2 p-2 rounded-lg bg-red-500/[0.06] border border-red-500/20 text-[11px] text-red-300/90">
+              {(g as any).keys.filter((k: any) => k.lastErrorMsg).map((k: any) => (
+                <div key={k.envName}><b>{k.envName}:</b> {k.lastErrorMsg}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+      {/* Recent key-switch events — Eugene 2026-05-14 Босс «отчёт админу». */}
+      {switches?.events?.length > 0 && (
+        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/[0.04] p-4">
+          <h3 className="text-[15px] font-semibold text-amber-300 mb-2">🔔 Авто-переключения ключей (последние 50)</h3>
+          <div className="space-y-1.5 max-h-64 overflow-y-auto">
+            {switches.events.map((e: any, i: number) => (
+              <div key={i} className="flex items-start gap-2 text-[11px] p-2 rounded-lg bg-amber-500/[0.04] border border-amber-500/[0.15]">
+                <span className="text-amber-300">⚡</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-white/90">
+                    <code className="text-red-300">{e.from}</code>
+                    <span className="text-white/50 mx-1.5">({e.fromStatus})</span>
+                    <span className="text-white/50">→</span>
+                    <code className="text-green-300 ml-1.5">{e.to}</code>
+                  </div>
+                  <div className="text-[10px] text-white/40">{e.provider} · {new Date(e.at).toLocaleString("ru-RU")}</div>
+                  {e.reason && <div className="text-[10px] text-amber-200/70 mt-0.5">Причина: {e.reason}</div>}
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-white/40 mt-2">
+            Telegram-уведомление приходит на ADMIN_TELEGRAM_ID при первом switch + не чаще раза в час на ключ.
+          </p>
+        </div>
+      )}
+      <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] text-[11px] text-white/50">
+        💡 Для ротации ключа — открой <code>CLAUDE.md</code> → «Key rotation pattern» → готовая команда с маркером <code>🔴ВПИШИ_СЮДА🔴</code>.
+        Для альтернативного ключа Anthropic используй env-имя <code>ANTHROPIC_API_KEY_BACKUP</code>.
+      </div>
+    </div>
+  );
+}
 
 function SecretsTab({ toast }: { toast: any }) {
   const { data, isLoading } = useQuery({
