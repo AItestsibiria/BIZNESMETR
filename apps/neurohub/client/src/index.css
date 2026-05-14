@@ -431,6 +431,16 @@
   70%  { opacity: 1; transform: translate(-4px, -28px) scale(1.1); }
   100% { opacity: 0; transform: translate(-8px, -38px) scale(0.9); }
 }
+
+/* Eugene 2026-05-14 Босс «кнопки появляются как шарики надуваются по
+   очереди слева направо посередине, читать неспеша». Bouncy scale-up
+   с лёгким overshoot. Применяется к QR-кнопкам Музы. */
+@keyframes qrBalloon {
+  0%   { opacity: 0; transform: scale(0); }
+  60%  { opacity: 1; transform: scale(1.12); }
+  80%  { transform: scale(0.96); }
+  100% { opacity: 1; transform: scale(1); }
+}
 .gift-note {
   animation: giftNoteFly 4.5s ease-out 1 forwards;
   transform-origin: center;

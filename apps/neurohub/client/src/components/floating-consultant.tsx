@@ -661,18 +661,26 @@ export function FloatingConsultant() {
                         ? <a key={j} href={p.href} target="_blank" rel="noopener noreferrer" className="underline text-cyan-300 hover:text-cyan-200">{p.text}</a>
                         : <span key={j}>{p.text}</span>
                       )}</div>
-                    {/* Eugene 2026-05-14 Босс: 2-3 кнопки-варианта ответа
-                        под bot-сообщением. Показываются только у ПОСЛЕДНЕГО
-                        bot-message (предыдущие отвечены — кнопки уже не актуальны). */}
+                    {/* Eugene 2026-05-14 Босс «кнопки появляются как шарики
+                        надуваются по смыслу посередине слева направо».
+                        Stagger-animation: каждая через +200ms, scale-out → 1.
+                        justify-center — посередине. */}
                     {isLastBot && m.quickReplies && m.quickReplies.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 max-w-[90%]">
+                      <div className="flex flex-wrap gap-1.5 justify-center w-full max-w-[95%] mx-auto">
                         {m.quickReplies.map((qr, qi) => (
                           <button
                             key={qi}
                             type="button"
                             disabled={chatSending}
                             onClick={() => sendQuickReply(qr)}
-                            className="text-[12px] px-3 py-1.5 rounded-full bg-gradient-to-br from-purple-500/15 to-blue-500/15 hover:from-purple-500/25 hover:to-blue-500/25 text-purple-200 hover:text-white border border-purple-400/30 hover:border-purple-400/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            style={{
+                              // Eugene 2026-05-14 Босс «по очереди, читать неспеша»:
+                              // delay 700ms между кнопками, длительность анимации 600ms.
+                              // Юзер успевает прочитать каждую перед появлением следующей.
+                              animation: `qrBalloon 600ms cubic-bezier(0.34, 1.56, 0.64, 1) backwards`,
+                              animationDelay: `${qi * 700}ms`,
+                            }}
+                            className="text-[12px] px-3 py-1.5 rounded-full bg-gradient-to-br from-purple-500/15 to-blue-500/15 hover:from-purple-500/30 hover:to-blue-500/30 text-purple-200 hover:text-white border border-purple-400/30 hover:border-purple-400/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-purple-500/10"
                           >{qr}</button>
                         ))}
                       </div>
