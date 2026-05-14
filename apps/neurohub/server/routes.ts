@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage, db } from "./storage";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
-import { registerSchema, loginSchema, users, payments, generations, transactions, promoCodes, visitors, genActivity, songDrafts, botLearnings } from "@shared/schema";
+import { registerSchema, loginSchema, users, payments, generations, transactions, promoCodes, visitors, genActivity, songDrafts, botLearnings, landingNews } from "@shared/schema";
 import express from "express";
 import { eq, desc, sql, and, isNotNull } from "drizzle-orm";
 import nodemailer from "nodemailer";

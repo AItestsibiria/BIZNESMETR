@@ -376,6 +376,26 @@ export const audioUploads = sqliteTable("audio_uploads", {
 });
 export type AudioUpload = typeof audioUploads.$inferSelect;
 
+// Landing news archive (Eugene 2026-05-12 Босс): редактирование новостей
+// через админку без коммитов в код. Активные показываются на лендинге,
+// архивные — только в админке (история).
+export const landingNews = sqliteTable("landing_news", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  title: text("title").notNull(),                  // HTML allowed (gradient spans)
+  body: text("body").notNull(),                    // HTML allowed
+  iconEmoji: text("icon_emoji"),                   // 🚀/🎤/👤/🛠 etc
+  imageUrl: text("image_url"),                     // /consultant-avatar.svg or external
+  badgeColor: text("badge_color").default("purple"), // purple/cyan/green/pink/amber/blue
+  borderColor: text("border_color").default("purple"),// для рамки
+  publishedAt: text("published_at").notNull(),     // отображаемая дата
+  position: integer("position").notNull().default(0), // sort: больше = выше
+  active: integer("active").notNull().default(1),  // 1=показывается на лендинге; 0=архив
+  archivedAt: text("archived_at"),                 // когда отправлено в архив
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").default(sql`CURRENT_TIMESTAMP`),
+});
+export type LandingNews = typeof landingNews.$inferSelect;
+
 // Bot learnings (Eugene 2026-05-11): самообучение. Раз в 24h LLM
 // анализирует диалоги последних 7 дней — что в успешных работает,
 // что в неуспешных нет. Insights подмешиваются в system prompt бота

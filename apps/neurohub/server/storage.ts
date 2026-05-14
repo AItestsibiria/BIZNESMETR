@@ -470,6 +470,28 @@ try {
   } catch (e) {
     console.error("[MIGRATION] chatbot_sessions FSM columns failed:", e);
   }
+
+  // Landing news (Eugene 2026-05-12 Босс): архив + CRUD редактирование.
+  try {
+    sqlite.exec(`CREATE TABLE IF NOT EXISTS landing_news (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      icon_emoji TEXT,
+      image_url TEXT,
+      badge_color TEXT DEFAULT 'purple',
+      border_color TEXT DEFAULT 'purple',
+      published_at TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1,
+      archived_at TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS landing_news_active_idx ON landing_news(active, position DESC)`);
+  } catch (e) {
+    console.error("[MIGRATION] landing_news failed:", e);
+  }
 } catch (e) {
   console.error("[MIGRATION] Error:", e);
 }
