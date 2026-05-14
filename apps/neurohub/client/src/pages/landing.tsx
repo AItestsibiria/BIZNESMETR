@@ -629,11 +629,23 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       audioRef.current.onended = null;
       audioRef.current.onerror = null;
       audioRef.current.onloadedmetadata = null;
-
     }
-    const audio = new Audio(track.audioUrl); registerAudio(audio);
-    audio.volume = 0.5;
+    const audio = new Audio(track.audioUrl);
     audioRef.current = audio;
+
+    // Eugene 2026-05-14 Босс «плеер не работает плей на смартфоне — играет
+    // только после возврата». КАРДИНАЛЬНО: audio.play() — ПЕРВЫМ statement
+    // после new Audio(). Минимизируем «дельту» от user-gesture до play()
+    // — iOS Safari gesture budget ~30ms максимум.
+    const playPromise = audio.play();
+    playPromise
+      .then(() => setLockScreenPlaybackState('playing'))
+      .catch((err) => {
+        console.warn("[PLAYER] audio.play() rejected (мобильный?):", err?.name, err?.message);
+      });
+
+    registerAudio(audio);
+    audio.volume = 0.5;
     playingTrackRef.current = track;
     // Сохраняем в global для cross-page survival (Eugene 14:09)
     if (typeof window !== "undefined") {
@@ -707,29 +719,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     });
 
 
-    // Configure lock-screen metadata BEFORE audio.play() using shared helper.
-    // The helper pre-warms the cover image, uses multiple absolute URLs,
-    // and re-applies metadata to work around iOS first-write drop.
-    //
-    // Eugene 2026-05-14 Босс «найди проблему с поведением плеера».
-    // КРИТИЧЕСКИЙ ФИКС: раньше audio.play() вызывался ВНУТРИ .then() от
-    // async setLockScreenTrack — это вне gesture-кадра на iOS Safari →
-    // autoplay-policy блокировал. Юзер кликал, ничего не играло.
-    // Теперь: audio.play() — СРАЗУ синхронно в том же tick'е клика.
-    // Lockscreen metadata — параллельно (async, без блокировки play).
+    // Lock-screen metadata — async, параллельно с уже стартовавшим play().
+    // audio.play() уже вызван выше — самым первым после new Audio().
     const msTitle = track.displayTitle || track.prompt?.slice(0, 60) || 'MuziAi';
     const msArtist = track.authorName ? `MuziAi · ${track.authorName}` : 'MuziAi';
 
-    // СРАЗУ pусть, в том же tick'е что user-click. Iоs Safari требует.
-    audio.play()
-      .then(() => setLockScreenPlaybackState('playing'))
-      .catch((err) => {
-        console.warn("[PLAYER] audio.play() rejected:", err?.name, err?.message);
-        // Если autoplay policy блокирует — оставляем play state paused,
-        // юзер нажмёт ещё раз и сработает (gesture свежий).
-      });
-
-    // Lock-screen metadata — параллельно, не блокирует play
     setLockScreenTrack(
       { id: track.id, title: msTitle, artist: msArtist, album: 'MuziAi' },
       {
