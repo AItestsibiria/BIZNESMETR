@@ -18,6 +18,7 @@ import { createNonce as tgCreateNonce, pollNonce as tgPollNonce, consumeNonce as
 import { logEngagement, getEngagementDaily, getEngagementSummary } from "./lib/engagement";
 import { buildPersonaSystem, personaFor } from "./lib/consultantPersona";
 import { findSessionByPairCode, looksLikePairCode } from "./lib/webChatPair";
+import { MUZA_TOOLS, executeTool } from "./lib/muzaTools";
 
 const AUTHORS_DIR = process.env.AUTHORS_DIR || path.join(process.cwd(), "authors");
 
@@ -1499,21 +1500,25 @@ export async function registerRoutes(
     }
   }
 
-  async function callMuzaLLM(systemStable: string, systemDynamic: string, history: Array<{ role: string; content: string }>, userText: string): Promise<string | null> {
+  async function callMuzaLLM(systemStable: string, systemDynamic: string, history: Array<{ role: string; content: string }>, userText: string, authUserId: number | null = null): Promise<string | null> {
     const attempts = listAnthropicKeys();
     if (attempts.length === 0) return null;
     const systemBlocks: any[] = [
       { type: "text", text: systemStable, cache_control: { type: "ephemeral", ttl: "1h" } },
     ];
     if (systemDynamic) systemBlocks.push({ type: "text", text: systemDynamic });
-    // Eugene 2026-05-14 Босс «экономь токены для бота». max_tokens 200 —
-    // короткие плотные ответы, без воды. history 15 для контекста.
-    const body = JSON.stringify({
+    // Eugene 2026-05-14 Босс «advanced agent с tool use» — Claude может сам
+    // вызывать tools, loop пока stop_reason !== "end_turn".
+    const messages: any[] = [...history.slice(-15).map(h => ({ role: h.role, content: h.content })),
+                             { role: "user", content: userText }];
+    const buildBody = () => JSON.stringify({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 200,
+      max_tokens: 400,
       system: systemBlocks,
-      messages: [...history.slice(-15), { role: "user", content: userText }],
+      messages,
+      tools: MUZA_TOOLS,
     });
+    const body = buildBody();
     let prevFailed: { name: string; status: number | string; reason?: string } | null = null;
     for (let i = 0; i < attempts.length; i++) {
       const { name, key } = attempts[i];
@@ -1544,17 +1549,65 @@ export async function registerRoutes(
           muzaTokenStats.outputTokens += Number(j.usage.output_tokens || 0);
           muzaTokenStats.callsCount += 1;
         }
+        // Eugene 2026-05-14 Босс «advanced agent» — tool-use loop.
+        // Если stop_reason="tool_use" — выполняем tools, добавляем результаты
+        // в messages, делаем ещё один call. Max 4 итерации (защита).
+        if (j?.stop_reason === "tool_use" && Array.isArray(j.content)) {
+          messages.push({ role: "assistant", content: j.content });
+          const toolResults: any[] = [];
+          for (const block of j.content) {
+            if (block.type === "tool_use") {
+              const result = await executeTool(block.name, block.input, { userId: authUserId });
+              console.log(`[MUZA-TOOL] ${block.name}(${JSON.stringify(block.input).slice(0,60)}) → ${result.slice(0,80)}`);
+              toolResults.push({ type: "tool_result", tool_use_id: block.id, content: result });
+            }
+          }
+          messages.push({ role: "user", content: toolResults });
+          // Recurse через next iteration — но это inner-loop, не outer.
+          // Делаем второй call к тому же key с обновлёнными messages.
+          let loopIter = 0;
+          while (loopIter < 4) {
+            loopIter++;
+            const r2 = await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-beta": "extended-cache-ttl-2025-04-11", "content-type": "application/json" },
+              body: buildBody(),
+              signal: AbortSignal.timeout(15_000),
+            });
+            if (!r2.ok) break;
+            const j2: any = await r2.json();
+            if (j2?.usage) {
+              muzaTokenStats.inputTokens += Number(j2.usage.input_tokens || 0) + Number(j2.usage.cache_read_input_tokens || 0);
+              muzaTokenStats.outputTokens += Number(j2.usage.output_tokens || 0);
+              muzaTokenStats.callsCount += 1;
+            }
+            if (j2?.stop_reason === "end_turn") {
+              const textBlock = (j2.content || []).find((b: any) => b.type === "text");
+              return textBlock?.text?.slice(0, 2000) || null;
+            }
+            if (j2?.stop_reason === "tool_use" && Array.isArray(j2.content)) {
+              messages.push({ role: "assistant", content: j2.content });
+              const tr: any[] = [];
+              for (const block of j2.content) {
+                if (block.type === "tool_use") {
+                  const result = await executeTool(block.name, block.input, { userId: authUserId });
+                  console.log(`[MUZA-TOOL-${loopIter}] ${block.name} → ${result.slice(0,60)}`);
+                  tr.push({ type: "tool_result", tool_use_id: block.id, content: result });
+                }
+              }
+              messages.push({ role: "user", content: tr });
+              continue;
+            }
+            break;
+          }
+        }
         const c = j?.content?.[0]?.text;
         if (typeof c === "string" && c.length > 0) {
-          // Если этот ключ — не первый в цепочке И предыдущий упал → уведомляем админа.
           if (prevFailed && i > 0) {
             notifyAdminKeySwitch({
               at: new Date().toISOString(),
               provider: "Anthropic Claude",
-              from: prevFailed.name,
-              fromStatus: prevFailed.status,
-              to: name,
-              reason: prevFailed.reason,
+              from: prevFailed.name, fromStatus: prevFailed.status, to: name, reason: prevFailed.reason,
             }).catch(() => {});
           }
           return c.slice(0, 2000);
@@ -2352,7 +2405,7 @@ ${text}`
         }
       }
 
-      let reply = await callMuzaLLM(systemStable, systemDynamic, llmHistory, augmentedUserText);
+      let reply = await callMuzaLLM(systemStable, systemDynamic, llmHistory, augmentedUserText, authUserId);
       let usedFallback = false;
       if (!reply) {
         usedFallback = true;
