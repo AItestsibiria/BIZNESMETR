@@ -136,6 +136,10 @@ try {
   if (!ucn.includes("country")) sqlite.exec("ALTER TABLE users ADD COLUMN country TEXT");
   if (!ucn.includes("country_code")) sqlite.exec("ALTER TABLE users ADD COLUMN country_code TEXT");
   if (!ucn.includes("welcome_gift_given")) sqlite.exec("ALTER TABLE users ADD COLUMN welcome_gift_given INTEGER NOT NULL DEFAULT 0");
+  // Eugene 2026-05-14 Босс «создай профиль если зарегистрируется, исходя
+  // из данных в личном кабинете». JSON с memo от Музы — повод, кому,
+  // настроение, ДР и т.д.
+  if (!ucn.includes("profile")) sqlite.exec("ALTER TABLE users ADD COLUMN profile TEXT");
 
   // Eugene 2026-05-14 Босс «папка заместителей в админ-панели».
   try {

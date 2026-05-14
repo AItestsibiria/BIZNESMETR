@@ -25,6 +25,9 @@ export const users = sqliteTable("users", {
   country: text("country"),                // напр. "Russia" / "Belarus"
   countryCode: text("country_code"),       // ISO alpha-2: "RU", "BY", "KZ", ...
   welcomeGiftGiven: integer("welcome_gift_given").notNull().default(0), // 1 = получил подарочный трек по правилу 1000
+  // Eugene 2026-05-14 Босс «создай профиль из данных Музы». JSON с
+  // memo от чата (имя, ДР, повод, кому, настроение, стиль, голос).
+  profile: text("profile"),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 

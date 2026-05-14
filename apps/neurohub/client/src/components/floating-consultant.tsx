@@ -817,9 +817,10 @@ export function FloatingConsultant() {
                 </div>
               )}
               {chatMsgs.slice(-visibleCount).map((m, i, arr) => {
-                // Eugene 2026-05-14 Босс «повторное нажатие учитывает изменение».
-                // QR-кнопки активны на всех bot-msgs (не только последнем).
-                const showQR = m.role === "bot" && m.quickReplies && m.quickReplies.length > 0;
+                // Eugene 2026-05-14 Босс v2 «облака повторно появляются только
+                // в последнем сообщении». QR — только на последнем bot-msg.
+                const isLastBot = i === arr.length - 1 && m.role === "bot";
+                const showQR = isLastBot && m.quickReplies && m.quickReplies.length > 0;
                 return (
                   <div key={i} className={`flex flex-col gap-1 ${m.role === "user" ? "items-end" : "items-start"}`}>
                     {/* Eugene 2026-05-14 Босс «исключаем в чате остальные имена.

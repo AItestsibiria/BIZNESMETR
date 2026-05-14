@@ -939,6 +939,35 @@ export async function registerRoutes(
         balance: 0,
       }).where(eq(users.id, user.id)).run();
 
+      // Eugene 2026-05-14 Босс «создай профиль если зарегистрируется,
+      // исходя из данных в личном кабинете». Найти chatbot-сессию где
+      // юзер давал email или общался → extractMemo → save в users.profile.
+      try {
+        const raw = (db as any).$client;
+        const sessRow = raw.prepare(`
+          SELECT cs.id FROM chatbot_sessions cs
+          JOIN chatbot_messages cm ON cm.session_id = cs.id
+          WHERE cs.channel = 'web'
+            AND cm.role = 'user'
+            AND lower(cm.text) LIKE ?
+          ORDER BY cs.last_message_at DESC LIMIT 1
+        `).get(`%${email.toLowerCase()}%`);
+        if (sessRow?.id) {
+          const sessHistory = loadSessionHistory(sessRow.id, 50);
+          const sessMemo = extractMemoryFromHistory(sessHistory);
+          db.update(users).set({
+            profile: JSON.stringify({ ...sessMemo, source: "web-chat", linkedAt: new Date().toISOString() }),
+            // Если поля ещё не заполнены другими — заполняем из чата
+            ...(sessMemo.country && !user.country ? { country: sessMemo.country } : {}),
+          }).where(eq(users.id, user.id)).run();
+          // Linкуем session.user_id → user.id (чат теперь принадлежит юзеру)
+          db.update(chatbotSessions).set({ userId: user.id }).where(eq(chatbotSessions.id, sessRow.id)).run();
+          console.log(`[PROFILE-LINK] User #${user.id} (${email}) linked from chat session ${sessRow.id.slice(0,16)} — memo: ${Object.keys(sessMemo).filter(k => (sessMemo as any)[k]).join(",")}`);
+        }
+      } catch (e) {
+        console.warn("[PROFILE-LINK] failed:", e);
+      }
+
       // Eugene 2026-05-14 Босс: правило «1000 первых из РФ + ближнее зарубежье».
       // Lookup geo по IP регистрирующего, сохраняем country/countryCode,
       // и если страна СНГ + общий счётчик welcomeGiftGiven < 1000 — выдаём
