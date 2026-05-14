@@ -402,10 +402,12 @@ export function FloatingConsultant() {
       data-testid="floating-consultant"
     >
       <div className="relative">
-        {/* Compact tooltip */}
-        {hovered && !expanded && !reaction && (
-          <div className="absolute bottom-full right-0 mb-1.5 px-2.5 py-1 rounded-full bg-white/[0.07] backdrop-blur-md border border-white/15 text-[10px] text-white/85 whitespace-nowrap animate-in fade-in slide-in-from-bottom-1 duration-150">
-            Чем помочь? 🎵
+        {/* Eugene 2026-05-14 Босс «при появлении облачко "заходи в чат
+            креативить"». Появляется автоматически на 6 сек после mount —
+            привлекает внимание. Hover тоже показывает. */}
+        {!expanded && !reaction && !chatOpen && (
+          <div className="absolute bottom-full right-0 mb-2 px-3 py-2 rounded-2xl rounded-br-sm bg-gradient-to-br from-purple-500/30 to-blue-500/25 backdrop-blur-md border border-purple-300/40 text-[12px] font-medium text-white whitespace-nowrap animate-in fade-in slide-in-from-bottom-2 duration-300 shadow-lg shadow-purple-500/20">
+            Заходи в чат — креативить ✨
           </div>
         )}
 
@@ -553,7 +555,7 @@ export function FloatingConsultant() {
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
           aria-label="Муза"
-          className="block w-16 h-24 sm:w-20 sm:h-32 active:scale-95 transition-transform opacity-90 hover:opacity-100 consultant-dance"
+          className="block w-32 h-48 sm:w-40 sm:h-64 active:scale-95 transition-transform opacity-90 hover:opacity-100 consultant-dance"
         >
           <img
             src="/consultant-avatar.svg"

@@ -1929,6 +1929,31 @@ export async function registerRoutes(
   // Web-specific enhancement — добавляется к base persona system prompt.
   const WEB_CHAT_SALES_ENHANCEMENT = `
 
+═══ ТЫ — СУПЕР-ПРОДАВЕЦ-ДРУГ (Eugene 2026-05-14 Босс «прокачай навыки
+логику друга-суперпродажника не через прямую продажу а аккуратно
+используя данные проекта») ═══
+
+Ты — лучший в мире коммуникатор. Не «продавец» — ДРУГ который ИСКРЕННЕ
+помогает. Используешь данные проекта (треки автора, его прогресс, повод,
+кому посвящает) чтобы вести разговор естественно.
+
+ТЕХНИКИ ВЫСШЕГО УРОВНЯ:
+1. ЗЕРКАЛО — отзеркаливай слово/идею юзера в ответе. Юзер «маме» →
+   «Для мамы — это особенно». Юзер «не уверен» → «Понимаю, давайте без спешки».
+2. ДИАГНОСТИКА — задавай вопросы ВНУТРИ контекста. Не «какой стиль?»,
+   а «вы говорили про маму — она любит более классику или попозитивнее?».
+3. ВИЗУАЛИЗАЦИЯ результата — не «у нас крутая платформа», а «представьте,
+   мама слышит свой голос на дне рождения».
+4. SOCIAL PROOF тонко — «у нас на прошлой неделе автор собрал маме
+   песню на её юбилей — она плакала от счастья». Без громких заявлений.
+5. SCARCITY мягкий — «сейчас первые 1000 авторов из РФ получают
+   подарочный трек, не упустите момент».
+6. SLAY THE OBJECTION — на «дорого» → «давайте начнём с подарочного
+   трека, ничего не стоит». На «не получится» → «вы удивитесь —
+   первая попытка часто самая душевная».
+7. NO DIRECT SALE — НИКОГДА «купите», «закажите», «оплатите».
+   Вместо: «соберём», «сделаем», «попробуем», «подарим».
+
 ═══ СВЯЗЬ С ПРЕДЫДУЩИМ ОТВЕТОМ (Eugene 2026-05-14 Босс «бот нелогичен,
 не связывает ответы с дальнейшей структурой — очеловечить») ═══
 
@@ -2469,6 +2494,24 @@ https://muziai.ru/#/music»
       }));
       const sessionMemo = extractMemoryFromHistory(histAll);
 
+      // Eugene 2026-05-14 Босс «бот повторяет одно и тоже 2/10 — кардинально».
+      // INJECT context ПРЯМО в user message — Claude гарантированно видит,
+      // не игнорирует system. Перед каждым user text добавляем краткий контекст.
+      const memoStr = (() => {
+        const parts: string[] = [];
+        if (sessionMemo.name) parts.push(`имя=${sessionMemo.name}`);
+        if (sessionMemo.occasion) parts.push(`повод=${sessionMemo.occasion}`);
+        if (sessionMemo.recipient) parts.push(`кому=${sessionMemo.recipient}`);
+        if (sessionMemo.mood) parts.push(`настроение=${sessionMemo.mood}`);
+        if (sessionMemo.style) parts.push(`стиль=${sessionMemo.style}`);
+        if (sessionMemo.voiceType) parts.push(`голос=${sessionMemo.voiceType}`);
+        if (sessionMemo.email) parts.push(`email=${sessionMemo.email}`);
+        return parts.length > 0 ? parts.join(", ") : "";
+      })();
+      const augmentedUserText = memoStr
+        ? `[KNOWN: ${memoStr}]\n[RULE: Используй эти факты в ответе. Не переспрашивай. Свяжи ответ с моим сообщением ниже.]\n\n${text}`
+        : text;
+
       const systemStable = buildPersonaSystem(session.id) + WEB_CHAT_SALES_ENHANCEMENT;
       let systemDynamic = "";
       if (pairedNow) {
@@ -2505,7 +2548,7 @@ https://muziai.ru/#/music»
         }
       }
 
-      let reply = await callMuzaLLM(systemStable, systemDynamic, llmHistory, text);
+      let reply = await callMuzaLLM(systemStable, systemDynamic, llmHistory, augmentedUserText);
       let usedFallback = false;
       if (!reply) {
         usedFallback = true;
