@@ -512,8 +512,13 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           document.getElementById('playlist-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }, 300);
       } else {
-        // Auto-select first music track — НО только если нет восстановленного
-        // playingId из session И нет global-audio в фоне (Eugene 14:13).
+        // Eugene 2026-05-14 Босс «после загрузки сайта стоит на паузе,
+        // только переключение на другой трек и обратно срабатывает».
+        // ROOT CAUSE: auto-init создавал new Audio() ВНЕ user-gesture.
+        // На togglePlay → audio.play() reject от autoplay-policy.
+        // ФИКС: НЕ создаём Audio на mount. Только set playingId + meta
+        // для отображения большого плеера. Audio создаётся при первом
+        // клике (в свежем gesture) — playTrack гарантированно работает.
         const hasGlobalAudio = typeof window !== "undefined" && (window as any).__muziaiAudio;
         if (!playingId && !hasGlobalAudio) {
           const firstMusic = data.find((t: any) => t.type === "music" && t.audioUrl);
@@ -521,14 +526,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             setPlayingId(firstMusic.id);
             setTrackDuration(firstMusic.duration || 0);
             playingTrackRef.current = firstMusic;
-            // Prepare audio but don't play
-            const audio = new Audio(firstMusic.audioUrl); registerAudio(audio);
-            audio.volume = 0.5;
-            audio.preload = "metadata";
-            audioRef.current = audio;
-            audio.onloadedmetadata = () => {
-              if (audio.duration && isFinite(audio.duration)) setTrackDuration(audio.duration);
-            };
+            // НЕ создаём new Audio() здесь — только meta. Audio будет
+            // создан в playTrack() при first click.
           }
         }
       }
@@ -791,6 +790,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       }
     }
     if (playingId === track.id) {
+      // Eugene 2026-05-14 Босс: если audioRef ещё не создан (mount без
+      // auto-init) — playTrack создаст в свежем gesture.
+      if (!audioRef.current) {
+        playTrack(track);
+        return;
+      }
       if (audioRef.current?.paused) {
         // Eugene 2026-05-14 Босс «после загрузки сайта стоит на паузе, не
         // могу включить плей». ROOT CAUSE: audio был auto-prepared при
