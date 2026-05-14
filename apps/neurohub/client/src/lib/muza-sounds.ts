@@ -1,8 +1,9 @@
 // muzaSounds (Eugene 2026-05-14 Босс): нежные мини-звуки для UI Музы.
-// Web Audio API — синтезируем коротко, без mp3-файлов (не нагружаем сеть).
+// Web Audio API — синтезируем коротко, без mp3-файлов.
 //
-// Идея: короткий 2-нот мелодичный звон при ключевых действиях.
-// Тоны мягкие, low-volume чтобы не мешать.
+// Eugene 2026-05-14 (v2): «звук одной нотой, мягче, комфортнее».
+// Все sound-функции теперь — 1 тон с длинным attack/decay, тёплая частота,
+// очень тихий volume. Никаких аккордов / трезвучий.
 
 let ctx: AudioContext | null = null;
 let muted = false;
@@ -20,77 +21,63 @@ function ensure(): AudioContext | null {
 export function setMuzaSoundsMuted(v: boolean) { muted = v; }
 export function getMuzaSoundsMuted() { return muted; }
 
-// Короткий 2-нота chime — для открытия меню / клика кнопки.
+// 1-тон gentle chime — для клика на Музу и появления ответа.
+// G4 (392 Hz) — тёплая средняя частота, не пронзительная.
 export function playMuzaChime(opts?: { volume?: number }): void {
   const audio = ensure();
   if (!audio) return;
   try {
     const now = audio.currentTime;
-    const volume = opts?.volume ?? 0.06; // тихий
-    // C5 → E5 (мажорная терция, мечтательное)
-    const notes = [
-      { freq: 523.25, delay: 0, len: 0.35 },
-      { freq: 659.25, delay: 0.08, len: 0.5 },
-    ];
-    notes.forEach(n => {
-      const osc = audio.createOscillator();
-      const gain = audio.createGain();
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(n.freq, now + n.delay);
-      gain.gain.setValueAtTime(0, now + n.delay);
-      gain.gain.linearRampToValueAtTime(volume, now + n.delay + 0.04);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + n.delay + n.len);
-      osc.connect(gain).connect(audio.destination);
-      osc.start(now + n.delay);
-      osc.stop(now + n.delay + n.len + 0.05);
-    });
+    const volume = opts?.volume ?? 0.045;
+    const osc = audio.createOscillator();
+    const gain = audio.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(392, now); // G4 — мягкая средняя
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(volume, now + 0.08); // плавный attack
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.9); // долгий decay
+    osc.connect(gain).connect(audio.destination);
+    osc.start(now);
+    osc.stop(now + 1.0);
   } catch {}
 }
 
-// Совсем тихий 1-тон tick — для send-button / клика по chip.
+// 1-тон gentle tick — для send. A4 (440 Hz), коротко.
 export function playMuzaTick(opts?: { volume?: number }): void {
   const audio = ensure();
   if (!audio) return;
   try {
     const now = audio.currentTime;
-    const volume = opts?.volume ?? 0.04;
+    const volume = opts?.volume ?? 0.035;
     const osc = audio.createOscillator();
     const gain = audio.createGain();
     osc.type = "sine";
-    osc.frequency.setValueAtTime(880, now); // A5
+    osc.frequency.setValueAtTime(440, now); // A4
     gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(volume, now + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+    gain.gain.linearRampToValueAtTime(volume, now + 0.03);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
     osc.connect(gain).connect(audio.destination);
     osc.start(now);
-    osc.stop(now + 0.22);
+    osc.stop(now + 0.32);
   } catch {}
 }
 
-// Sparkle 3-нота — для важных моментов (например первое открытие чата).
+// 1-тон sparkle — для важных моментов (открытие чата). D5 (587 Hz), мягко.
 export function playMuzaSparkle(opts?: { volume?: number }): void {
   const audio = ensure();
   if (!audio) return;
   try {
     const now = audio.currentTime;
-    const volume = opts?.volume ?? 0.05;
-    // Восходящая С-Е-G (мажорное трезвучие)
-    const notes = [
-      { freq: 523.25, delay: 0 },     // C5
-      { freq: 659.25, delay: 0.10 },  // E5
-      { freq: 783.99, delay: 0.20 },  // G5
-    ];
-    notes.forEach(n => {
-      const osc = audio.createOscillator();
-      const gain = audio.createGain();
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(n.freq, now + n.delay);
-      gain.gain.setValueAtTime(0, now + n.delay);
-      gain.gain.linearRampToValueAtTime(volume, now + n.delay + 0.04);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + n.delay + 0.55);
-      osc.connect(gain).connect(audio.destination);
-      osc.start(now + n.delay);
-      osc.stop(now + n.delay + 0.6);
-    });
+    const volume = opts?.volume ?? 0.045;
+    const osc = audio.createOscillator();
+    const gain = audio.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(587.33, now); // D5 — чуть выше chime, праздничнее
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(volume, now + 0.1); // мягкий attack
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.1); // долгий decay
+    osc.connect(gain).connect(audio.destination);
+    osc.start(now);
+    osc.stop(now + 1.2);
   } catch {}
 }

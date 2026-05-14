@@ -46,7 +46,8 @@ const CLICK_REACTIONS = [
 ];
 
 // Eugene 2026-05-14 Босс: inline-чат с Музой на сайте + cross-channel pair-code.
-type ChatMessage = { role: "user" | "bot"; text: string };
+// quickReplies — 2-3 кнопки-варианта после bot-message, клик = auto-send.
+type ChatMessage = { role: "user" | "bot"; text: string; quickReplies?: string[] };
 
 // Quick-reply chips — типичные первые сообщения чтобы юзер не залипал
 // на пустом инпуте. Сменяются после первой реплики.
@@ -141,7 +142,11 @@ export function FloatingConsultant() {
         const hist: ChatMessage[] = Array.isArray(j.history)
           ? j.history.map((h: any) => ({ role: h.role === "bot" ? "bot" : "user", text: h.text }))
           : [];
-        const greeting: ChatMessage = { role: "bot", text: String(j.greeting || "Привет!") };
+        const greeting: ChatMessage = {
+          role: "bot",
+          text: String(j.greeting || "Привет!"),
+          quickReplies: Array.isArray(j.quickReplies) ? j.quickReplies : undefined,
+        };
         setChatMsgs([...hist, greeting]);
       }
     } catch {
@@ -178,17 +183,42 @@ export function FloatingConsultant() {
     trackEngagement("consultant_action", { action: "chat_reset" });
   }, [initChatSession]);
 
-  const sendChat = useCallback(async () => {
-    const text = chatInput.trim();
-    if (!text || chatSending) return;
-    // Eugene 2026-05-14 Босс: tick при отправке.
+  // Eugene 2026-05-14 Босс «при клике продолжай» — клик на quick-reply
+  // chip = отправка этого варианта как user-message. После клика QR-кнопки
+  // у последнего bot-message убираем (одноразовый выбор).
+  const sendQuickReply = useCallback((variant: string) => {
+    setChatInput(variant);
+    // Убираем quickReplies у последнего bot-сообщения
+    setChatMsgs(m => {
+      if (m.length === 0) return m;
+      const last = m[m.length - 1];
+      if (last.role === "bot" && last.quickReplies) {
+        return [...m.slice(0, -1), { ...last, quickReplies: undefined }];
+      }
+      return m;
+    });
+    // Отправка через timeout чтобы input обновился до sendChat
+    setTimeout(() => {
+      // sendChat использует chatInput через useCallback — закрытие
+      // на старое значение если вызывать сразу. Через setTimeout state
+      // успеет обновиться, либо sendChat прочитает текущий input.
+      // Безопаснее — вызвать через ref на текущую функцию, но проще
+      // дополнить параметром.
+      // Решение: вызвать вручную fetch минуя sendChat.
+      doSendMessage(variant);
+    }, 0);
+  }, []);
+
+  // Выделил core-send в отдельную функцию чтобы вызывать с произвольным
+  // text (для quick-reply без перезагрузки chatInput state).
+  const doSendMessage = useCallback(async (textArg: string) => {
+    const text = textArg.trim();
+    if (!text) return;
     try { playMuzaTick(); } catch {}
     const sid = ensureClientSessionId();
     setChatMsgs(m => [...m, { role: "user", text }]);
     setChatInput("");
     setChatSending(true);
-    // Eugene 2026-05-14 Босс «не отвечает» — добавил AbortSignal timeout 20s
-    // чтобы не зависало навсегда. Frontend гарантированно даст ответ юзеру.
     const ctrl = new AbortController();
     const timeoutId = window.setTimeout(() => ctrl.abort(), 20_000);
     try {
@@ -205,12 +235,13 @@ export function FloatingConsultant() {
       }
       const j = await r.json();
       if (j?.ok && j.reply) {
-        // Нежный chime при появлении ответа Музы (Eugene 2026-05-14 Босс).
         try { playMuzaChime({ volume: 0.04 }); } catch {}
-        setChatMsgs(m => [...m, { role: "bot", text: j.reply }]);
-        if (j.paired) {
-          setChatPaired({ channel: j.pairedFromChannel });
-        }
+        setChatMsgs(m => [...m, {
+          role: "bot",
+          text: j.reply,
+          quickReplies: Array.isArray(j.quickReplies) && j.quickReplies.length > 0 ? j.quickReplies : undefined,
+        }]);
+        if (j.paired) setChatPaired({ channel: j.pairedFromChannel });
       } else {
         setChatMsgs(m => [...m, { role: "bot", text: j?.error || "Что-то пошло не так — попробуйте ещё раз" }]);
       }
@@ -223,7 +254,12 @@ export function FloatingConsultant() {
     } finally {
       setChatSending(false);
     }
-  }, [chatInput, chatSending]);
+  }, []);
+
+  const sendChat = useCallback(async () => {
+    if (!chatInput.trim() || chatSending) return;
+    await doSendMessage(chatInput);
+  }, [chatInput, chatSending, doSendMessage]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -562,18 +598,37 @@ export function FloatingConsultant() {
                   </button>
                 </div>
               )}
-              {chatMsgs.slice(-visibleCount).map((m, i) => (
-                <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div className={`max-w-[80%] px-3 py-2 rounded-2xl text-[13px] leading-relaxed whitespace-pre-wrap break-words ${
-                    m.role === "user"
-                      ? "bg-gradient-to-br from-purple-500/30 to-blue-500/25 text-white border border-purple-400/30"
-                      : "bg-white/[0.06] text-white/90 border border-white/[0.08]"
-                  }`}>{linkify(m.text).map((p, j) => p.href
-                      ? <a key={j} href={p.href} target="_blank" rel="noopener noreferrer" className="underline text-cyan-300 hover:text-cyan-200">{p.text}</a>
-                      : <span key={j}>{p.text}</span>
-                    )}</div>
-                </div>
-              ))}
+              {chatMsgs.slice(-visibleCount).map((m, i, arr) => {
+                const isLastBot = i === arr.length - 1 && m.role === "bot";
+                return (
+                  <div key={i} className={`flex flex-col gap-1.5 ${m.role === "user" ? "items-end" : "items-start"}`}>
+                    <div className={`max-w-[80%] px-3 py-2 rounded-2xl text-[13px] leading-relaxed whitespace-pre-wrap break-words ${
+                      m.role === "user"
+                        ? "bg-gradient-to-br from-purple-500/30 to-blue-500/25 text-white border border-purple-400/30"
+                        : "bg-white/[0.06] text-white/90 border border-white/[0.08]"
+                    }`}>{linkify(m.text).map((p, j) => p.href
+                        ? <a key={j} href={p.href} target="_blank" rel="noopener noreferrer" className="underline text-cyan-300 hover:text-cyan-200">{p.text}</a>
+                        : <span key={j}>{p.text}</span>
+                      )}</div>
+                    {/* Eugene 2026-05-14 Босс: 2-3 кнопки-варианта ответа
+                        под bot-сообщением. Показываются только у ПОСЛЕДНЕГО
+                        bot-message (предыдущие отвечены — кнопки уже не актуальны). */}
+                    {isLastBot && m.quickReplies && m.quickReplies.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 max-w-[90%]">
+                        {m.quickReplies.map((qr, qi) => (
+                          <button
+                            key={qi}
+                            type="button"
+                            disabled={chatSending}
+                            onClick={() => sendQuickReply(qr)}
+                            className="text-[12px] px-3 py-1.5 rounded-full bg-gradient-to-br from-purple-500/15 to-blue-500/15 hover:from-purple-500/25 hover:to-blue-500/25 text-purple-200 hover:text-white border border-purple-400/30 hover:border-purple-400/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >{qr}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
               {chatSending && (
                 <div className="flex justify-start">
                   <div className="px-3 py-2 rounded-2xl bg-white/[0.06] text-white/60 text-[12px] border border-white/[0.08]">
