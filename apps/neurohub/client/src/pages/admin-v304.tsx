@@ -1348,6 +1348,11 @@ function BotStatsTab({ toast }: { toast: any }) {
     queryKey: ["/api/admin/v304/yars-rules"],
     refetchInterval: 60_000,
   });
+  // Eugene 2026-05-14 Босс «в админке указывай сколько токенов обошелся чат».
+  const { data: tokenStats } = useQuery<any>({
+    queryKey: ["/api/admin/v304/muza-token-stats"],
+    refetchInterval: 30_000,
+  });
   if (isLoading) return <div className="text-xs text-white/40">Загружаю...</div>;
   if (!data?.ok) return <div className="text-xs text-red-400">Ошибка загрузки</div>;
   const fmt = (n: number) => n.toLocaleString("ru-RU");
@@ -1443,6 +1448,39 @@ function BotStatsTab({ toast }: { toast: any }) {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Стоимость чата — Eugene 2026-05-14 Босс «в админке указывай токены». */}
+      {tokenStats?.ok && (
+        <div className="rounded-xl p-4 bg-gradient-to-br from-amber-500/[0.06] via-orange-500/[0.04] to-yellow-500/[0.04] border border-amber-500/25">
+          <div className="flex items-baseline justify-between mb-3">
+            <h3 className="text-[15px] font-bold text-white">💰 Стоимость чата Музы</h3>
+            <span className="text-[10px] text-white/40">с {new Date(tokenStats.sinceStartedAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="rounded-xl p-3 bg-white/[0.04] border border-white/[0.06]">
+              <div className="text-[10px] text-white/50">Токенов всего</div>
+              <div className="text-2xl font-bold text-amber-300">{fmt(tokenStats.totalTokens)}</div>
+              <div className="text-[10px] text-white/40">in {fmt(tokenStats.inputTokens)} · out {fmt(tokenStats.outputTokens)}</div>
+            </div>
+            <div className="rounded-xl p-3 bg-white/[0.04] border border-white/[0.06]">
+              <div className="text-[10px] text-white/50">Вызовов LLM</div>
+              <div className="text-2xl font-bold text-white">{fmt(tokenStats.callsCount)}</div>
+              <div className="text-[10px] text-white/40">{tokenStats.avgPerCall ? `avg ${fmt(tokenStats.avgPerCall.tokens)} tk` : ""}</div>
+            </div>
+            <div className="rounded-xl p-3 bg-amber-500/[0.06] border border-amber-500/20">
+              <div className="text-[10px] text-amber-300">Стоимость, ₽</div>
+              <div className="text-2xl font-bold text-amber-200">{tokenStats.cost.totalRUB.toFixed(2)}</div>
+              <div className="text-[10px] text-white/40">${tokenStats.cost.totalUSD.toFixed(4)}</div>
+            </div>
+            <div className="rounded-xl p-3 bg-white/[0.04] border border-white/[0.06]">
+              <div className="text-[10px] text-white/50">Avg за вызов</div>
+              <div className="text-2xl font-bold text-amber-200">{tokenStats.avgPerCall ? `${tokenStats.avgPerCall.rub}₽` : "—"}</div>
+              <div className="text-[10px] text-white/40">Haiku-4-5</div>
+            </div>
+          </div>
+          <p className="text-[10px] text-white/40 mt-2">{tokenStats.note}</p>
         </div>
       )}
 

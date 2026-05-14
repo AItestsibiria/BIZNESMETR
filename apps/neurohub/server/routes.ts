@@ -1418,6 +1418,21 @@ export async function registerRoutes(
     return out;
   }
 
+  // Eugene 2026-05-14 Босс «в админке указывай сколько токенов обошелся чат».
+  // Аккумулируем in/out tokens + цена в USD (Haiku-4-5 = $0.25/1M in, $1.25/1M out)
+  // и в рублях (грубо ~95 руб/USD; pricing config выше).
+  const muzaTokenStats = {
+    inputTokens: 0,
+    outputTokens: 0,
+    callsCount: 0,
+    sinceStartedAt: new Date().toISOString(),
+  };
+  const TOKEN_PRICE = {
+    inputPer1M_USD: 0.25,
+    outputPer1M_USD: 1.25,
+    rubPerUSD: 95,
+  };
+
   // Last-used tracker для admin-диагностики (last status per key)
   const llmKeyStatus = new Map<string, { lastUsedAt: string; lastStatus: number | "timeout" | "error"; lastErrorMsg?: string }>();
 
@@ -1494,6 +1509,12 @@ export async function registerRoutes(
           continue;
         }
         const j: any = await r.json();
+        // Eugene 2026-05-14 Босс: считаем токены/стоимость чата.
+        if (j?.usage) {
+          muzaTokenStats.inputTokens += Number(j.usage.input_tokens || 0) + Number(j.usage.cache_read_input_tokens || 0);
+          muzaTokenStats.outputTokens += Number(j.usage.output_tokens || 0);
+          muzaTokenStats.callsCount += 1;
+        }
         const c = j?.content?.[0]?.text;
         if (typeof c === "string" && c.length > 0) {
           // Если этот ключ — не первый в цепочке И предыдущий упал → уведомляем админа.
@@ -3762,6 +3783,35 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
       console.error("[DELEGATES revoke]", e);
       res.status(500).json({ ok: false, error: String(e) });
     }
+  });
+
+  // Eugene 2026-05-14 Босс «в админке указывай сколько токенов обошелся чат».
+  // Возвращает агрегированные in/out tokens + цену в USD и рублях.
+  app.get("/api/admin/v304/muza-token-stats", requireAdmin, (_req: Request, res: Response) => {
+    const inUsd = (muzaTokenStats.inputTokens / 1_000_000) * TOKEN_PRICE.inputPer1M_USD;
+    const outUsd = (muzaTokenStats.outputTokens / 1_000_000) * TOKEN_PRICE.outputPer1M_USD;
+    const totalUsd = inUsd + outUsd;
+    const totalRub = totalUsd * TOKEN_PRICE.rubPerUSD;
+    res.json({
+      ok: true,
+      sinceStartedAt: muzaTokenStats.sinceStartedAt,
+      callsCount: muzaTokenStats.callsCount,
+      inputTokens: muzaTokenStats.inputTokens,
+      outputTokens: muzaTokenStats.outputTokens,
+      totalTokens: muzaTokenStats.inputTokens + muzaTokenStats.outputTokens,
+      pricing: TOKEN_PRICE,
+      cost: {
+        inputUSD: Number(inUsd.toFixed(4)),
+        outputUSD: Number(outUsd.toFixed(4)),
+        totalUSD: Number(totalUsd.toFixed(4)),
+        totalRUB: Number(totalRub.toFixed(2)),
+      },
+      avgPerCall: muzaTokenStats.callsCount > 0 ? {
+        tokens: Math.round((muzaTokenStats.inputTokens + muzaTokenStats.outputTokens) / muzaTokenStats.callsCount),
+        rub: Number((totalRub / muzaTokenStats.callsCount).toFixed(2)),
+      } : null,
+      note: "Счётчик с момента запуска сервера (in-memory). После pm2 restart обнуляется. Включает cache_read_input_tokens (cache hit удешевляет)."
+    });
   });
 
   // Eugene 2026-05-14 Босс «отчёт по Ярс — собирай сообщения из Telegram
