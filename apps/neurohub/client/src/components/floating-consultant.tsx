@@ -169,7 +169,9 @@ export function FloatingConsultant() {
   }, []);
 
   const openChat = useCallback(async () => {
-    // Eugene 2026-05-14 Босс: «мини звуки нежный» — sparkle при открытии чата.
+    // Eugene 2026-05-14 Босс «после уходу скоро вернусь — ещё один чат».
+    // Idempotent — если уже открыт, не переоткрываем (избегаем дубль-анимации).
+    if (chatOpen) return;
     try { playMuzaSparkle(); } catch {}
     setExpanded(false);
     setChatOpen(true);
@@ -177,7 +179,7 @@ export function FloatingConsultant() {
     if (chatInitialized.current) return;
     chatInitialized.current = true;
     await initChatSession();
-  }, [initChatSession]);
+  }, [initChatSession, chatOpen]);
 
   // Eugene 2026-05-14 Босс: кнопка «начать новый разговор» — сбрасывает
   // локальный sessionId, backend создаёт новую session с чистой историей.
@@ -534,16 +536,14 @@ export function FloatingConsultant() {
           aria-modal="true"
           role="dialog"
         >
-          {/* Eugene 2026-05-14 Босс «окно прозрачное, только контуры,
-              ощущение что на сайте». Backdrop почти прозрачный, лёгкое
-              затемнение для focus. Drawer тоже прозрачный с яркими
-              контурами вместо плотного фона. */}
+          {/* Eugene 2026-05-14 Босс «прозрачнее на 25%». Backdrop ещё легче,
+              drawer фон bg/18 (было /25), контуры остаются яркими. */}
           <div
-            className="absolute inset-0 bg-black/15 pointer-events-auto"
+            className="absolute inset-0 bg-black/10 pointer-events-auto"
             onClick={() => setChatOpen(false)}
           />
           <div
-            className="absolute right-0 bottom-0 sm:bottom-4 sm:right-4 w-[92vw] max-w-[420px] sm:w-[380px] flex flex-col bg-background/25 backdrop-blur-md border-2 rounded-t-2xl sm:rounded-2xl border-purple-400/40 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in slide-in-from-bottom-2 duration-300 sm:!h-[520px]"
+            className="absolute right-0 bottom-0 sm:bottom-4 sm:right-4 w-[92vw] max-w-[420px] sm:w-[380px] flex flex-col bg-background/[0.18] backdrop-blur-md border-2 rounded-t-2xl sm:rounded-2xl border-purple-400/40 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in slide-in-from-bottom-2 duration-300 sm:!h-[520px]"
             style={{
               // Eugene 2026-05-14 Босс «на смартфоне открывается низ — уменьшить»:
               // высота 75vh снизу — не на весь экран. Юзер видит и навбар, и

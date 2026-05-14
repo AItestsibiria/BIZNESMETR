@@ -710,13 +710,31 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     // Configure lock-screen metadata BEFORE audio.play() using shared helper.
     // The helper pre-warms the cover image, uses multiple absolute URLs,
     // and re-applies metadata to work around iOS first-write drop.
+    //
+    // Eugene 2026-05-14 Босс «найди проблему с поведением плеера».
+    // КРИТИЧЕСКИЙ ФИКС: раньше audio.play() вызывался ВНУТРИ .then() от
+    // async setLockScreenTrack — это вне gesture-кадра на iOS Safari →
+    // autoplay-policy блокировал. Юзер кликал, ничего не играло.
+    // Теперь: audio.play() — СРАЗУ синхронно в том же tick'е клика.
+    // Lockscreen metadata — параллельно (async, без блокировки play).
     const msTitle = track.displayTitle || track.prompt?.slice(0, 60) || 'MuziAi';
     const msArtist = track.authorName ? `MuziAi · ${track.authorName}` : 'MuziAi';
+
+    // СРАЗУ pусть, в том же tick'е что user-click. Iоs Safari требует.
+    audio.play()
+      .then(() => setLockScreenPlaybackState('playing'))
+      .catch((err) => {
+        console.warn("[PLAYER] audio.play() rejected:", err?.name, err?.message);
+        // Если autoplay policy блокирует — оставляем play state paused,
+        // юзер нажмёт ещё раз и сработает (gesture свежий).
+      });
+
+    // Lock-screen metadata — параллельно, не блокирует play
     setLockScreenTrack(
       { id: track.id, title: msTitle, artist: msArtist, album: 'MuziAi' },
       {
         play: () => {
-          audioRef.current?.play();
+          audioRef.current?.play().catch(() => {});
           muteBgMusic();
           setLockScreenPlaybackState('playing');
         },
@@ -744,8 +762,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         },
       },
       (track as any).coverGenId || track.id
-    ).then(() => {
-      audio.play().then(() => setLockScreenPlaybackState('playing')).catch(() => {});
+    ).catch((err) => {
+      console.warn("[PLAYER] setLockScreenTrack failed:", err);
     });
     setPlayingId(track.id);
     muteBgMusic();
