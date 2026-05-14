@@ -1645,7 +1645,11 @@ export async function registerRoutes(
     occasion?: string;
     recipient?: string;
     city?: string;
+    country?: string;
     age?: string;
+    mood?: string;
+    style?: string;
+    voiceType?: string;
     interests?: string[];
   };
   function extractMemoryFromHistory(history: Array<{ role: string; text: string }>): SessionMemo {
@@ -1720,6 +1724,60 @@ export async function registerRoutes(
     const ageM = allText.match(/(\d{1,3})\s*(?:лет|год)/i);
     if (ageM) memo.age = ageM[1];
 
+    // Eugene 2026-05-14 Босс: характеристики из меню окна генерации
+    // (точное соответствие терминологии /music).
+
+    // Настроение
+    const moods = [
+      { re: /\bтёпл|тепл/i, label: "тёплое" },
+      { re: /\bвес[её]л|радостн|бодр/i, label: "весёлое" },
+      { re: /\bгрустн|печаль|меланхол/i, label: "грустное" },
+      { re: /\bроманти/i, label: "романтичное" },
+      { re: /\bэнергичн/i, label: "энергичное" },
+      { re: /\bспокойн|умиротвор/i, label: "спокойное" },
+      { re: /\bдраматичн|трагич/i, label: "драматичное" },
+      { re: /\bэпич|величеств/i, label: "эпичное" },
+      { re: /\bмечтательн|нежн/i, label: "мечтательное" },
+      { re: /\bторжествен|празднич/i, label: "торжественное" },
+      { re: /\bностальг/i, label: "ностальгичное" },
+    ];
+    for (const m of moods) {
+      if (m.re.test(allText)) { memo.mood = m.label; break; }
+    }
+
+    // Стиль / жанр
+    const styles = [
+      { re: /\bпоп(?!ыт|ыт)/i, label: "Поп" },
+      { re: /\bрок(?!ово)/i, label: "Рок" },
+      { re: /\bр[эе]п|hip[- ]?hop/i, label: "Рэп" },
+      { re: /\bджаз/i, label: "Джаз" },
+      { re: /\bэлектрон/i, label: "Электронная" },
+      { re: /\blo[- ]?fi/i, label: "Lo-Fi" },
+      { re: /\bбаллад/i, label: "Баллада" },
+      { re: /\bкантри/i, label: "Кантри" },
+      { re: /\bфолк|народ/i, label: "Фолк" },
+      { re: /\bклассик/i, label: "Классика" },
+      { re: /\bшансон/i, label: "Шансон" },
+      { re: /\bмет[аа]лл/i, label: "Метал" },
+      { re: /\bрегги/i, label: "Регги" },
+      { re: /\bденс|танцеваль/i, label: "Танц" },
+      { re: /\bкиношн|эпич|cinematic/i, label: "Кинематограф" },
+    ];
+    for (const s of styles) {
+      if (s.re.test(allText)) { memo.style = s.label; break; }
+    }
+
+    // Голос
+    const voiceM = [
+      { re: /\bжен(ский|ское|ская)?\s*(голос|вокал)|\bдев(ушка|очка|чонка)?(\s+пел|поёт)/i, label: "Женский" },
+      { re: /\bмуж(ской|ское|ская)?\s*(голос|вокал)|\bмужик(?=\s+пел|\s+поёт)/i, label: "Мужской" },
+      { re: /\bдуэт/i, label: "Дуэт" },
+      { re: /\bинструмент|без\s+(слов|голоса|вокала)/i, label: "Инструментальная" },
+    ];
+    for (const v of voiceM) {
+      if (v.re.test(allText)) { memo.voiceType = v.label; break; }
+    }
+
     return memo;
   }
 
@@ -1732,8 +1790,11 @@ export async function registerRoutes(
     if (memo.recipient) lines.push(`• Кому посвящается: ${memo.recipient}`);
     if (memo.age) lines.push(`• Возраст: ${memo.age}`);
     if (memo.city) lines.push(`• Город: ${memo.city}`);
+    if (memo.mood) lines.push(`• Настроение: ${memo.mood}`);
+    if (memo.style) lines.push(`• Стиль: ${memo.style}`);
+    if (memo.voiceType) lines.push(`• Голос: ${memo.voiceType}`);
     if (lines.length === 0) return "";
-    return `\n\n═══ УЖЕ ВЫЯСНЕНО В ЭТОЙ СЕССИИ (НЕ ПЕРЕСПРАШИВАЙ!) ═══\n${lines.join("\n")}\n══════════════════════════\nИспользуй эти факты СРАЗУ. Обращайся по имени. Не задавай вопросов которые уже имеют ответ. Если нужно уточнение — спрашивай ТОЛЬКО конкретное чего не знаешь.`;
+    return `\n\n═══ УЖЕ ВЫЯСНЕНО В ЭТОЙ СЕССИИ — НИКОГДА НЕ ПЕРЕСПРАШИВАЙ ═══\n${lines.join("\n")}\n══════════════════════════════════════════════════════════════\n\nКАРДИНАЛЬНЫЕ ПРАВИЛА:\n1. ОБРАЩАЙСЯ ПО ИМЕНИ если оно есть.\n2. ИСПОЛЬЗУЙ ТЕРМИНЫ из меню /music: настроение/стиль/голос — точно как в memo.\n3. НЕ ПОВТОРЯЙ вопрос на тему которая уже в memo. Это ГРУБАЯ ошибка.\n4. Если все ключевые поля известны (имя+повод+кому+стиль) — СРАЗУ давай ссылку /music?mode=basic.\n5. Если чего-то нет — спрашивай ТОЛЬКО недостающее, одно за раз.`;
   }
 
   // Eugene 2026-05-14 Босс «из других стран — флаг Россия приветствует автора
@@ -2289,6 +2350,7 @@ https://muziai.ru/#/music»
           : ["Хочу песню в подарок", "Помоги собрать текст", "Сначала примеры"];
       }
 
+      const initMemo = extractMemoryFromHistory(history.map(h => ({ role: h.role, text: h.text })));
       res.json({
         ok: true,
         sessionId: session.id,
@@ -2299,6 +2361,7 @@ https://muziai.ru/#/music»
         history,
         greeting,
         quickReplies: initialQR,
+        memo: initMemo,
       });
     } catch (e: any) {
       console.error("[MUZA-CHAT init]", e);
@@ -2446,6 +2509,8 @@ https://muziai.ru/#/music»
         .where(eq(chatbotSessions.id, session.id))
         .run();
 
+      // Re-extract memo с учётом нового user-message (для UI таблицы).
+      const updatedMemo = extractMemoryFromHistory(loadSessionHistory(session.id, 30));
       res.json({
         ok: true,
         sessionId: session.id,
@@ -2454,6 +2519,7 @@ https://muziai.ru/#/music»
         usedFallback,
         paired: pairedNow,
         pairedFromChannel: pairedNow ? session.channel : null,
+        memo: updatedMemo,
       });
     } catch (e: any) {
       console.error("[MUZA-CHAT send]", e);

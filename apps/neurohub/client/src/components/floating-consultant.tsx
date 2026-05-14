@@ -133,6 +133,9 @@ export function FloatingConsultant() {
   const [chatSending, setChatSending] = useState(false);
   const [chatPersona, setChatPersona] = useState<{ name: string; avatar: string } | null>(null);
   const [chatPaired, setChatPaired] = useState<{ channel: string } | null>(null);
+  // Eugene 2026-05-14 Босс «таблица с автором характеристик над чатом».
+  // Хранит memory extracted backend'ом (имя/повод/кому/стиль/голос/настроение).
+  const [chatMemo, setChatMemo] = useState<Record<string, string | undefined>>({});
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const chatInitialized = useRef(false);
   // Eugene 2026-05-14 Босс «3-4 сообщения видны + кнопка раскрыть 2+ раз».
@@ -169,6 +172,7 @@ export function FloatingConsultant() {
         const qrList = Array.isArray(j.quickReplies) && j.quickReplies.length > 0 ? j.quickReplies : undefined;
         const greeting: ChatMessage = { role: "bot", text: greetingText };
         setChatMsgs([...hist, greeting]);
+        if (j.memo) setChatMemo(j.memo);
         if (qrList) {
           const qrDelay = 1000 + Math.floor(Math.random() * 600);
           window.setTimeout(() => {
@@ -212,6 +216,7 @@ export function FloatingConsultant() {
     } catch {}
     setChatMsgs([]);
     setChatPaired(null);
+    setChatMemo({});
     setVisibleCount(4);
     chatInitialized.current = false;
     chatInitialized.current = true;
@@ -288,7 +293,6 @@ export function FloatingConsultant() {
         // Eugene 2026-05-14 Босс «паузы как человек». Задержка пропорциональная
         // длине ответа — имитирует «печатание». QR-кнопки появляются ещё позже.
         const delay = humanDelay(j.reply.length);
-        const minNetworkElapsed = Date.now(); // network уже прошла к этому моменту
         await new Promise(resolve => window.setTimeout(resolve, delay));
         try { playMuzaChime({ volume: 0.04 }); } catch {}
         // Сначала показываем текст БЕЗ кнопок
@@ -299,6 +303,7 @@ export function FloatingConsultant() {
         }]);
         setChatSending(false);
         if (j.paired) setChatPaired({ channel: j.pairedFromChannel });
+        if (j.memo) setChatMemo(j.memo);
         // Через 900-1400ms добавляем quickReplies — юзер успел прочитать.
         const qrList = Array.isArray(j.quickReplies) && j.quickReplies.length > 0 ? j.quickReplies : undefined;
         if (qrList) {
@@ -556,14 +561,14 @@ export function FloatingConsultant() {
           aria-modal="true"
           role="dialog"
         >
-          {/* Eugene 2026-05-14 Босс «прозрачнее на 25%». Backdrop ещё легче,
-              drawer фон bg/18 (было /25), контуры остаются яркими. */}
+          {/* Eugene 2026-05-14 Босс «ещё прозрачнее на 30%». bg/13 (было 18),
+              backdrop /7 (было /10), blur уменьшен до sm. */}
           <div
-            className="absolute inset-0 bg-black/10 pointer-events-auto"
+            className="absolute inset-0 bg-black/[0.07] pointer-events-auto"
             onClick={() => setChatOpen(false)}
           />
           <div
-            className="absolute right-0 bottom-0 sm:bottom-4 sm:right-4 w-[92vw] max-w-[420px] sm:w-[380px] flex flex-col bg-background/[0.18] backdrop-blur-md border-2 rounded-t-2xl sm:rounded-2xl border-purple-400/40 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in slide-in-from-bottom-2 duration-300 sm:!h-[520px]"
+            className="absolute right-0 bottom-0 sm:bottom-4 sm:right-4 w-[92vw] max-w-[420px] sm:w-[380px] flex flex-col bg-background/[0.13] backdrop-blur-sm border-2 rounded-t-2xl sm:rounded-2xl border-purple-400/40 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in slide-in-from-bottom-2 duration-300 sm:!h-[520px]"
             style={{
               // Eugene 2026-05-14 Босс «на смартфоне открывается низ — уменьшить»:
               // высота 75vh снизу — не на весь экран. Юзер видит и навбар, и
@@ -653,6 +658,35 @@ export function FloatingConsultant() {
                 </div>
               )}
             </div>
+            {/* Eugene 2026-05-14 Босс «таблица с автором характеристик
+                над плоскостью чата если соответствуют меню окна генерации».
+                Показывается только если есть >= 1 поле. Слова — точно из /music. */}
+            {(() => {
+              const fields: Array<{ key: string; emoji: string; label: string; value?: string }> = [
+                { key: "name", emoji: "👤", label: "Имя", value: chatMemo.name },
+                { key: "occasion", emoji: "🎉", label: "Повод", value: chatMemo.occasion },
+                { key: "recipient", emoji: "💝", label: "Кому", value: chatMemo.recipient },
+                { key: "mood", emoji: "💫", label: "Настр", value: chatMemo.mood },
+                { key: "style", emoji: "🎼", label: "Стиль", value: chatMemo.style },
+                { key: "voiceType", emoji: "🎤", label: "Голос", value: chatMemo.voiceType },
+                { key: "birthday", emoji: "🎂", label: "ДР", value: chatMemo.birthday },
+              ];
+              const filled = fields.filter(f => f.value);
+              if (filled.length === 0) return null;
+              return (
+                <div className="px-2 py-1.5 border-b border-purple-400/20 bg-gradient-to-r from-purple-500/[0.08] via-blue-500/[0.06] to-cyan-500/[0.06] shrink-0">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {filled.map(f => (
+                      <span key={f.key} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-white/[0.06] border border-purple-400/20" title={f.label}>
+                        <span>{f.emoji}</span>
+                        <span className="text-purple-300/70">{f.label}:</span>
+                        <span className="font-medium text-white truncate max-w-[80px]">{f.value}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
             {/* History scroll */}
             <div ref={chatScrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-2 min-h-0">
               {chatMsgs.length === 0 && (
