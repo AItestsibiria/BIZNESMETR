@@ -1,4 +1,4 @@
-import { registerAudio } from "../lib/audio-bus";
+import { registerAudio, pauseAllExcept } from "../lib/audio-bus";
 import { useLocation, useRoute } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { PenLine, Music, Image, Sparkles, ArrowRight, Zap, Download, Mic, Play, Pause, SkipForward, SkipBack, ChevronDown, ChevronUp, Share2, Repeat, Repeat1 } from "lucide-react";
@@ -630,13 +630,14 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       audioRef.current.onerror = null;
       audioRef.current.onloadedmetadata = null;
     }
+    // Eugene 2026-05-14 Босс «правило: одновременно ИСКЛЮЧИТЕЛЬНО одна песня».
+    // КАРДИНАЛЬНЫЙ singleton — pause ВСЕ существующие audio (cross-page __muziaiAudio,
+    // tracked non-DOM, document <audio>). Синхронно ДО создания нового audio.
+    pauseAllExcept(null);
     const audio = new Audio(track.audioUrl);
     audioRef.current = audio;
 
-    // Eugene 2026-05-14 Босс «плеер не работает плей на смартфоне — играет
-    // только после возврата». КАРДИНАЛЬНО: audio.play() — ПЕРВЫМ statement
-    // после new Audio(). Минимизируем «дельту» от user-gesture до play()
-    // — iOS Safari gesture budget ~30ms максимум.
+    // iOS gesture budget — play() сразу после new Audio.
     const playPromise = audio.play();
     playPromise
       .then(() => setLockScreenPlaybackState('playing'))

@@ -59,12 +59,33 @@ export function registerAudio(audio: HTMLAudioElement): void {
   audio.addEventListener("emptied", cleanup);
 }
 
-// Eugene 2026-05-14 Босс: pauseAllExcept оставлен как no-op stub для
-// backward compat (если где-то ещё импортируется). На практике
-// passthrough — реальный singleton обеспечивается listener'ом выше.
-export function pauseAllExcept(_except: HTMLAudioElement | null): void {
-  // Намеренно no-op. Раньше эта функция СИНХРОННО паузила всё перед play,
-  // что вызывало каскад pause/play событий → моргание + Stop не работал
-  // в основном плеере (его pause был moментально перебит другим audio).
-  // Listener-based path (выше) надёжнее.
+// Eugene 2026-05-14 Босс «правило: одновременно на сайте играет
+// ИСКЛЮЧИТЕЛЬНО одна песня». КАРДИНАЛЬНО: перед каждым audio.play()
+// синхронно pause ВСЕ другие audio:
+// 1) document.querySelectorAll("audio") — DOM-elements
+// 2) tracked set — non-DOM (new Audio())
+// 3) window.__muziaiAudio — cross-page survival audio
+//
+// Раньше pauseAllExcept была no-op из-за подозрений на моргание,
+// но моргание было от другого источника (React re-renders).
+// Возвращаем активную работу.
+export function pauseAllExcept(except: HTMLAudioElement | null): void {
+  if (typeof document !== "undefined") {
+    document.querySelectorAll("audio").forEach((a) => {
+      if (a !== except && !a.paused) {
+        try { a.pause(); } catch {}
+      }
+    });
+  }
+  for (const a of tracked) {
+    if (a !== except && !a.paused) {
+      try { a.pause(); } catch {}
+    }
+  }
+  if (typeof window !== "undefined") {
+    const ga = (window as any).__muziaiAudio as HTMLAudioElement | undefined;
+    if (ga && ga !== except && !ga.paused) {
+      try { ga.pause(); } catch {}
+    }
+  }
 }
