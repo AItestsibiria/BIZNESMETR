@@ -2689,8 +2689,23 @@ export default function DashboardPage() {
                       <button
                         className="inline-flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap border border-purple-500/30 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20 transition-colors"
                         onClick={() => {
+                          // Eugene 2026-05-14 Босс «связать стиль с окном
+                          // корректировки + сверху зона какой текст и параметры».
                           (window as any).__coverForTrack = selectedGen.id;
                           (window as any).__coverPrompt = selectedGen.prompt?.slice(0, 100) || "";
+                          // Передаём ВСЁ инфо трека для отображения в /covers
+                          let trackStyle = "", trackMood = "";
+                          try {
+                            const m = JSON.parse((selectedGen as any).style || "{}");
+                            trackStyle = m.style || "";
+                          } catch {}
+                          (window as any).__coverTrackInfo = {
+                            title: (selectedGen as any).displayTitle || selectedGen.prompt?.slice(0, 80) || "",
+                            authorName: (selectedGen as any).authorName || "",
+                            style: trackStyle,
+                            voiceType: (selectedGen as any).voiceType || "",
+                            promptFull: selectedGen.prompt || "",
+                          };
                           navigate("/covers");
                         }}
                       >

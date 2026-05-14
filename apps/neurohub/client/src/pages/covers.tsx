@@ -31,10 +31,33 @@ export default function CoversPage() {
   // Check if we came from cabinet to create cover for a specific track
   const coverForTrack = useRef<number | null>((window as any).__coverForTrack || null);
   const coverPrompt = (window as any).__coverPrompt || "";
-  if ((window as any).__coverForTrack) { delete (window as any).__coverForTrack; delete (window as any).__coverPrompt; }
+  // Eugene 2026-05-14 Босс «связать стиль с окном генерации + сверху
+  // зона какой текст и параметры».
+  const trackInfo = useRef<any>((window as any).__coverTrackInfo || null);
+  if ((window as any).__coverForTrack) {
+    delete (window as any).__coverForTrack;
+    delete (window as any).__coverPrompt;
+    delete (window as any).__coverTrackInfo;
+  }
+
+  // Auto-mapping стиля трека → стиль обложки (если есть инфо).
+  const autoStyleFromTrack = (trackStyle: string): string => {
+    const s = trackStyle.toLowerCase();
+    if (/rock|метал|metal|рок/i.test(s)) return "cyberpunk";
+    if (/pop|поп|dance|танц/i.test(s)) return "abstract";
+    if (/jazz|джаз|class|класс/i.test(s)) return "minimalism";
+    if (/country|кантри|folk|фолк/i.test(s)) return "retro";
+    if (/electronic|электрон|lofi/i.test(s)) return "fantasy";
+    if (/ballad|баллад|chanson|шансон/i.test(s)) return "photorealism";
+    return "cyberpunk";
+  };
 
   const [prompt, setPrompt] = useState(coverPrompt || "");
-  const [style, setStyle] = useState("cyberpunk");
+  // Eugene 2026-05-14 Босс «во втором на фоне опишите что вы хотите увидеть
+  // максимально детально цвета и т д».
+  const [details, setDetails] = useState("");
+  // Eugene 2026-05-14 Босс «по умолчанию минимализм».
+  const [style, setStyle] = useState(() => trackInfo.current?.style ? autoStyleFromTrack(trackInfo.current.style) : "minimalism");
   const [loading, setLoading] = useState(false);
   const [polling, setPolling] = useState(false);
   const [resultUrl, setResultUrl] = useState<string | null>(null);
@@ -105,7 +128,9 @@ export default function CoversPage() {
     startBgMusic();
     setResultUrl(null);
     try {
-      const res = await apiRequest("POST", "/api/covers/generate", { prompt, style });
+      // Eugene 2026-05-14 Босс «второе поле детали — цвета, что увидеть».
+      const fullPrompt = details.trim() ? `${prompt}. Детали визуала: ${details.trim()}` : prompt;
+      const res = await apiRequest("POST", "/api/covers/generate", { prompt: fullPrompt, style });
       const data = await res.json();
 
       if (data.taskId) {
@@ -146,10 +171,43 @@ export default function CoversPage() {
           <span className="ml-auto price-badge" data-testid="badge-price-covers">99 ₽</span>
         </div>
 
+        {/* Eugene 2026-05-14 Босс «сверху зона какой текст и его параметры».
+            Info-card если пришли с трека (coverForTrack + trackInfo). */}
+        {trackInfo.current && (
+          <div className="rounded-2xl border border-purple-500/30 bg-gradient-to-br from-purple-500/[0.08] via-blue-500/[0.05] to-cyan-500/[0.05] p-4 mb-4">
+            <div className="text-[11px] uppercase tracking-wider text-purple-300/80 mb-1.5 font-display">Создаём обложку для трека</div>
+            <div className="text-[15px] font-bold text-white mb-1">«{trackInfo.current.title}»</div>
+            <div className="flex flex-wrap gap-1.5 text-[11px]">
+              {trackInfo.current.authorName && (
+                <span className="px-2 py-0.5 rounded-full bg-white/[0.06] text-white/70 border border-white/[0.08]">👤 {trackInfo.current.authorName}</span>
+              )}
+              {trackInfo.current.style && (
+                <span className="px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/25">🎼 {trackInfo.current.style}</span>
+              )}
+              {trackInfo.current.voiceType && (
+                <span className="px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/25">🎤 {trackInfo.current.voiceType}</span>
+              )}
+            </div>
+            {trackInfo.current.promptFull && (
+              <div className="mt-2 text-[11px] text-white/50 italic max-h-12 overflow-hidden">
+                Текст: «{String(trackInfo.current.promptFull).slice(0, 140)}{trackInfo.current.promptFull.length > 140 ? "…" : ""}»
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Form */}
         <div className="gradient-border p-6 rounded-2xl space-y-5 mb-6">
           <div className="space-y-2">
-            <Label className="text-sm text-muted-foreground">Описание обложки</Label>
+            {/* Eugene 2026-05-14 Босс «кнопка I с разъяснением чем точнее
+                опишете тем лучше дизайн». */}
+            <div className="flex items-center gap-1.5">
+              <Label className="text-sm text-muted-foreground">Описание обложки</Label>
+              <span
+                className="inline-flex w-4 h-4 rounded-full bg-purple-500/20 border border-purple-400/40 text-[10px] text-purple-200 items-center justify-center cursor-help font-bold"
+                title="Чем детальнее опишете — тем точнее получится обложка. Указывайте: главные образы (девушка / гитара / закат), цвета (фиолетово-голубой), настроение (мечтательное / драматичное), стиль (рукописный шрифт / неон). Идеи + детали → дизайн вас удивит."
+              >ⓘ</span>
+            </div>
             <Textarea
               placeholder="Например: неоновый город в дожде, с силуэтом музыканта на переднем плане..."
               value={prompt}
@@ -157,6 +215,19 @@ export default function CoversPage() {
               rows={4}
               className="bg-background/50 border-white/10 input-glow resize-none"
               data-testid="input-cover-prompt"
+            />
+          </div>
+
+          {/* Eugene 2026-05-14 Босс «во втором поле опишите что хотите
+              увидеть максимально детально, цвета и т.д.» */}
+          <div className="space-y-2">
+            <Label className="text-sm text-muted-foreground">Детали визуала (опционально)</Label>
+            <Textarea
+              placeholder="Опишите максимально детально что хотите увидеть. Например: фиолетово-голубая палитра, тёплый закат, силуэт девушки, мечтательная атмосфера, рукописный шрифт..."
+              value={details}
+              onChange={(e) => setDetails(e.target.value)}
+              rows={3}
+              className="bg-background/50 border-white/10 input-glow resize-none text-sm"
             />
           </div>
 
@@ -220,32 +291,52 @@ export default function CoversPage() {
                 data-testid="img-cover-result"
               />
             </div>
-            <div className="flex gap-3 max-w-md mx-auto">
-              {/* Attach to track button — if came from cabinet */}
-              {coverForTrack.current && lastGenId && (
+            {/* Eugene 2026-05-14 Босс «3 кнопки: Привязать к треку /
+                ReОбложка / Выйти». */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 max-w-md mx-auto">
+              {coverForTrack.current && lastGenId ? (
                 <Button
-                  className="flex-1 rounded-xl h-10 border border-purple-500/30 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20 text-sm"
+                  className="rounded-xl h-10 border-2 border-green-500/40 bg-green-500/15 text-green-300 hover:bg-green-500/25 text-sm font-semibold"
                   variant="outline"
                   onClick={async () => {
                     try {
                       await apiRequest("POST", `/api/generations/${coverForTrack.current}/cover`, { coverGenId: lastGenId });
                       toast({ title: "Обложка привязана к треку!" });
                       coverForTrack.current = null;
+                      navigate("/dashboard");
                     } catch { toast({ title: "Ошибка", variant: "destructive" }); }
                   }}
                   data-testid="button-attach-cover"
                 >
-                  <Music className="w-3.5 h-3.5 mr-1.5" />
-                  Привязать к песне
+                  ✓ Привязать к треку
+                </Button>
+              ) : (
+                <Button
+                  className="rounded-xl h-10 btn-gradient text-sm font-semibold"
+                  onClick={handleDownload}
+                  data-testid="button-download-cover"
+                >
+                  <Download className="w-3.5 h-3.5 mr-1.5" />
+                  Скачать
                 </Button>
               )}
               <Button
-                className={`rounded-xl h-10 text-sm ${coverForTrack.current ? "" : "w-full"} btn-gradient`}
-                onClick={handleDownload}
-                data-testid="button-download-cover"
+                variant="outline"
+                className="rounded-xl h-10 border-2 border-purple-500/30 bg-purple-500/10 text-purple-300 hover:bg-purple-500/20 text-sm font-semibold"
+                onClick={() => {
+                  setResultUrl(null);
+                  setLastGenId(null);
+                  handleGenerate();
+                }}
               >
-                <Download className="w-3.5 h-3.5 mr-1.5" />
-                Скачать
+                🔄 ReОбложка
+              </Button>
+              <Button
+                variant="outline"
+                className="rounded-xl h-10 border-2 border-red-500/30 bg-red-500/10 text-red-300 hover:bg-red-500/20 text-sm font-semibold"
+                onClick={() => navigate(coverForTrack.current ? "/dashboard" : "/")}
+              >
+                ✕ Выйти
               </Button>
             </div>
           </div>

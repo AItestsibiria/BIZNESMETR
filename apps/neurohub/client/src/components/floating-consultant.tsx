@@ -616,9 +616,13 @@ export function FloatingConsultant() {
             Pastel MuziAi gradient. */}
         <button
           type="button"
+          onDoubleClick={() => {
+            // Eugene 2026-05-14 Босс «двойное нажатие на Музу — она плавно
+            // уходит». Используем dismiss (с REAPPEAR cooldown).
+            dismiss();
+          }}
           onClick={() => {
-            // Eugene 2026-05-14 Босс v2: «при нажатии на Музи появляется меню».
-            // Облако (см. выше) — клик ведёт в чат. Сама Муза — меню.
+            // Single-click: меню expanded. Double-click intercept выше.
             try { playMuzaChime(); } catch {}
             const phrase = CLICK_REACTIONS[reactionIdxRef.current % CLICK_REACTIONS.length];
             reactionIdxRef.current += 1;
