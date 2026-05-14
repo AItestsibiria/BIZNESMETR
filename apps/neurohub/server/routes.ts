@@ -1894,22 +1894,39 @@ export async function registerRoutes(
       const positionMap = new Map<number, { rank: number; plays: number }>();
       scored.forEach((s, idx) => positionMap.set(s.id, { rank: idx + 1, plays: s.plays }));
 
-      const tracksLine = done.slice(0, 5).map((g: any) => {
+      // Eugene 2026-05-14 Босс «на покажи мои треки вывести топ 3 и оценить».
+      // Сортируем done треки по plays DESC и берём ТОП-3.
+      const doneSortedByPlays = [...done].sort((a: any, b: any) => {
+        const pa = positionMap.get(a.id)?.plays || 0;
+        const pb = positionMap.get(b.id)?.plays || 0;
+        return pb - pa;
+      });
+      const top3 = doneSortedByPlays.slice(0, 3).map((g: any, idx: number) => {
         const title = g.displayTitle || (g.prompt || "").slice(0, 50) || `#${g.id}`;
         const pos = positionMap.get(g.id);
+        const medal = idx === 0 ? "🥇" : idx === 1 ? "🥈" : "🥉";
         if (pos) {
-          return `«${title}» — ${pos.plays} прослушиваний (топ-${pos.rank} в плейлисте)`;
+          return `${medal} «${title}» — ${pos.plays} прослуш. (топ-${pos.rank} в плейлисте)`;
         }
-        const pubLabel = g.isPublic === 1 ? "опубл." : g.isPublic === 2 ? "на модерации" : "в кабинете";
-        return `«${title}» (${pubLabel})`;
-      }).join(" • ");
+        const pubLabel = g.isPublic === 1 ? "опубл., 0 прослуш." : g.isPublic === 2 ? "на модерации" : "в кабинете";
+        return `${medal} «${title}» (${pubLabel})`;
+      });
+      const tracksLine = top3.join(" • ");
 
       const lines: string[] = [];
       lines.push(`Имя: ${u.name}`);
       lines.push(`Email: ${u.email}`);
       lines.push(`Баланс: ${Math.floor((u.balance || 0) / 100)}₽${(u as any).bonusTracks ? ` + ${(u as any).bonusTracks} подарочных треков` : ""}`);
       lines.push(`Треков создано: ${done.length}${processing.length ? ` (${processing.length} в работе)` : ""}${errored.length ? ` (${errored.length} с ошибкой — предложи попробовать снова)` : ""}`);
-      if (tracksLine) lines.push(`Последние: ${tracksLine}`);
+      if (tracksLine) {
+        lines.push(`ТОП-3 по прослушиваниям: ${tracksLine}`);
+        // Оценочный комментарий для верхнего трека
+        const topPlays = positionMap.get(doneSortedByPlays[0]?.id)?.plays || 0;
+        if (topPlays > 50) lines.push(`💎 ОЦЕНКА: топ-трек собрал ${topPlays} прослушиваний — это сильно. Поздравь искренне.`);
+        else if (topPlays > 10) lines.push(`✨ ОЦЕНКА: топ-трек ${topPlays} прослушиваний — хороший рост, отметь.`);
+        else if (topPlays > 0) lines.push(`🌱 ОЦЕНКА: первые прослушивания пошли (${topPlays}). Подбодри.`);
+        else if (done.length > 0) lines.push(`🎵 ОЦЕНКА: треки есть, прослушиваний пока нет. Мягко предложи опубликовать или поделиться.`);
+      }
 
       // Если есть top-50 трек — особый акцент.
       const topGen = done.find((g: any) => {
@@ -1945,9 +1962,13 @@ export async function registerRoutes(
 1. ПРИЗНАТЬ запрос: «Сейчас покажу!» / «Поняла, идём».
 2. Если ЗНАКОМСТВО ещё не было (имя не известно) — попроси имя ВПЕРВУЮ
    очередь: «Кстати, как мне к вам обращаться? — буду называть лично».
-3. Если auth + треки есть — упомяни конкретный пример из memo (имя
-   трека, plays count). Если нет — честно: «У вас в кабинете пока
-   треков нет — давайте создадим первый? На какой повод?».
+3. Если auth + треки есть — выдай ТОП-3 из ПРОФИЛЯ АВТОРА (имена
+   треков с медалями + plays + позиция в плейлисте) + дай краткую
+   оценку из блока ОЦЕНКА. Пример: «У вас в топе:\n🥇 «Маме» — 47
+   прослуш. (топ-12 в плейлисте) 💎 Это сильно — настоящий хит!
+   Хотите ещё один в этом стиле?»
+   Если нет — честно: «У вас в кабинете пока треков нет — давайте
+   создадим первый? На какой повод?».
 4. Если НЕ auth — мягко: «Чтобы посмотреть ваши треки, нужно войти.
    Я могу прислать ссылку — на какой канал удобнее: email, Telegram?».
 5. ЗАВЕРШИ конкретным CTA (вопрос или ссылка).
