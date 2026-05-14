@@ -5,7 +5,7 @@
 // Каждый tool: name + description + input_schema (JSON-schema) + handler.
 
 import { db } from "../storage";
-import { users, generations, transactions } from "@shared/schema";
+import { users, generations, transactions, songDrafts } from "@shared/schema";
 import { eq, and, desc, sql, isNotNull } from "drizzle-orm";
 
 export type ToolDef = {
@@ -88,6 +88,22 @@ export const MUZA_TOOLS: ToolDef[] = [
     name: "check_recent_payments",
     description: "Проверить последние 5 платежей юзера + статус. Используй когда юзер жалуется на оплату / списание / двойной заряд.",
     input_schema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "save_song_draft",
+    description: "СОХРАНИТЬ черновик песни в кабинет автора (если auth). КЛЮЧЕВОЙ tool — главная миссия Музы: довести до генерации, ЕСЛИ НЕ ПОЛУЧИЛОСЬ — хотя бы сохранить черновик чтобы юзер вернулся. Используй когда: 1) собрал текст/идею в диалоге → сохрани перед предложением /music. 2) юзер собирается уходить — спроси можно ли сохранить. Требуется auth.",
+    input_schema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Название черновика, 1-80 chars (повод + кому)" },
+        prompt: { type: "string", description: "Краткая идея/тема (для basic mode)" },
+        lyrics: { type: "string", description: "Готовый текст песни если есть (опц.)" },
+        style: { type: "string", description: "Стиль/жанр (опц.): Поп / Рок / Баллада / Lo-Fi / etc." },
+        voice: { type: "string", description: "Голос: female / male / duet / instrumental (опц.)" },
+        mood: { type: "string", description: "Настроение: warm / energetic / sad / romantic (опц.)" },
+      },
+      required: ["title", "prompt"],
+    },
   },
 ];
 
@@ -241,6 +257,28 @@ const HANDLERS: Record<string, ToolHandler> = {
       return `Последние операции:\n${lines.join("\n")}`;
     } catch (e: any) {
       return `Ошибка: ${e.message}`;
+    }
+  },
+
+  async save_song_draft(input, { userId }) {
+    if (!userId) return "Юзер не залогинен. Скажи ему: «Чтобы я могла сохранить — оставьте мне почту, я подготовлю кабинет».";
+    try {
+      const title = String(input?.title || "").trim().slice(0, 200) || "Черновик";
+      const prompt = String(input?.prompt || "").trim().slice(0, 2000);
+      const lyrics = input?.lyrics ? String(input.lyrics).trim().slice(0, 4000) : null;
+      const style = input?.style ? String(input.style).trim().slice(0, 80) : null;
+      const voice = input?.voice ? String(input.voice).trim().slice(0, 40) : null;
+      const mood = input?.mood ? String(input.mood).trim().slice(0, 40) : null;
+      if (!prompt && !lyrics) return "Нужен хотя бы prompt или lyrics — заполни.";
+      const result = db.insert(songDrafts).values({
+        userId, title, prompt, lyrics, style, voice, mood,
+        source: "bot",
+      } as any).run();
+      const draftId = Number(result.lastInsertRowid);
+      console.log(`[DRAFT-SAVE] User ${userId} saved draft #${draftId}: "${title}"`);
+      return `✓ Сохранила черновик #${draftId} «${title}» в твоём кабинете. Открыть для генерации: https://muziai.ru/#/music?draftId=${draftId}`;
+    } catch (e: any) {
+      return `Ошибка сохранения: ${e.message}`;
     }
   },
 
