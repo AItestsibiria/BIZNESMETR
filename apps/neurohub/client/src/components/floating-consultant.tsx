@@ -867,7 +867,15 @@ export function FloatingConsultant() {
               <input
                 type="text"
                 value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
+                onChange={(e) => {
+                  // Eugene 2026-05-14 Босс «появление хотя бы одного символа
+                  // в чате это /start». При первом символе после пустого
+                  // input — engagement-event как маркер активности.
+                  if (e.target.value.length === 1 && chatInput.length === 0) {
+                    trackEngagement("consultant_action", { action: "chat_start_typing" });
+                  }
+                  setChatInput(e.target.value);
+                }}
                 placeholder={chatPaired ? "Продолжаем…" : "Сообщение Музе…"}
                 maxLength={1500}
                 disabled={chatSending}
