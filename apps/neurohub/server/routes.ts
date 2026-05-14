@@ -1524,6 +1524,70 @@ export async function registerRoutes(
     res.json({ ok: true, events: keySwitchEvents });
   });
 
+  // GET /api/admin/v304/chat-test — Eugene 2026-05-14 Босс «реши кардинально».
+  // Real-call test endpoint: вызывает Claude напрямую без всей обвязки чата.
+  // Возвращает: какой ключ сработал, raw status, время ответа, текст.
+  // Админ открывает в браузере и видит ТОЧНО что не так.
+  app.get("/api/admin/v304/chat-test", requireAdmin, async (_req: Request, res: Response) => {
+    const attempts = listAnthropicKeys();
+    if (attempts.length === 0) {
+      res.json({ ok: false, error: "Нет ни одного Anthropic-ключа в env", suggestion: "Добавь ANTHROPIC_API_KEY на VPS." });
+      return;
+    }
+    const results: any[] = [];
+    for (const { name, key } of attempts) {
+      const start = Date.now();
+      try {
+        const r = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "x-api-key": key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "claude-haiku-4-5-20251001",
+            max_tokens: 50,
+            messages: [{ role: "user", content: "Скажи привет коротко, одной фразой." }],
+          }),
+          signal: AbortSignal.timeout(10_000),
+        });
+        const tookMs = Date.now() - start;
+        const status = r.status;
+        let body: any = null;
+        let errText = "";
+        try { body = await r.json(); } catch { try { errText = await r.text(); } catch {} }
+        results.push({
+          keyName: name,
+          ok: r.ok,
+          status,
+          tookMs,
+          reply: r.ok ? (body?.content?.[0]?.text || "(пустой ответ)") : null,
+          error: !r.ok ? (body?.error?.message || errText || `HTTP ${status}`) : null,
+        });
+        if (r.ok) break; // нашли рабочий — стоп
+      } catch (e: any) {
+        results.push({
+          keyName: name,
+          ok: false,
+          status: e?.name === "AbortError" ? "timeout" : "error",
+          tookMs: Date.now() - start,
+          error: String(e?.message || e),
+        });
+      }
+    }
+    const working = results.find(r => r.ok);
+    res.json({
+      ok: !!working,
+      workingKey: working?.keyName || null,
+      mode: working ? "live-claude" : "all-keys-failed",
+      diagnosis: working
+        ? `Ключ "${working.keyName}" работает (${working.tookMs}ms). Чат должен отвечать.`
+        : "Ни один ключ не отдал ok. Проверь кэш Anthropic console + ротируй ключ.",
+      attempts: results,
+    });
+  });
+
   // Создать или найти web-сессию для clientSessionId.
   function getOrCreateWebSession(clientSessionId: string) {
     // clientSessionId — uuid от клиента, хранится в его sessionStorage.
@@ -2147,8 +2211,16 @@ https://muziai.ru/#/music»
         }
       }
       const parsed = extractQuickReplies(reply);
-      const quickReplies = parsed.quickReplies;
+      let quickReplies = parsed.quickReplies;
       reply = parsed.reply;
+      // Eugene 2026-05-14 Босс «реши кардинально». Если Claude забыл [QR:]
+      // маркеры — дать дефолтные кнопки чтобы юзер всегда мог продолжить.
+      if (quickReplies.length === 0) {
+        quickReplies = authUserId
+          ? ["Покажи мои треки", "Хочу новый трек", "Расскажи про обложки"]
+          : ["Расскажи подробнее", "Что у вас тут есть?", "Хочу попробовать"];
+      }
+      console.log(`[MUZA-CHAT] sessionId=${session.id.slice(0, 16)} user="${text.slice(0, 50)}" replyLen=${reply.length} qr=${quickReplies.length} fallback=${usedFallback}`);
 
       // Сохраняем bot reply + обновляем lastMessageAt
       db.insert(chatbotMessages).values({

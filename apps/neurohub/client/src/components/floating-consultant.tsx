@@ -493,10 +493,13 @@ export function FloatingConsultant() {
             onClick={() => setChatOpen(false)}
           />
           <div
-            className="absolute right-0 bottom-0 sm:bottom-4 sm:right-4 w-[92vw] max-w-[420px] sm:w-[380px] flex flex-col bg-background/25 backdrop-blur-md border-l-2 sm:border-2 sm:rounded-2xl border-purple-400/40 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in slide-in-from-right duration-300 sm:!top-auto sm:!h-[520px]"
+            className="absolute right-0 bottom-0 sm:bottom-4 sm:right-4 w-[92vw] max-w-[420px] sm:w-[380px] flex flex-col bg-background/25 backdrop-blur-md border-2 rounded-t-2xl sm:rounded-2xl border-purple-400/40 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in slide-in-from-bottom-2 duration-300 sm:!h-[520px]"
             style={{
-              top: "calc(72px + env(safe-area-inset-top, 0px))",
-              height: "calc(100vh - 72px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))",
+              // Eugene 2026-05-14 Босс «на смартфоне открывается низ — уменьшить»:
+              // высота 75vh снизу — не на весь экран. Юзер видит и навбар, и
+              // часть страницы. iOS safe-area для home-indicator учтена.
+              height: "min(75vh, calc(100vh - 96px - env(safe-area-inset-bottom, 0px)))",
+              marginBottom: "env(safe-area-inset-bottom, 0px)",
             }}
           >
             {/* Header */}
@@ -679,6 +682,13 @@ export function FloatingConsultant() {
                 className="px-4 py-2.5 sm:py-2 rounded-xl bg-gradient-to-r from-purple-500 to-blue-500 text-white text-[13px] font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:from-purple-600 hover:to-blue-600 transition-colors shrink-0"
               >➤</button>
             </form>
+            {/* Eugene 2026-05-14 Босс «кнопку ухожу и вернусь — внизу».
+                Человечнее чем X в header — обещает возврат, Муза «помнит». */}
+            <button
+              type="button"
+              onClick={() => setChatOpen(false)}
+              className="w-full py-2.5 text-[12px] text-white/60 hover:text-white bg-white/[0.02] hover:bg-white/[0.05] border-t border-white/[0.04] transition-colors shrink-0"
+            >👋 Ухожу, скоро вернусь</button>
           </div>
         </div>,
         document.body
