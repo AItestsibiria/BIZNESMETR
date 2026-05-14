@@ -7,10 +7,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { playMuzaChime, playMuzaTick, playMuzaSparkle } from "../lib/muza-sounds";
 
-const REAPPEAR_MS = 60_000;
+// Eugene 2026-05-14 Босс: «после 1 dismiss через 1 мин, если ещё раз — 1 час».
+const REAPPEAR_MS_FIRST = 60_000;     // 1 минута после первого dismiss
+const REAPPEAR_MS_SECOND = 3_600_000; // 1 час после второго
 const APPEAR_DELAY_MS = 2500;
 const MAX_DISMISS = 3;
 const SS_KEY = "_helperDismissed";
+const SCROLL_VELOCITY_THRESHOLD = 60; // px между двумя scroll-events за <100ms = «резкий»
 
 // Eugene 2026-05-11: трекинг вовлечения. POST /api/engagement/track
 // для admin-дашборда (📊 Воронка). Не блокирует UI — fire-and-forget.
@@ -388,19 +391,43 @@ export function FloatingConsultant() {
       setExpanded(false);
       dismissedRef.current += 1;
       try { sessionStorage.setItem(SS_KEY, String(dismissedRef.current)); } catch {}
+      // Eugene 2026-05-14 Босс «1 мин после первого, 1 час после ещё раз».
       if (dismissedRef.current < MAX_DISMISS) {
+        const reappearMs = dismissedRef.current === 1 ? REAPPEAR_MS_FIRST : REAPPEAR_MS_SECOND;
         timerRef.current = window.setTimeout(() => {
           setVisible(true);
-        }, REAPPEAR_MS);
+        }, reappearMs);
       }
     }, 350);
   };
+
+  // Eugene 2026-05-14 Босс «любой резкий скролл вниз — появляется Муза».
+  // Меряем pixel-velocity между scroll-events; если резко вниз — show.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let lastY = window.scrollY;
+    let lastT = Date.now();
+    const onScroll = () => {
+      const y = window.scrollY;
+      const t = Date.now();
+      const dy = y - lastY;
+      const dt = t - lastT;
+      lastY = y; lastT = t;
+      if (dt < 100 && dy > SCROLL_VELOCITY_THRESHOLD && !visible && !chatOpen) {
+        // Резкий scroll вниз — показываем Музу даже если dismissed
+        if (timerRef.current) window.clearTimeout(timerRef.current);
+        setVisible(true);
+      }
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, [visible, chatOpen]);
 
   if (!visible) return null;
 
   return (
     <div
-      className={`fixed z-30 bottom-3 right-3 sm:bottom-4 sm:right-4 ${exiting ? "consultant-slide-out" : "consultant-slide-in"}`}
+      className={`fixed z-30 bottom-3 right-3 sm:bottom-4 sm:right-4 transition-opacity duration-500 ${exiting ? "opacity-0 consultant-slide-out" : "opacity-100 consultant-slide-in animate-in fade-in"}`}
       data-testid="floating-consultant"
     >
       <div className="relative">
@@ -604,6 +631,17 @@ export function FloatingConsultant() {
             draggable={false}
           />
         </button>
+        {/* Eugene 2026-05-14 Босс «кнопку свернуть по её ногами». Маленькая
+            кнопка под Музой — sweep её на 1 мин (или 1 час если повторно). */}
+        {!expanded && !chatOpen && (
+          <button
+            type="button"
+            onClick={dismiss}
+            aria-label="Свернуть Музу"
+            title={dismissedRef.current === 0 ? "Свернуть на 1 минуту" : "Свернуть на 1 час"}
+            className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-black/40 backdrop-blur-sm border border-white/20 text-white/70 hover:text-white hover:bg-black/60 text-[10px] flex items-center justify-center transition-colors"
+          >×</button>
+        )}
       </div>
       {/* Eugene 2026-05-14 Босс v2: inline chat panel вынесена в портал
           к document.body — иначе родитель с transform (consultant-slide-in)
