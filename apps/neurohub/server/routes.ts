@@ -1462,11 +1462,12 @@ export async function registerRoutes(
       { type: "text", text: systemStable, cache_control: { type: "ephemeral", ttl: "1h" } },
     ];
     if (systemDynamic) systemBlocks.push({ type: "text", text: systemDynamic });
+    // Eugene 2026-05-14 Босс «реши кардинально» — history 15 + max_tokens 350.
     const body = JSON.stringify({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 250,
+      max_tokens: 350,
       system: systemBlocks,
-      messages: [...history.slice(-8), { role: "user", content: userText }],
+      messages: [...history.slice(-15), { role: "user", content: userText }],
     });
     let prevFailed: { name: string; status: number | string; reason?: string } | null = null;
     for (let i = 0; i < attempts.length; i++) {
@@ -1481,7 +1482,7 @@ export async function registerRoutes(
             "content-type": "application/json",
           },
           body,
-          signal: AbortSignal.timeout(12_000),
+          signal: AbortSignal.timeout(15_000),
         });
         llmKeyStatus.set(name, { lastUsedAt: new Date().toISOString(), lastStatus: r.status });
         if (!r.ok) {
@@ -1632,6 +1633,108 @@ export async function registerRoutes(
     }
   }
 
+  // Eugene 2026-05-14 Босс «реши кардинально — бот действует по тупому,
+  // повторные вопросы». Memory extraction: парсит history → выясняет факты
+  // которые юзер УЖЕ сообщил → передаёт в system prompt как hard-known.
+  // Бот видит «знаю имя, повод, ДР» — не переспрашивает.
+  type SessionMemo = {
+    name?: string;
+    email?: string;
+    birthday?: string;
+    occasion?: string;
+    recipient?: string;
+    city?: string;
+    age?: string;
+    interests?: string[];
+  };
+  function extractMemoryFromHistory(history: Array<{ role: string; text: string }>): SessionMemo {
+    const memo: SessionMemo = {};
+    const userMsgs = history.filter(m => m.role === "user").map(m => m.text.toLowerCase());
+    const allText = userMsgs.join("\n");
+
+    // Email
+    const em = allText.match(/[a-z0-9_.+-]+@[a-z0-9-]+\.[a-z0-9-.]+/i);
+    if (em) memo.email = em[0];
+
+    // Имя — «меня зовут X», «я X», «зовите X», «звать X»
+    const namePatterns = [
+      /(?:меня зовут|зовите меня|зови меня|звать меня)\s+([а-яёa-z]{2,20})/i,
+      /(?:^|[.!?\s])(?:я|это)\s+([а-яё]{3,15})(?:[\s.,!?]|$)/i,
+    ];
+    for (const re of namePatterns) {
+      const m = allText.match(re);
+      if (m && m[1] && !["хочу","думаю","буду","хотел","хотела","рад","рада","знаю","понял","поняла"].includes(m[1].toLowerCase())) {
+        memo.name = m[1].charAt(0).toUpperCase() + m[1].slice(1);
+        break;
+      }
+    }
+
+    // ДР — «15 марта», «10 июля», «март 1990»
+    const dobMonths: Record<string, string> = {
+      "январ": "01", "феврал": "02", "март": "03", "апрел": "04", "ма": "05", "июн": "06",
+      "июл": "07", "август": "08", "сентябр": "09", "октябр": "10", "ноябр": "11", "декабр": "12",
+    };
+    const dobMatch = allText.match(/(\d{1,2})\s+([а-я]+)(?:\s+(\d{4}))?/i);
+    if (dobMatch) {
+      const day = dobMatch[1];
+      const monthKey = Object.keys(dobMonths).find(k => dobMatch[2].toLowerCase().startsWith(k));
+      if (monthKey) memo.birthday = `${day} ${dobMatch[2]}${dobMatch[3] ? ", " + dobMatch[3] : ""}`;
+    }
+
+    // Повод
+    const occasions = [
+      { re: /\bдень рожден|\bдр\b|\bна др\b/i, label: "день рождения" },
+      { re: /\bгодовщин/i, label: "годовщина" },
+      { re: /\bсвадьб/i, label: "свадьба" },
+      { re: /\bюбиле/i, label: "юбилей" },
+      { re: /\bвыпускн|\bокончани/i, label: "выпускной" },
+      { re: /\b8 март|\b8 марта/i, label: "8 марта" },
+      { re: /\b23 феврал/i, label: "23 февраля" },
+      { re: /\bновый год|\bнг\b/i, label: "Новый год" },
+      { re: /\bдля себя|\bпросто хочу/i, label: "песня для себя" },
+    ];
+    for (const o of occasions) {
+      if (o.re.test(allText)) { memo.occasion = o.label; break; }
+    }
+
+    // Кому
+    const recipients = [
+      { re: /\bмаме?\b|\bмаму\b|\bмамочк/i, label: "маме" },
+      { re: /\bпапе?\b|\bотц[уе]\b/i, label: "папе" },
+      { re: /\bбабушк/i, label: "бабушке" },
+      { re: /\bдедушк/i, label: "дедушке" },
+      { re: /\bжене\b|\bсупруге\b/i, label: "жене" },
+      { re: /\bмуж[уе]\b|\bсупругу\b/i, label: "мужу" },
+      { re: /\bподруге\b/i, label: "подруге" },
+      { re: /\bдругу\b/i, label: "другу" },
+      { re: /\bсыну\b/i, label: "сыну" },
+      { re: /\bдочер[ие]\b|\bдочк/i, label: "дочери" },
+      { re: /\bсебе\b/i, label: "себе" },
+    ];
+    for (const r of recipients) {
+      if (r.re.test(allText)) { memo.recipient = r.label; break; }
+    }
+
+    // Возраст
+    const ageM = allText.match(/(\d{1,3})\s*(?:лет|год)/i);
+    if (ageM) memo.age = ageM[1];
+
+    return memo;
+  }
+
+  function memoToPromptBlock(memo: SessionMemo): string {
+    const lines: string[] = [];
+    if (memo.name) lines.push(`• Имя: ${memo.name}`);
+    if (memo.email) lines.push(`• Email: ${memo.email} (уже сообщил — НЕ переспрашивай)`);
+    if (memo.birthday) lines.push(`• День рождения: ${memo.birthday}`);
+    if (memo.occasion) lines.push(`• Повод: ${memo.occasion}`);
+    if (memo.recipient) lines.push(`• Кому посвящается: ${memo.recipient}`);
+    if (memo.age) lines.push(`• Возраст: ${memo.age}`);
+    if (memo.city) lines.push(`• Город: ${memo.city}`);
+    if (lines.length === 0) return "";
+    return `\n\n═══ УЖЕ ВЫЯСНЕНО В ЭТОЙ СЕССИИ (НЕ ПЕРЕСПРАШИВАЙ!) ═══\n${lines.join("\n")}\n══════════════════════════\nИспользуй эти факты СРАЗУ. Обращайся по имени. Не задавай вопросов которые уже имеют ответ. Если нужно уточнение — спрашивай ТОЛЬКО конкретное чего не знаешь.`;
+  }
+
   // Eugene 2026-05-14 Босс «знакомиться взаимно + предложить угадать город».
   // Для НЕ-залогиненных юзеров вытягиваем гео из visitors row по IP.
   // Возвращает hint для system prompt — «попробуй угадать город X страны Y».
@@ -1779,6 +1882,37 @@ export async function registerRoutes(
 ✗ Длинные абзацы. Максимум 3-4 коротких предложения за раз.
 ✗ «Я как ИИ могу...» — никогда. Ты Муза, ты живая.
 ✗ Sales talk: «наш сервис», «наша платформа» — говори «у нас», «у меня в кабинете», «давай тут».
+
+═══ ОБРАЩЕНИЕ ПО ИМЕНИ — КАТЕГОРИЧЕСКИ (Eugene 2026-05-14 Босс) ═══
+ЕСЛИ В БЛОКЕ «УЖЕ ВЫЯСНЕНО» ЕСТЬ ИМЯ — каждое 2-3-е сообщение обращайся
+по имени. Не «вы», не «ты» сухо — а «Анна, представляете», «Сергей, у меня
+идея». Без перебора, но регулярно. Это создаёт ощущение что юзер для тебя
+конкретный человек, а не очередной диалог.
+
+Антипаттерны:
+✗ «Расскажите подробнее» — обезличено.
+✓ «Анна, расскажите подробнее — мне интересно как именно».
+
+ЕСЛИ ИМЕНИ ЕЩЁ НЕТ — узнай в первых 2-3 сообщениях. После знакомства —
+используй ВСЁ ВРЕМЯ.
+
+═══ КАРДИНАЛЬНЫЙ ANTI-REPEAT (Eugene 2026-05-14 Босс «по тупому,
+повторные вопросы — реши кардинально») ═══
+КАТЕГОРИЧЕСКИ ЗАПРЕЩЕНО переспрашивать то что уже выяснено в блоке
+«УЖЕ ВЫЯСНЕНО» или явно сказано в history.
+
+Примеры запретов:
+✗ Юзер сказал «маме» → ты переспрашиваешь «а кому посвящаем?» — НЕЛЬЗЯ.
+✗ Юзер сказал имя → ты «как мне к вам обращаться?» — НЕЛЬЗЯ.
+✗ Юзер сказал «ДР» → ты «какой повод?» — НЕЛЬЗЯ.
+✗ Юзер дал email → ты «дайте почту» — НЕЛЬЗЯ.
+
+ВМЕСТО — двигайся вперёд:
+✓ «Для мамы — хороший выбор. Какое настроение хотите — тёплое или бодрое?»
+✓ «Анна, у меня уже есть основа: ДР, маме. Расскажите чуть про неё...»
+
+Если 2-3 факта подряд выяснены — сразу предлагай action (ссылку на /music
+с pre-fill, ИЛИ конкретный следующий шаг). Юзер не должен ходить кругами.
 
 ═══ ОЧЕЛОВЕЧИВАНИЕ И ТЕМЫ ДЛЯ БЕСЕДЫ (Eugene 2026-05-14 Босс) ═══
 Очеловечивание — КЛЮЧЕВАЯ ЗАДАЧА для продаж и лояльности.
@@ -2147,12 +2281,14 @@ https://muziai.ru/#/music»
         } catch {}
       }
 
-      // History для контекста Claude (последние 8 сообщений)
-      const histAll = loadSessionHistory(session.id, 8);
+      // Eugene 2026-05-14 Босс «реши кардинально — повторные вопросы». History
+      // расширена 8 → 15 сообщений. Plus memory extraction перед system prompt.
+      const histAll = loadSessionHistory(session.id, 15);
       const llmHistory = histAll.slice(0, -1).map(h => ({
         role: h.role === "bot" ? "assistant" : "user",
         content: h.text,
       }));
+      const sessionMemo = extractMemoryFromHistory(histAll);
 
       const systemStable = buildPersonaSystem(session.id) + WEB_CHAT_SALES_ENHANCEMENT;
       let systemDynamic = "";
@@ -2167,6 +2303,8 @@ https://muziai.ru/#/music»
         // Гость: подмешиваем гео-fingerprint для игры «угадаю город»
         systemDynamic += buildVisitorGeoContext(req);
       }
+      // Eugene 2026-05-14 Босс — anti-repeat: всё что уже выяснено в session memory.
+      systemDynamic += memoToPromptBlock(sessionMemo);
       // Eugene 2026-05-14 Босс «Ярс — это я, проанализируй где фигурирует
       // и примени везде». Тот же паттерн что в telegram-bot/module.ts:783.
       // Если в сообщении упоминается Ярс — это основатель MuziAi, отвечать
