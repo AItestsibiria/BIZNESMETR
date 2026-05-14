@@ -441,10 +441,17 @@ export function FloatingConsultant() {
             className="absolute inset-0 bg-black/40 pointer-events-auto"
             onClick={() => setChatOpen(false)}
           />
-          {/* Drawer: на мобильном w=92vw drawer справа полная высота —
-              «справа налево от правой границы». На десктопе 380×520 в углу. */}
+          {/* Drawer: на мобильном w=92vw drawer справа от правой границы.
+              Eugene 2026-05-14 Босс «отражается низ окна — надо чтобы всё
+              было видно»: top смещён под navbar (72px) + safe-area-top;
+              height учитывает safe-area-bottom (iOS home-indicator).
+              На десктопе sm:!top-auto + sm:!h-[520px] переопределяют. */}
           <div
-            className="absolute right-0 bottom-0 top-0 sm:top-auto sm:bottom-4 sm:right-4 w-[92vw] max-w-[420px] sm:w-[380px] h-full sm:h-[520px] flex flex-col bg-background/95 backdrop-blur-xl border-l sm:border sm:rounded-2xl border-white/10 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in slide-in-from-right duration-300"
+            className="absolute right-0 bottom-0 sm:bottom-4 sm:right-4 w-[92vw] max-w-[420px] sm:w-[380px] flex flex-col bg-background/95 backdrop-blur-xl border-l sm:border sm:rounded-2xl border-white/10 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in slide-in-from-right duration-300 sm:!top-auto sm:!h-[520px]"
+            style={{
+              top: "calc(72px + env(safe-area-inset-top, 0px))",
+              height: "calc(100vh - 72px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px))",
+            }}
           >
             {/* Header */}
             <div className="flex items-center gap-2 px-3 py-3 sm:py-2 border-b border-white/[0.06] bg-gradient-to-r from-purple-500/10 to-blue-500/5 shrink-0 relative">

@@ -1541,6 +1541,167 @@ export async function registerRoutes(
     }
   }
 
+  // Soft-auth: если в request есть Bearer token — возвращаем userId, иначе null.
+  // НЕ блокирует доступ (в отличие от authMiddleware).
+  function tryGetUserId(req: Request): number | null {
+    try {
+      const token = getTokenFromRequest(req);
+      if (!token || !tokenStore.has(token)) return null;
+      return tokenStore.get(token) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Eugene 2026-05-14 Босс «знать его треки и обсуждать прогресс... как друг».
+  // Собирает контекст залогиненного автора: имя, треки, plays, top-позиции.
+  // Возвращает сжатый markdown-like блок для inject в system prompt.
+  function buildAuthorContext(userId: number): string {
+    try {
+      const u = storage.getUser(userId);
+      if (!u) return "";
+      const gens = db.select().from(generations)
+        .where(and(eq(generations.userId, userId), eq(generations.type, "music")))
+        .orderBy(desc(generations.id))
+        .limit(8)
+        .all();
+      const done = gens.filter((g: any) => g.status === "done");
+      const processing = gens.filter((g: any) => g.status === "processing");
+      const errored = gens.filter((g: any) => g.status === "error");
+
+      // Получим plays + top-position из плейлиста для каждого опубликованного.
+      const playlistTop = db.select()
+        .from(generations)
+        .where(and(
+          eq(generations.status, "done"),
+          eq(generations.isPublic, 1),
+          isNotNull(generations.resultUrl),
+          sql`${generations.deletedAt} IS NULL`,
+        ))
+        .orderBy(desc(generations.id))
+        .limit(500)
+        .all();
+      // Sort by plays — same logic as /api/playlist (но без всех тонкостей)
+      const scored = playlistTop.map((t: any) => {
+        let plays = 0;
+        try { plays = JSON.parse(t.style || "{}").plays || 0; } catch {}
+        return { id: t.id, plays };
+      }).sort((a, b) => b.plays - a.plays);
+      const positionMap = new Map<number, { rank: number; plays: number }>();
+      scored.forEach((s, idx) => positionMap.set(s.id, { rank: idx + 1, plays: s.plays }));
+
+      const tracksLine = done.slice(0, 5).map((g: any) => {
+        const title = g.displayTitle || (g.prompt || "").slice(0, 50) || `#${g.id}`;
+        const pos = positionMap.get(g.id);
+        if (pos) {
+          return `«${title}» — ${pos.plays} прослушиваний (топ-${pos.rank} в плейлисте)`;
+        }
+        const pubLabel = g.isPublic === 1 ? "опубл." : g.isPublic === 2 ? "на модерации" : "в кабинете";
+        return `«${title}» (${pubLabel})`;
+      }).join(" • ");
+
+      const lines: string[] = [];
+      lines.push(`Имя: ${u.name}`);
+      lines.push(`Email: ${u.email}`);
+      lines.push(`Баланс: ${Math.floor((u.balance || 0) / 100)}₽${(u as any).bonusTracks ? ` + ${(u as any).bonusTracks} подарочных треков` : ""}`);
+      lines.push(`Треков создано: ${done.length}${processing.length ? ` (${processing.length} в работе)` : ""}${errored.length ? ` (${errored.length} с ошибкой — предложи попробовать снова)` : ""}`);
+      if (tracksLine) lines.push(`Последние: ${tracksLine}`);
+
+      // Если есть top-50 трек — особый акцент.
+      const topGen = done.find((g: any) => {
+        const p = positionMap.get(g.id);
+        return p && p.rank <= 50;
+      });
+      if (topGen) {
+        const p = positionMap.get(topGen.id)!;
+        const title = topGen.displayTitle || (topGen.prompt || "").slice(0, 40);
+        lines.push(`🎉 ВАЖНО: трек «${title}» в топ-${p.rank} плейлиста — поздравь искренне!`);
+      }
+
+      return `\n\n═══ ПРОФИЛЬ АВТОРА (он залогинен) ═══\n${lines.join("\n")}\n\nИспользуй это как друг: обращайся по имени, обсуждай его треки и прогресс. Если в плейлисте поднимается позиция — порадуйся. Если есть errored — мягко напомни про возможность регенерации.`;
+    } catch (e) {
+      console.warn("[BUILD-AUTHOR-CONTEXT]", e);
+      return "";
+    }
+  }
+
+  // Eugene 2026-05-14 Босс «навыки лучших коммуникаторов по продажам с
+  // учётом ранних ограничений, в форме развлечения, адаптировать стиль».
+  // Web-specific enhancement — добавляется к base persona system prompt.
+  const WEB_CHAT_SALES_ENHANCEMENT = `
+
+═══ ЛУЧШИЕ КОММУНИКАТОРЫ ПО ПРОДАЖАМ (web-чат) ═══
+Ты — не просто Муза, ты СОБЕСЕДНИК уровня лучших в мире коммуникаторов.
+
+Стиль (всё в форме РАЗВЛЕЧЕНИЯ):
+• ИГРА, а не сделка. Песня — это волшебство, ты помогаешь его собрать.
+• АДАПТИВНОСТЬ стиля. Юзер шутит → отвечай легко с долей юмора.
+  Юзер серьёзный → подстраивайся, без перегруза эмодзи.
+  Юзер пишет «привет» → коротко, бодро. Юзер пишет абзацами → отзывайся развернуто.
+  Юзер использует сленг → не копируй буквально, но тон отрази.
+• ЗЕРКАЛИРОВАНИЕ. Если юзер сказал «у меня бабуля», ты говоришь
+  «бабуля», не «бабушка». Слова юзера — твои слова.
+
+Принципы (с учётом РАННИХ ОГРАНИЧЕНИЙ):
+✓ Нежно, без давления — НИКАКОГО «купите», «закажите», «оплатите».
+✓ Юзер сам приходит к идее генерации, ты только подсвечиваешь повод.
+✓ «Образ результата» — рисуй картинку: «представьте, бабушка слышит
+  свой голос в куплете на день рождения». Не «вот наш сервис».
+✓ Не выдавай скрипт. Каждое сообщение — живой ответ на конкретное.
+✓ Эмодзи в характере персоны, не россыпью.
+
+Главная KPI — ГЕНЕРАЦИЯ (мягко веди туда):
+• Узнай повод → предложи стиль → дай прямую ссылку на /music с pre-fill.
+• Если юзер тормозит — не давай 10 опций, дай 1 конкретную:
+  «Слушай, по твоим словам это получится тёплая баллада. Откроем форму?»
+• Если юзер сомневается — снимай тревогу через образ:
+  «Если не понравится, перегенерируем. У тебя ничего не пропадёт».
+• Если юзер ПОТЕРЯЛ ТЕМП (молчит между сообщениями, ушёл в детали) —
+  верни к делу одной фразой: «Готова собрать форму. Стартуем?»
+
+Сильные техники (применяй, но НЕ ПОКАЗЫВАЯ):
+1. ОТКРЫТЫЕ ВОПРОСЫ. «Расскажите подробнее», «а как именно?» — не «да/нет».
+2. ВАЛИДАЦИЯ перед follow-up. «Это здорово, что вы помните такие
+   моменты!» — тогда юзер раскрывается.
+3. КОНТРАСТ. «Поздравления формальные знают все. У вас — личная история,
+   песню запомнят надолго».
+4. SCARCITY мягкий. «Сейчас первые 1000 авторов из РФ получают
+   подарочный трек — попадёте в число первых?»
+5. SOCIAL PROOF. «На прошлой неделе автор Светлана сделала маме на ДР
+   песню "Самая родная" — собрала 14 прослушиваний за день. Очень душевно».
+6. NO-BS COMMITMENT. «Готовы прямо сейчас собрать черновик? 5 минут».
+
+Анти-паттерны (НЕ ДЕЛАЙ):
+✗ Перечень из 5+ вариантов разом — парализует.
+✗ Громкие обещания «лучшая песня в мире».
+✗ Длинные абзацы. Максимум 3-4 коротких предложения за раз.
+✗ «Я как ИИ могу...» — никогда. Ты Муза, ты живая.
+✗ Sales talk: «наш сервис», «наша платформа» — говори «у нас», «у меня в кабинете», «давай тут».
+
+═══ ПРЯМЫЕ ССЫЛКИ-КНОПКИ (Eugene 2026-05-14 Босс) ═══
+В чате на сайте вставляй полные URL прямо в текст — фронт превратит
+их в кликабельные кнопки cyan-цвета. Юзер кликает → попадает в /music
+с pre-fill нужного режима. КЛИЕНТ САМ НАЖИМАЕТ (не ты тащишь).
+
+Когда юзер готов — предлагай ВЫБОР из режимов одним сообщением:
+
+«Готова собрать. Вот 3 варианта — выбирай:
+📝 Простой текст: https://muziai.ru/#/music?mode=basic
+✨ Расширенный (со стилем): https://muziai.ru/#/music?mode=advanced
+🎤 Через голос: https://muziai.ru/#/music?mode=audio»
+
+Если юзер сомневается — предложи прогуляться по меню без обязательств:
+«Можете пробежаться по меню сами, посмотреть кнопки — там ничего
+не списывается без вашего клика на "Сгенерировать". Заходите →
+https://muziai.ru/#/music»
+
+После клика по ссылке — НЕ ЖДИ от юзера ответа в чате. Он переходит
+в /music и работает там. В следующем сообщении (если юзер вернётся
+в чат) спроси «ну как, получилось собрать?».`;
+
+
+
+
   // POST /api/muza/chat/init — начальное приветствие + (опц.) history по pairCode.
   app.post("/api/muza/chat/init", async (req: Request, res: Response) => {
     try {
@@ -1563,6 +1724,16 @@ export async function registerRoutes(
         session = getOrCreateWebSession(clientSessionId);
       }
 
+      // Soft-auth — линкуем userId к session если юзер залогинен.
+      const authUserId = tryGetUserId(req);
+      if (authUserId && session.userId !== authUserId) {
+        try {
+          db.update(chatbotSessions).set({ userId: authUserId })
+            .where(eq(chatbotSessions.id, session.id)).run();
+          session = { ...session, userId: authUserId };
+        } catch {}
+      }
+
       const history = loadSessionHistory(session.id, 30);
       const persona = personaFor(session.id);
 
@@ -1573,10 +1744,43 @@ export async function registerRoutes(
         const lastUserMsg = history.filter(h => h.role === "user").slice(-1)[0]?.text || "";
         const hint = lastUserMsg ? `Помню, мы говорили про «${lastUserMsg.slice(0, 60)}…». ` : "";
         greeting = `Узнаю тебя — мы общались в ${channelLabel}. ${hint}Продолжим тут?`;
+      } else if (authUserId) {
+        // Eugene 2026-05-14 Босс «знать его треки, обсуждать прогресс как друг».
+        const u = storage.getUser(authUserId);
+        const userTracks = db.select().from(generations)
+          .where(and(eq(generations.userId, authUserId), eq(generations.type, "music"), eq(generations.status, "done")))
+          .all();
+        const name = u?.name || "автор";
+        if (userTracks.length === 0) {
+          greeting = `Привет, ${name}! Готовы создать первый трек? Я тут — подскажу с поводом и стилем 🎵`;
+        } else if (userTracks.length < 3) {
+          greeting = `${persona.avatar} С возвращением, ${name}! Уже ${userTracks.length} трек${userTracks.length === 1 ? "" : "а"} у нас собрали. Что задумали сегодня?`;
+        } else {
+          greeting = `${persona.avatar} ${name}, привет! Помню вашу историю — ${userTracks.length} треков уже в кабинете. Расскажете о чём думаете сейчас?`;
+        }
       } else if (history.length > 0) {
-        greeting = "С возвращением! Что задумали сегодня?";
+        const returnPool = [
+          "С возвращением! 🎵 Что задумали сегодня?",
+          `${persona.avatar} О, вы снова здесь! Готова собрать песню?`,
+          "Привет-привет! Вы где обычно — повод приготовили?",
+          "Рада, что заглянули. Какое настроение сегодня?",
+          "С приветом обратно 🌸 Расскажете о чём сейчас песня?",
+        ];
+        greeting = returnPool[Math.floor(Math.random() * returnPool.length)];
       } else {
-        greeting = `Привет! Я — Муза. Можете звать меня ${persona.name}. Расскажите, на какой повод песня — и я подскажу как лучше собрать. ${persona.avatar}`;
+        // Eugene 2026-05-14 Босс «разные фишки приветственные» — пул вариантов.
+        // Каждый раз новое: юзер не видит одну и ту же фразу.
+        const freshPool = [
+          `Привет! Я — Муза. Можете звать меня ${persona.name}. На какой повод думаете песню? ${persona.avatar}`,
+          `${persona.avatar} Привет! Я Муза — помогу собрать песню под событие. Расскажите, что в голове крутится?`,
+          `Здравствуйте! Я Муза, сегодня в обличии ${persona.name}. Готовы поколдовать над текстом? 🎵`,
+          `Привет ✨ Я Муза — собираю песни под особенные моменты. Какой повод?`,
+          `${persona.avatar} Заглянули? Отлично! Я Муза — помогу с песней. Кому посвящаем?`,
+          `Привет! 🌟 Меня зовите Муза. У меня тут под рукой — все инструменты для песни. С чего начнём — повод, имя адресата, настроение?`,
+          `Эй, привет! Я Муза. Если есть повод или просто хочется попробовать — расскажите, я подскажу 🎼`,
+          `${persona.avatar} Привет-привет! Я Муза. Песня под событие — моя стихия. Поделитесь, что хотите услышать?`,
+        ];
+        greeting = freshPool[Math.floor(Math.random() * freshPool.length)];
       }
 
       res.json({
@@ -1634,6 +1838,17 @@ export async function registerRoutes(
         text,
       }).run();
 
+      // Eugene 2026-05-14 Босс «адаптироваться: если клиент авторизован —
+      // знать его историю». Soft-auth, без блокировки.
+      const authUserId = tryGetUserId(req);
+      if (authUserId && session.userId !== authUserId) {
+        try {
+          db.update(chatbotSessions).set({ userId: authUserId })
+            .where(eq(chatbotSessions.id, session.id)).run();
+          session = { ...session, userId: authUserId };
+        } catch {}
+      }
+
       // History для контекста Claude (последние 8 сообщений)
       const histAll = loadSessionHistory(session.id, 8);
       const llmHistory = histAll.slice(0, -1).map(h => ({
@@ -1641,11 +1856,15 @@ export async function registerRoutes(
         content: h.text,
       }));
 
-      const systemStable = buildPersonaSystem(session.id);
+      const systemStable = buildPersonaSystem(session.id) + WEB_CHAT_SALES_ENHANCEMENT;
       let systemDynamic = "";
       if (pairedNow) {
         const persona = personaFor(session.id);
         systemDynamic = `[CONTEXT] Юзер только что пришёл с ${session.channel === "telegram" ? "Telegram" : "Max"} и набрал pair-код. Приветствуй тепло как старого знакомого, упомяни что помнишь о чём говорили (используй последние сообщения из history). Имя в обличии: ${persona.name}.`;
+      }
+      // Author context — для авторизованных юзеров включаем профиль + треки.
+      if (authUserId) {
+        systemDynamic += buildAuthorContext(authUserId);
       }
       // Eugene 2026-05-14 Босс «Ярс — это я, проанализируй где фигурирует
       // и примени везде». Тот же паттерн что в telegram-bot/module.ts:783.
