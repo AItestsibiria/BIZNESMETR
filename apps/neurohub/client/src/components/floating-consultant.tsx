@@ -142,12 +142,26 @@ export function FloatingConsultant() {
         const hist: ChatMessage[] = Array.isArray(j.history)
           ? j.history.map((h: any) => ({ role: h.role === "bot" ? "bot" : "user", text: h.text }))
           : [];
-        const greeting: ChatMessage = {
-          role: "bot",
-          text: String(j.greeting || "Привет!"),
-          quickReplies: Array.isArray(j.quickReplies) ? j.quickReplies : undefined,
-        };
+        // Eugene 2026-05-14 Босс «паузы как человек». Greeting показываем
+        // СРАЗУ (юзер только что открыл, ждёт сразу), а quickReplies — через
+        // паузу 1-1.5 сек чтобы юзер успел прочитать.
+        const greetingText = String(j.greeting || "Привет!");
+        const qrList = Array.isArray(j.quickReplies) && j.quickReplies.length > 0 ? j.quickReplies : undefined;
+        const greeting: ChatMessage = { role: "bot", text: greetingText };
         setChatMsgs([...hist, greeting]);
+        if (qrList) {
+          const qrDelay = 1000 + Math.floor(Math.random() * 600);
+          window.setTimeout(() => {
+            setChatMsgs(m => {
+              if (m.length === 0) return m;
+              const last = m[m.length - 1];
+              if (last.role === "bot" && last.text === greetingText && !last.quickReplies) {
+                return [...m.slice(0, -1), { ...last, quickReplies: qrList }];
+              }
+              return m;
+            });
+          }, qrDelay);
+        }
       }
     } catch {
       setChatMsgs([{ role: "bot", text: "Что-то с сетью — но я тут. Пробуй ещё раз через секунду 🎵" }]);
@@ -209,6 +223,19 @@ export function FloatingConsultant() {
     }, 0);
   }, []);
 
+  // Eugene 2026-05-14 Босс «паузы как человек, а то механика». Helper для
+  // искусственной задержки имитирующей «Муза думает + печатает».
+  // typingDelay — основная пауза перед показом текста (пропорциональна длине).
+  // qrDelay — доп. пауза перед показом кнопок (юзер успевает прочитать ответ).
+  const humanDelay = useCallback((replyLen: number) => {
+    // База 1200ms + 25ms на каждый символ, потолок 4500ms.
+    // Минимум 1.2 секунды — даже короткий ответ не появляется мгновенно.
+    const base = 1200;
+    const perChar = 25;
+    const maxMs = 4500;
+    return Math.min(maxMs, base + Math.floor(replyLen * perChar));
+  }, []);
+
   // Выделил core-send в отдельную функцию чтобы вызывать с произвольным
   // text (для quick-reply без перезагрузки chatInput state).
   const doSendMessage = useCallback(async (textArg: string) => {
@@ -231,19 +258,43 @@ export function FloatingConsultant() {
       window.clearTimeout(timeoutId);
       if (!r.ok) {
         setChatMsgs(m => [...m, { role: "bot", text: `Хм, что-то с сервером (${r.status}). Попробуй ещё раз — я тут.` }]);
+        setChatSending(false);
         return;
       }
       const j = await r.json();
       if (j?.ok && j.reply) {
+        // Eugene 2026-05-14 Босс «паузы как человек». Задержка пропорциональная
+        // длине ответа — имитирует «печатание». QR-кнопки появляются ещё позже.
+        const delay = humanDelay(j.reply.length);
+        const minNetworkElapsed = Date.now(); // network уже прошла к этому моменту
+        await new Promise(resolve => window.setTimeout(resolve, delay));
         try { playMuzaChime({ volume: 0.04 }); } catch {}
+        // Сначала показываем текст БЕЗ кнопок
         setChatMsgs(m => [...m, {
           role: "bot",
           text: j.reply,
-          quickReplies: Array.isArray(j.quickReplies) && j.quickReplies.length > 0 ? j.quickReplies : undefined,
+          // quickReplies подадим отдельной перезаписью через ещё одну паузу
         }]);
+        setChatSending(false);
         if (j.paired) setChatPaired({ channel: j.pairedFromChannel });
+        // Через 900-1400ms добавляем quickReplies — юзер успел прочитать.
+        const qrList = Array.isArray(j.quickReplies) && j.quickReplies.length > 0 ? j.quickReplies : undefined;
+        if (qrList) {
+          const qrDelay = 900 + Math.floor(Math.random() * 500);
+          window.setTimeout(() => {
+            setChatMsgs(m => {
+              if (m.length === 0) return m;
+              const last = m[m.length - 1];
+              if (last.role === "bot" && last.text === j.reply) {
+                return [...m.slice(0, -1), { ...last, quickReplies: qrList }];
+              }
+              return m;
+            });
+          }, qrDelay);
+        }
       } else {
         setChatMsgs(m => [...m, { role: "bot", text: j?.error || "Что-то пошло не так — попробуйте ещё раз" }]);
+        setChatSending(false);
       }
     } catch (e: any) {
       window.clearTimeout(timeoutId);
@@ -251,10 +302,9 @@ export function FloatingConsultant() {
         ? "Думаю слишком долго — наверное, провайдер сегодня медленный. Повторим?"
         : "Сеть подвисла — попробуйте через секунду";
       setChatMsgs(m => [...m, { role: "bot", text: msg }]);
-    } finally {
       setChatSending(false);
     }
-  }, []);
+  }, [humanDelay]);
 
   const sendChat = useCallback(async () => {
     if (!chatInput.trim() || chatSending) return;
