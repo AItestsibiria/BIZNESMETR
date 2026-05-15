@@ -374,6 +374,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const [countriesCount, setCountriesCount] = useState<number>(0);
   const [countriesList, setCountriesList] = useState<Array<{country:string;country_code:string;n:number}>>([]);
   const [showCountries, setShowCountries] = useState(false);
+  const [showCitiesPanel, setShowCitiesPanel] = useState(false);
   // Eugene 2026-05-14 Босс: «справа доп. панель с топом городов».
   const [topCities, setTopCities] = useState<Array<{city:string;country:string;country_code:string;n:number}>>([]);
   useEffect(() => {
@@ -1515,31 +1516,50 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               <>
                                 <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCountries(v => !v); }} className="text-[10px] px-2 py-1 rounded-full bg-white/5 text-white/60 border border-white/10 hover:bg-white/10 hover:text-white/90 transition-colors cursor-pointer" title="Нас слушают">🌍 {countriesCount}</button>
                                 {showCountries && createPortal(
-                                  <div onClick={() => setShowCountries(false)} style={{position:'fixed',inset:0,zIndex:99999,background:'transparent',display:'flex',alignItems:'flex-end',justifyContent:'center',padding:'16px'}}>
+                                  <div onClick={() => { setShowCountries(false); setShowCitiesPanel(false); }} style={{position:'fixed',inset:0,zIndex:99999,background:'transparent',display:'flex',alignItems:'flex-end',justifyContent:'center',padding:'16px'}}>
                                     <div onClick={(e) => e.stopPropagation()} style={{width:'auto',minWidth:'200px',maxWidth:'min(400px,calc(100vw-32px))',maxHeight:'70vh',overflowY:'auto',borderRadius:'16px',background:'rgba(255,255,255,0.05)',backdropFilter:'blur(24px)',WebkitBackdropFilter:'blur(24px)',border:'1px solid rgba(255,255,255,0.1)',padding:'16px',boxShadow:'0 20px 60px rgba(0,0,0,0.5)'}}>
                                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
                                         <p style={{fontSize:'14px',fontWeight:600,color:'rgba(255,255,255,0.95)',margin:0}}>Нас слушают</p>
-                                        <button onClick={() => setShowCountries(false)} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',fontSize:'20px',cursor:'pointer',padding:'0 8px'}}>×</button>
+                                        <button onClick={() => { setShowCountries(false); setShowCitiesPanel(false); }} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',fontSize:'20px',cursor:'pointer',padding:'0 8px'}}>×</button>
                                       </div>
                                       <ul style={{listStyle:'none',padding:0,margin:0,display:'flex',flexDirection:'column',gap:'6px'}}>
                                         {countriesList.map(c => <li key={c.country_code || c.country} style={{display:'flex',alignItems:'center',gap:'8px',fontSize:'13px',color:'rgba(255,255,255,0.85)',padding:'4px 0'}}><span style={{flex:1,wordBreak:'break-word'}}>{c.country}</span><span style={{fontSize:'18px',flexShrink:0}}>{flagOf(c.country_code, c.country)}</span></li>)}
                                         {countriesList.length === 0 && <li style={{fontSize:'12px',color:'rgba(255,255,255,0.4)'}}>Пока нет данных</li>}
                                       </ul>
-                                      {/* Eugene 2026-05-14 Босс: «города-слушатели в той же
-                                          панели что и страны». Доп. секция ниже стран. */}
+                                      {/* Eugene 2026-05-15 Босс: «панель городов раздвигается
+                                          из меню стран, количество убрать». Toggle. */}
                                       {topCities.length > 0 && (
                                         <>
                                           <div style={{borderTop:'1px solid rgba(255,255,255,0.08)',margin:'14px 0 10px'}} />
-                                          <p style={{fontSize:'12px',fontWeight:600,color:'rgba(255,255,255,0.85)',margin:'0 0 8px',letterSpacing:'0.04em',textTransform:'uppercase'}}>Топ городов</p>
-                                          <ul style={{listStyle:'none',padding:0,margin:0,display:'flex',flexDirection:'column',gap:'4px'}}>
-                                            {topCities.map((c, i) => (
-                                              <li key={`${c.city}-${c.country_code}-${i}`} style={{display:'flex',alignItems:'center',gap:'8px',fontSize:'12px',color:'rgba(255,255,255,0.8)',padding:'2px 0'}}>
-                                                <span style={{fontSize:'16px',flexShrink:0}}>{flagOf(c.country_code, c.country)}</span>
-                                                <span style={{flex:1,wordBreak:'break-word'}} title={`${c.city}, ${c.country}`}>{c.city}</span>
-                                                <span style={{fontSize:'11px',color:'rgba(167,139,250,0.7)',flexShrink:0}}>{c.n}</span>
-                                              </li>
-                                            ))}
-                                          </ul>
+                                          <button
+                                            type="button"
+                                            onClick={() => setShowCitiesPanel(v => !v)}
+                                            style={{
+                                              width:'100%',display:'flex',alignItems:'center',justifyContent:'space-between',
+                                              background:'none',border:'none',cursor:'pointer',padding:'4px 0',
+                                              fontSize:'12px',fontWeight:600,color:'rgba(255,255,255,0.85)',
+                                              letterSpacing:'0.04em',textTransform:'uppercase'
+                                            }}
+                                            aria-expanded={showCitiesPanel}
+                                          >
+                                            <span>Города</span>
+                                            <span style={{
+                                              fontSize:'14px',color:'rgba(255,255,255,0.5)',
+                                              transition:'transform 0.2s ease',
+                                              transform: showCitiesPanel ? 'rotate(180deg)' : 'rotate(0deg)',
+                                              display:'inline-block'
+                                            }}>▾</span>
+                                          </button>
+                                          {showCitiesPanel && (
+                                            <ul style={{listStyle:'none',padding:'4px 0 0',margin:0,display:'flex',flexDirection:'column',gap:'4px'}}>
+                                              {topCities.map((c, i) => (
+                                                <li key={`${c.city}-${c.country_code}-${i}`} style={{display:'flex',alignItems:'center',gap:'8px',fontSize:'12px',color:'rgba(255,255,255,0.8)',padding:'2px 0'}}>
+                                                  <span style={{fontSize:'16px',flexShrink:0}}>{flagOf(c.country_code, c.country)}</span>
+                                                  <span style={{flex:1,wordBreak:'break-word'}} title={`${c.city}, ${c.country}`}>{c.city}</span>
+                                                </li>
+                                              ))}
+                                            </ul>
+                                          )}
                                         </>
                                       )}
                                     </div>
