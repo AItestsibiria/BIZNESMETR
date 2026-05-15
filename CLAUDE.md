@@ -312,6 +312,45 @@ PII / безопасность:
 
 Применяется к: регистрации, логину, замене телефона, замене email, замене любых других чувствительных полей (telegram-id, country). Не применяется к: namepronoun, тон обращения и прочему UI-state, не влияющему на доступ к аккаунту.
 
+### Callcheck (flashcall) auth rule (Eugene 2026-05-15)
+
+**Альтернатива SMS-OTP — звонок-проверка через `callcheck/add` у sms.ru.** Юзер видит входящий с номера `+7XXX...YYYY`, не отвечает — вводит последние 4 цифры (`YYYY`) как код. Дешевле SMS (~1₽ vs 3-5₽) и не зависит от SMS-фильтрации операторов.
+
+Реализация (server-side):
+- `apps/neurohub/server/plugins/auth-sms/module.ts`:
+  - Расширен `SmsProvider` interface: `callcheck?(phone): Promise<CallcheckResult>` (опционально — старые SMS-провайдеры без поддержки звонка просто не имеют этот метод)
+  - `SmsRuProvider.callcheck(phone)` — GET на `https://sms.ru/callcheck/add?api_id=X&phone=Y&json=1` → возвращает `{check_id, call_phone, code, cost}`. `code` — последние 4 цифры `call_phone`
+  - `POST /api/auth/sms/send-call` — инициирует звонок, сохраняет hash 4-значного кода в `sms_otp` с `purpose='call_register'|'call_login'` (TTL 5 мин), возвращает `callPhone` для UI
+  - `POST /api/auth/sms/verify-call` — проверка hash. Финализация регистрации/логина — тот же flow что для SMS-OTP (создание users / выдача session token)
+  - `purpose` в БД: `call_register` / `call_login` (отдельно от `register` / `login` чтобы не пересекаться с SMS-OTP-сессиями)
+  - Rate limit: те же 1 SMS/мин и 5/час на номер (общая защита для обоих flow)
+  - `SMS_OTP_DISABLE=1` env — звонок отключён, генерируется fake 4-значный код для теста на clone
+- `/api/auth/sms/providers` теперь возвращает `callcheckSupported: boolean` — UI может скрыть call-toggle если провайдер не поддерживает
+
+Реализация (client-side):
+- `apps/neurohub/client/src/components/phone-otp-form.tsx`:
+  - Новый prop `allowMethods: 'sms' | 'call' | 'both'` (default: `both` для register/login, `sms` для change_*)
+  - State `method: 'sms' | 'call'` — toggle на 1-м шаге (если `allowMethods='both'`)
+  - Endpoint выбирается по method: `/send-otp`+`/verify-otp` vs `/send-call`+`/verify-call`
+  - На 2-м шаге для call: вместо «введите 6 цифр» — «введите последние 4 цифры номера, с которого позвонили» + display `callPhone` крупно
+  - Web OTP API auto-fill (Android Chrome) активен только для SMS-flow — для call нечего слушать
+  - `maxLength` input меняется: 6 для SMS, 4 для call. `autoComplete="one-time-code"` только для SMS
+
+Применяется к: регистрация (register), логин (login). Не применяется к: change_phone / change_email (там только SMS — нужен текстовый код для подтверждения изменения, не звонок). Расширение на change_* возможно в будущем — добавить purpose `call_change_phone` etc.
+
+Стоимость и преимущества:
+- SMS.ru flashcall: ~1₽ за вызов (vs ~3-5₽ за SMS)
+- Не зависит от SMS-доставки (TG/iCloud relay/спам-фильтры операторов)
+- Юзер видит только короткий код (4 цифры) — проще набрать
+- Работает на любом телефоне (даже без mobile data — звонок поступает по голосовой сети)
+
+Ограничения:
+- Юзер должен иметь возможность принять входящий (роуминг? тариф?)
+- Некоторые номера ограничивают входящие с unknown — нужен fallback на SMS
+- На очень шумных линиях номер вызова может не отобразиться — UI даёт fallback «Получить SMS» при второй попытке
+
+VPS toolkit обновлён — `sms call +7XXX` инициирует звонок, `sms verify-call +7XXX 1234` подтверждает.
+
 ### Cross-channel conversation linking rule (Eugene 2026-05-15)
 
 **Один юзер — один thread, независимо от канала.** Если юзер пишет в Telegram, потом в Web-чат, потом в Max — бот видит ВСЮ его историю как один разговор. Admin тоже видит сквозной view.
