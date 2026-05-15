@@ -821,6 +821,12 @@ export async function registerRoutes(
   const pendingRegs = new Map<string, { name: string; email: string; password: string; ref?: string; promo?: string; code: string; expires: number }>();
 
   app.post("/api/auth/register", async (req: Request, res: Response) => {
+    // Eugene 2026-05-15 Босс «пока никого не регистрируй» — feature flag.
+    // Включается через .env REGISTRATION_DISABLED=1 + pm2 restart --update-env.
+    if (process.env.REGISTRATION_DISABLED === "1") {
+      res.status(503).json({ message: "Регистрация временно приостановлена. Скоро откроем." });
+      return;
+    }
     const ip = req.ip || req.socket.remoteAddress || "unknown";
     if (!rateLimit(ip + ":reg", 5, 3600000)) {
       res.status(429).json({ message: "Слишком много попыток. Попробуйте позже." }); return;

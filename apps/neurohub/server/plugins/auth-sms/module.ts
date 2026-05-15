@@ -351,6 +351,11 @@ router.post("/send-otp", async (req, res) => {
   }
   const phone = v.normalized;
 
+  // Eugene 2026-05-15 Босс «пока никого не регистрируй» — REGISTRATION_DISABLED.
+  if (purpose === "register" && process.env.REGISTRATION_DISABLED === "1") {
+    return res.status(503).json({ data: null, error: "Регистрация временно приостановлена. Скоро откроем." });
+  }
+
   // Для register — проверить что номер ещё не зарегистрирован.
   if (purpose === "register") {
     const exists = db.select({ id: users.id }).from(users).where(eq(users.phone, phone)).get();
@@ -551,6 +556,11 @@ router.post("/send-call", async (req, res) => {
   }
   const phone = v.normalized;
 
+  // Eugene 2026-05-15 Босс «пока никого не регистрируй».
+  if (purpose === "register" && process.env.REGISTRATION_DISABLED === "1") {
+    return res.status(503).json({ data: null, error: "Регистрация временно приостановлена. Скоро откроем." });
+  }
+
   // Те же проверки уникальности что для SMS-flow.
   if (purpose === "register") {
     const exists = db.select({ id: users.id }).from(users).where(eq(users.phone, phone)).get();
@@ -736,11 +746,16 @@ router.post("/check-call", async (req, res) => {
 
     if (purpose === "login") {
       const user = db.select().from(users).where(eq(users.phone, phone)).get() as any;
-      // Eugene 2026-05-15 Босс «связать email и номер, лёгкое решение».
-      // Если phone не найден — НЕ возвращаем 404. Создаём новый phone-аккаунт
-      // upsert-style. Юзер потом сможет в ЛК «привязать существующий email»
-      // через endpoint /api/account/link-existing.
+      // Eugene 2026-05-15 Босс «связать email и номер, лёгкое решение» +
+      // «пока никого не регистрируй» — если REGISTRATION_DISABLED=1,
+      // upsert не делаем. Возвращаем 404 «номер не найден».
       if (!user) {
+        if (process.env.REGISTRATION_DISABLED === "1") {
+          return res.status(404).json({
+            data: null,
+            error: "Регистрация временно приостановлена. Этот номер не найден.",
+          });
+        }
         const country = detectPhoneCountry(phone);
         const placeholderPassword = await bcrypt.hash(uuidv4() + crypto.randomBytes(16).toString("hex"), 10);
         const inserted = db.insert(users).values({
