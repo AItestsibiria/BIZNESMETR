@@ -19,11 +19,6 @@ export default function LoginPhonePage() {
   const { user, isLoading, loginByToken } = useAuth();
   const [, navigate] = useLocation();
   const { toast } = useToast();
-  // Eugene 2026-05-15 Босс «после сообщения вы авторизованы открывай ЛК».
-  // Success-state — большой экран «Авторизация прошла → открываем кабинет…»
-  // + fallback кнопка если auto-navigate тормозит.
-  const [successState, setSuccessState] = useState<{ name: string } | null>(null);
-
   useEffect(() => {
     if (user) navigate("/dashboard");
   }, [user, navigate]);
@@ -52,34 +47,6 @@ export default function LoginPhonePage() {
       </div>
     );
   }
-  // Eugene 2026-05-15 Босс «после сообщения вы авторизованы открывай ЛК».
-  // Большой success-screen с success иконкой + auto-redirect через 1.2 сек.
-  if (successState) {
-    return (
-      <div className="min-h-screen flex items-center justify-center px-4 pt-16 hero-gradient">
-        <div className="text-center max-w-md mx-auto p-6">
-          <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-gradient-to-br from-emerald-500/30 to-cyan-500/30 border-2 border-emerald-400/60 flex items-center justify-center shadow-[0_0_40px_rgba(16,185,129,0.4)] animate-in zoom-in duration-300">
-            <span className="text-4xl">✅</span>
-          </div>
-          <h2 className="text-2xl font-bold gradient-text mb-2">Вы авторизованы</h2>
-          <p className="text-sm text-muted-foreground mb-4">
-            Добро пожаловать, <span className="text-white font-medium">{successState.name}</span>!
-          </p>
-          <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-            <Loader2 className="w-3 h-3 animate-spin" />
-            Открываем личный кабинет…
-          </div>
-          <button
-            onClick={() => navigate("/dashboard")}
-            className="mt-5 text-sm text-purple-300 hover:text-purple-200 underline"
-          >
-            Перейти сейчас →
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen flex items-center justify-center px-4 pt-16 hero-gradient">
       <div className="w-full max-w-sm">
@@ -103,11 +70,15 @@ export default function LoginPhonePage() {
                 return;
               }
               const u = await loginByToken(token, true);
-              // Eugene 2026-05-15 Босс «после сообщения вы авторизованы
-              // открывай личный кабинет». Большой success-state + auto-navigate
-              // через 1.2 сек (даёт юзеру увидеть подтверждение).
-              setSuccessState({ name: u?.name || (newAccount ? "новый автор" : phone) });
-              setTimeout(() => navigate("/dashboard"), 1200);
+              // Eugene 2026-05-15 Босс «есть сообщение Вы авторизованы, но
+              // кабинет нужно открыть». Toast переживает navigate — юзер
+              // видит подтверждение УЖЕ в кабинете. Без setTimeout-delay.
+              toast({
+                title: "✅ Вы авторизованы",
+                description: `Добро пожаловать, ${u?.name || phone}!`,
+                duration: 3500,
+              });
+              navigate("/dashboard");
             }}
           />
           <div className="pt-3 border-t border-white/10 space-y-2">
