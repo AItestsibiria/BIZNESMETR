@@ -205,6 +205,38 @@ ssh root@72.56.1.149 'sed -i "/^ИМЯ_КЛЮЧА=/d" /var/www/neurohub/.env \
 
 Применяется к: ВСЕМ каналам (старым: web, telegram, max; новым: email-channel, vk-callback, future). НЕ применяется к: internal errors без user-facing impact (например, cron-задача упала ночью — это `incidents`, не `user_action_failures`).
 
+### Admin-everything-except-delete rule (Eugene 2026-05-15)
+
+**Админ может делать любое действие у любого автора БЕЗ дополнительного подтверждения. Удаление — только после подтверждения автором (через email или SMS).**
+
+Применяется к:
+- Изменение треков (rename, cover, category, privacy, priority, isPublic) — admin OK без confirm
+- Изменение данных автора (name, phone, email, country) — admin OK без confirm
+- Возврат денег / выдача bonusTracks / промокоды — admin OK без confirm
+- Move трека между плейлистами (`is_public` 0/1/2) — admin OK без confirm
+- **Удаление** (delete user, delete generation, delete payment, delete cover) — **обязательно** confirm от автора:
+  - Email-link на текущий email с одноразовым `confirmToken` (TTL 24ч) — автор кликает «Подтвердить удаление»
+  - ИЛИ SMS-OTP на phone (если phoneVerified=1)
+  - Запись в `user_data_change_requests` (field='delete:<entity>', oldValue=JSON snapshot)
+  - После confirm автором — admin endpoint выполняет фактическое удаление
+  - Audit-log с пометкой `via=author_confirmed`
+
+Что НЕ требует confirm автора (админ делает сам):
+- Soft-delete (deleted_at = now) — это reversible через restore
+- Скрытие трека (isPublic→0) — видимость, не удаление
+- Блокировка аккаунта (blocked=1) — суспенз, не удаление
+
+Что требует confirm автора:
+- Hard-delete user (полное удаление users row + cascading delete треков)
+- Hard-delete generation (DROP файлов на диске + sql DELETE)
+- Удаление платёжной истории (payments / transactions DELETE)
+- Удаление аккаунта по запросу самого автора (GDPR-like)
+
+Реализация (TODO следующими коммитами):
+- POST /api/admin/v304/<entity>/:id/delete-request → создаёт запись в `user_data_change_requests` + шлёт email/sms автору
+- POST /api/account/confirm-delete/:token → автор подтверждает → меняет status='confirmed' → cron / event-handler выполняет фактическое удаление
+- Admin UI: кнопка «Удалить» вместо мгновенного действия запускает request flow + показывает «Ждём подтверждения автора»
+
 ### Play-counting rule (Eugene 2026-05-15)
 
 **Прослушивание трека засчитывается при выполнении ВСЕХ 5 условий.** Применяется в `/api/playlist/play/:id` и `/api/gen-activity/:id/play` (server/routes.ts → `shouldCountPlay()`).

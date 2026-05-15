@@ -42,6 +42,16 @@ const statusConfig: Record<string, { label: string; icon: typeof Clock; color: s
   error: { label: "Ошибка", icon: XCircle, color: "text-red-400" },
 };
 
+// Eugene 2026-05-15 Босс: helper для confirm-modal смены стиля.
+function labelForCategory(cat: string): string {
+  switch (cat) {
+    case "song": return "🎵 Песня";
+    case "greeting": return "🎉 Поздравление";
+    case "instrumental": return "🎶 Инструментальная";
+    default: return cat;
+  }
+}
+
 function TopGenStats() {
   const [genStats, setGenStats] = useState<any>(null);
   const [statPeriod, setStatPeriod] = useState('day');
@@ -1807,6 +1817,9 @@ export default function DashboardPage() {
   const { toast } = useToast();
   const [toppingUp, setToppingUp] = useState(false);
   const [selectedGen, setSelectedGen] = useState<Generation | null>(null);
+  // Eugene 2026-05-15 Босс «обязательно подтверждение автором смены стиля».
+  const [pendingCategoryChange, setPendingCategoryChange] = useState<{ from: string; to: string; label: string } | null>(null);
+  const [categoryChangeLoading, setCategoryChangeLoading] = useState(false);
 
   const [renamingId, setRenamingId] = useState<number | null>(null);
   const [editingName, setEditingName] = useState(false);
@@ -2460,6 +2473,67 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Eugene 2026-05-15 Босс «обязательно подтверждение автором смены стиля».
+          Modal появляется при попытке смены category на отличную от текущей. */}
+      <Dialog open={!!pendingCategoryChange} onOpenChange={(o) => { if (!o && !categoryChangeLoading) setPendingCategoryChange(null); }}>
+        <DialogContent className="glass-card border-purple-500/30 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="gradient-text text-base flex items-center gap-2">
+              🎵 Сменить стиль трека?
+            </DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground pt-2">
+              {pendingCategoryChange && (
+                <>
+                  Текущий стиль: <span className="text-white font-medium">{labelForCategory(pendingCategoryChange.from)}</span>
+                  <br />
+                  Новый стиль: <span className="text-purple-300 font-medium">{pendingCategoryChange.label}</span>
+                  <br /><br />
+                  После смены трек переедет в соответствующий фильтр на главной странице.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-2 mt-4">
+            <Button
+              variant="outline"
+              className="flex-1 border-white/10"
+              disabled={categoryChangeLoading}
+              onClick={() => setPendingCategoryChange(null)}
+            >
+              Отмена
+            </Button>
+            <Button
+              className="flex-1 btn-gradient"
+              disabled={categoryChangeLoading}
+              onClick={async () => {
+                if (!selectedGen || !pendingCategoryChange) return;
+                setCategoryChangeLoading(true);
+                try {
+                  const r = await apiRequest("POST", `/api/generations/${selectedGen.id}/category`, { category: pendingCategoryChange.to, confirmed: true });
+                  const j = await r.json();
+                  if (j.ok) {
+                    let m: any = {}; try { m = JSON.parse((selectedGen as any).style || "{}"); } catch {}
+                    m.category = pendingCategoryChange.to;
+                    setSelectedGen({ ...selectedGen, style: JSON.stringify(m), voiceType: j.voiceType } as any);
+                    queryClient.invalidateQueries();
+                    toast({ title: `Стиль изменён: ${pendingCategoryChange.label}` });
+                    setPendingCategoryChange(null);
+                  } else {
+                    toast({ title: j.message || "Ошибка", variant: "destructive" });
+                  }
+                } catch (e: any) {
+                  toast({ title: e.message, variant: "destructive" });
+                } finally {
+                  setCategoryChangeLoading(false);
+                }
+              }}
+            >
+              {categoryChangeLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Подтвердить смену"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Generation Detail Modal */}
       <Dialog open={!!selectedGen} onOpenChange={() => { setSelectedGen(null); setRenamingId(null); }}>
         <DialogContent className="glass-card border-purple-500/20 max-w-md sm:max-w-lg max-h-[85vh] overflow-y-auto">
@@ -2755,7 +2829,9 @@ export default function DashboardPage() {
                   </div>
 
                   {/* Eugene 2026-05-14 Босс «Песня/Поздравление/Инструментальная»
-                      переключатель категории трека (только для music). */}
+                      переключатель категории трека (только для music).
+                      Eugene 2026-05-15 Босс «Обязательно подтверждение автором
+                      смены стиля» — добавлен confirm-dialog перед сменой. */}
                   {selectedGen.type === "music" && (() => {
                     let curCat = "song";
                     try { const m = JSON.parse((selectedGen as any).style || "{}"); curCat = m.category || "song"; } catch {}
@@ -2767,7 +2843,7 @@ export default function DashboardPage() {
                     ];
                     return (
                       <div>
-                        <p className="text-xs text-muted-foreground mb-1.5">Категория:</p>
+                        <p className="text-xs text-muted-foreground mb-1.5">Категория стиля музыки:</p>
                         <div className="grid grid-cols-3 gap-1.5">
                           {cats.map(c => (
                             <button
@@ -2779,22 +2855,16 @@ export default function DashboardPage() {
                                     : "border-purple-500/40 bg-purple-500/15 text-purple-300"
                                   : "border-white/10 bg-white/5 text-muted-foreground hover:text-white"
                               }`}
-                              onClick={async () => {
-                                try {
-                                  const r = await apiRequest("POST", `/api/generations/${selectedGen.id}/category`, { category: c.val });
-                                  const j = await r.json();
-                                  if (j.ok) {
-                                    let m: any = {}; try { m = JSON.parse((selectedGen as any).style || "{}"); } catch {}
-                                    m.category = c.val;
-                                    setSelectedGen({ ...selectedGen, style: JSON.stringify(m), voiceType: j.voiceType } as any);
-                                    queryClient.invalidateQueries();
-                                    toast({ title: `Категория: ${c.label}` });
-                                  } else toast({ title: j.message || "Ошибка", variant: "destructive" });
-                                } catch (e: any) { toast({ title: e.message, variant: "destructive" }); }
+                              onClick={() => {
+                                if (curCat === c.val) return; // already this category
+                                setPendingCategoryChange({ from: curCat, to: c.val, label: c.label });
                               }}
                             >{c.label}</button>
                           ))}
                         </div>
+                        <p className="text-[10px] text-muted-foreground mt-1.5">
+                          После смены трек переедет в соответствующий фильтр на главной.
+                        </p>
                       </div>
                     );
                   })()}
