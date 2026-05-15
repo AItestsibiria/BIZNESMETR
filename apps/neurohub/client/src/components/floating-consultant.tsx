@@ -888,8 +888,12 @@ export function FloatingConsultant() {
                 </div>
               );
             })()}
-            {/* History scroll */}
-            <div ref={chatScrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-2 min-h-0">
+            {/* History scroll
+                Eugene 2026-05-15 Босс «надо немного поднимать последний текст
+                вверх чата а то из-за ввода клиентом не видно». pb-8 → 32px
+                отступ снизу, чтобы последнее сообщение не упиралось в input
+                (особенно на мобилке когда клавиатура поднимает форму). */}
+            <div ref={chatScrollRef} className="flex-1 overflow-y-auto px-3 pt-3 pb-8 space-y-2 min-h-0 scroll-pb-8">
               {chatMsgs.length === 0 && (
                 <div className="text-[11px] text-white/40 text-center py-4">Загружаю…</div>
               )}
@@ -1001,6 +1005,17 @@ export function FloatingConsultant() {
                     trackEngagement("consultant_action", { action: "chat_start_typing" });
                   }
                   setChatInput(e.target.value);
+                }}
+                onFocus={() => {
+                  // Eugene 2026-05-15 Босс «надо поднимать последний текст».
+                  // На мобилке открытие клавиатуры скрывает последнее сообщение.
+                  // 2 раза с задержкой — пока браузер не пересчитал layout.
+                  setTimeout(() => {
+                    if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+                  }, 50);
+                  setTimeout(() => {
+                    if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+                  }, 350);
                 }}
                 placeholder={chatPaired ? "Продолжаем…" : "Сообщение Музе…"}
                 maxLength={1500}
