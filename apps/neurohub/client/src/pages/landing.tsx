@@ -894,7 +894,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
 
   if (tracks.length === 0) return null;
 
-  const currentTrack = tracks.find(t => t.id === playingId);
+  // Eugene 2026-05-15 Босс «нажатие на новые авторы → пропадает плеер».
+  // При переключении playlistKind tracks обновляется на новые → старый
+  // playingId не находится в tracks → currentTrack=undefined → плеер
+  // исчезал. Fallback на playingTrackRef сохраняет плеер видимым.
+  const currentTrack = tracks.find(t => t.id === playingId) || playingTrackRef.current;
   // Eugene 2026-05-15 Босс «при нажатии на обложку раскрывай большой плеер».
   const [bigPlayerOpen, setBigPlayerOpen] = useState(false);
   const progress = trackDuration > 0 ? (currentTime / trackDuration) * 100 : 0;
