@@ -1032,7 +1032,13 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               </div>
 
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Сейчас тестируем платформу. Подарочный трек получают <span className="text-purple-300 font-medium">первые 1000 будущих авторов песен и поздравлений</span> из России и ближнего зарубежья — зарегистрируйтесь сегодня, чтобы попасть в число первых.
+                Платформа находится в режиме отладки.
+              </p>
+              <p className="text-sm text-muted-foreground leading-relaxed mt-1">
+                Регистрируйтесь сегодня, чтобы попасть в число первых.
+              </p>
+              <p className="text-[11px] text-muted-foreground/70 leading-relaxed mt-2">
+                <span className="text-purple-300/90">*</span> Подарочный трек получают <span className="text-purple-300 font-medium">первые 1000 будущих авторов песен и поздравлений</span> из России и ближнего зарубежья!
               </p>
               <p className="text-sm text-muted-foreground leading-relaxed mt-2">
                 💡 Давайте пока подготовим вместе{" "}
