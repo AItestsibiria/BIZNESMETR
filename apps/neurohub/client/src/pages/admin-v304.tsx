@@ -1462,19 +1462,40 @@ function BotStatsTab({ toast }: { toast: any }) {
         </div>
       )}
 
-      {/* Города авторов */}
+      {/* Города авторов — Eugene 2026-05-15 Босс «миксуй Россию и известные
+          города мира». Реальные данные + showcase (mock) для визуального
+          богатства. Mock-городы помечаются пунктирным border + opacity. */}
       {data.cities.length > 0 && (
         <div className="rounded-xl p-4 bg-white/[0.02] border border-white/[0.06]">
-          <h3 className="text-[14px] font-semibold text-white mb-3">🌍 Города авторов (которые писали в чат)</h3>
+          <h3 className="text-[14px] font-semibold text-white mb-3">🌍 Города авторов (Россия + мир)</h3>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-1.5 text-[12px]">
-            {data.cities.map((c: any, i: number) => (
-              <div key={i} className="flex items-center gap-2 p-2 rounded bg-white/[0.03]">
-                <span className="text-white/90 truncate">{c.city}</span>
-                <span className="text-white/40 text-[10px] truncate">{c.country}</span>
-                <span className="text-purple-300/70 text-[11px] ml-auto">{fmt(c.sessions)}</span>
-              </div>
-            ))}
+            {data.cities.map((c: any, i: number) => {
+              const flagMap: Record<string, string> = {
+                RU: "🇷🇺", BY: "🇧🇾", KZ: "🇰🇿", UZ: "🇺🇿", UA: "🇺🇦", AM: "🇦🇲", AZ: "🇦🇿", GE: "🇬🇪", KG: "🇰🇬", TJ: "🇹🇯", TM: "🇹🇲", MD: "🇲🇩",
+                GB: "🇬🇧", US: "🇺🇸", FR: "🇫🇷", JP: "🇯🇵", AE: "🇦🇪", TR: "🇹🇷", DE: "🇩🇪", IT: "🇮🇹", ES: "🇪🇸", CN: "🇨🇳", CA: "🇨🇦", AU: "🇦🇺",
+              };
+              const flag = flagMap[String(c.country_code || c.countryCode || "").toUpperCase()] || "🌍";
+              return (
+                <div
+                  key={i}
+                  className={`flex items-center gap-2 p-2 rounded ${
+                    c.mock
+                      ? "bg-white/[0.015] border border-dashed border-white/10 opacity-75"
+                      : "bg-white/[0.03]"
+                  }`}
+                  title={c.mock ? "Демо-город (не реальная аудитория)" : "Реальный посетитель"}
+                >
+                  <span className="text-[14px] shrink-0">{flag}</span>
+                  <span className="text-white/90 truncate">{c.city}</span>
+                  <span className="text-white/40 text-[10px] truncate">{c.country}</span>
+                  <span className="text-purple-300/70 text-[11px] ml-auto tabular-nums">{fmt(c.sessions)}</span>
+                </div>
+              );
+            })}
           </div>
+          <p className="text-[10px] text-muted-foreground/60 mt-2">
+            🌍 — known showcase city (Россия + мир). Реальные посетители без пунктира.
+          </p>
         </div>
       )}
 

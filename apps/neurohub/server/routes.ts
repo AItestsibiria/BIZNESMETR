@@ -4658,7 +4658,7 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
       `).all(monthAgo);
 
       // Топ городов из visitors авторов которые писали в чат
-      const cities = raw.prepare(`
+      const realCities = raw.prepare(`
         SELECT v.city, v.country, v.country_code, COUNT(DISTINCT cs.id) AS sessions
         FROM chatbot_sessions cs
         JOIN visitors v ON v.user_id = cs.user_id
@@ -4667,6 +4667,46 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
         ORDER BY sessions DESC
         LIMIT 10
       `).all();
+
+      // Eugene 2026-05-15 Босс «в панели города рисуй Россию и известные
+      // города мира, миксуй». Дополняем реальные «showcase»-городами для
+      // визуального богатства (когда реальных мало). Mock-sessions
+      // детерминированы на основе текущего дня — стабильно за день,
+      // обновляются ежедневно.
+      const day = Math.floor(Date.now() / (24 * 3600 * 1000));
+      const seedRand = (n: number) => Math.abs((day * 9301 + n * 49297) % 233280) / 233280;
+      const showcase: Array<{ city: string; country: string; country_code: string }> = [
+        { city: "Москва", country: "Россия", country_code: "RU" },
+        { city: "Санкт-Петербург", country: "Россия", country_code: "RU" },
+        { city: "Казань", country: "Россия", country_code: "RU" },
+        { city: "Новосибирск", country: "Россия", country_code: "RU" },
+        { city: "Екатеринбург", country: "Россия", country_code: "RU" },
+        { city: "Краснодар", country: "Россия", country_code: "RU" },
+        { city: "Сочи", country: "Россия", country_code: "RU" },
+        { city: "Минск", country: "Беларусь", country_code: "BY" },
+        { city: "Алматы", country: "Казахстан", country_code: "KZ" },
+        { city: "Ташкент", country: "Узбекистан", country_code: "UZ" },
+        { city: "Лондон", country: "Великобритания", country_code: "GB" },
+        { city: "Нью-Йорк", country: "США", country_code: "US" },
+        { city: "Париж", country: "Франция", country_code: "FR" },
+        { city: "Токио", country: "Япония", country_code: "JP" },
+        { city: "Дубай", country: "ОАЭ", country_code: "AE" },
+        { city: "Стамбул", country: "Турция", country_code: "TR" },
+      ];
+      const realCityNames = new Set(realCities.map((c: any) => c.city));
+      const mockCities = showcase
+        .filter(s => !realCityNames.has(s.city))
+        .map((s, i) => ({
+          ...s,
+          sessions: Math.max(1, Math.round(seedRand(i + 1) * 30) + 1),
+          mock: true,
+        }));
+      // Mix: реальные сверху (по sessions DESC), затем mock-городы
+      // интерливятся по убыванию sessions. Limit 16 на отдачу.
+      const cities = [
+        ...realCities,
+        ...mockCities,
+      ].sort((a: any, b: any) => b.sessions - a.sessions).slice(0, 16);
 
       // Pair-codes выданные (cross-channel feature)
       const pairCodes = {
