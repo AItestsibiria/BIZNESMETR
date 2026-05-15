@@ -1040,7 +1040,10 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
                     navigator.clipboard.writeText(g.prompt || '');
                     toast({ title: 'Запрос скопирован', description: 'Вставьте в поле создания трека' });
                   }}>
-                  <p className="text-xs text-white/80 truncate">{g.displayTitle || g.prompt?.slice(0, 60)}</p>
+                  <p className="text-xs text-white/80 truncate flex items-center gap-1.5">
+                    <span className="text-[9px] font-mono px-1 py-0.5 rounded bg-white/[0.05] text-muted-foreground tabular-nums shrink-0">#{g.id}</span>
+                    <span className="truncate">{g.displayTitle || g.prompt?.slice(0, 60)}</span>
+                  </p>
                   <p className="text-[10px] text-muted-foreground/50 flex items-center gap-2 mt-0.5">
                     {styleLabel && <span className="text-purple-400/50">{styleLabel}</span>}
                     <span>Нажмите чтобы скопировать</span>
@@ -2305,6 +2308,15 @@ export default function DashboardPage() {
                           <span className="text-sm font-medium text-white">
                             {typeLabels[gen.type] || gen.type}
                           </span>
+                          {/* Eugene 2026-05-15 Босс «треки, обложки, тексты в
+                              дашборде отражают реальные номера генерации». */}
+                          <span
+                            className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/[0.05] text-muted-foreground tabular-nums shrink-0"
+                            title="Номер генерации — для поиска в админке/логах"
+                            data-testid={`gen-id-badge-${gen.id}`}
+                          >
+                            #{gen.id}
+                          </span>
                           <StatusIcon className={`w-3 h-3 ${statusCfg.color} ${gen.status === "processing" ? "animate-spin" : ""}`} />
                           {showAllGens && (gen as any).authorName && (
                             <span className="text-xs px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300">
@@ -2558,6 +2570,15 @@ export default function DashboardPage() {
                 return <Icon className="w-5 h-5" />;
               })()}
               {selectedGen && (typeLabels[selectedGen.type] || selectedGen.type)}
+              {/* Eugene 2026-05-15 Босс «реальные номера генерации в дашборде». */}
+              {selectedGen && (
+                <span
+                  className="text-xs font-mono px-2 py-0.5 rounded bg-white/[0.05] text-muted-foreground tabular-nums ml-auto"
+                  title="Номер генерации — для поиска в админке/логах"
+                >
+                  #{selectedGen.id}
+                </span>
+              )}
             </DialogTitle>
           </DialogHeader>
           {selectedGen && (
