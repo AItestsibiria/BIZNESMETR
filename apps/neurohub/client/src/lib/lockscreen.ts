@@ -64,6 +64,11 @@ function prewarmCover(trackId: number | string, bust?: string | number): Promise
 /**
  * Apply track metadata + action handlers to the Media Session.
  * Call this BEFORE audio.play(). It will pre-warm the cover image first.
+ *
+ * Eugene 2026-05-15 Босс «LS трек переключается а обложка нет»:
+ * 1. Сначала clear metadata (помогает iOS сбросить кэш artwork)
+ * 2. В bust добавляем Date.now() чтобы URL был уникальный при каждом
+ *    переключении → iOS перезагружает image, не берёт из кэша.
  */
 export async function setLockScreenTrack(
   meta: TrackMeta,
@@ -72,11 +77,17 @@ export async function setLockScreenTrack(
 ): Promise<void> {
   if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
 
+  // 0. Сброс старой metadata — заставляет iOS перезагрузить artwork.
+  try { navigator.mediaSession.metadata = null; } catch {}
+
+  // Unique bust — gluonизирует cache для нового artwork URL.
+  const uniqueBust = `${coverBust || meta.id}-${Date.now()}`;
+
   // 1. Pre-warm image
-  await prewarmCover(meta.id, coverBust);
+  await prewarmCover(meta.id, uniqueBust);
 
   // 2. Build artwork array with multiple absolute https URLs
-  const artwork = buildArtwork(meta.id, coverBust);
+  const artwork = buildArtwork(meta.id, uniqueBust);
 
   // 3. Set metadata
   const apply = () => {
