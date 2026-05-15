@@ -44,24 +44,36 @@ type SendResult = {
   responseRaw?: string;
 };
 
-// Eugene 2026-05-15 Босс «авторизация по звонку на номер» (flashcall).
-// Звонок-сервис делает короткий вызов от служебного номера +7XXXXXXX —
-// юзер видит входящий, последние 4 цифры этого номера = код. Юзер вводит
-// их → сравниваем с тем, что вернул API.
+// Eugene 2026-05-15 Босс «авторизация по звонку на номер» (callcheck).
+// ПРАВИЛЬНЫЙ flow согласно sms.ru/api/callcheck:
+// 1. Мы передаём API телефон юзера → API возвращает наш callPhone + checkId
+// 2. Юзер звонит со своего номера на callPhone (звонок бесплатный, сразу
+//    сбрасывается)
+// 3. Мы polling'уем /callcheck/status?check_id=X — статус 401 = подтверждён
+// 4. Никакого «введите код» — юзер просто звонит со своего номера
 type CallcheckResult = {
   ok: boolean;
-  callId?: string;       // check_id у sms.ru — для проверки статуса
-  callPhone?: string;    // полный номер откуда придёт звонок (+74957776666)
-  code?: string;         // последние 4 цифры этого номера = OTP
-  cost?: string;
+  callId?: string;            // check_id у sms.ru — для polling /status
+  callPhone?: string;         // наш служебный номер (78005008275)
+  callPhonePretty?: string;   // в красивом виде (+7 (800) 500-8275)
   errorMessage?: string;
   responseRaw?: string;
+};
+
+// Status polling result.
+type CallcheckStatusResult = {
+  ok: boolean;
+  checkStatus?: number;       // 100=ожидание, 400=не подтверждён, 401=подтверждён, 402=timeout
+  checkStatusText?: string;
+  verified: boolean;          // true если check_status === 401
+  errorMessage?: string;
 };
 
 interface SmsProvider {
   name: string;
   send(phone: string, text: string): Promise<SendResult>;
   callcheck?(phone: string): Promise<CallcheckResult>;
+  callcheckStatus?(checkId: string): Promise<CallcheckStatusResult>;
   getBalance?(): Promise<{ ok: boolean; balance?: string; currency?: string; error?: string }>;
 }
 
@@ -140,8 +152,9 @@ class SmsRuProvider implements SmsProvider {
 
   // Eugene 2026-05-15 Босс «авторизация по звонку».
   // sms.ru method: https://sms.ru/callcheck/add
-  // Возвращает code = последние 4 цифры номера, с которого пойдёт входящий
-  // звонок. Юзер вводит эти 4 цифры → верифицируем.
+  // Возвращает check_id + call_phone (наш служебный номер). Юзер звонит
+  // с своего телефона на этот call_phone — мы polling'уем /status пока
+  // не получим check_status=401 (подтверждён).
   async callcheck(phone: string): Promise<CallcheckResult> {
     if (!this.isConfigured()) {
       return { ok: false, errorMessage: "SMSRU_API_ID not configured" };
@@ -162,24 +175,74 @@ class SmsRuProvider implements SmsProvider {
       if (!j) {
         return { ok: false, errorMessage: `non-json response: ${text.slice(0, 200)}`, responseRaw: text };
       }
-      // Успех: status_code 100 + check_id + code (4 цифры) + call_phone.
-      if (j?.status === "OK" && j?.code) {
+      // Успех: status="OK" + status_code=100 + check_id + call_phone.
+      // ВНИМАНИЕ: api НЕ возвращает поле `code` — мы НЕ просим юзера ввести
+      // цифры. Юзер просто звонит со своего номера на call_phone.
+      if ((j?.status === "OK" || j?.status_code === 100) && j?.check_id && j?.call_phone) {
         return {
           ok: true,
-          callId: String(j.check_id || ""),
-          callPhone: String(j.call_phone || ""),
-          code: String(j.code),
-          cost: String(j.cost || ""),
+          callId: String(j.check_id),
+          callPhone: String(j.call_phone),
+          callPhonePretty: String(j.call_phone_pretty || j.call_phone),
           responseRaw: text.slice(0, 1000),
         };
       }
       return {
         ok: false,
-        errorMessage: `code=${j?.status_code} msg=${j?.status_text || "unknown"}`,
+        errorMessage: `code=${j?.status_code} msg=${j?.status_text || j?.status || "unknown"}`,
         responseRaw: text.slice(0, 1000),
       };
     } catch (e: any) {
       return { ok: false, errorMessage: String(e?.message || e).slice(0, 500) };
+    }
+  }
+
+  // Eugene 2026-05-15 Босс «авторизация по звонку».
+  // sms.ru method: https://sms.ru/callcheck/status?check_id=X
+  // Возвращает check_status:
+  //   100 — ждём звонок
+  //   400 — звонка ещё не было
+  //   401 — номер подтверждён (юзер позвонил)
+  //   402 — истекло время (5 мин) или неверный check_id
+  async callcheckStatus(checkId: string): Promise<CallcheckStatusResult> {
+    if (!this.isConfigured()) {
+      return { ok: false, verified: false, errorMessage: "SMSRU_API_ID not configured" };
+    }
+    if (!checkId) {
+      return { ok: false, verified: false, errorMessage: "checkId required" };
+    }
+    const params = new URLSearchParams({
+      api_id: this.apiId,
+      check_id: checkId,
+      json: "1",
+    });
+    try {
+      const r = await fetch(`https://sms.ru/callcheck/status?${params.toString()}`, {
+        method: "GET",
+        signal: AbortSignal.timeout(8_000),
+      });
+      const text = await r.text();
+      let j: any = null;
+      try { j = JSON.parse(text); } catch {}
+      if (!j) {
+        return { ok: false, verified: false, errorMessage: `non-json response: ${text.slice(0, 200)}` };
+      }
+      if (j?.status === "OK" || j?.status_code === 100) {
+        const cs = Number(j?.check_status);
+        return {
+          ok: true,
+          checkStatus: cs,
+          checkStatusText: String(j?.check_status_text || ""),
+          verified: cs === 401,
+        };
+      }
+      return {
+        ok: false,
+        verified: false,
+        errorMessage: `code=${j?.status_code} msg=${j?.status_text || j?.status || "unknown"}`,
+      };
+    } catch (e: any) {
+      return { ok: false, verified: false, errorMessage: String(e?.message || e).slice(0, 500) };
     }
   }
 }
@@ -266,9 +329,10 @@ const SendCallSchema = z.object({
   purpose: z.enum(["register", "login"]),
 });
 
-const VerifyCallSchema = z.object({
+// Eugene 2026-05-15: callcheck status-polling. Юзер не вводит код — фронт
+// polling'ует этот endpoint пока не получит verified:true.
+const CheckCallSchema = z.object({
   phone: z.string().min(5).max(30),
-  code: z.string().regex(/^\d{4}$/, "Введите 4 последние цифры номера, с которого позвонили"),
   purpose: z.enum(["register", "login"]),
 });
 
@@ -501,9 +565,13 @@ router.post("/send-call", async (req, res) => {
   const disableSend = process.env.SMS_OTP_DISABLE === "1";
   let result: CallcheckResult;
   if (disableSend) {
-    // Test mode: generate 4-digit code locally without making real call.
-    const fakeCode = String(crypto.randomInt(1000, 9999));
-    result = { ok: true, code: fakeCode, callPhone: "+74950000000", callId: "TEST" };
+    // Test mode: generate fake check_id + call_phone without real API call.
+    result = {
+      ok: true,
+      callId: `TEST-${Date.now()}`,
+      callPhone: "78005005555",
+      callPhonePretty: "+7 (800) 500-5555",
+    };
   } else {
     result = await (provider as any).callcheck(phone);
   }
@@ -517,7 +585,6 @@ router.post("/send-call", async (req, res) => {
       ok: result.ok,
       status: result.ok ? "sent" : "failed",
       providerMsgId: result.callId,
-      providerCost: result.cost,
       providerStatusText: result.ok ? `call from ${result.callPhone}` : (result.errorMessage || "unknown"),
       errorMessage: result.errorMessage,
       responseRaw: result.responseRaw,
@@ -525,20 +592,20 @@ router.post("/send-call", async (req, res) => {
     requestMeta: { country: v.country.code, zone: v.country.zone, ip: req.ip, callPhone: result.callPhone },
   });
 
-  if (!result.ok || !result.code) {
+  if (!result.ok || !result.callId || !result.callPhone) {
     return res.status(502).json({
       data: null,
       error: `Сервис звонков отклонил запрос: ${result.errorMessage || "unknown"}`,
     });
   }
 
-  // Сохраняем code как OTP с purpose=`call_${purpose}` (чтобы не пересекалось
-  // с SMS-OTP). Хранится hash 4-значного кода.
-  const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString(); // 5 мин TTL для звонка
+  // Сохраняем check_id в sms_otp.otpHash (плейн, не hash — это идентификатор).
+  // 5 мин TTL (как у sms.ru window).
+  const expiresAt = new Date(Date.now() + 5 * 60 * 1000).toISOString();
   try {
     db.insert(smsOtp).values({
       phone,
-      otpHash: hashOtp(result.code),
+      otpHash: result.callId,
       purpose: `call_${purpose}`,
       providerLogId: logId,
       expiresAt,
@@ -558,11 +625,11 @@ router.post("/send-call", async (req, res) => {
       country: v.country.code,
       countryName: v.country.name,
       callPhone: result.callPhone || null,
-      // Подсказка юзеру: «вам позвонят с номера, заканчивающегося на XXXX,
-      // введите последние 4 цифры». Полный номер для display.
-      hint: result.callPhone
-        ? `Ждите входящий звонок с номера ${result.callPhone}. Не отвечайте, просто введите последние 4 цифры этого номера.`
-        : "Ждите входящий звонок и введите последние 4 цифры номера, с которого позвонили.",
+      callPhonePretty: result.callPhonePretty || null,
+      checkId: result.callId,
+      hint: result.callPhonePretty
+        ? `Позвоните с вашего номера на ${result.callPhonePretty} — звонок бесплатный, сбросится автоматически.`
+        : "Позвоните с вашего номера на указанный номер — звонок бесплатный.",
       cooldownSec: 60,
       expiresInSec: 300,
     },
@@ -570,33 +637,60 @@ router.post("/send-call", async (req, res) => {
   });
 });
 
-router.post("/verify-call", async (req, res) => {
-  const parsed = VerifyCallSchema.safeParse(req.body);
+// Eugene 2026-05-15 Босс «авторизация по звонку» — polling-endpoint.
+// Frontend дёргает каждые 2-3 сек. Backend смотрит sms_otp → check_id →
+// дёргает sms.ru /callcheck/status. Если verified — финализирует.
+router.post("/check-call", async (req, res) => {
+  const parsed = CheckCallSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ data: null, error: parsed.error.issues[0]?.message || "invalid" });
   }
-  const { phone: phoneRaw, code, purpose } = parsed.data;
+  const { phone: phoneRaw, purpose } = parsed.data;
   const phone = normalizePhone(phoneRaw);
-  const codeHash = hashOtp(code);
   const callPurpose = `call_${purpose}`;
 
   const row = db.select().from(smsOtp)
     .where(and(eq(smsOtp.phone, phone), eq(smsOtp.purpose, callPurpose), eq(smsOtp.used, 0)))
     .orderBy(desc(smsOtp.id))
     .get() as any;
-  if (!row) return res.status(404).json({ data: null, error: "Код не найден или уже использован" });
-  if (row.attempts >= 5) {
-    return res.status(429).json({ data: null, error: "Превышены попытки — запросите новый звонок" });
-  }
+  if (!row) return res.status(404).json({ data: null, error: "Запрос не найден — нажмите 'Получить звонок' снова" });
   if (new Date(row.expiresAt).getTime() < Date.now()) {
-    return res.status(410).json({ data: null, error: "Срок действия кода истёк — запросите новый звонок" });
+    return res.status(410).json({ data: null, error: "Срок действия истёк (5 мин) — запросите новый звонок" });
   }
-  if (row.otpHash !== codeHash) {
-    try {
-      db.update(smsOtp).set({ attempts: row.attempts + 1 }).where(eq(smsOtp.id, row.id)).run();
-    } catch {}
-    return res.status(400).json({ data: null, error: "Неверный код — проверьте последние 4 цифры номера" });
+
+  const provider = getProvider();
+  if (typeof (provider as any).callcheckStatus !== "function") {
+    return res.status(501).json({ data: null, error: "Провайдер не поддерживает status polling" });
   }
+  const checkId = row.otpHash; // мы сохранили check_id здесь, не hash
+  const disableSend = process.env.SMS_OTP_DISABLE === "1";
+  // В test-mode (SMS_OTP_DISABLE=1) и checkId.startsWith('TEST-') — фейк verified
+  // через 10 сек после создания записи (для тестов на clone).
+  let statusRes: CallcheckStatusResult;
+  if (disableSend && typeof checkId === "string" && checkId.startsWith("TEST-")) {
+    const created = new Date((row as any).createdAt || row.expiresAt).getTime();
+    const isFakeVerified = Date.now() - created > 10_000;
+    statusRes = { ok: true, checkStatus: isFakeVerified ? 401 : 400, verified: isFakeVerified };
+  } else {
+    statusRes = await (provider as any).callcheckStatus(checkId);
+  }
+
+  if (!statusRes.verified) {
+    // Не подтверждён — фронт продолжает polling. Включая случай errorMessage
+    // (например провайдер временно недоступен — фронт ретраит ещё).
+    return res.json({
+      data: {
+        verified: false,
+        checkStatus: statusRes.checkStatus ?? null,
+        checkStatusText: statusRes.checkStatusText ?? null,
+        waiting: true,
+        error: statusRes.errorMessage || null,
+      },
+      error: null,
+    });
+  }
+
+  // Verified — отметим OTP used + финализируем как раньше.
   try {
     db.update(smsOtp).set({ used: 1 }).where(eq(smsOtp.id, row.id)).run();
   } catch {}
@@ -651,7 +745,7 @@ router.post("/verify-call", async (req, res) => {
 
     return res.status(400).json({ data: null, error: "Unknown purpose" });
   } catch (e) {
-    bootRefs?.logger.error?.("[auth-sms] verify-call finalize failed", { purpose, error: String(e) });
+    bootRefs?.logger.error?.("[auth-sms] check-call finalize failed", { purpose, error: String(e) });
     return res.status(500).json({ data: null, error: "Ошибка при создании сессии. Попробуйте ещё раз через минуту." });
   }
 });
@@ -675,8 +769,8 @@ router.get("/providers", async (_req, res) => {
 
 const authSmsModule: Module = {
   name: "auth-sms",
-  version: "0.2.0",
-  description: "SMS-OTP + Callcheck (flashcall) регистрация/авторизация через SMS.ru (РФ + СНГ). Logs провайдера в admin panel. Без SMSRU_API_ID — degraded (логи пишутся, отправки нет). Endpoints: /send-otp, /verify-otp, /send-call, /verify-call, /providers.",
+  version: "0.3.0",
+  description: "SMS-OTP + Callcheck (звонок от юзера на наш номер) регистрация/авторизация через SMS.ru (РФ + СНГ). Logs провайдера в admin panel. Без SMSRU_API_ID — degraded (логи пишутся, отправки нет). Endpoints: /send-otp, /verify-otp, /send-call, /check-call (polling), /providers.",
   routes: { prefix: "auth/sms", router },
   publishes: ["auth.sms_otp_sent", "auth.sms_otp_verified", "auth.call_otp_sent", "auth.call_otp_verified"],
   onLoad: async (ctx) => {

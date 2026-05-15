@@ -66,8 +66,11 @@ export default function PhoneOtpForm({
   const [error, setError] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState(0);    // 60 сек между повторами
   const [countryHint, setCountryHint] = useState<string | null>(null);
-  const [callHint, setCallHint] = useState<string | null>(null);   // полная подсказка про звонок
-  const [callPhone, setCallPhone] = useState<string | null>(null); // номер с которого звонят
+  const [callHint, setCallHint] = useState<string | null>(null);
+  const [callPhone, setCallPhone] = useState<string | null>(null);   // raw, для tel:link
+  const [callPhonePretty, setCallPhonePretty] = useState<string | null>(null); // для display
+  const [callExpiresAt, setCallExpiresAt] = useState<number | null>(null); // unix ms
+  const [callPollAttempts, setCallPollAttempts] = useState(0);
 
   // Cooldown tick.
   useEffect(() => {
@@ -75,6 +78,62 @@ export default function PhoneOtpForm({
     const t = setTimeout(() => setCooldown(c => c - 1), 1000);
     return () => clearTimeout(t);
   }, [cooldown]);
+
+  // Eugene 2026-05-15 Босс «авторизация по звонку» — polling. Юзер звонит,
+  // мы проверяем /check-call каждые 3 сек. Если verified=true → onVerified.
+  // Stop conditions: verified | expires | unmount | server error 410.
+  const pollRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (step !== "code" || method !== "call") return;
+    if (!callExpiresAt) return;
+    let cancelled = false;
+
+    const tick = async () => {
+      if (cancelled) return;
+      if (Date.now() > callExpiresAt) {
+        setError("Время ожидания истекло (5 мин). Запросите новый звонок.");
+        return;
+      }
+      try {
+        const r = await apiRequest("POST", "/api/auth/sms/check-call", { phone, purpose });
+        const j = await r.json();
+        if (cancelled) return;
+        if (j?.error) {
+          // 410 expired / 404 not found → стоп.
+          setError(j.error);
+          return;
+        }
+        if (j?.data?.verified === true && j?.data?.token) {
+          onVerified({
+            phone: j.data.phone || phone,
+            purpose,
+            token: j.data.token,
+            userId: j.data.userId,
+            alreadyExists: j.data.alreadyExists,
+            method: "call",
+          });
+          return;
+        }
+        setCallPollAttempts(a => a + 1);
+        // продолжаем — следующий tick
+        pollRef.current = window.setTimeout(tick, 3000);
+      } catch (e: any) {
+        if (cancelled) return;
+        // Сетевой / временный — продолжаем polling (не показываем error).
+        pollRef.current = window.setTimeout(tick, 4000);
+      }
+    };
+    // Первый запрос с задержкой 2 сек (даём sms.ru обработать /add).
+    pollRef.current = window.setTimeout(tick, 2000);
+    return () => {
+      cancelled = true;
+      if (pollRef.current) {
+        clearTimeout(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, method, callExpiresAt]);
 
   // Web OTP API — Android Chrome. Только для SMS-flow (call не передаёт код
   // через SMS, нечего слушать). AbortController чтобы прерывать при unmount.
@@ -152,12 +211,17 @@ export default function PhoneOtpForm({
       if (used === "call") {
         setCallHint(res.data?.hint || null);
         setCallPhone(res.data?.callPhone || null);
+        setCallPhonePretty(res.data?.callPhonePretty || res.data?.callPhone || null);
+        // sms.ru даёт 5 минут на звонок. Считаем deadline для UI countdown.
+        setCallExpiresAt(Date.now() + (Number(res.data?.expiresInSec || 300) * 1000));
+        setCallPollAttempts(0);
       } else {
-        // SMS-step: если был fallback — показать pop-up почему.
         setCallHint(fellBack
           ? "Звонок временно недоступен — мы прислали SMS с 6-значным кодом."
           : null);
         setCallPhone(null);
+        setCallPhonePretty(null);
+        setCallExpiresAt(null);
       }
       setStep("code");
       setCooldown(60);
@@ -275,62 +339,103 @@ export default function PhoneOtpForm({
     );
   }
 
-  // Step "code" — раздельные UI для SMS (6 цифр) и call (4 цифры из номера).
+  // Step "code" — раздельные UI для SMS (6-значный код) и call (юзер сам
+  // звонит на наш номер, мы ждём webhook/polling — никакого ввода кода).
   const isCall = method === "call";
-  const codeLen = isCall ? 4 : 6;
 
+  // CALL flow: показываем call_phone_pretty крупно + кнопку tel:link +
+  // статус polling'a. Юзер ничего не вводит.
+  if (isCall) {
+    const expiresInSec = callExpiresAt ? Math.max(0, Math.floor((callExpiresAt - Date.now()) / 1000)) : 0;
+    const mm = String(Math.floor(expiresInSec / 60)).padStart(2, "0");
+    const ss = String(expiresInSec % 60).padStart(2, "0");
+    return (
+      <div className="space-y-4">
+        <p className="text-sm text-center text-muted-foreground">
+          Подтверждение по звонку с номера <span className="text-white font-medium">{phone}</span>
+          {countryHint && <span className="block text-[11px] mt-1 opacity-70">{countryHint}</span>}
+        </p>
+
+        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 text-center">
+          <p className="text-[11px] text-emerald-200/80 mb-2">Позвоните прямо сейчас на номер:</p>
+          <a
+            href={callPhone ? `tel:+${callPhone.replace(/^\+/, "")}` : "#"}
+            className="inline-block text-2xl font-bold text-white tracking-wide hover:text-emerald-200 transition-colors"
+            data-testid="call-phone-link"
+          >
+            📞 {callPhonePretty || callPhone || "—"}
+          </a>
+          <p className="text-[11px] text-emerald-200/80 mt-2">
+            Звонок <span className="font-semibold">бесплатный</span>, сбросится автоматически. После этого вход произойдёт сам.
+          </p>
+        </div>
+
+        <div className="text-center">
+          <p className="text-[11px] text-muted-foreground">
+            Ждём звонок… <span className="font-mono tabular-nums text-white/80">{mm}:{ss}</span>
+          </p>
+          <div className="flex justify-center mt-2">
+            <Loader2 className="w-4 h-4 animate-spin text-emerald-300" />
+          </div>
+        </div>
+
+        {error && (
+          <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+            {error}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between text-xs">
+          <button
+            onClick={() => {
+              setStep("phone"); setError(null); setCallHint(null);
+              setCallPhone(null); setCallPhonePretty(null); setCallExpiresAt(null);
+            }}
+            className="text-muted-foreground hover:text-white"
+            disabled={loading}
+          >
+            ← Изменить номер
+          </button>
+          <button
+            onClick={sendOtp}
+            disabled={loading || cooldown > 0}
+            className="text-muted-foreground hover:text-white disabled:opacity-40"
+          >
+            {cooldown > 0 ? `Повторить через ${cooldown}с` : "Новый звонок"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // SMS flow (без изменений).
   return (
     <div className="space-y-3">
       <p className="text-sm text-center text-muted-foreground">
-        {isCall ? (
-          <>
-            Звонок на <span className="text-white font-medium">{phone}</span>
-            {callPhone && (
-              <span className="block text-[12px] mt-1 text-emerald-200">
-                Ждите входящий с номера<br />
-                <span className="font-mono font-bold text-base text-white">{callPhone}</span>
-              </span>
-            )}
-            {callHint && <span className="block text-[11px] mt-2 opacity-80">{callHint}</span>}
-            {!callHint && <span className="block text-[11px] mt-2 opacity-70">Не отвечайте — просто введите последние 4 цифры номера.</span>}
-          </>
-        ) : (
-          <>
-            Код отправлен на <span className="text-white font-medium">{phone}</span>
-            {countryHint && <span className="block text-[11px] mt-1 opacity-70">{countryHint}</span>}
-            {/* Eugene 2026-05-15 Босс «всё чтобы работало» — fallback hint:
-                если изначально юзер выбрал звонок, но провайдер отказал —
-                показываем что мы переключились на SMS, не теряя его. */}
-            {callHint && (
-              <span className="block text-[11px] mt-2 px-2 py-1 rounded bg-amber-500/15 border border-amber-500/30 text-amber-200">
-                ℹ️ {callHint}
-              </span>
-            )}
-          </>
+        Код отправлен на <span className="text-white font-medium">{phone}</span>
+        {countryHint && <span className="block text-[11px] mt-1 opacity-70">{countryHint}</span>}
+        {callHint && (
+          <span className="block text-[11px] mt-2 px-2 py-1 rounded bg-amber-500/15 border border-amber-500/30 text-amber-200">
+            ℹ️ {callHint}
+          </span>
         )}
       </p>
       <div className="space-y-2">
-        <Label className="text-sm text-muted-foreground">
-          {isCall ? "Последние 4 цифры номера, с которого позвонили" : "Введите 6-значный код"}
-        </Label>
+        <Label className="text-sm text-muted-foreground">Введите 6-значный код</Label>
         <Input
           type="text"
           inputMode="numeric"
-          maxLength={codeLen}
-          autoComplete={isCall ? "off" : "one-time-code"}
-          name={isCall ? "callcheck" : "otp"}
+          maxLength={6}
+          autoComplete="one-time-code"
+          name="otp"
           value={code}
-          onChange={e => setCode(e.target.value.replace(/\D/g, "").slice(0, codeLen))}
-          placeholder={isCall ? "0000" : "000000"}
-          className={`bg-background/50 border-white/10 text-center text-2xl tracking-[0.3em] font-bold ${
-            isCall ? "border-emerald-500/30" : ""
-          }`}
+          onChange={e => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+          placeholder="000000"
+          className="bg-background/50 border-white/10 text-center text-2xl tracking-[0.3em] font-bold"
           autoFocus
         />
         <p className="text-[11px] text-muted-foreground text-center">
-          {isCall
-            ? "Например, если позвонили с +7 495 777 1234 — введите 1234."
-            : "На iOS код подставится автоматически. На Android — после прихода SMS."}
+          На iOS код подставится автоматически. На Android — после прихода SMS.
         </p>
       </div>
       {error && (
@@ -340,14 +445,14 @@ export default function PhoneOtpForm({
       )}
       <Button
         className="w-full btn-gradient"
-        disabled={loading || code.length !== codeLen}
+        disabled={loading || code.length !== 6}
         onClick={() => doVerify()}
       >
         {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : submitLabel}
       </Button>
       <div className="flex items-center justify-between text-xs">
         <button
-          onClick={() => { setStep("phone"); setCode(""); setError(null); setCallHint(null); setCallPhone(null); }}
+          onClick={() => { setStep("phone"); setCode(""); setError(null); setCallHint(null); }}
           className="text-muted-foreground hover:text-white"
           disabled={loading}
         >
@@ -358,7 +463,7 @@ export default function PhoneOtpForm({
           disabled={loading || cooldown > 0}
           className="text-muted-foreground hover:text-white disabled:opacity-40"
         >
-          {cooldown > 0 ? `Повторить через ${cooldown}с` : (isCall ? "Позвонить ещё раз" : "Отправить ещё раз")}
+          {cooldown > 0 ? `Повторить через ${cooldown}с` : "Отправить ещё раз"}
         </button>
       </div>
     </div>

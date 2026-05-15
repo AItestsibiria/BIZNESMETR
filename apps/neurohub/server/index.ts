@@ -1,3 +1,39 @@
+// Eugene 2026-05-15 Босс: PM2 запускается без `source .env`, поэтому
+// process.env содержит только NODE_ENV+PORT из ecosystem.config.cjs.
+// Минимальный inline .env-loader (без npm-зависимости) — выполняется до
+// любых других импортов. Иначе плагины (auth-sms, gptunnel, etc) на boot'е
+// читают process.env.* и видят undefined → degraded mode.
+(() => {
+  try {
+    const fs = require("fs");
+    const path = require("path");
+    const envPath = path.resolve(process.cwd(), ".env");
+    if (!fs.existsSync(envPath)) return;
+    const text = fs.readFileSync(envPath, "utf-8");
+    let loaded = 0;
+    for (const line of text.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const eq = trimmed.indexOf("=");
+      if (eq < 0) continue;
+      const key = trimmed.slice(0, eq).trim();
+      let val = trimmed.slice(eq + 1);
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      // PITFALLS #12 — strip leading whitespace (smart-paste от clipboard).
+      val = val.replace(/^\s+/, "");
+      if (!(key in process.env)) {
+        process.env[key] = val;
+        loaded++;
+      }
+    }
+    console.log(`[env-loader] loaded ${loaded} vars from ${envPath}`);
+  } catch (e: any) {
+    console.warn("[env-loader] failed:", e?.message || e);
+  }
+})();
+
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
