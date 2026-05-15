@@ -1165,6 +1165,53 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       </div>
     </section>
 
+    {/* Eugene 2026-05-15 Босс «Музу в топ рейтинга до понедельника» —
+        большая Муза-секция в landing (SEO + visibility). H1/H2 содержит
+        «Муза», «MuzaAi», ключевики. Структурированная для Schema.org. */}
+    <section id="muza-section" className="relative z-[1] py-16 px-4 border-t border-white/[0.04] bg-gradient-to-b from-transparent via-purple-500/[0.03] to-transparent">
+      <div className="max-w-5xl mx-auto">
+        <div className="flex flex-col md:flex-row items-center gap-8">
+          <div className="w-32 h-32 sm:w-40 sm:h-40 shrink-0 rounded-2xl bg-gradient-to-br from-purple-500/30 via-violet-500/25 to-blue-500/25 border-2 border-purple-300/40 flex items-center justify-center shadow-[0_0_48px_rgba(168,85,247,0.3)] relative overflow-hidden">
+            <span className="absolute inset-0 bg-gradient-to-br from-purple-500/20 to-blue-500/20 blur-xl" aria-hidden="true" />
+            <div className="relative z-10 text-7xl">🎀</div>
+          </div>
+          <div className="flex-1 text-center md:text-left">
+            <h2 className="text-3xl sm:text-4xl font-bold mb-3 leading-tight">
+              <span className="bg-gradient-to-r from-purple-300 via-violet-200 to-blue-300 bg-clip-text text-transparent">Муза</span>
+              {" "}— твой ИИ-помощник
+            </h2>
+            <p className="text-base sm:text-lg text-muted-foreground mb-4 leading-relaxed max-w-2xl">
+              Виртуальная Муза помогает создать песню, обложку и текст за минуту.
+              Опишите событие — Муза предложит стиль, голос, настроение и сгенерирует трек.
+              Поп, рок, рэп, классика, шансон, инди — все жанры на MuzaAi.
+            </p>
+            <div className="flex flex-wrap items-center gap-2 justify-center md:justify-start">
+              <span className="text-xs px-3 py-1.5 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-200">🎵 Музыка с ИИ</span>
+              <span className="text-xs px-3 py-1.5 rounded-full bg-pink-500/15 border border-pink-500/30 text-pink-200">🎉 Песня в подарок</span>
+              <span className="text-xs px-3 py-1.5 rounded-full bg-cyan-500/15 border border-cyan-500/30 text-cyan-200">📝 Текст и обложка</span>
+              <span className="text-xs px-3 py-1.5 rounded-full bg-amber-400/15 border border-amber-400/40 text-amber-200">🆓 Первый трек бесплатно</span>
+            </div>
+            <div className="mt-5 flex flex-wrap items-center gap-3 justify-center md:justify-start">
+              <button
+                onClick={() => { if (user) navigate("/music"); else navigate("/register-phone"); }}
+                className="btn-cosmic rounded-full px-7 py-3 text-base h-auto"
+              >
+                ♪ Создать с Музой
+              </button>
+              <a
+                href="https://t.me/Muziaipodari_bot"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm px-5 py-3 rounded-full border border-white/15 bg-white/[0.04] text-white/80 hover:bg-white/[0.08] hover:text-white inline-flex items-center gap-2"
+              >
+                📱 Муза в Telegram
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section id="playlist-section" className="relative z-[1] py-20 px-4 border-t border-white/[0.04]">
       {/* Eugene 2026-05-15 Босс «больше на 30% по высоте и ширине поля плейлиста».
           max-w-3xl (768px) → max-w-5xl (1024px) = +33% ширина.
@@ -1965,10 +2012,13 @@ export default function LandingPage() {
             <span className="text-sm text-purple-300 font-medium">Нейросети для музыки</span>
           </div>
 
+          {/* Eugene 2026-05-15 Босс «Музу в топ рейтинга». H1 содержит
+              «Муза» + «MuzaAi» — критичный SEO-сигнал для Яндекс/Google. */}
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold mb-6 leading-tight tracking-tight" data-testid="text-hero-title">
             <span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent">Muza</span><span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">Ai</span>
+            <span className="text-foreground"> · Муза</span>
             <br />
-            <span className="text-foreground">музыка с искусственным интеллектом</span>
+            <span className="text-foreground">создай песню с ИИ за минуту</span>
           </h1>
 
           {/* Hero Equalizer — the source of all music */}

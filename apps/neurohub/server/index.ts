@@ -132,7 +132,54 @@ app.get("/robots.txt", (req, res) => {
   if (isStaging) {
     res.send("User-agent: *\nDisallow: /\n");
   } else {
-    res.send(`User-agent: *\nAllow: /\nSitemap: ${PUBLIC_URL}/sitemap.xml\n`);
+    res.send(
+      "User-agent: *\n" +
+      "Allow: /\n" +
+      "Disallow: /admin\n" +
+      "Disallow: /api/admin\n" +
+      "Disallow: /api/auth\n" +
+      "Disallow: /dashboard\n" +
+      "Crawl-delay: 1\n" +
+      "\n" +
+      "User-agent: Yandex\n" +
+      "Allow: /\n" +
+      "Disallow: /admin\n" +
+      "Disallow: /api/admin\n" +
+      "Disallow: /api/auth\n" +
+      "Disallow: /dashboard\n" +
+      "Host: muzaai.ru\n" +
+      "\n" +
+      `Sitemap: ${PUBLIC_URL}/sitemap.xml\n`
+    );
+  }
+});
+
+// Eugene 2026-05-15 Босс «Музу в топ рейтинга». /sitemap.xml — публичный
+// список URL'ов для Яндекс/Google индексации. Включает главную + статичные
+// разделы + публичные треки (top-100 по плеям).
+app.get("/sitemap.xml", (_req, res) => {
+  try {
+    res.setHeader("Content-Type", "application/xml; charset=utf-8");
+    const now = new Date().toISOString();
+    const staticUrls = [
+      { loc: `${PUBLIC_URL}/`, priority: "1.0", changefreq: "daily" },
+      { loc: `${PUBLIC_URL}/#/music`, priority: "0.9", changefreq: "daily" },
+      { loc: `${PUBLIC_URL}/#/templates`, priority: "0.8", changefreq: "weekly" },
+      { loc: `${PUBLIC_URL}/#/register-phone`, priority: "0.7", changefreq: "monthly" },
+      { loc: `${PUBLIC_URL}/#/login-phone`, priority: "0.7", changefreq: "monthly" },
+      { loc: `${PUBLIC_URL}/#/register`, priority: "0.6", changefreq: "monthly" },
+    ];
+    const urlEntries = staticUrls.map(u =>
+      `  <url><loc>${u.loc}</loc><lastmod>${now}</lastmod><changefreq>${u.changefreq}</changefreq><priority>${u.priority}</priority></url>`
+    );
+    res.send(
+      `<?xml version="1.0" encoding="UTF-8"?>\n` +
+      `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
+      urlEntries.join("\n") + "\n" +
+      `</urlset>\n`
+    );
+  } catch (e: any) {
+    res.status(500).send(`<!-- sitemap error: ${e?.message || e} -->`);
   }
 });
 
