@@ -1298,53 +1298,31 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
 
         {/* Expanded cover rendered inline after selected track (see renderExpandedCover below) */}
 
-        {/* Eugene 2026-05-15 Босс «2 плейлиста — кнопки заметные, ключевой
-            выбор». Большие кнопки-табы, виден контраст active/inactive,
-            glow для активного. */}
-        <div className="mb-5">
-          <div className="grid grid-cols-2 gap-2 sm:gap-3 max-w-2xl mx-auto">
-            {(["main", "new"] as const).map(kind => {
-              const active = playlistKind === kind;
-              const isMain = kind === "main";
-              return (
-                <button
-                  key={kind}
-                  onClick={() => setPlaylistKind(kind)}
-                  className={`relative group overflow-hidden rounded-xl px-3 py-3 sm:py-4 text-center transition-all duration-300 ${
-                    active
-                      ? isMain
-                        ? "bg-gradient-to-br from-purple-500/30 via-pink-500/25 to-amber-500/25 border-2 border-purple-400/60 shadow-[0_0_24px_rgba(168,85,247,0.35)] scale-[1.02]"
-                        : "bg-gradient-to-br from-emerald-500/30 via-cyan-500/25 to-blue-500/25 border-2 border-emerald-400/60 shadow-[0_0_24px_rgba(16,185,129,0.35)] scale-[1.02]"
-                      : "bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20"
-                  }`}
-                  data-testid={`pl-toggle-${kind}`}
-                >
-                  {active && (
-                    <span aria-hidden className={`absolute inset-0 rounded-xl opacity-50 blur-md pointer-events-none ${
-                      isMain ? "bg-gradient-to-br from-purple-500/40 to-amber-500/30" : "bg-gradient-to-br from-emerald-500/40 to-cyan-500/30"
-                    }`} />
-                  )}
-                  <div className="relative z-10">
-                    <div className={`text-2xl sm:text-3xl mb-1 ${active ? "" : "opacity-60"}`}>
-                      {isMain ? "🏆" : "✨"}
-                    </div>
-                    <div className={`font-bold text-sm sm:text-base ${
-                      active
-                        ? isMain ? "text-purple-100" : "text-emerald-100"
-                        : "text-white/70"
-                    }`}>
-                      {isMain ? "Плейлист авторов" : "Новые авторы"}
-                    </div>
-                    <div className={`text-[10px] sm:text-xs mt-0.5 ${
-                      active ? "text-white/80" : "text-muted-foreground"
-                    }`}>
-                      {isMain ? "одобрено редакцией" : "только что опубликовано"}
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+        {/* Eugene 2026-05-15 Босс «уменьшить в 5 раз» + «новые авторы =
+            Плейлист новые авторы». Компактный inline-toggle справа от
+            заголовка плейлиста. Active = подкрашенный pill, маленький. */}
+        <div className="mb-3 flex items-center gap-1.5 flex-wrap">
+          {(["main", "new"] as const).map(kind => {
+            const active = playlistKind === kind;
+            const isMain = kind === "main";
+            return (
+              <button
+                key={kind}
+                onClick={() => setPlaylistKind(kind)}
+                className={`inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-full border transition-colors ${
+                  active
+                    ? isMain
+                      ? "border-purple-400/60 bg-purple-500/15 text-purple-200"
+                      : "border-emerald-400/60 bg-emerald-500/15 text-emerald-200"
+                    : "border-white/10 bg-white/[0.04] text-muted-foreground hover:text-white"
+                }`}
+                data-testid={`pl-toggle-${kind}`}
+              >
+                <span className={active ? "" : "opacity-60"}>{isMain ? "🏆" : "✨"}</span>
+                <span>{isMain ? "Плейлист авторов" : "Плейлист новые авторы"}</span>
+              </button>
+            );
+          })}
         </div>
 
         {/* Category filter (Eugene 2026-05-14 Босс: вернул Инструментальную) */}

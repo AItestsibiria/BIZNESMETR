@@ -1813,6 +1813,11 @@ function DraftForm({ form, setForm, onSave, onCancel }: { form: Partial<SongDraf
 
 export default function DashboardPage() {
   const { user, refreshUser, isLoading: authLoading } = useAuth();
+  // Eugene 2026-05-15 hotfix: isAdmin + geoDialog были только в MyPlaylist
+  // scope, но используются и в основном render DashboardPage (map треков).
+  // Без них на prod — ReferenceError при рендере /dashboard.
+  const isAdmin = user?.email === "egnovoselov@gmail.com";
+  const [geoDialog, setGeoDialog] = useState<{ open: boolean; genId: number | null; title: string }>({ open: false, genId: null, title: "" });
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [toppingUp, setToppingUp] = useState(false);
@@ -2472,6 +2477,15 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* Eugene 2026-05-15 hotfix: GeoActivityDialog рендерится и в Dashboard
+          (admin-клик на ▶N в основном списке треков). Был только в MyPlaylist. */}
+      <GeoActivityDialog
+        genId={geoDialog.genId}
+        open={geoDialog.open}
+        onClose={() => setGeoDialog({ open: false, genId: null, title: "" })}
+        title={geoDialog.title}
+      />
 
       {/* Eugene 2026-05-15 Босс «обязательно подтверждение автором смены стиля».
           Modal появляется при попытке смены category на отличную от текущей. */}
