@@ -934,7 +934,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               </div>
               <h3 className="text-lg font-bold mb-2"><span className="text-white">У нас появилась </span><span className="bg-gradient-to-r from-pink-400 via-purple-400 to-blue-400 bg-clip-text text-transparent">Муза</span></h3>
               <p className="text-sm text-muted-foreground leading-relaxed">
-                Пройдёт с вами весь путь — от идеи до готового трека. Поможет с регистрацией, выберет волшебный сценарий, соберёт текст. <span className="text-pink-300 font-medium">Нажмите — поговорите →</span>
+                Пройдёт с вами весь путь — от идеи до готового трека. Поможет с регистрацией, выберет волшебный сценарий, соберёт текст песни. <span className="text-pink-300 font-medium">Нажмите — поговорите →</span>
               </p>
             </div>
           </div>
