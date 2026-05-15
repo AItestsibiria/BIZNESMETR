@@ -106,6 +106,8 @@ export default function RegisterPage() {
               <Label className="text-sm text-muted-foreground">Введите 6-значный код</Label>
               <Input
                 type="text" inputMode="numeric" maxLength={6}
+                autoComplete="one-time-code"
+                name="otp"
                 value={verifyCode} onChange={e => setVerifyCode(e.target.value.replace(/\D/g, ''))}
                 placeholder="000000" className="bg-background/50 border-white/10 text-center text-2xl tracking-[0.3em] font-bold"
                 autoFocus
