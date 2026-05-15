@@ -374,13 +374,16 @@ export default function PhoneOtpForm({
           {countryHint && <span className="block text-[11px] mt-1 opacity-70">{countryHint}</span>}
         </p>
 
-        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 text-center">
+        {/* Eugene 2026-05-15 Босс «цвета в стили MuzaAi» — brand-gradient
+            purple → violet → blue (фирменная гамма MuzaAi), вместо
+            emerald/cyan. БЕСПЛАТНЫЙ pill amber (контрастный akcent). */}
+        <div className="bg-gradient-to-br from-purple-500/15 via-violet-500/10 to-blue-500/15 border border-purple-400/40 rounded-xl p-4 text-center shadow-[0_0_24px_rgba(168,85,247,0.15)]">
           <p className="text-sm text-white font-medium mb-2">
             📞 Позвоните на этот номер:
           </p>
           <a
             href={telHref}
-            className="inline-block px-5 py-3 mb-2 rounded-xl bg-gradient-to-r from-emerald-500/30 to-cyan-500/25 border-2 border-emerald-400/60 text-3xl font-extrabold text-white tracking-wide hover:scale-[1.02] transition-transform shadow-lg shadow-emerald-500/20"
+            className="inline-block px-5 py-3 mb-2 rounded-xl bg-gradient-to-r from-purple-500/30 via-violet-500/25 to-blue-500/25 border-2 border-purple-300/60 text-3xl font-extrabold text-white tracking-wide hover:scale-[1.02] transition-transform shadow-lg shadow-purple-500/25"
             data-testid="call-phone-link"
           >
             {callPhonePretty || callPhone || "—"}
@@ -388,13 +391,13 @@ export default function PhoneOtpForm({
           <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-400/15 border border-amber-400/40 text-amber-200 text-[11px] font-bold tracking-wide ml-2">
             🆓 БЕСПЛАТНЫЙ
           </div>
-          <p className="text-[11px] text-emerald-200/80 mt-3">
+          <p className="text-[11px] text-purple-200/80 mt-3">
             Звонок сбросится автоматически. После этого вы войдёте в кабинет — никаких кодов вводить не надо.
           </p>
           <div className="flex items-center justify-center gap-2 mt-3">
             <a
               href={telHref}
-              className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-white/90 hover:bg-white/15"
+              className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-gradient-to-r from-purple-500/25 to-blue-500/20 border border-purple-300/40 text-purple-100 hover:from-purple-500/35 hover:to-blue-500/30 transition-colors"
               data-testid="link-call-now"
             >
               📞 Позвонить сейчас
@@ -402,7 +405,7 @@ export default function PhoneOtpForm({
             <a
               href={vcardHref}
               download="MuzaAi-vhod.vcf"
-              className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/70 hover:bg-white/[0.08] hover:text-white"
+              className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-white/[0.04] border border-purple-300/20 text-white/70 hover:bg-purple-500/10 hover:text-white"
               data-testid="link-save-vcard"
             >
               💾 Сохранить в контакты
@@ -415,7 +418,7 @@ export default function PhoneOtpForm({
             Звоните… ждём подтверждение <span className="font-mono tabular-nums text-white/80">{mm}:{ss}</span>
           </p>
           <div className="flex justify-center mt-2">
-            <Loader2 className="w-4 h-4 animate-spin text-emerald-300" />
+            <Loader2 className="w-4 h-4 animate-spin text-purple-300" />
           </div>
         </div>
 
