@@ -956,42 +956,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     {/* News section */}
     <section className="relative z-[1] py-10 px-4 border-t border-white/[0.04]">
       <div className="max-w-2xl mx-auto space-y-4">
-        {/* 9 мая 2026 — Музыка под событие */}
-        {/* 12 мая 2026 — друг компании / помощница (Eugene 2026-05-12).
-            При клике скроллит к нижнему углу и открывает меню floating-
-            consultant. Никаких внешних ссылок — юзер сам выбирает что
-            делать через её меню. */}
-        <button
-          type="button"
-          onClick={() => {
-            try {
-              window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
-              setTimeout(() => window.dispatchEvent(new Event("open-consultant")), 500);
-            } catch {}
-          }}
-          className="block w-full text-left glass-card rounded-2xl p-6 border border-pink-500/30 hover:border-pink-500/50 transition-colors cursor-pointer"
-        >
-          <div className="flex items-start gap-3">
-            <div className="w-14 shrink-0 flex items-start justify-center">
-              <img
-                src="/consultant-avatar.svg"
-                alt="Муза"
-                className="w-14 h-20 sm:w-14 sm:h-20 object-contain"
-                draggable={false}
-              />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-300 font-medium">Новости</span>
-                <span className="text-[10px] text-muted-foreground">12 мая 2026</span>
-              </div>
-              <h3 className="text-lg font-bold mb-2"><span className="text-white">У нас появилась </span><span className="bg-gradient-to-r from-pink-400 via-purple-400 to-blue-400 bg-clip-text text-transparent">Муза</span></h3>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                Пройдёт с вами весь путь — от идеи до готового трека. Поможет с регистрацией, поможет создать текст песни. <span className="text-pink-300 font-medium">Нажмите — поговорите →</span>
-              </p>
-            </div>
-          </div>
-        </button>
+        {/* Новость от 12 мая 2026 удалена по правилу news-block-3-max
+            (Eugene 2026-05-15) — освобождает место для более свежих. */}
 
         {/* 12 апреля 2026 — «Поехали» (восстановлено Eugene 2026-05-12,
             без упоминания 1000₽). Анимация gift-box + ноты у звёзд. */}
