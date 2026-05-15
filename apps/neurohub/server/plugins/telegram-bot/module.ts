@@ -423,7 +423,7 @@ async function reEngageInactiveUsers(): Promise<void> {
         const j: any = await r.json();
         const text = String(j?.content?.[0]?.text || "").trim();
         if (!text) continue;
-        const footer = `\n\n— ${persona.name} · МузиАй`;
+        const footer = `\n\n— ${persona.name} · Муза Ай`;
         const full = `${persona.avatar} ${text}${footer}`;
         await sendMessage(c.external_id, full);
         db.update(chatbotSessions).set({ lastReengagedAt: new Date().toISOString() }).where(eq(chatbotSessions.id, c.id)).run();
@@ -733,8 +733,8 @@ router.post("/webhook", async (req, res) => {
     const p0 = personaForSession(sessionId, fromId);
     const quick = tryQuickReply(text, p0.name);
     if (quick) {
-      const cleanQuick = quick.replace(/\s*[—\-–]+\s*(Муза|Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*(MuzaAi|МузиАй))?\s*\.?\s*$/i, "").trimEnd();
-      const footer = `\n\n— Муза · МузиАй`;
+      const cleanQuick = quick.replace(/\s*[—\-–]+\s*(Муза|Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*(MuzaAi|Муза Ай))?\s*\.?\s*$/i, "").trimEnd();
+      const footer = `\n\n— Муза · Муза Ай`;
       const replyWithAvatar = `${p0.avatar} ${cleanQuick}${footer}`;
       bypassDebounce(`tg:${chatId}`);
       await sendConsultantPhoto(chatId, replyWithAvatar);
@@ -827,14 +827,14 @@ async function processIncomingText(chatId: string, fromId: string, sessionId: st
     }
     const reply = rawReply.replace(/\[SWITCH_PERSONA:[^\]]+\]\s*/gi, "").trim();
     const p = personaForSession(sessionId, fromId);
-    // Eugene 2026-05-11: подпись Имя · МузиАй.
+    // Eugene 2026-05-11: подпись Имя · Муза Ай.
     // Eugene 2026-05-12: если LLM сам подписался — не дублируем.
     // Eugene 2026-05-12 (Босс «реши на 100%»): убираем sendPhoto из
     // обычных reply'ев — Telegram кэш ненадёжен (96×96 PNG отклонялся,
     // юзер видел только текст). Образ в чате теперь через bot avatar
     // в @BotFather → /setuserpic. SendPhoto оставлен только в /start.
-    const cleanReply = reply.replace(/\s*[—\-–]+\s*(Муза|Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*(MuzaAi|МузиАй))?\s*\.?\s*$/i, "").trimEnd();
-    const footer = `\n\n— Муза · МузиАй`;
+    const cleanReply = reply.replace(/\s*[—\-–]+\s*(Муза|Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*(MuzaAi|Муза Ай))?\s*\.?\s*$/i, "").trimEnd();
+    const footer = `\n\n— Муза · Муза Ай`;
 
     // Eugene 2026-05-14 Босс: cross-channel pair-code приглашение на сайт.
     // После >= 3 сообщений в сессии + cooldown 6ч + шанс 30% — добавляем

@@ -312,6 +312,39 @@ PII / безопасность:
 
 Применяется к: регистрации, логину, замене телефона, замене email, замене любых других чувствительных полей (telegram-id, country). Не применяется к: namepronoun, тон обращения и прочему UI-state, не влияющему на доступ к аккаунту.
 
+### Project naming rule (Eugene 2026-05-15)
+
+**Проект называется `MuzaAi.ru`. По-русски — «Муза Ай» (с пробелом). Используем всегда.**
+
+Формы:
+- **Латиница** — `MuzaAi` (capital M + A) или `MuzaAi.ru` если контекст про домен.
+- **Кириллица** — «Муза Ай» с пробелом между словами. **НЕ** «МузиАй», «МузаАй», «Музи Ай», «Музи-Ай».
+- **Slug / ENV** — `muzaai` (lowercase) — для URL, BASE_DOMAIN, file paths.
+
+Применяется к **ВСЕМ каналам и мессенджерам** (Eugene 2026-05-15 «примени ко всем мессенджерам и соцсетям»):
+- 📧 Email-шаблоны и push-уведомления (notifications/module.ts)
+- 💬 Telegram-bot replies, footer «— Муза · Муза Ай», InlineKeyboard
+- 💬 Max-bot replies, footer
+- 🔗 VK community posts / direct messages (когда подключим)
+- 📱 WhatsApp (если когда-нибудь подключим)
+- 📨 SMS текст («Код Муза Ай: 123456» — НЕ «МузиАй»)
+- 🧠 AI system prompts (consultantPersona.ts) — единый источник для всех каналов
+- 🌐 User-facing UI: toast/dialog/banner на сайте и PWA
+- 🏷 Schema.org JSON-LD alternateName, og:site_name
+- 🔍 Meta description, title, sitemap, robots
+- 📰 Любой текст видимый юзеру в любом канале
+
+Бот footer-стандарт (любой канал): `— {personaName} · Муза Ай`
+Например: «— Аня · Муза Ай», «— Татьяна · Муза Ай», «— Муза · Муза Ай».
+
+НЕ применяется к (исторические, не трогаем):
+- Bot username `@Muziaipodari_bot` — Telegram username не меняется
+- Существующие display_title треков юзеров
+- ID3-tag старых mp3 (запечатано, переписывается через backfill)
+- File names, var names, class names — это технические identifier'ы
+
+Проверка при review: `grep -rn "МузиАй\|МузаАй\|МУЗИАЙ" apps/neurohub/server/ apps/neurohub/client/src/` должен возвращать пусто.
+
 ### MuzaAi.ru-since-150526 rule (Eugene 2026-05-15)
 
 **Любая новая генерация / новая ссылка / новый текст начиная с 15.05.2026 использует `MuzaAi.ru` (NOT `MuziAi.ru`).** Базовый домен — `muzaai.ru`, бренд-имя — «MuzaAi» (с буквой `a` между `Muz` и `Ai`).

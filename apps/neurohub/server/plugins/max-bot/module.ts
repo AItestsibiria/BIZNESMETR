@@ -70,7 +70,7 @@ function getConsultantPhotoVersion(): string {
 
 async function sendConsultantPhoto(chatId: string, caption: string) {
   try {
-    const base = process.env.PUBLIC_BASE_URL || "https://muziai.ru";
+    const base = process.env.PUBLIC_BASE_URL || "https://muzaai.ru";
     const photoUrl = `${base}/consultant-avatar.png?v=${getConsultantPhotoVersion()}`;
     await maxApi(`/messages?chat_id=${encodeURIComponent(chatId)}`, {
       text: caption,
@@ -157,8 +157,8 @@ router.post("/webhook", async (req, res) => {
       return;
     }
     const reply = await generateReply(fromId, text);
-    const cleanReply = reply.replace(/\s*[—\-–]+\s*(Муза|Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*(MuzaAi|МузиАй))?\s*\.?\s*$/i, "").trimEnd();
-    const footer = `\n\n— Муза · МузиАй`;
+    const cleanReply = reply.replace(/\s*[—\-–]+\s*(Муза|Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*(MuzaAi|Муза Ай))?\s*\.?\s*$/i, "").trimEnd();
+    const footer = `\n\n— Муза · Муза Ай`;
     const replyWithAvatar = `${p.avatar} ${cleanReply}${footer}`;
     // Eugene 2026-05-12 (Босс «100%»): sendPhoto только на /start.
     // На остальных reply'ях текст с emoji-аватаром + footer.
