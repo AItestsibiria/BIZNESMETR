@@ -312,6 +312,41 @@ PII / безопасность:
 
 Применяется к: регистрации, логину, замене телефона, замене email, замене любых других чувствительных полей (telegram-id, country). Не применяется к: namepronoun, тон обращения и прочему UI-state, не влияющему на доступ к аккаунту.
 
+### Logo-rebrand-automation rule (Eugene 2026-05-15)
+
+**При смене лого / названия проекта — замена должна происходить через одну централизованную точку.** Не разбрасывать hardcoded названия по 50+ файлам — все импортируют из `branding.ts`.
+
+Источники истины:
+- `apps/neurohub/client/src/lib/branding.ts` — для frontend (`BRAND.name`, `BRAND.nameRu`, `BRAND.domain`, `BRAND.url`, `LOGO.iconSvg`, `LOGO.colors.*`, `brandLogoText()`)
+- `apps/neurohub/server/lib/branding.ts` — для backend (`BRAND.name`, `BRAND.nameRu`, `BRAND.id3Album`, `BRAND.botFooter()`)
+- `apps/neurohub/client/index.html` — `<title>`, `<meta>` (3 строки)
+- `apps/neurohub/client/public/manifest.json` — PWA name, short_name
+- `apps/neurohub/client/public/bot-logo-text.svg` — SVG-текст логотипа
+
+Правила:
+1. **Перед добавлением hardcoded** «MuzaAi» / «Муза Ай» / «muzaai.ru» в новый компонент — сначала проверить есть ли константа в `branding.ts`. Если нет — добавить туда, импортировать в компонент.
+2. **При смене бренда** (например MuzaAi → MuzoAi) — менять ТОЛЬКО:
+   - `client/src/lib/branding.ts` (BRAND.name)
+   - `server/lib/branding.ts` (BRAND.name)
+   - `client/index.html` (title, og:title)
+   - `client/public/manifest.json` (name, short_name)
+   - `client/public/bot-logo-text.svg` (текст внутри `<text>`)
+   - `.env` BASE_DOMAIN на новом VPS
+3. **НЕ менять** автоматически:
+   - Email placeholder addresses (@phone.muziai.ru — внутренний uniqueness)
+   - File paths, var names, class names (technical)
+   - @Muziaipodari_bot (Telegram username фиксирован)
+   - Исторические display_title треков
+4. **После любого rebrand-коммита** — bash:
+   ```
+   grep -rn "MuziAi\|МузиАй\|muziai\.ru" apps/neurohub/server/ apps/neurohub/client/src/ | grep -v "@phone\|@telegram\|hello@\|merged-\|Muziaipodari\|clone\.muziai" | head -20
+   ```
+   Должно остаться только: tools (BotFather username), email-адреса, comments объясняющие миграцию, CORS-origins, default fallback в publicUrl.
+5. **Triumph-tag** для каждой смены бренда: `triumph-rebrand-DDMMYY` для recovery point.
+
+История ребрендов:
+- 2026-05-15: MuziAi → MuzaAi (smaller/visual: muziai.ru → muzaai.ru). Triumph: `triumph-domain-150526`, `triumph-muza-150526`.
+
 ### Project naming rule (Eugene 2026-05-15)
 
 **Проект называется `MuzaAi.ru`. По-русски — «Муза Ай» (с пробелом). Используем всегда.**
