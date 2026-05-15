@@ -28,6 +28,7 @@ import type { BootContext, Module } from "../../core";
 import { confirmNonce as confirmTgLoginNonce, hasValidNonce as hasTgLoginNonce } from "../../lib/tgLoginNonces";
 import { personaFor, PERSONAS, loadKB, buildPersonaSystem, kbPath } from "../../lib/consultantPersona";
 import { debounceMessage, bypassDebounce } from "../../lib/messageDebouncer";
+import { loadHistoryForLLM } from "../../lib/chatHistory";
 
 const TELEGRAM_API = "https://api.telegram.org";
 
@@ -543,14 +544,12 @@ function loadLatestLearnings(): string {
 }
 
 // === Session helpers ===
+// Eugene 2026-05-15 Босс «Связывай»: cross-channel history. Если session
+// привязана к userId — подтягивает сообщения из всех каналов (TG/Web/Max)
+// одного юзера, сортирует по времени, помечает чужие каналы префиксом
+// `[Web]` / `[Max]`. Anonymous сессии → single-session как раньше.
 function loadHistory(sessionId: string): Array<{ role: "user" | "assistant"; content: string }> {
-  try {
-    const rows = db.select().from(chatbotMessages).where(eq(chatbotMessages.sessionId, sessionId)).all() as any[];
-    return rows.slice(-20).map(r => ({
-      role: r.role === "user" ? "user" : "assistant",
-      content: String(r.text || "").slice(0, 1500),
-    }));
-  } catch { return []; }
+  return loadHistoryForLLM(sessionId, 20);
 }
 
 function findOrCreateSession(tgChatId: string, tgUserId: string): { sessionId: string; existingUserId: number | null } {

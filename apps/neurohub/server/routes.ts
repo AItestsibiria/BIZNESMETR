@@ -19,6 +19,7 @@ import { logEngagement, getEngagementDaily, getEngagementSummary } from "./lib/e
 import { buildPersonaSystem, personaFor } from "./lib/consultantPersona";
 import { findSessionByPairCode, looksLikePairCode } from "./lib/webChatPair";
 import { MUZA_TOOLS, executeTool } from "./lib/muzaTools";
+import { loadHistoryForLLM, loadHistoryForUser } from "./lib/chatHistory";
 
 const AUTHORS_DIR = process.env.AUTHORS_DIR || path.join(process.cwd(), "authors");
 
@@ -2513,10 +2514,16 @@ https://muziai.ru/#/music?draftId=42»
       // Eugene 2026-05-14 Босс «реши кардинально — повторные вопросы». History
       // расширена 8 → 15 сообщений. Plus memory extraction перед system prompt.
       const histAll = loadSessionHistory(session.id, 15);
-      const llmHistory = histAll.slice(0, -1).map(h => ({
-        role: h.role === "bot" ? "assistant" : "user",
-        content: h.text,
-      }));
+      // Eugene 2026-05-15 Босс «Связывай»: cross-channel — если юзер
+      // авторизован и есть сессии в TG/Max, LLM подтягивает их в контекст.
+      // Префикс [TG]/[Max] помогает понять откуда пришли сообщения.
+      const crossHistory = loadHistoryForLLM(session.id, 20);
+      const llmHistory = crossHistory.length > histAll.length - 1
+        ? crossHistory.slice(0, -1)
+        : histAll.slice(0, -1).map(h => ({
+            role: h.role === "bot" ? "assistant" : "user" as "user" | "assistant",
+            content: h.text,
+          }));
       const sessionMemo = extractMemoryFromHistory(histAll);
 
       // Eugene 2026-05-14 Босс «бот повторяет одно и тоже 2/10 — кардинально».
@@ -2716,6 +2723,23 @@ ${text}`
           keys: [{ envName: "OPENAI_API_KEY", ...peek("OPENAI_API_KEY") }],
         },
       ],
+    });
+  });
+
+  // Eugene 2026-05-15 Босс «Связывай»: сквозной view диалогов одного юзера
+  // через все каналы (TG/Web/Max). Возвращает все его сессии + merged
+  // messages timeline. Используется в admin UI.
+  app.get("/api/admin/v304/user/:userId/conversations", requireAdmin, (req: Request, res: Response) => {
+    const userId = Number(req.params.userId);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return res.status(400).json({ ok: false, error: "invalid userId" });
+    }
+    const data = loadHistoryForUser(userId, 500);
+    const u = storage.getUser(userId);
+    res.json({
+      ok: true,
+      user: u ? { id: u.id, name: u.name, email: u.email, telegramId: (u as any).telegramId || null } : null,
+      ...data,
     });
   });
 

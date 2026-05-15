@@ -172,6 +172,40 @@ ssh root@72.56.1.149 'sed -i "/^ИМЯ_КЛЮЧА=/d" /var/www/neurohub/.env \
 
 В остальных случаях движение по плану — настройка по умолчанию.
 
+### Cross-channel conversation linking rule (Eugene 2026-05-15)
+
+**Один юзер — один thread, независимо от канала.** Если юзер пишет в Telegram, потом в Web-чат, потом в Max — бот видит ВСЮ его историю как один разговор. Admin тоже видит сквозной view.
+
+Реализация (server-side):
+- `apps/neurohub/server/lib/chatHistory.ts`:
+  - `loadHistoryForLLM(sessionId, limit)` — для бота. Если `chatbotSessions.userId IS NOT NULL` — объединяет сообщения всех сессий этого userId по timestamp, помечает чужие каналы префиксом `[TG]` / `[Web]` / `[Max]`. Anonymous (userId=null) → fallback на single-session.
+  - `loadHistoryForUser(userId, limit)` — для admin UI. Возвращает все sessions + merged messages с пометкой канала.
+- `loadHistory()` в `telegram-bot/module.ts` и web-чат в `routes.ts` **всегда** используют LLM-вариант — никаких point-fixes.
+- Когда юзер логинится в Web-чате (Bearer token) — `chatbotSessions.userId` обновляется при первом сообщении (`routes.ts:2505`). Это автоматически переводит сессию из anonymous в linked.
+
+Admin endpoint: `GET /api/admin/v304/user/:userId/conversations` → JSON со всеми сессиями и сообщениями этого юзера. UI ленточный view — следующим шагом.
+
+Применяется к: всем чат-каналам (TG, Web, Max, будущие). Не применяется к: одиночным ботам-уведомлениям без сессии (alerts, transactional).
+
+### Nightly channel test-drive rule (Eugene 2026-05-15)
+
+**Каждую ночь в 00:00 MSK прогоняется полный сценарий диалога для каждого активного канала.** Симулирует юзера → отправляет последовательность сообщений → проверяет что бот отвечает не fallback-заглушкой («Чуть-чуть тормозит — попробуйте через минуту»).
+
+Сценарий (минимальный):
+1. `/start` → проверка приветствия с persona
+2. «Привет» → проверка quick-reply или LLM-ответа
+3. «Хочу песню на день рождения» → проверка sales-intent ответа
+
+Алерт в admin Telegram + incident-tracker если:
+- Webhook возвращает не 200
+- Ответ = hardcoded fallback (LLM не отвечает)
+- Время ответа > 30 сек
+- Ответ не пришёл за 60 сек
+
+Реализация: cron-задача в `admin-overview` или новый плагин `channel-watchdog`. Запуск в 00:00 MSK (UTC+3 → `cron 0 21 * * *`). **Следующим коммитом.**
+
+Применяется к: telegram-bot, max-bot, future channels (VK, Web). Не применяется к: транзакционным ботам (только conversational).
+
 ### Single-persona-across-channels rule (Eugene 2026-05-11)
 
 **Каждая девочка-помощница должна быть единой по всем каналам.** Если на сайте сегодня показывается персона X — в Telegram-боте этому же юзеру тоже отвечает X. Появятся новые каналы (VK, Max, Web-чат) — там тоже та же персона для того же юзера.
