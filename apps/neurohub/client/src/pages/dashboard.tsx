@@ -1976,7 +1976,11 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen pt-20 px-4 pb-12">
-      <div className="max-w-5xl mx-auto">
+      {/* Eugene 2026-05-15 Босс «уменьшить рабочую часть на десктопе на 25%
+          пропорционально, чтобы обложка с плеером была видна». На lg+
+          max-w-5xl (1024px) → max-w-3xl (768px) = -25%. Mobile/tablet
+          unchanged (там и так full-width до 5xl). */}
+      <div className="max-w-5xl lg:max-w-3xl mx-auto">
         {/* Header */}
         <div className="flex items-center gap-3 mb-8">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center">

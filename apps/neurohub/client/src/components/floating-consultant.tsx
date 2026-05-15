@@ -470,14 +470,15 @@ export function FloatingConsultant() {
           </div>
         )}
 
-        {/* Expanded меню «мечтательное облако» (Eugene 2026-05-14 Босс):
-            Asymmetric organic shape вместо классического rect, brand-цвета
-            MuziAi (purple→violet→blue→cyan), shimmer-glow, мини-chime. */}
+        {/* Expanded меню «мечтательное облако» (Eugene 2026-05-14 Босс).
+            Eugene 2026-05-15 Босс «облачно у Музы уменьшить по высоте +
+            кнопку чат ближе к скрыть, мини-облачко светлее, ближе кликать
+            на смартфоне». p-4 → p-2.5, w-60 (компактнее), Чат+Скрыть в
+            самом низу парой, Чат как яркое мини-облачко. */}
         {expanded && (
           <div
-            className="absolute bottom-full right-0 mb-3 w-64 sm:w-72 p-4 bg-gradient-to-br from-purple-600/85 via-violet-600/80 to-blue-500/75 backdrop-blur-2xl border-2 border-purple-300/40 shadow-2xl shadow-purple-500/50 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-hidden"
+            className="absolute bottom-full right-0 mb-3 w-60 sm:w-64 p-2.5 bg-gradient-to-br from-purple-600/85 via-violet-600/80 to-blue-500/75 backdrop-blur-2xl border-2 border-purple-300/40 shadow-2xl shadow-purple-500/50 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-hidden"
             style={{
-              // Cloud-shape — асимметричные радиусы для мечтательной органики
               borderRadius: "60% 40% 55% 70% / 50% 65% 45% 60%",
               boxShadow: "0 20px 60px rgba(139, 92, 246, 0.5), 0 0 40px rgba(34, 211, 238, 0.25), inset 0 0 30px rgba(255, 255, 255, 0.05)",
             }}
@@ -508,21 +509,8 @@ export function FloatingConsultant() {
                 <div className="text-[10px] text-white/50">Выбирайте как общаться 🚀</div>
               </div>
             </div>
-            {/* Eugene 2026-05-14 Босс «прям побольше» — primary CTA полноширинная,
-                с космо-glow градиентом и shimmer. */}
-            <button
-              type="button"
-              onClick={openChat}
-              className="relative w-full mb-2 px-3 py-3.5 rounded-xl bg-gradient-to-r from-purple-500 via-violet-500 to-blue-500 hover:from-purple-400 hover:via-violet-400 hover:to-blue-400 transition-all text-white text-[14px] font-semibold shadow-lg shadow-purple-500/30 border border-purple-300/30 overflow-hidden group"
-            >
-              <span className="relative z-10 flex items-center justify-center gap-2">
-                <span className="text-lg">💬</span>
-                <span>Чат со мной здесь</span>
-                <span className="text-[10px] opacity-70">↗</span>
-              </span>
-              {/* Shimmer слой */}
-              <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" aria-hidden="true" />
-            </button>
+            {/* Eugene 2026-05-15 Босс «кнопку чат ближе к скрыть» — primary
+                CTA перенесён вниз, рядом с кнопкой Скрыть. */}
             <a
               href="https://t.me/Muziaipodari_bot"
               target="_blank"
@@ -587,58 +575,57 @@ export function FloatingConsultant() {
                 </a>
               </div>
             )}
-            <div className="border-t border-white/[0.04] my-1 pt-1">
-              {/* Eugene 2026-05-14 Босс «значок поделиться зелёная стрелка
-                  вправо, открывает меню смартфона по аналогии с треками».
-                  Сначала пробуем navigator.share (native), fallback - submenu. */}
-              <button
-                type="button"
-                onClick={async () => {
-                  trackEngagement("consultant_action", { action: "share_native" });
-                  const text = "Привет! Порекомендую Музу — крутая в подборе песен под событие.";
-                  const url = "https://muziai.ru";
-                  if (typeof navigator !== "undefined" && (navigator as any).share) {
-                    try {
-                      await (navigator as any).share({ title: "MuziAi · Муза", text, url });
-                      return;
-                    } catch {}
-                  }
-                  // Fallback на desktop / отказ - показать ссылки ниже (already visible)
-                }}
-                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.06] transition-colors text-[12px] text-white/90 text-left mb-1"
-              >
-                <span className="text-green-400 text-base">➜</span>
-                <span>Поделиться Музой</span>
-                <span className="ml-auto text-[10px] text-white/40">(меню телефона)</span>
-              </button>
-              <div className="text-[10px] text-white/40 px-1 mb-1">или напрямую:</div>
-              <a
-                href={`https://t.me/share/url?url=${encodeURIComponent("https://t.me/Muziaipodari_bot")}&text=${encodeURIComponent("Привет! Порекомендую Музу — крутая в подборе песен под событие. Попробуй: https://t.me/Muziaipodari_bot")}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => trackEngagement("consultant_action", { action: "share_telegram" })}
-                className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-white/[0.06] transition-colors text-[11px] text-white/80"
-              >
-                <span>📱</span> Telegram
-              </a>
-              <a
-                href={`https://max.ru/share?url=${encodeURIComponent("https://max.ru/id7017236261_bot")}&text=${encodeURIComponent("Привет! Порекомендую Музу — крутая в подборе песен под событие. Попробуй: https://max.ru/id7017236261_bot")}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => trackEngagement("consultant_action", { action: "share_max" })}
-                className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-white/[0.06] transition-colors text-[11px] text-white/80"
-              >
-                <span>💬</span> Max
-              </a>
-              {/* WhatsApp убран (Eugene 2026-05-14 Босс «в меню убираем WhatsApp») */}
-            </div>
+            {/* Eugene 2026-05-15 Босс «уменьшить по высоте» — Share-submenu
+                удалён (он дублирует Telegram/Max выше). Single share-button —
+                native share API. */}
             <button
               type="button"
-              onClick={dismiss}
-              className="w-full mt-2 px-3 py-2 rounded-lg bg-white/[0.04] text-[12px] text-white/70 hover:text-white hover:bg-white/[0.08] transition-colors border border-white/[0.06]"
+              onClick={async () => {
+                trackEngagement("consultant_action", { action: "share_native" });
+                const text = "Привет! Порекомендую Музу — крутая в подборе песен под событие.";
+                const url = "https://muziai.ru";
+                if (typeof navigator !== "undefined" && (navigator as any).share) {
+                  try {
+                    await (navigator as any).share({ title: "MuziAi · Муза", text, url });
+                    return;
+                  } catch {}
+                }
+                // Fallback: копирование ссылки.
+                try { await navigator.clipboard?.writeText(url); } catch {}
+              }}
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.06] transition-colors text-[12px] text-white/90 text-left"
             >
-              Скрыть
+              <span className="text-green-400 text-base">➜</span>
+              <span>Поделиться Музой</span>
             </button>
+            {/* Eugene 2026-05-15 Босс «кнопку чат сделать ближе к скрыть, прям
+                мини-облачко светлее в облаке, ближе кликать на смартфоне».
+                Пара кнопок Чат + Скрыть внизу облака. Чат — большой яркий
+                мини-облачный bubble (светлый bg, contrasting border), Скрыть
+                — компактная серая.
+                min-h-[44px] iOS HIG для удобного тапа на смартфоне. */}
+            <div className="grid grid-cols-[1fr_auto] gap-2 mt-2">
+              <button
+                type="button"
+                onClick={openChat}
+                className="relative min-h-[44px] px-3 rounded-[40%_50%_45%_55%/50%_45%_55%_50%] bg-gradient-to-br from-white/35 via-white/25 to-white/15 hover:from-white/45 hover:via-white/35 hover:to-white/25 transition-all text-white text-[13px] font-semibold shadow-lg shadow-white/10 border-2 border-white/40 overflow-hidden group active:scale-95"
+                aria-label="Открыть чат с Музой"
+              >
+                <span className="relative z-10 flex items-center justify-center gap-1.5">
+                  <span className="text-base">💬</span>
+                  <span>Чат</span>
+                </span>
+                <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                onClick={dismiss}
+                className="min-h-[44px] px-3 rounded-xl bg-white/[0.04] text-[12px] text-white/70 hover:text-white hover:bg-white/[0.08] transition-colors border border-white/[0.06] active:scale-95"
+                aria-label="Скрыть"
+              >
+                Скрыть
+              </button>
+            </div>
           </div>
         )}
 
