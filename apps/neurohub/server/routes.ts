@@ -1101,7 +1101,115 @@ export async function registerRoutes(
     res.json({ ok: true });
   });
 
-  // Eugene 2026-05-15 Босс «связать email и номер, лёгкое надёжное решение».
+  // Eugene 2026-05-15 Босс «и всем по почте, когда кто авторизировался или
+  // пытался» — broadcast про переход на новый домен. Отправляется всем
+  // юзерам с настоящим email (не phone/telegram placeholder).
+  //
+  // Usage:
+  //   GET /api/admin/v304/broadcast/domain-migration?dry=1 — список получателей без отправки
+  //   POST /api/admin/v304/broadcast/domain-migration       — реальная отправка
+  // Inline-helper для PII (логи/sample) — first2***@domain.
+  const maskEmail = (e: string): string => {
+    const at = e.indexOf("@");
+    if (at < 2) return "***" + e.slice(Math.max(0, at));
+    return e.slice(0, 2) + "***" + e.slice(at);
+  };
+
+  app.get("/api/admin/v304/broadcast/domain-migration", requireAdmin, (_req: Request, res: Response) => {
+    try {
+      // Реальные email: НЕ phone-placeholder + НЕ tg-placeholder + НЕ merged.
+      const rows = db.all<{ id: number; email: string; name: string | null }>(sql`
+        SELECT id, email, name FROM users
+        WHERE email NOT LIKE '%@phone.muziai.ru'
+          AND email NOT LIKE '%@telegram.muziai.ru'
+          AND email NOT LIKE 'merged-%@deleted.local'
+          AND email LIKE '%@%'
+          AND (blocked IS NULL OR blocked = 0)
+          AND (deleted_at IS NULL)
+      `);
+      res.json({
+        ok: true,
+        dry: true,
+        recipientsCount: rows.length,
+        sample: rows.slice(0, 5).map(r => ({ id: r.id, name: r.name, emailMasked: maskEmail(r.email) })),
+      });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  app.post("/api/admin/v304/broadcast/domain-migration", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const rows = db.all<{ id: number; email: string; name: string | null }>(sql`
+        SELECT id, email, name FROM users
+        WHERE email NOT LIKE '%@phone.muziai.ru'
+          AND email NOT LIKE '%@telegram.muziai.ru'
+          AND email NOT LIKE 'merged-%@deleted.local'
+          AND email LIKE '%@%'
+          AND (blocked IS NULL OR blocked = 0)
+          AND (deleted_at IS NULL)
+      `);
+
+      const subject = "MuziAi — новый адрес сайта: muzaai.ru";
+      const text = (name: string | null) =>
+        `Здравствуйте${name ? ", " + name : ""}!\n\n` +
+        `У нашего сайта новый основной адрес: https://muzaai.ru\n\n` +
+        `Старый адрес muziai.ru продолжает работать (он автоматически перенаправит на новый), но мы рекомендуем сохранить ссылку https://muzaai.ru в закладках.\n\n` +
+        `Все ваши треки, обложки и тексты на месте — войти можно по тому же email и паролю, либо по звонку с телефона.\n\n` +
+        `Если возникнут вопросы — напишите нам hello@muziai.ru.\n\n` +
+        `— Команда MuziAi`;
+      const htmlBody = (name: string | null) => `
+        <div style="font-family: -apple-system, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px; background: #09090b; border-radius: 16px; border: 1px solid #1a1a2e;">
+          <div style="text-align: center; margin-bottom: 24px;">
+            <span style="font-size: 24px; font-weight: 700; background: linear-gradient(135deg, #8b5cf6, #3b82f6); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">MuziAi</span>
+          </div>
+          <p style="color: #e2e2e2; font-size: 15px; line-height: 1.6; margin: 0 0 16px;">Здравствуйте${name ? ", <strong>" + name + "</strong>" : ""}!</p>
+          <p style="color: #e2e2e2; font-size: 15px; line-height: 1.6; margin: 0 0 16px;">У нашего сайта <strong>новый основной адрес</strong>:</p>
+          <div style="text-align: center; margin: 24px 0;">
+            <a href="https://muzaai.ru" style="display: inline-block; padding: 14px 32px; background: linear-gradient(135deg, #8b5cf6, #3b82f6); color: white; text-decoration: none; border-radius: 12px; font-size: 18px; font-weight: 600;">https://muzaai.ru</a>
+          </div>
+          <p style="color: #a1a1aa; font-size: 14px; line-height: 1.6; margin: 0 0 12px;">Старый адрес muziai.ru работает и автоматически перенаправит на новый, но рекомендуем сохранить новую ссылку в закладках.</p>
+          <p style="color: #a1a1aa; font-size: 14px; line-height: 1.6; margin: 0 0 12px;">Все ваши треки, обложки и тексты на месте — войти можно по тому же email и паролю, либо по звонку с телефона.</p>
+          <p style="color: #71717a; font-size: 13px; line-height: 1.6; margin: 24px 0 0;">Вопросы: <a href="mailto:hello@muziai.ru" style="color: #8b5cf6;">hello@muziai.ru</a></p>
+          <p style="color: #71717a; font-size: 13px; margin: 8px 0 0;">— Команда MuziAi</p>
+        </div>
+      `;
+
+      let sent = 0;
+      let failed = 0;
+      const errors: Array<{ id: number; email: string; error: string }> = [];
+
+      // Делаем по одному (не throttling — gmail вытягивает ~10 msg/sec на app-password).
+      for (const r of rows) {
+        try {
+          await mailTransport.sendMail({
+            from: `"MuziAi" <${CLIENT_EMAIL}>`, replyTo: CLIENT_EMAIL,
+            to: r.email,
+            subject,
+            text: text(r.name),
+            html: htmlBody(r.name),
+          });
+          sent++;
+        } catch (e: any) {
+          failed++;
+          errors.push({ id: r.id, email: maskEmail(r.email), error: String(e?.message || e).slice(0, 200) });
+        }
+      }
+
+      res.json({
+        ok: true,
+        totalRecipients: rows.length,
+        sent,
+        failed,
+        errors: errors.slice(0, 10),
+      });
+    } catch (e: any) {
+      console.error("[broadcast/domain-migration]", e);
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+
   //
   // Сценарий: юзер ранее зарегистрировался по email/паролю (phone=null).
   // Сегодня вошёл по звонку — backend создал новый phone-аккаунт (upsert).
