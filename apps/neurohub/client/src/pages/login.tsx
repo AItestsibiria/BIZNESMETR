@@ -51,6 +51,34 @@ export default function LoginPage() {
           <p className="text-sm text-muted-foreground mt-1">Войдите, чтобы создавать музыку</p>
         </div>
 
+        {/* Eugene 2026-05-15 Босс «внедри фронт по звонку» — primary CTA. */}
+        <Link
+          href="/login-phone"
+          className="block gradient-border p-5 rounded-2xl mb-4 hover:bg-emerald-500/5 transition-colors group"
+          data-testid="link-login-phone-primary"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500/30 to-cyan-500/30 flex items-center justify-center text-2xl">
+              📞
+            </div>
+            <div className="flex-1">
+              <p className="text-base font-semibold text-white group-hover:text-emerald-200">
+                Вход по звонку
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Без пароля — звоните на наш номер.
+              </p>
+            </div>
+            <span className="text-emerald-300 text-lg">→</span>
+          </div>
+        </Link>
+
+        <div className="flex items-center gap-3 my-4">
+          <div className="flex-1 h-px bg-white/[0.08]" />
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60">или email/пароль</span>
+          <div className="flex-1 h-px bg-white/[0.08]" />
+        </div>
+
         {/* Form */}
         <form onSubmit={handleSubmit} className="gradient-border p-6 rounded-2xl space-y-4">
           <div className="space-y-2">
@@ -127,12 +155,6 @@ export default function LoginPage() {
           Нет аккаунта?{" "}
           <Link href="/register" className="text-purple-400 hover:text-purple-300 font-medium" data-testid="link-to-register">
             Зарегистрироваться
-          </Link>
-        </p>
-        <p className="text-center text-xs text-muted-foreground mt-2">
-          или{" "}
-          <Link href="/login-phone" className="text-purple-300 hover:text-purple-200 underline">
-            войти по телефону
           </Link>
         </p>
       </div>

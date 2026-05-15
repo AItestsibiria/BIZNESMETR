@@ -1962,7 +1962,7 @@ export default function LandingPage() {
               className="btn-cosmic rounded-full px-10 py-4 text-lg h-auto"
               onClick={() => {
                 if (user) navigate("/music");
-                else navigate("/register");
+                else navigate("/register-phone");
               }}
               data-testid="button-hero-cta"
             >
