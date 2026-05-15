@@ -1166,7 +1166,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     </section>
 
     <section id="playlist-section" className="relative z-[1] py-20 px-4 border-t border-white/[0.04]">
-      <div className="max-w-3xl mx-auto">
+      {/* Eugene 2026-05-15 Босс «больше на 30% по высоте и ширине поля плейлиста».
+          max-w-3xl (768px) → max-w-5xl (1024px) = +33% ширина.
+          Внутри карточек треков высота увеличена через py-padding. */}
+      <div className="max-w-5xl mx-auto">
         <h2 className="text-2xl font-bold text-center mb-2">
           <span className="gradient-text">Плейлист сообщества</span>
         </h2>
@@ -1404,7 +1407,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             return (
               <div key={track.id} data-testid={`button-play-track-${track.id}`}>
                 <div
-                  className={`flex items-center gap-3 px-3 py-3.5 transition-colors hover:bg-white/[0.03] ${
+                  className={`flex items-center gap-3 px-4 py-5 transition-colors hover:bg-white/[0.03] ${
                     isMusic ? "cursor-pointer" : ""
                   } ${isActive ? "bg-purple-500/[0.08]" : ""}`}
                   data-track-card
