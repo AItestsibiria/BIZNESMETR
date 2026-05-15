@@ -83,7 +83,7 @@ export default function LyricsPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "lyrics-muziai.txt";
+    a.download = "lyrics-muzaai.txt";
     a.click();
     URL.revokeObjectURL(url);
   };

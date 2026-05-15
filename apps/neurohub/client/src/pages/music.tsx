@@ -816,7 +816,7 @@ export default function MusicPage() {
     if (!resultUrl) return;
     const a = document.createElement("a");
     a.href = resultUrl;
-    a.download = "track-muziai.mp3";
+    a.download = "track-muzaai.mp3";
     a.target = "_blank";
     a.click();
   };

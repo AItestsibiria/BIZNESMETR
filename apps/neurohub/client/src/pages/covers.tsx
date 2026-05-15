@@ -151,7 +151,7 @@ export default function CoversPage() {
     if (!resultUrl) return;
     const a = document.createElement("a");
     a.href = resultUrl;
-    a.download = "cover-muziai.png";
+    a.download = "cover-muzaai.png";
     a.target = "_blank";
     a.click();
   };
