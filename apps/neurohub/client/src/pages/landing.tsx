@@ -1023,11 +1023,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                     </g>
                   </svg>
                   <div className="flex-1">
-                    <div className="text-[11px] uppercase tracking-wider text-purple-300/80 font-display">первые 1000 будущих авторов</div>
+                    <div className="text-[11px] uppercase tracking-wider text-purple-300/80 font-display">первым 1000 будущих авторам</div>
                     <div className="text-base font-bold bg-gradient-to-r from-purple-300 via-blue-300 to-cyan-300 bg-clip-text text-transparent">
-                      1 трек бесплатно 🎵
+                      1 трек бесплатно 🎵 *
                     </div>
-                    <div className="text-[10px] text-muted-foreground/80 mt-0.5">Россия и ближнее зарубежье</div>
                   </div>
                 </div>
               </div>
