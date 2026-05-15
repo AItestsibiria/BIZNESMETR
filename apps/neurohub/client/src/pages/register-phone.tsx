@@ -52,7 +52,7 @@ export default function RegisterPhonePage() {
             <Music className="w-6 h-6 text-white" />
           </div>
           <h1 className="text-xl font-bold gradient-text">Регистрация по телефону</h1>
-          <p className="text-sm text-muted-foreground mt-1">Подтверждение по входящему звонку — РФ и СНГ</p>
+          <p className="text-sm text-muted-foreground mt-1">Вы звоните нам — бесплатно, без пароля. РФ и СНГ</p>
         </div>
 
         <div className="gradient-border p-6 rounded-2xl space-y-4">
