@@ -895,6 +895,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   if (tracks.length === 0) return null;
 
   const currentTrack = tracks.find(t => t.id === playingId);
+  // Eugene 2026-05-15 Босс «при нажатии на обложку раскрывай большой плеер».
+  const [bigPlayerOpen, setBigPlayerOpen] = useState(false);
   const progress = trackDuration > 0 ? (currentTime / trackDuration) * 100 : 0;
 
   // Search filter
@@ -1194,8 +1196,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             <div className="flex items-center gap-4">
               {/* Cover */}
               <div
-                className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl overflow-hidden shrink-0 bg-gradient-to-br from-purple-500/30 to-blue-500/30 relative flex items-center justify-center cursor-pointer shadow-lg shadow-purple-500/10"
-                onClick={() => setExpandedId(expandedId === currentTrack.id ? null : currentTrack.id)}
+                className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl overflow-hidden shrink-0 bg-gradient-to-br from-purple-500/30 to-blue-500/30 relative flex items-center justify-center cursor-pointer shadow-lg shadow-purple-500/10 hover:scale-[1.02] transition-transform"
+                onClick={() => setBigPlayerOpen(true)}
+                title="Раскрыть большой плеер"
               >
                 {/* Crossfade: old cover fading out */}
                 {prevCoverUrl && coverFading && (
@@ -1873,7 +1876,65 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       </div>
     </section>
 
-
+    {/* Eugene 2026-05-15 Босс «при нажатии на обложку раскрывай большой
+        плеер». Full-screen модалка с обложкой 80vmin + controls. */}
+    <Dialog open={bigPlayerOpen && !!currentTrack} onOpenChange={(o) => !o && setBigPlayerOpen(false)}>
+      <DialogContent className="max-w-2xl bg-gradient-to-br from-purple-950/95 via-violet-950/95 to-blue-950/95 backdrop-blur-2xl border-purple-500/30 p-6 sm:p-8">
+        {currentTrack && (
+          <div className="flex flex-col items-center gap-5">
+            <div className="w-[min(80vmin,28rem)] h-[min(80vmin,28rem)] rounded-3xl overflow-hidden shadow-2xl shadow-purple-500/40 bg-gradient-to-br from-purple-500/40 to-blue-500/40 relative">
+              {currentTrack.imageUrl && (
+                <img
+                  src={currentTrack.imageUrl}
+                  alt={currentTrack.displayTitle || currentTrack.prompt || "Cover"}
+                  className="w-full h-full object-cover"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                />
+              )}
+            </div>
+            <div className="text-center w-full">
+              <h2 className="text-xl sm:text-2xl font-bold text-white truncate">
+                {currentTrack.displayTitle || currentTrack.prompt?.slice(0, 60) || "Без названия"}
+              </h2>
+              {currentTrack.authorName && (
+                <p className="text-sm text-purple-200/80 mt-1">{currentTrack.authorName}</p>
+              )}
+            </div>
+            <div className="flex items-center gap-2 w-full">
+              <span className="text-xs text-white/60 tabular-nums w-9">{formatDuration(currentTime)}</span>
+              <div className="h-2 flex-1 rounded-full bg-white/10 cursor-pointer relative overflow-hidden"
+                onClick={(e) => {
+                  if (!audioRef.current) return;
+                  const rect = (e.target as HTMLElement).getBoundingClientRect();
+                  const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                  audioRef.current.currentTime = pct * trackDuration;
+                }}
+              >
+                <div className="h-full rounded-full bg-gradient-to-r from-purple-400 to-blue-400" style={{ width: `${Math.min(progress, 100)}%` }} />
+              </div>
+              <span className="text-xs text-white/60 tabular-nums w-9 text-right">{formatDuration(trackDuration)}</span>
+            </div>
+            <div className="flex items-center gap-6 mt-2">
+              <button onClick={skipPrev} aria-label="Предыдущий" className="w-14 h-14 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 active:scale-95 transition-all border border-white/15">
+                <SkipBack className="w-7 h-7 text-white" />
+              </button>
+              <button onClick={() => togglePlay(currentTrack)} aria-label="Play/Pause" className="w-20 h-20 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center hover:from-purple-400 hover:to-blue-400 active:scale-95 transition-all shadow-2xl shadow-purple-500/50">
+                {isPlayingState ? <Pause className="w-10 h-10 text-white" /> : <Play className="w-10 h-10 text-white ml-1" />}
+              </button>
+              <button onClick={skipNext} aria-label="Следующий" className="w-14 h-14 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 active:scale-95 transition-all border border-white/15">
+                <SkipForward className="w-7 h-7 text-white" />
+              </button>
+            </div>
+            <button
+              onClick={() => setBigPlayerOpen(false)}
+              className="mt-2 text-xs text-white/50 hover:text-white/80 transition-colors"
+            >
+              Свернуть
+            </button>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   </>);
 }
 
