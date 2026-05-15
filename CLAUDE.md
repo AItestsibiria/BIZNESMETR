@@ -205,6 +205,48 @@ ssh root@72.56.1.149 'sed -i "/^ИМЯ_КЛЮЧА=/d" /var/www/neurohub/.env \
 
 Применяется к: ВСЕМ каналам (старым: web, telegram, max; новым: email-channel, vk-callback, future). НЕ применяется к: internal errors без user-facing impact (например, cron-задача упала ночью — это `incidents`, не `user_action_failures`).
 
+### Play-counting rule (Eugene 2026-05-15)
+
+**Прослушивание трека засчитывается при выполнении ВСЕХ 5 условий.** Применяется в `/api/playlist/play/:id` и `/api/gen-activity/:id/play` (server/routes.ts → `shouldCountPlay()`).
+
+Условия:
+1. **5+ секунд воспроизведения.** Frontend плеер передаёт `elapsedSec` в body POST после первых 5 сек play. Если поле отсутствует — считаем (backward-compat для старых плееров).
+2. **Dedup IP/час.** Один IP не может прибавить больше 1 play на трек за 60 мин. Проверка через `gen_activity` WHERE ip=? AND action='play' AND created_at > now-1h.
+3. **Author-self исключён.** Если `gen.userId == authedUserId` — НЕ считаем (плеи автора собственного трека идут в `play_rejected:author-self`, не в `play`).
+4. **Admin исключён** (правило Босса «кроме админа»). Если `user.role IN ('admin', 'super_admin')` — НЕ считаем.
+5. **Bot UA исключён.** User-Agent matching `/bot|crawler|spider|slurp|curl|wget|httpie|python-requests|java-http|axios|fetch|head/i` → НЕ считаем.
+
+При неудаче пишется в `gen_activity.action='play_rejected:<reason>'` для аналитики (можно посмотреть сколько накруток отбрасывается). В `meta.plays` (JSON в `generations.style`) пишется только реальный play.
+
+Применяется к: счётчику `meta.plays`, челофильтру для перевода новых авторов в основной плейлист (>50 за 24ч), таблице top-tracks. Не применяется к: download / copy / share — они без anti-fraud (плотность ниже).
+
+Tuning параметров (если нужно ужесточить):
+- IP-window: 60 мин (можно 24ч для жёсткости)
+- Min duration: 5 сек (можно 15-30 сек как у Spotify)
+- Bot list: можно расширить через ENV `BOT_UA_REGEX`
+
+### Two-playlist rule (Eugene 2026-05-15)
+
+**На главной 2 плейлиста: «Плейлист авторов» (одобренный, default) и «Новые авторы» (только опубликованное, ждёт челофильтра/админа).**
+
+Состояния `generations.is_public`:
+- `0` — приват (в кабинете автора, не показывается на главной)
+- `1` — основной плейлист («Плейлист авторов» — одобрено редакцией)
+- `2` — новые авторы («Новые авторы» — только что опубликовано, ждёт review)
+
+Flow:
+1. Автор жмёт «Опубликовать» → `is_public` становится `2` (попадает в «Новые авторы»). Автору отправляется уведомление (TODO: следующим коммитом подключить notifications).
+2. На главной — toggle «Плейлист авторов» / «Новые авторы». Большие визуальные кнопки с активным glow (purple-amber для main, emerald-cyan для new). Сохраняется в localStorage пер-юзер.
+3. `/api/playlist?status=main|new` — выдаёт треки соответствующего плейлиста (`is_public=1` или `=2`).
+4. **Челофильтр >50/24ч**: треки в «Новые авторы» с >50 play за последние 24ч (по правилу прослушиваний — без накруток) попадают в admin-список «🔥 Кандидаты на основной». Admin одним кликом переводит.
+5. Admin endpoint `POST /api/admin/v304/generations/:id/playlist {status: main|new|private}` — перевод между плейлистами + audit-log.
+6. Admin endpoint `GET /api/admin/v304/playlist-candidates` — список треков `is_public=2` sort by `plays24h DESC` + флаг `hot:true` если >50.
+7. Обратный flow тоже работает: трек из `main` можно вернуть в `new` (если упали показатели или есть жалобы).
+
+UI акцент: переключатель плейлистов — самый визуально яркий элемент в плейлист-секции (Босс «кнопки заметные, ключевой выбор»). Значки 🏆 (main) / ✨ (new), gradient backdrop, glow на active, scale-up.
+
+Применяется к: треки на landing, dashboard списки, admin модерация. Не применяется к: covers / lyrics — у них своя витрина без 2-плейлист логики.
+
 ### SMS-auth + data-change confirmation rule (Eugene 2026-05-15)
 
 **Регистрация/авторизация по номеру телефона через SMS-OTP (РФ + ближнее зарубежье).** Любое изменение данных в личном кабинете (имя, email, телефон, telegram-id, будущие поля) подтверждается через канал, которым автор уже подтвердился — SMS-OTP на текущий номер или email-link на текущий email.

@@ -2783,6 +2783,61 @@ ${text}`
   // Eugene 2026-05-15 Босс «Связывай»: сквозной view диалогов одного юзера
   // через все каналы (TG/Web/Max). Возвращает все его сессии + merged
   // messages timeline. Используется в admin UI.
+  // Eugene 2026-05-15 Босс «2 плейлиста на главной + челофильтр».
+  //
+  // Админский перевод трека между плейлистами:
+  // - status='main' → isPublic=1 (основной)
+  // - status='new'  → isPublic=2 (новые авторы)
+  // - status='private' → isPublic=0 (скрыть с главной)
+  // Audit-log пишется автоматически.
+  app.post("/api/admin/v304/generations/:id/playlist", requireAdmin, (req: Request, res: Response) => {
+    const genId = Number(req.params.id);
+    const status = String(req.body?.status || "");
+    const map: Record<string, number> = { main: 1, new: 2, private: 0 };
+    if (!Number.isFinite(genId) || !(status in map)) {
+      return res.status(400).json({ ok: false, error: "id+status required (status: main|new|private)" });
+    }
+    const gen = db.select().from(generations).where(eq(generations.id, genId)).get() as any;
+    if (!gen) return res.status(404).json({ ok: false, error: "generation not found" });
+    const before = { isPublic: gen.isPublic };
+    const newIsPublic = map[status];
+    db.update(generations).set({ isPublic: newIsPublic }).where(eq(generations.id, genId)).run();
+    // Audit-log: пишем raw insert чтобы не тащить adminAuditLog import сюда.
+    try {
+      db.run(sql`INSERT INTO admin_audit_log (admin_user_id, action, entity, entity_key, before_json, after_json)
+                 VALUES (${tryGetUserId(req)}, 'update', 'generation_playlist', ${String(genId)},
+                 ${JSON.stringify(before)}, ${JSON.stringify({ isPublic: newIsPublic, requestedStatus: status })})`);
+    } catch {}
+    res.json({ ok: true, id: genId, status, isPublic: newIsPublic });
+  });
+
+  // Кандидаты на перевод в основной плейлист — треки isPublic=2 (Новые
+  // авторы) с количеством play за последние 24ч. Sort DESC.
+  // Hot = >50 play/24ч (по правилу Босса auto-suggest).
+  app.get("/api/admin/v304/playlist-candidates", requireAdmin, (_req: Request, res: Response) => {
+    try {
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const rows = db.all<any>(sql`
+        SELECT g.id, g.display_title as displayTitle, g.prompt, g.user_id as userId,
+               g.created_at as createdAt, g.type, g.author_name as authorName,
+               (SELECT COUNT(*) FROM gen_activity ga WHERE ga.gen_id = g.id AND ga.action = 'play' AND ga.created_at >= ${since}) as plays24h,
+               (SELECT COUNT(*) FROM gen_activity ga WHERE ga.gen_id = g.id AND ga.action = 'play') as playsTotal
+        FROM generations g
+        WHERE g.is_public = 2 AND g.status = 'done' AND g.deleted_at IS NULL
+        ORDER BY plays24h DESC, g.id DESC
+        LIMIT 100
+      `);
+      const candidates = rows.map((r: any) => ({
+        ...r,
+        hot: r.plays24h > 50,
+      }));
+      const hotCount = candidates.filter((c: any) => c.hot).length;
+      res.json({ ok: true, total: rows.length, hotCount, threshold24h: 50, candidates });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
   // Eugene 2026-05-15 Босс «строку поиска по всей панели — типа Google
   // по проекту». Глобальный search для admin-v304: users (name/email/phone)
   // + generations (display_title/prompt). Tabs ищутся client-side из
@@ -6154,21 +6209,71 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
 
   // ==================== PUBLIC PLAYLIST ====================
 
+  // Eugene 2026-05-15 Босс «правило прослушиваний». Применяется в /api/playlist/play
+  // и /api/gen-activity. Возвращает {count: boolean, reason?: string}.
+  // count=false → НЕ инкрементить, для аналитики записать с tag 'rejected'.
+  // Применяется КО ВСЕМ КРОМЕ admin'а (явное правило Босса).
+  function shouldCountPlay(req: Request, gen: any): { count: boolean; reason?: string } {
+    // 1. Author-self исключить.
+    const userId = tryGetUserId(req);
+    if (userId && gen?.userId === userId) {
+      return { count: false, reason: "author-self" };
+    }
+    // 2. Admin исключить (превью трека админом не считается).
+    if (userId) {
+      try {
+        const u = storage.getUser(userId);
+        if (u && (u.role === "admin" || u.role === "super_admin")) {
+          return { count: false, reason: "admin" };
+        }
+      } catch {}
+    }
+    // 3. Bot UA исключить.
+    const ua = String(req.headers["user-agent"] || "").toLowerCase();
+    if (/(bot|crawler|spider|slurp|curl|wget|httpie|python-requests|java-http|axios|fetch|head)\b/.test(ua)) {
+      return { count: false, reason: "bot-ua" };
+    }
+    // 4. Длительность 5+ сек (поле req.body.elapsedSec из плеера). Если не
+    //    передано — считаем что плеер старый, разрешаем (backward compat).
+    //    Новые плееры всегда передают elapsedSec.
+    const elapsedRaw = (req.body as any)?.elapsedSec;
+    if (typeof elapsedRaw === "number" && elapsedRaw < 5) {
+      return { count: false, reason: "too-short" };
+    }
+    // 5. Dedup по (gen_id, IP, hour). 1 play от IP в час максимум.
+    try {
+      const ip = String(req.ip || req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+      if (ip) {
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+        const recent = db.get<{ c: number }>(sql`
+          SELECT COUNT(*) as c FROM gen_activity
+          WHERE gen_id = ${gen.id} AND action = 'play' AND ip = ${ip} AND created_at >= ${oneHourAgo}
+        `);
+        if ((recent?.c || 0) > 0) return { count: false, reason: "ip-dedup-1h" };
+      }
+    } catch {}
+    return { count: true };
+  }
+
   // Track play count
   app.post("/api/playlist/play/:id", (req: Request, res: Response) => {
     try {
       const genId = parseInt(req.params.id);
-      // Increment play count stored in style JSON field
       const gen = db.select().from(generations).where(eq(generations.id, genId)).get();
-      if (gen) {
-        logGenActivity(genId, 'play', req.ip);
-        let meta: any = {};
-        try { meta = JSON.parse(gen.style || "{}"); } catch {}
-        meta.plays = (meta.plays || 0) + 1;
-        meta.lastPlayed = new Date().toISOString();
-        db.update(generations).set({ style: JSON.stringify(meta) }).where(eq(generations.id, genId)).run();
+      if (!gen) return res.json({ ok: false });
+      const decision = shouldCountPlay(req, gen);
+      if (!decision.count) {
+        // Записываем reject в gen_activity для аналитики (action='play_rejected').
+        try { logGenActivity(genId, `play_rejected:${decision.reason}`, req.ip); } catch {}
+        return res.json({ ok: true, counted: false, reason: decision.reason });
       }
-      res.json({ ok: true });
+      logGenActivity(genId, 'play', req.ip);
+      let meta: any = {};
+      try { meta = JSON.parse(gen.style || "{}"); } catch {}
+      meta.plays = (meta.plays || 0) + 1;
+      meta.lastPlayed = new Date().toISOString();
+      db.update(generations).set({ style: JSON.stringify(meta) }).where(eq(generations.id, genId)).run();
+      res.json({ ok: true, counted: true });
     } catch { res.json({ ok: false }); }
   });
 
@@ -6179,12 +6284,18 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     res.setHeader("Pragma", "no-cache");
     res.setHeader("Expires", "0");
     try {
+      // Eugene 2026-05-15 Босс «2 плейлиста на главной».
+      // ?status=main → isPublic=1 (основной, default).
+      // ?status=new  → isPublic=2 (новые авторы — после нажатия «Опубликовать»,
+      //                до approve админом или после возврата из main).
+      const statusParam = String(req.query.status || "main").toLowerCase();
+      const targetIsPublic = statusParam === "new" ? 2 : 1;
       const tracks = db.select()
         .from(generations)
         .where(
           and(
             eq(generations.status, "done"),
-            eq(generations.isPublic, 1),
+            eq(generations.isPublic, targetIsPublic),
             isNotNull(generations.resultUrl),
             sql`${generations.deletedAt} IS NULL`
           )
@@ -6534,22 +6645,36 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const genId = parseInt(req.params.id);
     const action = req.params.action;
     if (['copy', 'share', 'download', 'play'].includes(action)) {
+      // Eugene 2026-05-15 Босс «правило прослушиваний» — для action=play
+      // применяется shouldCountPlay (5+ сек, IP-dedup, author-self, admin,
+      // bot-UA исключаются). Для copy/share/download — без фильтрации.
+      if (action === 'play') {
+        try {
+          const gen = db.select().from(generations).where(eq(generations.id, genId)).get();
+          if (!gen) return res.json({ ok: false });
+          const decision = shouldCountPlay(req, gen);
+          if (!decision.count) {
+            try { logGenActivity(genId, `play_rejected:${decision.reason}`, req.ip); } catch {}
+            return res.json({ ok: true, counted: false, reason: decision.reason });
+          }
+          logGenActivity(genId, 'play', req.ip);
+          let meta: any = {};
+          try { meta = JSON.parse(gen.style || "{}"); } catch {}
+          meta.plays = (meta.plays || 0) + 1;
+          meta.lastPlayed = new Date().toISOString();
+          db.update(generations).set({ style: JSON.stringify(meta) }).where(eq(generations.id, genId)).run();
+          return res.json({ ok: true, counted: true });
+        } catch { return res.json({ ok: false }); }
+      }
+      // copy/share/download — старая логика без фильтрации.
       logGenActivity(genId, action, req.ip);
-      // Also keep meta.plays / meta.downloads in style JSON in sync, so that
-      // /api/playlist (which reads meta.plays) reflects events from any source
-      // — mini-player, dashboard, and /share/:id, /play/:id, /track/:id pages.
-      if (action === 'play' || action === 'download') {
+      if (action === 'download') {
         try {
           const gen = db.select().from(generations).where(eq(generations.id, genId)).get();
           if (gen) {
             let meta: any = {};
             try { meta = JSON.parse(gen.style || "{}"); } catch {}
-            if (action === 'play') {
-              meta.plays = (meta.plays || 0) + 1;
-              meta.lastPlayed = new Date().toISOString();
-            } else {
-              meta.downloads = (meta.downloads || 0) + 1;
-            }
+            meta.downloads = (meta.downloads || 0) + 1;
             db.update(generations).set({ style: JSON.stringify(meta) }).where(eq(generations.id, genId)).run();
           }
         } catch {}

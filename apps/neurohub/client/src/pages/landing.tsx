@@ -393,6 +393,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const flagOf = (cc: string, name?: string) => { const code = (cc && cc.length === 2 ? cc : (name && NAME_TO_CC[name])) || ""; return code ? String.fromCodePoint(...code.toUpperCase().split('').map(c => 0x1F1E6 + c.charCodeAt(0) - 65)) : "🌐"; };
   // ТЗ Eugene 2026-05-07 12:18: фильтры плейлиста должны жёстко
   // удерживаться через сессии и навигацию. Используем localStorage.
+  // Eugene 2026-05-15 Босс «2 плейлиста на главной + кнопки заметные».
+  // playlistKind: 'main' = одобренный (default) | 'new' = новые авторы.
+  const [playlistKind, setPlaylistKind] = useState<"main" | "new">(() => {
+    try { const s = localStorage.getItem(`pl_v2:${user?.id || "guest"}:kind`); if (s === "main" || s === "new") return s; } catch {}
+    return "main";
+  });
   const [sortMode, setSortMode] = useState<"rating" | "date" | "random" | "top_month">(() => {
     try { const s = localStorage.getItem(`pl_v2:${user?.id || "guest"}:sortMode`); if (s === "rating" || s === "date" || s === "random" || s === "top_month") return s; } catch {}
     return "rating";
@@ -520,7 +526,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   }, [playingId, tracks]);
 
   useEffect(() => {
-    fetch(`/api/playlist?sort=${sortMode}&dir=${sortDir}&_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).then(data => {
+    fetch(`/api/playlist?status=${playlistKind}&sort=${sortMode}&dir=${sortDir}&_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).then(data => {
       setTracks(data);
 
       // Auto-play shared track from /play/:id route
@@ -627,11 +633,16 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
 
   // Re-fetch when sort mode changes
   useEffect(() => {
-    fetch(`/api/playlist?sort=${sortMode}&dir=${sortDir}&_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).then(data => {
+    fetch(`/api/playlist?status=${playlistKind}&sort=${sortMode}&dir=${sortDir}&_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).then(data => {
       setTracks(data);
       setCurrentPage(1);
     }).catch(() => {});
-  }, [sortMode, sortDir]);
+  }, [sortMode, sortDir, playlistKind]);
+
+  // Eugene 2026-05-15: persist playlistKind ПЕР-ЮЗЕР.
+  useEffect(() => {
+    try { localStorage.setItem(psKey("kind"), playlistKind); } catch {}
+  }, [playlistKind, psKey]);
 
   // Reset page when search or category changes
   useEffect(() => { setCurrentPage(1); }, [searchQuery, categoryFilter]);
@@ -1286,6 +1297,55 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         )}
 
         {/* Expanded cover rendered inline after selected track (see renderExpandedCover below) */}
+
+        {/* Eugene 2026-05-15 Босс «2 плейлиста — кнопки заметные, ключевой
+            выбор». Большие кнопки-табы, виден контраст active/inactive,
+            glow для активного. */}
+        <div className="mb-5">
+          <div className="grid grid-cols-2 gap-2 sm:gap-3 max-w-2xl mx-auto">
+            {(["main", "new"] as const).map(kind => {
+              const active = playlistKind === kind;
+              const isMain = kind === "main";
+              return (
+                <button
+                  key={kind}
+                  onClick={() => setPlaylistKind(kind)}
+                  className={`relative group overflow-hidden rounded-xl px-3 py-3 sm:py-4 text-center transition-all duration-300 ${
+                    active
+                      ? isMain
+                        ? "bg-gradient-to-br from-purple-500/30 via-pink-500/25 to-amber-500/25 border-2 border-purple-400/60 shadow-[0_0_24px_rgba(168,85,247,0.35)] scale-[1.02]"
+                        : "bg-gradient-to-br from-emerald-500/30 via-cyan-500/25 to-blue-500/25 border-2 border-emerald-400/60 shadow-[0_0_24px_rgba(16,185,129,0.35)] scale-[1.02]"
+                      : "bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20"
+                  }`}
+                  data-testid={`pl-toggle-${kind}`}
+                >
+                  {active && (
+                    <span aria-hidden className={`absolute inset-0 rounded-xl opacity-50 blur-md pointer-events-none ${
+                      isMain ? "bg-gradient-to-br from-purple-500/40 to-amber-500/30" : "bg-gradient-to-br from-emerald-500/40 to-cyan-500/30"
+                    }`} />
+                  )}
+                  <div className="relative z-10">
+                    <div className={`text-2xl sm:text-3xl mb-1 ${active ? "" : "opacity-60"}`}>
+                      {isMain ? "🏆" : "✨"}
+                    </div>
+                    <div className={`font-bold text-sm sm:text-base ${
+                      active
+                        ? isMain ? "text-purple-100" : "text-emerald-100"
+                        : "text-white/70"
+                    }`}>
+                      {isMain ? "Плейлист авторов" : "Новые авторы"}
+                    </div>
+                    <div className={`text-[10px] sm:text-xs mt-0.5 ${
+                      active ? "text-white/80" : "text-muted-foreground"
+                    }`}>
+                      {isMain ? "одобрено редакцией" : "только что опубликовано"}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
         {/* Category filter (Eugene 2026-05-14 Босс: вернул Инструментальную) */}
         <div className="flex items-center gap-1.5 mb-3 flex-wrap">
