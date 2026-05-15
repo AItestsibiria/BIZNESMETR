@@ -2783,6 +2783,40 @@ ${text}`
   // Eugene 2026-05-15 Босс «Связывай»: сквозной view диалогов одного юзера
   // через все каналы (TG/Web/Max). Возвращает все его сессии + merged
   // messages timeline. Используется в admin UI.
+  // Eugene 2026-05-15 Босс «строку поиска по всей панели — типа Google
+  // по проекту». Глобальный search для admin-v304: users (name/email/phone)
+  // + generations (display_title/prompt). Tabs ищутся client-side из
+  // статического каталога (admin-search.tsx).
+  app.get("/api/admin/v304/search", requireAdmin, (req: Request, res: Response) => {
+    const q = String(req.query.q || "").trim();
+    if (!q || q.length < 2) {
+      return res.json({ ok: true, users: [], gens: [] });
+    }
+    const like = `%${q.replace(/[%_]/g, "\\$&")}%`;
+    try {
+      const userRows = db.select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        phone: users.phone,
+      }).from(users)
+        .where(sql`${users.name} LIKE ${like} OR ${users.email} LIKE ${like} OR ${users.phone} LIKE ${like} ESCAPE '\\'`)
+        .limit(10).all() as any[];
+      const genRows = db.select({
+        id: generations.id,
+        displayTitle: generations.displayTitle,
+        prompt: generations.prompt,
+        type: generations.type,
+        status: generations.status,
+      }).from(generations)
+        .where(sql`${generations.displayTitle} LIKE ${like} OR ${generations.prompt} LIKE ${like} ESCAPE '\\'`)
+        .limit(10).all() as any[];
+      res.json({ ok: true, users: userRows, gens: genRows });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
   // Eugene 2026-05-15 Босс «провайдер РФ — вести logs в admin panel».
   // SMS-логи: каждый запрос к SMS.ru/SMSC/SMSAero с маскированным номером,
   // статусом, ценой, error-message. Без plain OTP-кода (PII).

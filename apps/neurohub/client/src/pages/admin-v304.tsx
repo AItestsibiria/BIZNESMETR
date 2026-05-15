@@ -21,6 +21,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import AdminSearch from "@/components/admin-search";
 import { Switch } from "@/components/ui/switch";
 import { Progress } from "@/components/ui/progress";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell } from "recharts";
@@ -88,6 +89,9 @@ function fetcher<T>(url: string): Promise<T> {
 export default function AdminV304Page() {
   const { user } = useAuth();
   const { toast } = useToast();
+  // Eugene 2026-05-15 Босс «строка поиска по всей панели — Google по проекту».
+  // Контролируемый Tabs + global search jumps к нужной вкладке.
+  const [tab, setTab] = useState("overview");
 
   // Защита на стороне клиента — мягкая (бэк всё равно проверит).
   // Админ-доступ для тех, чей email есть в server-side ADMIN_EMAIL списке;
@@ -112,6 +116,21 @@ export default function AdminV304Page() {
     <div className="container mx-auto p-4 sm:p-6 max-w-7xl">
       <div className="flex items-center gap-3 mb-6">
         <h1 className="text-2xl sm:text-3xl font-bold">Admin · v304</h1>
+        <div className="ml-auto">
+          <AdminSearch
+            onSelect={(r) => {
+              if (r.tabKey) setTab(r.tabKey);
+              if (r.scrollAnchor) {
+                setTimeout(() => {
+                  const el = document.getElementById(r.scrollAnchor!);
+                  el?.scrollIntoView({ behavior: "smooth", block: "center" });
+                  el?.classList.add("ring-2", "ring-purple-400/60");
+                  setTimeout(() => el?.classList.remove("ring-2", "ring-purple-400/60"), 2000);
+                }, 150);
+              }
+            }}
+          />
+        </div>
         <HelpBuddy
           variant="violet"
           title="Что есть в админ-панели?"
@@ -126,7 +145,7 @@ export default function AdminV304Page() {
           ]}
         />
       </div>
-      <Tabs defaultValue="overview">
+      <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="mb-4 flex flex-wrap">
           <TabsTrigger value="overview">Обзор</TabsTrigger>
           <TabsTrigger value="friend">👤 Муза</TabsTrigger>
