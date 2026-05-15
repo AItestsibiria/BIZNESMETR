@@ -18,6 +18,11 @@ import type { NextFunction, Request, Response } from "express";
 import type { Module } from "../../core";
 
 const DEFAULT_ALLOWED = [
+  // Eugene 2026-05-15: новый primary домен MuzaAi.ru (rebrand muziai → muzaai)
+  "https://muzaai.ru",
+  "https://www.muzaai.ru",
+  // Старый домен — для backward compat (юзер на muziai.ru делает API call
+  // ДО того как nginx 301 redirect'нул)
   "https://clone.muziai.ru",
   "https://muziai.ru",
   "https://www.muziai.ru",
@@ -25,6 +30,7 @@ const DEFAULT_ALLOWED = [
   "https://www.podaripesnu.ru",
   "http://127.0.0.1:5000",
   "http://localhost:5000",
+  "http://localhost:5173",
 ];
 
 // Webhook'и от внешних провайдеров — приходят без Origin/Referer.
