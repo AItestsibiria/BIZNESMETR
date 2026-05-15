@@ -33,10 +33,7 @@ const ORIGIN =
  * (pass the gen update timestamp when cover is replaced so iOS refreshes).
  */
 function buildArtwork(trackId: number | string, bust?: string | number): MediaImage[] {
-  // Eugene 2026-05-15 Босс «LS обложка сразу раскрыта» — приоритизируем
-  // большие размеры (512+), iOS Now Playing выберет 1024 для full-screen
-  // expanded artwork. Маленькие 96/128 для status bar fallback.
-  const sizes = [192, 256, 384, 512, 1024];
+  const sizes = [96, 128, 192, 256, 384, 512];
   const qs = bust ? `&v=${encodeURIComponent(String(bust))}` : "";
   return sizes.map(s => ({
     src: `${ORIGIN}/api/cover/${trackId}.jpg?size=${s}${qs}`,
