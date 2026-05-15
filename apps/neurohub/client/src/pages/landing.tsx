@@ -637,16 +637,23 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   useEffect(() => { setCurrentPage(1); }, [searchQuery, categoryFilter]);
 
   // Auto-switch page when playing track is on a different page
+  // Eugene 2026-05-15 Босс «не сохраняется визуальный выбранный плейлист
+  // после перещелкивания треков». ROOT CAUSE: эффект игнорировал
+  // categoryFilter и считал index трека в ПОЛНОМ списке музыки, а visible-
+  // список — отфильтрован по категории. После переключения трека page
+  // прыгал на позицию в чужом списке → юзера выкидывало с его страницы.
+  // ФИКС:
+  //   1. Используем тот же filteredMusic (category + search), что и UI.
+  //   2. Если играющий трек ВНЕ фильтра — НЕ трогаем page, оставляем
+  //      выбор юзера. Это и есть «сохраняется визуально».
   useEffect(() => {
     if (!playingId) return;
-    const allMusic = tracks.filter(t => t.type === "music" && t.audioUrl);
-    const q2 = searchQuery.toLowerCase().trim();
-    const filtered = q2 ? allMusic.filter(t => (t.prompt || "").toLowerCase().includes(q2) || (t.authorName || "").toLowerCase().includes(q2)) : allMusic;
-    const idx = filtered.findIndex(t => t.id === playingId);
-    if (idx >= 0) {
-      const targetPage = Math.floor(idx / TRACKS_PER_PAGE) + 1;
-      setCurrentPage(p => p !== targetPage ? targetPage : p);
-    }
+    const list = filteredMusicRef.current;
+    if (!list || list.length === 0) return;
+    const idx = list.findIndex(t => t.id === playingId);
+    if (idx < 0) return;
+    const targetPage = Math.floor(idx / TRACKS_PER_PAGE) + 1;
+    setCurrentPage(p => p !== targetPage ? targetPage : p);
   }, [playingId]);
 
   const playTrack = (track: any) => {
