@@ -29,6 +29,7 @@ import { v4 as uuidv4 } from "uuid";
 import type { BootContext, Module } from "../../core";
 import { validatePhoneForOtp, maskPhone, normalizePhone, detectPhoneCountry } from "../../lib/phoneCountry";
 import { tokenStore } from "../../lib/tokenStore";
+import { tryGiveWelcomeGift } from "../../lib/welcomeGift";
 
 let bootRefs: { eventBus: BootContext["eventBus"]; logger: BootContext["logger"] } | null = null;
 
@@ -489,11 +490,15 @@ router.post("/verify-otp", async (req, res) => {
         countryCode: country?.code || null,
       }).returning({ id: users.id }).get() as any;
       const userId = inserted?.id;
+      // Eugene 2026-05-15 Босс «подарочный трек не обнаружен» — выдаём 1
+      // welcome-gift первым 1000 авторам из РФ/СНГ. Same logic как при
+      // email-регистрации (см. /api/auth/login).
+      const giftRes = tryGiveWelcomeGift({ userId, countryCode: country?.code });
       const token = uuidv4();
       tokenStore.set(token, userId);
       bootRefs?.eventBus?.emit?.("auth.user.registered", { userId, channel: "sms" }, "auth-sms");
       return res.json({
-        data: { verified: true, phone, purpose, token, userId },
+        data: { verified: true, phone, purpose, token, userId, welcomeGift: giftRes.gifted ? giftRes.position : null },
         error: null,
       });
     }
@@ -718,11 +723,12 @@ router.post("/check-call", async (req, res) => {
         countryCode: country?.code || null,
       }).returning({ id: users.id }).get() as any;
       const userId = inserted?.id;
+      const giftRes = tryGiveWelcomeGift({ userId, countryCode: country?.code });
       const token = uuidv4();
       tokenStore.set(token, userId);
       bootRefs?.eventBus?.emit?.("auth.user.registered", { userId, channel: "call" }, "auth-sms");
       return res.json({
-        data: { verified: true, phone, purpose, method: "call", token, userId },
+        data: { verified: true, phone, purpose, method: "call", token, userId, welcomeGift: giftRes.gifted ? giftRes.position : null },
         error: null,
       });
     }
@@ -746,11 +752,12 @@ router.post("/check-call", async (req, res) => {
           countryCode: country?.code || null,
         }).returning({ id: users.id }).get() as any;
         const newUserId = inserted?.id;
+        const giftRes = tryGiveWelcomeGift({ userId: newUserId, countryCode: country?.code });
         const token = uuidv4();
         tokenStore.set(token, newUserId);
         bootRefs?.eventBus?.emit?.("auth.user.registered", { userId: newUserId, channel: "call", upsert: true }, "auth-sms");
         return res.json({
-          data: { verified: true, phone, purpose, method: "call", token, userId: newUserId, newAccount: true },
+          data: { verified: true, phone, purpose, method: "call", token, userId: newUserId, newAccount: true, welcomeGift: giftRes.gifted ? giftRes.position : null },
           error: null,
         });
       }

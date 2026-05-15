@@ -2996,6 +2996,65 @@ ${text}`
   // - status='new'  → isPublic=2 (новые авторы)
   // - status='private' → isPublic=0 (скрыть с главной)
   // Audit-log пишется автоматически.
+  // Eugene 2026-05-15 Босс «подарочный трек не обнаружен» — backfill для
+  // phone-юзеров которые зарегистрировались до фикса (welcome_gift_given=0
+  // + countryCode из СНГ + общий лимит не превышен). Admin запустит один раз
+  // после deploy.
+  //
+  // GET ?dry=1 → список кандидатов (без выдачи)
+  // POST       → реальная выдача
+  app.get("/api/admin/v304/backfill/welcome-gift", requireAdmin, (_req: Request, res: Response) => {
+    try {
+      const candidates = db.all<any>(sql`
+        SELECT id, name, phone, email, country_code as countryCode, created_at
+        FROM users
+        WHERE welcome_gift_given = 0
+          AND (deleted_at IS NULL)
+          AND (blocked IS NULL OR blocked = 0)
+        ORDER BY id ASC
+      `);
+      const giftedCount = db.get<{ c: number }>(sql`SELECT COUNT(*) as c FROM users WHERE welcome_gift_given = 1`);
+      res.json({
+        ok: true,
+        dry: true,
+        totalCandidates: candidates.length,
+        alreadyGifted: giftedCount?.c || 0,
+        limit: 1000,
+        canGift: Math.max(0, 1000 - (giftedCount?.c || 0)),
+        sample: candidates.slice(0, 10).map((c: any) => ({ id: c.id, name: c.name, phone: c.phone, countryCode: c.countryCode })),
+      });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  app.post("/api/admin/v304/backfill/welcome-gift", requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const { tryGiveWelcomeGift } = await import("./lib/welcomeGift");
+      const candidates = db.all<any>(sql`
+        SELECT id, country_code as countryCode FROM users
+        WHERE welcome_gift_given = 0
+          AND (deleted_at IS NULL)
+          AND (blocked IS NULL OR blocked = 0)
+        ORDER BY id ASC
+      `);
+      let gifted = 0;
+      let skipped = 0;
+      let limitReached = false;
+      for (const c of candidates) {
+        const r = tryGiveWelcomeGift({ userId: c.id, countryCode: c.countryCode });
+        if (r.gifted) gifted++;
+        else {
+          skipped++;
+          if (r.reason === "limit-reached") { limitReached = true; break; }
+        }
+      }
+      res.json({ ok: true, totalCandidates: candidates.length, gifted, skipped, limitReached });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
   app.post("/api/admin/v304/generations/:id/playlist", requireAdmin, (req: Request, res: Response) => {
     const genId = Number(req.params.id);
     const status = String(req.body?.status || "");

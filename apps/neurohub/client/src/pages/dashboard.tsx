@@ -19,6 +19,9 @@ import { useToast } from "@/hooks/use-toast";
 import GiftBadge from "@/components/gift-badge";
 import { useState, useEffect, useRef } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Loader2 } from "lucide-react";
 import { KaraokeLyrics } from "@/components/karaoke-lyrics";
 import { setLockScreenTrack, setLockScreenPlaybackState } from "@/lib/lockscreen";
 import { muteBgMusic, unmuteBgMusic } from "@/components/background-music";
@@ -50,6 +53,94 @@ function labelForCategory(cat: string): string {
     case "instrumental": return "🎶 Инструментальная";
     default: return cat;
   }
+}
+
+// Eugene 2026-05-15 Босс «фикс для объединения у кого ранее была почта».
+// Banner на /dashboard для phone-only юзеров. Кликает «Связать» — открывает
+// модалку с email/password → POST /api/auth/link-existing.
+function LinkExistingBanner({ userId, userPhone, onDone }: { userId: number; userPhone?: string; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
+  const { loginByToken } = useAuth();
+  const [, navigate] = useLocation();
+
+  const handleLink = async () => {
+    setError(null);
+    if (!email || !password) { setError("Заполните email и пароль"); return; }
+    setLoading(true);
+    try {
+      const r = await apiRequest("POST", "/api/auth/link-existing", { email: email.trim(), password });
+      const j = await r.json();
+      if (j?.ok && j?.token) {
+        await loginByToken(j.token, true);
+        toast({ title: "✅ Аккаунты объединены", description: "Телефон привязан к email-аккаунту" });
+        setOpen(false);
+        navigate("/dashboard");
+        onDone();
+      } else {
+        setError(j?.message || "Не удалось связать");
+      }
+    } catch (e: any) {
+      setError(String(e?.message || "Ошибка"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="mb-4 p-3 rounded-xl border border-purple-400/30 bg-gradient-to-r from-purple-500/10 via-violet-500/8 to-blue-500/10 flex items-center gap-3">
+        <div className="text-2xl">🔗</div>
+        <div className="flex-1 text-sm">
+          <p className="text-white font-medium">Был аккаунт по email?</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Свяжите его с этим телефоном — все ваши треки переедут сюда.</p>
+        </div>
+        <Button size="sm" className="btn-gradient" onClick={() => setOpen(true)}>Связать</Button>
+        <button
+          onClick={() => {
+            try { localStorage.setItem(`linkBannerDismissed:${userId}`, "1"); } catch {}
+            onDone();
+          }}
+          className="text-muted-foreground hover:text-white text-lg px-1"
+          aria-label="Скрыть"
+        >×</button>
+      </div>
+
+      <Dialog open={open} onOpenChange={(o) => { if (!o && !loading) setOpen(false); }}>
+        <DialogContent className="glass-card border-purple-500/30 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="gradient-text text-base flex items-center gap-2">
+              🔗 Связать с email-аккаунтом
+            </DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground pt-2">
+              Телефон <span className="text-white font-medium">{userPhone || ""}</span> привяжется к указанному email-аккаунту. Все треки phone-аккаунта переедут туда.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 mt-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Email от существующего аккаунта</Label>
+              <Input type="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} className="bg-background/50 border-white/10" disabled={loading} autoComplete="email" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Пароль</Label>
+              <Input type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} className="bg-background/50 border-white/10" disabled={loading} autoComplete="current-password" />
+            </div>
+            {error && <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{error}</div>}
+            <div className="flex gap-2 pt-1">
+              <Button variant="outline" className="flex-1 border-white/10" disabled={loading} onClick={() => setOpen(false)}>Отмена</Button>
+              <Button className="flex-1 btn-gradient" disabled={loading || !email || !password} onClick={handleLink}>
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Связать"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
 }
 
 function TopGenStats() {
@@ -2014,6 +2105,14 @@ export default function DashboardPage() {
             </p>
           </div>
         </div>
+
+        {/* Eugene 2026-05-15 Босс «фикс для объединения у кого ранее была почта».
+            Banner для phone-only юзеров (email = NNN@phone.muziai.ru placeholder).
+            Кликабельный → открывает LinkExistingDialog. Dismissable через
+            localStorage. */}
+        {user?.email?.endsWith("@phone.muziai.ru") && !localStorage.getItem(`linkBannerDismissed:${user.id}`) && (
+          <LinkExistingBanner userId={user.id} userPhone={(user as any).phone} onDone={() => refreshUser?.()} />
+        )}
 
         {/* Admin Stats */}
         {user?.email === "egnovoselov@gmail.com" && (

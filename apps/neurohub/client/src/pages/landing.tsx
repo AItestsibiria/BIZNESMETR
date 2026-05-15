@@ -1387,6 +1387,34 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           </div>
         )}
 
+        {/* Eugene 2026-05-15 Босс «новые авторы поставь красивую заставку
+            пока нет никого». Empty state когда выбран «Новые авторы» и
+            нет треков is_public=2. */}
+        {playlistKind === "new" && filteredMusic.length === 0 && (
+          <div className="mb-4 p-8 rounded-2xl border border-emerald-500/30 bg-gradient-to-br from-emerald-500/10 via-cyan-500/8 to-blue-500/10 text-center shadow-[0_0_32px_rgba(16,185,129,0.15)]">
+            <div className="text-5xl mb-3">✨🎵🎙️</div>
+            <h3 className="text-lg font-bold text-emerald-200 mb-2">Скоро здесь появятся новые авторы</h3>
+            <p className="text-sm text-muted-foreground max-w-md mx-auto leading-relaxed">
+              Пока никто не опубликовал свежие треки. Будь первым — создай и опубликуй свой,
+              он появится сразу здесь.
+            </p>
+            <div className="mt-4 flex items-center justify-center gap-2">
+              <button
+                onClick={() => { if (user) navigate("/music"); else navigate("/register-phone"); }}
+                className="btn-cosmic rounded-full px-5 py-2 text-sm h-auto"
+              >
+                🎵 Создать трек
+              </button>
+              <button
+                onClick={() => setPlaylistKind("main")}
+                className="text-xs px-3 py-2 rounded-lg border border-white/10 bg-white/[0.04] text-muted-foreground hover:text-white"
+              >
+                ← К основному плейлисту
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Track list (music only) */}
         <div className="glass-card rounded-xl overflow-hidden divide-y divide-white/[0.04]">
           {paginatedMusic.map((track, idx) => {
