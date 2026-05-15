@@ -3055,6 +3055,89 @@ ${text}`
     }
   });
 
+  // Eugene 2026-05-15 Босс «перепрошить ID3-tag старых треков на MuzaAi.ru,
+  // но ранее созданные ссылки должны работать на 100%».
+  //
+  // Что делает:
+  //  - SELECT music-треков с status='done' AND created_at < '2026-05-15 23:59:59'
+  //  - Для каждого читает local mp3 → переписывает ID3-tag (album, artist
+  //    с MuziAi → MuzaAi) → сохраняет (mtime обновится, файл валиден)
+  //  - Ссылки /share/:id, /play/:id, /api/stream/:id НЕ меняются — они
+  //    идут на тот же gen.id. Старые share-link продолжают работать через
+  //    301 redirect muziai → muzaai на nginx.
+  //  - НЕ трогает: gen.userId, gen.id, gen.localPath, БД, audio content
+  //
+  // GET ?dry=1 — список кандидатов (id, title, album-current)
+  // POST       — реальная перепрошивка
+  app.get("/api/admin/v304/backfill/id3-rebrand", requireAdmin, (_req: Request, res: Response) => {
+    try {
+      const cutoff = "2026-05-15 23:59:59"; // треки до 15.05.2026 включительно
+      const rows = db.all<any>(sql`
+        SELECT id, display_title, local_path, created_at FROM generations
+        WHERE type = 'music' AND status = 'done' AND local_path IS NOT NULL
+          AND created_at < ${cutoff}
+        ORDER BY id DESC
+        LIMIT 1000
+      `);
+      res.json({
+        ok: true,
+        dry: true,
+        cutoff,
+        totalCandidates: rows.length,
+        sample: rows.slice(0, 5).map((r: any) => ({ id: r.id, title: r.display_title, localPath: r.local_path?.slice(0, 60) })),
+      });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  app.post("/api/admin/v304/backfill/id3-rebrand", requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const cutoff = "2026-05-15 23:59:59";
+      const rows = db.all<any>(sql`
+        SELECT id, display_title, local_path, author_name FROM generations
+        WHERE type = 'music' AND status = 'done' AND local_path IS NOT NULL
+          AND created_at < ${cutoff}
+        ORDER BY id DESC
+        LIMIT 1000
+      `);
+      const authorsDir = (process.env.AUTHORS_DIR || "/var/www/neurohub/authors").replace(/\/$/, "");
+      let updated = 0;
+      let skipped = 0;
+      const errors: Array<{ id: number; error: string }> = [];
+
+      for (const r of rows) {
+        try {
+          const mp3Path = `${authorsDir}/${r.local_path}`;
+          if (!fs.existsSync(mp3Path)) { skipped++; continue; }
+          const existing = NodeID3.read(mp3Path) || {};
+          const tags: any = {
+            title: r.display_title || existing.title || "MuzaAi Track",
+            artist: r.author_name ? `MuzaAi · ${r.author_name}` : "MuzaAi",
+            album: "MuzaAi.ru",
+            comment: { language: "rus", text: PUBLIC_URL },
+          };
+          // Сохраняем существующую обложку если она была в ID3
+          if ((existing as any).image) tags.image = (existing as any).image;
+          NodeID3.update(tags, mp3Path);
+          updated++;
+        } catch (e: any) {
+          errors.push({ id: r.id, error: String(e?.message || e).slice(0, 200) });
+        }
+      }
+      res.json({
+        ok: true,
+        totalCandidates: rows.length,
+        updated,
+        skipped,
+        errors: errors.slice(0, 10),
+      });
+    } catch (e: any) {
+      console.error("[backfill/id3-rebrand]", e);
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
   app.post("/api/admin/v304/generations/:id/playlist", requireAdmin, (req: Request, res: Response) => {
     const genId = Number(req.params.id);
     const status = String(req.body?.status || "");
