@@ -78,6 +78,27 @@ type AuditEntry = {
   createdAt: string;
 };
 
+// Eugene 2026-05-15 Босс «дашборд разными языками объедини в одну строку по
+// русски». Маппинг ISO country_code → русское название. Перекрывает любые
+// английские варианты от backend (Russia → Россия, Belarus → Беларусь и т.д.).
+const COUNTRY_RU: Record<string, string> = {
+  RU: "Россия", BY: "Беларусь", KZ: "Казахстан", UZ: "Узбекистан",
+  UA: "Украина", AM: "Армения", AZ: "Азербайджан", GE: "Грузия",
+  KG: "Киргизия", TJ: "Таджикистан", TM: "Туркмения", MD: "Молдова",
+  GB: "Великобритания", US: "США", FR: "Франция", JP: "Япония",
+  AE: "ОАЭ", TR: "Турция", DE: "Германия", IT: "Италия", ES: "Испания",
+  CN: "Китай", CA: "Канада", AU: "Австралия", BR: "Бразилия", IN: "Индия",
+  KR: "Южная Корея", IL: "Израиль", PL: "Польша", CZ: "Чехия", FI: "Финляндия",
+  SE: "Швеция", NO: "Норвегия", NL: "Нидерланды", BE: "Бельгия", CH: "Швейцария",
+  AT: "Австрия", PT: "Португалия", GR: "Греция", HU: "Венгрия", RO: "Румыния",
+  TH: "Таиланд", VN: "Вьетнам", ID: "Индонезия", MY: "Малайзия", SG: "Сингапур",
+};
+function countryRu(code: string | null | undefined, fallback?: string): string {
+  if (!code) return fallback || "—";
+  const up = code.toUpperCase();
+  return COUNTRY_RU[up] || fallback || up;
+}
+
 function fetcher<T>(url: string): Promise<T> {
   return fetch(url, { credentials: "include" }).then(async (r) => {
     if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
@@ -519,7 +540,7 @@ function RegistrationStatsCard() {
           <div className="mt-2 grid grid-cols-2 md:grid-cols-3 gap-1.5">
             {data.byCountry.map((c: any) => (
               <div key={c.country_code} className={`flex items-baseline gap-2 p-2 rounded ${c.isCIS ? "bg-purple-500/[0.06] border border-purple-500/15" : "bg-white/[0.03] border border-white/[0.05]"}`}>
-                <span className="text-[11px] font-medium text-white/90 flex-1 truncate">{c.country}</span>
+                <span className="text-[11px] font-medium text-white/90 flex-1 truncate">{countryRu(c.country_code, c.country)}</span>
                 <span className="text-[10px] text-white/40">{c.country_code}</span>
                 <span className="text-[11px] font-bold text-white">{fmt(c.n)}</span>
                 {c.isCIS && c.gifted > 0 && (
@@ -1487,7 +1508,7 @@ function BotStatsTab({ toast }: { toast: any }) {
                 >
                   <span className="text-[14px] shrink-0">{flag}</span>
                   <span className="text-white/90 truncate">{c.city}</span>
-                  <span className="text-white/40 text-[10px] truncate">{c.country}</span>
+                  <span className="text-white/40 text-[10px] truncate">{countryRu(c.country_code || c.countryCode, c.country)}</span>
                   <span className="text-purple-300/70 text-[11px] ml-auto tabular-nums">{fmt(c.sessions)}</span>
                 </div>
               );
@@ -2692,7 +2713,7 @@ function ChatFunnelSection({ toast }: { toast: any }) {
               {(data.by_city || []).map((c: any, i: number) => (
                 <tr key={`${c.city}-${c.country}-${i}`} className="border-b border-border/30 hover:bg-secondary/30">
                   <td className="py-2 pl-2 font-medium">{c.city}</td>
-                  <td className="py-2 pl-2 text-muted-foreground">{c.country}</td>
+                  <td className="py-2 pl-2 text-muted-foreground">{countryRu(c.country_code || c.countryCode, c.country)}</td>
                   <td className="text-right py-2 px-3 font-mono">{c.sessions}</td>
                   <td className="text-right py-2 px-3 pr-2 font-mono text-emerald-300">{c.converted}</td>
                 </tr>
