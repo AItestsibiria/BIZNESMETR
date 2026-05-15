@@ -5263,6 +5263,34 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     return __authorsRealPath;
   };
 
+  // Eugene 2026-05-15 Босс «обложка от Suno вместо привязанной при пересылке».
+  // Debug endpoint — показывает что probeCoverPath нашёл/не нашёл для трека.
+  // Использование: /api/cover/:id/debug
+  app.get("/api/cover/:id/debug", (req: Request, res: Response) => {
+    const genId = parseInt(req.params.id);
+    const gen = db.select().from(generations).where(eq(generations.id, genId)).get() as any;
+    if (!gen) return res.status(404).json({ error: "gen not found" });
+    const probe = probeCoverPath(gen);
+    let coverGen: any = null;
+    if (gen.coverGenId) {
+      coverGen = db.select().from(generations).where(eq(generations.id, gen.coverGenId)).get();
+    }
+    res.json({
+      genId: gen.id,
+      type: gen.type,
+      status: gen.status,
+      coverGenId: gen.coverGenId || null,
+      gen_localPath: gen.localPath || null,
+      cover_localPath: coverGen?.localPath || null,
+      cover_status: coverGen?.status || null,
+      matched: probe.matched,
+      tried: probe.tried,
+      hint: probe.matched
+        ? probe.matched.includes(coverGen?.localPath || "ZZZ") ? "✅ Отдаём ПРИВЯЗАННУЮ обложку" : "⚠️ Отдаём fallback (не привязанную)"
+        : "❌ Файл не найден — будет 404 или image-stream от Suno URL",
+    });
+  });
+
   app.get("/api/cover/:id.jpg", async (req: Request, res: Response) => {
     const genId = parseInt(req.params.id);
     try {
