@@ -23,6 +23,8 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [promo, setPromo] = useState("");
   const [remember, setRemember] = useState(true);
+  // Eugene 2026-05-15 Босс «согласие на 152-ФЗ при регистрации».
+  const [agreeToPDN, setAgreeToPDN] = useState(false);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -242,10 +244,33 @@ export default function RegisterPage() {
             />
             <span className="text-xs text-muted-foreground">Запомнить меня</span>
           </label>
+          {/* Eugene 2026-05-15 Босс «согласие 152-ФЗ при регистрации».
+              Обязательный чек-бокс — без него register заблокирован. */}
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={agreeToPDN}
+              onChange={(e) => setAgreeToPDN(e.target.checked)}
+              className="w-4 h-4 mt-0.5 rounded border-white/20 bg-white/5 accent-purple-500 shrink-0"
+              data-testid="checkbox-agree-pdn"
+            />
+            <span className="text-[11px] text-muted-foreground leading-snug">
+              Я согласен с обработкой персональных данных в соответствии с
+              {" "}
+              <Link href="/privacy" className="text-purple-300 hover:text-purple-200 underline">
+                Политикой конфиденциальности
+              </Link>
+              {" "}и{" "}
+              <Link href="/terms" className="text-purple-300 hover:text-purple-200 underline">
+                Условиями использования
+              </Link>
+              {" "}(152-ФЗ).
+            </span>
+          </label>
           <Button
             type="submit"
             className="w-full btn-gradient rounded-xl h-11"
-            disabled={loading}
+            disabled={loading || !agreeToPDN}
             data-testid="button-register"
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : "Зарегистрироваться"}

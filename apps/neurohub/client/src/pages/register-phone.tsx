@@ -3,7 +3,7 @@
 //
 // Ссылка снизу — переключение на /register (email-вариант).
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { Music, Phone, Mail, Loader2 } from "lucide-react";
@@ -14,6 +14,8 @@ export default function RegisterPhonePage() {
   const { user, isLoading, loginByToken } = useAuth();
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  // Eugene 2026-05-15 Босс «согласие 152-ФЗ при регистрации».
+  const [agreeToPDN, setAgreeToPDN] = useState(false);
 
   useEffect(() => {
     if (user) navigate("/dashboard");
@@ -54,9 +56,32 @@ export default function RegisterPhonePage() {
         </div>
 
         <div className="gradient-border p-6 rounded-2xl space-y-4">
-          {/* Eugene 2026-05-15 Босс «авторизацию по SMS убираем с фронта,
-              в будущем дожмем». allowMethods='call' скрывает toggle и
-              использует только flashcall. SMS backend остаётся. */}
+          {/* Eugene 2026-05-15 Босс «согласие 152-ФЗ при регистрации».
+              Чек-бокс ДО формы — если не согласен, форма заблокирована
+              через div.opacity-40 pointer-events-none. */}
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={agreeToPDN}
+              onChange={(e) => setAgreeToPDN(e.target.checked)}
+              className="w-4 h-4 mt-0.5 rounded border-white/20 bg-white/5 accent-purple-500 shrink-0"
+              data-testid="checkbox-agree-pdn"
+            />
+            <span className="text-[11px] text-muted-foreground leading-snug">
+              Я согласен с обработкой персональных данных в соответствии с
+              {" "}
+              <Link href="/privacy" className="text-purple-300 hover:text-purple-200 underline">
+                Политикой
+              </Link>
+              {" "}и{" "}
+              <Link href="/terms" className="text-purple-300 hover:text-purple-200 underline">
+                Условиями использования
+              </Link>
+              {" "}(152-ФЗ). Без согласия регистрация невозможна.
+            </span>
+          </label>
+
+          <div className={agreeToPDN ? "" : "opacity-40 pointer-events-none select-none"} aria-disabled={!agreeToPDN}>
           <PhoneOtpForm
             purpose="register"
             allowMethods="call"
@@ -80,6 +105,7 @@ export default function RegisterPhonePage() {
               navigate("/dashboard");
             }}
           />
+          </div>
           <div className="pt-3 border-t border-white/10 space-y-2">
             <Link href="/login-phone">
               <a className="block text-center text-sm text-muted-foreground hover:text-white">

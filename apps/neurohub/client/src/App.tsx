@@ -10,6 +10,7 @@ import LoginPage from "./pages/login";
 import LoginPhonePage from "./pages/login-phone";
 import RegisterPage from "./pages/register";
 import RegisterPhonePage from "./pages/register-phone";
+import PrivacyPage from "./pages/privacy";
 import LyricsPage from "./pages/lyrics";
 import MusicPage from "./pages/music";
 import CoversPage from "./pages/covers";
@@ -61,6 +62,8 @@ function AppContent() {
           <Route path="/register-phone" component={RegisterPhonePage} />
           <Route path="/register/:ref" component={RegisterPage} />
           <Route path="/r/:ref" component={RegisterPage} />
+          <Route path="/privacy" component={PrivacyPage} />
+          <Route path="/terms" component={PrivacyPage} />
           <Route path="/lyrics" component={LyricsPage} />
           <Route path="/music" component={MusicPage} />
           <Route path="/covers" component={CoversPage} />
