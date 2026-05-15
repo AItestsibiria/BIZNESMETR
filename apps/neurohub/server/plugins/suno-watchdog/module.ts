@@ -147,7 +147,7 @@ async function sendEmailAlert(subject: string, body: string, to: string): Promis
       auth: { user, pass },
     });
     await transporter.sendMail({
-      from: process.env.SMTP_FROM || `MuziAI Watchdog <${user}>`,
+      from: process.env.SMTP_FROM || `MuzaAI Watchdog <${user}>`,
       to,
       subject,
       text: body,
@@ -207,8 +207,8 @@ async function notifyAdmin(input: AlertInput): Promise<void> {
   STATE.lastAlerts[input.kind] = new Date().toISOString();
 
   const sev = input.severity === "critical" ? "🔴 КРИТИЧНО" : "⚠️ ВНИМАНИЕ";
-  const tgText = `${sev}\n<b>${input.title}</b>\n\n${input.body}${input.resolution ? `\n\n<b>Что делать:</b>\n${input.resolution}` : ""}\n\n<i>MuziAi · Suno Watchdog</i>`;
-  const emailBody = `${sev}\n\n${input.title}\n\n${input.body}${input.resolution ? `\n\nЧто делать:\n${input.resolution}` : ""}\n\n— MuziAi Suno Watchdog`;
+  const tgText = `${sev}\n<b>${input.title}</b>\n\n${input.body}${input.resolution ? `\n\n<b>Что делать:</b>\n${input.resolution}` : ""}\n\n<i>MuzaAi · Suno Watchdog</i>`;
+  const emailBody = `${sev}\n\n${input.title}\n\n${input.body}${input.resolution ? `\n\nЧто делать:\n${input.resolution}` : ""}\n\n— MuzaAi Suno Watchdog`;
 
   console.log(`\x1b[31m[SUNO-ALERT/${input.severity.toUpperCase()}]\x1b[0m ${input.title} — ${input.body.slice(0, 200)}`);
   bootRefs?.logger.info("suno-watchdog alert", { kind: input.kind, severity: input.severity, title: input.title });
@@ -226,7 +226,7 @@ async function notifyAdmin(input: AlertInput): Promise<void> {
   // Найти админских юзеров (с telegram_id для tg, с email для smtp)
   const admins = db.select().from(users).where(eq(users.role, "admin")).all();
   const adminTgIds = admins.map((u) => u.telegramId).filter(Boolean) as string[];
-  const adminEmails = admins.map((u) => u.email).filter((e) => !!e && !e.endsWith("@telegram.MuziAi.ru")) as string[];
+  const adminEmails = admins.map((u) => u.email).filter((e) => !!e && !e.endsWith("@telegram.MuzaAi.ru")) as string[];
 
   // ENV-override: ADMIN_TELEGRAM_ID и ADMIN_EMAIL дополняют список
   if (process.env.ADMIN_TELEGRAM_ID) adminTgIds.push(process.env.ADMIN_TELEGRAM_ID);
@@ -234,7 +234,7 @@ async function notifyAdmin(input: AlertInput): Promise<void> {
 
   await Promise.allSettled([
     ...adminTgIds.map((id) => sendTelegramAlert(tgText, id)),
-    ...adminEmails.map((e) => sendEmailAlert(`[MuziAi] ${input.title}`, emailBody, e)),
+    ...adminEmails.map((e) => sendEmailAlert(`[MuzaAi] ${input.title}`, emailBody, e)),
   ]);
 }
 
@@ -301,7 +301,7 @@ async function pollBalance(): Promise<void> {
           kind: "suno_unreachable",
           severity: "critical",
           title: "GPTunnel недоступен — стабильно (3+ циклов)",
-          body: `Не могу достучаться до gptunnel.ru/v1/balance уже ${STATE.consecutiveBalanceFailures} циклов подряд: ${STATE.balanceError}. Все MuziAi-запросы падают.`,
+          body: `Не могу достучаться до gptunnel.ru/v1/balance уже ${STATE.consecutiveBalanceFailures} циклов подряд: ${STATE.balanceError}. Все MuzaAi-запросы падают.`,
           resolution: "Проверь VPS network: curl -m 10 https://gptunnel.ru/v1/balance -H \"Authorization: $GPTUNNEL_API_KEY\". Firewall/DNS/route на VPS.",
         });
       }
@@ -438,7 +438,7 @@ async function evaluateState(): Promise<void> {
     await notifyAdmin({
       kind: "suno_high_error_rate",
       severity: "critical",
-      title: `MuziAi: error-rate ${ratePct}% за ${high5m ? "5 мин" : "60 мин"}`,
+      title: `MuzaAi: error-rate ${ratePct}% за ${high5m ? "5 мин" : "60 мин"}`,
       body: `За ${winLabel} большинство генераций упали. Похоже, Suno глобально не работает. Auto-retry приостановлен (circuit open).`,
       resolution: "Дождись восстановления (Watchdog auto-recovers) или обнови ключ если проблема в нём. /admin/v304 → Suno Watchdog для real-time стейта",
     });

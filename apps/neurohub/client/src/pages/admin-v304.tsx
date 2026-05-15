@@ -269,7 +269,7 @@ function GptunnelBalanceCard() {
               {sunoTracks != null && (
                 <div className="mt-2 flex items-center gap-2 text-sm">
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/30">
-                    🎵 MuziAi: ≈ <b>{sunoTracks.toLocaleString("ru-RU")}</b> треков
+                    🎵 MuzaAi: ≈ <b>{sunoTracks.toLocaleString("ru-RU")}</b> треков
                   </span>
                   {sunoPrice != null && (
                     <span className="text-[10px] text-muted-foreground">
@@ -1141,7 +1141,7 @@ function DebugRow({ it, onRecovered }: { it: any; onRecovered: () => void }) {
         toast({ title: `🟢 #${it.id} восстановлен`, description: `audio_url подхвачен, открой /track/${it.id}` });
         onRecovered();
       } else {
-        toast({ title: "Recovery невозможен", description: d?.message || "MuziAi не вернул succeeded трек", variant: "destructive" });
+        toast({ title: "Recovery невозможен", description: d?.message || "MuzaAi не вернул succeeded трек", variant: "destructive" });
       }
     },
     onError: (e: Error) => toast({ title: "Ошибка recover", description: e.message, variant: "destructive" }),
@@ -1173,7 +1173,7 @@ function DebugRow({ it, onRecovered }: { it: any; onRecovered: () => void }) {
       {it.errorReason && <div className="text-rose-300 mt-1">errorReason: {it.errorReason}</div>}
       {it.sunoFresh && (
         <div className="text-cyan-300 mt-1">
-          MuziAi HTTP {it.sunoFreshStatus} · status={it.sunoFresh.status} · code={it.sunoFresh.code} · msg={it.sunoFresh.message ?? "—"}
+          MuzaAi HTTP {it.sunoFreshStatus} · status={it.sunoFresh.status} · code={it.sunoFresh.code} · msg={it.sunoFresh.message ?? "—"}
           {it.sunoFresh.firstTrackStatus && ` · firstTrack=${it.sunoFresh.firstTrackStatus}`}
         </div>
       )}
@@ -1228,7 +1228,7 @@ function DebugBatchCard() {
       <CardContent className="space-y-3">
         <div className="text-xs text-muted-foreground">
           Введи диапазон («672-679») или CSV («672,673,675»). До 50 ID за раз.
-          Получишь DB-статус + свежий ответ MuziAi для каждого.
+          Получишь DB-статус + свежий ответ MuzaAi для каждого.
         </div>
         <div className="flex gap-2">
           <input
@@ -1240,7 +1240,7 @@ function DebugBatchCard() {
             data-testid="input-debug-ids"
           />
           <Button onClick={() => run.mutate()} disabled={run.isPending} variant="outline">
-            {run.isPending ? "Опрашиваю MuziAi…" : "Проверить"}
+            {run.isPending ? "Опрашиваю MuzaAi…" : "Проверить"}
           </Button>
         </div>
         {output && (
@@ -1269,7 +1269,7 @@ function AnthemRunner() {
     onSuccess: (j) => {
       const d = j.data;
       toast({
-        title: "🎵 Гимн отправлен в MuziAi",
+        title: "🎵 Гимн отправлен в MuzaAi",
         description: `gen #${d.generationId}, taskId ${(d.taskId || "").slice(0, 12)}…  Откроется через секунду.`,
       });
       setTimeout(() => navigate(`/track/${d.generationId}`), 1500);
@@ -1299,19 +1299,19 @@ function AnthemRunner() {
         toast({
           title: d.recoveredFromError ? "🟢 Гимн восстановлен из error" : "✅ Гимн готов",
           description: d.recoveredFromError
-            ? `gen #${d.generationId} был помечен error по таймауту, но MuziAi реально вернул трек — recovery успешен. Открываю…`
+            ? `gen #${d.generationId} был помечен error по таймауту, но MuzaAi реально вернул трек — recovery успешен. Открываю…`
             : `gen #${d.generationId} — открываю…`,
         });
         setTimeout(() => navigate(`/track/${d.generationId}`), 800);
       } else if (status === "error") {
         toast({
           title: "❌ Гимн упал в error",
-          description: d.errorReason || "MuziAi вернул ошибку. Запусти новый.",
+          description: d.errorReason || "MuzaAi вернул ошибку. Запусти новый.",
           variant: "destructive",
         });
       } else {
         toast({
-          title: "⏳ MuziAi ещё работает",
+          title: "⏳ MuzaAi ещё работает",
           description: `gen #${d.generationId} в processing — открываю страницу с авто-опросом.`,
         });
         setTimeout(() => navigate(`/track/${d.generationId}`), 800);
@@ -1338,7 +1338,7 @@ function AnthemRunner() {
         onClick={() => revive.mutate()}
         disabled={revive.isPending}
       >
-        {revive.isPending ? "Опрашиваю MuziAi…" : "🚑 Реанимировать последний"}
+        {revive.isPending ? "Опрашиваю MuzaAi…" : "🚑 Реанимировать последний"}
       </Button>
     </div>
   );
@@ -2434,7 +2434,7 @@ function EngagementTab({ toast }: { toast: any }) {
 
   function copyReport() {
     const lines: string[] = [];
-    lines.push(`📊 Воронка вовлечения MuziAi — ${new Date().toLocaleString("ru-RU")}`);
+    lines.push(`📊 Воронка вовлечения MuzaAi — ${new Date().toLocaleString("ru-RU")}`);
     lines.push("");
     lines.push("СЕГОДНЯ / ПОСЛЕДНИЕ 7 ДНЕЙ / ВСЕГО:");
     for (const e of eventOrder) {
@@ -2540,7 +2540,7 @@ function ChatFunnelSection({ toast }: { toast: any }) {
 
   const copyReport = () => {
     const lines: string[] = [];
-    lines.push(`💬 Чат-воронка MuziAi — ${new Date().toLocaleString("ru-RU")} (${data.days} дней)`);
+    lines.push(`💬 Чат-воронка MuzaAi — ${new Date().toLocaleString("ru-RU")} (${data.days} дней)`);
     lines.push("");
     lines.push(`Всего сессий: ${t.sessions}`);
     lines.push(`С 2+ сообщений: ${t.multi_msg}`);

@@ -7,6 +7,7 @@
 import { db } from "../storage";
 import { users, generations, transactions, songDrafts } from "@shared/schema";
 import { eq, and, desc, sql, isNotNull } from "drizzle-orm";
+import { PUBLIC_URL } from "./publicUrl";
 
 export type ToolDef = {
   name: string;
@@ -182,7 +183,7 @@ const HANDLERS: Record<string, ToolHandler> = {
       if (status === "done") return `«${title}» #${id}: ✓ готов.`;
       if (status === "processing") {
         const ageMin = Math.floor((Date.now() - new Date(gen.createdAt || "").getTime()) / 60000);
-        return `«${title}» #${id}: в работе (${ageMin} мин). MuziAi обычно за 5-15 мин.`;
+        return `«${title}» #${id}: в работе (${ageMin} мин). MuzaAi обычно за 5-15 мин.`;
       }
       if (status === "error") return `«${title}» #${id}: ошибка (${gen.errorReason || "—"}). Можно регенерировать, баланс возвращён.`;
       return `«${title}» #${id}: ${status}.`;
@@ -276,7 +277,7 @@ const HANDLERS: Record<string, ToolHandler> = {
       } as any).run();
       const draftId = Number(result.lastInsertRowid);
       console.log(`[DRAFT-SAVE] User ${userId} saved draft #${draftId}: "${title}"`);
-      return `✓ Сохранила черновик #${draftId} «${title}» в твоём кабинете. Открыть для генерации: https://muziai.ru/#/music?draftId=${draftId}`;
+      return `✓ Сохранила черновик #${draftId} «${title}» в твоём кабинете. Открыть для генерации: ${PUBLIC_URL}/#/music?draftId=${draftId}`;
     } catch (e: any) {
       return `Ошибка сохранения: ${e.message}`;
     }

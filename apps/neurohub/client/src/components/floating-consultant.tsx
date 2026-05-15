@@ -1,6 +1,6 @@
 // FloatingConsultant (Eugene 2026-05-11 v4): деловой стиль —
 // менеджер 25-30 в пиджаке, с планшетом (намёк на работу/консультацию).
-// Pastel MuziAi gradient. Открытые глаза, закрытый рот, прямая осанка.
+// Pastel MuzaAi gradient. Открытые глаза, закрытый рот, прямая осанка.
 // Минимум нот вокруг (1 акцентная) — для связи с музыкой.
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -87,7 +87,7 @@ function serializeChatForShare(msgs: ChatMessage[]): string {
     const who = m.role === "user" ? "Я" : "🎀 Муза";
     return `${who}: ${m.text}`;
   });
-  return `Разговор с Музой (MuziAi)\n${"━".repeat(20)}\n${lines.join("\n\n")}\n${"━".repeat(20)}\n\nХочешь продолжить? Открой https://muziai.ru и кликни на Музу.`;
+  return `Разговор с Музой (MuzaAi)\n${"━".repeat(20)}\n${lines.join("\n\n")}\n${"━".repeat(20)}\n\nХочешь продолжить? Открой https://muziai.ru и кликни на Музу.`;
 }
 
 // Linkify — превращает голые URL в кликабельные ссылки внутри текста.
@@ -586,7 +586,7 @@ export function FloatingConsultant() {
                 const url = "https://muziai.ru";
                 if (typeof navigator !== "undefined" && (navigator as any).share) {
                   try {
-                    await (navigator as any).share({ title: "MuziAi · Муза", text, url });
+                    await (navigator as any).share({ title: "MuzaAi · Муза", text, url });
                     return;
                   } catch {}
                 }
@@ -631,7 +631,7 @@ export function FloatingConsultant() {
 
         {/* Силуэт взрослой певицы с микрофоном.
             Минимум деталей лица, акцент на pose певицы.
-            Pastel MuziAi gradient. */}
+            Pastel MuzaAi gradient. */}
         <button
           type="button"
           onDoubleClick={() => {
@@ -903,7 +903,7 @@ export function FloatingConsultant() {
                 return (
                   <div key={i} className={`flex flex-col gap-1 ${m.role === "user" ? "items-end" : "items-start"}`}>
                     {/* Eugene 2026-05-14 Босс «исключаем в чате остальные имена.
-                        Муза всегда. Муза всегда в градиенте цветов MuziAi». */}
+                        Муза всегда. Муза всегда в градиенте цветов MuzaAi». */}
                     {m.role === "bot" && (
                       <div className="flex items-center gap-1 px-1 text-[11px] font-bold">
                         <span>🎵</span>

@@ -45,7 +45,7 @@ function detectIntent(text: string): string {
 
 function defaultReply(text: string, intent: string): string {
   const lines: Record<string, string> = {
-    greeting: "Привет! Я бот MuziAI. Помогу подобрать песню. Чем могу помочь?",
+    greeting: "Привет! Я бот MuzaAI. Помогу подобрать песню. Чем могу помочь?",
     pricing:
       "Текст песни — 99 ₽. Трек — 299 ₽. Обработка — 99 ₽. Пакет «10 генераций» — 2 990 ₽.",
     payment: "Принимаем картой через Robokassa. Для юрлиц — банковский перевод.",

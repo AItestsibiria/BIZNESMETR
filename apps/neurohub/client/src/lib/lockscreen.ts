@@ -82,18 +82,18 @@ export async function setLockScreenTrack(
   const apply = () => {
     try {
       navigator.mediaSession.metadata = new MediaMetadata({
-        title: meta.title || "MuziAi",
-        artist: meta.artist || "MuziAi",
-        album: meta.album || "MuziAi",
+        title: meta.title || "MuzaAi",
+        artist: meta.artist || "MuzaAi",
+        album: meta.album || "MuzaAi",
         artwork,
       });
     } catch {
       // Older Safari versions may throw if artwork URLs aren't reachable
       try {
         navigator.mediaSession.metadata = new MediaMetadata({
-          title: meta.title || "MuziAi",
-          artist: meta.artist || "MuziAi",
-          album: meta.album || "MuziAi",
+          title: meta.title || "MuzaAi",
+          artist: meta.artist || "MuzaAi",
+          album: meta.album || "MuzaAi",
         });
       } catch {}
     }

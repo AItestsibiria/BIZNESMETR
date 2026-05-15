@@ -286,7 +286,7 @@ const services = [
   {
     icon: Music,
     title: "Музыка + Вокал",
-    description: "Полноценная песня с музыкой и голосом на базе MuziAi — готовый трек за минуты",
+    description: "Полноценная песня с музыкой и голосом на базе MuzaAi — готовый трек за минуты",
     price: "299 ₽",
     href: "/music",
     gradient: "from-blue-500/20 to-blue-900/20",
@@ -503,16 +503,16 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
 
   // Marquee title in browser tab while playing
   useEffect(() => {
-    const originalTitle = 'MuziAi — Создавай музыку с AI';
+    const originalTitle = 'MuzaAi — Создавай музыку с AI';
     if (!playingId) {
       document.title = originalTitle;
       return;
     }
     const track = tracks.find(t => t.id === playingId);
     if (!track) return;
-    const title = track.displayTitle || track.prompt?.slice(0, 60) || 'MuziAi';
+    const title = track.displayTitle || track.prompt?.slice(0, 60) || 'MuzaAi';
     const author = track.authorName || '';
-    const text = `♫ ${title} — MuziAi${author ? ' · ' + author : ''}    `;
+    const text = `♫ ${title} — MuzaAi${author ? ' · ' + author : ''}    `;
     let offset = 0;
     const interval = setInterval(() => {
       const display = text.slice(offset) + text.slice(0, offset);
@@ -773,11 +773,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
 
     // Lock-screen metadata — async, параллельно с уже стартовавшим play().
     // audio.play() уже вызван выше — самым первым после new Audio().
-    const msTitle = track.displayTitle || track.prompt?.slice(0, 60) || 'MuziAi';
-    const msArtist = track.authorName ? `MuziAi · ${track.authorName}` : 'MuziAi';
+    const msTitle = track.displayTitle || track.prompt?.slice(0, 60) || 'MuzaAi';
+    const msArtist = track.authorName ? `MuzaAi · ${track.authorName}` : 'MuzaAi';
 
     setLockScreenTrack(
-      { id: track.id, title: msTitle, artist: msArtist, album: 'MuziAi' },
+      { id: track.id, title: msTitle, artist: msArtist, album: 'MuzaAi' },
       {
         play: () => {
           audioRef.current?.play().catch(() => {});
@@ -1007,7 +1007,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               </div>
               <h3 className="text-lg font-bold text-white mb-2">«Поехали»</h3>
 
-              {/* Подарок-коробка с нотами в гамме MuziAi. Анимация открытия
+              {/* Подарок-коробка с нотами в гамме MuzaAi. Анимация открытия
                   играет 1 раз для лида в день; для клиентов и повторных
                   визитов — статичная (gift-static). */}
               <div
@@ -1261,7 +1261,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                     title="Поделиться"
                     onClick={async () => {
                       const url = `https://muziai.ru/#/track/${currentTrack.id}`;
-                      const title = currentTrack.displayTitle || currentTrack.prompt?.slice(0, 60) || 'MuziAi';
+                      const title = currentTrack.displayTitle || currentTrack.prompt?.slice(0, 60) || 'MuzaAi';
                       if (navigator.share) {
                         try {
                           // Try sharing with cover image
@@ -1269,11 +1269,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                           const resp = await fetch(coverUrl).catch(() => null);
                           const blob = resp?.ok ? await resp.blob() : null;
                           const files = blob ? [new File([blob], 'cover.jpg', { type: blob.type })] : [];
-                          await navigator.share({ title: `Послушай на MuziAi.ru`, text: `Послушай на MuziAi.ru: ${title}`, url, ...(files.length ? { files } : {}) });
+                          await navigator.share({ title: `Послушай на MuzaAi.ru`, text: `Послушай на MuzaAi.ru: ${title}`, url, ...(files.length ? { files } : {}) });
                           return;
                         } catch {}
                       }
-                      navigator.clipboard.writeText(`Послушай на MuziAi.ru: ${title} ${url}`);
+                      navigator.clipboard.writeText(`Послушай на MuzaAi.ru: ${title} ${url}`);
                       toast({ title: "Ссылка скопирована" });
                     }}
                   >
@@ -1500,10 +1500,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                       onClick={async (e) => {
                         e.stopPropagation();
                         const url = `https://muziai.ru/share/${track.id}`;
-                        const title = track.displayTitle || track.prompt?.slice(0, 60) || 'MuziAi';
+                        const title = track.displayTitle || track.prompt?.slice(0, 60) || 'MuzaAi';
                         if (navigator.share) {
                           try {
-                            await navigator.share({ title: `Послушай на MuziAi.ru`, text: `${title}`, url });
+                            await navigator.share({ title: `Послушай на MuzaAi.ru`, text: `${title}`, url });
                             fetch(`/api/playlist/activity/${track.id}`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({action:'share'}) }).catch(() => {});
                             return;
                           } catch {}
@@ -1537,7 +1537,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             </svg>
                           </div>
                           <div className="absolute bottom-1 left-1/2 -translate-x-1/2 z-10">
-                            <span className="inline-flex items-center gap-1 text-white/20 drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)]"><svg viewBox="0 0 24 24" className="w-3 h-3" fill="none"><path d="M3 12c1.5-3 3-5 4.5-3s2 4 3.5 2 2.5-5 4-3 2 4 3.5 2 2.5-4 3.5-2" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" /></svg><span className="text-[10px] whitespace-nowrap">MuziAi.ru</span></span>
+                            <span className="inline-flex items-center gap-1 text-white/20 drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)]"><svg viewBox="0 0 24 24" className="w-3 h-3" fill="none"><path d="M3 12c1.5-3 3-5 4.5-3s2 4 3.5 2 2.5-5 4-3 2 4 3.5 2 2.5-4 3.5-2" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" /></svg><span className="text-[10px] whitespace-nowrap">MuzaAi.ru</span></span>
                           </div>
                           <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-40">
                             <button className="pointer-events-auto w-16 h-16 rounded-full bg-white/20 flex items-center justify-center border border-white/30 hover:bg-white/30 transition-colors" onClick={() => togglePlay(track)}>
@@ -1589,7 +1589,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                           )}
                           <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/10">
                             <div className="flex items-center gap-3">
-                              <span className="text-purple-300 text-xs font-semibold tracking-wide">MuziAi.ru</span>
+                              <span className="text-purple-300 text-xs font-semibold tracking-wide">MuzaAi.ru</span>
                               {track.lyric && (
                                 <button className={`text-[10px] px-2 py-0.5 rounded-md border transition-colors ${showKaraoke ? "border-purple-500/30 bg-purple-500/10 text-purple-300" : "border-white/10 bg-white/5 text-muted-foreground"}`} onClick={() => setShowKaraoke(!showKaraoke)}>
                                   {showKaraoke ? "Текст ✓" : "Текст"}
@@ -1775,7 +1775,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                     onError={(e) => { (e.target as HTMLImageElement).parentElement!.style.display = "none"; }}
                   />
                   <div className="absolute bottom-0.5 left-1/2 -translate-x-1/2 z-10">
-                    <span className="inline-flex items-center gap-0.5 text-white/20 drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)]"><svg viewBox="0 0 24 24" className="w-2.5 h-2.5" fill="none"><path d="M3 12c1.5-3 3-5 4.5-3s2 4 3.5 2 2.5-5 4-3 2 4 3.5 2 2.5-4 3.5-2" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" /></svg><span className="text-[9px] whitespace-nowrap">MuziAi.ru</span></span>
+                    <span className="inline-flex items-center gap-0.5 text-white/20 drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)]"><svg viewBox="0 0 24 24" className="w-2.5 h-2.5" fill="none"><path d="M3 12c1.5-3 3-5 4.5-3s2 4 3.5 2 2.5-5 4-3 2 4 3.5 2 2.5-4 3.5-2" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" /></svg><span className="text-[9px] whitespace-nowrap">MuzaAi.ru</span></span>
                   </div>
                   <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 rounded-xl flex flex-col justify-end p-3">
                     <p className="text-white text-xs font-medium truncate">{cover.prompt?.slice(0, 40)}</p>
@@ -1888,7 +1888,7 @@ function openMail(e: React.MouseEvent) {
   e.preventDefault();
   const p = ["tis","san","20","21","@","gm","ail",".","com"];
   const addr = p.join("");
-  window.location.href = `mailto:${addr}?subject=${encodeURIComponent("MuziAi — обращение")}`;
+  window.location.href = `mailto:${addr}?subject=${encodeURIComponent("MuzaAi — обращение")}`;
 }
 
 export default function LandingPage() {
@@ -2117,7 +2117,7 @@ export default function LandingPage() {
 
           {/* App store style buttons */}
           <div className="mt-6 flex items-center justify-center gap-3">
-            {/* MuziAi full logo (icon + text) */}
+            {/* MuzaAi full logo (icon + text) */}
             <div className="flex items-center gap-2">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-600 via-violet-500 to-blue-500 flex items-center justify-center shadow-lg shadow-purple-500/20">
                 <svg viewBox="0 0 24 24" className="w-5 h-5" fill="none">
@@ -2135,7 +2135,7 @@ export default function LandingPage() {
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 hover:bg-white/[0.1] transition-colors"
               onClick={async () => {
                 if (navigator.share) {
-                  try { await navigator.share({ title: 'MuziAi', text: 'Создавай музыку с AI → Нажмите «На экран Домой»', url: 'https://muziai.ru' }); return; } catch {}
+                  try { await navigator.share({ title: 'MuzaAi', text: 'Создавай музыку с AI → Нажмите «На экран Домой»', url: 'https://muziai.ru' }); return; } catch {}
                 }
                 setShowInstallGuide("ios");
               }}
@@ -2156,7 +2156,7 @@ export default function LandingPage() {
                 const prompt = (window as any).__pwaInstallPrompt;
                 if (prompt) { prompt.prompt(); const r = await prompt.userChoice; if (r.outcome === 'accepted') (window as any).__pwaInstallPrompt = null; return; }
                 if (navigator.share) {
-                  try { await navigator.share({ title: 'MuziAi', text: 'Создавай музыку с AI → Нажмите «Добавить на главный экран»', url: 'https://muziai.ru' }); return; } catch {}
+                  try { await navigator.share({ title: 'MuzaAi', text: 'Создавай музыку с AI → Нажмите «Добавить на главный экран»', url: 'https://muziai.ru' }); return; } catch {}
                 }
                 setShowInstallGuide("android");
               }}
@@ -2186,7 +2186,7 @@ export default function LandingPage() {
           </div>
           <div className="flex flex-col sm:flex-row items-center gap-2">
             <p className="text-xs text-muted-foreground">
-              © 2026 MuziAi. Создавай музыку с искусственным интеллектом.
+              © 2026 MuzaAi. Создавай музыку с искусственным интеллектом.
             </p>
             <a href="#" onClick={openMail} className="text-xs text-muted-foreground/50 hover:text-purple-300 transition-colors">Поддержка</a>
           </div>
@@ -2237,7 +2237,7 @@ export default function LandingPage() {
           </DialogHeader>
           {showInstallGuide === "ios" ? (
             <div className="space-y-4 mt-2">
-              <p className="text-sm text-muted-foreground">Установите MuziAi на iPhone:</p>
+              <p className="text-sm text-muted-foreground">Установите MuzaAi на iPhone:</p>
               <div className="space-y-3">
                 <div className="flex items-start gap-3">
                   <span className="w-7 h-7 rounded-full bg-purple-500/20 text-purple-300 flex items-center justify-center text-sm font-bold shrink-0">1</span>
@@ -2249,13 +2249,13 @@ export default function LandingPage() {
                 </div>
                 <div className="flex items-start gap-3">
                   <span className="w-7 h-7 rounded-full bg-green-500/20 text-green-300 flex items-center justify-center text-sm font-bold shrink-0">✓</span>
-                  <p className="text-sm text-white/80 pt-1">MuziAi появится как приложение на вашем домашнем экране</p>
+                  <p className="text-sm text-white/80 pt-1">MuzaAi появится как приложение на вашем домашнем экране</p>
                 </div>
               </div>
             </div>
           ) : (
             <div className="space-y-4 mt-2">
-              <p className="text-sm text-muted-foreground">Установите MuziAi на Android:</p>
+              <p className="text-sm text-muted-foreground">Установите MuzaAi на Android:</p>
               <div className="space-y-3">
                 <div className="flex items-start gap-3">
                   <span className="w-7 h-7 rounded-full bg-purple-500/20 text-purple-300 flex items-center justify-center text-sm font-bold shrink-0">1</span>
@@ -2267,7 +2267,7 @@ export default function LandingPage() {
                 </div>
                 <div className="flex items-start gap-3">
                   <span className="w-7 h-7 rounded-full bg-green-500/20 text-green-300 flex items-center justify-center text-sm font-bold shrink-0">✓</span>
-                  <p className="text-sm text-white/80 pt-1">MuziAi появится как приложение на вашем домашнем экране</p>
+                  <p className="text-sm text-white/80 pt-1">MuzaAi появится как приложение на вашем домашнем экране</p>
                 </div>
               </div>
             </div>

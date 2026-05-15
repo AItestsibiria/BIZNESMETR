@@ -12,10 +12,10 @@
 //   POST /api/admin/telegram-bot/setup-webhook — admin-only установка
 //     webhook URL (вызывает setWebhook к Telegram API)
 //
-// Persona: «Аня, 27 лет, support-агент MuziAi». Не AI, ассистент.
+// Persona: «Аня, 27 лет, support-агент MuzaAi». Не AI, ассистент.
 //
 // Spec: Eugene «свяжи автора со всеми данными по mail, телефону, и tg;
-// сервисный чат на MuziAi, привязать к базе знаний по продукту,
+// сервисный чат на MuzaAi, привязать к базе знаний по продукту,
 // автоматизация ответов, человек думает что общается с девушкой 25-30».
 
 import { Router } from "express";
@@ -403,7 +403,7 @@ async function reEngageInactiveUsers(): Promise<void> {
         const persona = (c.persona_name && PERSONAS.find(p => p.name === c.persona_name)) || personaFor(String(c.external_id));
         const profile = c.user_profile ? JSON.parse(c.user_profile) : {};
         const memo = c.long_term_memo || "";
-        const sys = `Ты — ${persona.name}, помощница MuziAi. Стиль: ${persona.styleGuide}.
+        const sys = `Ты — ${persona.name}, помощница MuzaAi. Стиль: ${persona.styleGuide}.
 Юзер общался раньше но замолчал. Напиши КОРОТКОЕ (1-2 фразы) тёплое возвращение, без давления, без CTA. Не «давайте создадим трек», а просто внимание: «привет, как вы? давно не виделись, всё хорошо?». Используй имя если знаешь. Учти контекст прошлого разговора. Без подписи имени в конце.
 
 ПРОФИЛЬ: ${JSON.stringify(profile)}
@@ -493,7 +493,7 @@ async function analyzeDialoguesForLearning(): Promise<void> {
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 800,
-        system: `Ты — аналитик помощника MuziAi. Сравни УСПЕШНЫЕ и НЕУСПЕШНЫЕ диалоги. Найди паттерны.
+        system: `Ты — аналитик помощника MuzaAi. Сравни УСПЕШНЫЕ и НЕУСПЕШНЫЕ диалоги. Найди паттерны.
 
 УСПЕШНЫЕ = юзер зарегистрировался / сохранил текст / пошёл генерировать.
 НЕУСПЕШНЫЕ = юзер ушёл, не сделал действие.
@@ -733,7 +733,7 @@ router.post("/webhook", async (req, res) => {
     const p0 = personaForSession(sessionId, fromId);
     const quick = tryQuickReply(text, p0.name);
     if (quick) {
-      const cleanQuick = quick.replace(/\s*[—\-–]+\s*(Муза|Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*(MuziAi|МузиАй))?\s*\.?\s*$/i, "").trimEnd();
+      const cleanQuick = quick.replace(/\s*[—\-–]+\s*(Муза|Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*(MuzaAi|МузиАй))?\s*\.?\s*$/i, "").trimEnd();
       const footer = `\n\n— Муза · МузиАй`;
       const replyWithAvatar = `${p0.avatar} ${cleanQuick}${footer}`;
       bypassDebounce(`tg:${chatId}`);
@@ -795,10 +795,10 @@ async function processIncomingText(chatId: string, fromId: string, sessionId: st
     const ltm = loadLongTermMemo(sessionId);
     const ltmHint = ltm ? `\n\n[ВОСПОМИНАНИЕ О ПРОШЛЫХ РАЗГОВОРАХ: ${ltm}]` : "";
     // Eugene 2026-05-11: «Ярс — это я». Если в сообщении упоминается Ярс —
-    // это сам Eugene (основатель MuziAi). Подмешиваем admin-context.
+    // это сам Eugene (основатель MuzaAi). Подмешиваем admin-context.
     const isOwner = /\bярс\b/i.test(text);
     const ownerHint = isOwner
-      ? "\n\n[АДМИН: это Ярс — основатель MuziAi. Говори с ним коротко, конструктивно, по сути. Без sales playbook'а — он сам всё знает. Помогай с диагностикой / тестами / идеями. Можно на «ты».]"
+      ? "\n\n[АДМИН: это Ярс — основатель MuzaAi. Говори с ним коротко, конструктивно, по сути. Без sales playbook'а — он сам всё знает. Помогай с диагностикой / тестами / идеями. Можно на «ты».]"
       : "";
     // Eugene 2026-05-11: lead profile. Если уже извлекли имя/возраст/город
     // из предыдущих сообщений — подмешиваем в prompt чтобы бот не
@@ -833,7 +833,7 @@ async function processIncomingText(chatId: string, fromId: string, sessionId: st
     // обычных reply'ев — Telegram кэш ненадёжен (96×96 PNG отклонялся,
     // юзер видел только текст). Образ в чате теперь через bot avatar
     // в @BotFather → /setuserpic. SendPhoto оставлен только в /start.
-    const cleanReply = reply.replace(/\s*[—\-–]+\s*(Муза|Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*(MuziAi|МузиАй))?\s*\.?\s*$/i, "").trimEnd();
+    const cleanReply = reply.replace(/\s*[—\-–]+\s*(Муза|Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*(MuzaAi|МузиАй))?\s*\.?\s*$/i, "").trimEnd();
     const footer = `\n\n— Муза · МузиАй`;
 
     // Eugene 2026-05-14 Босс: cross-channel pair-code приглашение на сайт.

@@ -409,7 +409,7 @@ function AdminStats() {
         : "—",
       sub: gptBalance?.available
         ? (gptBalance.suno?.estimatedTracks != null
-            ? `🎵 MuziAi ≈ ${gptBalance.suno.estimatedTracks.toLocaleString("ru-RU")} треков (пары по 2 за запрос)${balLow ? " · ⚠ ниже 750" : ""}`
+            ? `🎵 MuzaAi ≈ ${gptBalance.suno.estimatedTracks.toLocaleString("ru-RU")} треков (пары по 2 за запрос)${balLow ? " · ⚠ ниже 750" : ""}`
             : (balLow ? "⚠ ниже 750 — пополни" : "лимит ОК"))
         : (gptBalance?.reason ?? "недоступен"),
       color: !gptBalance?.available ? "text-rose-400" : balLow ? "text-amber-400" : "text-emerald-400",
@@ -724,7 +724,7 @@ function ReferralInfo() {
 
   if (!info) return <Skeleton className="h-8" />;
 
-  const shortLink = `MuziAi.ru/r/${info.referralCode}`;
+  const shortLink = `MuzaAi.ru/r/${info.referralCode}`;
   const fullLink = info.referralLink;
 
   const handleCopy = () => {
@@ -854,16 +854,16 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
 
   // Marquee title in browser tab while playing
   useEffect(() => {
-    const originalTitle = 'MuziAi — Личный кабинет';
+    const originalTitle = 'MuzaAi — Личный кабинет';
     if (!playingId) {
       document.title = originalTitle;
       return;
     }
     const gen = (generations || []).find((g: any) => g.id === playingId);
     if (!gen) return;
-    const title = gen.displayTitle || gen.prompt?.slice(0, 60) || 'MuziAi';
+    const title = gen.displayTitle || gen.prompt?.slice(0, 60) || 'MuzaAi';
     const author = gen.authorName || '';
-    const text = `♫ ${title} — MuziAi${author ? ' · ' + author : ''}    `;
+    const text = `♫ ${title} — MuzaAi${author ? ' · ' + author : ''}    `;
     let offset = 0;
     const interval = setInterval(() => {
       const display = text.slice(offset) + text.slice(0, offset);
@@ -950,9 +950,9 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
     setLockScreenTrack(
       {
         id: gen.id,
-        title: gen.displayTitle || gen.prompt?.slice(0, 60) || 'MuziAi',
-        artist: gen.authorName ? `MuziAi · ${gen.authorName}` : 'MuziAi',
-        album: 'MuziAi',
+        title: gen.displayTitle || gen.prompt?.slice(0, 60) || 'MuzaAi',
+        artist: gen.authorName ? `MuzaAi · ${gen.authorName}` : 'MuzaAi',
+        album: 'MuzaAi',
       },
       {
         play: () => { audioRef.current?.play(); muteBgMusic(); },
@@ -1148,18 +1148,18 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
                   title="Поделиться"
                   onClick={async () => {
                     const shareUrl = `https://muziai.ru/share/${current.id}`;
-                    const title = current.displayTitle || current.prompt?.slice(0, 60) || 'MuziAi';
+                    const title = current.displayTitle || current.prompt?.slice(0, 60) || 'MuzaAi';
                     if (navigator.share) {
                       try {
                         const coverUrl = `/api/cover/${current.id}.jpg?wm=1`;
                         const resp = await fetch(coverUrl).catch(() => null);
                         const blob = resp?.ok ? await resp.blob() : null;
-                        const files = blob ? [new File([blob], 'MuziAi-cover.jpg', { type: 'image/jpeg' })] : [];
-                        await navigator.share({ title: `Послушай на MuziAi.ru`, text: `${title}`, url: shareUrl, ...(files.length ? { files } : {}) });
+                        const files = blob ? [new File([blob], 'MuzaAi-cover.jpg', { type: 'image/jpeg' })] : [];
+                        await navigator.share({ title: `Послушай на MuzaAi.ru`, text: `${title}`, url: shareUrl, ...(files.length ? { files } : {}) });
                         return;
                       } catch {}
                     }
-                    navigator.clipboard.writeText(`Послушай на MuziAi.ru: ${title} ${shareUrl}`);
+                    navigator.clipboard.writeText(`Послушай на MuzaAi.ru: ${title} ${shareUrl}`);
                     toast({ title: "Ссылка скопирована" });
                   }}
                 >
@@ -1478,9 +1478,9 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
                     onClick={async (e) => {
                       e.stopPropagation();
                       const shareUrl = `https://muziai.ru/share/${gen.id}`;
-                      const t = (gen as any).displayTitle || gen.prompt?.slice(0, 50) || 'MuziAi';
+                      const t = (gen as any).displayTitle || gen.prompt?.slice(0, 50) || 'MuzaAi';
                       if (navigator.share) {
-                        try { await navigator.share({ title: `Послушай на MuziAi.ru`, text: t, url: shareUrl }); return; } catch {}
+                        try { await navigator.share({ title: `Послушай на MuzaAi.ru`, text: t, url: shareUrl }); return; } catch {}
                       }
                       navigator.clipboard.writeText(shareUrl);
                       toast({ title: "Ссылка скопирована" });
@@ -2758,14 +2758,14 @@ export default function DashboardPage() {
                         className="inline-flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap border border-white/10 bg-white/5 text-white hover:bg-white/10 transition-colors"
                         onClick={async () => {
                           const url = `https://muziai.ru/share/${selectedGen.id}`;
-                          const title = selectedGen.displayTitle || selectedGen.prompt?.slice(0, 60) || 'MuziAi';
+                          const title = selectedGen.displayTitle || selectedGen.prompt?.slice(0, 60) || 'MuzaAi';
                           if (navigator.share) {
                             try {
-                              await navigator.share({ title: `Послушай на MuziAi.ru`, text: title, url });
+                              await navigator.share({ title: `Послушай на MuzaAi.ru`, text: title, url });
                               return;
                             } catch {}
                           }
-                          navigator.clipboard.writeText(`Послушай на MuziAi.ru: ${title} ${url}`).then(() => toast({ title: "Ссылка скопирована" }));
+                          navigator.clipboard.writeText(`Послушай на MuzaAi.ru: ${title} ${url}`).then(() => toast({ title: "Ссылка скопирована" }));
                         }}
                         data-testid="button-share-track"
                       >
@@ -2950,7 +2950,7 @@ export default function DashboardPage() {
 
       {/* Support link */}
       <div className="mt-8 text-center">
-        <a href="#" onClick={(e) => { e.preventDefault(); window.location.href = `mailto:${["Tis","san","21","@","gm","ail",".","com"].join("")}?subject=${encodeURIComponent("MuziAi — обращение")}`; }} className="text-xs text-purple-400/60 hover:text-purple-300 transition-colors">Поддержка</a>
+        <a href="#" onClick={(e) => { e.preventDefault(); window.location.href = `mailto:${["Tis","san","21","@","gm","ail",".","com"].join("")}?subject=${encodeURIComponent("MuzaAi — обращение")}`; }} className="text-xs text-purple-400/60 hover:text-purple-300 transition-colors">Поддержка</a>
       </div>
     </div>
   );

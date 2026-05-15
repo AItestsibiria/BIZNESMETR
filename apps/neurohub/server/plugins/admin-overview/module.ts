@@ -761,7 +761,7 @@ const ROTATABLE_SECRETS: Record<string, { name: string; description: string; ver
   SMTP_PORT:        { name: "SMTP port", description: "Default 465", verifiable: false },
   SMTP_USER:        { name: "SMTP user", description: "noreply@podaripesnu.ru", verifiable: false },
   SMTP_PASS:        { name: "SMTP password", description: "App password", verifiable: false },
-  SMTP_FROM:        { name: "SMTP from", description: "MuziAI <noreply@...>", verifiable: false },
+  SMTP_FROM:        { name: "SMTP from", description: "MuzaAI <noreply@...>", verifiable: false },
   TELEGRAM_BOT_TOKEN: { name: "Telegram bot token", description: "BotFather token", verifiable: false },
   VK_GROUP_ID:      { name: "VK group id", description: "Community ID", verifiable: false },
   VK_ACCESS_TOKEN:  { name: "VK access token", description: "Community access token", verifiable: false },
@@ -1087,7 +1087,7 @@ router.post("/generate-anthem", requireAdmin, async (req, res) => {
     }
 
     if (upstreamStatus < 200 || upstreamStatus >= 300 || !upstream?.id) {
-      const errMsg = upstream?.message ?? upstream?.error?.message ?? `MuziAi вернул ${upstreamStatus}`;
+      const errMsg = upstream?.message ?? upstream?.error?.message ?? `MuzaAi вернул ${upstreamStatus}`;
       db.update(generations).set({ status: "error", errorReason: String(errMsg) }).where(eq(generations.id, newGen.id)).run();
       return res.status(upstreamStatus || 502).json({
         data: null,
@@ -1104,7 +1104,7 @@ router.post("/generate-anthem", requireAdmin, async (req, res) => {
         generationId: newGen.id,
         taskId: upstream.id,
         status: "processing",
-        message: "Гимн отправлен в MuziAi. Через 1-2 минуты будет готов.",
+        message: "Гимн отправлен в MuzaAi. Через 1-2 минуты будет готов.",
         watchUrl: `/#/track/${newGen.id}`,
         dashboardUrl: `/#/dashboard`,
         statusEndpoint: `/api/track/${newGen.id}`,
@@ -1135,7 +1135,7 @@ export function cleanupStaleProcessing(): { ancient: number; brokenNoTask: numbe
   try {
     const r1 = db.run(sql`UPDATE generations
       SET status='error',
-          error_reason='MuziAi: задача провайдера зависла. Баланс восстановлен, можно попробовать снова.'
+          error_reason='MuzaAi: задача провайдера зависла. Баланс восстановлен, можно попробовать снова.'
       WHERE status='processing' AND created_at < ${ancientCutoff}`);
     ancient = r1.changes ?? 0;
   } catch (e) {
@@ -1144,7 +1144,7 @@ export function cleanupStaleProcessing(): { ancient: number; brokenNoTask: numbe
   try {
     const r2 = db.run(sql`UPDATE generations
       SET status='error',
-          error_reason='MuziAi: не удалось отправить задачу провайдеру. Попробуйте ещё раз.'
+          error_reason='MuzaAi: не удалось отправить задачу провайдеру. Попробуйте ещё раз.'
       WHERE status='processing'
         AND (task_id IS NULL OR task_id = '')
         AND created_at < ${nullTaskCutoff}`);
@@ -1263,7 +1263,7 @@ async function pollProcessingGenerations(): Promise<{ scanned: number; done: num
                       try { mergedStyle = JSON.parse(orig.style || "{}"); } catch {}
                       mergedStyle.isBonus = true;
                       mergedStyle.bonusFromGenId = row.id;
-                      mergedStyle.bonusLabel = "🎁 Бонус от MuziAi";
+                      mergedStyle.bonusLabel = "🎁 Бонус от MuzaAi";
                       if (mergedStyle.title) mergedStyle.title = `${mergedStyle.title} · 🎁 бонус`;
                       db.run(sql`INSERT INTO generations
                                  (user_id, type, prompt, style, status, result_url, result_data,
@@ -1278,7 +1278,7 @@ async function pollProcessingGenerations(): Promise<{ scanned: number; done: num
               }
               continue;
             } else if (data.status === "error" || data.status === "failed") {
-              const reason = String(data.message ?? data.error?.message ?? `MuziAi status=${data.status}`).slice(0, 500);
+              const reason = String(data.message ?? data.error?.message ?? `MuzaAi status=${data.status}`).slice(0, 500);
               db.run(sql`UPDATE generations
                          SET status='error', error_reason=${reason}, result_data=${JSON.stringify(data)}
                          WHERE id=${row.id}`);
@@ -1295,7 +1295,7 @@ async function pollProcessingGenerations(): Promise<{ scanned: number; done: num
     // Suno не вернул done И > 30 мин → честный timeout (теперь только если
     // Suno сам ничего не дал, и время вышло)
     if (!recovered && row.createdAt < cutoff) {
-      db.run(sql`UPDATE generations SET status='error', error_reason='MuziAi думала больше 30 минут — иногда такое бывает. Баланс восстановлен, можно попробовать ещё раз.'
+      db.run(sql`UPDATE generations SET status='error', error_reason='MuzaAi думала больше 30 минут — иногда такое бывает. Баланс восстановлен, можно попробовать ещё раз.'
                  WHERE id=${row.id}`);
       failed += 1;
     }
@@ -1843,7 +1843,7 @@ router.post("/generations/:id/recover-from-suno", requireAdmin, async (req, res)
       signal: AbortSignal.timeout(15_000),
     });
     if (!r.ok) {
-      return res.status(502).json({ data: null, error: `MuziAi вернул ${r.status}` });
+      return res.status(502).json({ data: null, error: `MuzaAi вернул ${r.status}` });
     }
     const data: any = await r.json();
     const succeeded = Array.isArray(data?.result)
@@ -1853,7 +1853,7 @@ router.post("/generations/:id/recover-from-suno", requireAdmin, async (req, res)
       return res.json({
         data: {
           recovered: false,
-          message: "MuziAi не вернул успешный трек — recovery невозможен",
+          message: "MuzaAi не вернул успешный трек — recovery невозможен",
           sunoStatus: data?.status,
           firstTrackStatus: Array.isArray(data?.result) ? data.result[0]?.status : null,
         },

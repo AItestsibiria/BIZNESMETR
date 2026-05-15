@@ -45,7 +45,7 @@ function readSmtpConfig(): SmtpConfig | null {
     port: Number(process.env.SMTP_PORT) || 465,
     user,
     pass,
-    from: process.env.SMTP_FROM || `Муза MuziAi <${user}>`,
+    from: process.env.SMTP_FROM || `Муза MuzaAi <${user}>`,
   };
 }
 

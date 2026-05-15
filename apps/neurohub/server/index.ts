@@ -36,6 +36,7 @@
 
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
+import { PUBLIC_URL } from "./lib/publicUrl";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { EventBus, FeatureFlags, ModuleRegistry, createLogger, setGlobalRegistry } from "./core";
@@ -131,7 +132,7 @@ app.get("/robots.txt", (req, res) => {
   if (isStaging) {
     res.send("User-agent: *\nDisallow: /\n");
   } else {
-    res.send("User-agent: *\nAllow: /\nSitemap: https://muziai.ru/sitemap.xml\n");
+    res.send(`User-agent: *\nAllow: /\nSitemap: ${PUBLIC_URL}/sitemap.xml\n`);
   }
 });
 

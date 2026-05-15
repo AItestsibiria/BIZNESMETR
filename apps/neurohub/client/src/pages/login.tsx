@@ -47,7 +47,7 @@ export default function LoginPage() {
           <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center mx-auto mb-4">
             <Music className="w-6 h-6 text-white" />
           </div>
-          <h1 className="text-xl font-bold gradient-text" data-testid="text-login-title">Вход в MuziAi</h1>
+          <h1 className="text-xl font-bold gradient-text" data-testid="text-login-title">Вход в MuzaAi</h1>
           <p className="text-sm text-muted-foreground mt-1">Войдите, чтобы создавать музыку</p>
         </div>
 

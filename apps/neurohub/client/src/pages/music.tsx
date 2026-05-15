@@ -555,7 +555,7 @@ export default function MusicPage() {
           stopBgMusic();
           toast({
             title: "Трек ещё готовится 🎵",
-            description: "Прошло 30 мин — давайте посмотрим в дашборде. Когда MuziAi закончит, трек появится сам. Баланс в безопасности.",
+            description: "Прошло 30 мин — давайте посмотрим в дашборде. Когда MuzaAi закончит, трек появится сам. Баланс в безопасности.",
             duration: 10000,
           });
           await refreshUser();
@@ -848,7 +848,7 @@ export default function MusicPage() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-white font-display tracking-wide" data-testid="text-music-title">Музыка + Вокал</h1>
-            <p className="text-sm text-muted-foreground">Полноценная песня с помощью MuziAi</p>
+            <p className="text-sm text-muted-foreground">Полноценная песня с помощью MuzaAi</p>
           </div>
           <span className="ml-auto price-badge" data-testid="badge-price-music">299 ₽</span>
         </div>
@@ -960,7 +960,7 @@ export default function MusicPage() {
               },
               {
                 icon: <FileText />, color: "text-purple-300", label: "Текст · Простой",
-                text: <>Описал одной фразой — MuziAi подобрал стиль. Быстро, качество среднее.</>,
+                text: <>Описал одной фразой — MuzaAi подобрал стиль. Быстро, качество среднее.</>,
               },
               {
                 icon: <Settings2 />, color: "text-purple-200", label: "Текст · Расширенный",
@@ -1034,7 +1034,7 @@ export default function MusicPage() {
                   }}
                 />
                 <p className="text-[10px] text-muted-foreground/70">
-                  Стиль и темп выберет MuziAi автоматически. Достаточно описать настроение и тему.
+                  Стиль и темп выберет MuzaAi автоматически. Достаточно описать настроение и тему.
                 </p>
               </div>
               {/* Voice — 4 равные ячейки, единый shell (Eugene 13:18) */}
@@ -1605,7 +1605,7 @@ export default function MusicPage() {
                   if (lyrics.length > 30 && (hasNamePattern || hasBirthdayName)) {
                     return (
                       <div className="mt-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-xs text-amber-200" data-testid="warning-name-pattern">
-                        ⚠️ <b>Возможна блокировка.</b> MuziAi часто отклоняет тексты с именем и отчеством («Иван Иванович») или прямыми обращениями «Имя, с днём рождения». Чтобы не терять 99 ₽:
+                        ⚠️ <b>Возможна блокировка.</b> MuzaAi часто отклоняет тексты с именем и отчеством («Иван Иванович») или прямыми обращениями «Имя, с днём рождения». Чтобы не терять 99 ₽:
                         <ul className="list-disc list-inside mt-1 space-y-0.5">
                           <li>Используйте инициалы: «И. И., с днём»</li>
                           <li>Строчная буква или уменьшительное: «валера» вместо «Валерий»</li>
@@ -2157,8 +2157,8 @@ function ShareFAB({ user }: { user: any }) {
     try {
       if ((navigator as any).share) {
         await (navigator as any).share({
-          title: "MuziAi — создаю песню по голосу",
-          text: "Попробуй создать свою песню в MuziAi за 1 минуту",
+          title: "MuzaAi — создаю песню по голосу",
+          text: "Попробуй создать свою песню в MuzaAi за 1 минуту",
           url: shareUrl,
         });
       } else {
@@ -2187,7 +2187,7 @@ function ShareFAB({ user }: { user: any }) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Share2 className="w-5 h-5 text-cyan-300" />
-              Поделиться MuziAi
+              Поделиться MuzaAi
             </DialogTitle>
             <DialogDescription>
               {user
@@ -2208,14 +2208,14 @@ function ShareFAB({ user }: { user: any }) {
 
             <div className="grid grid-cols-3 gap-2 text-xs">
               <a
-                href={`https://api.whatsapp.com/send?text=${encodeURIComponent("MuziAi: создай свою песню за 1 минуту — " + shareUrl)}`}
+                href={`https://api.whatsapp.com/send?text=${encodeURIComponent("MuzaAi: создай свою песню за 1 минуту — " + shareUrl)}`}
                 target="_blank" rel="noopener noreferrer"
                 className="px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-center hover:bg-emerald-500/20"
               >
                 WhatsApp
               </a>
               <a
-                href={`https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent("Попробуй MuziAi")}`}
+                href={`https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent("Попробуй MuzaAi")}`}
                 target="_blank" rel="noopener noreferrer"
                 className="px-3 py-2 rounded-lg bg-blue-500/10 border border-blue-500/30 text-blue-300 text-center hover:bg-blue-500/20"
               >

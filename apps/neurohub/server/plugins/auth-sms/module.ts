@@ -375,7 +375,7 @@ router.post("/send-otp", async (req, res) => {
   // input attribute независимо от формата SMS — но мы делаем единый формат
   // для обеих платформ. Домен из env BASE_DOMAIN (или 'muziai.ru' fallback).
   const otpDomain = (process.env.BASE_DOMAIN || "muziai.ru").replace(/^https?:\/\//, "");
-  const text = `Код MuziAI: ${code}. Никому не сообщайте.\n\n@${otpDomain} #${code}`;
+  const text = `Код MuzaAI: ${code}. Никому не сообщайте.\n\n@${otpDomain} #${code}`;
   let result: SendResult;
   if (disableSend) {
     result = { ok: true, status: "sent", providerStatusText: "SMS_OTP_DISABLE — пропуск отправки" };

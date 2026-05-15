@@ -1,5 +1,5 @@
 import { registerAudio, pauseAllExcept } from "./audio-bus";
-// PlayerAgent — глобальный контроллер воспроизведения треков MuziAi.
+// PlayerAgent — глобальный контроллер воспроизведения треков MuzaAi.
 // ТЗ Eugene 2026-05-08 14:18:
 // - Per-user параметры (filters/sort/repeat) держатся жёстко
 // - Параллельные пользователи (миллион) — каждый со своим state в браузере

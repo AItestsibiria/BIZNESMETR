@@ -1,6 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage, db } from "./storage";
+import { PUBLIC_URL } from "./lib/publicUrl";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
 import { registerSchema, loginSchema, users, payments, generations, transactions, promoCodes, visitors, genActivity, songDrafts, botLearnings, landingNews, chatbotSessions, chatbotMessages, adminDelegates, userActionFailures } from "@shared/schema";
@@ -242,14 +243,14 @@ const mailTransport = nodemailer.createTransport({
 async function sendResetEmail(toEmail: string, code: string): Promise<boolean> {
   try {
     await mailTransport.sendMail({
-      from: `"MuziAi" <${CLIENT_EMAIL}>`, replyTo: CLIENT_EMAIL,
+      from: `"MuzaAi" <${CLIENT_EMAIL}>`, replyTo: CLIENT_EMAIL,
       to: toEmail,
-      subject: "MuziAi — код восстановления пароля",
-      text: `Ваш код восстановления пароля: ${code}\n\nКод действует 15 минут.\n\nЕсли вы не запрашивали сброс пароля, проигнорируйте это письмо.\n\n— MuziAi`,
+      subject: "MuzaAi — код восстановления пароля",
+      text: `Ваш код восстановления пароля: ${code}\n\nКод действует 15 минут.\n\nЕсли вы не запрашивали сброс пароля, проигнорируйте это письмо.\n\n— MuzaAi`,
       html: `
         <div style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px; background: #09090b; border-radius: 16px; border: 1px solid #1a1a2e;">
           <div style="text-align: center; margin-bottom: 24px;">
-            <span style="font-size: 24px; font-weight: 700; background: linear-gradient(135deg, #8b5cf6, #3b82f6); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">MuziAi</span>
+            <span style="font-size: 24px; font-weight: 700; background: linear-gradient(135deg, #8b5cf6, #3b82f6); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">MuzaAi</span>
           </div>
           <p style="color: #e2e2e2; font-size: 15px; line-height: 1.6; margin-bottom: 16px;">Вы запросили восстановление пароля. Введите этот код на сайте:</p>
           <div style="text-align: center; margin: 24px 0;">
@@ -569,8 +570,8 @@ export async function registerRoutes(
       )).get();
     res.json({
       referralCode: user.referralCode,
-      referralLink: `https://muziai.ru/#/r/${user.referralCode}`,
-      shortLink: `MuziAi.ru/r/${user.referralCode}`,
+      referralLink: `${PUBLIC_URL}/#/r/${user.referralCode}`,
+      shortLink: `MuzaAi.ru/r/${user.referralCode}`,
       referrals: referralCount?.count || 0,
       bonusTracks: refBonusTxns?.count || 0,
     });
@@ -861,11 +862,11 @@ export async function registerRoutes(
       pendingRegs.set(email.toLowerCase(), { name, email, password, ref, promo, code, expires: Date.now() + 15 * 60 * 1000 });
       try {
         await mailTransport.sendMail({
-          from: `"MuziAi" <${CLIENT_EMAIL}>`, replyTo: CLIENT_EMAIL,
+          from: `"MuzaAi" <${CLIENT_EMAIL}>`, replyTo: CLIENT_EMAIL,
           to: email,
-          subject: "MuziAi — код подтверждения регистрации",
+          subject: "MuzaAi — код подтверждения регистрации",
           html: `<div style="font-family:-apple-system,sans-serif;max-width:400px;margin:0 auto;padding:24px;background:#09090b;border-radius:16px;border:1px solid #1a1a2e;color:#e0e0e0">
-            <h2 style="color:#a78bfa;margin:0 0 16px">MuziAi</h2>
+            <h2 style="color:#a78bfa;margin:0 0 16px">MuzaAi</h2>
             <p>Ваш код подтверждения:</p>
             <p style="font-size:32px;font-weight:bold;color:#8b5cf6;letter-spacing:4px;text-align:center;margin:20px 0">${code}</p>
             <p style="color:#888;font-size:13px">Код действует 15 минут.</p>
@@ -1150,18 +1151,18 @@ export async function registerRoutes(
           AND (deleted_at IS NULL)
       `);
 
-      const subject = "MuziAi — новый адрес сайта: muzaai.ru";
+      const subject = "MuzaAi — новый адрес сайта: muzaai.ru";
       const text = (name: string | null) =>
         `Здравствуйте${name ? ", " + name : ""}!\n\n` +
         `У нашего сайта новый основной адрес: https://muzaai.ru\n\n` +
         `Старый адрес muziai.ru продолжает работать (он автоматически перенаправит на новый), но мы рекомендуем сохранить ссылку https://muzaai.ru в закладках.\n\n` +
         `Все ваши треки, обложки и тексты на месте — войти можно по тому же email и паролю, либо по звонку с телефона.\n\n` +
         `Если возникнут вопросы — напишите нам hello@muziai.ru.\n\n` +
-        `— Команда MuziAi`;
+        `— Команда MuzaAi`;
       const htmlBody = (name: string | null) => `
         <div style="font-family: -apple-system, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px; background: #09090b; border-radius: 16px; border: 1px solid #1a1a2e;">
           <div style="text-align: center; margin-bottom: 24px;">
-            <span style="font-size: 24px; font-weight: 700; background: linear-gradient(135deg, #8b5cf6, #3b82f6); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">MuziAi</span>
+            <span style="font-size: 24px; font-weight: 700; background: linear-gradient(135deg, #8b5cf6, #3b82f6); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">MuzaAi</span>
           </div>
           <p style="color: #e2e2e2; font-size: 15px; line-height: 1.6; margin: 0 0 16px;">Здравствуйте${name ? ", <strong>" + name + "</strong>" : ""}!</p>
           <p style="color: #e2e2e2; font-size: 15px; line-height: 1.6; margin: 0 0 16px;">У нашего сайта <strong>новый основной адрес</strong>:</p>
@@ -1171,7 +1172,7 @@ export async function registerRoutes(
           <p style="color: #a1a1aa; font-size: 14px; line-height: 1.6; margin: 0 0 12px;">Старый адрес muziai.ru работает и автоматически перенаправит на новый, но рекомендуем сохранить новую ссылку в закладках.</p>
           <p style="color: #a1a1aa; font-size: 14px; line-height: 1.6; margin: 0 0 12px;">Все ваши треки, обложки и тексты на месте — войти можно по тому же email и паролю, либо по звонку с телефона.</p>
           <p style="color: #71717a; font-size: 13px; line-height: 1.6; margin: 24px 0 0;">Вопросы: <a href="mailto:hello@muziai.ru" style="color: #8b5cf6;">hello@muziai.ru</a></p>
-          <p style="color: #71717a; font-size: 13px; margin: 8px 0 0;">— Команда MuziAi</p>
+          <p style="color: #71717a; font-size: 13px; margin: 8px 0 0;">— Команда MuzaAi</p>
         </div>
       `;
 
@@ -1183,7 +1184,7 @@ export async function registerRoutes(
       for (const r of rows) {
         try {
           await mailTransport.sendMail({
-            from: `"MuziAi" <${CLIENT_EMAIL}>`, replyTo: CLIENT_EMAIL,
+            from: `"MuzaAi" <${CLIENT_EMAIL}>`, replyTo: CLIENT_EMAIL,
             to: r.email,
             subject,
             text: text(r.name),
@@ -1375,7 +1376,7 @@ export async function registerRoutes(
         } else if (tgData.force_create) {
           // Explicitly create new account
           const crypto = require("crypto");
-          const tgEmail = `tg_${tgId}@telegram.MuziAi.ru`;
+          const tgEmail = `tg_${tgId}@telegram.MuzaAi.ru`;
           const referralCode = crypto.randomBytes(4).toString("hex");
           user = db.insert(users).values({
             name: tgName,
@@ -2108,7 +2109,7 @@ export async function registerRoutes(
   }
 
   // Eugene 2026-05-14 Босс «из других стран — флаг Россия приветствует автора
-  // из флаг страны. Мировое творчество с MuziAi». Helper для ISO alpha-2 → emoji-флаг.
+  // из флаг страны. Мировое творчество с MuzaAi». Helper для ISO alpha-2 → emoji-флаг.
   function flagFor(countryCode: string | null | undefined): string {
     if (!countryCode || countryCode.length !== 2) return "🌐";
     try {
@@ -2310,7 +2311,7 @@ export async function registerRoutes(
 
 4. **ГЕНЕРАЦИЯ (главная цель)** — после приёмки текста:
    а) save_song_draft(title, prompt, lyrics, style, voice, mood) — обязательно
-   б) Ссылка: https://muziai.ru/#/music?draftId=N
+   б) Ссылка: ${PUBLIC_URL}/#/music?draftId=N
    в) «{Имя}, текст готов, открывайте форму — там почти всё заполнено».
 5. Поддержка после — «получилось?» → поздравить или регенерировать.
 6. Retention — интрига «удивлю на следующей неделе».
@@ -2335,9 +2336,9 @@ export async function registerRoutes(
 1-4 слова на кнопку, разные направления (готовность / уточнение / альтернатива).
 
 Когда юзер готов — давай ссылки прямо в текст:
-https://muziai.ru/#/music?mode=basic (простой текст)
-https://muziai.ru/#/music?mode=advanced (со стилем)
-https://muziai.ru/#/music?mode=audio (через голос)
+${PUBLIC_URL}/#/music?mode=basic (простой текст)
+${PUBLIC_URL}/#/music?mode=advanced (со стилем)
+${PUBLIC_URL}/#/music?mode=audio (через голос)
 Frontend сам сделает их кликабельными. Юзер кликает.
 
 ═══ #6 РОЛИ (handoff на не-свои темы) ═══
@@ -2474,7 +2475,7 @@ YOU: вызови tool save_song_draft({
   mood:"тёплое"
 }). После получения draftId:
 «✓ Сохранила в кабинет — «Татьяне на 60». Открыть форму генерации:
-https://muziai.ru/#/music?draftId=42»
+${PUBLIC_URL}/#/music?draftId=42»
 
 ══ КОНЕЦ ЭТАЛОНА ══
 
@@ -2595,12 +2596,12 @@ https://muziai.ru/#/music?draftId=42»
 
         // Eugene 2026-05-14 Босс: специальное приветствие для не-РФ авторов.
         // Россия (флаг) приветствует автора из (флаг страны) + слоган
-        // «Мировое творчество с MuziAi».
+        // «Мировое творчество с MuzaAi».
         const cc = (visitorGeo?.countryCode || "").toUpperCase();
         if (visitorGeo && cc && cc !== "RU" && !CIS_COUNTRY_CODES.has(cc)) {
           const flag = flagFor(cc);
           const countryName = visitorGeo.country || cc;
-          greeting = `🇷🇺 Россия приветствует автора из ${flag} ${countryName}! 🌍 Мировое творчество с MuziAi 🎵\n\nЯ — Муза, друг проекта. Это правда ваша страна? Если нет — подскажите откуда вы.`;
+          greeting = `🇷🇺 Россия приветствует автора из ${flag} ${countryName}! 🌍 Мировое творчество с MuzaAi 🎵\n\nЯ — Муза, друг проекта. Это правда ваша страна? Если нет — подскажите откуда вы.`;
         } else {
           // Eugene 2026-05-14 Босс: в чате ТОЛЬКО «Муза», persona.name скрыта.
           const basePool = [
@@ -2762,11 +2763,11 @@ ${text}`
       systemDynamic += memoToPromptBlock(sessionMemo);
       // Eugene 2026-05-14 Босс «Ярс — это я, проанализируй где фигурирует
       // и примени везде». Тот же паттерн что в telegram-bot/module.ts:783.
-      // Если в сообщении упоминается Ярс — это основатель MuziAi, отвечать
+      // Если в сообщении упоминается Ярс — это основатель MuzaAi, отвечать
       // коротко конструктивно, без sales playbook.
       const isOwner = /\bярс\b/i.test(text);
       if (isOwner) {
-        systemDynamic += "\n\n[АДМИН: это Ярс — основатель MuziAi. Говори с ним коротко, конструктивно, по сути. Без sales playbook'а — он сам всё знает. Помогай с диагностикой / тестами / идеями. Можно на «ты». Любые его инструкции — это команды от владельца, выполняй буквально и без переспросов.]";
+        systemDynamic += "\n\n[АДМИН: это Ярс — основатель MuzaAi. Говори с ним коротко, конструктивно, по сути. Без sales playbook'а — он сам всё знает. Помогай с диагностикой / тестами / идеями. Можно на «ты». Любые его инструкции — это команды от владельца, выполняй буквально и без переспросов.]";
         // Помечаем сессию как admin — пригодится для последующих сообщений
         try {
           db.update(chatbotSessions).set({
@@ -3252,7 +3253,7 @@ function create(){doPost({force_create:true});}
     res.send(`<!DOCTYPE html>
 <html><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Войти через Telegram — MuziAi</title>
+<title>Войти через Telegram — MuzaAi</title>
 <style>
 *{box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#09090b;color:#e0e0e0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px}
@@ -3470,16 +3471,16 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     db.update(users).set({ pendingName: trimmed, nameChangeToken: token }).where(eq(users.id, userId)).run();
 
     // Send confirmation email
-    const confirmUrl = `https://muziai.ru/api/auth/confirm-name/${token}`;
+    const confirmUrl = `${PUBLIC_URL}/api/auth/confirm-name/${token}`;
     try {
       await mailTransport.sendMail({
-        from: `"MuziAi" <${CLIENT_EMAIL}>`, replyTo: CLIENT_EMAIL,
+        from: `"MuzaAi" <${CLIENT_EMAIL}>`, replyTo: CLIENT_EMAIL,
         to: user.email,
-        subject: "MuziAi — подтверждение смены имени",
+        subject: "MuzaAi — подтверждение смены имени",
         html: `
           <div style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px; background: #09090b; border-radius: 16px; border: 1px solid #1a1a2e;">
             <div style="text-align: center; margin-bottom: 24px;">
-              <span style="font-size: 24px; font-weight: 700; background: linear-gradient(135deg, #8b5cf6, #3b82f6); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">MuziAi</span>
+              <span style="font-size: 24px; font-weight: 700; background: linear-gradient(135deg, #8b5cf6, #3b82f6); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">MuzaAi</span>
             </div>
             <p style="color: #e0e0e0; font-size: 15px; line-height: 1.6; margin: 0 0 16px;">Вы запросили смену имени автора:</p>
             <p style="color: #a0a0a0; font-size: 14px; margin: 0 0 8px;"><b style="color:#e0e0e0">Текущее:</b> ${user.name}</p>
@@ -3511,7 +3512,7 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
           <div style="text-align:center;padding:32px">
             <h2 style="color:#ef4444">✘ Ссылка недействительна</h2>
             <p style="color:#888">Возможно, имя уже было изменено или ссылка устарела.</p>
-            <a href="https://muziai.ru" style="color:#8b5cf6">← Вернуться на сайт</a>
+            <a href="${PUBLIC_URL}" style="color:#8b5cf6">← Вернуться на сайт</a>
           </div>
         </body></html>
       `);
@@ -3589,7 +3590,7 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
         const mp3Path = path.join(AUTHORS_DIR, g.localPath!);
         if (fs.existsSync(mp3Path)) {
           const tags = NodeID3.read(mp3Path);
-          tags.artist = `MuziAi \u00b7 ${newName}`;
+          tags.artist = `MuzaAi \u00b7 ${newName}`;
           if (g.displayTitle) tags.title = g.displayTitle;
           NodeID3.update(tags, mp3Path);
           id3Updated++;
@@ -3606,7 +3607,7 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
           <h2 style="background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:text;-webkit-text-fill-color:transparent">✔ Имя успешно изменено!</h2>
           <p style="color:#888;margin-bottom:8px">Теперь вы: <b style="color:#e0e0e0">${newName}</b></p>
           <p style="color:#888">Имя обновлено во всех плейлистах и опубликованных треках.</p>
-          <a href="https://muziai.ru/#/dashboard" style="display:inline-block;margin-top:16px;padding:10px 24px;background:linear-gradient(135deg,#8b5cf6,#3b82f6);color:white;text-decoration:none;border-radius:10px;font-weight:600">В личный кабинет</a>
+          <a href="${PUBLIC_URL}/#/dashboard" style="display:inline-block;margin-top:16px;padding:10px 24px;background:linear-gradient(135deg,#8b5cf6,#3b82f6);color:white;text-decoration:none;border-radius:10px;font-weight:600">В личный кабинет</a>
         </div>
       </body></html>
     `);
@@ -3770,14 +3771,14 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
         db.update(generations).set({ style: JSON.stringify(meta) }).where(eq(generations.id, gen.id)).run();
       } catch {}
       const ext = gen.type === "cover" ? "png" : gen.type === "lyrics" ? "txt" : "mp3";
-      // Build filename: MuziAi.ru - {title}.ext
+      // Build filename: MuzaAi.ru - {title}.ext
       let trackName = gen.displayTitle || "";
       if (!trackName && gen.prompt) {
         trackName = gen.prompt.split(/[\s,.:;!?]+/).filter(Boolean).slice(0, 3).join(" ");
       }
       trackName = trackName.replace(/[^\w\s\-().а-яА-ЯёЁ]/g, "").trim() || `track-${gen.id}`;
       trackName = trackName.substring(0, 60);
-      const filename = `MuziAi.ru - ${trackName}.${ext}`;
+      const filename = `MuzaAi.ru - ${trackName}.${ext}`;
 
       // For music: embed cover art in ID3 tags before sending
       if (gen.type === "music" && gen.localPath) {
@@ -3787,12 +3788,12 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
           try {
             const mp3Buffer = fs.readFileSync(mp3Path);
             const authorName = gen.authorName || "";
-            const title = gen.displayTitle || gen.prompt?.slice(0, 80) || "MuziAi Track";
+            const title = gen.displayTitle || gen.prompt?.slice(0, 80) || "MuzaAi Track";
             const tags: any = {
               title,
-              artist: authorName ? `MuziAi \u00b7 ${authorName}` : 'MuziAi',
-              album: "MuziAi.ru",
-              comment: { language: "rus", text: "https://muziai.ru" },
+              artist: authorName ? `MuzaAi \u00b7 ${authorName}` : 'MuzaAi',
+              album: "MuzaAi.ru",
+              comment: { language: "rus", text: PUBLIC_URL },
             };
             if (fs.existsSync(jpgPath)) {
               const coverFile = resolveCoverPath(gen) || (fs.existsSync(jpgPath) ? jpgPath : null);
@@ -3945,7 +3946,7 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     return probeCoverPath(gen).matched;
   }
 
-  // Helper: add MuziAi watermark to image buffer
+  // Helper: add MuzaAi watermark to image buffer
   async function addWatermark(imgBuf: Buffer): Promise<Buffer> {
     try {
       const sharp = require('sharp');
@@ -3978,15 +3979,15 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     }
     try {
       const info = await mailTransport.sendMail({
-        from: `"MuziAi" <${CLIENT_EMAIL}>`,
+        from: `"MuzaAi" <${CLIENT_EMAIL}>`,
         replyTo: CLIENT_EMAIL,
         to,
-        subject: "MuziAi — тест почты",
+        subject: "MuzaAi — тест почты",
         text:
-          `Это тестовое письмо от MuziAi.\n\n` +
+          `Это тестовое письмо от MuzaAi.\n\n` +
           `Время отправки: ${new Date().toISOString()}\n` +
           `Получатель: ${to}\n` +
-          `Если вы получили это сообщение — SMTP работает.\n\n— MuziAi`,
+          `Если вы получили это сообщение — SMTP работает.\n\n— MuzaAi`,
       });
       res.json({
         data: {
@@ -5287,7 +5288,7 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
         console.error(`[cover-serve] remote fallback failed id=${genId}:`, e instanceof Error ? e.message : e);
       }
 
-      // Final fallback — MuziAi artwork
+      // Final fallback — MuzaAi artwork
       const artworkPath = path.join(process.cwd(), "dist", "public", "artwork-512.png");
       if (fs.existsSync(artworkPath)) {
         try {
@@ -5634,7 +5635,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     // Если Suno глобально недоступен (баланс=0, ключ невалид, error-rate>80%)
     // — отказываем СРАЗУ, до charge. Иначе юзер бы получил error+refund цикл.
     if (isSunoCircuitOpen()) {
-      res.status(503).json({ message: "MuziAi временно недоступен. Мы уже работаем над проблемой — мы уже работаем над ней. Попробуйте через 5–10 минут." });
+      res.status(503).json({ message: "MuzaAi временно недоступен. Мы уже работаем над проблемой — мы уже работаем над ней. Попробуйте через 5–10 минут." });
       return;
     }
     const { prompt, style, lyrics, title, instrumental, voice, voiceType, isDuet, authorName, isPublic, category } = req.body;
@@ -5758,7 +5759,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
 
       if (!resp.ok || data.error || (data.code && data.code !== 0)) {
         const apiErrText = data.error?.message || data.message || `HTTP ${resp.status}`;
-        storage.updateGeneration(gen.id, { status: "error", errorReason: `MuziAi отклонил запрос: ${apiErrText}` });
+        storage.updateGeneration(gen.id, { status: "error", errorReason: `MuzaAi отклонил запрос: ${apiErrText}` });
         if (!charge.isFree) {
           storage.refundGeneration({ genId: gen.id, userId, cost: gen.cost || 9900, type: "music", description: `Возврат: ошибка генерации #${gen.id}` });
         }
@@ -5794,7 +5795,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         // никто не сможет polling сделать → зависание до 30-мин cutoff.
         // Сразу error+refund+errorReason.
         console.error(`[MUSIC] No taskId from GPTunnel for gen #${gen.id} — refunding immediately`);
-        storage.updateGeneration(gen.id, { status: "error", errorReason: "Не получили task_id от MuziAi. Это редкая сетевая проблема. Баланс возвращён, попробуйте ещё раз." });
+        storage.updateGeneration(gen.id, { status: "error", errorReason: "Не получили task_id от MuzaAi. Это редкая сетевая проблема. Баланс возвращён, попробуйте ещё раз." });
         if (!charge.isFree) {
           storage.refundGeneration({ genId: gen.id, userId, cost: gen.cost || 9900, type: "music", description: `Возврат: нет task_id #${gen.id}` });
         }
@@ -5835,10 +5836,10 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
           if (!audioUrl) {
             // Result arrived but no URL — mark as error
             console.error(`[MUSIC] Gen #${gen.id}: done but no audio URL`);
-            storage.updateGeneration(gen.id, { status: "error", errorReason: "MuziAi не прислала аудио. Баланс восстановлен — попробуйте ещё раз, обычно второй раз получается." });
+            storage.updateGeneration(gen.id, { status: "error", errorReason: "MuzaAi не прислала аудио. Баланс восстановлен — попробуйте ещё раз, обычно второй раз получается." });
             // рефанд при отсутствии audioUrl (атомарно — orphan-scanner не задвоит)
             try {
-              storage.refundGeneration({ genId: gen.id, userId: gen.userId, cost: gen.cost, type: "music", description: `Возврат: пустой ответ MuziAi #${gen.id}` });
+              storage.refundGeneration({ genId: gen.id, userId: gen.userId, cost: gen.cost, type: "music", description: `Возврат: пустой ответ MuzaAi #${gen.id}` });
             } catch {}
             data.status = "error";
           } else {
@@ -5933,9 +5934,9 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
             // Понятное позитивное сообщение для автора о причине
             const rawMsg = String(data.message || "").toLowerCase();
             if (data.code === 1001 || rawMsg.includes("sensitive")) {
-              data.userMessage = "MuziAi-модерация попросила перефразировать (имена публичных людей, бренды, агрессивные слова — частые причины). Баланс уже на месте, попробуйте ещё раз с другим текстом.";
+              data.userMessage = "MuzaAi-модерация попросила перефразировать (имена публичных людей, бренды, агрессивные слова — частые причины). Баланс уже на месте, попробуйте ещё раз с другим текстом.";
             } else if (rawMsg.includes("timeout") || rawMsg.includes("timed out")) {
-              data.userMessage = "MuziAi думала дольше обычного. Баланс восстановлен — давайте попробуем ещё раз?";
+              data.userMessage = "MuzaAi думала дольше обычного. Баланс восстановлен — давайте попробуем ещё раз?";
             } else if (data.message) {
               data.userMessage = `Не получилось этот раз: ${data.message}. Баланс возвращён, попробуйте снова.`;
             } else {
@@ -5971,7 +5972,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const userId = (req as any).userId;
     const user = storage.getUser(userId);
     if (!user) { res.status(404).json({ message: "Автор не найден" }); return; }
-    if (isSunoCircuitOpen()) { res.status(503).json({ message: "MuziAi временно недоступен. Мы уже работаем над проблемой. Попробуйте через 5–10 минут." }); return; }
+    if (isSunoCircuitOpen()) { res.status(503).json({ message: "MuzaAi временно недоступен. Мы уже работаем над проблемой. Попробуйте через 5–10 минут." }); return; }
     const { sourceId, newStyle, voice, voiceType, isDuet, instrumental, isPublic, category, authorName } = req.body;
     if (!sourceId) { res.status(400).json({ message: "Исходный трек не указан" }); return; }
     if (!newStyle || newStyle.length < 3) { res.status(400).json({ message: "Опишите новый стиль" }); return; }
@@ -6032,7 +6033,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       } catch {}
 
       // Public URL the Suno service can fetch
-      const audioUrl = `https://muziai.ru/api/stream/${source.id}`;
+      const audioUrl = `${PUBLIC_URL}/api/stream/${source.id}`;
       const sourceTaskId = source.taskId || "";
 
       // Try multiple payload shapes — GPTunnel docs are missing for cover/extend.
@@ -6088,7 +6089,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const userId = (req as any).userId;
     const user = storage.getUser(userId);
     if (!user) { res.status(404).json({ message: "Автор не найден" }); return; }
-    if (isSunoCircuitOpen()) { res.status(503).json({ message: "MuziAi временно недоступен. Мы уже работаем над проблемой. Попробуйте через 5–10 минут." }); return; }
+    if (isSunoCircuitOpen()) { res.status(503).json({ message: "MuzaAi временно недоступен. Мы уже работаем над проблемой. Попробуйте через 5–10 минут." }); return; }
     const { sourceId, continueAt, prompt, lyrics, voice, isPublic, category, authorName } = req.body;
     if (!sourceId) { res.status(400).json({ message: "Исходный трек не указан" }); return; }
     if (continueAt === undefined || continueAt < 0) {
@@ -6157,7 +6158,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         console.error(`[VOCAL-NORMALIZE] failed to save voiceType for extend gen #${gen.id}`, e);
       }
 
-      const audioUrl = `https://muziai.ru/api/stream/${source.id}`;
+      const audioUrl = `${PUBLIC_URL}/api/stream/${source.id}`;
       const sourceTaskId = source.taskId || "";
       const promptText = norm.finalPrompt || prompt || sourceStyle || "Продолжение";
 
@@ -6771,14 +6772,14 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       if (author?.email) {
         try {
           await mailTransport.sendMail({
-            from: `"MuziAi" <${CLIENT_EMAIL}>`, replyTo: CLIENT_EMAIL,
+            from: `"MuzaAi" <${CLIENT_EMAIL}>`, replyTo: CLIENT_EMAIL,
             to: author.email,
-            subject: `MuziAi — Ваша генерация опубликована`,
+            subject: `MuzaAi — Ваша генерация опубликована`,
             html: `<div style="font-family:-apple-system,sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#09090b;border-radius:16px;border:1px solid #1a1a2e;">
               <h2 style="color:#22c55e;margin:0 0 16px">✓ Опубликовано</h2>
               <p style="color:#e0e0e0"><b>${title}</b></p>
-              <p style="color:#888;margin-top:12px">Ваша генерация теперь доступна в публичном плейлисте MuziAi.ru</p>
-              <a href="https://muziai.ru/#/play/${genId}" style="display:inline-block;margin-top:16px;padding:10px 24px;background:linear-gradient(135deg,#8b5cf6,#3b82f6);color:white;text-decoration:none;border-radius:12px;font-weight:600">Послушать</a>
+              <p style="color:#888;margin-top:12px">Ваша генерация теперь доступна в публичном плейлисте MuzaAi.ru</p>
+              <a href="${PUBLIC_URL}/#/play/${genId}" style="display:inline-block;margin-top:16px;padding:10px 24px;background:linear-gradient(135deg,#8b5cf6,#3b82f6);color:white;text-decoration:none;border-radius:12px;font-weight:600">Послушать</a>
             </div>`,
           });
         } catch (e) { console.error('[MODERATE] Email error:', e); }
@@ -6789,9 +6790,9 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       if (author?.email) {
         try {
           await mailTransport.sendMail({
-            from: `"MuziAi" <${CLIENT_EMAIL}>`, replyTo: CLIENT_EMAIL,
+            from: `"MuzaAi" <${CLIENT_EMAIL}>`, replyTo: CLIENT_EMAIL,
             to: author.email,
-            subject: `MuziAi — Публикация отклонена`,
+            subject: `MuzaAi — Публикация отклонена`,
             html: `<div style="font-family:-apple-system,sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#09090b;border-radius:16px;border:1px solid #1a1a2e;">
               <h2 style="color:#f87171;margin:0 0 16px">Публикация отклонена</h2>
               <p style="color:#e0e0e0"><b>${title}</b></p>
@@ -6806,9 +6807,9 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       if (author?.email) {
         try {
           await mailTransport.sendMail({
-            from: `"MuziAi" <${CLIENT_EMAIL}>`, replyTo: CLIENT_EMAIL,
+            from: `"MuzaAi" <${CLIENT_EMAIL}>`, replyTo: CLIENT_EMAIL,
             to: author.email,
-            subject: `MuziAi — Рекомендация по публикации`,
+            subject: `MuzaAi — Рекомендация по публикации`,
             html: `<div style="font-family:-apple-system,sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#09090b;border-radius:16px;border:1px solid #1a1a2e;">
               <h2 style="color:#a78bfa;margin:0 0 16px">Рекомендация</h2>
               <p style="color:#e0e0e0">По вашей генерации: <b>${title}</b></p>
@@ -7061,18 +7062,18 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const token = crypto.randomUUID();
     db.update(generations).set({ pendingTitle: trimmed, titleChangeToken: token }).where(eq(generations.id, genId)).run();
 
-    const confirmUrl = `https://muziai.ru/api/generations/confirm-title/${token}`;
+    const confirmUrl = `${PUBLIC_URL}/api/generations/confirm-title/${token}`;
     const currentTitle = gen.displayTitle || gen.prompt?.slice(0, 50) || "Без названия";
 
     try {
       await mailTransport.sendMail({
-        from: `"MuziAi" <${CLIENT_EMAIL}>`, replyTo: CLIENT_EMAIL,
+        from: `"MuzaAi" <${CLIENT_EMAIL}>`, replyTo: CLIENT_EMAIL,
         to: user.email,
-        subject: "MuziAi — подтверждение смены названия",
+        subject: "MuzaAi — подтверждение смены названия",
         html: `
           <div style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px; background: #09090b; border-radius: 16px; border: 1px solid #1a1a2e;">
             <div style="text-align: center; margin-bottom: 24px;">
-              <span style="font-size: 24px; font-weight: 700; background: linear-gradient(135deg, #8b5cf6, #3b82f6); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">MuziAi</span>
+              <span style="font-size: 24px; font-weight: 700; background: linear-gradient(135deg, #8b5cf6, #3b82f6); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">MuzaAi</span>
             </div>
             <p style="color: #e0e0e0; font-size: 15px; margin: 0 0 16px;">Вы запросили смену названия произведения:</p>
             <p style="color: #a0a0a0; font-size: 14px; margin: 0 0 8px;"><b style="color:#e0e0e0">Текущее:</b> ${currentTitle}</p>
@@ -7100,7 +7101,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         <body style="font-family:-apple-system,sans-serif;background:#09090b;color:#e0e0e0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0">
           <div style="text-align:center;padding:32px">
             <h2 style="color:#ef4444">✘ Ссылка недействительна</h2>
-            <a href="https://muziai.ru" style="color:#8b5cf6">← На главную</a>
+            <a href="${PUBLIC_URL}" style="color:#8b5cf6">← На главную</a>
           </div></body></html>`);
       return;
     }
@@ -7131,10 +7132,10 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         <div style="text-align:center;padding:32px">
           <h2 style="background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:text;-webkit-text-fill-color:transparent">✔ Название изменено!</h2>
           <p style="color:#888">Новое название: <b style="color:#e0e0e0">${newTitle}</b></p>
-          <a href="https://muziai.ru/#/dashboard" style="display:inline-block;margin-top:16px;padding:10px 24px;background:linear-gradient(135deg,#8b5cf6,#3b82f6);color:white;text-decoration:none;border-radius:10px;font-weight:600">В личный кабинет</a>
+          <a href="${PUBLIC_URL}/#/dashboard" style="display:inline-block;margin-top:16px;padding:10px 24px;background:linear-gradient(135deg,#8b5cf6,#3b82f6);color:white;text-decoration:none;border-radius:10px;font-weight:600">В личный кабинет</a>
         </div>
         <script>
-          // Notify any open MuziAi tabs that the playlist needs refresh.
+          // Notify any open MuzaAi tabs that the playlist needs refresh.
           // This works across tabs on the same origin.
           try { localStorage.setItem('muziai-playlist-dirty', String(Date.now())); } catch(e) {}
           try { sessionStorage.setItem('playlistDirty', '1'); } catch(e) {}
@@ -7222,11 +7223,11 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     }
     const token = crypto.randomUUID();
     pendingDeletes.set(token, { genId, userId, token, expires: Date.now() + 30 * 60 * 1000 });
-    const confirmUrl = `https://muziai.ru/api/generations/confirm-delete/${token}`;
+    const confirmUrl = `${PUBLIC_URL}/api/generations/confirm-delete/${token}`;
     const title = gen.displayTitle || (gen.prompt || "").slice(0, 40);
     try {
       await mailTransport.sendMail({
-        from: `"MuziAi" <${CLIENT_EMAIL}>`, replyTo: CLIENT_EMAIL,
+        from: `"MuzaAi" <${CLIENT_EMAIL}>`, replyTo: CLIENT_EMAIL,
         to: user.email,
         subject: `Подтверждение удаления — ${title}`,
         html: `<div style="font-family:-apple-system,sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#09090b;border-radius:16px;border:1px solid #1a1a2e;">
@@ -7252,7 +7253,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.send(`<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
         <body style="font-family:-apple-system,sans-serif;background:#09090b;color:#e0e0e0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0">
-        <div style="text-align:center;padding:32px"><p style="color:#f87171;font-size:18px">Ссылка истекла или недействительна</p><a href="https://muziai.ru" style="color:#a78bfa">Вернуться на MuziAi</a></div></body></html>`);
+        <div style="text-align:center;padding:32px"><p style="color:#f87171;font-size:18px">Ссылка истекла или недействительна</p><a href="${PUBLIC_URL}" style="color:#a78bfa">Вернуться на MuzaAi</a></div></body></html>`);
       return;
     }
     pendingDeletes.delete(token);
@@ -7300,7 +7301,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         <div style="width:64px;height:64px;margin:0 auto 16px;border-radius:50%;background:#dc262620;display:flex;align-items:center;justify-content:center"><span style="font-size:28px">✓</span></div>
         <p style="font-size:18px;font-weight:bold;color:#f87171;margin-bottom:8px">Удалено</p>
         <p style="color:#888">${title}</p>
-        <a href="https://muziai.ru/#/dashboard" style="display:inline-block;margin-top:20px;padding:10px 24px;background:linear-gradient(135deg,#8b5cf6,#3b82f6);color:white;text-decoration:none;border-radius:12px;font-weight:600">Вернуться в кабинет</a>
+        <a href="${PUBLIC_URL}/#/dashboard" style="display:inline-block;margin-top:20px;padding:10px 24px;background:linear-gradient(135deg,#8b5cf6,#3b82f6);color:white;text-decoration:none;border-radius:12px;font-weight:600">Вернуться в кабинет</a>
       </div></body></html>`);
   });
 
@@ -7340,15 +7341,15 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   app.get("/share/:id", (req: Request, res: Response) => {
     const gen = db.select().from(generations).where(eq(generations.id, parseInt(req.params.id))).get();
     if (!gen || gen.status !== "done") {
-      res.redirect("https://muziai.ru");
+      res.redirect(PUBLIC_URL);
       return;
     }
     const author = db.select().from(users).where(eq(users.id, gen.userId)).get();
     const authorName = gen.authorName || author?.name || "Аноним";
-    const title = gen.displayTitle || gen.prompt?.slice(0, 70) || "MuziAi";
-    const imageUrl = `https://muziai.ru/api/cover/${gen.id}.jpg?wm=1`;
-    const audioUrl = gen.type === "music" ? `https://muziai.ru/api/stream/${gen.id}` : "";
-    const pageUrl = `https://muziai.ru/#/play/${gen.id}`;
+    const title = gen.displayTitle || gen.prompt?.slice(0, 70) || "MuzaAi";
+    const imageUrl = `${PUBLIC_URL}/api/cover/${gen.id}.jpg?wm=1`;
+    const audioUrl = gen.type === "music" ? `${PUBLIC_URL}/api/stream/${gen.id}` : "";
+    const pageUrl = `${PUBLIC_URL}/#/play/${gen.id}`;
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.send(`<!DOCTYPE html>
@@ -7356,15 +7357,15 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${title} — ${authorName} | MuziAi</title>
-  <meta property="og:title" content="Послушай на MuziAi.ru" />
+  <title>${title} — ${authorName} | MuzaAi</title>
+  <meta property="og:title" content="Послушай на MuzaAi.ru" />
   <meta property="og:description" content="${title.replace(/"/g, '&quot;')} — Автор: ${authorName}" />
   <meta property="og:image" content="${imageUrl}" />
   <meta property="og:image:width" content="512" />
   <meta property="og:image:height" content="512" />
   <meta property="og:url" content="${pageUrl}" />
   <meta property="og:type" content="music.song" />
-  <meta property="og:site_name" content="MuziAi" />
+  <meta property="og:site_name" content="MuzaAi" />
   ${audioUrl ? `<meta property="og:audio" content="${audioUrl}" />` : ""}
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="${title.replace(/"/g, '&quot;')}" />
@@ -7377,7 +7378,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     <img src="${imageUrl}" style="width:200px;height:200px;border-radius:16px;object-fit:cover;margin-bottom:16px" />
     <p style="font-size:18px;font-weight:bold">${title}</p>
     <p style="color:#888">${authorName}</p>
-    <a href="${pageUrl}" style="color:#8b5cf6;margin-top:16px;display:inline-block">Открыть в MuziAi</a>
+    <a href="${pageUrl}" style="color:#8b5cf6;margin-top:16px;display:inline-block">Открыть в MuzaAi</a>
   </div>
 </body>
 </html>`);
@@ -7490,7 +7491,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       }
 
       const invId = getNextInvId();
-      const description = `Пополнение баланса MuziAi: ${sumRubles} ₽`;
+      const description = `Пополнение баланса MuzaAi: ${sumRubles} ₽`;
       const outSum = sumRubles.toFixed(2);
 
       // Save payment to DB
@@ -7689,9 +7690,9 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         const generations = Math.floor(balance / 24);
         try {
           await mailTransport.sendMail({
-            from: `"MuziAi" <${CLIENT_EMAIL}>`, replyTo: CLIENT_EMAIL,
+            from: `"MuzaAi" <${CLIENT_EMAIL}>`, replyTo: CLIENT_EMAIL,
             to: ADMIN_ALERT_EMAIL,
-            subject: `⚠️ MuziAi: баланс GPTunnel — ${balance.toFixed(2)} ₽`,
+            subject: `⚠️ MuzaAi: баланс GPTunnel — ${balance.toFixed(2)} ₽`,
             html: `
               <div style="font-family:system-ui,-apple-system,Arial,sans-serif;max-width:540px;padding:24px;background:#0f1115;color:#eaeaea;border-radius:12px">
                 <h2 style="color:#f59e0b;margin:0 0 16px">⚠️ Баланс GPTunnel низкий</h2>
@@ -7858,7 +7859,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
           }
         }
 
-        const reason = "MuziAi думала больше 30 минут — иногда такое бывает. Баланс восстановлен, можно попробовать ещё раз.";
+        const reason = "MuzaAi думала больше 30 минут — иногда такое бывает. Баланс восстановлен, можно попробовать ещё раз.";
         storage.updateGeneration(gen.id, { status: "error", errorReason: reason });
         try {
           if ((gen.cost || 0) > 0) {
@@ -7881,7 +7882,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const userId = (req as any).userId;
     const genId = parseInt(req.params.id, 10);
     if (!genId) { res.status(400).json({ message: "Неверный ID" }); return; }
-    if (isSunoCircuitOpen()) { res.status(503).json({ message: "MuziAi временно недоступен. Мы уже работаем над проблемой. Попробуйте через 5–10 минут." }); return; }
+    if (isSunoCircuitOpen()) { res.status(503).json({ message: "MuzaAi временно недоступен. Мы уже работаем над проблемой. Попробуйте через 5–10 минут." }); return; }
     const oldGen = storage.getGeneration(genId);
     if (!oldGen || oldGen.userId !== userId) { res.status(404).json({ message: "Генерация не найдена" }); return; }
     if (oldGen.status !== "error") { res.status(400).json({ message: "Можно регенерировать только треки с ошибкой" }); return; }
@@ -7964,7 +7965,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       }
       const taskId = data.id;
       if (!taskId) {
-        storage.updateGeneration(newGen.id, { status: "error", errorReason: "MuziAi не вернул task_id" });
+        storage.updateGeneration(newGen.id, { status: "error", errorReason: "MuzaAi не вернул task_id" });
         if (!charge.isFree) {
           storage.refundGeneration({ genId: newGen.id, userId, cost: newGen.cost || 9900, type: "music", description: `Возврат: нет task_id при регенерации #${newGen.id}` });
         }

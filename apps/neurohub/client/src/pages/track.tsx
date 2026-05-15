@@ -85,7 +85,7 @@ export default function TrackPage() {
 
   useEffect(() => {
     if (!track) return;
-    document.title = `${track.prompt} — MuziAi`;
+    document.title = `${track.prompt} — MuzaAi`;
   }, [track]);
 
   // Countdown → auto-redirect to main playlist after track finishes
@@ -113,9 +113,9 @@ export default function TrackPage() {
       await setLockScreenTrack(
         {
           id: track.id,
-          title: track.prompt || "MuziAi",
-          artist: track.authorName ? `MuziAi · ${track.authorName}` : "MuziAi",
-          album: "MuziAi",
+          title: track.prompt || "MuzaAi",
+          artist: track.authorName ? `MuzaAi · ${track.authorName}` : "MuzaAi",
+          album: "MuzaAi",
         },
         {
           play: () => { audioRef.current?.play(); setPlaying(true); setLockScreenPlaybackState("playing"); },
@@ -140,7 +140,7 @@ export default function TrackPage() {
     const title = track.prompt;
     if (navigator.share) {
       try {
-        await navigator.share({ title: `Послушай на MuziAi.ru`, text: title, url });
+        await navigator.share({ title: `Послушай на MuzaAi.ru`, text: title, url });
         fetch(`/api/gen-activity/${track.id}/share`, { method: "POST" }).catch(() => {});
         return;
       } catch {}
@@ -200,7 +200,7 @@ export default function TrackPage() {
           <Music className="w-16 h-16 text-violet-400 animate-pulse" />
           <Sparkles className="w-6 h-6 text-amber-300 absolute -top-1 -right-1 animate-spin" style={{ animationDuration: "3s" }} />
         </div>
-        <h1 className="text-2xl font-semibold">MuziAi работает над треком…</h1>
+        <h1 className="text-2xl font-semibold">MuzaAi работает над треком…</h1>
         {pending.prompt && <p className="text-sm text-muted-foreground max-w-sm">{pending.prompt}</p>}
         <p className="text-xs text-muted-foreground/70 max-w-sm">
           Обычно занимает 1–2 минуты. Страница обновится автоматически — не закрывайте.
@@ -265,7 +265,7 @@ export default function TrackPage() {
           )}
           {track.isBonus && (
             <div className="absolute top-3 right-3 px-2.5 py-1 rounded-full bg-gradient-to-r from-emerald-500 to-cyan-500 text-white text-xs font-medium backdrop-blur-sm shadow-lg">
-              🎁 Бонус от MuziAi
+              🎁 Бонус от MuzaAi
             </div>
           )}
         </div>
@@ -380,7 +380,7 @@ export default function TrackPage() {
         >
           <span className="relative z-10 inline-flex items-center justify-center gap-2">
             <Music className="w-5 h-5" />
-            <span className="tracking-wide">MuziAi.ru</span>
+            <span className="tracking-wide">MuzaAi.ru</span>
           </span>
         </button>
         <style>{`
@@ -412,7 +412,7 @@ export default function TrackPage() {
           data-testid="btn-listen-more"
         >
           <Music className="w-5 h-5" />
-          Слушать другие треки на MuziAi.ru
+          Слушать другие треки на MuzaAi.ru
         </button>
       </div>
 

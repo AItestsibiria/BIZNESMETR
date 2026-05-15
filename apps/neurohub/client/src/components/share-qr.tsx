@@ -38,7 +38,7 @@ function createQR(url: string, size = 280) {
   });
 }
 
-/** Draw MuziAi logo (white circle + gradient rounded square + wave) on canvas at center */
+/** Draw MuzaAi logo (white circle + gradient rounded square + wave) on canvas at center */
 function drawLogo(ctx: CanvasRenderingContext2D, size: number) {
   const cx = size / 2, cy = size / 2;
   const logoSize = Math.round(size * 0.15); // 15% of QR size
@@ -89,7 +89,7 @@ function drawLogo(ctx: CanvasRenderingContext2D, size: number) {
   ctx.stroke();
 }
 
-/** Render QR code with embedded MuziAi logo as a PNG blob */
+/** Render QR code with embedded MuzaAi logo as a PNG blob */
 async function renderQRWithLogo(url: string, size: number): Promise<Blob | null> {
   const qr = createQR(url, size);
   const blob = await qr.getRawData("png");
@@ -133,7 +133,7 @@ export function ShareQRSection() {
       img.src = finalUrl;
       img.width = 240;
       img.height = 240;
-      img.alt = "MuziAi QR";
+      img.alt = "MuzaAi QR";
       img.style.borderRadius = "12px";
       qrRef.current!.appendChild(img);
     }).catch(() => {
@@ -172,7 +172,7 @@ export function ShareQRSection() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = "MuziAi-QR.png";
+        a.download = "MuzaAi-QR.png";
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -182,7 +182,7 @@ export function ShareQRSection() {
     } catch {}
     // Fallback
     const qr = createQR("https://muziai.ru", 600);
-    qr.download({ name: "MuziAi-QR", extension: "png" });
+    qr.download({ name: "MuzaAi-QR", extension: "png" });
   };
 
   const handleShare = async () => {
@@ -190,9 +190,9 @@ export function ShareQRSection() {
       try {
         const blob = await renderQRWithLogo("https://muziai.ru", 600);
         if (blob) {
-          const file = new File([blob], "MuziAi-QR.png", { type: "image/png" });
+          const file = new File([blob], "MuzaAi-QR.png", { type: "image/png" });
           await navigator.share({
-            title: "MuziAi — AI Music",
+            title: "MuzaAi — AI Music",
             text: "Создавай музыку, тексты и обложки с помощью AI. Дарим 1000 ₽ по промокоду «Поехали»!",
             url: "https://muziai.ru",
             files: [file],
@@ -203,7 +203,7 @@ export function ShareQRSection() {
       // Fallback without file
       try {
         await navigator.share({
-          title: "MuziAi — AI Music",
+          title: "MuzaAi — AI Music",
           text: "Создавай музыку, тексты и обложки с помощью AI. Дарим 1000 ₽ по промокоду «Поехали»!",
           url: "https://muziai.ru",
         });
@@ -325,7 +325,7 @@ export function TrackShareQR({ trackId, title }: { trackId: number; title: strin
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `MuziAi-track-${trackId}-QR.png`;
+        a.download = `MuzaAi-track-${trackId}-QR.png`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);

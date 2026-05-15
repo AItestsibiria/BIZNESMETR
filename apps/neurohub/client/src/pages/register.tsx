@@ -96,7 +96,7 @@ export default function RegisterPage() {
             <Music className="w-6 h-6 text-white" />
           </div>
           <h1 className="text-xl font-bold gradient-text" data-testid="text-register-title">Создать аккаунт</h1>
-          <p className="text-sm text-muted-foreground mt-1">Присоединяйтесь к MuziAi</p>
+          <p className="text-sm text-muted-foreground mt-1">Присоединяйтесь к MuzaAi</p>
         </div>
 
         {verifyStep ? (
