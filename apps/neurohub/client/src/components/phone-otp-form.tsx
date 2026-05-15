@@ -351,10 +351,22 @@ export default function PhoneOtpForm({
 
   // CALL flow: показываем call_phone_pretty крупно + кнопку tel:link +
   // статус polling'a. Юзер ничего не вводит.
+  // Eugene 2026-05-15 Босс правки UX:
+  // - «не ждем звонка а звоним» → текст «Звоним...» с акцентом на действие юзера
+  // - выделить номер ярче + БЕСПЛАТНЫЙ pill
+  // - добавить кнопку «Сохранить в контакты» (vCard)
+  // - после verified → success-state + auto-navigate (через onVerified в parent)
   if (isCall) {
     const expiresInSec = callExpiresAt ? Math.max(0, Math.floor((callExpiresAt - Date.now()) / 1000)) : 0;
     const mm = String(Math.floor(expiresInSec / 60)).padStart(2, "0");
     const ss = String(expiresInSec % 60).padStart(2, "0");
+    const cleanPhone = callPhone ? callPhone.replace(/[^\d+]/g, "") : "";
+    const telHref = cleanPhone ? `tel:${cleanPhone.startsWith("+") ? cleanPhone : "+" + cleanPhone}` : "#";
+    // vCard для «Сохранить в контакты» — Data URI с MIME text/vcard
+    const vcardData = cleanPhone
+      ? `BEGIN:VCARD\nVERSION:3.0\nFN:MuzaAi (вход по звонку)\nORG:MuzaAi\nTEL;TYPE=WORK,VOICE:${cleanPhone.startsWith("+") ? cleanPhone : "+" + cleanPhone}\nURL:https://muzaai.ru\nEND:VCARD`
+      : "";
+    const vcardHref = vcardData ? `data:text/vcard;charset=utf-8,${encodeURIComponent(vcardData)}` : "#";
     return (
       <div className="space-y-4">
         <p className="text-sm text-center text-muted-foreground">
@@ -363,22 +375,44 @@ export default function PhoneOtpForm({
         </p>
 
         <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 text-center">
-          <p className="text-[11px] text-emerald-200/80 mb-2">Позвоните прямо сейчас на номер:</p>
+          <p className="text-sm text-white font-medium mb-2">
+            📞 Позвоните на этот номер:
+          </p>
           <a
-            href={callPhone ? `tel:+${callPhone.replace(/^\+/, "")}` : "#"}
-            className="inline-block text-2xl font-bold text-white tracking-wide hover:text-emerald-200 transition-colors"
+            href={telHref}
+            className="inline-block px-5 py-3 mb-2 rounded-xl bg-gradient-to-r from-emerald-500/30 to-cyan-500/25 border-2 border-emerald-400/60 text-3xl font-extrabold text-white tracking-wide hover:scale-[1.02] transition-transform shadow-lg shadow-emerald-500/20"
             data-testid="call-phone-link"
           >
-            📞 {callPhonePretty || callPhone || "—"}
+            {callPhonePretty || callPhone || "—"}
           </a>
-          <p className="text-[11px] text-emerald-200/80 mt-2">
-            Звонок <span className="font-semibold">бесплатный</span>, сбросится автоматически. После этого вход произойдёт сам.
+          <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-400/15 border border-amber-400/40 text-amber-200 text-[11px] font-bold tracking-wide ml-2">
+            🆓 БЕСПЛАТНЫЙ
+          </div>
+          <p className="text-[11px] text-emerald-200/80 mt-3">
+            Звонок сбросится автоматически. После этого вы войдёте в кабинет — никаких кодов вводить не надо.
           </p>
+          <div className="flex items-center justify-center gap-2 mt-3">
+            <a
+              href={telHref}
+              className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-white/10 border border-white/20 text-white/90 hover:bg-white/15"
+              data-testid="link-call-now"
+            >
+              📞 Позвонить сейчас
+            </a>
+            <a
+              href={vcardHref}
+              download="MuzaAi-vhod.vcf"
+              className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/10 text-white/70 hover:bg-white/[0.08] hover:text-white"
+              data-testid="link-save-vcard"
+            >
+              💾 Сохранить в контакты
+            </a>
+          </div>
         </div>
 
         <div className="text-center">
           <p className="text-[11px] text-muted-foreground">
-            Ждём звонок… <span className="font-mono tabular-nums text-white/80">{mm}:{ss}</span>
+            Звоните… ждём подтверждение <span className="font-mono tabular-nums text-white/80">{mm}:{ss}</span>
           </p>
           <div className="flex justify-center mt-2">
             <Loader2 className="w-4 h-4 animate-spin text-emerald-300" />
