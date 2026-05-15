@@ -24,7 +24,14 @@ export type OtpPurpose = "register" | "login" | "change_phone" | "change_email";
 interface Props {
   purpose: OtpPurpose;
   initialPhone?: string;
-  onVerified: (data: { phone: string; purpose: OtpPurpose; nextStep?: string }) => void;
+  onVerified: (data: {
+    phone: string;
+    purpose: OtpPurpose;
+    nextStep?: string;
+    token?: string;
+    userId?: number;
+    alreadyExists?: boolean;
+  }) => void;
   submitLabel?: string;       // label кнопки на 2-м шаге (default: «Подтвердить»)
   phoneSubmitLabel?: string;  // label на 1-м шаге (default: «Получить код»)
 }
@@ -125,6 +132,9 @@ export default function PhoneOtpForm({
         phone: j?.data?.phone || phone,
         purpose,
         nextStep: j?.data?.nextStep,
+        token: j?.data?.token,
+        userId: j?.data?.userId,
+        alreadyExists: j?.data?.alreadyExists,
       });
     } catch (e: any) {
       setError(String(e?.message || "Неверный код"));

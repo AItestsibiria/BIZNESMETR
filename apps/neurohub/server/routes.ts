@@ -270,40 +270,13 @@ async function sendResetEmail(toEmail: string, code: string): Promise<boolean> {
 }
 
 // In-memory token store: token -> userId
-// Token store backed by SQLite (using same db connection via raw SQL)
-const _tokenCache = new Map<string, number>();
+// Token store backed by SQLite (using same db connection via raw SQL).
+// Eugene 2026-05-15: реализация переехала в lib/tokenStore.ts чтобы
+// плагины (auth-sms и др.) могли выдавать токен после своих auth-flow.
+// Локальная const-обёртка чтобы остальной код в routes.ts не менять.
+import { tokenStore as _sharedTokenStore } from "./lib/tokenStore";
+const tokenStore = _sharedTokenStore;
 
-// Ensure sessions table
-try {
-  db.run(sql`CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id INTEGER NOT NULL, created_at TEXT DEFAULT CURRENT_TIMESTAMP)`);
-} catch {}
-
-const tokenStore = {
-  has(token: string): boolean {
-    if (_tokenCache.has(token)) return true;
-    try {
-      const row = db.get<{ userId: number }>(sql`SELECT user_id as userId FROM sessions WHERE token = ${token}`);
-      if (row) { _tokenCache.set(token, row.userId); return true; }
-    } catch {}
-    return false;
-  },
-  get(token: string): number | undefined {
-    if (_tokenCache.has(token)) return _tokenCache.get(token);
-    try {
-      const row = db.get<{ userId: number }>(sql`SELECT user_id as userId FROM sessions WHERE token = ${token}`);
-      if (row) { _tokenCache.set(token, row.userId); return row.userId; }
-    } catch {}
-    return undefined;
-  },
-  set(token: string, userId: number) {
-    _tokenCache.set(token, userId);
-    try { db.run(sql`INSERT OR REPLACE INTO sessions (token, user_id) VALUES (${token}, ${userId})`); } catch {}
-  },
-  delete(token: string) {
-    _tokenCache.delete(token);
-    try { db.run(sql`DELETE FROM sessions WHERE token = ${token}`); } catch {}
-  },
-};
 
 // Password reset: email -> { code, userId, expiresAt }
 const resetCodes = new Map<string, { code: string; userId: number; expiresAt: number }>();

@@ -129,6 +129,12 @@ export default function LoginPage() {
             Зарегистрироваться
           </Link>
         </p>
+        <p className="text-center text-xs text-muted-foreground mt-2">
+          или{" "}
+          <Link href="/login-phone" className="text-purple-300 hover:text-purple-200 underline">
+            войти по телефону
+          </Link>
+        </p>
       </div>
     </div>
   );

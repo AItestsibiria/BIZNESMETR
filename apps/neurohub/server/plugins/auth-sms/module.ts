@@ -24,8 +24,11 @@ import { db } from "../../storage";
 import { smsOtp, smsProviderLogs, users } from "@shared/schema";
 import { z } from "zod";
 import crypto from "node:crypto";
+import bcrypt from "bcryptjs";
+import { v4 as uuidv4 } from "uuid";
 import type { BootContext, Module } from "../../core";
-import { validatePhoneForOtp, maskPhone, normalizePhone } from "../../lib/phoneCountry";
+import { validatePhoneForOtp, maskPhone, normalizePhone, detectPhoneCountry } from "../../lib/phoneCountry";
+import { tokenStore } from "../../lib/tokenStore";
 
 let bootRefs: { eventBus: BootContext["eventBus"]; logger: BootContext["logger"] } | null = null;
 
@@ -320,16 +323,73 @@ router.post("/verify-otp", async (req, res) => {
 
   bootRefs?.eventBus?.emit?.("auth.sms_otp_verified", { phone: maskPhone(phone), purpose }, "auth-sms");
 
-  // Здесь дальше — привязка к register/login flow. Следующим коммитом:
-  // - register: создать users record + выдать token
-  // - login: найти users по phone, выдать token
-  // - change_phone: переложить pending_phone → phone в users
-  // - change_email: подтвердить через user_data_change_requests
-  // Пока возвращаем verified=true для UI чтобы можно было тестировать.
-  return res.json({
-    data: { verified: true, phone, purpose, nextStep: `pending-${purpose}-finalize` },
-    error: null,
-  });
+  // === Финализация по purpose ===
+  // register → создать users record, выдать token.
+  // login → найти users по phone, выдать token.
+  // change_phone → требует authMiddleware (Bearer token) — finalize в routes.ts
+  //                по правам владельца. Здесь возвращаем verified только.
+  // change_email → аналогично — finalize в routes.ts.
+  try {
+    if (purpose === "register") {
+      const existing = db.select().from(users).where(eq(users.phone, phone)).get() as any;
+      if (existing) {
+        // Race condition защита: пока шла verify, другой запрос мог уже
+        // зарегистрировать тот же номер. Перенаправляем на login flow.
+        const token = uuidv4();
+        tokenStore.set(token, existing.id);
+        return res.json({ data: { verified: true, phone, purpose, token, userId: existing.id, alreadyExists: true }, error: null });
+      }
+      const country = detectPhoneCountry(phone);
+      // Placeholder password — юзер не задавал пароль (phone-only flow).
+      // Сможет задать через ЛК → Сменить пароль.
+      const placeholderPassword = await bcrypt.hash(uuidv4() + crypto.randomBytes(16).toString("hex"), 10);
+      const inserted = db.insert(users).values({
+        name: `Автор ${phone.slice(-4)}`,
+        email: `${phone.replace(/[^\d]/g, "")}@phone.muziai.ru`,
+        password: placeholderPassword,
+        phone,
+        phoneVerified: 1,
+        country: country?.name || null,
+        countryCode: country?.code || null,
+      }).returning({ id: users.id }).get() as any;
+      const userId = inserted?.id;
+      const token = uuidv4();
+      tokenStore.set(token, userId);
+      bootRefs?.eventBus?.emit?.("auth.user.registered", { userId, channel: "sms" }, "auth-sms");
+      return res.json({
+        data: { verified: true, phone, purpose, token, userId },
+        error: null,
+      });
+    }
+
+    if (purpose === "login") {
+      const user = db.select().from(users).where(eq(users.phone, phone)).get() as any;
+      if (!user) return res.status(404).json({ data: null, error: "Номер не найден — сначала зарегистрируйтесь" });
+      if (user.blocked) return res.status(403).json({ data: null, error: "Аккаунт заблокирован" });
+      // Auto-verify phone if first login (legacy users у которых phone есть но phoneVerified=0).
+      if (!user.phoneVerified) {
+        try { db.update(users).set({ phoneVerified: 1 }).where(eq(users.id, user.id)).run(); } catch {}
+      }
+      const token = uuidv4();
+      tokenStore.set(token, user.id);
+      bootRefs?.eventBus?.emit?.("auth.user.logged_in", { userId: user.id, channel: "sms" }, "auth-sms");
+      return res.json({
+        data: { verified: true, phone, purpose, token, userId: user.id },
+        error: null,
+      });
+    }
+
+    // change_phone / change_email — требуют additional context (текущий user).
+    // Финализация — в /api/account/* endpoint'ах (ЛК), которые проверяют
+    // sms_otp.used=1 + recent + берут pending_phone из users.
+    return res.json({
+      data: { verified: true, phone, purpose, nextStep: `pending-${purpose}-finalize` },
+      error: null,
+    });
+  } catch (e) {
+    bootRefs?.logger.error?.("[auth-sms] verify finalize failed", { purpose, error: String(e) });
+    return res.status(500).json({ data: null, error: "Ошибка при создании сессии. Попробуйте ещё раз через минуту." });
+  }
 });
 
 // Admin: список настроенных провайдеров + balance.

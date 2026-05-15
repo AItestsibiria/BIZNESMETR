@@ -9,6 +9,10 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string, ref?: string, remember?: boolean, promo?: string) => Promise<any>;
   verifyRegister: (email: string, code: string, remember?: boolean) => Promise<any>;
+  // Eugene 2026-05-15: для SMS-OTP / Telegram-login и других channel'ов
+  // которые сами создают session token. Принимает token, дёргает /api/me
+  // чтобы получить user info, сохраняет в state и cookie.
+  loginByToken: (token: string, remember?: boolean) => Promise<PublicUser | null>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -133,6 +137,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return data;
   }, [setAuthState]);
 
+  // Eugene 2026-05-15: универсальный «у меня уже есть token, залогинь».
+  // Используется SMS-OTP, Telegram-login, change_phone flow.
+  const loginByToken = useCallback(async (newToken: string, remember = true) => {
+    setAuthState(newToken, null, remember);
+    try {
+      const res = await fetch("/api/me", { headers: { Authorization: `Bearer ${newToken}` } });
+      if (res.ok) {
+        const j = await res.json();
+        const u = j?.data || j;
+        setAuthState(newToken, u as PublicUser, remember);
+        return u as PublicUser;
+      }
+    } catch {}
+    return null;
+  }, [setAuthState]);
+
   const logout = useCallback(async () => {
     try {
       await apiRequest("POST", "/api/auth/logout");
@@ -141,7 +161,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [setAuthState]);
 
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, register, verifyRegister, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, token, isLoading, login, register, verifyRegister, loginByToken, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

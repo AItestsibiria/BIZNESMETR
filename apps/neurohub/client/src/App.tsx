@@ -7,7 +7,9 @@ import { Toaster } from "@/components/ui/toaster";
 import Navbar from "./components/navbar";
 import LandingPage from "./pages/landing";
 import LoginPage from "./pages/login";
+import LoginPhonePage from "./pages/login-phone";
 import RegisterPage from "./pages/register";
+import RegisterPhonePage from "./pages/register-phone";
 import LyricsPage from "./pages/lyrics";
 import MusicPage from "./pages/music";
 import CoversPage from "./pages/covers";
@@ -54,7 +56,9 @@ function AppContent() {
           <Route path="/play/:id" component={TrackPage} />
           <Route path="/share/:id" component={TrackPage} />
           <Route path="/login" component={LoginPage} />
+          <Route path="/login-phone" component={LoginPhonePage} />
           <Route path="/register" component={RegisterPage} />
+          <Route path="/register-phone" component={RegisterPhonePage} />
           <Route path="/register/:ref" component={RegisterPage} />
           <Route path="/r/:ref" component={RegisterPage} />
           <Route path="/lyrics" component={LyricsPage} />

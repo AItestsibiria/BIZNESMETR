@@ -230,6 +230,12 @@ export default function RegisterPage() {
             Войти
           </Link>
         </p>
+        <p className="text-center text-xs text-muted-foreground mt-2">
+          или{" "}
+          <Link href="/register-phone" className="text-purple-300 hover:text-purple-200 underline">
+            зарегистрироваться по телефону
+          </Link>
+        </p>
       </div>
     </div>
   );
