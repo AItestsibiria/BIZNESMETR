@@ -374,8 +374,9 @@ router.post("/send-otp", async (req, res) => {
   // домена включает Web OTP API на Android Chrome (автоподстановка из SMS).
   // На iOS Safari автоподстановка работает через autocomplete="one-time-code"
   // input attribute независимо от формата SMS — но мы делаем единый формат
-  // для обеих платформ. Домен из env BASE_DOMAIN (или 'muziai.ru' fallback).
-  const otpDomain = (process.env.BASE_DOMAIN || "muziai.ru").replace(/^https?:\/\//, "");
+  // для обеих платформ. Домен из env BASE_DOMAIN (или 'muzaai.ru' fallback
+  // с 15.05.2026 — см. правило MuzaAi.ru-since-150526 в CLAUDE.md).
+  const otpDomain = (process.env.BASE_DOMAIN || "muzaai.ru").replace(/^https?:\/\//, "");
   const text = `Код MuzaAI: ${code}. Никому не сообщайте.\n\n@${otpDomain} #${code}`;
   let result: SendResult;
   if (disableSend) {

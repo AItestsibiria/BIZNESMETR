@@ -312,6 +312,37 @@ PII / безопасность:
 
 Применяется к: регистрации, логину, замене телефона, замене email, замене любых других чувствительных полей (telegram-id, country). Не применяется к: namepronoun, тон обращения и прочему UI-state, не влияющему на доступ к аккаунту.
 
+### MuzaAi.ru-since-150526 rule (Eugene 2026-05-15)
+
+**Любая новая генерация / новая ссылка / новый текст начиная с 15.05.2026 использует `MuzaAi.ru` (NOT `MuziAi.ru`).** Базовый домен — `muzaai.ru`, бренд-имя — «MuzaAi» (с буквой `a` между `Muz` и `Ai`).
+
+Технически:
+- `PUBLIC_DOMAIN = process.env.BASE_DOMAIN || "muzaai.ru"` — fallback изменён с `muziai.ru` на `muzaai.ru` в `server/lib/publicUrl.ts`. Если в .env переменная не задана — всё равно используем новый домен.
+- `PUBLIC_URL` = `https://${PUBLIC_DOMAIN}` — единый источник для всех генерируемых ссылок (email-confirms, share-OG, audio_url для Suno-callback, sitemap, etc).
+- В ID3-tag mp3 (`album`, `artist`, `comment`) при сохранении нового трека пишется `MuzaAi.ru` / `MuzaAi` / `PUBLIC_URL` соответственно (см. `server/routes.ts:3849-3855`).
+
+Что НЕ меняется (исторические данные):
+- ID3-tag старых mp3-файлов (created before 15.05.2026) содержат `MuziAi.ru` — это запечатано в файле, не переписывается. При пересылке Telegram читает metadata из файла → показывает старое название. Это нормально, не баг.
+- Email-адреса `hello@muziai.ru`, `*@phone.muziai.ru`, `*@telegram.muziai.ru` — остаются (MX-записи на старом домене).
+- CORS-origins разрешают оба домена (muziai.ru → 301 на muzaai.ru через nginx).
+- Bot username `@Muziaipodari_bot` (Telegram) — не меняется.
+- Старые названия аккаунтов / display_title треков пользователей — не трогаем.
+
+Что меняется (новые данные с 15.05.2026):
+- Все генерируемые URL'ы в emails / SMS / Telegram-bot replies / push-notifications
+- Все хардкодед строки в notifications, telegram-bot, admin-overview, consultantPersona
+- Все share-OG meta-tags (og:url, twitter:url)
+- Все ID3-tag album/artist у новых mp3
+- `MuziAi` → `MuzaAi` в любых user-facing строках (toast, dialog, button text)
+- Sitemap.xml entries — всё с muzaai.ru
+- robots.txt Host directive — muzaai.ru
+
+Проверка при review:
+- `grep -rn "MuziAi\|muziai\.ru" apps/neurohub/server/ apps/neurohub/client/src/` — должны остаться только: tools (Muziaipodari_bot), email-addresses, comments объясняющие миграцию, CORS-origins, default fallback в publicUrl/auth-sms (там оба варианта приемлемы — но primary это muzaai).
+- В новых коммитах не должно появляться новых hardcoded `https://muziai.ru/...` или `MuziAi.ru` — всегда через `PUBLIC_URL` / `process.env.BASE_DOMAIN`.
+
+Triumph-tag: `triumph-domain-150526` фиксирует точку перехода.
+
 ### Callcheck (flashcall) auth rule (Eugene 2026-05-15)
 
 **Альтернатива SMS-OTP — звонок-проверка через `callcheck/add` у sms.ru.** Юзер видит входящий с номера `+7XXX...YYYY`, не отвечает — вводит последние 4 цифры (`YYYY`) как код. Дешевле SMS (~1₽ vs 3-5₽) и не зависит от SMS-фильтрации операторов.

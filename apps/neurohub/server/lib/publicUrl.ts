@@ -13,7 +13,12 @@
 //
 // Без рестарта PUBLIC_URL не обновится — env читается на старте.
 
-export const PUBLIC_DOMAIN: string = process.env.BASE_DOMAIN || "muziai.ru";
+// Eugene 2026-05-15 Босс «правило: новая генерация с 15.05.2026 года
+// использует MuzaAi.ru». PUBLIC_DOMAIN default — теперь "muzaai.ru".
+// Старый "muziai.ru" остаётся только в CORS-origins (для cross-domain до
+// nginx redirect) и в email-адресах (hello@muziai.ru — MX-записи там).
+
+export const PUBLIC_DOMAIN: string = process.env.BASE_DOMAIN || "muzaai.ru";
 export const PUBLIC_URL: string = `https://${PUBLIC_DOMAIN}`;
 
 // Канонический список origin'ов для CORS / security-guard.

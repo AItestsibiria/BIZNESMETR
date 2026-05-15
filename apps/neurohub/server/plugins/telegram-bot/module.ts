@@ -116,7 +116,7 @@ function getConsultantPhotoVersion(): string {
 
 async function sendConsultantPhoto(chatId: number | string, caption: string, replyMarkup?: any): Promise<void> {
   try {
-    const base = process.env.PUBLIC_BASE_URL || "https://muziai.ru";
+    const base = process.env.PUBLIC_BASE_URL || "https://muzaai.ru";
     const currentVersion = getConsultantPhotoVersion();
     // Версия изменилась → сбрасываем file_id, перезагружаем картинку.
     if (cachedPhotoVersion !== currentVersion) {
@@ -152,8 +152,8 @@ async function sendConsultantPhoto(chatId: number | string, caption: string, rep
 const STARTUP_KEYBOARD = {
   inline_keyboard: [
     [
-      { text: "🎵 Послушать треки", url: "https://muziai.ru/" },
-      { text: "🆕 Регистрация (1 трек в подарок)", url: "https://muziai.ru/#/register" },
+      { text: "🎵 Послушать треки", url: "https://muzaai.ru/" },
+      { text: "🆕 Регистрация (1 трек в подарок)", url: "https://muzaai.ru/#/register" },
     ],
     [
       { text: "💬 Задать вопрос", callback_data: "menu_support" },
@@ -643,10 +643,10 @@ router.post("/webhook", async (req, res) => {
       const p = personaForSession(sessionId, fromId);
       const responses: Record<string, string> = {
         menu_support: `Расскажите подробнее — что случилось, на каком этапе? Если есть номер трека или скриншот — присылайте, разберёмся.`,
-        menu_event: `Здорово! А под какое событие — свадьба, день рождения, юбилей, корпоратив? И какой у вас есть текст или идея?\n\nЕсть готовые шаблоны: https://muziai.ru/#/templates`,
+        menu_event: `Здорово! А под какое событие — свадьба, день рождения, юбилей, корпоратив? И какой у вас есть текст или идея?\n\nЕсть готовые шаблоны: https://muzaai.ru/#/templates`,
         menu_b2b: `Сотрудничество — это интересно. Расскажите, какой формат: подкаст, реклама, B2B-лицензия треков, что-то ещё? Мы откликнемся в течение дня.`,
       };
-      const reply = responses[data] || `Открыть на сайте: https://muziai.ru/`;
+      const reply = responses[data] || `Открыть на сайте: https://muzaai.ru/`;
       saveMessage(sessionId, "user", `[кнопка] ${data}`);
       const fullReply = `${reply}\n\n— ${p.name}`;
       await sendMessage(chatId, fullReply);
@@ -698,8 +698,8 @@ router.post("/webhook", async (req, res) => {
       // Proper OAuth: inline-кнопка login_url. Telegram добавит
       // подписанные query-params (id, hash, auth_date, first_name…)
       // к нашему URL — handler /api/auth/telegram-loginurl проверит HMAC.
-      const loginUrl = `https://muziai.ru/api/auth/telegram-loginurl?nonce=${nonce}`;
-      const okText = `${p.avatar} Нажми кнопку ниже — это безопасный вход через Telegram. Тебя автоматически перенаправит в личный кабинет на muziai.ru.`;
+      const loginUrl = `https://muzaai.ru/api/auth/telegram-loginurl?nonce=${nonce}`;
+      const okText = `${p.avatar} Нажми кнопку ниже — это безопасный вход через Telegram. Тебя автоматически перенаправит в личный кабинет на muzaai.ru.`;
       const loginKeyboard = {
         inline_keyboard: [[
           { text: "🔐 Войти на сайт", login_url: { url: loginUrl, request_write_access: false } },
@@ -846,7 +846,7 @@ async function processIncomingText(chatId: string, fromId: string, sessionId: st
         const code = getOrCreatePairCode(sessionId);
         if (code) {
           markPairCodeOffered(sessionId);
-          pairInvite = `\n\n✨ Кстати, у меня там на сайте уютнее: https://muziai.ru — там просто шепнёшь мне «${code}» и я подтяну весь наш разговор. Веселее, обещаю!`;
+          pairInvite = `\n\n✨ Кстати, у меня там на сайте уютнее: https://muzaai.ru — там просто шепнёшь мне «${code}» и я подтяну весь наш разговор. Веселее, обещаю!`;
         }
       }
     } catch (e) { bootRefs?.logger.warn?.("[telegram-bot] pair-code offer skipped", { error: String(e) }); }
@@ -867,7 +867,7 @@ async function processIncomingText(chatId: string, fromId: string, sessionId: st
 
 // Admin: настройка webhook URL у Telegram (вызывать один раз после deploy).
 // Защита: secret из env (CRON_SECRET или SESSION_SECRET).
-// GET /api/telegram/setup-webhook?url=https://muziai.ru/api/telegram/webhook&secret=...
+// GET /api/telegram/setup-webhook?url=https://muzaai.ru/api/telegram/webhook&secret=...
 router.get("/setup-webhook", async (req, res) => {
   const secret = String(req.query.secret || "");
   const allowed = [process.env.CRON_SECRET, process.env.SESSION_SECRET].filter(Boolean) as string[];
@@ -932,9 +932,9 @@ const telegramBotModule: Module = {
     });
     // Auto-setup webhook (Eugene 2026-05-11): чтобы login через бота
     // работал сразу после deploy без ручного вызова /setup-webhook.
-    // Берём базовый URL из env или fallback на muziai.ru (prod).
+    // Берём базовый URL из env или fallback на muzaai.ru (prod).
     if (TOKEN()) {
-      const base = process.env.PUBLIC_BASE_URL || "https://muziai.ru";
+      const base = process.env.PUBLIC_BASE_URL || "https://muzaai.ru";
       const target = `${base}/api/telegram/webhook`;
       try {
         const info = await tgApi("getWebhookInfo", {});

@@ -1661,11 +1661,11 @@ router.post("/secrets/:name/check", requireAdmin, async (req, res) => {
 
 // Telegram webhook auto-setup (Eugene 2026-05-11). Защищено requireAdmin —
 // не требует secret в URL. Просто открой залогиненным админом:
-// https://muziai.ru/api/admin/v304/telegram/setup-webhook
+// https://muzaai.ru/api/admin/v304/telegram/setup-webhook
 router.get("/telegram/setup-webhook", requireAdmin, async (_req, res) => {
   const tok = process.env.TELEGRAM_BOT_TOKEN || "";
   if (!tok) return res.status(400).json({ data: null, error: "TELEGRAM_BOT_TOKEN missing in .env" });
-  const url = "https://muziai.ru/api/telegram/webhook";
+  const url = "https://muzaai.ru/api/telegram/webhook";
   try {
     const r = await fetch(`https://api.telegram.org/bot${tok}/setWebhook`, {
       method: "POST",
