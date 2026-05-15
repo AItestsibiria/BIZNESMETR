@@ -16,6 +16,7 @@ import {
   AlertCircle, Wallet, Mic,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import GiftBadge from "@/components/gift-badge";
 import { useState, useEffect, useRef } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { KaraokeLyrics } from "@/components/karaoke-lyrics";
@@ -2024,11 +2025,7 @@ export default function DashboardPage() {
                   {formatBalance(user.balance)}
                 </p>
                 {(user as any).bonusTracks > 0 && (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-green-500/10 border border-green-500/20" data-testid="text-bonus-tracks">
-                    <span className="text-sm">🎁</span>
-                    <span className="text-sm font-bold text-green-400">+{(user as any).bonusTracks}</span>
-                    <span className="text-xs text-green-300/70">Подарок</span>
-                  </span>
+                  <GiftBadge count={(user as any).bonusTracks} size="md" label={(user as any).bonusTracks === 1 ? "трек в подарок" : "трека в подарок"} />
                 )}
               </div>
               {(user.balance > 0 || (user as any).bonusTracks > 0) && (

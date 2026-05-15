@@ -42,6 +42,7 @@ function playCosmicChime() {
 import { useAuth } from "@/lib/auth";
 import { Music, Menu, X, LogOut, LayoutDashboard, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import GiftBadge from "@/components/gift-badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -190,7 +191,7 @@ export default function Navbar() {
                   <span className="price-badge cursor-pointer">
                     {formatBalance(user)}
                     {(user as any).bonusTracks > 0 && (
-                      <span className="ml-1.5 text-green-400">+{(user as any).bonusTracks}🎁</span>
+                      <span className="ml-1.5 inline-flex align-middle"><GiftBadge count={(user as any).bonusTracks} size="sm" /></span>
                     )}
                   </span>
                 </Link>
@@ -284,7 +285,7 @@ export default function Navbar() {
                   <div className="px-3 py-2 text-sm text-muted-foreground">
                     {formatBalance(user)}
                     {(user as any).bonusTracks > 0 && (
-                      <span className="ml-1.5 text-green-400">+{(user as any).bonusTracks}🎁</span>
+                      <span className="ml-1.5 inline-flex align-middle"><GiftBadge count={(user as any).bonusTracks} size="sm" /></span>
                     )}
                   </div>
                   <Link
