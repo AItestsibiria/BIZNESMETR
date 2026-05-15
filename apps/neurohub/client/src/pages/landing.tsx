@@ -1939,11 +1939,8 @@ export default function LandingPage() {
             Создай за 1 минуту уникальную Песню для себя или в Подарок
           </p>
 
-          {/* Promo banner */}
-          <div className="mb-8 inline-flex items-center gap-3 px-5 py-2.5 rounded-full border border-purple-500/20 bg-purple-500/5 animate-in fade-in duration-500">
-            <span className="text-lg">🚀</span>
-            <span className="text-sm text-purple-200"><span className="font-bold text-white">1 трек в подарок</span> при регистрации 🎁</span>
-          </div>
+          {/* Eugene 2026-05-15 Босс «убери вверху главной трек в подарок» —
+              promo banner удалён. */}
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Button
