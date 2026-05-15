@@ -6,18 +6,41 @@
 import { useEffect } from "react";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
-import { Music, Phone, Mail } from "lucide-react";
+import { Music, Phone, Mail, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import PhoneOtpForm from "@/components/phone-otp-form";
 
 export default function RegisterPhonePage() {
-  const { user, loginByToken } = useAuth();
+  const { user, isLoading, loginByToken } = useAuth();
   const [, navigate] = useLocation();
   const { toast } = useToast();
 
   useEffect(() => {
     if (user) navigate("/dashboard");
   }, [user, navigate]);
+
+  // Eugene 2026-05-15 Босс «при повторном входе не надо звонить» — loader
+  // вместо формы пока isLoading или user уже есть.
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4 pt-16 hero-gradient">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 animate-spin text-purple-300 mx-auto mb-3" />
+          <p className="text-sm text-muted-foreground">Проверяем сессию…</p>
+        </div>
+      </div>
+    );
+  }
+  if (user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4 pt-16 hero-gradient">
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 animate-spin text-purple-300 mx-auto mb-3" />
+          <p className="text-sm text-muted-foreground">Вы уже вошли — переход в кабинет…</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4 pt-16 hero-gradient">
