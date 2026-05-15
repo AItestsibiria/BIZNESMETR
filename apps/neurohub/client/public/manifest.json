@@ -1,6 +1,6 @@
 {
-  "name": "MuziAi — AI Music Creation",
-  "short_name": "MuziAi",
+  "name": "MuzaAi — AI Music Creation",
+  "short_name": "MuzaAi",
   "description": "Создавай музыку с искусственным интеллектом",
   "start_url": "/",
   "display": "standalone",
