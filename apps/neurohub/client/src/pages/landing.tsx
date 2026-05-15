@@ -1298,10 +1298,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
 
         {/* Expanded cover rendered inline after selected track (see renderExpandedCover below) */}
 
-        {/* Eugene 2026-05-15 Босс «уменьшить в 5 раз» + «новые авторы =
-            Плейлист новые авторы». Компактный inline-toggle справа от
-            заголовка плейлиста. Active = подкрашенный pill, маленький. */}
-        <div className="mb-3 flex items-center gap-1.5 flex-wrap">
+        {/* Eugene 2026-05-15 Босс «уменьшить корки в 5 раз, текст строчно».
+            Минимальные кнопки — как inline-теги, без padding-borders,
+            строчные буквы. */}
+        <div className="mb-3 flex items-center gap-2 flex-wrap">
           {(["main", "new"] as const).map(kind => {
             const active = playlistKind === kind;
             const isMain = kind === "main";
@@ -1309,17 +1309,17 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               <button
                 key={kind}
                 onClick={() => setPlaylistKind(kind)}
-                className={`inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-full border transition-colors ${
+                className={`inline-flex items-center gap-1 text-[10px] leading-none px-1 py-0.5 rounded transition-colors lowercase ${
                   active
                     ? isMain
-                      ? "border-purple-400/60 bg-purple-500/15 text-purple-200"
-                      : "border-emerald-400/60 bg-emerald-500/15 text-emerald-200"
-                    : "border-white/10 bg-white/[0.04] text-muted-foreground hover:text-white"
+                      ? "text-purple-300 underline underline-offset-2 decoration-purple-400/60"
+                      : "text-emerald-300 underline underline-offset-2 decoration-emerald-400/60"
+                    : "text-muted-foreground hover:text-white"
                 }`}
                 data-testid={`pl-toggle-${kind}`}
               >
                 <span className={active ? "" : "opacity-60"}>{isMain ? "🏆" : "✨"}</span>
-                <span>{isMain ? "Плейлист авторов" : "Плейлист новые авторы"}</span>
+                <span>{isMain ? "плейлист авторов" : "плейлист новые авторы"}</span>
               </button>
             );
           })}
