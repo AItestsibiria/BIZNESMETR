@@ -4020,7 +4020,7 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
         <rect x="0" y="${wmH*0.15}" width="${wmH*0.7}" height="${wmH*0.7}" rx="${wmH*0.15}" fill="url(#lb)" opacity="0.6"/>
         <path d="M ${wmH*0.18} ${wmH*0.5} Q ${wmH*0.28} ${wmH*0.3} ${wmH*0.35} ${wmH*0.5} Q ${wmH*0.42} ${wmH*0.7} ${wmH*0.52} ${wmH*0.5}" stroke="white" stroke-width="${Math.max(1.5,wmH*0.06)}" fill="none" stroke-linecap="round" opacity="0.8"/>
         <text x="${wmH*0.8}" y="${wmH*0.7}" font-family="-apple-system,sans-serif" font-weight="800" font-size="${wmH*0.55}" opacity="0.5">
-          <tspan fill="#c4b5fd">Muzi</tspan><tspan fill="#60a5fa">Ai</tspan>
+          <tspan fill="#c4b5fd">Muza</tspan><tspan fill="#60a5fa">Ai</tspan>
         </text>
       </svg>`;
       return img.composite([{ input: Buffer.from(wmSvg), gravity: 'south', blend: 'over' }]).jpeg({ quality: 90 }).toBuffer();

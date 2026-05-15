@@ -1173,7 +1173,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         <h2 className="text-2xl font-bold text-center mb-2">
           <span className="gradient-text">Плейлист сообщества</span>
         </h2>
-        <p className="text-center text-muted-foreground mb-8 flex items-center justify-center gap-2">Треки, созданные авторами <span className="inline-flex items-center gap-1"><span className="inline-block w-4 h-4 rounded bg-gradient-to-br from-purple-600 via-violet-500 to-blue-500 flex items-center justify-center"><svg viewBox="0 0 24 24" className="w-2.5 h-2.5" fill="none"><path d="M3 12c1.5-3 3-5 4.5-3s2 4 3.5 2 2.5-5 4-3 2 4 3.5 2 2.5-4 3.5-2" stroke="white" strokeWidth="3" strokeLinecap="round" /></svg></span><span className="font-bold tracking-tight"><span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent">Muzi</span><span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">Ai</span></span></span></p>
+        <p className="text-center text-muted-foreground mb-8 flex items-center justify-center gap-2">Треки, созданные авторами <span className="inline-flex items-center gap-1"><span className="inline-block w-4 h-4 rounded bg-gradient-to-br from-purple-600 via-violet-500 to-blue-500 flex items-center justify-center"><svg viewBox="0 0 24 24" className="w-2.5 h-2.5" fill="none"><path d="M3 12c1.5-3 3-5 4.5-3s2 4 3.5 2 2.5-5 4-3 2 4 3.5 2 2.5-4 3.5-2" stroke="white" strokeWidth="3" strokeLinecap="round" /></svg></span><span className="font-bold tracking-tight"><span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent">Muza</span><span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">Ai</span></span></span></p>
 
         {/* Big player — full-width, visible details */}
         {currentTrack && (
@@ -1966,7 +1966,7 @@ export default function LandingPage() {
           </div>
 
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold mb-6 leading-tight tracking-tight" data-testid="text-hero-title">
-            <span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent">Muzi</span><span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">Ai</span>
+            <span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent">Muza</span><span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">Ai</span>
             <br />
             <span className="text-foreground">музыка с искусственным интеллектом</span>
           </h1>
@@ -2155,7 +2155,7 @@ export default function LandingPage() {
                   <circle cx="18" cy="9" r="0.8" fill="rgba(255,255,255,0.4)" />
                 </svg>
               </div>
-              <span className="text-lg font-bold tracking-tight"><span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent">Muzi</span><span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">Ai</span></span>
+              <span className="text-lg font-bold tracking-tight"><span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent">Muza</span><span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">Ai</span></span>
             </div>
 
             {/* iPhone button */}
@@ -2210,7 +2210,7 @@ export default function LandingPage() {
                 <path d="M3 12c1.5-3 3-5 4.5-3s2 4 3.5 2 2.5-5 4-3 2 4 3.5 2 2.5-4 3.5-2" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
               </svg>
             </div>
-            <span className="text-sm font-bold tracking-tight"><span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent">Muzi</span><span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">Ai</span></span>
+            <span className="text-sm font-bold tracking-tight"><span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent">Muza</span><span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">Ai</span></span>
           </div>
           <div className="flex flex-col sm:flex-row items-center gap-2">
             <p className="text-xs text-muted-foreground">
@@ -2260,7 +2260,7 @@ export default function LandingPage() {
                   <path d="M3 12c1.5-3 3-5 4.5-3s2 4 3.5 2 2.5-5 4-3 2 4 3.5 2 2.5-4 3.5-2" stroke="white" strokeWidth="2" strokeLinecap="round" />
                 </svg>
               </div>
-              <span className="font-bold tracking-tight"><span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent">Muzi</span><span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">Ai</span></span>
+              <span className="font-bold tracking-tight"><span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent">Muza</span><span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">Ai</span></span>
             </DialogTitle>
           </DialogHeader>
           {showInstallGuide === "ios" ? (

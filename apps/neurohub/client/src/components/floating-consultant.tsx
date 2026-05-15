@@ -503,7 +503,7 @@ export function FloatingConsultant() {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-[13px] font-bold tracking-tight">
-                  <span className="bg-gradient-to-r from-purple-300 via-violet-200 to-blue-300 bg-clip-text text-transparent">Muzi</span><span className="bg-gradient-to-r from-blue-300 to-cyan-200 bg-clip-text text-transparent">Ai</span>
+                  <span className="bg-gradient-to-r from-purple-300 via-violet-200 to-blue-300 bg-clip-text text-transparent">Muza</span><span className="bg-gradient-to-r from-blue-300 to-cyan-200 bg-clip-text text-transparent">Ai</span>
                   <span className="text-white/60 font-normal ml-1">· Муза тут</span>
                 </div>
                 <div className="text-[10px] text-white/50">Выбирайте как общаться 🚀</div>

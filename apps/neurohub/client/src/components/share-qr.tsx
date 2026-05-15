@@ -222,7 +222,7 @@ export function ShareQRSection() {
               <path d="M3 12c1.5-3 3-5 4.5-3s2 4 3.5 2 2.5-5 4-3 2 4 3.5 2 2.5-4 3.5-2" stroke="white" strokeWidth="2" strokeLinecap="round" />
             </svg>
           </div>
-          <span className="text-xl font-bold tracking-tight"><span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent">Muzi</span><span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">Ai</span></span>
+          <span className="text-xl font-bold tracking-tight"><span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent">Muza</span><span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">Ai</span></span>
         </div>
         <p className="text-muted-foreground text-sm mb-8">
           Покажите друзьям — отсканируйте QR-код или скопируйте
@@ -242,7 +242,7 @@ export function ShareQRSection() {
               <div className="w-5 h-5 rounded bg-gradient-to-br from-purple-600 via-violet-500 to-blue-500 flex items-center justify-center">
                 <svg viewBox="0 0 24 24" className="w-3 h-3" fill="none"><path d="M3 12c1.5-3 3-5 4.5-3s2 4 3.5 2 2.5-5 4-3 2 4 3.5 2 2.5-4 3.5-2" stroke="white" strokeWidth="3" strokeLinecap="round" /></svg>
               </div>
-              <span className="text-sm font-bold tracking-tight"><span style={{background:'linear-gradient(to right,#8b5cf6,#6366f1)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>Muzi</span><span style={{background:'linear-gradient(to right,#3b82f6,#06b6d4)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>Ai</span><span className="text-purple-700">.ru</span></span>
+              <span className="text-sm font-bold tracking-tight"><span style={{background:'linear-gradient(to right,#8b5cf6,#6366f1)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>Muza</span><span style={{background:'linear-gradient(to right,#3b82f6,#06b6d4)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>Ai</span><span className="text-purple-700">.ru</span></span>
             </div>
           </div>
 
