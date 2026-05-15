@@ -37,6 +37,7 @@ import telegramBotModule from "./plugins/telegram-bot/module";
 import maxBotModule from "./plugins/max-bot/module";
 import generationAgentModule from "./plugins/generation-agent/module";
 import sunoWatchdogModule from "./plugins/suno-watchdog/module";
+import authSmsModule from "./plugins/auth-sms/module";
 import * as fs from "node:fs";
 
 const app = express();
@@ -255,6 +256,7 @@ app.post("/api/_client-error", express.json(), (req, res) => {
     { name: "max-bot", module: maxBotModule },
     { name: "generation-agent", module: generationAgentModule },
     { name: "suno-watchdog", module: sunoWatchdogModule },
+    { name: "auth-sms", module: authSmsModule },
   ];
 
   const validModules: any[] = [];

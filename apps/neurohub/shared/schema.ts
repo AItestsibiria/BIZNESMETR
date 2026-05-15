@@ -28,6 +28,14 @@ export const users = sqliteTable("users", {
   // Eugene 2026-05-14 Босс «создай профиль из данных Музы». JSON с
   // memo от чата (имя, ДР, повод, кому, настроение, стиль, голос).
   profile: text("profile"),
+  // Eugene 2026-05-15 Босс «SMS-провайдер РФ + замена номера в кабинете».
+  phone: text("phone"),
+  phoneVerified: integer("phone_verified").notNull().default(0),
+  pendingPhone: text("pending_phone"),
+  pendingPhoneOtpHash: text("pending_phone_otp_hash"),
+  pendingPhoneOtpExpiresAt: text("pending_phone_otp_expires_at"),
+  pendingEmail: text("pending_email"),
+  emailChangeToken: text("email_change_token"),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 
@@ -527,6 +535,65 @@ export type AgentAction = typeof agentActions.$inferSelect;
 export type FeatureFlag = typeof featureFlags.$inferSelect;
 export type PluginRegistration = typeof pluginsRegistry.$inferSelect;
 export type TrackingAttribution = typeof trackingAttribution.$inferSelect;
+
+// SMS OTP-коды (purpose: 'register' | 'login' | 'change_phone' | 'change_email').
+// Eugene 2026-05-15 Босс «SMS-провайдер РФ + регистрация и авторизация».
+export const smsOtp = sqliteTable("sms_otp", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  phone: text("phone").notNull(),
+  otpHash: text("otp_hash").notNull(),
+  purpose: text("purpose").notNull(),
+  attempts: integer("attempts").notNull().default(0),
+  used: integer("used").notNull().default(0),
+  providerLogId: integer("provider_log_id"),
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+  expiresAt: text("expires_at").notNull(),
+});
+export type SmsOtp = typeof smsOtp.$inferSelect;
+
+// Logs запросов к SMS-провайдеру (SMS.ru / SMSC / SMSAero / иной РФ).
+// Eugene 2026-05-15 Босс «провайдер РФ — вести logs в admin panel».
+// Phone маскируется (+79XX***XX42) чтобы не хранить полный номер в логе.
+// Plain OTP-код НЕ пишем — только то что нужно для billing/debug.
+export const smsProviderLogs = sqliteTable("sms_provider_logs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  provider: text("provider").notNull(),            // 'smsru' | 'smsc' | 'smsaero' | ...
+  phoneMasked: text("phone_masked").notNull(),     // +79XX***XX42
+  purpose: text("purpose").notNull(),              // 'register' | 'login' | 'change_phone' | ...
+  status: text("status").notNull(),                // 'sent' | 'failed' | 'delivered' | 'rejected'
+  providerMsgId: text("provider_msg_id"),
+  providerCost: text("provider_cost"),
+  providerStatusText: text("provider_status_text"),
+  errorMessage: text("error_message"),
+  requestMeta: text("request_meta"),               // JSON: sender, params (без plain code)
+  responseRaw: text("response_raw"),               // JSON ответ провайдера
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+export type SmsProviderLog = typeof smsProviderLogs.$inferSelect;
+
+// Универсальная очередь подтверждений изменения данных автора в ЛК.
+// Eugene 2026-05-15 Босс «возможность менять данные с подтверждением что
+// меняется от автора». Применяется к любому полю в users: name, email,
+// phone, telegram_id, любое будущее. Confirm-channel — на чём подтверждаем:
+// 'sms' (OTP на текущий номер), 'email' (link на текущий email), 'both'.
+export const userDataChangeRequests = sqliteTable("user_data_change_requests", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull(),
+  field: text("field").notNull(),                  // 'name' | 'email' | 'phone' | 'telegram_id' | ...
+  oldValue: text("old_value"),
+  newValue: text("new_value").notNull(),
+  confirmChannel: text("confirm_channel").notNull(),
+  confirmToken: text("confirm_token"),             // для email-link confirmation
+  confirmOtpHash: text("confirm_otp_hash"),        // для SMS-OTP confirmation
+  attempts: integer("attempts").notNull().default(0),
+  status: text("status").notNull().default("pending"),  // 'pending' | 'confirmed' | 'rejected' | 'expired'
+  ip: text("ip"),
+  userAgent: text("user_agent"),
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+  expiresAt: text("expires_at").notNull(),
+  confirmedAt: text("confirmed_at"),
+});
+export type UserDataChangeRequest = typeof userDataChangeRequests.$inferSelect;
 
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,

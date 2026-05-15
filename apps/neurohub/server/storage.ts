@@ -141,6 +141,81 @@ try {
   // настроение, ДР и т.д.
   if (!ucn.includes("profile")) sqlite.exec("ALTER TABLE users ADD COLUMN profile TEXT");
 
+  // Eugene 2026-05-15 Босс «SMS-провайдер РФ + замена номера в кабинете +
+  // подтверждение изменений данных». Phone-OTP инфраструктура.
+  if (!ucn.includes("phone")) sqlite.exec("ALTER TABLE users ADD COLUMN phone TEXT");
+  if (!ucn.includes("phone_verified")) sqlite.exec("ALTER TABLE users ADD COLUMN phone_verified INTEGER NOT NULL DEFAULT 0");
+  if (!ucn.includes("pending_phone")) sqlite.exec("ALTER TABLE users ADD COLUMN pending_phone TEXT");
+  if (!ucn.includes("pending_phone_otp_hash")) sqlite.exec("ALTER TABLE users ADD COLUMN pending_phone_otp_hash TEXT");
+  if (!ucn.includes("pending_phone_otp_expires_at")) sqlite.exec("ALTER TABLE users ADD COLUMN pending_phone_otp_expires_at TEXT");
+  if (!ucn.includes("pending_email")) sqlite.exec("ALTER TABLE users ADD COLUMN pending_email TEXT");
+  if (!ucn.includes("email_change_token")) sqlite.exec("ALTER TABLE users ADD COLUMN email_change_token TEXT");
+  // Index по phone (для login by phone).
+  try { sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS users_phone_idx ON users(phone) WHERE phone IS NOT NULL`); } catch {}
+
+  // SMS OTP-коды (отдельная таблица для register/login flow — без юзера ещё).
+  // Eugene 2026-05-15 Босс. Hash код, не plain (защита от leak data.db).
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS sms_otp (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      phone TEXT NOT NULL,
+      otp_hash TEXT NOT NULL,
+      purpose TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      used INTEGER NOT NULL DEFAULT 0,
+      provider_log_id INTEGER,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      expires_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS sms_otp_phone_idx ON sms_otp(phone, used, expires_at);
+  `);
+
+  // SMS-провайдер логи — каждый запрос к SMS.ru/SMSC/SMSAero. Без plain-кода.
+  // Eugene 2026-05-15 Босс «провайдер РФ — вести logs в admin panel».
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS sms_provider_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      provider TEXT NOT NULL,
+      phone_masked TEXT NOT NULL,
+      purpose TEXT NOT NULL,
+      status TEXT NOT NULL,
+      provider_msg_id TEXT,
+      provider_cost TEXT,
+      provider_status_text TEXT,
+      error_message TEXT,
+      request_meta TEXT,
+      response_raw TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS sms_provider_logs_phone_idx ON sms_provider_logs(phone_masked, created_at);
+    CREATE INDEX IF NOT EXISTS sms_provider_logs_status_idx ON sms_provider_logs(status, created_at);
+  `);
+
+  // Универсальная очередь подтверждений изменений данных автора (имя, email,
+  // phone, телеграм-id, любое будущее поле). Eugene 2026-05-15 Босс
+  // «возможность менять данные с подтверждением что меняется от автора».
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS user_data_change_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      field TEXT NOT NULL,
+      old_value TEXT,
+      new_value TEXT NOT NULL,
+      confirm_channel TEXT NOT NULL,
+      confirm_token TEXT,
+      confirm_otp_hash TEXT,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending',
+      ip TEXT,
+      user_agent TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      expires_at TEXT NOT NULL,
+      confirmed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS user_data_change_user_idx ON user_data_change_requests(user_id, status);
+    CREATE INDEX IF NOT EXISTS user_data_change_status_idx ON user_data_change_requests(status, expires_at);
+  `);
+
   // Eugene 2026-05-14 Босс «папка заместителей в админ-панели».
   try {
     sqlite.exec(`CREATE TABLE IF NOT EXISTS admin_delegates (

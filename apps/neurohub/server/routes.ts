@@ -20,6 +20,7 @@ import { buildPersonaSystem, personaFor } from "./lib/consultantPersona";
 import { findSessionByPairCode, looksLikePairCode } from "./lib/webChatPair";
 import { MUZA_TOOLS, executeTool } from "./lib/muzaTools";
 import { loadHistoryForLLM, loadHistoryForUser } from "./lib/chatHistory";
+import { smsProviderLogs, smsOtp } from "@shared/schema";
 import { logUserActionFailure } from "./lib/userActionFailures";
 
 const AUTHORS_DIR = process.env.AUTHORS_DIR || path.join(process.cwd(), "authors");
@@ -2809,6 +2810,34 @@ ${text}`
   // Eugene 2026-05-15 Босс «Связывай»: сквозной view диалогов одного юзера
   // через все каналы (TG/Web/Max). Возвращает все его сессии + merged
   // messages timeline. Используется в admin UI.
+  // Eugene 2026-05-15 Босс «провайдер РФ — вести logs в admin panel».
+  // SMS-логи: каждый запрос к SMS.ru/SMSC/SMSAero с маскированным номером,
+  // статусом, ценой, error-message. Без plain OTP-кода (PII).
+  app.get("/api/admin/v304/sms-logs", requireAdmin, (req: Request, res: Response) => {
+    const limit = Math.min(500, Math.max(10, Number(req.query.limit) || 100));
+    const status = req.query.status ? String(req.query.status) : null;
+    const purpose = req.query.purpose ? String(req.query.purpose) : null;
+    let q = db.select().from(smsProviderLogs).$dynamic();
+    const conds: any[] = [];
+    if (status) conds.push(eq(smsProviderLogs.status, status));
+    if (purpose) conds.push(eq(smsProviderLogs.purpose, purpose));
+    if (conds.length) q = q.where(and(...conds));
+    const rows = q.orderBy(desc(smsProviderLogs.id)).limit(limit).all() as any[];
+    // Сводка за 24ч.
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const summary24h = db.select({
+      status: smsProviderLogs.status,
+      count: sql<number>`count(*)`,
+    }).from(smsProviderLogs).where(sql`${smsProviderLogs.createdAt} >= ${since}`)
+      .groupBy(smsProviderLogs.status).all() as any[];
+    res.json({
+      ok: true,
+      total: rows.length,
+      logs: rows,
+      summary24h,
+    });
+  });
+
   app.get("/api/admin/v304/user/:userId/conversations", requireAdmin, (req: Request, res: Response) => {
     const userId = Number(req.params.userId);
     if (!Number.isFinite(userId) || userId <= 0) {

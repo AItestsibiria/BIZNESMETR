@@ -205,6 +205,39 @@ ssh root@72.56.1.149 'sed -i "/^ИМЯ_КЛЮЧА=/d" /var/www/neurohub/.env \
 
 Применяется к: ВСЕМ каналам (старым: web, telegram, max; новым: email-channel, vk-callback, future). НЕ применяется к: internal errors без user-facing impact (например, cron-задача упала ночью — это `incidents`, не `user_action_failures`).
 
+### SMS-auth + data-change confirmation rule (Eugene 2026-05-15)
+
+**Регистрация/авторизация по номеру телефона через SMS-OTP (РФ + ближнее зарубежье).** Любое изменение данных в личном кабинете (имя, email, телефон, telegram-id, будущие поля) подтверждается через канал, которым автор уже подтвердился — SMS-OTP на текущий номер или email-link на текущий email.
+
+Реализация (server-side):
+- `apps/neurohub/server/lib/phoneCountry.ts`:
+  - `validatePhoneForOtp(raw)` — нормализация в E.164 + определение РФ/СНГ по префиксу.
+  - Поддерживаемые: RU (+7), KZ (+76/+77), BY (+375), UA (+380), MD (+373), AM (+374), AZ (+994), GE (+995), KG (+996), TJ (+992), TM (+993), UZ (+998). Дальнее зарубежье отвергается с понятной ошибкой.
+  - `maskPhone(raw)` — маска +7926***4567 для логов (PII).
+- `apps/neurohub/server/plugins/auth-sms/module.ts`:
+  - Provider abstraction (`SmsProvider` interface). Первая реализация — SMS.ru (`SMSRU_API_ID` env). Дальше — SMSC.ru, SMSAero, Devino добавляются без переписи endpoint'ов.
+  - `POST /api/auth/sms/send-otp` — отправка 6-значного кода (10 мин TTL).
+  - `POST /api/auth/sms/verify-otp` — проверка кода (hash в БД, не plain).
+  - Rate limit: 1 SMS / минуту, 5 / час на номер.
+  - Web OTP API формат SMS: `Код MuziAI: 123456\n\n@muziai.ru #123456` → автоподстановка iOS Safari + Android Chrome.
+  - `SMS_OTP_DISABLE=1` env → отправка отключена, код пишется только в admin-логи (для clone-теста без реальных SMS).
+
+Таблицы (storage.ts auto-migrate):
+- `sms_otp` — выданные коды (hash, purpose, attempts, used, TTL)
+- `sms_provider_logs` — каждый запрос к провайдеру: phone_masked, status, cost, msg_id, error
+- `user_data_change_requests` — очередь подтверждений изменений: field, old/new value, OTP/token, expiry, status
+- users ALTER: `phone`, `phone_verified`, `pending_phone`, `pending_phone_otp_hash`, `pending_phone_otp_expires_at`, `pending_email`, `email_change_token` + unique index по phone
+
+Admin endpoint:
+- `GET /api/admin/v304/sms-logs?limit=&status=&purpose=` → logs с 24h summary. UI-вкладка «📱 SMS-логи» — следующим коммитом.
+
+PII / безопасность:
+- Plain OTP-код **никогда** не пишется в БД и не логируется — только sha256-hash.
+- Phone в логах маскируется через `maskPhone()`. Полный номер только в `users.phone` и `sms_otp.phone` (для матчинга).
+- Web OTP API формат содержит сам код в SMS — это разово (SMS отправляется пользователю), но в `sms_provider_logs.response_raw` обрезаем до 1000 символов и НЕ дублируем код в meta.
+
+Применяется к: регистрации, логину, замене телефона, замене email, замене любых других чувствительных полей (telegram-id, country). Не применяется к: namepronoun, тон обращения и прочему UI-state, не влияющему на доступ к аккаунту.
+
 ### Cross-channel conversation linking rule (Eugene 2026-05-15)
 
 **Один юзер — один thread, независимо от канала.** Если юзер пишет в Telegram, потом в Web-чат, потом в Max — бот видит ВСЮ его историю как один разговор. Admin тоже видит сквозной view.
