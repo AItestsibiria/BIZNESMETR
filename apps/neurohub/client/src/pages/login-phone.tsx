@@ -8,7 +8,7 @@
 // происходит» — раньше modal link-existing блокировал redirect. Теперь
 // сразу /dashboard + toast про возможность связать email в настройках.
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { Music, Phone, Mail, Loader2 } from "lucide-react";
@@ -19,6 +19,10 @@ export default function LoginPhonePage() {
   const { user, isLoading, loginByToken } = useAuth();
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  // Eugene 2026-05-15 Босс «после сообщения вы авторизованы открывай ЛК».
+  // Success-state — большой экран «Авторизация прошла → открываем кабинет…»
+  // + fallback кнопка если auto-navigate тормозит.
+  const [successState, setSuccessState] = useState<{ name: string } | null>(null);
 
   useEffect(() => {
     if (user) navigate("/dashboard");
@@ -48,6 +52,33 @@ export default function LoginPhonePage() {
       </div>
     );
   }
+  // Eugene 2026-05-15 Босс «после сообщения вы авторизованы открывай ЛК».
+  // Большой success-screen с success иконкой + auto-redirect через 1.2 сек.
+  if (successState) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4 pt-16 hero-gradient">
+        <div className="text-center max-w-md mx-auto p-6">
+          <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-gradient-to-br from-emerald-500/30 to-cyan-500/30 border-2 border-emerald-400/60 flex items-center justify-center shadow-[0_0_40px_rgba(16,185,129,0.4)] animate-in zoom-in duration-300">
+            <span className="text-4xl">✅</span>
+          </div>
+          <h2 className="text-2xl font-bold gradient-text mb-2">Вы авторизованы</h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            Добро пожаловать, <span className="text-white font-medium">{successState.name}</span>!
+          </p>
+          <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="w-3 h-3 animate-spin" />
+            Открываем личный кабинет…
+          </div>
+          <button
+            onClick={() => navigate("/dashboard")}
+            className="mt-5 text-sm text-purple-300 hover:text-purple-200 underline"
+          >
+            Перейти сейчас →
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4 pt-16 hero-gradient">
@@ -72,17 +103,11 @@ export default function LoginPhonePage() {
                 return;
               }
               const u = await loginByToken(token, true);
-              // Eugene 2026-05-15 Босс «сразу заход в личный кабинет».
-              // Без modal — auth-flow заканчивается на /dashboard.
-              if (newAccount) {
-                toast({
-                  title: "✅ Вход выполнен — добро пожаловать!",
-                  description: "Новый аккаунт создан. Если у вас был аккаунт по email — свяжите в Настройках.",
-                });
-              } else {
-                toast({ title: "✅ С возвращением!", description: u?.name || phone });
-              }
-              navigate("/dashboard");
+              // Eugene 2026-05-15 Босс «после сообщения вы авторизованы
+              // открывай личный кабинет». Большой success-state + auto-navigate
+              // через 1.2 сек (даёт юзеру увидеть подтверждение).
+              setSuccessState({ name: u?.name || (newAccount ? "новый автор" : phone) });
+              setTimeout(() => navigate("/dashboard"), 1200);
             }}
           />
           <div className="pt-3 border-t border-white/10 space-y-2">
