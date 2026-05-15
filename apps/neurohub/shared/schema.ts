@@ -389,6 +389,25 @@ export const incidents = sqliteTable("incidents", {
 
 export type Incident = typeof incidents.$inferSelect;
 
+// Eugene 2026-05-15 Босс: реестр неудачных действий юзеров для админ-панели.
+// Сюда падает: failed login/register, refund generation, payment fail,
+// bot не ответил, validation error на endpoint. Группировка по group_key.
+export const userActionFailures = sqliteTable("user_action_failures", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id"),                       // null если anonymous
+  channel: text("channel").notNull(),               // 'web' | 'telegram' | 'max' | 'api' | 'webhook'
+  action: text("action").notNull(),                 // 'register' | 'login' | 'generate' | 'pay' | 'chat-reply' | ...
+  statusCode: integer("status_code"),
+  errorCode: text("error_code"),                    // нормализованный ключ
+  errorMessage: text("error_message"),
+  endpoint: text("endpoint"),
+  context: text("context"),                          // JSON
+  groupKey: text("group_key").notNull(),            // action::error_code
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+export type UserActionFailure = typeof userActionFailures.$inferSelect;
+
 // User-uploaded audio files (Sprint 3.1) — для cover/extend/voice-clone.
 // SHA256 от содержимого = идемпотентность: тот же файл = тот же uploadUrl.
 // Очистка cron'ом старше 30 дней без use.

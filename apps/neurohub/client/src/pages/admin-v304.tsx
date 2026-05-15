@@ -138,6 +138,7 @@ export default function AdminV304Page() {
           <TabsTrigger value="flags">Feature flags</TabsTrigger>
           <TabsTrigger value="leads">Лиды</TabsTrigger>
           <TabsTrigger value="audit">Audit log</TabsTrigger>
+          <TabsTrigger value="failures">⚠️ Проблемы</TabsTrigger>
         </TabsList>
         <TabsContent value="overview"><OverviewTab toast={toast} /></TabsContent>
         <TabsContent value="friend">
@@ -158,6 +159,7 @@ export default function AdminV304Page() {
         <TabsContent value="flags"><FlagsTab toast={toast} /></TabsContent>
         <TabsContent value="leads"><LeadsTab toast={toast} /></TabsContent>
         <TabsContent value="audit"><AuditTab toast={toast} /></TabsContent>
+        <TabsContent value="failures"><FailuresTab toast={toast} /></TabsContent>
       </Tabs>
     </div>
   );
@@ -2785,5 +2787,171 @@ function LearningTab({ toast }: { toast: any }) {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// ============================================================
+// FailuresTab (Eugene 2026-05-15 Босс «log list problem»):
+// Реестр неудачных действий юзера во всех каналах с группировкой.
+// Применяется ко всем мессенджерам, web, email и будущим каналам.
+// ============================================================
+type FailureGroup = {
+  group_key: string;
+  channel: string;
+  action: string;
+  error_code: string | null;
+  count: number;
+  lastAt: string | null;
+  firstAt: string | null;
+  uniqUsers: number;
+  lastMessage: string | null;
+};
+type FailureRecent = {
+  id: number;
+  userId: number | null;
+  channel: string;
+  action: string;
+  statusCode: number | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  endpoint: string | null;
+  groupKey: string;
+  createdAt: string;
+};
+
+function FailuresTab({ toast: _t }: { toast: any }) {
+  const [channelFilter, setChannelFilter] = useState<string>("");
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["admin-user-failures", channelFilter],
+    queryFn: () => fetcher<{ groups: FailureGroup[]; recent: FailureRecent[]; generatedAt: string }>(
+      `/api/admin/v304/user-failures${channelFilter ? `?channel=${encodeURIComponent(channelFilter)}` : ""}`
+    ),
+    refetchInterval: 30000,
+  });
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
+  const groupDetail = useQuery({
+    queryKey: ["admin-user-failures-group", openGroup],
+    queryFn: async () => {
+      if (!openGroup) return null;
+      return fetcher<{ groupKey: string; count: number; items: any[] }>(`/api/admin/v304/user-failures/group/${encodeURIComponent(openGroup)}`);
+    },
+    enabled: !!openGroup,
+  });
+
+  const CHANNELS = ["", "web", "telegram", "max", "email", "vk", "api", "webhook"];
+  const channelEmoji = (ch: string) => ({
+    web: "🌐", telegram: "✈️", max: "🟣", email: "✉️", vk: "🔵", api: "🔧", webhook: "🔗", cron: "⏰",
+  } as Record<string, string>)[ch] || "•";
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>⚠️ Проблемы юзеров — по всем каналам</CardTitle>
+          <p className="text-xs text-muted-foreground mt-1">Неудачные действия (login/register/pay/generate/chat-reply/webhook). Все мессенджеры, web, email и будущие каналы. Группировка: action + error_code.</p>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            {CHANNELS.map(ch => (
+              <button
+                key={ch || "all"}
+                onClick={() => setChannelFilter(ch)}
+                className={`text-xs px-3 py-1 rounded-md transition-colors ${channelFilter === ch ? "bg-primary text-primary-foreground" : "bg-white/5 hover:bg-white/10"}`}
+                data-testid={`btn-failures-channel-${ch || "all"}`}
+              >
+                {ch ? `${channelEmoji(ch)} ${ch}` : "Все каналы"}
+              </button>
+            ))}
+            <button
+              onClick={() => refetch()}
+              className="text-xs px-3 py-1 rounded-md bg-white/5 hover:bg-white/10 ml-auto"
+            >🔄 Обновить</button>
+            <button
+              onClick={() => {
+                const txt = JSON.stringify(data || {}, null, 2);
+                navigator.clipboard.writeText(txt).then(() => _t({ title: "Скопировано в буфер" }));
+              }}
+              className="text-xs px-3 py-1 rounded-md bg-white/5 hover:bg-white/10"
+            >📋 Копировать</button>
+          </div>
+
+          {isLoading ? <Skeleton className="h-32" /> : null}
+
+          {data?.groups && data.groups.length === 0 && (
+            <div className="text-center py-8 text-muted-foreground text-sm">
+              🎉 Никаких проблем не зарегистрировано {channelFilter ? `в канале «${channelFilter}»` : ""}.
+            </div>
+          )}
+
+          {data?.groups && data.groups.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="text-muted-foreground border-b border-border/40">
+                  <tr>
+                    <th className="text-left py-2 pl-2">Канал</th>
+                    <th className="text-left py-2">Действие</th>
+                    <th className="text-left py-2">Код</th>
+                    <th className="text-right py-2 px-2">Раз</th>
+                    <th className="text-right py-2 px-2">Юзеров</th>
+                    <th className="text-left py-2 pl-2">Последний</th>
+                    <th className="text-left py-2 pl-2">Сообщение</th>
+                    <th className="text-right py-2 pr-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.groups.map((g, i) => (
+                    <tr key={`${g.group_key}-${i}`} className="border-b border-border/20 hover:bg-secondary/30">
+                      <td className="py-2 pl-2 whitespace-nowrap">{channelEmoji(g.channel)} <span className="text-muted-foreground">{g.channel}</span></td>
+                      <td className="py-2 font-medium">{g.action}</td>
+                      <td className="py-2 text-rose-300 font-mono">{g.error_code || "—"}</td>
+                      <td className="py-2 px-2 text-right font-bold tabular-nums">{g.count}</td>
+                      <td className="py-2 px-2 text-right text-blue-300 tabular-nums">{g.uniqUsers}</td>
+                      <td className="py-2 pl-2 text-muted-foreground whitespace-nowrap">{g.lastAt?.slice(0, 16).replace("T", " ")}</td>
+                      <td className="py-2 pl-2 text-muted-foreground max-w-md truncate" title={g.lastMessage || ""}>{g.lastMessage || "—"}</td>
+                      <td className="py-2 pr-2 text-right">
+                        <button
+                          onClick={() => setOpenGroup(g.group_key)}
+                          className="text-[10px] px-2 py-1 rounded bg-white/5 hover:bg-white/10"
+                        >Детали →</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {openGroup && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Детали: <span className="font-mono text-rose-300">{openGroup}</span></CardTitle>
+            <button onClick={() => setOpenGroup(null)} className="text-xs text-muted-foreground hover:text-foreground mt-1">← Закрыть</button>
+          </CardHeader>
+          <CardContent>
+            {groupDetail.isLoading ? <Skeleton className="h-24" /> : null}
+            {groupDetail.data?.items && (
+              <div className="space-y-1 max-h-96 overflow-y-auto">
+                {groupDetail.data.items.map((it: any) => (
+                  <div key={it.id} className="text-xs p-2 rounded bg-white/[0.03] border border-white/[0.05]">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-muted-foreground tabular-nums">#{it.id}</span>
+                      <span>{channelEmoji(it.channel)} {it.channel}</span>
+                      <span className="text-rose-300 font-mono">{it.errorCode}</span>
+                      {it.statusCode && <span className="text-amber-300 font-mono">[{it.statusCode}]</span>}
+                      <span className="text-muted-foreground ml-auto">{String(it.createdAt).slice(0, 19).replace("T", " ")}</span>
+                    </div>
+                    <div className="text-muted-foreground">{it.errorMessage || "—"}</div>
+                    {it.endpoint && <div className="text-muted-foreground/70 font-mono text-[10px] mt-1">{it.endpoint}</div>}
+                    {it.userId && <div className="text-blue-300 text-[10px] mt-1">user_id: {it.userId}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+    </div>
   );
 }

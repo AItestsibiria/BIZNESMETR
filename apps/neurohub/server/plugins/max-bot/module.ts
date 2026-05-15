@@ -4,6 +4,7 @@
 import { Router } from "express";
 import type { BootContext, Module } from "../../core";
 import { personaFor, buildPersonaSystem } from "../../lib/consultantPersona";
+import { logUserActionFailure } from "../../lib/userActionFailures";
 
 const MAX_API = "https://platform-api.max.ru";
 const TOKEN = () => process.env.MAX_BOT_TOKEN || "";
@@ -122,6 +123,13 @@ async function generateReply(userKey: string, text: string): Promise<string> {
   if (c) return c;
   const o = await tryGPTunnel(sys, text);
   if (o) return o;
+  logUserActionFailure({
+    channel: "max",
+    action: "chat-reply",
+    errorCode: "llm_both_failed",
+    errorMessage: "Claude + GPTunnel оба не ответили — отдан hardcoded fallback",
+    context: { userKey: String(userKey).slice(0, 32), textPreview: text.slice(0, 100) },
+  });
   return `Здравствуйте! Я — Муза 🎵 Чуть-чуть тормозит — попробуйте через минуту.`;
 }
 
@@ -157,6 +165,13 @@ router.post("/webhook", async (req, res) => {
     await sendMessage(chatId, replyWithAvatar);
   } catch (e) {
     bootRefs?.logger.error?.("[max-bot] webhook error", { error: String(e) });
+    logUserActionFailure({
+      channel: "max",
+      action: "webhook",
+      errorCode: "webhook_handler_throw",
+      errorMessage: String(e).slice(0, 300),
+      endpoint: "/api/max-bot/webhook",
+    });
   }
 });
 

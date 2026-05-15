@@ -172,6 +172,39 @@ ssh root@72.56.1.149 'sed -i "/^ИМЯ_КЛЮЧА=/d" /var/www/neurohub/.env \
 
 В остальных случаях движение по плану — настройка по умолчанию.
 
+### User-action-failure registry rule (Eugene 2026-05-15)
+
+**Любое неудачное действие пользователя регистрируется в `user_action_failures`.** Применяется ко ВСЕМ каналам — web, telegram, max, email, vk, любые будущие подключаемые. Применяется к старым endpoint'ам (обратно) и к каждой новой фиче (всегда).
+
+Что считается «неудачным действием»:
+- Failed auth (login/register/telegram-auth с неверной подписью)
+- Failed validation (Zod errors на user-facing endpoint'ах)
+- Failed payment (Robokassa отклонил, signature mismatch, недостаточно средств)
+- Failed generation (refund pipeline сработал — Suno fail, timeout, низкий баланс)
+- Failed chat-reply (LLM-fallback на hardcoded строку — юзер не получил настоящий ответ)
+- Failed webhook (handler throw'ит из-за исключения)
+- Любой 4xx/5xx ответ на endpoint, который вызвал пользователь сознательно
+
+Реализация:
+- `apps/neurohub/server/lib/userActionFailures.ts`:
+  - `logUserActionFailure({ userId, channel, action, errorCode, errorMessage, endpoint, statusCode, context })`
+  - Sync, никогда не throw'ит — failure registration не должен ломать вызывающий код
+  - `group_key = action::error_code` (нормализованный) — основа для GROUP BY в админке
+- Таблица `user_action_failures` (см. `shared/schema.ts`, `storage.ts`)
+- Admin endpoint: `GET /api/admin/v304/user-failures[?channel=X][&since=ISO]`
+  → `{ groups: [{ group_key, channel, action, error_code, count, uniqUsers, lastAt, lastMessage }], recent: [...] }`
+- Admin endpoint: `GET /api/admin/v304/user-failures/group/:key` — детали по группе
+- Admin UI: вкладка «⚠️ Проблемы» в `/admin/v304` с фильтром по каналу и группировкой
+
+Что подключать в каждой новой фиче / канале:
+1. На каждый user-facing endpoint, который может вернуть ошибку юзеру — `logUserActionFailure({ channel, action, ... })` в ветке ошибки.
+2. На каждый webhook handler в catch-блоке (telegram-bot, max-bot, vk, email, future).
+3. На LLM-fallback (когда отвечаем юзеру hardcoded строкой вместо настоящего ответа).
+4. На refund pipeline (failed generation).
+5. На payment failures (Robokassa Result/Success с ошибкой).
+
+Применяется к: ВСЕМ каналам (старым: web, telegram, max; новым: email-channel, vk-callback, future). НЕ применяется к: internal errors без user-facing impact (например, cron-задача упала ночью — это `incidents`, не `user_action_failures`).
+
 ### Cross-channel conversation linking rule (Eugene 2026-05-15)
 
 **Один юзер — один thread, независимо от канала.** Если юзер пишет в Telegram, потом в Web-чат, потом в Max — бот видит ВСЮ его историю как один разговор. Admin тоже видит сквозной view.

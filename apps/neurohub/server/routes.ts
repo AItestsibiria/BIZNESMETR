@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage, db } from "./storage";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
-import { registerSchema, loginSchema, users, payments, generations, transactions, promoCodes, visitors, genActivity, songDrafts, botLearnings, landingNews, chatbotSessions, chatbotMessages, adminDelegates } from "@shared/schema";
+import { registerSchema, loginSchema, users, payments, generations, transactions, promoCodes, visitors, genActivity, songDrafts, botLearnings, landingNews, chatbotSessions, chatbotMessages, adminDelegates, userActionFailures } from "@shared/schema";
 import express from "express";
 import { eq, desc, sql, and, isNotNull } from "drizzle-orm";
 import nodemailer from "nodemailer";
@@ -20,6 +20,7 @@ import { buildPersonaSystem, personaFor } from "./lib/consultantPersona";
 import { findSessionByPairCode, looksLikePairCode } from "./lib/webChatPair";
 import { MUZA_TOOLS, executeTool } from "./lib/muzaTools";
 import { loadHistoryForLLM, loadHistoryForUser } from "./lib/chatHistory";
+import { logUserActionFailure } from "./lib/userActionFailures";
 
 const AUTHORS_DIR = process.env.AUTHORS_DIR || path.join(process.cwd(), "authors");
 
@@ -1072,6 +1073,13 @@ export async function registerRoutes(
     try {
       const parsed = loginSchema.safeParse(req.body);
       if (!parsed.success) {
+        logUserActionFailure({
+          channel: "web", action: "login", statusCode: 400,
+          errorCode: "validation",
+          errorMessage: parsed.error.errors[0]?.message || "validation error",
+          endpoint: "/api/login",
+          context: { email: String(req.body?.email || "").slice(0, 80) },
+        });
         res.status(400).json({ message: parsed.error.errors[0]?.message || "Ошибка валидации" });
         return;
       }
@@ -1079,6 +1087,14 @@ export async function registerRoutes(
 
       const user = storage.getUserByEmail(email);
       if (!user || !bcrypt.compareSync(password, user.password)) {
+        logUserActionFailure({
+          userId: user?.id ?? null,
+          channel: "web", action: "login", statusCode: 401,
+          errorCode: user ? "wrong_password" : "user_not_found",
+          errorMessage: "Неверный email или пароль",
+          endpoint: "/api/login",
+          context: { email: email.slice(0, 80) },
+        });
         res.status(401).json({ message: "Неверный email или пароль" });
         return;
       }
@@ -2724,6 +2740,70 @@ ${text}`
         },
       ],
     });
+  });
+
+  // Eugene 2026-05-15 Босс «log list problem»: регистр неудачных действий
+  // юзера во всех каналах (web/telegram/max/email/...). Группировка по
+  // group_key (action::error_code) — сколько раз, кого, последний раз.
+  app.get("/api/admin/v304/user-failures", requireAdmin, (req: Request, res: Response) => {
+    const limit = Math.min(500, Math.max(10, Number(req.query.limit) || 200));
+    const channel = req.query.channel ? String(req.query.channel) : null;
+    const since = req.query.since ? String(req.query.since) : null;
+    try {
+      // Группировка
+      const groupConditions: string[] = [];
+      const groupParams: any[] = [];
+      if (channel) { groupConditions.push("channel = ?"); groupParams.push(channel); }
+      if (since) { groupConditions.push("created_at >= ?"); groupParams.push(since); }
+      const where = groupConditions.length ? `WHERE ${groupConditions.join(" AND ")}` : "";
+      const groups = db.all(sql.raw(`
+        SELECT group_key, channel, action, error_code,
+               COUNT(*) as count,
+               MAX(created_at) as lastAt,
+               MIN(created_at) as firstAt,
+               COUNT(DISTINCT user_id) as uniqUsers,
+               (SELECT error_message FROM user_action_failures u2 WHERE u2.group_key = u.group_key ORDER BY u2.id DESC LIMIT 1) as lastMessage
+        FROM user_action_failures u
+        ${where}
+        GROUP BY group_key, channel, action, error_code
+        ORDER BY count DESC, lastAt DESC
+        LIMIT ${limit}
+      `)) as any[];
+
+      // Последние 50 raw entries
+      const rawConditions: string[] = [];
+      if (channel) rawConditions.push(`channel = '${String(channel).replace(/'/g, "")}'`);
+      if (since) rawConditions.push(`created_at >= '${String(since).replace(/'/g, "")}'`);
+      const rawWhere = rawConditions.length ? `WHERE ${rawConditions.join(" AND ")}` : "";
+      const recent = db.all(sql.raw(`
+        SELECT id, user_id as userId, channel, action, status_code as statusCode,
+               error_code as errorCode, error_message as errorMessage, endpoint,
+               group_key as groupKey, created_at as createdAt
+        FROM user_action_failures
+        ${rawWhere}
+        ORDER BY id DESC
+        LIMIT 50
+      `)) as any[];
+
+      res.json({ data: { groups, recent, generatedAt: new Date().toISOString() }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e) });
+    }
+  });
+
+  app.get("/api/admin/v304/user-failures/group/:key", requireAdmin, (req: Request, res: Response) => {
+    const key = String(req.params.key || "");
+    if (!key) return res.status(400).json({ ok: false, error: "group_key required" });
+    try {
+      const rows = db.select().from(userActionFailures)
+        .where(eq(userActionFailures.groupKey, key))
+        .orderBy(desc(userActionFailures.id))
+        .limit(200)
+        .all();
+      res.json({ data: { groupKey: key, count: rows.length, items: rows }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e) });
+    }
   });
 
   // Eugene 2026-05-15 Босс «Связывай»: сквозной view диалогов одного юзера

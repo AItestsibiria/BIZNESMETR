@@ -29,6 +29,7 @@ import { confirmNonce as confirmTgLoginNonce, hasValidNonce as hasTgLoginNonce }
 import { personaFor, PERSONAS, loadKB, buildPersonaSystem, kbPath } from "../../lib/consultantPersona";
 import { debounceMessage, bypassDebounce } from "../../lib/messageDebouncer";
 import { loadHistoryForLLM } from "../../lib/chatHistory";
+import { logUserActionFailure } from "../../lib/userActionFailures";
 
 const TELEGRAM_API = "https://api.telegram.org";
 
@@ -257,7 +258,14 @@ async function generateReply(
   // 2. Backup: GPTunnel (OpenAI-compatible)
   const o = await tryGPTunnel(stableSystem + dynamicSystem, userText, history);
   if (o) return o;
-  // 3. Both failed → fallback hardcoded
+  // 3. Both failed → fallback hardcoded + регистрируем failure
+  logUserActionFailure({
+    channel: "telegram",
+    action: "chat-reply",
+    errorCode: "llm_both_failed",
+    errorMessage: "Claude + GPTunnel оба не ответили — отдан hardcoded fallback",
+    context: { userKey: String(userKey).slice(0, 32), textPreview: userText.slice(0, 100) },
+  });
   return `Здравствуйте! Я — Муза 🎵 Чуть-чуть тормозит — попробуйте через минуту.`;
 }
 
@@ -743,6 +751,13 @@ router.post("/webhook", async (req, res) => {
     return;
   } catch (e) {
     bootRefs?.logger.error?.("[telegram-bot] webhook error", { error: String(e) });
+    logUserActionFailure({
+      channel: "telegram",
+      action: "webhook",
+      errorCode: "webhook_handler_throw",
+      errorMessage: String(e).slice(0, 300),
+      endpoint: "/api/telegram/webhook",
+    });
   }
 });
 

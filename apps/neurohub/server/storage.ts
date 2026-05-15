@@ -443,6 +443,26 @@ try {
     );
     CREATE INDEX IF NOT EXISTS incidents_status_idx ON incidents(status, severity, last_seen_at DESC);
 
+    -- Eugene 2026-05-15 Босс: реестр неудачных действий юзеров для админ-панели.
+    -- Сюда падает всё user-facing: failed login, refund-generation, payment fail,
+    -- bot не ответил, кнопка ошибку дала. Группировка по group_key (action + error_code).
+    CREATE TABLE IF NOT EXISTS user_action_failures (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,                     -- может быть null (anonymous)
+      channel TEXT NOT NULL,               -- 'web' | 'telegram' | 'max' | 'api' | 'webhook'
+      action TEXT NOT NULL,                -- 'register' | 'login' | 'generate' | 'pay' | 'chat-reply' | ...
+      status_code INTEGER,                 -- HTTP status if applicable
+      error_code TEXT,                     -- нормализованный ключ для группировки
+      error_message TEXT,                  -- читаемое сообщение
+      endpoint TEXT,                       -- '/api/music/generate'
+      context TEXT,                        -- JSON с деталями (без секретов)
+      group_key TEXT NOT NULL,             -- action::error_code — для GROUP BY
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS user_action_failures_group_idx ON user_action_failures(group_key, created_at DESC);
+    CREATE INDEX IF NOT EXISTS user_action_failures_user_idx ON user_action_failures(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS user_action_failures_created_idx ON user_action_failures(created_at DESC);
+
     -- Sprint 3.1 audio-input: пользовательские аудио-файлы для cover/extend.
     -- SHA256 = идемпотентность.
     CREATE TABLE IF NOT EXISTS audio_uploads (
