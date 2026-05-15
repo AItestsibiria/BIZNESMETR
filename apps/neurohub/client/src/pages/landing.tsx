@@ -448,6 +448,28 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // handleEnded и skip-кнопки должны использовать ИМЕННО видимый юзеру
   // плейлист, иначе после конца трека выпадает не тот параметр.
   const filteredMusicRef = useRef<any[]>([]);
+  // Eugene 2026-05-15 Босс «плейлист сам по себе меняется при random».
+  // ROOT CAUSE: 5-min interval + visibilitychange + focus refetch'ат
+  // /api/playlist?sort=random — сервер возвращает новый shuffle, мы делаем
+  // setTracks(data) → весь порядок сменился под пользователем.
+  // ФИКС: для random — merge by id, сохраняем существующий порядок,
+  // только обновляем метаданные (plays, displayTitle, imageUrl).
+  const sortModeRef = useRef(sortMode);
+  useEffect(() => { sortModeRef.current = sortMode; }, [sortMode]);
+  const mergePlaylist = useCallback((incoming: any[]) => {
+    setTracks(prev => {
+      if (sortModeRef.current !== "random") return incoming;
+      const byId = new Map(incoming.map((t: any) => [t.id, t]));
+      const seen = new Set<any>();
+      const merged: any[] = [];
+      for (const t of prev) {
+        const fresh = byId.get(t.id);
+        if (fresh) { merged.push(fresh); seen.add(t.id); }
+      }
+      for (const t of incoming) if (!seen.has(t.id)) merged.push(t);
+      return merged;
+    });
+  }, []);
 
   // На mount если уже играет глобальный audio — восстанавливаем UI state
   useEffect(() => {
@@ -537,18 +559,20 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       }
     }).catch(() => {});
 
-    // Refresh playlist every 5 minutes — keeps renames, plays, new tracks fresh
+    // Refresh playlist every 5 minutes — keeps renames, plays, new tracks fresh.
+    // Eugene 2026-05-15 Босс «плейлист сам по себе меняется» → используем
+    // mergePlaylist, чтобы для random сохранять текущий порядок.
     const refreshInterval = setInterval(() => {
-      fetch(`/api/playlist?sort=${sortMode}&dir=${sortDir}&_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).then(data => {
-        setTracks(data);
+      fetch(`/api/playlist?sort=${sortModeRef.current}&dir=${sortDir}&_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).then(data => {
+        mergePlaylist(data);
       }).catch(() => {});
     }, 5 * 60 * 1000);
 
     // Refresh on tab visibility change (user comes back from dashboard)
     const refetch = () => {
-      fetch(`/api/playlist?sort=${sortMode}&dir=${sortDir}&_=${Date.now()}`, { cache: 'no-store' })
+      fetch(`/api/playlist?sort=${sortModeRef.current}&dir=${sortDir}&_=${Date.now()}`, { cache: 'no-store' })
         .then(r => r.json())
-        .then(data => setTracks(data))
+        .then(data => mergePlaylist(data))
         .catch(() => {});
     };
     const onVisibilityChange = () => { if (!document.hidden) refetch(); };
@@ -882,20 +906,30 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     if (list[prev]) playTrack(list[prev]);
   };
 
-  // Navigate expanded cover to prev/next track
+  // Navigate expanded cover to prev/next track.
+  // Eugene 2026-05-15 Босс «воспроизведение не соответствует первоначальному
+  // отражению» → используем filteredMusicRef (как skipPrev/skipNext/handleEnded),
+  // чтобы стрелки в развёрнутом плеере не уводили за пределы выбранной
+  // категории/поиска.
   const expandPrev = () => {
-    const idx = musicTracks.findIndex(t => t.id === expandedId);
+    const fl = filteredMusicRef.current;
+    const list = fl && fl.length > 0 ? fl : musicTracks;
+    if (list.length === 0) return;
+    const idx = list.findIndex(t => t.id === expandedId);
     if (idx < 0) return;
-    const prev = (idx - 1 + musicTracks.length) % musicTracks.length;
-    const prevTrack = musicTracks[prev];
+    const prev = (idx - 1 + list.length) % list.length;
+    const prevTrack = list[prev];
     setExpandedId(prevTrack.id);
     playTrack(prevTrack);
   };
   const expandNext = () => {
-    const idx = musicTracks.findIndex(t => t.id === expandedId);
+    const fl = filteredMusicRef.current;
+    const list = fl && fl.length > 0 ? fl : musicTracks;
+    if (list.length === 0) return;
+    const idx = list.findIndex(t => t.id === expandedId);
     if (idx < 0) return;
-    const next = (idx + 1) % musicTracks.length;
-    const nextTrack = musicTracks[next];
+    const next = (idx + 1) % list.length;
+    const nextTrack = list[next];
     setExpandedId(nextTrack.id);
     playTrack(nextTrack);
   };
