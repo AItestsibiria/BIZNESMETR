@@ -114,22 +114,49 @@ export default function PhoneOtpForm({
       return;
     }
     setLoading(true);
-    try {
-      // Eugene 2026-05-15 Босс «авторизация по звонку».
-      // /send-otp (SMS-flow) vs /send-call (flashcall-flow).
-      const endpoint = method === "call" ? "/api/auth/sms/send-call" : "/api/auth/sms/send-otp";
-      const r = await apiRequest("POST", endpoint, { phone, purpose });
+    // Eugene 2026-05-15 Босс «всё чтобы работало». Если выбран звонок но
+    // sms.ru его отклонил (callcheck не активирован / нет баланса /
+    // временно недоступен) — автоматически fallback на SMS, чтобы юзер
+    // всегда получил код. fallbackInfo пишем в state для UX.
+    const tryEndpoint = async (m: OtpMethod) => {
+      const ep = m === "call" ? "/api/auth/sms/send-call" : "/api/auth/sms/send-otp";
+      const r = await apiRequest("POST", ep, { phone, purpose });
       const j = await r.json();
-      if (j?.error) {
-        setError(j.error);
+      return { ok: r.ok && !j?.error, data: j?.data, error: j?.error, statusCode: r.status };
+    };
+
+    try {
+      let used: OtpMethod = method;
+      let res = await tryEndpoint(method);
+      // Fallback: если выбрали call но провайдер вернул ошибку (502 / error)
+      // — пробуем SMS. fallbackHint в UI чтобы юзер понимал почему.
+      let fellBack = false;
+      if (!res.ok && method === "call") {
+        const callErr = res.error || `HTTP ${res.statusCode}`;
+        const smsRes = await tryEndpoint("sms");
+        if (smsRes.ok) {
+          used = "sms";
+          res = smsRes;
+          fellBack = true;
+          // eslint-disable-next-line no-console
+          console.warn("[phone-otp-form] call failed → fallback to sms:", callErr);
+        }
+      }
+      if (!res.ok) {
+        setError(res.error || "Не удалось отправить код");
         return;
       }
-      setCountryHint(j?.data?.countryName ? (method === "call" ? `Звонок в ${j.data.countryName}` : `Отправлено в ${j.data.countryName}`) : null);
-      if (method === "call") {
-        setCallHint(j?.data?.hint || null);
-        setCallPhone(j?.data?.callPhone || null);
+      // Применяем фактически использованный метод (важно для doVerify).
+      if (used !== method) setMethod(used);
+      setCountryHint(res.data?.countryName ? (used === "call" ? `Звонок в ${res.data.countryName}` : `Отправлено в ${res.data.countryName}`) : null);
+      if (used === "call") {
+        setCallHint(res.data?.hint || null);
+        setCallPhone(res.data?.callPhone || null);
       } else {
-        setCallHint(null);
+        // SMS-step: если был fallback — показать pop-up почему.
+        setCallHint(fellBack
+          ? "Звонок временно недоступен — мы прислали SMS с 6-значным кодом."
+          : null);
         setCallPhone(null);
       }
       setStep("code");
@@ -271,6 +298,14 @@ export default function PhoneOtpForm({
           <>
             Код отправлен на <span className="text-white font-medium">{phone}</span>
             {countryHint && <span className="block text-[11px] mt-1 opacity-70">{countryHint}</span>}
+            {/* Eugene 2026-05-15 Босс «всё чтобы работало» — fallback hint:
+                если изначально юзер выбрал звонок, но провайдер отказал —
+                показываем что мы переключились на SMS, не теряя его. */}
+            {callHint && (
+              <span className="block text-[11px] mt-2 px-2 py-1 rounded bg-amber-500/15 border border-amber-500/30 text-amber-200">
+                ℹ️ {callHint}
+              </span>
+            )}
           </>
         )}
       </p>
