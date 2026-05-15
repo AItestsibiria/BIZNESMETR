@@ -729,7 +729,31 @@ router.post("/check-call", async (req, res) => {
 
     if (purpose === "login") {
       const user = db.select().from(users).where(eq(users.phone, phone)).get() as any;
-      if (!user) return res.status(404).json({ data: null, error: "Номер не найден — сначала зарегистрируйтесь" });
+      // Eugene 2026-05-15 Босс «связать email и номер, лёгкое решение».
+      // Если phone не найден — НЕ возвращаем 404. Создаём новый phone-аккаунт
+      // upsert-style. Юзер потом сможет в ЛК «привязать существующий email»
+      // через endpoint /api/account/link-existing.
+      if (!user) {
+        const country = detectPhoneCountry(phone);
+        const placeholderPassword = await bcrypt.hash(uuidv4() + crypto.randomBytes(16).toString("hex"), 10);
+        const inserted = db.insert(users).values({
+          name: `Автор ${phone.slice(-4)}`,
+          email: `${phone.replace(/[^\d]/g, "")}@phone.muziai.ru`,
+          password: placeholderPassword,
+          phone,
+          phoneVerified: 1,
+          country: country?.name || null,
+          countryCode: country?.code || null,
+        }).returning({ id: users.id }).get() as any;
+        const newUserId = inserted?.id;
+        const token = uuidv4();
+        tokenStore.set(token, newUserId);
+        bootRefs?.eventBus?.emit?.("auth.user.registered", { userId: newUserId, channel: "call", upsert: true }, "auth-sms");
+        return res.json({
+          data: { verified: true, phone, purpose, method: "call", token, userId: newUserId, newAccount: true },
+          error: null,
+        });
+      }
       if (user.blocked) return res.status(403).json({ data: null, error: "Аккаунт заблокирован" });
       if (!user.phoneVerified) {
         try { db.update(users).set({ phoneVerified: 1 }).where(eq(users.id, user.id)).run(); } catch {}

@@ -1101,6 +1101,103 @@ export async function registerRoutes(
     res.json({ ok: true });
   });
 
+  // Eugene 2026-05-15 Босс «связать email и номер, лёгкое надёжное решение».
+  //
+  // Сценарий: юзер ранее зарегистрировался по email/паролю (phone=null).
+  // Сегодня вошёл по звонку — backend создал новый phone-аккаунт (upsert).
+  // Теперь хочет связать со старым email-аккаунтом: phone-аккаунт удалится,
+  // его generations/payments перенесутся, юзер останется в email-аккаунте
+  // (но теперь и с phone). Bearer-token надо обновить.
+  //
+  // Security: требует Bearer (текущий phone-only user) + правильный email +
+  // правильный пароль от email-аккаунта (bcrypt verify).
+  app.post("/api/auth/link-existing", authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const currentUserId = (req as any).userId;
+      const email = String(req.body?.email || "").trim().toLowerCase();
+      const password = String(req.body?.password || "");
+      if (!email || !password) {
+        res.status(400).json({ message: "Укажите email и пароль" });
+        return;
+      }
+
+      const currentUser = storage.getUser(currentUserId) as any;
+      if (!currentUser) { res.status(401).json({ message: "Не авторизован" }); return; }
+
+      // Проверка email-аккаунта.
+      const targetUser = db.select().from(users).where(eq(users.email, email)).get() as any;
+      if (!targetUser) {
+        res.status(404).json({ message: "Аккаунт с таким email не найден" });
+        return;
+      }
+      if (targetUser.id === currentUser.id) {
+        res.status(400).json({ message: "Это и есть текущий аккаунт" });
+        return;
+      }
+      if (targetUser.blocked) {
+        res.status(403).json({ message: "Целевой аккаунт заблокирован" });
+        return;
+      }
+      const passwordOk = bcrypt.compareSync(password, targetUser.password);
+      if (!passwordOk) {
+        res.status(401).json({ message: "Неверный пароль" });
+        return;
+      }
+      // Целевой аккаунт уже имеет другой phone — не объединяем (риск дубля).
+      if (targetUser.phone && targetUser.phone !== currentUser.phone) {
+        res.status(409).json({
+          message: "К email-аккаунту привязан другой номер. Сначала отвяжите его в настройках того аккаунта."
+        });
+        return;
+      }
+
+      const phoneToTransfer = currentUser.phone;
+
+      // Перенос данных от phone-only user → email user.
+      // Generations: переписываем userId.
+      try {
+        db.run(sql`UPDATE generations SET user_id = ${targetUser.id} WHERE user_id = ${currentUser.id}`);
+      } catch (e) { console.warn("[link-existing] generations move failed", e); }
+      // Все возможные таблицы с user_id (минимум — generations + payments + transactions если они есть). Делаем best-effort:
+      const userIdTables = ["payments", "transactions", "gen_activity", "song_drafts", "lyric_packs", "covers"];
+      for (const t of userIdTables) {
+        try {
+          db.run(sql.raw(`UPDATE ${t} SET user_id = ${targetUser.id} WHERE user_id = ${currentUser.id}`));
+        } catch {}
+      }
+
+      // Привязываем phone к target user.
+      try {
+        db.update(users).set({ phone: phoneToTransfer, phoneVerified: 1 }).where(eq(users.id, targetUser.id)).run();
+      } catch {}
+
+      // Помечаем phone-only user удалённым (НЕ DELETE — soft).
+      try {
+        db.update(users).set({
+          deletedAt: new Date().toISOString(),
+          phone: null,
+          email: `merged-${currentUser.id}@deleted.local`,
+        } as any).where(eq(users.id, currentUser.id)).run();
+      } catch {}
+
+      // Новый token на target user.
+      const oldToken = getTokenFromRequest(req);
+      if (oldToken) tokenStore.delete(oldToken);
+      const newToken = uuidv4();
+      tokenStore.set(newToken, targetUser.id);
+
+      res.json({
+        ok: true,
+        message: "Аккаунты объединены",
+        token: newToken,
+        userId: targetUser.id,
+      });
+    } catch (e: any) {
+      console.error("[link-existing]", e);
+      res.status(500).json({ message: "Ошибка объединения. Свяжитесь с поддержкой." });
+    }
+  });
+
   // ==================== TELEGRAM AUTH ====================
   // Eugene 2026-05-09: токен вынесен в env (раньше был захардкожен и попал
   // в публичный репо). Если процесс стартует без TELEGRAM_BOT_TOKEN — log

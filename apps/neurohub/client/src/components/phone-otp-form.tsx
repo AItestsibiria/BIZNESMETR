@@ -36,6 +36,10 @@ interface Props {
     userId?: number;
     alreadyExists?: boolean;
     method?: OtpMethod;
+    // Eugene 2026-05-15: true если phone-not-found upsert создал новый
+    // аккаунт (login → register fallback). UI должен показать «у вас уже
+    // есть email-аккаунт? привяжите его в ЛК».
+    newAccount?: boolean;
   }) => void;
   submitLabel?: string;       // label кнопки на 2-м шаге (default: «Подтвердить»)
   phoneSubmitLabel?: string;  // label на 1-м шаге (default: «Получить код»)
@@ -110,6 +114,7 @@ export default function PhoneOtpForm({
             token: j.data.token,
             userId: j.data.userId,
             alreadyExists: j.data.alreadyExists,
+            newAccount: j.data.newAccount,
             method: "call",
           });
           return;
@@ -258,6 +263,7 @@ export default function PhoneOtpForm({
         token: j?.data?.token,
         userId: j?.data?.userId,
         alreadyExists: j?.data?.alreadyExists,
+        newAccount: j?.data?.newAccount,
         method,
       });
     } catch (e: any) {
