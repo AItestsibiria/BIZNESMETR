@@ -554,10 +554,15 @@ function AdminStats() {
                 </div>
               </div>
 
-              {/* Страны */}
+              {/* Страны — Eugene 2026-05-15 Босс «клик в любом месте панели страны/города закрывает». */}
               {visitorStats.byCountry?.length > 0 && (
-                <div className="mb-3">
-                  <p className="text-[10px] uppercase text-muted-foreground mb-1">🌍 Страны</p>
+                <div
+                  className="mb-3 cursor-pointer"
+                  onClick={() => setShowVisitors(false)}
+                  title="Нажмите чтобы закрыть"
+                  data-testid="panel-countries-close"
+                >
+                  <p className="text-[10px] uppercase text-muted-foreground mb-1">🌍 Страны <span className="text-white/30 normal-case">(клик закроет)</span></p>
                   <div className="space-y-0.5 max-h-40 overflow-y-auto">
                     {visitorStats.byCountry.map((c: any) => (
                       <div key={c.country} className="flex items-center justify-between px-2 py-1 rounded bg-white/5 text-xs">
@@ -574,8 +579,13 @@ function AdminStats() {
 
               {/* Города */}
               {visitorStats.byCity?.length > 0 && (
-                <div className="mb-3">
-                  <p className="text-[10px] uppercase text-muted-foreground mb-1">🏙 Города</p>
+                <div
+                  className="mb-3 cursor-pointer"
+                  onClick={() => setShowVisitors(false)}
+                  title="Нажмите чтобы закрыть"
+                  data-testid="panel-cities-close"
+                >
+                  <p className="text-[10px] uppercase text-muted-foreground mb-1">🏙 Города <span className="text-white/30 normal-case">(клик закроет)</span></p>
                   <div className="space-y-0.5 max-h-48 overflow-y-auto">
                     {visitorStats.byCity.map((c: any) => (
                       <div key={`${c.city}-${c.country}`} className="flex items-center justify-between px-2 py-1 rounded bg-white/5 text-xs">
