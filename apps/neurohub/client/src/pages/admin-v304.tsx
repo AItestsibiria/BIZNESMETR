@@ -172,6 +172,7 @@ export default function AdminV304Page() {
           <TabsTrigger value="friend">👤 Муза</TabsTrigger>
           <TabsTrigger value="bot-stats">🤖 Бот</TabsTrigger>
           <TabsTrigger value="ai-keys">🤖 Ключи AI</TabsTrigger>
+          <TabsTrigger value="api-health">🔑 API ключи</TabsTrigger>
           <TabsTrigger value="delegates">🤝 Заместители</TabsTrigger>
           <TabsTrigger value="secrets">🔑 Секреты</TabsTrigger>
           <TabsTrigger value="templates">Шаблоны</TabsTrigger>
@@ -193,6 +194,7 @@ export default function AdminV304Page() {
         </TabsContent>
         <TabsContent value="bot-stats"><BotStatsTab toast={toast} /></TabsContent>
         <TabsContent value="ai-keys"><AiKeysTab toast={toast} /></TabsContent>
+        <TabsContent value="api-health"><ApiHealthTab toast={toast} /></TabsContent>
         <TabsContent value="delegates"><DelegatesTab toast={toast} /></TabsContent>
         <TabsContent value="secrets"><SecretsTab toast={toast} /></TabsContent>
         <TabsContent value="templates"><TemplatesTab toast={toast} /></TabsContent>
@@ -1722,6 +1724,190 @@ function AiKeysTab({ toast }: { toast: any }) {
       <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] text-[11px] text-white/50">
         💡 Для ротации ключа — открой <code>CLAUDE.md</code> → «Key rotation pattern» → готовая команда с маркером <code>🔴ВПИШИ_СЮДА🔴</code>.
         Для альтернативного ключа Anthropic используй env-имя <code>ANTHROPIC_API_KEY_BACKUP</code>.
+      </div>
+    </div>
+  );
+}
+
+// Eugene 2026-05-16 Босс «папка API ключи + кнопка Проверить + лампочка
+// зелёная/красная». Health-check всех ключей с manual triggers и auto
+// cron 03:00 MSK. Endpoints: /api/admin/v304/api-keys/health, /test/:name,
+// /test-all.
+function ApiHealthTab({ toast }: { toast: any }) {
+  const { data, isLoading, refetch } = useQuery<any>({
+    queryKey: ["/api/admin/v304/api-keys/health"],
+    refetchInterval: 60_000,
+  });
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const testOne = async (name: string) => {
+    setBusy(name);
+    try {
+      const r = await apiRequest("POST", `/api/admin/v304/api-keys/test/${encodeURIComponent(name)}`, {});
+      const j = await r.json();
+      if (j.data) {
+        const ok = j.data.status === "ok";
+        toast({
+          title: ok ? `✓ ${name}` : `✗ ${name}`,
+          description: ok ? `OK · ${j.data.lastDurationMs}ms` : (j.data.lastError || "fail"),
+          variant: ok ? "default" : "destructive",
+        });
+        refetch();
+      } else {
+        toast({ title: "Ошибка", description: j.error || "—", variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "Сетевая ошибка", description: String(e?.message || e), variant: "destructive" });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const testAll = async () => {
+    setBusy("__all__");
+    try {
+      const r = await apiRequest("POST", "/api/admin/v304/api-keys/test-all", {});
+      const j = await r.json();
+      if (j.data?.results) {
+        const fails = j.data.results.filter((x: any) => x.status === "fail").length;
+        toast({
+          title: fails > 0 ? `Завершено · ${fails} fail` : "Все ключи OK",
+          variant: fails > 0 ? "destructive" : "default",
+        });
+        refetch();
+      } else {
+        toast({ title: "Ошибка", description: j.error || "—", variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "Сетевая ошибка", description: String(e?.message || e), variant: "destructive" });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const copyReport = () => {
+    if (!data) return;
+    const lines: string[] = [
+      `API health report · ${data.checkedAt}`,
+      `Overall: ${data.overallStatus} · total=${data.totals.total} ok=${data.totals.ok} fail=${data.totals.fail} untested=${data.totals.untested}`,
+      "",
+    ];
+    for (const g of data.groups || []) {
+      lines.push(`=== ${g.category} ===`);
+      for (const k of g.keys) {
+        const dot = k.status === "ok" ? "🟢" : k.status === "fail" ? "🔴" : "⚪";
+        lines.push(`${dot} ${k.name} · ${k.configured ? `len=${k.length}` : "не задан"} · ${k.lastCheckedAt || "untested"}${k.lastError ? ` · ${k.lastError}` : ""}`);
+      }
+      lines.push("");
+    }
+    navigator.clipboard.writeText(lines.join("\n")).then(() => {
+      toast({ title: "📋 Отчёт скопирован" });
+    });
+  };
+
+  const overallColor = data?.overallStatus === "green"
+    ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/30"
+    : data?.overallStatus === "yellow"
+    ? "text-amber-400 bg-amber-500/10 border-amber-500/30"
+    : "text-red-400 bg-red-500/10 border-red-500/30";
+  const overallText = data?.overallStatus === "green"
+    ? "🟢 Все ключи работают"
+    : data?.overallStatus === "yellow"
+    ? "🟡 Есть непроверенные"
+    : data?.overallStatus === "red"
+    ? "🔴 Есть упавшие ключи"
+    : "—";
+
+  return (
+    <div className="space-y-4">
+      <div className="p-4 rounded-2xl border border-cyan-500/20 bg-gradient-to-br from-cyan-500/[0.04] via-emerald-500/[0.04] to-purple-500/[0.04]">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <h2 className="text-lg font-bold text-white">🔑 API ключи · health</h2>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={copyReport}
+              disabled={!data}
+              className="text-[11px] px-3 py-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.10] text-white/70 border border-white/[0.08] disabled:opacity-40"
+            >📋 Скопировать</button>
+            <button
+              onClick={testAll}
+              disabled={busy !== null}
+              className="text-[11px] px-3 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 disabled:opacity-40"
+            >{busy === "__all__" ? "⏳ Проверяю все…" : "▶ Проверить все"}</button>
+            <button
+              onClick={() => refetch()}
+              className="text-[11px] px-3 py-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.10] text-white/70 border border-white/[0.08]"
+            >↻ Обновить</button>
+          </div>
+        </div>
+        {data && (
+          <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm font-medium ${overallColor}`}>
+            {overallText}
+            <span className="text-[11px] opacity-70">· {data.totals?.ok}/{data.totals?.configured} ok</span>
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground mt-2">
+          Полная авто-проверка идёт ночью в 03:00 MSK. Здесь — manual «Проверить» для одного ключа или всех сразу.
+          При fail после ночной проверки приходит alert в Telegram админу.
+        </p>
+      </div>
+
+      {isLoading && <div className="text-xs text-white/40">Загружаю…</div>}
+
+      {data?.groups?.map((g: any) => (
+        <div key={g.category} className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
+          <h3 className="text-[15px] font-semibold text-white mb-3">{g.category}</h3>
+          <div className="space-y-2">
+            {g.keys.map((k: any) => {
+              const dotColor = k.status === "ok"
+                ? "bg-emerald-400"
+                : k.status === "fail"
+                ? "bg-red-500"
+                : "bg-white/30";
+              const dotRing = k.status === "ok"
+                ? "ring-emerald-400/40 shadow-emerald-400/50"
+                : k.status === "fail"
+                ? "ring-red-500/40 shadow-red-500/50"
+                : "ring-white/10";
+              return (
+                <div key={k.name} className="flex flex-wrap items-center gap-2 p-2.5 rounded-lg bg-white/[0.03] border border-white/[0.05]">
+                  <span className={`w-2.5 h-2.5 rounded-full ring-2 ${dotColor} ${dotRing} shadow-md`} title={k.status} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <code className={`text-[12px] font-mono px-2 py-0.5 rounded ${k.configured ? "bg-emerald-500/10 text-emerald-300" : "bg-red-500/10 text-red-300"}`}>
+                        {k.name}
+                      </code>
+                      <span className="text-[10px] text-white/40">{k.purpose}</span>
+                    </div>
+                    <div className="text-[10px] text-white/40 mt-0.5">
+                      {k.configured ? `len=${k.length}, first8=[${k.first8}]` : "не задан"}
+                      {k.lastCheckedAt && ` · последняя проверка: ${new Date(k.lastCheckedAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`}
+                      {typeof k.lastDurationMs === "number" && k.lastDurationMs > 0 && ` · ${k.lastDurationMs}ms`}
+                    </div>
+                    {k.lastError && (
+                      <div className="text-[10px] text-red-300/90 mt-1 px-2 py-1 rounded bg-red-500/[0.06] border border-red-500/20">
+                        {k.lastError}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => testOne(k.name)}
+                    disabled={busy !== null || !k.configured || k.kind === "config-only"}
+                    className="text-[11px] px-3 py-1.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 disabled:opacity-30 disabled:cursor-not-allowed"
+                    title={k.kind === "config-only" ? "Проверка только конфигурации (нет API)" : "Запустить реальный API call"}
+                  >
+                    {busy === k.name ? "⏳" : "Проверить"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ))}
+
+      <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] text-[11px] text-white/50">
+        💡 Зелёная лампочка наверху админки = все ключи живы. Жёлтая = есть untested (старее суток). Красная = хотя бы один упал.
+        Для ротации ключа — см. <code>CLAUDE.md</code> → «Key rotation pattern».
       </div>
     </div>
   );
