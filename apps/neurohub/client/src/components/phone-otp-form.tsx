@@ -98,10 +98,12 @@ export default function PhoneOtpForm({
     return () => clearTimeout(t);
   }, [cooldown]);
 
-  // Eugene 2026-05-15 Босс «авторизация по звонку» — polling. Юзер звонит,
-  // мы проверяем /check-call каждые 3 сек. Если verified=true → onVerified.
-  // Stop conditions: verified | expires | unmount | server error 410.
+  // Eugene 2026-05-16 Босс «reverse-callcheck — юзер сам звонит на наш номер,
+  // 120 сек до fallback на email». Polling /check-reverse-call каждые 3 сек.
+  // Stop conditions: verified | expires (120 сек) | unmount | server error 410.
+  // При expired показываем fallback-блок «Войти через email» (см. render ниже).
   const pollRef = useRef<number | null>(null);
+  const [callExpired, setCallExpired] = useState(false);
   useEffect(() => {
     if (step !== "code" || method !== "call") return;
     if (!callExpiresAt) return;
@@ -110,16 +112,17 @@ export default function PhoneOtpForm({
     const tick = async () => {
       if (cancelled) return;
       if (Date.now() > callExpiresAt) {
-        setError("Время ожидания истекло (5 мин). Запросите новый звонок.");
+        setCallExpired(true);
         return;
       }
       try {
-        const r = await apiRequest("POST", "/api/auth/sms/check-call", { phone, purpose });
+        const r = await apiRequest("POST", "/api/auth/sms/check-reverse-call", { phone, purpose });
         const j = await r.json();
         if (cancelled) return;
         if (j?.error) {
-          // 410 expired / 404 not found → стоп.
-          setError(j.error);
+          // 410 expired → переходим в expired-state (не показываем error,
+          // показываем fallback на email). 404 → тоже expired (запрос истёк).
+          setCallExpired(true);
           return;
         }
         if (j?.data?.verified === true && j?.data?.token) {
@@ -200,8 +203,10 @@ export default function PhoneOtpForm({
     // sms.ru его отклонил (callcheck не активирован / нет баланса /
     // временно недоступен) — автоматически fallback на SMS, чтобы юзер
     // всегда получил код. fallbackInfo пишем в state для UX.
+    // Eugene 2026-05-16: для call используем reverse-callcheck flow (юзер
+     // сам звонит на наш номер, 120 сек TTL + email-fallback после expiry).
     const tryEndpoint = async (m: OtpMethod) => {
-      const ep = m === "call" ? "/api/auth/sms/send-call" : "/api/auth/sms/send-otp";
+      const ep = m === "call" ? "/api/auth/sms/send-reverse-call" : "/api/auth/sms/send-otp";
       const r = await apiRequest("POST", ep, { phone, purpose });
       const j = await r.json();
       return { ok: r.ok && !j?.error, data: j?.data, error: j?.error, statusCode: r.status };
@@ -244,11 +249,22 @@ export default function PhoneOtpForm({
       setCountryHint(res.data?.countryName ? (used === "call" ? `Звонок в ${res.data.countryName}` : `Отправлено в ${res.data.countryName}`) : null);
       if (used === "call") {
         setCallHint(res.data?.hint || null);
-        setCallPhone(res.data?.callPhone || null);
-        setCallPhonePretty(res.data?.callPhonePretty || res.data?.callPhone || null);
-        // sms.ru даёт 5 минут на звонок. Считаем deadline для UI countdown.
-        setCallExpiresAt(Date.now() + (Number(res.data?.expiresInSec || 300) * 1000));
+        // Eugene 2026-05-16: reverse-callcheck возвращает dialNumber /
+        // dialNumberPretty. Старые callPhone / callPhonePretty оставлены как
+        // backward-compat если backend временно вернёт incoming-call payload.
+        setCallPhone(res.data?.dialNumber || res.data?.callPhone || null);
+        setCallPhonePretty(
+          res.data?.dialNumberPretty ||
+            res.data?.callPhonePretty ||
+            res.data?.dialNumber ||
+            res.data?.callPhone ||
+            null,
+        );
+        // Reverse-callcheck TTL 120 сек (backend REVERSE_CALL_TTL_SEC). После
+        // — UI показывает fallback на email-auth.
+        setCallExpiresAt(Date.now() + (Number(res.data?.expiresInSec || 120) * 1000));
         setCallPollAttempts(0);
+        setCallExpired(false);
       } else {
         setCallHint(fellBack
           ? "Звонок временно недоступен — мы прислали SMS с 6-значным кодом."
@@ -337,7 +353,7 @@ export default function PhoneOtpForm({
             autoFocus
           />
           <p className="text-[11px] text-muted-foreground">
-            РФ и страны СНГ. {method === "call" ? "На номер позвонят — отвечать не надо." : "На номер придёт SMS с 6-значным кодом."}
+            РФ и страны СНГ. {method === "call" ? "Вы тапнете по номеру — откроется звонок, нажмёте «Вызов» со своего телефона. Платить не надо." : "На номер придёт SMS с 6-значным кодом."}
           </p>
         </div>
 
@@ -379,7 +395,7 @@ export default function PhoneOtpForm({
         >
           {loading
             ? <Loader2 className="w-4 h-4 animate-spin" />
-            : (method === "call" ? "Получить звонок" : phoneSubmitLabel)}
+            : (method === "call" ? "Показать номер для звонка" : phoneSubmitLabel)}
         </Button>
       </div>
     );
@@ -410,16 +426,18 @@ export default function PhoneOtpForm({
     return (
       <div className="space-y-4">
         <p className="text-sm text-center text-muted-foreground">
-          Подтверждение по звонку с номера <span className="text-white font-medium">{phone}</span>
+          Звонок с номера <span className="text-white font-medium">{phone}</span>
           {countryHint && <span className="block text-[11px] mt-1 opacity-70">{countryHint}</span>}
         </p>
 
         {/* Eugene 2026-05-15 Босс «цвета в стили MuzaAi» — brand-gradient
             purple → violet → blue (фирменная гамма MuzaAi), вместо
-            emerald/cyan. БЕСПЛАТНЫЙ pill amber (контрастный akcent). */}
+            emerald/cyan. БЕСПЛАТНЫЙ pill amber (контрастный akcent).
+            Eugene 2026-05-16: tap-to-dial — номер крупный, кликабельный,
+            юзер тапает → открывается dialer → нажимает «Вызов». */}
         <div className="bg-gradient-to-br from-purple-500/15 via-violet-500/10 to-blue-500/15 border border-purple-400/40 rounded-xl p-4 text-center shadow-[0_0_24px_rgba(168,85,247,0.15)]">
           <p className="text-sm text-white font-medium mb-2">
-            📞 Позвоните на этот номер:
+            📞 Тапните номер и нажмите «Вызов»:
           </p>
           <a
             href={telHref}
@@ -432,7 +450,7 @@ export default function PhoneOtpForm({
             🆓 БЕСПЛАТНЫЙ
           </div>
           <p className="text-[11px] text-purple-200/80 mt-3">
-            Звонок сбросится автоматически. После этого вы войдёте в кабинет — никаких кодов вводить не надо.
+            Звонок сбросится автоматически — это бесплатно. Мы узнаем ваш номер по caller-id и впустим в кабинет. Кодов вводить не надо.
           </p>
           <div className="flex items-center justify-center gap-2 mt-3">
             <a
@@ -455,7 +473,7 @@ export default function PhoneOtpForm({
 
         <div className="text-center">
           <p className="text-[11px] text-muted-foreground">
-            Звоните… ждём подтверждение <span className="font-mono tabular-nums text-white/80">{mm}:{ss}</span>
+            Ждём ваш звонок… <span className="font-mono tabular-nums text-white/80">{mm}:{ss}</span>
           </p>
           <div className="flex justify-center mt-2">
             <Loader2 className="w-4 h-4 animate-spin text-purple-300" />
@@ -473,6 +491,7 @@ export default function PhoneOtpForm({
             onClick={() => {
               setStep("phone"); setError(null); setCallHint(null);
               setCallPhone(null); setCallPhonePretty(null); setCallExpiresAt(null);
+              setCallExpired(false);
             }}
             className="text-muted-foreground hover:text-white"
             disabled={loading}
