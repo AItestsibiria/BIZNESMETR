@@ -16,7 +16,7 @@ import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Loader2, Phone, PhoneCall, MessageSquare } from "lucide-react";
+import { Loader2, Phone, MessageSquare } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 
 export type OtpPurpose = "register" | "login" | "change_phone" | "change_email";
@@ -58,10 +58,19 @@ export default function PhoneOtpForm({
   phoneSubmitLabel = "Получить код",
   allowMethods,
 }: Props) {
-  // Дефолт: для register/login — выбор обоих, для change_* — только SMS.
+  // Eugene 2026-05-16 Босс «только звонок, SMS-toggle скрыть».
+  // Дефолт: для register/login — звонок (callcheck flashcall),
+  // для change_* — только SMS (callcheck backend не поддерживает change_*).
+  // SMS-код остаётся в файле как опциональный fallback после 2 провалов.
   const allowed: "sms" | "call" | "both" =
-    allowMethods || (purpose === "register" || purpose === "login" ? "both" : "sms");
-  const [method, setMethod] = useState<OtpMethod>(allowed === "call" ? "call" : "sms");
+    allowMethods || (purpose === "register" || purpose === "login" ? "call" : "sms");
+  const [method, setMethod] = useState<OtpMethod>(
+    allowed === "sms" ? "sms" : "call"
+  );
+  // Eugene 2026-05-16 Босс «после 2 неудачных попыток показать опциональную
+  // кнопку Попробовать SMS». Считаем по sendOtp-провалам метода call.
+  const [callFailures, setCallFailures] = useState(0);
+  const [showSmsFallback, setShowSmsFallback] = useState(false);
 
   const [step, setStep] = useState<"phone" | "code">("phone");
   const [phone, setPhone] = useState(initialPhone);
@@ -208,8 +217,19 @@ export default function PhoneOtpForm({
       }
       if (!res.ok) {
         setError(res.error || "Не удалось отправить код");
+        // Eugene 2026-05-16: считаем неудачные звонки чтобы после 2-й
+        // показать опциональный fallback на SMS.
+        if (method === "call") {
+          setCallFailures(f => {
+            const next = f + 1;
+            if (next >= 2) setShowSmsFallback(true);
+            return next;
+          });
+        }
         return;
       }
+      // Сбрасываем счётчик неудач после успешной отправки.
+      if (used === "call") setCallFailures(0);
       // Применяем фактически использованный метод (важно для doVerify).
       if (used !== method) setMethod(used);
       setCountryHint(res.data?.countryName ? (used === "call" ? `Звонок в ${res.data.countryName}` : `Отправлено в ${res.data.countryName}`) : null);
@@ -296,33 +316,28 @@ export default function PhoneOtpForm({
           </p>
         </div>
 
-        {/* Eugene 2026-05-15 Босс «авторизация по звонку».
-            Toggle между SMS / call methods — виден если allowed='both'. */}
-        {allowed === "both" && (
-          <div className="grid grid-cols-2 gap-2">
+        {/* Eugene 2026-05-16 Босс «скрыть SMS-toggle, только звонок».
+            Toggle между SMS / call скрыт — default = call. Если callcheck
+            упал 2+ раза → ниже появляется опциональная кнопка «Попробовать
+            SMS». Код SMS оставлен полностью рабочим на будущее. */}
+        {allowed === "both" && showSmsFallback && (
+          <div className="rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2 space-y-2">
+            <p className="text-[11px] text-amber-200">
+              Звонок не проходит? Можно попробовать SMS с 6-значным кодом.
+            </p>
             <button
               type="button"
-              onClick={() => setMethod("sms")}
-              className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border transition-colors text-sm ${
+              onClick={() => { setMethod("sms"); setError(null); }}
+              className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border transition-colors text-sm ${
                 method === "sms"
                   ? "border-purple-400/60 bg-purple-500/15 text-purple-100"
                   : "border-white/10 bg-white/[0.04] text-muted-foreground hover:text-white hover:bg-white/[0.07]"
               }`}
               disabled={loading}
+              data-testid="button-fallback-sms"
             >
-              <MessageSquare className="w-3.5 h-3.5" /> SMS-код
-            </button>
-            <button
-              type="button"
-              onClick={() => setMethod("call")}
-              className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border transition-colors text-sm ${
-                method === "call"
-                  ? "border-emerald-400/60 bg-emerald-500/15 text-emerald-100"
-                  : "border-white/10 bg-white/[0.04] text-muted-foreground hover:text-white hover:bg-white/[0.07]"
-              }`}
-              disabled={loading}
-            >
-              <PhoneCall className="w-3.5 h-3.5" /> Звонок
+              <MessageSquare className="w-3.5 h-3.5" />
+              {method === "sms" ? "SMS выбрано" : "Попробовать SMS"}
             </button>
           </div>
         )}
