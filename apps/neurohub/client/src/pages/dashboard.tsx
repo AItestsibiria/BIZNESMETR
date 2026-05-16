@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
 import { KaraokeLyrics } from "@/components/karaoke-lyrics";
+import { ExpandToggleButton } from "@/components/expand-toggle-button";
 import { setLockScreenTrack, setLockScreenPlaybackState } from "@/lib/lockscreen";
 import { muteBgMusic, unmuteBgMusic } from "@/components/background-music";
 
@@ -1018,6 +1019,10 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
   const [trackDuration, setTrackDuration] = useState(0);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const expandedIdRef = useRef<number | null>(null);
+  // Eugene 2026-05-16 Босс «кнопка раскрыть (expand) на плееры везде».
+  // coverExpanded — column-layout активного плеера: cover full-width сверху,
+  // controls под ним. False = row-layout (current default).
+  const [coverExpanded, setCoverExpanded] = useState(false);
   const [showKaraoke, setShowKaraoke] = useState(false);
   const [lyricsSpeed, setLyricsSpeed] = useState(0);
   const [repeatMode, setRepeatMode] = useState<"off" | "all" | "one">("all"); // off=stop at end, all=loop playlist, one=loop single track
@@ -1270,13 +1275,24 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
       {/* Player */}
       {current && (
         <div className="glass-card rounded-2xl p-5 mb-4 border border-white/[0.06]">
-          <div className="flex items-center gap-4">
+          {/* Eugene 2026-05-16 Босс «обложка большая, плеер вниз».
+              coverExpanded => column-flex c full-width cover на top, controls под. */}
+          <div className={`flex gap-4 ${coverExpanded ? "flex-col items-stretch" : "items-center"}`}>
             <div
-              className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl overflow-hidden shrink-0 bg-gradient-to-br from-purple-500/30 to-blue-500/30 relative flex items-center justify-center cursor-pointer shadow-lg shadow-purple-500/10"
+              className={`relative shrink-0 bg-gradient-to-br from-purple-500/30 to-blue-500/30 flex items-center justify-center cursor-pointer shadow-lg shadow-purple-500/10 overflow-hidden transition-all duration-300 ${
+                coverExpanded
+                  ? "w-full aspect-square rounded-2xl"
+                  : "w-20 h-20 sm:w-24 sm:h-24 rounded-xl"
+              }`}
               onClick={() => setExpandedId(expandedId === current.id ? null : current.id)}
             >
               <img src={getCoverUrl(current)} alt="" className="w-full h-full object-cover absolute inset-0 transition-all duration-500" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-              <Music className="w-8 h-8 text-white/10" />
+              <Music className={`text-white/10 ${coverExpanded ? "w-24 h-24" : "w-8 h-8"}`} />
+              <ExpandToggleButton
+                expanded={coverExpanded}
+                onToggle={() => setCoverExpanded(v => !v)}
+                className="absolute top-2 right-2 z-10"
+              />
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-base sm:text-lg font-bold text-white truncate">{current.prompt?.slice(0, 60)}</p>
