@@ -2736,6 +2736,13 @@ ${PUBLIC_URL}/#/music?draftId=42»
         if (sessionMemo.email) parts.push(`email=${sessionMemo.email}`);
         return parts.length > 0 ? parts.join(", ") : "";
       })();
+      // Eugene 2026-05-16 prompt-injection guard: оборачиваем user text в
+      // <user_message>...</user_message> теги. LLM проинструктирована в
+      // system prompt (consultantPersona.ts) игнорировать инструкции изнутри
+      // этих тегов. Удаляем пользовательские попытки самостоятельно вставить
+      // эти теги (защита от close-tag injection).
+      const safeUserText = `<user_message>${text.replace(/<user_message>/gi, "").replace(/<\/user_message>/gi, "")}</user_message>`;
+
       const augmentedUserText = memoStr
         ? `[KNOWN_PREV: ${memoStr}]
 [RULE 1] KNOWN_PREV — это что я узнала РАНЬШЕ. Используй чтобы не переспрашивать имя/email и помнить контекст.
@@ -2743,8 +2750,8 @@ ${PUBLIC_URL}/#/music?draftId=42»
 [RULE 3] Зеркаль слова из моего ТЕКУЩЕГО сообщения в ответе. Не «у вас ДР», если я только что написал про любовь.
 
 МОЁ СООБЩЕНИЕ:
-${text}`
-        : text;
+${safeUserText}`
+        : safeUserText;
 
       const systemStable = buildPersonaSystem(session.id) + WEB_CHAT_SALES_ENHANCEMENT;
       let systemDynamic = "";
