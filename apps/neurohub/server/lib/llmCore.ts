@@ -103,6 +103,10 @@ export function getLLMKeyStatus(name: string) {
   return llmKeyStatus.get(name);
 }
 
+export function setLLMKeyStatus(name: string, status: { lastUsedAt: string; lastStatus: number | "timeout" | "error"; lastErrorMsg?: string }) {
+  llmKeyStatus.set(name, status);
+}
+
 export function getKeySwitchEvents(): KeySwitchEvent[] {
   return [...keySwitchEvents];
 }
@@ -121,6 +125,118 @@ export function listAnthropicKeys(): LLMKeyAttempt[] {
   push("ANTHROPIC_API_KEY_BACKUP", process.env.ANTHROPIC_API_KEY_BACKUP);
   push("ANTHROPIC_API_KEY_BOT", process.env.ANTHROPIC_API_KEY_BOT);
   return out;
+}
+
+// === TimeWeb Gateway — основной резерв после Anthropic ===
+// Eugene 2026-05-16 Босс «TimeWeb как основной резерв». OpenAI-compatible
+// gateway: пробуем несколько вариантов endpoint'а (документация была недоступна
+// при первичной интеграции — auto-discovery в runtime). Первый рабочий
+// кэшируется в TIMEWEB_GATEWAY_URL_CACHE на время процесса.
+
+const TIMEWEB_ENDPOINT_CANDIDATES = [
+  "https://gateway.timeweb.cloud/v1/chat/completions",
+  "https://api.gateway.timeweb.cloud/v1/chat/completions",
+  "https://api.timeweb.cloud/v1/cloud-ai/chat/completions",
+  "https://ai.timeweb.cloud/v1/chat/completions",
+];
+
+let TIMEWEB_GATEWAY_URL_CACHE: string | null = null;
+
+export function getTimeWebGatewayUrl(): string {
+  // Явный override через env (когда узнаем точный URL — пишем в .env)
+  const fromEnv = process.env.TIMEWEB_GATEWAY_URL;
+  if (fromEnv) return fromEnv;
+  if (TIMEWEB_GATEWAY_URL_CACHE) return TIMEWEB_GATEWAY_URL_CACHE;
+  // Дефолт — первый кандидат. Async discovery (detectTimeWebEndpoint)
+  // обновляет cache при первом успешном ответе.
+  return TIMEWEB_ENDPOINT_CANDIDATES[0];
+}
+
+export function listTimeWebEndpointCandidates(): string[] {
+  return [...TIMEWEB_ENDPOINT_CANDIDATES];
+}
+
+/**
+ * Делает запрос к TimeWeb Gateway (OpenAI-compatible). Перебирает endpoint'ы
+ * пока не найдёт рабочий (если URL_CACHE пуст). Возвращает text-ответ или null.
+ */
+export async function callTimeWebGateway(opts: {
+  systemPrompt: string;
+  history: Array<{ role: "user" | "assistant"; content: string }>;
+  userText: string;
+  maxTokens: number;
+  model: string;
+}): Promise<{ text: string | null; usage: any; endpoint: string | null }> {
+  const key = process.env.TIMEWEB_GATEWAY_KEY;
+  if (!key) return { text: null, usage: null, endpoint: null };
+
+  // OpenAI-compatible messages
+  const messages: any[] = [
+    { role: "system", content: opts.systemPrompt },
+    ...opts.history.slice(-15).map(h => ({ role: h.role, content: h.content })),
+    { role: "user", content: opts.userText },
+  ];
+
+  const body = JSON.stringify({
+    model: opts.model,
+    messages,
+    max_tokens: opts.maxTokens,
+  });
+
+  const endpoints = TIMEWEB_GATEWAY_URL_CACHE
+    ? [TIMEWEB_GATEWAY_URL_CACHE]
+    : (process.env.TIMEWEB_GATEWAY_URL ? [process.env.TIMEWEB_GATEWAY_URL] : TIMEWEB_ENDPOINT_CANDIDATES);
+
+  for (const url of endpoints) {
+    try {
+      const r = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${key}`,
+          "Content-Type": "application/json",
+        },
+        body,
+        signal: AbortSignal.timeout(20_000),
+      });
+      llmKeyStatus.set("TIMEWEB_GATEWAY_KEY", {
+        lastUsedAt: new Date().toISOString(),
+        lastStatus: r.status,
+      });
+      if (!r.ok) {
+        const errText = await r.text().catch(() => "");
+        llmKeyStatus.set("TIMEWEB_GATEWAY_KEY", {
+          lastUsedAt: new Date().toISOString(),
+          lastStatus: r.status,
+          lastErrorMsg: errText.slice(0, 200),
+        });
+        console.warn(`[TIMEWEB-LLM] ${url} → ${r.status}, пробую следующий endpoint`);
+        // 404 — endpoint не тот, пробуем следующий. Остальные коды (401/429/500)
+        // могут быть валидны для этого endpoint — но всё равно пробуем дальше
+        // если cache пуст; если cache закреплён — выходим с null.
+        if (TIMEWEB_GATEWAY_URL_CACHE) break;
+        continue;
+      }
+      const j: any = await r.json();
+      // Закрепляем рабочий endpoint
+      if (!TIMEWEB_GATEWAY_URL_CACHE) {
+        TIMEWEB_GATEWAY_URL_CACHE = url;
+        console.log(`[TIMEWEB-LLM] закрепил рабочий endpoint: ${url}`);
+      }
+      // OpenAI-compatible: { choices: [{ message: { content: "..." } }], usage: { prompt_tokens, completion_tokens } }
+      const text = j?.choices?.[0]?.message?.content;
+      return { text: typeof text === "string" ? text.slice(0, 2000) : null, usage: j?.usage || null, endpoint: url };
+    } catch (e: any) {
+      const msg = e?.name === "AbortError" ? "timeout" : String(e?.message || e).slice(0, 200);
+      llmKeyStatus.set("TIMEWEB_GATEWAY_KEY", {
+        lastUsedAt: new Date().toISOString(),
+        lastStatus: e?.name === "AbortError" ? "timeout" : "error",
+        lastErrorMsg: msg,
+      });
+      console.warn(`[TIMEWEB-LLM] ${url} error: ${msg}, пробую следующий endpoint`);
+      if (TIMEWEB_GATEWAY_URL_CACHE) break;
+    }
+  }
+  return { text: null, usage: null, endpoint: null };
 }
 
 // === Telegram-alert при смене ключа (опц.) ===
@@ -327,6 +443,45 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
         status: e?.name === "AbortError" ? "timeout" : "error",
         reason: msg,
       };
+    }
+  }
+
+  // === TimeWeb Gateway fallback (Eugene 2026-05-16 «основной резерв») ===
+  // Все Anthropic-ключи упали — пробуем TimeWeb. Без MUZA_TOOLS (gateway
+  // обычно не поддерживает Anthropic-tools); возвращаем чистый text.
+  if (process.env.TIMEWEB_GATEWAY_KEY) {
+    try {
+      // OpenAI-compatible system — сворачиваем cache-blocks в один string.
+      const sysText = systemBlocks.map(b => (typeof b === "string" ? b : (b?.text || ""))).join("\n\n");
+      const tw = await callTimeWebGateway({
+        systemPrompt: sysText,
+        history: history.slice(-15),
+        userText: safeUserText,
+        maxTokens,
+        model: process.env.TIMEWEB_GATEWAY_MODEL || "gpt-4o-mini",
+      });
+      if (tw.usage) {
+        // OpenAI-формат: prompt_tokens / completion_tokens
+        muzaTokenStats.inputTokens += Number(tw.usage.prompt_tokens || 0);
+        muzaTokenStats.outputTokens += Number(tw.usage.completion_tokens || 0);
+        muzaTokenStats.callsCount += 1;
+      }
+      if (tw.text && tw.text.length > 0) {
+        // Уведомим админа — все Claude-ключи упали, перешли на TimeWeb.
+        if (prevFailed) {
+          notifyAdminKeySwitch({
+            at: new Date().toISOString(),
+            provider: "Anthropic → TimeWeb fallback",
+            from: prevFailed.name,
+            fromStatus: prevFailed.status,
+            to: "TIMEWEB_GATEWAY_KEY",
+            reason: `все Claude-ключи упали, TimeWeb endpoint=${tw.endpoint}`,
+          }).catch(() => {});
+        }
+        return tw.text;
+      }
+    } catch (e: any) {
+      console.warn("[MUZA-LLM] TimeWeb fallback error:", String(e?.message || e));
     }
   }
   return null;
