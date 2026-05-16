@@ -3,7 +3,13 @@
 // Refactored: persona + KB + prompt → shared lib (lib/consultantPersona).
 import { Router } from "express";
 import type { BootContext, Module } from "../../core";
+import { eq } from "drizzle-orm";
+import { db } from "../../storage";
+import { chatbotSessions, chatbotMessages } from "@shared/schema";
+import { randomUUID } from "node:crypto";
 import { personaFor, buildPersonaSystem } from "../../lib/consultantPersona";
+import { callUnifiedMuzaLLM } from "../../lib/llmCore";
+import { loadHistoryForLLM } from "../../lib/chatHistory";
 import { logUserActionFailure } from "../../lib/userActionFailures";
 
 const MAX_API = "https://platform-api.max.ru";
@@ -82,34 +88,25 @@ async function sendConsultantPhoto(chatId: string, caption: string) {
   }
 }
 
-async function tryClaude(sys: string, text: string): Promise<string | null> {
-  const key = process.env.ANTHROPIC_API_KEY_BOT || process.env.ANTHROPIC_API_KEY || "";
-  if (!key) return null;
-  try {
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-beta": "extended-cache-ttl-2025-04-11", "content-type": "application/json" },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 130,
-        system: [{ type: "text", text: sys, cache_control: { type: "ephemeral", ttl: "1h" } }],
-        messages: [{ role: "user", content: text }],
-      }),
-      signal: AbortSignal.timeout(8_000),
-    });
-    if (!r.ok) return null;
-    const j: any = await r.json();
-    return j?.content?.[0]?.text?.slice(0, 3500) || null;
-  } catch { return null; }
-}
-async function tryGPTunnel(sys: string, text: string): Promise<string | null> {
+// Eugene 2026-05-16 Босс «один мозг для всех каналов» — Max-bot теперь
+// идёт через единственную точку callUnifiedMuzaLLM (lib/llmCore.ts).
+// Раньше у max-bot был свой одноразовый tryClaude БЕЗ history и БЕЗ
+// MUZA_TOOLS. Теперь персистентная сессия + tools + cross-channel history.
+
+// GPTunnel-fallback (gpt-4o-mini без tools) сохранён как последний резерв.
+async function tryGPTunnelFallback(sys: string, text: string, history: Array<{ role: string; content: string }>): Promise<string | null> {
   const key = process.env.GPTUNNEL_API_KEY || "";
   if (!key) return null;
   try {
+    const msgs = [
+      { role: "system", content: sys },
+      ...history.slice(-10).map(m => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
+      { role: "user", content: text },
+    ];
     const r = await fetch("https://gptunnel.ru/v1/chat/completions", {
       method: "POST",
       headers: { Authorization: key, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "gpt-4o-mini", max_tokens: 400, messages: [{ role: "system", content: sys }, { role: "user", content: text }] }),
+      body: JSON.stringify({ model: "gpt-4o-mini", max_tokens: 400, messages: msgs }),
       signal: AbortSignal.timeout(15_000),
     });
     if (!r.ok) return null;
@@ -117,17 +114,64 @@ async function tryGPTunnel(sys: string, text: string): Promise<string | null> {
     return j?.choices?.[0]?.message?.content?.slice(0, 3500) || null;
   } catch { return null; }
 }
-async function generateReply(userKey: string, text: string): Promise<string> {
+
+// Сессия / история по chatId (Max external_id).
+function findOrCreateMaxSession(chatId: string, userKey: string): { sessionId: string; userId: number | null } {
+  try {
+    const row = db.select().from(chatbotSessions).where(eq(chatbotSessions.externalId, chatId)).get() as any;
+    if (row?.id) return { sessionId: row.id, userId: row.userId ?? null };
+  } catch {}
+  const sessionId = randomUUID();
+  try {
+    const lockedPersona = personaFor(userKey).name;
+    db.insert(chatbotSessions).values({
+      id: sessionId,
+      channel: "max",
+      externalId: chatId,
+      state: "active",
+      personaName: lockedPersona,
+      startedAt: new Date().toISOString(),
+      lastMessageAt: new Date().toISOString(),
+    }).run();
+  } catch {}
+  return { sessionId, userId: null };
+}
+
+function saveMaxMessage(sessionId: string, role: "user" | "bot", text: string): void {
+  try {
+    db.insert(chatbotMessages).values({
+      sessionId,
+      role,
+      text: text.slice(0, 3900),
+      createdAt: new Date().toISOString(),
+    }).run();
+  } catch {}
+}
+
+async function generateReply(sessionId: string, userKey: string, text: string, authUserId: number | null): Promise<string> {
+  // 1. Primary: единый Claude-call через llmCore (с MUZA_TOOLS + cross-channel history).
+  const history = loadHistoryForLLM(sessionId, 15);
+  const reply = await callUnifiedMuzaLLM({
+    sessionId,
+    userId: authUserId,
+    channel: "max",
+    userText: text,
+    history,
+    maxTokens: 400,
+  });
+  if (reply) return reply;
+
+  // 2. Backup: GPTunnel (без tools).
   const sys = buildPersonaSystem(userKey);
-  const c = await tryClaude(sys, text);
-  if (c) return c;
-  const o = await tryGPTunnel(sys, text);
+  const o = await tryGPTunnelFallback(sys, text, history);
   if (o) return o;
+
+  // 3. Все упали → hardcoded fallback + register failure.
   logUserActionFailure({
     channel: "max",
     action: "chat-reply",
     errorCode: "llm_both_failed",
-    errorMessage: "Claude + GPTunnel оба не ответили — отдан hardcoded fallback",
+    errorMessage: "Anthropic + GPTunnel оба не ответили — отдан hardcoded fallback",
     context: { userKey: String(userKey).slice(0, 32), textPreview: text.slice(0, 100) },
   });
   return `Здравствуйте! Я — Муза 🎵 Чуть-чуть тормозит — попробуйте через минуту.`;
@@ -151,18 +195,23 @@ router.post("/webhook", async (req, res) => {
       return;
     }
     const p = personaFor(fromId);
+    const { sessionId, userId: authUserId } = findOrCreateMaxSession(chatId, fromId);
     if (text === "/start") {
       const hello = `${p.avatar} Привет! Я — Муза. Помогу подобрать песню под событие — для какого случая думаете?`;
+      saveMaxMessage(sessionId, "user", text);
       await sendConsultantPhoto(chatId, hello);
+      saveMaxMessage(sessionId, "bot", hello);
       return;
     }
-    const reply = await generateReply(fromId, text);
+    saveMaxMessage(sessionId, "user", text);
+    const reply = await generateReply(sessionId, fromId, text, authUserId);
     const cleanReply = reply.replace(/\s*[—\-–]+\s*(Муза|Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*(MuzaAi|MuzaAi))?\s*\.?\s*$/i, "").trimEnd();
     const footer = `\n\n— Муза · MuzaAi`;
     const replyWithAvatar = `${p.avatar} ${cleanReply}${footer}`;
     // Eugene 2026-05-12 (Босс «100%»): sendPhoto только на /start.
     // На остальных reply'ях текст с emoji-аватаром + footer.
     await sendMessage(chatId, replyWithAvatar);
+    saveMaxMessage(sessionId, "bot", replyWithAvatar);
   } catch (e) {
     bootRefs?.logger.error?.("[max-bot] webhook error", { error: String(e) });
     logUserActionFailure({
