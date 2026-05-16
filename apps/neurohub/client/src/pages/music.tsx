@@ -1633,22 +1633,132 @@ export default function MusicPage() {
                 />
               </div>
 
+              {/* Eugene 2026-05-16: «Количество треков» 1-5 — явный выбор Босса.
+                  При увеличении N — авто-добавляются стили из styles[] не выбранные ранее.
+                  При уменьшении — отрезаются хвостовые. Совместимо со старым selectedStyles. */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <Label className="text-sm text-muted-foreground">Количество треков за один запуск</Label>
+                  <span className="text-xs text-purple-300 font-medium" data-testid="track-count-label">
+                    {selectedStyles.length} из 5 · {selectedStyles.length * 299} ₽
+                  </span>
+                </div>
+                <div className="grid grid-cols-5 gap-1.5" data-testid="track-count-picker">
+                  {[1,2,3,4,5].map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      className={`h-11 rounded-lg border text-sm font-semibold transition-all hardware-button ${
+                        selectedStyles.length === n
+                          ? "border-purple-400/60 bg-gradient-to-br from-purple-500/30 to-blue-500/20 text-white shadow-lg shadow-purple-500/30 scale-[1.03]"
+                          : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20"
+                      }`}
+                      onClick={() => {
+                        setHighlightStyles(false);
+                        setSelectedStyles(prev => {
+                          if (n <= prev.length) {
+                            // Уменьшаем — отрезаем хвост, оставляем минимум 1.
+                            const next = prev.slice(0, Math.max(1, n));
+                            if (next[0]) setStyle(next[0]);
+                            return next;
+                          }
+                          // Увеличиваем — добавляем стили которых ещё нет в prev.
+                          const next = [...prev];
+                          for (const s of styles) {
+                            if (next.length >= n) break;
+                            if (!next.includes(s.value)) next.push(s.value);
+                          }
+                          if (next[0]) setStyle(next[0]);
+                          return next;
+                        });
+                      }}
+                      data-testid={`btn-track-count-${n}`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+                {selectedStyles.length > 1 && (
+                  <p className="text-[11px] text-amber-300/90 flex items-center gap-1.5">
+                    <span className="text-amber-400">⚡</span>
+                    Каждый трек — свой стиль из выбранных ниже. Можно скорректировать вручную.
+                  </p>
+                )}
+              </div>
+
+              {/* Per-track аккордеон параметров (Eugene 2026-05-16): когда N > 1,
+                  Босс видит какой стиль приклеен к каждому треку и может заменить. */}
+              {selectedStyles.length > 1 && (
+                <div className="space-y-1.5 p-2.5 rounded-xl border border-white/[0.06] bg-white/[0.02]" data-testid="per-track-params">
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <p className="text-[11px] text-muted-foreground font-medium">Параметры по трекам:</p>
+                    <button
+                      type="button"
+                      className="text-[10px] px-2 py-0.5 rounded bg-purple-500/10 text-purple-300 hover:bg-purple-500/20 transition-colors"
+                      onClick={() => {
+                        // Скопировать стиль трека 1 на все остальные позиции.
+                        const first = selectedStyles[0];
+                        const next = selectedStyles.map(() => first);
+                        // Уникализируем — если все одинаковые, Suno вернёт почти идентичные.
+                        // Босс хочет именно копию — оставляем как есть.
+                        setSelectedStyles(next);
+                        toast({ title: "Стиль трека 1 применён ко всем", description: "Все треки получат одинаковые параметры." });
+                      }}
+                      data-testid="btn-copy-to-all-tracks"
+                    >
+                      📋 Копировать настройки трека 1 → все
+                    </button>
+                  </div>
+                  {selectedStyles.map((sv, idx) => {
+                    const s = styles.find(x => x.value === sv);
+                    return (
+                      <div key={`${idx}-${sv}`} className="flex items-center gap-2 text-xs px-2 py-1.5 rounded bg-white/[0.03]">
+                        <span className="w-6 text-center font-bold text-purple-300 shrink-0">#{idx + 1}</span>
+                        <select
+                          value={sv}
+                          onChange={(e) => {
+                            const newVal = e.target.value;
+                            setSelectedStyles(prev => {
+                              const next = [...prev];
+                              next[idx] = newVal;
+                              if (idx === 0) setStyle(newVal);
+                              return next;
+                            });
+                          }}
+                          className="flex-1 px-2 py-1 rounded bg-background/50 border border-white/10 text-xs"
+                          data-testid={`select-track-style-${idx}`}
+                        >
+                          {styles.map(opt => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
+                        </select>
+                        <span className="text-[10px] text-muted-foreground/70 hidden sm:inline truncate max-w-[40%]">{s?.desc}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Мульти-стили */}
+                {/* Мульти-стили — добавляет/убирает в общий пул. Cap 5. */}
                 <div className="space-y-2">
-                  <Label className="text-sm text-muted-foreground">Стили <span className="text-white/40">(можно выбрать несколько)</span></Label>
+                  <Label className="text-sm text-muted-foreground">Стили <span className="text-white/40">(до 5, кликом добавить/убрать)</span></Label>
                   <div className="flex flex-wrap gap-2" data-testid="select-music-style">
                     {styles.map((s) => {
                       const isUsed = usedStyles.includes(s.value);
                       const isChecked = selectedStyles.includes(s.value);
                       const isNew = highlightStyles && !isUsed;
+                      const reachedMax = !isChecked && selectedStyles.length >= 5;
                       return (
                         <button
                           key={s.value}
                           type="button"
+                          disabled={reachedMax}
                           className={`text-xs px-3 py-1.5 rounded-lg border transition-all flex items-center gap-1.5 ${
                             isChecked
                               ? "border-purple-500 bg-purple-500/20 text-purple-300"
+                              : reachedMax
+                              ? "border-white/5 bg-white/[0.02] text-muted-foreground/30 cursor-not-allowed"
                               : isNew
                               ? "border-green-500/50 bg-green-500/10 text-green-300 animate-pulse"
                               : isUsed
@@ -1664,6 +1774,8 @@ export default function MusicPage() {
                                 setStyle(next[0]);
                                 return next;
                               } else {
+                                // Eugene 2026-05-16: cap на 5 треков.
+                                if (prev.length >= 5) return prev;
                                 setStyle(s.value);
                                 return [...prev, s.value];
                               }
@@ -1681,15 +1793,6 @@ export default function MusicPage() {
                       );
                     })}
                   </div>
-                  {selectedStyles.length > 1 && (
-                    <div className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                      <span className="text-amber-400 text-xs">⚡</span>
-                      <p className="text-xs text-amber-300/90">
-                        Будет создано <strong>{selectedStyles.length} {selectedStyles.length <= 4 ? "трека" : "треков"}</strong> в разных стилях.
-                        Стоимость: <strong>{selectedStyles.length * 299} ₽</strong>
-                      </p>
-                    </div>
-                  )}
                 </div>
 
                 {/* Правая колонка */}
