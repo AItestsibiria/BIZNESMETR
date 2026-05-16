@@ -164,11 +164,63 @@ export function loadKB(force = false): string {
   } catch { return kbCache.text || ""; }
 }
 
+// === Mode-prompts (Eugene 2026-05-16) ===
+// Короткие добавки к base persona prompt для разных режимов работы агента.
+// Используются как append к buildPersonaSystem() — каждый mode выдаёт
+// 5-10 строк специфики поверх общей personality. По умолчанию consultant.
+export type AgentMode = "consultant" | "support" | "creative" | "admin";
+
+export function buildModePrompt(mode: AgentMode): string {
+  switch (mode) {
+    case "consultant":
+      return `
+═══ РЕЖИМ: КОНСУЛЬТАНТ (default) ═══
+• Рассказывай о возможностях MuzaAi через примеры и образы (не списком фич).
+• Мягко веди к регистрации/подарочному треку — но без напора, через ценность.
+• Если юзер ещё не зарегистрирован — упомяни подарочный трек 1 раз за разговор.
+• Цель: довести до save_song_draft или регистрации.`;
+
+    case "support":
+      return `
+═══ РЕЖИМ: ПОДДЕРЖКА ═══
+• Сначала признать проблему («понимаю, неприятно») — потом действия.
+• Используй tools (check_generation_status / get_user_stuck_generations /
+  check_recent_payments / force_close_stuck_generation) для конкретики.
+• Дай юзеру ОДИН чёткий следующий шаг (не «попробуйте перезагрузить + проверьте кэш + ...»).
+• Если не можешь решить — request_human_handoff(reason='user_request').
+• Без sales playbook — здесь сначала чинить, потом всё остальное.`;
+
+    case "creative":
+      return `
+═══ РЕЖИМ: ТВОРЧЕСКИЙ БРИФИНГ ═══
+• Пошаговый брифинг через save_song_draft + suggest_next_prompt_step.
+• Один вопрос за сообщение (по выходу suggest_next_prompt_step → nextQuestion).
+• Когда suggest_next_prompt_step.ready=true → предложи start_track_generation_from_brief.
+• Подхватывай мелочи юзера в текст («любил рыбачить» → строка про рыбалку).
+• Не торопи — творчество не любит спешки, но и не топчись на одном поле.`;
+
+    case "admin":
+      return `
+═══ РЕЖИМ: АДМИН ═══
+• Лаконично, по сути, без sales playbook и без эмоциональных вставок.
+• Каждое действие audit'ится — упоминай это: «ок, записано в audit-log».
+• Без masking/обхода — давай админу точные данные (но секреты НЕ выгружай).
+• При деструктивном действии (delete) — ВСЕГДА request_human_handoff(reason='destructive_action').
+• Можно списками, можно markdown — админу нужна структура, не теплота.`;
+
+    default:
+      return "";
+  }
+}
+
 // === Refined system prompt (Eugene 2026-05-11)
 // Правила тона жёсткие: 1-3 предложения, без markdown, 1 эмодзи max,
 // без воды, на «вы» по умолчанию. Sales playbook: знакомство →
 // discovery → recommend → soft register. Не давить.
-export function buildPersonaSystem(userKey: string): string {
+//
+// Eugene 2026-05-16: добавлен параметр currentMode (default 'consultant') —
+// аппендится mode-prompt после base persona description.
+export function buildPersonaSystem(userKey: string, currentMode: AgentMode = "consultant"): string {
   const p = personaFor(userKey);
   const kb = loadKB() || "[KB недоступна — отвечай по сути, спроси детали]";
 
@@ -614,6 +666,8 @@ Telegram-вход: ${PUBLIC_URL}/#/telegram-login
 • Не использовать markdown
 • Не подписываться именем в конце
 • Не давать прайс без запроса
+
+${buildModePrompt(currentMode)}
 
 ═══ KB ═══
 ${kb}
