@@ -1117,6 +1117,32 @@ router.post("/generate-anthem", requireAdmin, async (req, res) => {
 });
 
 // =============================================================
+// cleanupScheduledDeletes — каждый час переводит generations.scheduled_delete_at
+// <= now в soft-delete (deleted_at = now, scheduled_delete_at = null). Это
+// финальная стадия flow «🗑 Удалить через N дней» из дашборда (см. routes.ts
+// /api/generations/:id/schedule-delete + CLAUDE.md scheduled-delete-on-error).
+// Soft-delete reversible через /api/generations/:id/restore, поэтому
+// confirmation автором не нужен.
+export function cleanupScheduledDeletes(): { swept: number } {
+  let swept = 0;
+  try {
+    const r = db.run(sql`UPDATE generations
+      SET deleted_at = datetime('now'),
+          scheduled_delete_at = NULL,
+          is_public = 0
+      WHERE scheduled_delete_at IS NOT NULL
+        AND scheduled_delete_at <= datetime('now')
+        AND deleted_at IS NULL`);
+    swept = r.changes ?? 0;
+  } catch (e) {
+    console.error("[CLEANUP-SCHEDULED-DELETE] failed:", e);
+  }
+  if (swept > 0) {
+    console.log(`\x1b[33m[CLEANUP-SCHEDULED-DELETE]\x1b[0m swept=${swept}`);
+  }
+  return { swept };
+}
+
 // cleanupStaleProcessing — БЕСПЛАТНАЯ зачистка stuck 'processing' записей.
 // НЕ вызывает Suno/GPTunnel — только SQL update.
 // Eugene 2026-05-14 Босс «реши системно»: 2 трека висели 2 дня в processing.
@@ -2094,6 +2120,16 @@ const adminOverviewModule: Module = {
         try { cleanupStaleProcessing(); } catch (e) { console.error("[CLEANUP-STALE job]", e); }
       },
     },
+    // Eugene 2026-05-16: scheduled-delete sweep — каждый час переводит
+    // generations с scheduled_delete_at <= now в soft-delete. Соответствует
+    // dropdown «🗑 Удалить через 1/7/15/30 дней» на errored карточках.
+    {
+      name: "cleanup-scheduled-deletes",
+      schedule: "every_hour",
+      handler: async () => {
+        try { cleanupScheduledDeletes(); } catch (e) { console.error("[CLEANUP-SCHEDULED-DELETE job]", e); }
+      },
+    },
   ],
   onLoad: async (ctx) => {
     // Eugene 2026-05-14 Босс: при старте — одноразовая зачистка зависших.
@@ -2105,6 +2141,16 @@ const adminOverviewModule: Module = {
       }
     } catch (e) {
       ctx.logger.error("startup cleanup failed", { error: e });
+    }
+    // Eugene 2026-05-16: одноразовая зачистка scheduled-delete на старте
+    // (на случай если сервер был выключен в момент cutoff).
+    try {
+      const r = cleanupScheduledDeletes();
+      if (r.swept > 0) {
+        ctx.logger.info(`startup scheduled-delete sweep: swept=${r.swept}`);
+      }
+    } catch (e) {
+      ctx.logger.error("startup scheduled-delete sweep failed", { error: e });
     }
     ctx.logger.info("admin-overview online — GET /api/admin/v304/overview (auto-cleanup stuck every 5 min, Suno-poll manual)");
   },

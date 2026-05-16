@@ -7238,6 +7238,65 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     res.json({ ok: true });
   });
 
+  // Eugene 2026-05-16: scheduled-delete для errored треков. Юзер выбирает
+  // «удалить через 1/7/15/30 дней» — пишем cutoff в scheduled_delete_at.
+  // Cron в admin-overview (cleanupScheduledDeletes, каждый час) переводит
+  // в soft-delete когда cutoff <= now. До этого момента — отмена записью
+  // null. Не требует email-confirmation (admin-everything-except-delete:
+  // soft-delete reversible через /restore).
+  app.post("/api/generations/:id/schedule-delete", authMiddleware, (req: Request, res: Response) => {
+    const userId = (req as any).userId;
+    const genId = parseInt(req.params.id);
+    if (!Number.isFinite(genId)) {
+      res.status(400).json({ ok: false, message: "Некорректный id" });
+      return;
+    }
+    const allowedDays = [1, 7, 15, 30];
+    const rawDays = Number((req.body || {}).deleteAfterDays);
+    if (!allowedDays.includes(rawDays)) {
+      res.status(400).json({ ok: false, message: "deleteAfterDays: 1, 7, 15 или 30" });
+      return;
+    }
+    const gen = db.select().from(generations).where(eq(generations.id, genId)).get();
+    if (!gen) {
+      res.status(404).json({ ok: false, message: "Не найдено" });
+      return;
+    }
+    const user = storage.getUser(userId);
+    const isAdmin = !!user && user.email === "egnovoselov@gmail.com";
+    if (gen.userId !== userId && !isAdmin) {
+      res.status(403).json({ ok: false, message: "Нет доступа" });
+      return;
+    }
+    const cutoff = new Date(Date.now() + rawDays * 24 * 60 * 60 * 1000).toISOString();
+    db.update(generations).set({ scheduledDeleteAt: cutoff }).where(eq(generations.id, genId)).run();
+    console.log(`[SCHEDULE-DELETE] gen #${genId} → ${cutoff} (in ${rawDays}d) by user #${userId}`);
+    res.json({ ok: true, scheduledDeleteAt: cutoff, deleteAfterDays: rawDays });
+  });
+
+  // Cancel scheduled delete (kept in same auth scope).
+  app.post("/api/generations/:id/schedule-delete/cancel", authMiddleware, (req: Request, res: Response) => {
+    const userId = (req as any).userId;
+    const genId = parseInt(req.params.id);
+    if (!Number.isFinite(genId)) {
+      res.status(400).json({ ok: false, message: "Некорректный id" });
+      return;
+    }
+    const gen = db.select().from(generations).where(eq(generations.id, genId)).get();
+    if (!gen) {
+      res.status(404).json({ ok: false, message: "Не найдено" });
+      return;
+    }
+    const user = storage.getUser(userId);
+    const isAdmin = !!user && user.email === "egnovoselov@gmail.com";
+    if (gen.userId !== userId && !isAdmin) {
+      res.status(403).json({ ok: false, message: "Нет доступа" });
+      return;
+    }
+    db.update(generations).set({ scheduledDeleteAt: null }).where(eq(generations.id, genId)).run();
+    res.json({ ok: true });
+  });
+
   // Delete generation: email link confirmation (only author can delete their own)
   // Step 1: request deletion → sends confirmation LINK to author's email
   const pendingDeletes = new Map<string, { genId: number; userId: number; token: string; expires: number }>();
