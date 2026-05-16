@@ -1223,15 +1223,14 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         {/* Big player — full-width, visible details */}
         {currentTrack && (
           <div className="glass-card rounded-2xl p-5 mb-6 border border-white/[0.06]">
-            <div className={`flex gap-4 ${coverExpanded ? "flex-col items-stretch" : "items-center"}`}>
-              {/* Cover — small in row-layout, full-width в expanded.
-                  Eugene 2026-05-16 Босс «обложка занимает всю ширину
-                  контейнера, плеер уходит вниз под раскрытой обложкой». */}
+            {/* Eugene 2026-05-16: expand работает только на desktop (md+).
+                На mobile — всегда compact row-layout (как было до introducing
+                expand button). Кнопка ExpandToggleButton также скрыта на
+                mobile через `hidden md:flex` в её className. */}
+            <div className={`flex gap-4 items-center ${coverExpanded ? "md:flex-col md:items-stretch" : ""}`}>
               <div
-                className={`relative shrink-0 bg-gradient-to-br from-purple-500/30 to-blue-500/30 flex items-center justify-center cursor-pointer shadow-lg shadow-purple-500/10 overflow-hidden transition-all duration-300 ${
-                  coverExpanded
-                    ? "w-full aspect-square rounded-2xl"
-                    : "w-20 h-20 sm:w-24 sm:h-24 rounded-xl"
+                className={`relative shrink-0 bg-gradient-to-br from-purple-500/30 to-blue-500/30 flex items-center justify-center cursor-pointer shadow-lg shadow-purple-500/10 overflow-hidden transition-all duration-300 w-20 h-20 sm:w-24 sm:h-24 rounded-xl ${
+                  coverExpanded ? "md:w-full md:h-auto md:aspect-square md:rounded-2xl" : ""
                 }`}
                 onClick={() => setExpandedId(expandedId === currentTrack.id ? null : currentTrack.id)}
               >
@@ -1243,7 +1242,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                 {currentTrack.imageUrl && (
                   <img key={currentTrack.imageUrl} src={currentTrack.imageUrl} alt="" className="w-full h-full object-cover absolute inset-0 animate-in fade-in duration-500" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
                 )}
-                <Music className={`text-white/10 ${coverExpanded ? "w-24 h-24" : "w-8 h-8"}`} />
+                <Music className={`text-white/10 w-8 h-8 ${coverExpanded ? "md:w-24 md:h-24" : ""}`} />
                 {/* Expand toggle — top-right corner cover */}
                 <ExpandToggleButton
                   expanded={coverExpanded}

@@ -1,7 +1,12 @@
 // Eugene 2026-05-16 Босс «добавить кнопку раскрыть (expand) на плееры везде».
 // Стрелки по диагонали — Maximize2 (↖↘), при раскрытии — Minimize2 (↘↖).
 // Reusable across landing/dashboard players.
-// Touch-target ≥44px на mobile (sm:w-9 = 36px на desktop, w-11 = 44px на mobile).
+//
+// Eugene 2026-05-16 update: «на смартфоне возвращаем в предыдущее значение» —
+// кнопка только для desktop (md+). На mobile скрыта через `hidden md:flex` →
+// layout остаётся compact row-flex (как до introducing expand). Это решает
+// ситуацию когда на узком экране expanded-cover занимает всю высоту и
+// неудобно прокручивать к controls.
 import { Maximize2, Minimize2 } from "lucide-react";
 
 interface ExpandToggleButtonProps {
@@ -37,13 +42,13 @@ export function ExpandToggleButton({
         e.stopPropagation();
         onToggle();
       }}
-      className={`w-11 h-11 sm:w-9 sm:h-9 rounded-full backdrop-blur-sm flex items-center justify-center border transition-all active:scale-95 shadow-lg ${colorClass} ${className}`}
+      className={`hidden md:flex w-9 h-9 rounded-full backdrop-blur-sm items-center justify-center border transition-all active:scale-95 shadow-lg ${colorClass} ${className}`}
       data-testid={expanded ? "button-collapse-cover" : "button-expand-cover"}
     >
       {expanded ? (
-        <Minimize2 className="w-4 h-4 sm:w-4 sm:h-4" />
+        <Minimize2 className="w-4 h-4" />
       ) : (
-        <Maximize2 className="w-4 h-4 sm:w-4 sm:h-4" />
+        <Maximize2 className="w-4 h-4" />
       )}
     </button>
   );
