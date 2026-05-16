@@ -982,11 +982,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-300 font-medium">Новости</span>
-                <span className="text-[10px] text-muted-foreground">12 мая 2026</span>
+                <span className="text-[10px] font-sans px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-300 font-medium">Новости</span>
+                <span className="text-[10px] font-sans text-muted-foreground">12 мая 2026</span>
               </div>
-              <h3 className="text-lg font-bold mb-2"><span className="text-white">У нас появилась </span><span className="bg-gradient-to-r from-pink-400 via-purple-400 to-blue-400 bg-clip-text text-transparent">Муза</span></h3>
-              <p className="text-sm text-muted-foreground leading-relaxed">
+              <h3 className="text-lg font-sans font-bold text-white mb-2">У нас появилась <span className="bg-gradient-to-r from-pink-400 via-purple-400 to-blue-400 bg-clip-text text-transparent">Муза</span></h3>
+              <p className="text-sm font-sans text-muted-foreground leading-relaxed">
                 Пройдёт с вами весь путь — от идеи до готового трека. Поможет с регистрацией, поможет создать текст песни. <span className="text-pink-300 font-medium">Нажмите — поговорите →</span>
               </p>
             </div>
@@ -1002,10 +1002,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/20 text-green-300 font-medium">Новости</span>
-                <span className="text-[10px] text-muted-foreground">12 апреля 2026</span>
+                <span className="text-[10px] font-sans px-2 py-0.5 rounded-full bg-green-500/20 text-green-300 font-medium">Новости</span>
+                <span className="text-[10px] font-sans text-muted-foreground">12 апреля 2026</span>
               </div>
-              <h3 className="text-lg font-bold text-white mb-2">«Поехали»</h3>
+              <h3 className="text-lg font-sans font-bold text-white mb-2">«Поехали»</h3>
 
               {/* Подарок-коробка с нотами в гамме MuzaAi. Анимация открытия
                   играет 1 раз для лида в день; для клиентов и повторных
@@ -1075,24 +1075,24 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                     </g>
                   </svg>
                   <div className="flex-1">
-                    <div className="text-[11px] uppercase tracking-wider text-purple-300/80 font-display">первым 1000 будущих авторам</div>
-                    <div className="text-base font-bold bg-gradient-to-r from-purple-300 via-blue-300 to-cyan-300 bg-clip-text text-transparent">
+                    <div className="text-[11px] font-sans uppercase tracking-wider text-purple-300/80">первым 1000 будущих авторам</div>
+                    <div className="text-base font-sans font-bold bg-gradient-to-r from-purple-300 via-blue-300 to-cyan-300 bg-clip-text text-transparent">
                       1 трек бесплатно 🎵 *
                     </div>
                   </div>
                 </div>
               </div>
 
-              <p className="text-sm text-muted-foreground leading-relaxed">
+              <p className="text-sm font-sans text-muted-foreground leading-relaxed">
                 Платформа находится в режиме отладки.
               </p>
-              <p className="text-sm text-muted-foreground leading-relaxed mt-1">
+              <p className="text-sm font-sans text-muted-foreground leading-relaxed mt-1">
                 Регистрируйтесь сегодня, чтобы попасть в число первых.
               </p>
-              <p className="text-[11px] text-muted-foreground/70 leading-relaxed mt-2">
+              <p className="text-[11px] font-sans text-muted-foreground/70 leading-relaxed mt-2">
                 <span className="text-purple-300/90">*</span> Подарочный трек получают <span className="text-purple-300 font-medium">первые 1000 будущих авторов песен и поздравлений</span> из России и ближнего зарубежья!
               </p>
-              <p className="text-sm text-muted-foreground leading-relaxed mt-2">
+              <p className="text-sm font-sans text-muted-foreground leading-relaxed mt-2">
                 💡 Давайте пока подготовим вместе{" "}
                 <a
                   href="#/music"
@@ -1123,11 +1123,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-medium">Новости</span>
-                <span className="text-[10px] text-muted-foreground">9 мая 2026</span>
+                <span className="text-[10px] font-sans px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-medium">Новости</span>
+                <span className="text-[10px] font-sans text-muted-foreground">9 мая 2026</span>
               </div>
-              <h3 className="text-lg font-bold text-white mb-2">Аудио со смартфона</h3>
-              <p className="text-sm text-muted-foreground leading-relaxed">
+              <h3 className="text-lg font-sans font-bold text-white mb-2">Аудио со смартфона</h3>
+              <p className="text-sm font-sans text-muted-foreground leading-relaxed">
                 Появилась уникальная возможность генерации трека по{" "}
                 <a
                   href="#/music"
