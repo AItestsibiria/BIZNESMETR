@@ -1392,7 +1392,9 @@ export default function MusicPage() {
                         className="w-full px-2 py-1 text-xs rounded bg-background/50 border border-white/10"
                         data-testid="select-audio-mood"
                       >
-                        <option value="">—</option>
+                        {/* Eugene 2026-05-16: правило default-without-minuses —
+                            первая опция «Любое» (позитивная), не «—». */}
+                        <option value="">Любое</option>
                         <option value="happy">Весёлое</option>
                         <option value="sad">Грустное</option>
                         <option value="romantic">Романтичное</option>
@@ -1410,7 +1412,8 @@ export default function MusicPage() {
                         className="w-full px-2 py-1 text-xs rounded bg-background/50 border border-white/10"
                         data-testid="select-audio-tempo"
                       >
-                        <option value="">—</option>
+                        {/* Eugene 2026-05-16: первая опция «Любой» (позитивная), не «—». */}
+                        <option value="">Любой</option>
                         <option value="slow">Медленный</option>
                         <option value="moderate">Средний</option>
                         <option value="fast">Быстрый</option>
