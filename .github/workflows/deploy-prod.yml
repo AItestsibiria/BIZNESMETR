@@ -1,0 +1,124 @@
+name: Deploy MuziAI to Production
+
+# Eugene 2026-05-08: deploy from GitHub to prod (31.130.148.107) one-click.
+# Triggers:
+#   - workflow_dispatch (ручной из GitHub UI на iPad/Mac/web)
+#   - push tag production-* (auto-deploy on tag push)
+#
+# Required GitHub Secrets:
+#   - PROD_SSH_KEY (содержимое /root/.ssh/github_deploy на prod)
+#   - PROD_HOST (31.130.148.107)
+#   - PROD_USER (root)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to deploy (commit SHA, branch, or tag). Default: current branch."
+        required: true
+        default: "claude/add-claude-documentation-OW5V7"
+  push:
+    tags:
+      - "production-*"
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build + Deploy + Smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Determine ref
+        id: ref
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "ref=${{ github.event.inputs.ref }}" >> $GITHUB_OUTPUT
+          else
+            echo "ref=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+          echo "Deploying ref: $ref"
+
+      - name: SSH deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          port: 22
+          timeout: 30s
+          command_timeout: 12m
+          script: |
+            set -euo pipefail
+            REF="${{ steps.ref.outputs.ref }}"
+            TS=$(date +%Y%m%d-%H%M%S)
+            BACKUP=/var/backups/neurohub-github-deploy-$TS
+            echo "=== TS=$TS REF=$REF BACKUP=$BACKUP ==="
+
+            # 1-3: source folder + clone + checkout
+            if [ ! -d /opt/muziai-src/.git ]; then
+              echo "=== first-time clone ==="
+              rm -rf /opt/muziai-src
+              git clone git@github.com:AItestsibiria/BIZNESMETR.git /opt/muziai-src
+            fi
+            cd /opt/muziai-src
+            git fetch origin --tags --prune
+            git checkout "$REF" 2>/dev/null || git checkout -B deploy-tmp "origin/$REF" 2>/dev/null || git checkout "$REF"
+            git reset --hard "$REF" 2>/dev/null || true
+            echo "=== source HEAD ==="
+            git log -1 --format="%H %s"
+
+            # 4: build
+            cd /opt/muziai-src/apps/neurohub
+            echo "=== npm ci ==="
+            npm ci 2>&1 | tail -8
+            echo "=== npm run build ==="
+            npm run build 2>&1 | tail -10
+
+            # 5: artifacts
+            [ -f dist/index.cjs ] && echo "✅ dist/index.cjs" || (echo "❌ dist/index.cjs MISSING" && exit 1)
+            [ -d dist/public ] && echo "✅ dist/public" || (echo "❌ dist/public MISSING" && exit 1)
+
+            # 6: backup current prod
+            mkdir -p "$BACKUP"
+            cd /var/www/neurohub
+            [ -d dist ] && tar czf "$BACKUP/dist.tar.gz" dist
+            [ -f package.json ] && cp package.json "$BACKUP/package.json"
+            [ -f package-lock.json ] && cp package-lock.json "$BACKUP/package-lock.json"
+            cp .env "$BACKUP/env"
+            sqlite3 data.db "PRAGMA integrity_check;" > "$BACKUP/db_integrity_before.txt"
+            cat "$BACKUP/db_integrity_before.txt"
+
+            # 7: replace dist + package files
+            rm -rf dist
+            cp -a /opt/muziai-src/apps/neurohub/dist ./dist
+            cp -a /opt/muziai-src/apps/neurohub/package.json ./package.json
+            cp -a /opt/muziai-src/apps/neurohub/package-lock.json ./package-lock.json
+
+            # 8: prod deps
+            npm install --omit=dev --no-audit --no-fund 2>&1 | tail -8
+
+            # 9: pm2 restart
+            pm2 restart neurohub --update-env
+            sleep 5
+            pm2 status neurohub
+
+            # 10: smoke
+            curl -s -o - -w "\n[%{http_code}]\n" -m 5 http://127.0.0.1:5000/api/example/ping || true
+            curl -s -o - -w "\n[%{http_code}]\n" -m 5 http://127.0.0.1:5000/api/_status | head -50 || true
+            pm2 logs neurohub --lines 50 --nostream
+
+            echo "=========================================="
+            echo "✅ DEPLOY DONE. BACKUP_PATH=$BACKUP"
+            echo "=========================================="
+
+      - name: Result summary
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            echo "::notice ::✅ Deploy succeeded → https://muziai.ru/api/_status"
+          else
+            echo "::error ::❌ Deploy failed. Rollback ssh root@${{ secrets.PROD_HOST }} 'cd /var/www/neurohub && rm -rf dist && tar xzf BACKUP/dist.tar.gz && pm2 restart neurohub'"
+          fi
