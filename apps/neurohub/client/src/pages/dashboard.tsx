@@ -2500,101 +2500,126 @@ export default function DashboardPage() {
                   const statusCfg = statusConfig[gen.status] || statusConfig.pending;
                   const StatusIcon = statusCfg.icon;
                   const isError = gen.status === "error";
+                  // Eugene 2026-05-16: C.10 — контуры по типу (left-border 4px).
+                  // music=зелёный, cover=циан, lyrics=сиреневый. dark-friendly /60.
+                  const typeBorder =
+                    gen.type === "music" ? "border-l-4 border-l-green-500/60"
+                    : gen.type === "cover" ? "border-l-4 border-l-cyan-500/60"
+                    : gen.type === "lyrics" ? "border-l-4 border-l-violet-500/60"
+                    : "border-l-4 border-l-white/10";
+                  const title = (gen as any).displayTitle || gen.prompt || `Без названия`;
+                  const titleTrim = title.length > 60 ? title.slice(0, 60) + "…" : title;
                   return (
                     <div
                       key={gen.id}
-                      className={`glass-card rounded-xl p-4 cursor-pointer hover:border-purple-500/30 transition-colors ${isError ? "border-red-500/40 hover:border-red-500/60" : ""}`}
+                      className={`glass-card rounded-xl p-4 cursor-pointer hover:border-purple-500/30 transition-colors ${typeBorder} ${isError ? "border-red-500/40 hover:border-red-500/60" : ""}`}
                       onClick={() => setSelectedGen(gen)}
                       data-testid={`gen-item-${gen.id}`}
                     >
+                      {/* Eugene 2026-05-16: C.9 — порядок колонок слева направо:
+                          1) #id монoшрифт  2) cover-thumbnail  3) title  4) status
+                          5) plays counter  6) date  7) actions (handled via row click). */}
                       <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-white/5 flex items-center justify-center shrink-0">
-                        <Icon className="w-4 h-4 text-purple-400" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-white">
+                        {/* 1. № генерации */}
+                        <span
+                          className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/[0.05] text-muted-foreground tabular-nums shrink-0 self-start mt-1"
+                          title="Номер генерации — для поиска в админке/логах"
+                          data-testid={`gen-id-badge-${gen.id}`}
+                        >
+                          #{gen.id}
+                        </span>
+
+                        {/* 2. Обложка thumbnail. Eugene 2026-05-14 Босс «разделить
+                             Suno и свои обложки». Для lyrics — иконка PenLine. */}
+                        {gen.status === "done" && gen.type === "cover" && gen.resultUrl ? (
+                          <div className="relative shrink-0">
+                            <img src={`/api/stream/${gen.id}`} alt="" loading="lazy" className="w-10 h-10 rounded-lg object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                            <span className="absolute -bottom-1 -right-1 text-[8px] px-1 py-0.5 rounded-full bg-purple-500/80 text-white border border-purple-300/50" title="Своя обложка от автора">👤</span>
+                          </div>
+                        ) : gen.status === "done" && gen.type === "music" ? (
+                          <div className="relative shrink-0">
+                            <img src={`/api/cover/${(gen as any).coverGenId || gen.id}.jpg?v=${gen.id}`} alt="" loading="lazy" className="w-10 h-10 rounded-lg object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                            <span
+                              className={`absolute -bottom-1 -right-1 text-[8px] px-1 py-0.5 rounded-full text-white border ${
+                                (gen as any).coverGenId
+                                  ? "bg-purple-500/80 border-purple-300/50"
+                                  : "bg-cyan-500/80 border-cyan-300/50"
+                              }`}
+                              title={(gen as any).coverGenId ? "Своя обложка (создал автор)" : "Обложка от Suno (auto-generated)"}
+                            >
+                              {(gen as any).coverGenId ? "👤" : "🤖"}
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center shrink-0">
+                            <Icon className="w-4 h-4 text-purple-400" />
+                          </div>
+                        )}
+
+                        {/* 3. Title + 4. Status (под title как мета) */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-sm font-medium text-white truncate" data-testid={`gen-title-${gen.id}`}>
+                              {titleTrim}
+                            </span>
+                            <StatusIcon className={`w-3 h-3 shrink-0 ${statusCfg.color} ${gen.status === "processing" ? "animate-spin" : ""}`} />
+                            {showAllGens && (gen as any).authorName && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300 shrink-0">
+                                #{(gen as any).userId} {(gen as any).authorName}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-muted-foreground/80 mt-0.5">
                             {typeLabels[gen.type] || gen.type}
-                          </span>
-                          {/* Eugene 2026-05-15 Босс «треки, обложки, тексты в
-                              дашборде отражают реальные номера генерации». */}
-                          <span
-                            className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/[0.05] text-muted-foreground tabular-nums shrink-0"
-                            title="Номер генерации — для поиска в админке/логах"
-                            data-testid={`gen-id-badge-${gen.id}`}
-                          >
-                            #{gen.id}
-                          </span>
-                          <StatusIcon className={`w-3 h-3 ${statusCfg.color} ${gen.status === "processing" ? "animate-spin" : ""}`} />
-                          {showAllGens && (gen as any).authorName && (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300">
-                              #{(gen as any).userId} {(gen as any).authorName}
-                            </span>
-                          )}
-                          {((gen as any).plays > 0 || (gen as any).downloads > 0) && (
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-400 tabular-nums flex items-center gap-1.5">
-                              {(gen as any).plays > 0 && (
-                                isAdmin ? (
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); setGeoDialog({ open: true, genId: gen.id, title: (gen as any).displayTitle || gen.prompt || "Трек" }); }}
-                                    className="hover:underline cursor-pointer"
-                                    title="Показать географию слушателей"
-                                    data-testid={`btn-geo-${gen.id}`}
-                                  >▶{(gen as any).plays}</button>
-                                ) : (
-                                  <span>▶{(gen as any).plays}</span>
-                                )
-                              )}
-                              {(gen as any).downloads > 0 && <span className="text-blue-400">⬇{(gen as any).downloads}</span>}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-muted-foreground truncate mt-0.5">
-                          {(() => {
-                            const display = (gen as any).displayTitle || gen.prompt;
-                            return (display || "").slice(0, 60) + ((display || "").length > 60 ? "..." : "");
-                          })()}
-                        </p>
-                      </div>
-                      {/* Mini preview for completed items.
-                          Eugene 2026-05-14 Босс «разделить в дашборде Suno
-                          и свои обложки». Badge показывает тип. */}
-                      {gen.status === "done" && gen.resultUrl && gen.type === "cover" && (
-                        <div className="relative shrink-0">
-                          <img src={`/api/stream/${gen.id}`} alt="" loading="lazy" className="w-10 h-10 rounded-lg object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                          <span className="absolute -bottom-1 -right-1 text-[8px] px-1 py-0.5 rounded-full bg-purple-500/80 text-white border border-purple-300/50" title="Своя обложка от автора">👤</span>
-                        </div>
-                      )}
-                      {gen.status === "done" && gen.type === "music" && (
-                        <div className="relative shrink-0">
-                          <img src={`/api/cover/${(gen as any).coverGenId || gen.id}.jpg?v=${gen.id}`} alt="" loading="lazy" className="w-10 h-10 rounded-lg object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-                          <span
-                            className={`absolute -bottom-1 -right-1 text-[8px] px-1 py-0.5 rounded-full text-white border ${
-                              (gen as any).coverGenId
-                                ? "bg-purple-500/80 border-purple-300/50"
-                                : "bg-cyan-500/80 border-cyan-300/50"
-                            }`}
-                            title={(gen as any).coverGenId ? "Своя обложка (создал автор)" : "Обложка от Suno (auto-generated)"}
-                          >
-                            {(gen as any).coverGenId ? "👤" : "🤖"}
-                          </span>
-                        </div>
-                      )}
-                      <div className="text-right shrink-0">
-                        <p className="text-xs text-muted-foreground">{formatDate(gen.createdAt)}</p>
-                        <p className="text-xs text-purple-400 font-medium">
-                          {gen.cost === 0 ? "🎁 Бесплатно" : `-${formatBalance(gen.cost)}`}
-                        </p>
-                        {gen.status === "done" && (
-                          <p className="text-xs text-green-400 flex items-center gap-1">
-                            {/* Eugene 2026-05-14 Босс: правильная подпись по типу — для cover не «Трек создан». */}
-                            ✓ {gen.type === "cover" ? "Обложка создана" : gen.type === "lyrics" ? "Текст создан" : "Трек создан"}
-                            {(gen.type === "music" || gen.type === "cover") && (
-                              gen.isPublic === 1 ? <Globe className="w-3 h-3" /> : gen.isPublic === 2 ? <Clock className="w-3 h-3 text-yellow-400" /> : <Lock className="w-3 h-3 text-muted-foreground" />
+                            {gen.status === "done" && (
+                              <span className="ml-1 text-green-400/80">
+                                · ✓ {gen.type === "cover" ? "Обложка" : gen.type === "lyrics" ? "Текст" : "Трек"}
+                              </span>
                             )}
                           </p>
+                        </div>
+
+                        {/* 5. Plays counter (с иконкой ▶) */}
+                        {((gen as any).plays > 0 || (gen as any).downloads > 0) && (
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-500/10 text-yellow-400 tabular-nums flex items-center gap-1 shrink-0">
+                            {(gen as any).plays > 0 && (
+                              isAdmin ? (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setGeoDialog({ open: true, genId: gen.id, title: (gen as any).displayTitle || gen.prompt || "Трек" }); }}
+                                  className="hover:underline cursor-pointer flex items-center gap-0.5"
+                                  title="Показать географию слушателей"
+                                  data-testid={`btn-geo-${gen.id}`}
+                                >
+                                  <Play className="w-2.5 h-2.5 inline" />{(gen as any).plays}
+                                </button>
+                              ) : (
+                                <span className="flex items-center gap-0.5">
+                                  <Play className="w-2.5 h-2.5 inline" />{(gen as any).plays}
+                                </span>
+                              )
+                            )}
+                            {(gen as any).downloads > 0 && (
+                              <span className="text-blue-400 flex items-center gap-0.5">
+                                <Download className="w-2.5 h-2.5" />{(gen as any).downloads}
+                              </span>
+                            )}
+                          </span>
                         )}
-                      </div>
+
+                        {/* 6. Дата + цена + публичность */}
+                        <div className="text-right shrink-0">
+                          <p className="text-xs text-muted-foreground">{formatDate(gen.createdAt)}</p>
+                          <p className="text-xs text-purple-400 font-medium">
+                            {gen.cost === 0 ? "🎁 Бесплатно" : `-${formatBalance(gen.cost)}`}
+                          </p>
+                          {gen.status === "done" && (gen.type === "music" || gen.type === "cover") && (
+                            <p className="text-[10px] text-muted-foreground flex items-center gap-1 justify-end mt-0.5">
+                              {gen.isPublic === 1 ? <><Globe className="w-3 h-3 text-green-400" /> публ.</>
+                                : gen.isPublic === 2 ? <><Clock className="w-3 h-3 text-yellow-400" /> модер.</>
+                                : <><Lock className="w-3 h-3" /> приват</>}
+                            </p>
+                          )}
+                        </div>
                       </div>
                       {isError && (
                         <div className="mt-3 pt-3 border-t border-red-500/20" onClick={(e) => e.stopPropagation()}>
