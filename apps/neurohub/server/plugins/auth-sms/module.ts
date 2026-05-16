@@ -356,6 +356,49 @@ function hashOtp(code: string): string {
   return crypto.createHash("sha256").update(code).digest("hex");
 }
 
+// Eugene 2026-05-16 (audit): единый upsert по phone с защитой от UNIQUE race.
+// Возвращает { user, created } — created=true если только что вставили, false
+// если уже был (race выиграл другой запрос — мы возвращаем существующего).
+//
+// Почему это важно:
+//   - storage.ts:154 создаёт `CREATE UNIQUE INDEX users_phone_idx ... WHERE phone IS NOT NULL`
+//   - Без этой обёртки два одновременных verify (например юзер дважды
+//     быстро нажал «Войти») вызывали SQLITE_CONSTRAINT → 500 «Ошибка при
+//     создании сессии». Теперь второй запрос получает того же user.
+//   - SELECT-before-INSERT уже выполняется в call-site'ах, но между ним и
+//     INSERT может пройти время. Эта обёртка закрывает оставшееся окно.
+type UpsertPhoneUserResult = { user: any; created: boolean };
+async function upsertPhoneUser(phone: string): Promise<UpsertPhoneUserResult> {
+  // 1) Pre-check (быстрый путь — если уже есть, не делаем INSERT).
+  const existing = db.select().from(users).where(eq(users.phone, phone)).get() as any;
+  if (existing) return { user: existing, created: false };
+
+  const country = detectPhoneCountry(phone);
+  const placeholderPassword = await bcrypt.hash(uuidv4() + crypto.randomBytes(16).toString("hex"), 10);
+  try {
+    const inserted = db.insert(users).values({
+      name: `Автор ${phone.slice(-4)}`,
+      email: `${phone.replace(/[^\d]/g, "")}@phone.muziai.ru`,
+      password: placeholderPassword,
+      phone,
+      phoneVerified: 1,
+      country: country?.name || null,
+      countryCode: country?.code || null,
+    }).returning().get() as any;
+    return { user: inserted, created: true };
+  } catch (e: any) {
+    // SQLite UNIQUE constraint (users_phone_idx) → другой запрос успел вставить
+    // того же юзера в окне между нашим SELECT и INSERT. Retry SELECT — он
+    // обязан вернуть существующего, иначе пробрасываем ошибку дальше.
+    const msg = String(e?.message || e || "");
+    if (/UNIQUE|SQLITE_CONSTRAINT/i.test(msg)) {
+      const after = db.select().from(users).where(eq(users.phone, phone)).get() as any;
+      if (after) return { user: after, created: false };
+    }
+    throw e;
+  }
+}
+
 function genCode(): string {
   // 6-значный код, padded.
   return String(crypto.randomInt(100_000, 999_999));
@@ -541,37 +584,26 @@ router.post("/verify-otp", async (req, res) => {
   // change_email → аналогично — finalize в routes.ts.
   try {
     if (purpose === "register") {
-      const existing = db.select().from(users).where(eq(users.phone, phone)).get() as any;
-      if (existing) {
-        // Race condition защита: пока шла verify, другой запрос мог уже
-        // зарегистрировать тот же номер. Перенаправляем на login flow.
-        const token = uuidv4();
-        tokenStore.set(token, existing.id);
-        return res.json({ data: { verified: true, phone, purpose, token, userId: existing.id, alreadyExists: true }, error: null });
+      // Eugene 2026-05-16 (audit): unified upsertPhoneUser ловит UNIQUE race.
+      // alreadyExists=true ⇔ found existing (создания не было) → login-mode toast.
+      const { user: u, created } = await upsertPhoneUser(phone);
+      if (u?.blocked) return res.status(403).json({ data: null, error: "Аккаунт заблокирован" });
+      const userId = u.id;
+      let welcomeGiftPos: number | null = null;
+      if (created) {
+        const country = detectPhoneCountry(phone);
+        const giftRes = tryGiveWelcomeGift({ userId, countryCode: country?.code });
+        welcomeGiftPos = giftRes.gifted ? giftRes.position : null;
       }
-      const country = detectPhoneCountry(phone);
-      // Placeholder password — юзер не задавал пароль (phone-only flow).
-      // Сможет задать через ЛК → Сменить пароль.
-      const placeholderPassword = await bcrypt.hash(uuidv4() + crypto.randomBytes(16).toString("hex"), 10);
-      const inserted = db.insert(users).values({
-        name: `Автор ${phone.slice(-4)}`,
-        email: `${phone.replace(/[^\d]/g, "")}@phone.muziai.ru`,
-        password: placeholderPassword,
-        phone,
-        phoneVerified: 1,
-        country: country?.name || null,
-        countryCode: country?.code || null,
-      }).returning({ id: users.id }).get() as any;
-      const userId = inserted?.id;
-      // Eugene 2026-05-15 Босс «подарочный трек не обнаружен» — выдаём 1
-      // welcome-gift первым 1000 авторам из РФ/СНГ. Same logic как при
-      // email-регистрации (см. /api/auth/login).
-      const giftRes = tryGiveWelcomeGift({ userId, countryCode: country?.code });
       const token = uuidv4();
       tokenStore.set(token, userId);
-      bootRefs?.eventBus?.emit?.("auth.user.registered", { userId, channel: "sms" }, "auth-sms");
+      bootRefs?.eventBus?.emit?.(
+        created ? "auth.user.registered" : "auth.user.logged_in",
+        { userId, channel: "sms", upsert: !created },
+        "auth-sms",
+      );
       return res.json({
-        data: { verified: true, phone, purpose, token, userId, welcomeGift: giftRes.gifted ? giftRes.position : null },
+        data: { verified: true, phone, purpose, token, userId, alreadyExists: !created, welcomeGift: welcomeGiftPos },
         error: null,
       });
     }
@@ -588,7 +620,7 @@ router.post("/verify-otp", async (req, res) => {
       tokenStore.set(token, user.id);
       bootRefs?.eventBus?.emit?.("auth.user.logged_in", { userId: user.id, channel: "sms" }, "auth-sms");
       return res.json({
-        data: { verified: true, phone, purpose, token, userId: user.id },
+        data: { verified: true, phone, purpose, token, userId: user.id, newAccount: false },
         error: null,
       });
     }
@@ -778,71 +810,56 @@ router.post("/check-call", async (req, res) => {
   // Финализация: register / login — то же что для SMS-OTP.
   try {
     if (purpose === "register") {
-      const existing = db.select().from(users).where(eq(users.phone, phone)).get() as any;
-      if (existing) {
-        const token = uuidv4();
-        tokenStore.set(token, existing.id);
-        return res.json({ data: { verified: true, phone, purpose, method: "call", token, userId: existing.id, alreadyExists: true }, error: null });
+      // Eugene 2026-05-16 (audit): unified upsertPhoneUser ловит UNIQUE race.
+      const { user: u, created } = await upsertPhoneUser(phone);
+      if (u?.blocked) return res.status(403).json({ data: null, error: "Аккаунт заблокирован" });
+      const userId = u.id;
+      let welcomeGiftPos: number | null = null;
+      if (created) {
+        const country = detectPhoneCountry(phone);
+        const giftRes = tryGiveWelcomeGift({ userId, countryCode: country?.code });
+        welcomeGiftPos = giftRes.gifted ? giftRes.position : null;
       }
-      const country = detectPhoneCountry(phone);
-      const placeholderPassword = await bcrypt.hash(uuidv4() + crypto.randomBytes(16).toString("hex"), 10);
-      const inserted = db.insert(users).values({
-        name: `Автор ${phone.slice(-4)}`,
-        email: `${phone.replace(/[^\d]/g, "")}@phone.muziai.ru`,
-        password: placeholderPassword,
-        phone,
-        phoneVerified: 1,
-        country: country?.name || null,
-        countryCode: country?.code || null,
-      }).returning({ id: users.id }).get() as any;
-      const userId = inserted?.id;
-      const giftRes = tryGiveWelcomeGift({ userId, countryCode: country?.code });
       const token = uuidv4();
       tokenStore.set(token, userId);
-      bootRefs?.eventBus?.emit?.("auth.user.registered", { userId, channel: "call" }, "auth-sms");
+      bootRefs?.eventBus?.emit?.(
+        created ? "auth.user.registered" : "auth.user.logged_in",
+        { userId, channel: "call", upsert: !created },
+        "auth-sms",
+      );
       return res.json({
-        data: { verified: true, phone, purpose, method: "call", token, userId, welcomeGift: giftRes.gifted ? giftRes.position : null },
+        data: { verified: true, phone, purpose, method: "call", token, userId, alreadyExists: !created, welcomeGift: welcomeGiftPos },
         error: null,
       });
     }
 
     if (purpose === "login") {
-      const user = db.select().from(users).where(eq(users.phone, phone)).get() as any;
       // Eugene 2026-05-15 Босс «связать email и номер, лёгкое решение».
       // Если phone не найден — НЕ возвращаем 404. Создаём новый phone-аккаунт
       // upsert-style. Юзер потом сможет в ЛК «привязать существующий email»
-      // через endpoint /api/account/link-existing.
-      if (!user) {
-        const country = detectPhoneCountry(phone);
-        const placeholderPassword = await bcrypt.hash(uuidv4() + crypto.randomBytes(16).toString("hex"), 10);
-        const inserted = db.insert(users).values({
-          name: `Автор ${phone.slice(-4)}`,
-          email: `${phone.replace(/[^\d]/g, "")}@phone.muziai.ru`,
-          password: placeholderPassword,
-          phone,
-          phoneVerified: 1,
-          country: country?.name || null,
-          countryCode: country?.code || null,
-        }).returning({ id: users.id }).get() as any;
-        const newUserId = inserted?.id;
-        const giftRes = tryGiveWelcomeGift({ userId: newUserId, countryCode: country?.code });
-        const token = uuidv4();
-        tokenStore.set(token, newUserId);
-        bootRefs?.eventBus?.emit?.("auth.user.registered", { userId: newUserId, channel: "call", upsert: true }, "auth-sms");
-        return res.json({
-          data: { verified: true, phone, purpose, method: "call", token, userId: newUserId, newAccount: true, welcomeGift: giftRes.gifted ? giftRes.position : null },
-          error: null,
-        });
+      // через endpoint /api/auth/link-existing.
+      // Eugene 2026-05-16 (audit): через upsertPhoneUser — защита UNIQUE race.
+      const { user: u, created } = await upsertPhoneUser(phone);
+      if (u?.blocked) return res.status(403).json({ data: null, error: "Аккаунт заблокирован" });
+      const userId = u.id;
+      if (!created && !u.phoneVerified) {
+        try { db.update(users).set({ phoneVerified: 1 }).where(eq(users.id, userId)).run(); } catch {}
       }
-      if (user.blocked) return res.status(403).json({ data: null, error: "Аккаунт заблокирован" });
-      if (!user.phoneVerified) {
-        try { db.update(users).set({ phoneVerified: 1 }).where(eq(users.id, user.id)).run(); } catch {}
+      let welcomeGiftPos: number | null = null;
+      if (created) {
+        const country = detectPhoneCountry(phone);
+        const giftRes = tryGiveWelcomeGift({ userId, countryCode: country?.code });
+        welcomeGiftPos = giftRes.gifted ? giftRes.position : null;
       }
       const token = uuidv4();
-      tokenStore.set(token, user.id);
-      bootRefs?.eventBus?.emit?.("auth.user.logged_in", { userId: user.id, channel: "call" }, "auth-sms");
+      tokenStore.set(token, userId);
+      bootRefs?.eventBus?.emit?.(
+        created ? "auth.user.registered" : "auth.user.logged_in",
+        { userId, channel: "call", upsert: created },
+        "auth-sms",
+      );
       return res.json({
-        data: { verified: true, phone, purpose, method: "call", token, userId: user.id },
+        data: { verified: true, phone, purpose, method: "call", token, userId, newAccount: created, welcomeGift: welcomeGiftPos },
         error: null,
       });
     }
@@ -1030,73 +1047,54 @@ router.post("/check-reverse-call", async (req, res) => {
   // Финализация: register / login — то же что для incoming flashcall.
   try {
     if (purpose === "register") {
-      const existing = db.select().from(users).where(eq(users.phone, phone)).get() as any;
-      if (existing) {
-        const token = uuidv4();
-        tokenStore.set(token, existing.id);
-        return res.json({
-          data: { verified: true, expired: false, phone, purpose, method: "reverse-call", token, userId: existing.id, alreadyExists: true },
-          error: null,
-        });
+      // Eugene 2026-05-16 (audit): unified upsertPhoneUser ловит UNIQUE race.
+      const { user: u, created } = await upsertPhoneUser(phone);
+      if (u?.blocked) return res.status(403).json({ data: null, error: "Аккаунт заблокирован" });
+      const userId = u.id;
+      let welcomeGiftPos: number | null = null;
+      if (created) {
+        const country = detectPhoneCountry(phone);
+        const giftRes = tryGiveWelcomeGift({ userId, countryCode: country?.code });
+        welcomeGiftPos = giftRes.gifted ? giftRes.position : null;
       }
-      const country = detectPhoneCountry(phone);
-      const placeholderPassword = await bcrypt.hash(uuidv4() + crypto.randomBytes(16).toString("hex"), 10);
-      const inserted = db.insert(users).values({
-        name: `Автор ${phone.slice(-4)}`,
-        email: `${phone.replace(/[^\d]/g, "")}@phone.muziai.ru`,
-        password: placeholderPassword,
-        phone,
-        phoneVerified: 1,
-        country: country?.name || null,
-        countryCode: country?.code || null,
-      }).returning({ id: users.id }).get() as any;
-      const userId = inserted?.id;
-      const giftRes = tryGiveWelcomeGift({ userId, countryCode: country?.code });
       const token = uuidv4();
       tokenStore.set(token, userId);
-      bootRefs?.eventBus?.emit?.("auth.user.registered", { userId, channel: "reverse-call" }, "auth-sms");
+      bootRefs?.eventBus?.emit?.(
+        created ? "auth.user.registered" : "auth.user.logged_in",
+        { userId, channel: "reverse-call", upsert: !created },
+        "auth-sms",
+      );
       return res.json({
-        data: { verified: true, expired: false, phone, purpose, method: "reverse-call", token, userId, welcomeGift: giftRes.gifted ? giftRes.position : null },
+        data: { verified: true, expired: false, phone, purpose, method: "reverse-call", token, userId, alreadyExists: !created, welcomeGift: welcomeGiftPos },
         error: null,
       });
     }
 
     if (purpose === "login") {
-      const user = db.select().from(users).where(eq(users.phone, phone)).get() as any;
-      if (!user) {
-        // Upsert: phone not found → создаём новый phone-only аккаунт.
-        // Consistent с /check-call поведением (Босс «связать email и номер,
-        // лёгкое решение» — UI потом покажет banner про linking в ЛК).
-        const country = detectPhoneCountry(phone);
-        const placeholderPassword = await bcrypt.hash(uuidv4() + crypto.randomBytes(16).toString("hex"), 10);
-        const inserted = db.insert(users).values({
-          name: `Автор ${phone.slice(-4)}`,
-          email: `${phone.replace(/[^\d]/g, "")}@phone.muziai.ru`,
-          password: placeholderPassword,
-          phone,
-          phoneVerified: 1,
-          country: country?.name || null,
-          countryCode: country?.code || null,
-        }).returning({ id: users.id }).get() as any;
-        const newUserId = inserted?.id;
-        const giftRes = tryGiveWelcomeGift({ userId: newUserId, countryCode: country?.code });
-        const token = uuidv4();
-        tokenStore.set(token, newUserId);
-        bootRefs?.eventBus?.emit?.("auth.user.registered", { userId: newUserId, channel: "reverse-call", upsert: true }, "auth-sms");
-        return res.json({
-          data: { verified: true, expired: false, phone, purpose, method: "reverse-call", token, userId: newUserId, newAccount: true, welcomeGift: giftRes.gifted ? giftRes.position : null },
-          error: null,
-        });
+      // Eugene 2026-05-15 Босс «связать email и номер, лёгкое решение».
+      // Phone not found → upsert новый phone-only аккаунт. Consistent с /check-call.
+      // Eugene 2026-05-16 (audit): через upsertPhoneUser — защита UNIQUE race.
+      const { user: u, created } = await upsertPhoneUser(phone);
+      if (u?.blocked) return res.status(403).json({ data: null, error: "Аккаунт заблокирован" });
+      const userId = u.id;
+      if (!created && !u.phoneVerified) {
+        try { db.update(users).set({ phoneVerified: 1 }).where(eq(users.id, userId)).run(); } catch {}
       }
-      if (user.blocked) return res.status(403).json({ data: null, error: "Аккаунт заблокирован" });
-      if (!user.phoneVerified) {
-        try { db.update(users).set({ phoneVerified: 1 }).where(eq(users.id, user.id)).run(); } catch {}
+      let welcomeGiftPos: number | null = null;
+      if (created) {
+        const country = detectPhoneCountry(phone);
+        const giftRes = tryGiveWelcomeGift({ userId, countryCode: country?.code });
+        welcomeGiftPos = giftRes.gifted ? giftRes.position : null;
       }
       const token = uuidv4();
-      tokenStore.set(token, user.id);
-      bootRefs?.eventBus?.emit?.("auth.user.logged_in", { userId: user.id, channel: "reverse-call" }, "auth-sms");
+      tokenStore.set(token, userId);
+      bootRefs?.eventBus?.emit?.(
+        created ? "auth.user.registered" : "auth.user.logged_in",
+        { userId, channel: "reverse-call", upsert: created },
+        "auth-sms",
+      );
       return res.json({
-        data: { verified: true, expired: false, phone, purpose, method: "reverse-call", token, userId: user.id },
+        data: { verified: true, expired: false, phone, purpose, method: "reverse-call", token, userId, newAccount: created, welcomeGift: welcomeGiftPos },
         error: null,
       });
     }
