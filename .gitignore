@@ -46,3 +46,6 @@ logs/
 # Local Perplexity / Claude scratchpads
 .perplexity/
 .claude/local/
+
+# Claude Code subagent worktrees (locally created)
+.claude/
