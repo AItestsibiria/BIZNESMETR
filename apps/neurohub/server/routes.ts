@@ -17,10 +17,19 @@ import { isSunoCircuitOpen } from "./plugins/suno-watchdog/module";
 import { requireAdmin } from "./core/adminAuth";
 import { createNonce as tgCreateNonce, pollNonce as tgPollNonce, consumeNonce as tgConsumeNonce, attachUserToNonce as tgAttachUserToNonce } from "./lib/tgLoginNonces";
 import { logEngagement, getEngagementDaily, getEngagementSummary } from "./lib/engagement";
-import { buildPersonaSystem, personaFor } from "./lib/consultantPersona";
+import { personaFor } from "./lib/consultantPersona";
 import { findSessionByPairCode, looksLikePairCode } from "./lib/webChatPair";
-import { MUZA_TOOLS, executeTool } from "./lib/muzaTools";
+// MUZA_TOOLS + executeTool теперь вызываются ТОЛЬКО внутри
+// callUnifiedMuzaLLM (lib/llmCore.ts) — Eugene 2026-05-16 «один мозг».
 import { loadHistoryForLLM, loadHistoryForUser } from "./lib/chatHistory";
+import {
+  callUnifiedMuzaLLM,
+  listAnthropicKeys as listAnthropicKeysCore,
+  getLLMKeyStatus,
+  getKeySwitchEvents,
+  getMuzaTokenStats,
+  getTokenPrice,
+} from "./lib/llmCore";
 import { smsProviderLogs, smsOtp } from "@shared/schema";
 import { logUserActionFailure } from "./lib/userActionFailures";
 
@@ -1626,204 +1635,25 @@ export async function registerRoutes(
     return { reply: cleaned, quickReplies: matches.slice(0, 4) };
   }
 
-  // Eugene 2026-05-14 Босс «заведи альтернативный ключ» — chain из 3 ключей.
-  // Primary: ANTHROPIC_API_KEY (live чат). Если 401/403/429 — пробуем ANTHROPIC_API_KEY_BACKUP.
-  // Затем ANTHROPIC_API_KEY_BOT (используется Telegram-ботом — на крайний случай).
-  // Каждый ключ может иметь свой лимит / статус — если 1 умер, остальные подхватывают.
-  type LLMKeyAttempt = { name: string; key: string };
-  function listAnthropicKeys(): LLMKeyAttempt[] {
-    const out: LLMKeyAttempt[] = [];
-    const seen = new Set<string>();
-    const push = (name: string, key?: string) => {
-      if (!key || seen.has(key)) return;
-      seen.add(key);
-      out.push({ name, key });
-    };
-    push("ANTHROPIC_API_KEY", process.env.ANTHROPIC_API_KEY);
-    push("ANTHROPIC_API_KEY_BACKUP", process.env.ANTHROPIC_API_KEY_BACKUP);
-    push("ANTHROPIC_API_KEY_BOT", process.env.ANTHROPIC_API_KEY_BOT);
-    return out;
-  }
-
-  // Eugene 2026-05-14 Босс «в админке указывай сколько токенов обошелся чат».
-  // Аккумулируем in/out tokens + цена в USD (Haiku-4-5 = $0.25/1M in, $1.25/1M out)
-  // и в рублях (грубо ~95 руб/USD; pricing config выше).
+  // Eugene 2026-05-16 Босс «один мозг для всех каналов»: цепочка ключей,
+  // token-stats, key-switch alerts, tool-use loop — теперь живут в
+  // lib/llmCore.ts (единая точка для web/telegram/max). Здесь — только
+  // тонкие алиасы для существующих admin endpoint'ов.
+  const listAnthropicKeys = listAnthropicKeysCore;
+  const llmKeyStatus = { get: getLLMKeyStatus };
+  // Live-getter — каждое обращение даёт свежий snapshot из llmCore.
   const muzaTokenStats = {
-    inputTokens: 0,
-    outputTokens: 0,
-    callsCount: 0,
-    sinceStartedAt: new Date().toISOString(),
+    get inputTokens() { return getMuzaTokenStats().inputTokens; },
+    get outputTokens() { return getMuzaTokenStats().outputTokens; },
+    get callsCount() { return getMuzaTokenStats().callsCount; },
+    get sinceStartedAt() { return getMuzaTokenStats().sinceStartedAt; },
   };
-  const TOKEN_PRICE = {
-    inputPer1M_USD: 0.25,
-    outputPer1M_USD: 1.25,
-    rubPerUSD: 95,
-  };
-
-  // Last-used tracker для admin-диагностики (last status per key)
-  const llmKeyStatus = new Map<string, { lastUsedAt: string; lastStatus: number | "timeout" | "error"; lastErrorMsg?: string }>();
-
-  // Eugene 2026-05-14 Босс «правило: если один ключ не сработал цепляй другой,
-  // отчёт админу о смене ключа». In-memory event log (last 50) + Telegram alert
-  // если ADMIN_TELEGRAM_ID настроен. Видимо в /admin/v304 → 🤖 Ключи AI.
-  type KeySwitchEvent = { at: string; provider: string; from: string; fromStatus: number | string; to: string; reason?: string };
-  const keySwitchEvents: KeySwitchEvent[] = [];
-  const LAST_ALERT_AT = new Map<string, number>(); // дебаунс — не чаще раза в час на один ключ
-
-  async function notifyAdminKeySwitch(ev: KeySwitchEvent) {
-    keySwitchEvents.unshift(ev);
-    if (keySwitchEvents.length > 50) keySwitchEvents.length = 50;
-    const alertKey = `${ev.provider}:${ev.from}`;
-    const lastAt = LAST_ALERT_AT.get(alertKey) || 0;
-    if (Date.now() - lastAt < 60 * 60_000) return; // не чаще раза в час
-    LAST_ALERT_AT.set(alertKey, Date.now());
-    const adminChat = process.env.ADMIN_TELEGRAM_ID;
-    const botToken = process.env.TELEGRAM_BOT_TOKEN;
-    console.warn(`\x1b[33m[KEY-SWITCH]\x1b[0m ${ev.provider}: ${ev.from} (${ev.fromStatus}) → ${ev.to}`);
-    if (!adminChat || !botToken) return;
-    try {
-      await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: adminChat,
-          text: `🔔 *Auto-switch ключа* (${ev.provider})\n\nПервичный: \`${ev.from}\` упал (${ev.fromStatus})\nПереключился на: \`${ev.to}\`\n\n${ev.reason ? `Причина: ${ev.reason}\n\n` : ""}Время: ${new Date(ev.at).toLocaleString("ru-RU")}`,
-          parse_mode: "Markdown",
-        }),
-        signal: AbortSignal.timeout(8_000),
-      });
-    } catch (e) {
-      console.warn("[KEY-SWITCH] не смог отправить Telegram-alert:", e);
-    }
-  }
-
-  async function callMuzaLLM(systemStable: string, systemDynamic: string, history: Array<{ role: string; content: string }>, userText: string, authUserId: number | null = null, toolCtx: { sessionId?: string | null; channel?: string | null } = {}): Promise<string | null> {
-    const attempts = listAnthropicKeys();
-    if (attempts.length === 0) return null;
-    const systemBlocks: any[] = [
-      { type: "text", text: systemStable, cache_control: { type: "ephemeral", ttl: "1h" } },
-    ];
-    if (systemDynamic) systemBlocks.push({ type: "text", text: systemDynamic });
-    // Eugene 2026-05-14 Босс «advanced agent с tool use» — Claude может сам
-    // вызывать tools, loop пока stop_reason !== "end_turn".
-    const messages: any[] = [...history.slice(-15).map(h => ({ role: h.role, content: h.content })),
-                             { role: "user", content: userText }];
-    const buildBody = () => JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 400,
-      system: systemBlocks,
-      messages,
-      tools: MUZA_TOOLS,
-    });
-    const body = buildBody();
-    let prevFailed: { name: string; status: number | string; reason?: string } | null = null;
-    for (let i = 0; i < attempts.length; i++) {
-      const { name, key } = attempts[i];
-      try {
-        const r = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "x-api-key": key,
-            "anthropic-version": "2023-06-01",
-            "anthropic-beta": "extended-cache-ttl-2025-04-11",
-            "content-type": "application/json",
-          },
-          body,
-          signal: AbortSignal.timeout(15_000),
-        });
-        llmKeyStatus.set(name, { lastUsedAt: new Date().toISOString(), lastStatus: r.status });
-        if (!r.ok) {
-          const errText = await r.text().catch(() => "");
-          llmKeyStatus.set(name, { lastUsedAt: new Date().toISOString(), lastStatus: r.status, lastErrorMsg: errText.slice(0, 200) });
-          console.warn(`[MUZA-CHAT] ${name} non-ok ${r.status} — пробую следующий ключ`);
-          prevFailed = { name, status: r.status, reason: errText.slice(0, 100) };
-          continue;
-        }
-        const j: any = await r.json();
-        // Eugene 2026-05-14 Босс: считаем токены/стоимость чата.
-        if (j?.usage) {
-          muzaTokenStats.inputTokens += Number(j.usage.input_tokens || 0) + Number(j.usage.cache_read_input_tokens || 0);
-          muzaTokenStats.outputTokens += Number(j.usage.output_tokens || 0);
-          muzaTokenStats.callsCount += 1;
-        }
-        // Eugene 2026-05-14 Босс «advanced agent» — tool-use loop.
-        // Если stop_reason="tool_use" — выполняем tools, добавляем результаты
-        // в messages, делаем ещё один call. Max 4 итерации (защита).
-        if (j?.stop_reason === "tool_use" && Array.isArray(j.content)) {
-          messages.push({ role: "assistant", content: j.content });
-          const toolResults: any[] = [];
-          for (const block of j.content) {
-            if (block.type === "tool_use") {
-              const result = await executeTool(block.name, block.input, { userId: authUserId, sessionId: toolCtx.sessionId ?? null, channel: toolCtx.channel ?? null });
-              console.log(`[MUZA-TOOL] ${block.name}(${JSON.stringify(block.input).slice(0,60)}) → ${result.slice(0,80)}`);
-              toolResults.push({ type: "tool_result", tool_use_id: block.id, content: result });
-            }
-          }
-          messages.push({ role: "user", content: toolResults });
-          // Recurse через next iteration — но это inner-loop, не outer.
-          // Делаем второй call к тому же key с обновлёнными messages.
-          let loopIter = 0;
-          while (loopIter < 4) {
-            loopIter++;
-            const r2 = await fetch("https://api.anthropic.com/v1/messages", {
-              method: "POST",
-              headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "anthropic-beta": "extended-cache-ttl-2025-04-11", "content-type": "application/json" },
-              body: buildBody(),
-              signal: AbortSignal.timeout(15_000),
-            });
-            if (!r2.ok) break;
-            const j2: any = await r2.json();
-            if (j2?.usage) {
-              muzaTokenStats.inputTokens += Number(j2.usage.input_tokens || 0) + Number(j2.usage.cache_read_input_tokens || 0);
-              muzaTokenStats.outputTokens += Number(j2.usage.output_tokens || 0);
-              muzaTokenStats.callsCount += 1;
-            }
-            if (j2?.stop_reason === "end_turn") {
-              const textBlock = (j2.content || []).find((b: any) => b.type === "text");
-              return textBlock?.text?.slice(0, 2000) || null;
-            }
-            if (j2?.stop_reason === "tool_use" && Array.isArray(j2.content)) {
-              messages.push({ role: "assistant", content: j2.content });
-              const tr: any[] = [];
-              for (const block of j2.content) {
-                if (block.type === "tool_use") {
-                  const result = await executeTool(block.name, block.input, { userId: authUserId, sessionId: toolCtx.sessionId ?? null, channel: toolCtx.channel ?? null });
-                  console.log(`[MUZA-TOOL-${loopIter}] ${block.name} → ${result.slice(0,60)}`);
-                  tr.push({ type: "tool_result", tool_use_id: block.id, content: result });
-                }
-              }
-              messages.push({ role: "user", content: tr });
-              continue;
-            }
-            break;
-          }
-        }
-        const c = j?.content?.[0]?.text;
-        if (typeof c === "string" && c.length > 0) {
-          if (prevFailed && i > 0) {
-            notifyAdminKeySwitch({
-              at: new Date().toISOString(),
-              provider: "Anthropic Claude",
-              from: prevFailed.name, fromStatus: prevFailed.status, to: name, reason: prevFailed.reason,
-            }).catch(() => {});
-          }
-          return c.slice(0, 2000);
-        }
-        prevFailed = { name, status: "empty-response" };
-      } catch (e: any) {
-        const msg = e?.name === "AbortError" ? "timeout" : String(e?.message || e).slice(0, 200);
-        llmKeyStatus.set(name, { lastUsedAt: new Date().toISOString(), lastStatus: e?.name === "AbortError" ? "timeout" : "error", lastErrorMsg: msg });
-        console.warn(`[MUZA-CHAT] ${name} error:`, msg, "— пробую следующий ключ");
-        prevFailed = { name, status: e?.name === "AbortError" ? "timeout" : "error", reason: msg };
-      }
-    }
-    return null;
-  }
+  const TOKEN_PRICE = getTokenPrice();
 
   // GET /api/admin/v304/ai-keys/switches — последние key-switch events.
   // Для отчёта о смене ключей (Eugene 2026-05-14 Босс).
   app.get("/api/admin/v304/ai-keys/switches", requireAdmin, (_req: Request, res: Response) => {
-    res.json({ ok: true, events: keySwitchEvents });
+    res.json({ ok: true, events: getKeySwitchEvents() });
   });
 
   // GET /api/admin/v304/chat-test — Eugene 2026-05-14 Босс «реши кардинально».
@@ -2254,258 +2084,10 @@ export async function registerRoutes(
     }
   }
 
-  // Eugene 2026-05-14 Босс «навыки лучших коммуникаторов по продажам с
-  // Eugene 2026-05-14 Босс «повторные вопросы задолбали - в мессенджере умнее».
-  // КАРДИНАЛЬНО ПЕРЕПИСАН: с 35KB / 24 секций → ~5KB / 6 essential разделов.
-  // Большой prompt разбавлял anti-repeat. Теперь fokus на главное.
-  const WEB_CHAT_SALES_ENHANCEMENT = `
-
-═══ #1 АНТИ-ПОВТОР (КРИТИЧНО) ═══
-Если факт есть в [KNOWN_PREV] или в моих ПРЕДЫДУЩИХ сообщениях —
-НИКОГДА не переспрашивай. Юзер уже сказал «маме» → НЕ задавай «кому?».
-Юзер сказал имя → обращайся по нему, не «как вас зовут?».
-Это твоя ГЛАВНАЯ ошибка. Один повтор = 2/10. Ноль повторов = 10/10.
-
-═══ #2 СВЯЗЬ С ТЕКУЩИМ СООБЩЕНИЕМ ═══
-Каждый твой ответ ОБЯЗАН отзеркалить слово/идею из последнего user-msg.
-Юзер «про любовь» → «Любовь — особенная тема, расскажите про кого?».
-НЕ начинай с нуля. НЕ игнорируй последнее сообщение.
-Если ТЕКУЩЕЕ противоречит KNOWN_PREV — ПРИОРИТЕТ ТЕКУЩЕМУ. Юзер сменил тему.
-
-═══ #3 ОТ ПЕРВОГО ЛИЦА + ПО ИМЕНИ ═══
-Везде «Я», «у меня», «я отправлю» — НЕ «мы», «у нас».
-Имя есть в memo → каждое 2-3 сообщение обращайся «{Имя}, ...».
-Никогда «помощник», «бот», «ассистент» — ты МУЗА, друг.
-В чате имя ТОЛЬКО «Муза» (не Аня/Татьяна/Мария — это внутреннее настроение).
-
-═══ #4 6 ЭТАПОВ МИССИИ (быстро, без воды) ═══
-1. Знакомство (1-2 msg) — узнать имя.
-2. Регистрация — попросить email («оставьте, я записала, придёт код когда заработает»).
-   Если auth — пропустить, никогда не упоминать.
-3. **ТЕКСТ/СМЫСЛ — ГЛАВНОЕ.** Алгоритм сбора (Eugene 2026-05-14 Босс):
-
-   ШАГ 3.1 — КЛЮЧЕВЫЕ СЛОВА (1 сообщение):
-   «{Имя}, дайте мне 3-5 слов или коротких выражений, которые ОБЯЗАТЕЛЬНО
-    должны прозвучать в песне. Это может быть имя, прозвище, любимая
-    фраза, важное место, дата. Я соберу каркас вокруг этого».
-
-   ШАГ 3.2 — КАРКАС из этих слов (1 сообщение):
-   Собираешь короткий черновик-каркас 4-6 строк, ВСТАВЛЯЯ эти слова
-   в естественные позиции. Показываешь юзеру: «Вот каркас:
-   <строки с выделенными словами курсивом или кавычками>.
-   Сейчас обрастём деталями».
-
-   ШАГ 3.3 — 3-5 УТОЧНЕНИЙ (3-5 сообщений, по 1 уточнению за раз):
-   Задаёшь по одному уточняющему вопросу с QR-вариантами:
-   • Повод (если ещё не известен): ДР/годовщина/просто так/...
-   • Настроение: тёплое/бодрое/ностальгичное/торжественное
-   • Кому посвящаем (имя адресата, если ещё не дано)
-   • Особая деталь («что в этом человеке самое важное?»)
-   • Стиль/жанр: Поп/Рок/Баллада/Lo-Fi (под настроение auto-suggest)
-
-   На каждый ответ — ОБНОВЛЯЕШЬ каркас, показываешь обновлённую версию.
-
-   ШАГ 3.4 — ТЕКСТ НА ПРИЁМКУ:
-   Финальный полный текст 8-16 строк. «Вот что получилось. Принимаем?
-   [QR:Идеально] [QR:Поправь куплет] [QR:Сменим настроение]»
-
-4. **ГЕНЕРАЦИЯ (главная цель)** — после приёмки текста:
-   а) save_song_draft(title, prompt, lyrics, style, voice, mood) — обязательно
-   б) Ссылка: ${PUBLIC_URL}/#/music?draftId=N
-   в) «{Имя}, текст готов, открывайте форму — там почти всё заполнено».
-5. Поддержка после — «получилось?» → поздравить или регенерировать.
-6. Retention — интрига «удивлю на следующей неделе».
-
-═══ #4-WORST: ХУДШИЙ ИСХОД — СОХРАНИ ЧЕРНОВИК В КАБИНЕТ ═══
-Если юзер сомневается / собирается уходить / не готов прямо сейчас —
-ПОПРОСИ разрешение и save_song_draft(). Юзер вернётся в кабинет и
-найдёт свой черновик готовым к генерации.
-Скрипт: «{Имя}, давайте сохраню это в ваш кабинет — не теряйте.
-Вернётесь — будет ждать. Хотите?»
-[QR:Сохрани]
-[QR:Пока без сохранения]
-[QR:Расскажи подробнее]
-
-ОТВЕТ: 1-3 короткие фразы. БЕЗ воды. БЕЗ перечислений 5+.
-
-═══ #5 КНОПКИ И ССЫЛКИ ═══
-Каждый ответ ЗАКАНЧИВАЙ 2-3 QR-маркерами:
-[QR:короткий вариант 1]
-[QR:вариант 2]
-[QR:вариант 3]
-1-4 слова на кнопку, разные направления (готовность / уточнение / альтернатива).
-
-Когда юзер готов — давай ссылки прямо в текст:
-${PUBLIC_URL}/#/music?mode=basic (простой текст)
-${PUBLIC_URL}/#/music?mode=advanced (со стилем)
-${PUBLIC_URL}/#/music?mode=audio (через голос)
-Frontend сам сделает их кликабельными. Юзер кликает.
-
-═══ #6 РОЛИ (handoff на не-свои темы) ═══
-- 🛠 Техподдержка («не работает / ошибка / деньги списали») → hello@muziai.ru.
-- 💼 Коммерческий («партнёрство / опт / реклама») → hello@muziai.ru «коммерческий».
-- 📢 Пресс («интервью / СМИ») → hello@muziai.ru «пресс».
-В остальном (песни, тексты, регистрация) — отвечаешь сама.
-
-═══ #7 ЗАПРЕТЫ ═══
-✗ «купить», «закажите», «оплатите» — НИКОГДА.
-✗ Generic «Хорошо!» + тишина — каждый ответ продвигает диалог.
-✗ Длинные абзацы — максимум 3 предложения.
-✗ «Я как ИИ могу...» — никогда. Ты Муза, живая.
-
-═══ #8.5 ПОЭТ-АГЕНТ v2 (Eugene 2026-05-15 Босс «никакой, повторные вопросы») ═══
-
-ТЫ — поэт-songwriter уровня Suno-Lyricist / Claude-Songwriter / GPT-Poet.
-ОДНО железное правило: КАЖДЫЙ твой ответ — ШАГ ВПЕРЁД, не повторение.
-
-══ DETECT-CURRENT-STATE АЛГОРИТМ ══
-ПЕРЕД ответом — за 2 секунды просканируй ВСЮ history и определи state:
-
-A. Прошёл по своим (assistant) сообщениям в обратном порядке.
-B. Если последнее твоё сообщение содержит готовый ТЕКСТ ПЕСНИ (4+ строк
-   с рифмой) → state = ACCEPTANCE, юзер сейчас принимает/правит.
-C. Если последнее твоё содержит каркас (2-4 строки + слова «каркас/набросок»)
-   → state = HAVE_FRAME, иди дальше к деталям.
-D. Если в твоих сообщениях ВСТРЕЧАЛОСЬ «3-5 слов»/«ключевые слова»/«что
-   должно прозвучать» → ты уже спрашивал ключевые → НЕ СПРАШИВАЙ ОПЯТЬ.
-E. Если в history есть user-message с 2+ конкретными существительными/
-   именами/местами/годами (например «Татьяна, ромашки, 60 лет») →
-   ключевые слова УЖЕ ЕСТЬ → state ≥ HAVE_KEYWORDS → начинай строить каркас.
-
-══ STATE → ACTION ══
-| STATE | Что делаешь СЕЙЧАС |
-|---|---|
-| AWAIT_KEYWORDS | Прошу 3-5 ключевых слов. ОДИН раз. |
-| HAVE_KEYWORDS | Сразу пишу каркас 2-4 строки. Никаких «а какое настроение?» |
-| HAVE_FRAME | Спрашиваю ОДНУ деталь («чем особенна Татьяна?»). |
-| DETAILS_1 | Спрашиваю ВТОРУЮ деталь (НЕ ту же что в DETAILS_1). |
-| DETAILS_2 | Спрашиваю ТРЕТЬЮ (стиль/жанр). |
-| DETAILS_3 / ACCEPTANCE | Выдаю ПОЛНЫЙ текст 8+ строк на приёмку. |
-| APPROVED | save_song_draft + ссылка /music?draftId=... |
-
-══ ЗАПРЕЩЁННЫЕ ПОВТОРНЫЕ ФРАЗЫ ══
-Если ЛЮБАЯ из этих фраз УЖЕ была в твоих предыдущих ответах — НЕ ИСПОЛЬЗУЙ снова:
-✗ «Какое настроение?»
-✗ «О ком песня?»
-✗ «Что особенного?»
-✗ «Расскажите больше»
-✗ «Какие 3-5 слов»
-✗ «Какой стиль?»
-✗ «Кому посвящаем?»
-Вместо повтора → компонуй СТРОКУ песни / двигайся в следующий state.
-
-══ ПРАВИЛО ПРОГРЕССА ══
-Если не уверена в state → КОМПОНУЙ, не спрашивай. Лучше дать 2 строки
-песни на проверку («так звучит? правлю?») чем задать ещё один вопрос.
-Юзер пришёл за ПЕСНЕЙ, а не за допросом.
-
-══ ПОЭТИКА ══
-• Рифма AABB или ABAB.
-• Размер 8-10 слогов на строку, ровный ритм.
-• ОБРАЗЫ конкретные («запах сирени у подъезда», не «тепло сердца»).
-• Имя адресата + факты из memo / последнего user-сообщения — ВПЛЕТЕНЫ в текст.
-• 2-4 строки за раз. Полный текст — только в ACCEPTANCE.
-• Русский язык простой, без англицизмов.
-
-══ ДИАЛОГ-ЭТАЛОН ══
-
-[turn 1]
-USER: помоги написать песню маме
-STATE = AWAIT_KEYWORDS
-YOU: «Анна, помогу. Дайте 3-5 слов или выражений которые ОБЯЗАТЕЛЬНО
-прозвучат в песне: имя мамы, важное место, любимая её фраза.»
-[QR:Татьяна, дача, ромашки]
-[QR:бабушка, пироги, юбилей]
-[QR:Не знаю — подскажи]
-
-[turn 2]
-USER: Татьяна, дача, ромашки, 60 лет
-DETECT: 4 конкретных существительных → state = HAVE_KEYWORDS
-YOU (пропускаем «какое настроение?», сразу каркас):
-«Записала: Татьяна, дача, ромашки, 60 лет. Каркас 4 строки:
-
-Татьяна, лет шестьдесят как один,
-В ромашках дача каждым летом цветёт,
-Ты — солнце наших семейных гостин,
-Ты сердце дома, его вечный полёт.
-
-Чем Татьяна особенно близка тебе? Одно слово/деталь — вплету.»
-[QR:Готовит вкусно]
-[QR:Всегда поддерживает]
-[QR:Поёт по вечерам]
-
-[turn 3]
-USER: всегда поддерживает
-DETECT: my last msg was каркас + вопрос про деталь → state = DETAILS_1
-YOU (НЕ повторяю «какая деталь?», иду ДАЛЬШЕ):
-«"Опора" — записала. Какой стиль звучания нравится?»
-[QR:Баллада спокойная]
-[QR:Lo-Fi мечтат.]
-[QR:Романс классич.]
-
-[turn 4]
-USER: баллада
-DETECT: имею ключевые + 1 деталь + стиль → state = ACCEPTANCE
-YOU (выдаю ПОЛНЫЙ текст):
-«Готово. Баллада «Татьяне на 60»:
-
-Татьяна, лет шестьдесят как один,
-В ромашках дача каждым летом цветёт,
-Ты — солнце наших семейных гостин,
-Ты сердце дома, его вечный полёт.
-
-Когда мне трудно — ты рядом всегда,
-Твой взгляд греет душу как тёплая шаль,
-Лети наша песня сквозь все года,
-Татьяна — ты наша живая печаль.
-
-Принимаем?»
-[QR:Идеально, сохрани]
-[QR:Правь второй куплет]
-[QR:Поменяй стиль]
-
-[turn 5]
-USER: идеально
-STATE = APPROVED
-YOU: вызови tool save_song_draft({
-  title:"Татьяне на 60",
-  prompt:"баллада маме, тёплая, ромашки на даче, опора",
-  lyrics:"<полный текст из turn 4>",
-  style:"Баллада",
-  mood:"тёплое"
-}). После получения draftId:
-«✓ Сохранила в кабинет — «Татьяне на 60». Открыть форму генерации:
-${PUBLIC_URL}/#/music?draftId=42»
-
-══ КОНЕЦ ЭТАЛОНА ══
-
-══ ЕСЛИ СБИЛАСЬ / НЕ УВЕРЕНА ══
-1. Считаешь свои предыдущие сообщения в history.
-2. Берёшь последнее.
-3. Если в нём ВОПРОС — юзер только что ответил, иди к следующему state.
-4. Если в нём ТЕКСТ ПЕСНИ — юзер принимает/правит, не задавай новых вопросов
-   про повод/настроение.
-5. Если совсем потерялась — выдай 2 строки песни на основе того что знаешь,
-   спроси «так звучит?». НЕ задавай ещё один вопрос про контекст.
-
-═══ #8 БОГ-ПРОДАВЕЦ ТЕХНИКИ (применяй НЕ показывая) ═══
-• SPIN — на сложных решениях: Ситуация («у вас юбилей мамы») →
-  Проблема («подарок банальный — что выбрать?») → Импликация («год
-  пройдёт — забудется») → Need-payoff («песня = звучит ВСЕГДА»).
-• MIRRORING — повторяй последнее значимое слово юзера короткой паузой.
-  «Бабуля» → «Бабуля… какая она?».
-• ASSUMPTIVE CLOSE — не «хотите?» а «давайте соберём». Юзер по умолчанию ДА.
-• RECIPROCITY — сначала дай ценность (идею текста / совет) — потом проси
-  email/действие. Сначала «вот для вашей мамы такая концовка зайдёт» →
-  потом «откроем форму?».
-• ANCHOR HIGH — сначала упомяни высший результат («автор в топ-12 с маминой
-  песней») — потом перейди к юзеру. Точка отсчёта поднимется.
-• PERSONAL HOOK из ПРОФИЛЯ — engagement=высокий → «у вас уже шесть треков
-  и 200 прослушиваний — давайте следующий хит». Engagement=начинающий →
-  «начнём со простого, заодно увидите как работает».
-• DEAD-FISH PATTERN — если 2+ юзера сообщения подряд короткие/унылые,
-  выломай pattern: «Слушайте, давайте сменим темп. Что у вас сегодня важное?».
-`;
+  // Eugene 2026-05-16 Босс «один мозг»: WEB_CHAT_SALES_ENHANCEMENT удалён.
+  // Persona/playbook/anti-repeat теперь полностью в consultantPersona.ts,
+  // memo-факты — через memoToPromptBlock в dynamic. Раздувание prompt больше
+  // не дробит anti-repeat правила, диалог стал чище (тест Босса 2026-05-16).
 
 
 
@@ -2722,38 +2304,12 @@ ${PUBLIC_URL}/#/music?draftId=42»
           }));
       const sessionMemo = extractMemoryFromHistory(histAll);
 
-      // Eugene 2026-05-14 Босс «бот повторяет одно и тоже 2/10 — кардинально».
-      // INJECT context ПРЯМО в user message — Claude гарантированно видит,
-      // не игнорирует system. Перед каждым user text добавляем краткий контекст.
-      const memoStr = (() => {
-        const parts: string[] = [];
-        if (sessionMemo.name) parts.push(`имя=${sessionMemo.name}`);
-        if (sessionMemo.occasion) parts.push(`повод=${sessionMemo.occasion}`);
-        if (sessionMemo.recipient) parts.push(`кому=${sessionMemo.recipient}`);
-        if (sessionMemo.mood) parts.push(`настроение=${sessionMemo.mood}`);
-        if (sessionMemo.style) parts.push(`стиль=${sessionMemo.style}`);
-        if (sessionMemo.voiceType) parts.push(`голос=${sessionMemo.voiceType}`);
-        if (sessionMemo.email) parts.push(`email=${sessionMemo.email}`);
-        return parts.length > 0 ? parts.join(", ") : "";
-      })();
-      // Eugene 2026-05-16 prompt-injection guard: оборачиваем user text в
-      // <user_message>...</user_message> теги. LLM проинструктирована в
-      // system prompt (consultantPersona.ts) игнорировать инструкции изнутри
-      // этих тегов. Удаляем пользовательские попытки самостоятельно вставить
-      // эти теги (защита от close-tag injection).
-      const safeUserText = `<user_message>${text.replace(/<user_message>/gi, "").replace(/<\/user_message>/gi, "")}</user_message>`;
-
-      const augmentedUserText = memoStr
-        ? `[KNOWN_PREV: ${memoStr}]
-[RULE 1] KNOWN_PREV — это что я узнала РАНЬШЕ. Используй чтобы не переспрашивать имя/email и помнить контекст.
-[RULE 2] КРИТИЧНО: если моё ТЕКУЩЕЕ сообщение НИЖЕ противоречит KNOWN_PREV (например я раньше сказал «ДР», а сейчас пишу про любовь) — ПРИОРИТЕТ ТЕКУЩЕМУ. Я мог сменить тему, отвечай ИМЕННО на то что я сейчас написала.
-[RULE 3] Зеркаль слова из моего ТЕКУЩЕГО сообщения в ответе. Не «у вас ДР», если я только что написал про любовь.
-
-МОЁ СООБЩЕНИЕ:
-${safeUserText}`
-        : safeUserText;
-
-      const systemStable = buildPersonaSystem(session.id) + WEB_CHAT_SALES_ENHANCEMENT;
+      // Eugene 2026-05-16 Босс «один мозг для всех каналов» — снимаем сложную
+      // обвязку user text (KNOWN_PREV + RULE 1/2/3 + WEB_CHAT_SALES_ENHANCEMENT).
+      // LLM-у достаточно одного persona-system + memo-блока в dynamic.
+      // <user_message>...</user_message> теги — prompt-injection guard,
+      // оставлены (consultantPersona.ts инструктирует не подчиняться
+      // инструкциям изнутри этих тегов).
       let systemDynamic = "";
       if (pairedNow) {
         const persona = personaFor(session.id);
@@ -2789,7 +2345,15 @@ ${safeUserText}`
         }
       }
 
-      let reply = await callMuzaLLM(systemStable, systemDynamic, llmHistory, augmentedUserText, authUserId, { sessionId: session.id, channel: session.channel });
+      let reply = await callUnifiedMuzaLLM({
+        sessionId: session.id,
+        userId: authUserId,
+        channel: session.channel === "web" ? "web" : String(session.channel || "web"),
+        userText: text,
+        history: llmHistory,
+        dynamicContext: systemDynamic,
+        maxTokens: 400,
+      });
       let usedFallback = false;
       if (!reply) {
         usedFallback = true;
