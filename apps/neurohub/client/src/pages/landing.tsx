@@ -2307,22 +2307,8 @@ export default function LandingPage() {
           <div className="space-y-4 mt-2 text-sm font-sans">
             <p className="text-white/85 leading-relaxed">
               Подарок доступен зарегистрированным пользователям из{" "}
-              <span className="text-amber-200 font-semibold">России и стран СНГ</span>:
+              <span className="text-amber-200 font-semibold">России и стран ближнего зарубежья</span>.
             </p>
-            <div className="flex flex-wrap gap-1.5">
-              {[
-                "Россия", "Казахстан", "Беларусь", "Украина", "Молдова",
-                "Армения", "Азербайджан", "Грузия", "Киргизия",
-                "Таджикистан", "Туркменистан", "Узбекистан",
-              ].map((country) => (
-                <span
-                  key={country}
-                  className="text-[11px] font-sans px-2 py-0.5 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-100"
-                >
-                  {country}
-                </span>
-              ))}
-            </div>
             <p className="text-white/75 leading-relaxed">
               Бесплатный трек начисляется сразу после регистрации
               <span className="text-amber-300/90"> *</span> (когда регистрация
