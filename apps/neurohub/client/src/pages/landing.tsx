@@ -1092,7 +1092,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                     </g>
                   </svg>
                   <div className="flex-1">
-                    <div className="text-[11px] font-sans uppercase tracking-wider text-purple-300/80">первым 1000 будущих авторам</div>
+                    <div className="text-[11px] font-sans uppercase tracking-wider text-purple-300/80">первым 1000 будущим авторам</div>
                     <div className="text-base font-sans font-bold bg-gradient-to-r from-purple-300 via-blue-300 to-cyan-300 bg-clip-text text-transparent">
                       1 трек бесплатно 🎵 *
                     </div>
@@ -1107,7 +1107,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                 Регистрируйтесь сегодня, чтобы попасть в число первых.
               </p>
               <p className="text-[11px] font-sans text-muted-foreground/70 leading-relaxed mt-2">
-                <span className="text-purple-300/90">*</span> Подарочный трек получают <span className="text-purple-300 font-medium">первые 1000 будущих авторов песен и поздравлений</span> из России и ближнего зарубежья!
+                <span className="text-purple-300/90">*</span> Подарочный трек получают <span className="text-purple-300 font-medium">первым 1000 будущим авторам песен и поздравлений</span> из России и ближнего зарубежья!
               </p>
               <p className="text-sm font-sans text-muted-foreground leading-relaxed mt-2">
                 💡 Давайте пока подготовим вместе{" "}
