@@ -1142,7 +1142,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                 </span>
               </h3>
               <p className="text-base font-sans text-white/90 leading-relaxed">
-                Тестовый этап на <span className="text-amber-300 font-bold">100 авторов</span>. Регистрация по входящему звонку — занимает 20 секунд, без SMS и паролей.
+                Тестовый этап для первых авторов. Регистрация по входящему звонку — занимает 20 секунд, без SMS и паролей.
               </p>
               <div className="mt-3 inline-flex items-center gap-1.5 text-sm font-sans font-medium text-emerald-300">
                 Зарегистрироваться →
