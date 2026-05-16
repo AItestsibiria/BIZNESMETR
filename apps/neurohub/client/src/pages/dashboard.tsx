@@ -860,31 +860,136 @@ function ReferralInfo() {
 // Eugene 2026-05-14 Босс «обложки видимые 7, остальные раскрываются».
 function CoverPickerExpandable({ covers, selectedCoverId, onAttach }: { covers: any[]; selectedCoverId?: number | null; onAttach: (c: any) => void; }) {
   const [showAll, setShowAll] = useState(false);
-  const visible = showAll ? covers : covers.slice(0, 7);
+  const [previewCover, setPreviewCover] = useState<any | null>(null);
+  // Eugene 2026-05-16: B.8 — split layout «Текущая обложка | Новые варианты».
+  // Текущая cover (selectedCoverId) выделяется amber-border-2, варианты слева.
+  // Клик на любой — открывает Dialog с full-size + детали.
+  const current = covers.find(c => c.id === selectedCoverId) || null;
+  const variants = covers.filter(c => c.id !== selectedCoverId);
+  const visibleVariants = showAll ? variants : variants.slice(0, 6);
   return (
     <div>
-      <p className="text-xs text-muted-foreground mb-2">Привязать обложку:</p>
-      <div className="grid grid-cols-7 gap-1.5">
-        {visible.map(cover => (
-          <button
-            key={cover.id}
-            className={`aspect-square rounded-lg overflow-hidden border-2 transition-colors ${
-              selectedCoverId === cover.id ? "border-purple-500" : "border-transparent hover:border-white/20"
-            }`}
-            onClick={() => onAttach(cover)}
-          >
-            <img src={`/api/stream/${cover.id}`} alt="" loading="lazy" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
-          </button>
-        ))}
+      <p className="text-xs text-muted-foreground mb-2">Обложки трека:</p>
+      <div className="grid md:grid-cols-2 gap-3">
+        {/* Левая колонка — текущая обложка */}
+        <div className="space-y-1.5">
+          <p className="text-[10px] uppercase tracking-wider text-amber-400/80 font-semibold">Текущая</p>
+          {current ? (
+            <button
+              type="button"
+              onClick={() => setPreviewCover(current)}
+              className="block w-full aspect-square rounded-xl overflow-hidden border-2 border-amber-500 shadow-lg shadow-amber-500/20 hover:shadow-amber-500/40 transition-all"
+              data-testid={`cover-current-${current.id}`}
+            >
+              <img src={`/api/stream/${current.id}`} alt="Текущая обложка" loading="lazy" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+            </button>
+          ) : (
+            <div className="w-full aspect-square rounded-xl border-2 border-dashed border-amber-500/40 bg-amber-500/5 flex items-center justify-center text-amber-400/60 text-xs text-center px-3">
+              Обложка не выбрана — кликните на вариант справа
+            </div>
+          )}
+        </div>
+        {/* Правая колонка — новые варианты */}
+        <div className="space-y-1.5">
+          <p className="text-[10px] uppercase tracking-wider text-purple-300/80 font-semibold">Новые варианты ({variants.length})</p>
+          {variants.length === 0 ? (
+            <div className="w-full aspect-square rounded-xl border border-dashed border-white/10 bg-white/[0.02] flex items-center justify-center text-muted-foreground/60 text-xs text-center px-3">
+              Других обложек нет — создайте через «Re Обложка»
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-3 gap-1.5">
+                {visibleVariants.map(cover => (
+                  <button
+                    key={cover.id}
+                    type="button"
+                    onClick={() => setPreviewCover(cover)}
+                    className="aspect-square rounded-lg overflow-hidden border-2 border-transparent hover:border-purple-400/60 transition-colors group relative"
+                    data-testid={`cover-variant-${cover.id}`}
+                  >
+                    <img src={`/api/stream/${cover.id}`} alt="" loading="lazy" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                    <span className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
+                      <span className="text-[10px] text-white bg-purple-500/80 px-1.5 py-0.5 rounded">Открыть</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+              {variants.length > 6 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAll(s => !s)}
+                  className="mt-1 w-full text-[11px] text-purple-300 hover:text-purple-200 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors"
+                  data-testid="btn-cover-toggle-all"
+                >
+                  {showAll ? `↑ Скрыть (${variants.length - 6})` : `↓ Показать ещё ${variants.length - 6}`}
+                </button>
+              )}
+            </>
+          )}
+        </div>
       </div>
-      {covers.length > 7 && (
-        <button
-          onClick={() => setShowAll(s => !s)}
-          className="mt-2 w-full text-[11px] text-purple-300 hover:text-purple-200 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors"
-        >
-          {showAll ? `↑ Скрыть (${covers.length - 7})` : `↓ Показать ещё ${covers.length - 7}`}
-        </button>
-      )}
+
+      {/* Full-size preview Dialog с деталями + действиями */}
+      <Dialog open={!!previewCover} onOpenChange={(o) => { if (!o) setPreviewCover(null); }}>
+        <DialogContent className="glass-card border-purple-500/30 max-w-lg" data-testid="dialog-cover-preview">
+          <DialogHeader>
+            <DialogTitle className="gradient-text text-base flex items-center gap-2">
+              <ImageIcon className="w-4 h-4" />
+              Обложка #{previewCover?.id}
+              {previewCover?.id === selectedCoverId && (
+                <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 uppercase tracking-wider">Текущая</span>
+              )}
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              {previewCover?.displayTitle || previewCover?.prompt?.slice(0, 100) || ""}
+            </DialogDescription>
+          </DialogHeader>
+          {previewCover && (
+            <div className="space-y-3">
+              <img src={`/api/stream/${previewCover.id}`} alt="" className="w-full rounded-xl border border-white/10" />
+              {previewCover.prompt && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Промт</p>
+                  <p className="text-xs text-foreground/80 max-h-24 overflow-y-auto leading-relaxed">{previewCover.prompt}</p>
+                </div>
+              )}
+              <div className="grid grid-cols-3 gap-1.5 text-[10px] text-muted-foreground">
+                {previewCover.createdAt && (
+                  <div>
+                    <p className="uppercase tracking-wider text-[9px]">Дата</p>
+                    <p className="text-white/80">{new Date(previewCover.createdAt).toLocaleDateString("ru")}</p>
+                  </div>
+                )}
+                {previewCover.cost != null && (
+                  <div>
+                    <p className="uppercase tracking-wider text-[9px]">Стоимость</p>
+                    <p className="text-white/80">{(previewCover.cost / 100).toFixed(0)} ₽</p>
+                  </div>
+                )}
+              </div>
+              <div className="flex gap-2 pt-2 border-t border-white/10">
+                {previewCover.id !== selectedCoverId && (
+                  <Button
+                    className="flex-1 btn-gradient"
+                    onClick={() => { onAttach(previewCover); setPreviewCover(null); }}
+                    data-testid="btn-cover-attach"
+                  >
+                    Сделать текущей
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  className="flex-1 border-white/10"
+                  onClick={() => setPreviewCover(null)}
+                  data-testid="btn-cover-close"
+                >
+                  Закрыть
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
