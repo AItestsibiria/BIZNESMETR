@@ -29,6 +29,7 @@ import { confirmNonce as confirmTgLoginNonce, hasValidNonce as hasTgLoginNonce }
 import { personaFor, PERSONAS, loadKB, buildPersonaSystem, kbPath } from "../../lib/consultantPersona";
 import { debounceMessage, bypassDebounce } from "../../lib/messageDebouncer";
 import { loadHistoryForLLM } from "../../lib/chatHistory";
+import { callUnifiedMuzaLLM } from "../../lib/llmCore";
 import { logUserActionFailure } from "../../lib/userActionFailures";
 
 const TELEGRAM_API = "https://api.telegram.org";
@@ -168,53 +169,15 @@ const STARTUP_KEYBOARD = {
 // Persona, KB, prompt — теперь в shared lib (lib/consultantPersona.ts).
 // Используется обоими ботами (telegram + max) — единый tone + playbook.
 
-// Backup-LLM (Eugene 2026-05-11): Claude primary, OpenAI fallback.
-// Если Claude недоступен — переключаемся на OpenAI с тем же prompt'ом
-// и историей. Юзер ничего не замечает.
-async function tryClaude(stableSystem: string, dynamicSystem: string, text: string, history: Array<{ role: string; content: string }>): Promise<string | null> {
-  const key = ANTHROPIC_KEY();
-  if (!key) return null;
-  try {
-    // Eugene 2026-05-12 (speed v3): TTL 1h на cache (было ephemeral=5мин).
-    // Header `extended-cache-ttl-2025-04-11` включает long-term cache.
-    // Cold-start раз в час вместо 12 раз в час → 90% запросов на cache hit.
-    const systemBlocks: any[] = [
-      { type: "text", text: stableSystem, cache_control: { type: "ephemeral", ttl: "1h" } },
-    ];
-    if (dynamicSystem) systemBlocks.push({ type: "text", text: dynamicSystem });
-    const r = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-        "anthropic-beta": "extended-cache-ttl-2025-04-11",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 130,
-        system: systemBlocks,
-        messages: [...history.slice(-5), { role: "user", content: text }],
-      }),
-      signal: AbortSignal.timeout(8_000),
-    });
-    if (!r.ok) {
-      bootRefs?.logger.warn?.("[telegram-bot] claude non-ok", { status: r.status });
-      return null;
-    }
-    const j: any = await r.json();
-    const c = j?.content?.[0]?.text;
-    return typeof c === "string" && c.length > 0 ? c.slice(0, 2000) : null;
-  } catch (e) {
-    bootRefs?.logger.warn?.("[telegram-bot] claude error", { error: String(e) });
-    return null;
-  }
-}
-
-// Backup через GPTunnel (Eugene 2026-05-11 «2» — использовать GPTunnel
-// вместо native OpenAI). GPTunnel поддерживает OpenAI-compatible API,
-// тот же кошелёк что у Suno.
-async function tryGPTunnel(system: string, text: string, history: Array<{ role: string; content: string }>): Promise<string | null> {
+// Eugene 2026-05-16 Босс «один мозг для всех каналов» — generateReply теперь
+// идёт через единственную точку callUnifiedMuzaLLM (lib/llmCore.ts).
+// Раньше у TG был отдельный tryClaude + tryGPTunnel БЕЗ MUZA_TOOLS — из-за
+// этого TG-бот не мог вызывать get_balance / save_song_draft / get_user_tracks.
+// Теперь tools работают и в TG.
+//
+// GPTunnel-fallback (gpt-4o-mini без tools) сохранён только как самый
+// последний резерв если Anthropic недоступен по всей цепочке ключей.
+async function tryGPTunnelFallback(system: string, text: string, history: Array<{ role: string; content: string }>): Promise<string | null> {
   const key = process.env.GPTUNNEL_API_KEY || "";
   if (!key) return null;
   try {
@@ -243,27 +206,37 @@ async function tryGPTunnel(system: string, text: string, history: Array<{ role: 
 }
 
 async function generateReply(
+  sessionId: string,
   userKey: string,
   userText: string,
   history: Array<{ role: "user" | "assistant"; content: string }>,
-  extraSystem = ""
+  dynamicContext = "",
+  authUserId: number | null = null,
 ): Promise<string> {
-  // Stable part (persona+playbook+KB) кэшируется через ephemeral cache_control.
-  // Dynamic part (memory/profile/learnings) — отдельным блоком.
-  const stableSystem = buildPersonaSystem(userKey);
-  const dynamicSystem = extraSystem;
-  // 1. Primary: Claude
-  const c = await tryClaude(stableSystem, dynamicSystem, userText, history);
-  if (c) return c;
-  // 2. Backup: GPTunnel (OpenAI-compatible)
-  const o = await tryGPTunnel(stableSystem + dynamicSystem, userText, history);
+  // 1. Primary: единый Claude-call через llmCore (с MUZA_TOOLS).
+  const reply = await callUnifiedMuzaLLM({
+    sessionId,
+    userId: authUserId,
+    channel: "telegram",
+    userText,
+    history,
+    dynamicContext,
+    maxTokens: 400,
+  });
+  if (reply) return reply;
+
+  // 2. Backup: GPTunnel (gpt-4o-mini, без tools). Подаём persona+dynamic
+  //    как один system-block — самый простой вариант для не-Anthropic LLM.
+  const fallbackSystem = buildPersonaSystem(userKey) + (dynamicContext ? "\n\n" + dynamicContext : "");
+  const o = await tryGPTunnelFallback(fallbackSystem, userText, history);
   if (o) return o;
-  // 3. Both failed → fallback hardcoded + регистрируем failure
+
+  // 3. Все упали → hardcoded fallback + register failure.
   logUserActionFailure({
     channel: "telegram",
     action: "chat-reply",
     errorCode: "llm_both_failed",
-    errorMessage: "Claude + GPTunnel оба не ответили — отдан hardcoded fallback",
+    errorMessage: "Anthropic + GPTunnel оба не ответили — отдан hardcoded fallback",
     context: { userKey: String(userKey).slice(0, 32), textPreview: userText.slice(0, 100) },
   });
   return `Здравствуйте! Я — Муза 🎵 Чуть-чуть тормозит — попробуйте через минуту.`;
@@ -815,7 +788,22 @@ async function processIncomingText(chatId: string, fromId: string, sessionId: st
     const month = now.getMonth() + 1;
     const season = month >= 3 && month <= 5 ? "весна" : month >= 6 && month <= 8 ? "лето" : month >= 9 && month <= 11 ? "осень" : "зима";
     const todayHint = `\n\n[TODAY: ${now.toISOString().slice(0, 10)} (${now.toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long" })})]\n[TIME: ${now.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}, ${partOfDay}]\n[SEASON: ${season}]`;
-    const rawReply = await generateReply(fromId, text, history, memoryHint + ltmHint + ownerHint + profileHint + learningsHint + todayHint);
+    // Eugene 2026-05-16 Босс «один мозг»: вместо своего LLM-call идём через
+    // unified callUnifiedMuzaLLM (получает sessionId → cross-channel history
+    // + tool-use). authUserId берём из сессии (если юзер залогинен через TG).
+    let authUserId: number | null = null;
+    try {
+      const sRow = db.select().from(chatbotSessions).where(eq(chatbotSessions.id, sessionId)).get() as any;
+      authUserId = sRow?.userId ?? null;
+    } catch {}
+    const rawReply = await generateReply(
+      sessionId,
+      fromId,
+      text,
+      history,
+      memoryHint + ltmHint + ownerHint + profileHint + learningsHint + todayHint,
+      authUserId,
+    );
     // Eugene 2026-05-12: маркер смены помощника. LLM может вставить
     // [SWITCH_PERSONA:Имя] — код применит смену в БД и уберёт маркер.
     const switchMatch = rawReply.match(/\[SWITCH_PERSONA:(Муза|Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)\]/i);
