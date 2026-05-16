@@ -368,10 +368,35 @@ function hashOtp(code: string): string {
 //   - SELECT-before-INSERT уже выполняется в call-site'ах, но между ним и
 //     INSERT может пройти время. Эта обёртка закрывает оставшееся окно.
 type UpsertPhoneUserResult = { user: any; created: boolean };
+
+// Eugene 2026-05-16: лимит регистраций на этап. Если задан REGISTRATION_LIMIT
+// и REGISTRATION_LIMIT_FROM (ISO date) — при попытке создать НОВОГО юзера
+// (не existing) проверяем сколько уже создано после REGISTRATION_LIMIT_FROM.
+// Если >= REGISTRATION_LIMIT — throw `REGISTRATION_LIMIT_REACHED`. Существующие
+// юзеры с этим phone могут логиниться (existing → return без проверки).
+function checkRegistrationLimit(): void {
+  const limit = parseInt(process.env.REGISTRATION_LIMIT || "0", 10);
+  if (!limit || limit <= 0) return; // лимит не задан → пропуск
+  const from = process.env.REGISTRATION_LIMIT_FROM || "1970-01-01";
+  const row = db.get<{ c: number }>(
+    sql`SELECT COUNT(*) as c FROM users WHERE created_at > ${from} AND (deleted_at IS NULL OR deleted_at = '')`,
+  );
+  const count = Number(row?.c || 0);
+  if (count >= limit) {
+    const err = new Error(`REGISTRATION_LIMIT_REACHED:${count}/${limit}`);
+    (err as any).statusCode = 403;
+    (err as any).publicMessage = `Регистрация на этап завершена — все ${limit} мест заняты. Следите за новостями MuzaAi, скоро откроем следующий этап.`;
+    throw err;
+  }
+}
+
 async function upsertPhoneUser(phone: string): Promise<UpsertPhoneUserResult> {
   // 1) Pre-check (быстрый путь — если уже есть, не делаем INSERT).
   const existing = db.select().from(users).where(eq(users.phone, phone)).get() as any;
   if (existing) return { user: existing, created: false };
+
+  // 2) Лимит регистраций — только перед созданием НОВОГО юзера.
+  checkRegistrationLimit();
 
   const country = detectPhoneCountry(phone);
   const placeholderPassword = await bcrypt.hash(uuidv4() + crypto.randomBytes(16).toString("hex"), 10);
@@ -632,7 +657,13 @@ router.post("/verify-otp", async (req, res) => {
       data: { verified: true, phone, purpose, nextStep: `pending-${purpose}-finalize` },
       error: null,
     });
-  } catch (e) {
+  } catch (e: any) {
+    // Eugene 2026-05-16: REGISTRATION_LIMIT_REACHED → 403 с понятным
+    // сообщением (а не общее 500 «попробуйте через минуту»).
+    if (e?.publicMessage && e?.statusCode) {
+      bootRefs?.logger.warn?.("[auth-sms] registration limit", { phone: maskPhone(phone), msg: String(e?.message || "") });
+      return res.status(e.statusCode).json({ data: null, error: e.publicMessage });
+    }
     bootRefs?.logger.error?.("[auth-sms] verify finalize failed", { purpose, error: String(e) });
     return res.status(500).json({ data: null, error: "Ошибка при создании сессии. Попробуйте ещё раз через минуту." });
   }
@@ -865,7 +896,11 @@ router.post("/check-call", async (req, res) => {
     }
 
     return res.status(400).json({ data: null, error: "Unknown purpose" });
-  } catch (e) {
+  } catch (e: any) {
+    if (e?.publicMessage && e?.statusCode) {
+      bootRefs?.logger.warn?.("[auth-sms] registration limit (check-call)", { phone: maskPhone(phone), msg: String(e?.message || "") });
+      return res.status(e.statusCode).json({ data: null, error: e.publicMessage });
+    }
     bootRefs?.logger.error?.("[auth-sms] check-call finalize failed", { purpose, error: String(e) });
     return res.status(500).json({ data: null, error: "Ошибка при создании сессии. Попробуйте ещё раз через минуту." });
   }
@@ -1100,7 +1135,11 @@ router.post("/check-reverse-call", async (req, res) => {
     }
 
     return res.status(400).json({ data: null, error: "Unknown purpose" });
-  } catch (e) {
+  } catch (e: any) {
+    if (e?.publicMessage && e?.statusCode) {
+      bootRefs?.logger.warn?.("[auth-sms] registration limit (check-reverse-call)", { phone: maskPhone(phone), msg: String(e?.message || "") });
+      return res.status(e.statusCode).json({ data: null, error: e.publicMessage });
+    }
     bootRefs?.logger.error?.("[auth-sms] check-reverse-call finalize failed", { purpose, error: String(e) });
     return res.status(500).json({ data: null, error: "Ошибка при создании сессии. Попробуйте ещё раз через минуту." });
   }
