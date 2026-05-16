@@ -1313,8 +1313,18 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           </div>
         )}
 
-        {/* Track list (music only) */}
-        <div className="glass-card rounded-xl overflow-hidden divide-y divide-white/[0.04]">
+        {/* Track list (music only).
+            Eugene 2026-05-16 Босс «при нажатии меню новые авторы показывал
+            строку плейлиста пустую» — контейнер всегда виден, при пустом
+            списке внутри empty-row. */}
+        <div className="glass-card rounded-xl overflow-hidden divide-y divide-white/[0.04] min-h-[60px]">
+          {paginatedMusic.length === 0 && (
+            <div className="px-4 py-5 text-center text-xs text-muted-foreground/70">
+              {playlistKind === "new"
+                ? "✨ Пока никто не опубликовал — будь первым"
+                : "Пока пусто"}
+            </div>
+          )}
           {paginatedMusic.map((track, idx) => {
             const isMusic = true;
             const isCover = false;
