@@ -107,6 +107,44 @@ function fetcher<T>(url: string): Promise<T> {
   });
 }
 
+// Eugene 2026-05-16 Босс «вверху админки лампочка зелёная если всё ок,
+// красная если хоть один упал». Polling каждые 5 мин. Клик → переход на
+// вкладку «🔑 API ключи». Tooltip с N/M ключей рабочих.
+function ApiHealthLamp({ onJump }: { onJump: () => void }) {
+  const { data: raw } = useQuery<any>({
+    queryKey: ["/api/admin/v304/api-keys/health"],
+    refetchInterval: 5 * 60_000,
+  });
+  // endpoint возвращает { data: {...}, error: null }
+  const data = raw?.data;
+  if (!data) return null;
+  const status: string = data.overallStatus || "yellow";
+  const color = status === "green"
+    ? "bg-emerald-400 ring-emerald-400/40 shadow-emerald-400/60"
+    : status === "red"
+    ? "bg-red-500 ring-red-500/40 shadow-red-500/60 animate-pulse"
+    : "bg-amber-400 ring-amber-400/40 shadow-amber-400/60";
+  const totals = data.totals || { ok: 0, configured: 0, fail: 0 };
+  const title = status === "green"
+    ? `🟢 Все ключи работают (${totals.ok}/${totals.configured})`
+    : status === "red"
+    ? `🔴 ${totals.fail} ключ${totals.fail === 1 ? "" : "ей"} упал · ${totals.ok}/${totals.configured} ok`
+    : `🟡 Есть непроверенные · ${totals.ok}/${totals.configured} ok`;
+  return (
+    <button
+      onClick={onJump}
+      title={title}
+      aria-label={title}
+      className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] transition-colors"
+    >
+      <span className={`w-2.5 h-2.5 rounded-full ring-2 shadow-md ${color}`} />
+      <span className="text-[10px] text-white/60 hidden sm:inline">
+        {totals.ok}/{totals.configured}
+      </span>
+    </button>
+  );
+}
+
 export default function AdminV304Page() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -137,6 +175,7 @@ export default function AdminV304Page() {
     <div className="container mx-auto p-4 sm:p-6 max-w-7xl">
       <div className="flex items-center gap-3 mb-6">
         <h1 className="text-2xl sm:text-3xl font-bold">Admin · v304</h1>
+        <ApiHealthLamp onJump={() => setTab("api-health")} />
         <div className="ml-auto">
           <AdminSearch
             onSelect={(r) => {
@@ -1734,10 +1773,12 @@ function AiKeysTab({ toast }: { toast: any }) {
 // cron 03:00 MSK. Endpoints: /api/admin/v304/api-keys/health, /test/:name,
 // /test-all.
 function ApiHealthTab({ toast }: { toast: any }) {
-  const { data, isLoading, refetch } = useQuery<any>({
+  const { data: raw, isLoading, refetch } = useQuery<any>({
     queryKey: ["/api/admin/v304/api-keys/health"],
     refetchInterval: 60_000,
   });
+  // endpoint возвращает { data: {...}, error: null }
+  const data = raw?.data;
   const [busy, setBusy] = useState<string | null>(null);
 
   const testOne = async (name: string) => {
