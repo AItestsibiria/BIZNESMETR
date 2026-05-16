@@ -1353,8 +1353,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             Все/Песни/Поздравления/Инструментальная».
             Соседний category-filter: text-xs px-3 py-1.5 (~28px высота).
             Эти: text-sm px-3 py-2.5 (~36px = +25%). */}
-        <div className="mb-3 grid grid-cols-2 gap-2">
-          {(["main", "new"] as const).map(kind => {
+        {/* Eugene 2026-05-16 Босс «убери из меню Новые авторы» — временно
+            оставляем только основной плейлист. Backend endpoint остаётся,
+            вернём когда исправим UI bug с пустым плейлистом. */}
+        <div className="mb-3 grid grid-cols-1 gap-2" style={{ display: "none" }}>
+          {(["main"] as const).map(kind => {
             const active = playlistKind === kind;
             const isMain = kind === "main";
             return (
