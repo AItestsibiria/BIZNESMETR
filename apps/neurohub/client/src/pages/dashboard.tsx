@@ -1977,6 +1977,106 @@ function MyDraftsSection() {
   );
 }
 
+// Eugene 2026-05-16 Босс «errored треки вниз + предложение удалить через 1/7/15/30 дней».
+// Dropdown открывается над/под кнопкой, options закрепляют scheduled_delete_at
+// через POST /api/generations/:id/schedule-delete. Если уже выставлен —
+// показывает «🗑 Удалится через X · отменить».
+function ScheduleDeleteDropdown({ gen, onUpdate }: { gen: Generation; onUpdate?: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const { toast } = useToast();
+  const scheduled = (gen as any).scheduledDeleteAt as string | null | undefined;
+  const scheduledMs = scheduled ? new Date(scheduled).getTime() : 0;
+  const remainingDays = scheduledMs > 0 ? Math.max(0, Math.ceil((scheduledMs - Date.now()) / (24 * 60 * 60 * 1000))) : 0;
+
+  const schedule = async (days: number) => {
+    setBusy(true);
+    setOpen(false);
+    try {
+      const res = await apiRequest("POST", `/api/generations/${gen.id}/schedule-delete`, { deleteAfterDays: days });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j.ok) throw new Error(j.message || "Не удалось");
+      toast({
+        title: `Будет удалено через ${days} ${days === 1 ? "день" : days < 5 ? "дня" : "дней"}`,
+        description: "Можно восстановить из этой же кнопки до тех пор.",
+      });
+      onUpdate?.();
+    } catch (e: any) {
+      toast({ title: "Ошибка", description: String(e?.message || e), variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const cancel = async () => {
+    setBusy(true);
+    setOpen(false);
+    try {
+      const res = await apiRequest("POST", `/api/generations/${gen.id}/schedule-delete/cancel`, {});
+      if (!res.ok) throw new Error("Не удалось");
+      toast({ title: "Удаление отменено" });
+      onUpdate?.();
+    } catch (e: any) {
+      toast({ title: "Ошибка", description: String(e?.message || e), variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="relative mt-2" onClick={(e) => e.stopPropagation()}>
+      {scheduled && remainingDays > 0 ? (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-orange-500/10 border border-orange-500/20">
+          <Trash2 className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+          <p className="text-xs text-orange-200 flex-1 leading-tight">
+            Будет удалено через {remainingDays} {remainingDays === 1 ? "день" : remainingDays < 5 ? "дня" : "дней"}
+          </p>
+          <button
+            type="button"
+            className="text-xs text-orange-300 hover:text-orange-200 underline disabled:opacity-50"
+            onClick={cancel}
+            disabled={busy}
+            data-testid={`btn-schedule-delete-cancel-${gen.id}`}
+          >
+            Отменить
+          </button>
+        </div>
+      ) : (
+        <>
+          <button
+            type="button"
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-xs text-red-300 hover:bg-red-500/15 hover:text-red-200 transition-colors disabled:opacity-50"
+            onClick={() => setOpen(v => !v)}
+            disabled={busy}
+            data-testid={`btn-schedule-delete-${gen.id}`}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Удалить через…</span>
+            <ChevronDown className={`w-3 h-3 transition-transform ${open ? "rotate-180" : ""}`} />
+          </button>
+          {open && (
+            <div className="absolute left-0 right-0 mt-1 z-30 rounded-lg bg-zinc-900 border border-white/10 shadow-xl shadow-black/40 overflow-hidden">
+              {[1, 7, 15, 30].map(d => (
+                <button
+                  key={d}
+                  type="button"
+                  className="w-full px-3 py-2 text-left text-xs text-white/90 hover:bg-red-500/15 hover:text-red-200 transition-colors flex items-center justify-between"
+                  onClick={() => schedule(d)}
+                  disabled={busy}
+                  data-testid={`btn-schedule-delete-${gen.id}-${d}`}
+                >
+                  <span>{d} {d === 1 ? "день" : d < 5 ? "дня" : "дней"}</span>
+                  <span className="text-[10px] text-white/40">через {d}д</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function DraftForm({ form, setForm, onSave, onCancel }: { form: Partial<SongDraft>; setForm: (f: Partial<SongDraft>) => void; onSave: () => void; onCancel: () => void }) {
   return (
     <div className="space-y-2">
@@ -2536,11 +2636,21 @@ export default function DashboardPage() {
                     (g as any).authorName?.toLowerCase().includes(gs)
                   ));
                   if (filtered.length === 0) return <p className="text-xs text-muted-foreground text-center py-4">{gs ? "Ничего не найдено" : "Нет генераций"}</p>;
-                  return filtered.map((gen) => {
+                  // Eugene 2026-05-16 Босс: errored треки — в самый низ списка.
+                  // Среди non-error и среди error отдельно — сортируем по дате DESC.
+                  const isErr = (g: Generation) => g.status === "error" || (g.status as string) === "failed";
+                  const ts = (g: Generation) => g.createdAt ? new Date(g.createdAt).getTime() : 0;
+                  const sorted = [...filtered].sort((a, b) => {
+                    const ea = isErr(a) ? 1 : 0;
+                    const eb = isErr(b) ? 1 : 0;
+                    if (ea !== eb) return ea - eb;          // не-error сначала
+                    return ts(b) - ts(a);                    // внутри группы — по дате DESC
+                  });
+                  return sorted.map((gen) => {
                   const Icon = typeIcons[gen.type] || Music;
                   const statusCfg = statusConfig[gen.status] || statusConfig.pending;
                   const StatusIcon = statusCfg.icon;
-                  const isError = gen.status === "error";
+                  const isError = gen.status === "error" || (gen.status as string) === "failed";
                   // Eugene 2026-05-16: C.10 — контуры по типу (left-border 4px).
                   // music=зелёный, cover=циан, lyrics=сиреневый. dark-friendly /60.
                   const typeBorder =
@@ -2704,6 +2814,16 @@ export default function DashboardPage() {
                               Перегенерировать (открыть форму)
                             </Button>
                           )}
+                          {/* Eugene 2026-05-16 Босс: scheduled-delete dropdown
+                              на errored карточках. POST /api/generations/:id/schedule-delete
+                              {deleteAfterDays:1|7|15|30}. Soft-delete reversible
+                              через /restore. */}
+                          <ScheduleDeleteDropdown
+                            gen={gen}
+                            onUpdate={() => {
+                              queryClient.refetchQueries({ queryKey: ["/api/generations"] });
+                            }}
+                          />
                         </div>
                       )}
                     </div>
