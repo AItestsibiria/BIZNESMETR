@@ -17,6 +17,46 @@
 // Без SMSRU_API_ID плагин degraded — лог пишется, но реальная отправка
 // не происходит. Это даёт возможность тестировать flow на clone без
 // настоящих SMS (юзер всё равно получит код через /admin/v304/sms-logs).
+//
+// === ПОЛНЫЙ FLOW PHONE-AUTH + LINK-WITH-EMAIL (Eugene 2026-05-16, audit) ===
+//
+// Сценарии аудитированы (см. также `/api/auth/link-existing` в routes.ts):
+//
+// 1) Повторная регистрация по тому же номеру (`register`):
+//    - User уже зарегистрирован → SELECT users WHERE phone=X находит → ВОЗВРАЩАЕМ
+//      existing user + token + `alreadyExists: true`. Без создания дубля.
+//    - Если SELECT не нашёл, но INSERT упал на UNIQUE (race) → retry SELECT и
+//      возврат existing user (см. `upsertPhoneUser()`). Никогда не возвращаем
+//      `SQLITE_CONSTRAINT` юзеру.
+//
+// 2) Логин по телефону у юзера с email-аккаунтом (`login`):
+//    - SELECT users WHERE phone=X нашёл → обычный login + token + `newAccount: false`.
+//    - SELECT не нашёл → upsert-style: создаём новый phone-only user
+//      (email=`<digits>@phone.muziai.ru`, password=placeholder), возвращаем
+//      token + `newAccount: true`. UI на /dashboard видит email-маску `@phone.muziai.ru`
+//      и показывает `LinkExistingBanner` — юзер вводит свой email+пароль
+//      → POST /api/auth/link-existing → backend объединяет аккаунты (переносит
+//      generations/payments на email-user, помечает phone-user как deleted).
+//    - ВАЖНО: `call`/`reverse-call` flow реализует upsert; `verify-otp` SMS-flow
+//      работает только для существующих номеров (см. send-otp прескрин с 404).
+//
+// 3) UNIQUE conflict (race two registrations):
+//    - DB защита: `CREATE UNIQUE INDEX users_phone_idx ON users(phone) WHERE phone IS NOT NULL`
+//      (storage.ts:154).
+//    - Логика: `upsertPhoneUser()` ловит SQLITE_CONSTRAINT и retry'ит SELECT.
+//      Возвращает existing user.
+//
+// FRONTEND:
+//    - login-phone.tsx → читает `newAccount` → toast «Новый аккаунт создан»
+//      vs «С возвращением»; всегда navigate('/dashboard').
+//    - register-phone.tsx → читает `alreadyExists` → toast «С возвращением» vs «Добро пожаловать».
+//    - dashboard.tsx → если `user.email.endsWith('@phone.muziai.ru')` → показывает
+//      LinkExistingBanner. Юзер может dismiss через ×.
+//
+// SECURITY:
+//    - link-existing требует authMiddleware (текущий phone-only user) + email +
+//      bcrypt-verified пароль от target email-аккаунта.
+//    - Никакого «связать без подтверждения» — пароль обязателен.
 
 import { Router } from "express";
 import { eq, and, desc, sql, gt } from "drizzle-orm";
