@@ -4,9 +4,9 @@ import { storage, db } from "./storage";
 import { PUBLIC_URL } from "./lib/publicUrl";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
-import { registerSchema, loginSchema, users, payments, generations, transactions, promoCodes, visitors, genActivity, songDrafts, botLearnings, landingNews, chatbotSessions, chatbotMessages, adminDelegates, userActionFailures } from "@shared/schema";
+import { registerSchema, loginSchema, users, payments, generations, transactions, promoCodes, visitors, genActivity, songDrafts, botLearnings, landingNews, chatbotSessions, chatbotMessages, adminDelegates, userActionFailures, agentHandoffs } from "@shared/schema";
 import express from "express";
-import { eq, desc, sql, and, isNotNull } from "drizzle-orm";
+import { eq, desc, sql, and, isNotNull, inArray } from "drizzle-orm";
 import nodemailer from "nodemailer";
 import crypto from "crypto";
 import NodeID3 from "node-id3";
@@ -3267,6 +3267,114 @@ ${safeUserText}`
       user: u ? { id: u.id, name: u.name, email: u.email, telegramId: (u as any).telegramId || null } : null,
       ...data,
     });
+  });
+
+  // Eugene 2026-05-16 Босс: универсальный просмотр диалога по userId ИЛИ sessionId.
+  // Telegram-alert при reason='owner_inquiry' ведёт сюда — у Босса в URL только
+  // sessionId, поэтому endpoint обрабатывает оба формата:
+  //   :id ∈ digits → userId
+  //   :id ∈ uuid/text → sessionId (резолвим userId через chatbotSessions.userId)
+  // Возвращает: user / sessions / messages / handoffs.
+  app.get("/api/admin/v304/conversations/:userIdOrSessionId", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const raw = String(req.params.userIdOrSessionId || "").trim();
+      if (!raw) return res.status(400).json({ ok: false, error: "missing id" });
+
+      // Резолв userId.
+      let userId: number | null = null;
+      let lookupSessionId: string | null = null;
+      if (/^\d+$/.test(raw)) {
+        userId = Number(raw);
+      } else {
+        lookupSessionId = raw;
+        try {
+          const row = db.select({ userId: chatbotSessions.userId })
+            .from(chatbotSessions).where(eq(chatbotSessions.id, raw)).get() as any;
+          if (row?.userId) userId = Number(row.userId);
+        } catch {}
+      }
+
+      // Если у нас userId — используем helper (он мерджит cross-channel
+      // сообщения, как в /user/:userId/conversations).
+      let payload: { sessions: any[]; messages: any[] };
+      if (userId) {
+        payload = loadHistoryForUser(userId, 500) as any;
+      } else if (lookupSessionId) {
+        // Anonymous session — берём её одну.
+        try {
+          const sess = db.select().from(chatbotSessions)
+            .where(eq(chatbotSessions.id, lookupSessionId)).get() as any;
+          if (!sess) return res.status(404).json({ ok: false, error: "session not found" });
+          const msgs = db.select().from(chatbotMessages)
+            .where(eq(chatbotMessages.sessionId, lookupSessionId))
+            .orderBy(sql`${chatbotMessages.createdAt} ASC, ${chatbotMessages.id} ASC`)
+            .all() as any[];
+          payload = {
+            sessions: [{
+              id: sess.id,
+              channel: String(sess.channel || ""),
+              startedAt: sess.startedAt,
+              lastMessageAt: sess.lastMessageAt,
+              personaName: sess.personaName,
+            }],
+            messages: msgs.map(r => ({
+              id: r.id,
+              sessionId: r.sessionId,
+              channel: String(sess.channel || ""),
+              role: r.role,
+              text: String(r.text || ""),
+              createdAt: r.createdAt,
+            })),
+          };
+        } catch (e: any) {
+          return res.status(500).json({ ok: false, error: "load failed" });
+        }
+      } else {
+        return res.status(404).json({ ok: false, error: "not found" });
+      }
+
+      // Handoffs: либо по всем sessionId юзера, либо по конкретной сессии.
+      let handoffs: any[] = [];
+      try {
+        const sessIds = payload.sessions.map(s => s.id).filter(Boolean);
+        if (sessIds.length > 0) {
+          handoffs = db.select().from(agentHandoffs)
+            .where(inArray(agentHandoffs.sessionId, sessIds))
+            .orderBy(desc(agentHandoffs.createdAt))
+            .all() as any[];
+        } else if (lookupSessionId) {
+          handoffs = db.select().from(agentHandoffs)
+            .where(eq(agentHandoffs.sessionId, lookupSessionId))
+            .orderBy(desc(agentHandoffs.createdAt))
+            .all() as any[];
+        }
+      } catch {}
+
+      const u = userId ? storage.getUser(userId) : null;
+      res.json({
+        ok: true,
+        user: u ? { id: u.id, name: u.name, email: u.email, telegramId: (u as any).telegramId || null } : null,
+        sessions: payload.sessions,
+        messages: payload.messages.map(m => ({
+          sender: m.role === "user" ? "user" : "agent",
+          text: m.text,
+          createdAt: m.createdAt,
+          channel: m.channel,
+          sessionId: m.sessionId,
+        })),
+        handoffs: handoffs.map(h => ({
+          id: h.id,
+          reason: h.reason,
+          status: h.status,
+          assignedTo: h.assignedTo,
+          sessionId: h.sessionId,
+          createdAt: h.createdAt,
+        })),
+      });
+    } catch (e: any) {
+      console.error("[conversations]", e);
+      res.status(500).json({ ok: false, error: "internal error" });
+    }
   });
 
   // Consultant avatar PNG (Eugene 2026-05-11): рендерит SVG → PNG через
