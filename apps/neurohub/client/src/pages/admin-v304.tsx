@@ -1826,6 +1826,29 @@ function ApiHealthTab({ toast }: { toast: any }) {
     }
   };
 
+  const runNightly = async () => {
+    setBusy("__nightly__");
+    try {
+      const r = await apiRequest("POST", "/api/admin/v304/api-keys/run-nightly", {});
+      const j = await r.json();
+      if (j.data) {
+        const fails = j.data.failedCount || 0;
+        toast({
+          title: fails > 0 ? `Ночной прогон · ${fails} fail` : "Ночной прогон · все OK",
+          description: j.data.alertSent ? "Telegram-alert отправлен" : (fails > 0 ? "Alert НЕ отправлен (нет ADMIN_TELEGRAM_ID)" : ""),
+          variant: fails > 0 ? "destructive" : "default",
+        });
+        refetch();
+      } else {
+        toast({ title: "Ошибка", description: j.error || "—", variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "Сетевая ошибка", description: String(e?.message || e), variant: "destructive" });
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const copyReport = () => {
     if (!data) return;
     const lines: string[] = [
@@ -1875,6 +1898,12 @@ function ApiHealthTab({ toast }: { toast: any }) {
               disabled={busy !== null}
               className="text-[11px] px-3 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 disabled:opacity-40"
             >{busy === "__all__" ? "⏳ Проверяю все…" : "▶ Проверить все"}</button>
+            <button
+              onClick={runNightly}
+              disabled={busy !== null}
+              title="Запустить полный ночной цикл с Telegram-alert при fail (без ожидания 03:00 MSK)"
+              className="text-[11px] px-3 py-1 rounded-lg bg-purple-500/15 hover:bg-purple-500/25 text-purple-300 border border-purple-500/30 disabled:opacity-40"
+            >{busy === "__nightly__" ? "⏳ Ночной цикл…" : "🌙 Прогнать ночной цикл"}</button>
             <button
               onClick={() => refetch()}
               className="text-[11px] px-3 py-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.10] text-white/70 border border-white/[0.08]"

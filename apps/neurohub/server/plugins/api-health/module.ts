@@ -422,6 +422,32 @@ router.post("/test/:keyName", requireAdmin, async (req, res) => {
   }
 });
 
+// POST /api/admin/v304/api-keys/run-nightly — manual триггер ночной проверки
+// (без ожидания 03:00 MSK). Используется для smoke-test cron'а + alert'а.
+router.post("/run-nightly", requireAdmin, async (_req, res) => {
+  try {
+    const failed: Array<{ name: string; error: string | null }> = [];
+    for (const def of KEY_DEFS) {
+      const v = process.env[def.name];
+      if (!v) continue;
+      const rec = await runCheck(def);
+      if (rec.status === "fail") failed.push({ name: def.name, error: rec.lastError });
+    }
+    await sendAdminAlert(failed);
+    res.json({
+      data: {
+        ranAt: new Date().toISOString(),
+        failedCount: failed.length,
+        failed,
+        alertSent: failed.length > 0 && !!process.env.ADMIN_TELEGRAM_ID && !!process.env.TELEGRAM_BOT_TOKEN,
+      },
+      error: null,
+    });
+  } catch (e: any) {
+    res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+  }
+});
+
 // POST /api/admin/v304/api-keys/test-all
 router.post("/test-all", requireAdmin, async (_req, res) => {
   try {
