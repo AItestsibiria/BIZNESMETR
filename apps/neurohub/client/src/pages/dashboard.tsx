@@ -1827,6 +1827,8 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
       <CoverDetailsModal
         open={detailsOpen && !!current}
         onClose={() => setDetailsOpen(false)}
+        onNext={skipNext}
+        onPrev={skipPrev}
         track={current ? {
           id: current.id,
           imageUrl: getCoverUrl(current),

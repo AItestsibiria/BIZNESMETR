@@ -1379,6 +1379,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         <CoverDetailsModal
           open={detailsOpen && !!currentTrack}
           onClose={() => setDetailsOpen(false)}
+          onNext={skipNext}
+          onPrev={skipPrev}
           track={currentTrack ? {
             id: currentTrack.id,
             imageUrl: currentTrack.imageUrl,
