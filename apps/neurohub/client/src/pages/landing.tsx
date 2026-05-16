@@ -1120,43 +1120,36 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           </div>
         </div>
 
-        {/* 9 мая 2026 — audio mode launch */}
-        <div className="glass-card rounded-2xl p-6 border border-cyan-500/20">
+        {/* 16 мая 2026 — открыта регистрация по номеру (тестовый этап на 100 авторов) */}
+        <a
+          href="#/register-phone"
+          onClick={() => { try { window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior }); } catch {} }}
+          className="block glass-card rounded-2xl p-6 border-2 border-emerald-500/40 hover:border-emerald-400/70 transition-all hover:shadow-[0_0_32px_rgba(16,185,129,0.4)] bg-gradient-to-br from-emerald-500/10 via-cyan-500/10 to-purple-500/10"
+        >
           <div className="flex items-start gap-3">
             <div className="w-14 shrink-0 flex items-start justify-center pt-1">
-              <span className="text-3xl">🎤</span>
+              <span className="text-4xl">📞</span>
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-[10px] font-sans px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-medium">Новости</span>
-                <span className="text-[10px] font-sans text-muted-foreground">9 мая 2026</span>
+                <span className="text-[10px] font-sans px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-medium">Новости</span>
+                <span className="text-[10px] font-sans text-muted-foreground">16 мая 2026</span>
+                <span className="text-[10px] font-sans px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-medium animate-pulse">тестовый режим</span>
               </div>
-              <h3 className="text-lg font-sans font-bold text-white mb-2">Аудио со смартфона</h3>
-              <p className="text-sm font-sans text-muted-foreground leading-relaxed">
-                Появилась уникальная возможность генерации трека по{" "}
-                <a
-                  href="#/music"
-                  onClick={() => {
-                    // Eugene 2026-05-09: жёстко выставляем mode=audio + sub=advanced
-                    // в localStorage ДО перехода — чтобы /music сразу открыл
-                    // Аудио · Расширенный с формой параметров (а не дефолтные).
-                    try {
-                      localStorage.setItem("music_mode", "audio");
-                      localStorage.setItem("music_audio_mode", "advanced");
-                      localStorage.setItem("music_mode_v2", "1");
-                    } catch {}
-                    // Eugene 2026-05-10: страница /music должна открыться сверху.
-                    window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
-                  }}
-                  className="text-cyan-400 hover:text-cyan-300 underline decoration-dotted underline-offset-2 transition-colors font-medium"
-                >
-                  аудио
-                </a>{" "}
-                со смартфона. Запиши голосом — получишь готовый трек.
+              <h3 className="text-2xl sm:text-3xl font-sans font-bold mb-2 leading-tight">
+                <span className="bg-gradient-to-r from-emerald-300 via-cyan-300 to-purple-300 bg-clip-text text-transparent">
+                  Открыта регистрация по номеру телефона
+                </span>
+              </h3>
+              <p className="text-base font-sans text-white/90 leading-relaxed">
+                Тестовый этап на <span className="text-amber-300 font-bold">100 авторов</span>. Регистрация по входящему звонку — занимает 20 секунд, без SMS и паролей.
               </p>
+              <div className="mt-3 inline-flex items-center gap-1.5 text-sm font-sans font-medium text-emerald-300">
+                Зарегистрироваться →
+              </div>
             </div>
           </div>
-        </div>
+        </a>
 
       </div>
     </section>
