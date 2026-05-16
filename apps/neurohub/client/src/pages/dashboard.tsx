@@ -2687,7 +2687,30 @@ export default function DashboardPage() {
           {selectedGen && (
             <div className="space-y-4">
               <div>
-                <p className="text-xs text-muted-foreground mb-1">Запрос</p>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <p className="text-xs text-muted-foreground">Запрос</p>
+                  {/* Eugene 2026-05-16: B.5 — копировать промт одной кнопкой.
+                      Берёт полный prompt (а не displayTitle) — Босс может
+                      переиспользовать его в /music. */}
+                  <button
+                    className="text-[11px] text-purple-300 hover:text-purple-100 transition-colors flex items-center gap-1 px-2 py-0.5 rounded hover:bg-purple-500/10"
+                    onClick={() => {
+                      const txt = selectedGen.prompt || selectedGen.displayTitle || "";
+                      if (!txt) {
+                        toast({ title: "Нечего копировать", variant: "destructive" });
+                        return;
+                      }
+                      navigator.clipboard.writeText(txt).then(() => {
+                        toast({ title: "Промт скопирован", description: `${txt.slice(0, 60)}${txt.length > 60 ? "…" : ""}` });
+                      }).catch(() => {
+                        toast({ title: "Не удалось скопировать", variant: "destructive" });
+                      });
+                    }}
+                    data-testid="btn-copy-prompt-modal"
+                  >
+                    <Copy className="w-3 h-3" /> Скопировать промт
+                  </button>
+                </div>
                 <p className="text-sm text-foreground/90 max-h-24 overflow-y-auto leading-relaxed">{selectedGen.displayTitle || selectedGen.prompt}</p>
                 {(() => { try { const m = JSON.parse((selectedGen as any).style || '{}'); if (m.style) return <p className="text-[11px] text-purple-400/60 mt-1">Промт: {m.style}</p>; } catch {} return null; })()}
               </div>
