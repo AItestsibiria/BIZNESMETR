@@ -12,6 +12,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { createPortal } from "react-dom";
+import { motion, useAnimation } from "framer-motion";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -379,6 +380,17 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const [countriesCount, setCountriesCount] = useState<number>(0);
   const [countriesList, setCountriesList] = useState<Array<{country:string;country_code:string;n:number}>>([]);
   const [showCountries, setShowCountries] = useState(false);
+  // Eugene 2026-05-16 Босс: панель стран — drag (тап+движение), long-press
+  // (~500ms) исчезает, release → snap обратно в исходное место (0,0).
+  const countriesDragControls = useAnimation();
+  const countriesLongPressRef = useRef<number | null>(null);
+  const startCountriesLongPress = useCallback(() => {
+    if (countriesLongPressRef.current) window.clearTimeout(countriesLongPressRef.current);
+    countriesLongPressRef.current = window.setTimeout(() => { setShowCountries(false); setShowCitiesPanel(false); }, 500);
+  }, []);
+  const cancelCountriesLongPress = useCallback(() => {
+    if (countriesLongPressRef.current) { window.clearTimeout(countriesLongPressRef.current); countriesLongPressRef.current = null; }
+  }, []);
   const [showCitiesPanel, setShowCitiesPanel] = useState(false);
   // Eugene 2026-05-14 Босс: «справа доп. панель с топом городов».
   const [topCities, setTopCities] = useState<Array<{city:string;country:string;country_code:string;n:number}>>([]);
@@ -1693,7 +1705,19 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCountries(v => !v); }} className="text-[10px] px-2 py-1 rounded-full bg-white/5 text-white/60 border border-white/10 hover:bg-white/10 hover:text-white/90 transition-colors cursor-pointer" title="Нас слушают">🌍 {countriesCount}</button>
                                 {showCountries && createPortal(
                                   <div onClick={() => { setShowCountries(false); setShowCitiesPanel(false); }} style={{position:'fixed',inset:0,zIndex:99999,background:'transparent',display:'flex',alignItems:'flex-end',justifyContent:'center',padding:'16px'}}>
-                                    <div onClick={(e) => e.stopPropagation()} style={{width:'auto',minWidth:'200px',maxWidth:'min(400px,calc(100vw-32px))',maxHeight:'70vh',overflowY:'auto',borderRadius:'16px',background:'rgba(255,255,255,0.05)',backdropFilter:'blur(24px)',WebkitBackdropFilter:'blur(24px)',border:'1px solid rgba(255,255,255,0.1)',padding:'16px',boxShadow:'0 20px 60px rgba(0,0,0,0.5)'}}>
+                                    <motion.div
+                                      drag
+                                      dragMomentum={false}
+                                      dragElastic={0.15}
+                                      animate={countriesDragControls}
+                                      onPointerDown={startCountriesLongPress}
+                                      onPointerUp={cancelCountriesLongPress}
+                                      onPointerLeave={cancelCountriesLongPress}
+                                      onPointerCancel={cancelCountriesLongPress}
+                                      onDragStart={cancelCountriesLongPress}
+                                      onDragEnd={() => countriesDragControls.start({ x: 0, y: 0, transition: { type: "spring", stiffness: 300, damping: 25 } })}
+                                      onClick={(e) => e.stopPropagation()}
+                                      style={{width:'auto',minWidth:'200px',maxWidth:'min(400px,calc(100vw-32px))',maxHeight:'70vh',overflowY:'auto',borderRadius:'16px',background:'rgba(255,255,255,0.05)',backdropFilter:'blur(24px)',WebkitBackdropFilter:'blur(24px)',border:'1px solid rgba(255,255,255,0.1)',padding:'16px',boxShadow:'0 20px 60px rgba(0,0,0,0.5)',touchAction:'none',cursor:'grab'}}>
                                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
                                         <p style={{fontSize:'14px',fontWeight:600,color:'rgba(255,255,255,0.95)',margin:0}}>Нас слушают</p>
                                         <button onClick={() => { setShowCountries(false); setShowCitiesPanel(false); }} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',fontSize:'20px',cursor:'pointer',padding:'0 8px'}}>×</button>
@@ -1738,7 +1762,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                           )}
                                         </>
                                       )}
-                                    </div>
+                                    </motion.div>
                                   </div>,
                                   document.body
                                 )}
