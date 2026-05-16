@@ -1132,15 +1132,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           </div>
         </div>
 
-        {/* 16 мая 2026 — открыта регистрация по номеру (тестовый этап на 100 авторов) */}
+        {/* 16 мая 2026 — открыта регистрация по номеру (тестовый этап) */}
         <a
           href="#/register-phone"
           onClick={() => { try { window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior }); } catch {} }}
-          className="block glass-card rounded-2xl p-6 border-2 border-emerald-500/40 hover:border-emerald-400/70 transition-all hover:shadow-[0_0_32px_rgba(16,185,129,0.4)] bg-gradient-to-br from-emerald-500/10 via-cyan-500/10 to-purple-500/10"
+          className="block glass-card rounded-2xl p-6 border border-emerald-500/30 hover:border-emerald-500/50 transition-colors cursor-pointer"
         >
           <div className="flex items-start gap-3">
             <div className="w-14 shrink-0 flex items-start justify-center pt-1">
-              <span className="text-4xl">📞</span>
+              <span className="text-3xl">📞</span>
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-2">
@@ -1148,17 +1148,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                 <span className="text-[10px] font-sans text-muted-foreground">16 мая 2026</span>
                 <span className="text-[10px] font-sans px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-medium animate-pulse">тестовый режим</span>
               </div>
-              <h3 className="text-2xl sm:text-3xl font-sans font-bold mb-2 leading-tight">
-                <span className="bg-gradient-to-r from-emerald-300 via-cyan-300 to-purple-300 bg-clip-text text-transparent">
-                  Открыта регистрация по номеру телефона
-                </span>
-              </h3>
-              <p className="text-base font-sans text-white/90 leading-relaxed">
-                Тестовый этап для первых авторов. Регистрация по входящему звонку — занимает 20 секунд, без SMS и паролей.
+              <h3 className="text-lg font-sans font-bold text-white mb-2">Открыта <span className="bg-gradient-to-r from-emerald-300 via-cyan-300 to-purple-300 bg-clip-text text-transparent">регистрация по номеру телефона</span></h3>
+              <p className="text-sm font-sans text-muted-foreground leading-relaxed">
+                Тестовый этап для первых авторов. Регистрация по входящему звонку — занимает 20 секунд, без SMS и паролей. <span className="text-emerald-300 font-medium">Зарегистрироваться →</span>
               </p>
-              <div className="mt-3 inline-flex items-center gap-1.5 text-sm font-sans font-medium text-emerald-300">
-                Зарегистрироваться →
-              </div>
             </div>
           </div>
         </a>

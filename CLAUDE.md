@@ -536,6 +536,23 @@ if (isDup(update.update_id)) return;
 
 Применяется к: блоку «Новости» в landing.tsx (карточки с pill-бейджем «Новости» + дата).
 
+### News-card style — эталон 12 мая (Eugene 2026-05-16)
+
+**Все новости на главной — в едином стиле новости от 12 мая 2026 («У нас появилась Муза»).**
+
+Эталонные классы Tailwind:
+- Container: `glass-card rounded-2xl p-6 border border-<color>-500/30 hover:border-<color>-500/50 transition-colors`
+- Layout: `flex items-start gap-3` (icon-column 14px wide + content flex-1)
+- Icon emoji: `text-3xl` (не `text-4xl`, не `text-2xl`)
+- Pills row: `flex items-center gap-2 mb-2` с pill `text-[10px] font-sans px-2 py-0.5 rounded-full bg-<color>-500/20 text-<color>-300 font-medium`
+- Заголовок h3: `text-lg font-sans font-bold text-white mb-2` (gradient span внутри можно через `bg-gradient-to-r ... bg-clip-text text-transparent`)
+- Тело p: `text-sm font-sans text-muted-foreground leading-relaxed`
+- CTA span внутри p: `text-<color>-300 font-medium`
+
+Цвета акцентов меняются (pink/cyan/emerald/purple…), **размеры и font — нет**. Это правило сильнее «крупно/заметно» — даже акцентная новость с подарком сохраняет text-lg / text-sm.
+
+Применяется к: всем news-карточкам в `landing.tsx`. Не применяется к: hero CTA (он не «новость»), пилюли вне новостей.
+
 ### Triumph-tag rule (Eugene 2026-05-10)
 
 **Когда Eugene говорит «Триумф» / «Победа» / «Сохрани редакцию» с ракетами 🚀 — создаю git tag формата `triumph-DDMMYY` на текущем HEAD с описанием что вошло.**
