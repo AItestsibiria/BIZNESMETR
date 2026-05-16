@@ -75,6 +75,14 @@ interface SmsProvider {
   send(phone: string, text: string): Promise<SendResult>;
   callcheck?(phone: string): Promise<CallcheckResult>;
   callcheckStatus?(checkId: string): Promise<CallcheckStatusResult>;
+  // Eugene 2026-05-16 Босс «reverse callcheck — юзер сам звонит на наш номер».
+  // Семантически отдельный канал от incoming flashcall. Для sms.ru это тот же
+  // endpoint callcheck/add (см. https://sms.ru/api/callcheck), но мы
+  // изолируем его, чтобы при появлении провайдера с разными API не пришлось
+  // менять call-site'ы в routes. Возвращает dial_number (=call_phone у sms.ru)
+  // — номер, по которому юзер должен сам инициировать вызов.
+  reverseCallcheck?(phone: string): Promise<CallcheckResult>;
+  reverseCallcheckStatus?(checkId: string): Promise<CallcheckStatusResult>;
   getBalance?(): Promise<{ ok: boolean; balance?: string; currency?: string; error?: string }>;
 }
 
@@ -245,6 +253,24 @@ class SmsRuProvider implements SmsProvider {
     } catch (e: any) {
       return { ok: false, verified: false, errorMessage: String(e?.message || e).slice(0, 500) };
     }
+  }
+
+  // Eugene 2026-05-16 Босс «reverse callcheck — юзер сам звонит на наш номер».
+  // У sms.ru это тот же endpoint /callcheck/add — он возвращает call_phone
+  // (служебный номер), на который юзер инициирует звонок со своего телефона.
+  // sms.ru ловит caller-id, сбрасывает входящий и помечает статус 401.
+  // Семантика «reverse» (= юзер звонит нам) у sms.ru единственная — incoming
+  // flashcall у них реализован через /code_call (отдельный метод). Поэтому
+  // reverseCallcheck — обёртка вокруг callcheck/add с тем же payload.
+  // dialNumber в результате == call_phone у sms.ru.
+  async reverseCallcheck(phone: string): Promise<CallcheckResult> {
+    return this.callcheck(phone);
+  }
+
+  // Eugene 2026-05-16: polling status reverse callcheck. У sms.ru тот же
+  // /callcheck/status — никаких отдельных endpoints для reverse-flow нет.
+  async reverseCallcheckStatus(checkId: string): Promise<CallcheckStatusResult> {
+    return this.callcheckStatus(checkId);
   }
 }
 
@@ -792,6 +818,7 @@ router.get("/providers", async (_req, res) => {
       active: provider.name,
       configured: typeof p.isConfigured === "function" ? p.isConfigured() : false,
       callcheckSupported: typeof p.callcheck === "function",
+      reverseCallcheckSupported: typeof p.reverseCallcheck === "function",
       balance,
       sendDisabled: process.env.SMS_OTP_DISABLE === "1",
     },
