@@ -84,6 +84,12 @@ export default function PhoneOtpForm({
   const [callPhonePretty, setCallPhonePretty] = useState<string | null>(null); // для display
   const [callExpiresAt, setCallExpiresAt] = useState<number | null>(null); // unix ms
   const [callPollAttempts, setCallPollAttempts] = useState(0);
+  // Eugene 2026-05-16 Босс «сразу navigate в /dashboard, без промежуточного
+  // success-screen». После verified мы помечаем форму как verified=true:
+  // - останавливаем polling и loader (чтобы юзер не видел «Звоним…» во
+  //   время короткой паузы пока parent делает loginByToken→navigate);
+  // - parent сразу делает navigate в /dashboard, toast параллельно.
+  const [verified, setVerified] = useState(false);
 
   // Cooldown tick.
   useEffect(() => {
@@ -117,6 +123,9 @@ export default function PhoneOtpForm({
           return;
         }
         if (j?.data?.verified === true && j?.data?.token) {
+          // Помечаем как verified — UI сразу скрывает «Звоним…» loader,
+          // parent через onVerified → loginByToken → navigate("/dashboard").
+          setVerified(true);
           onVerified({
             phone: j.data.phone || phone,
             purpose,
@@ -276,6 +285,9 @@ export default function PhoneOtpForm({
         setError(j.error);
         return;
       }
+      // Eugene 2026-05-16: помечаем verified чтобы скрыть форму на время
+      // паузы parent.loginByToken (~100-300ms /api/me), потом сразу navigate.
+      setVerified(true);
       onVerified({
         phone: j?.data?.phone || phone,
         purpose,
@@ -292,6 +304,19 @@ export default function PhoneOtpForm({
       setLoading(false);
     }
   };
+
+  // Eugene 2026-05-16 Босс «убрать промежуточный success-screen». После
+  // verified=true показываем компактный transition-loader (вместо большой
+  // формы «Звоним…»). Parent в это время делает loginByToken→navigate, и
+  // юзер сразу попадёт в /dashboard.
+  if (verified) {
+    return (
+      <div className="flex items-center justify-center py-4">
+        <Loader2 className="w-5 h-5 animate-spin text-purple-300" />
+        <span className="ml-2 text-sm text-muted-foreground">Входим в кабинет…</span>
+      </div>
+    );
+  }
 
   if (step === "phone") {
     return (
