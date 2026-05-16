@@ -1238,7 +1238,7 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
                   className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors"
                   title="Поделиться"
                   onClick={async () => {
-                    const shareUrl = `https://muziai.ru/share/${current.id}`;
+                    const shareUrl = `https://muzaai.ru/share/${current.id}`;
                     const title = current.displayTitle || current.prompt?.slice(0, 60) || 'MuzaAi';
                     if (navigator.share) {
                       try {
@@ -1568,7 +1568,7 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
                     title="Поделиться"
                     onClick={async (e) => {
                       e.stopPropagation();
-                      const shareUrl = `https://muziai.ru/share/${gen.id}`;
+                      const shareUrl = `https://muzaai.ru/share/${gen.id}`;
                       const t = (gen as any).displayTitle || gen.prompt?.slice(0, 50) || 'MuzaAi';
                       if (navigator.share) {
                         try { await navigator.share({ title: `Послушай на MuzaAi.ru`, text: t, url: shareUrl }); return; } catch {}
@@ -2856,7 +2856,7 @@ export default function DashboardPage() {
                       <button
                         className="inline-flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium rounded-lg whitespace-nowrap border border-white/10 bg-white/5 text-white hover:bg-white/10 transition-colors"
                         onClick={async () => {
-                          const url = `https://muziai.ru/share/${selectedGen.id}`;
+                          const url = `https://muzaai.ru/share/${selectedGen.id}`;
                           const title = selectedGen.displayTitle || selectedGen.prompt?.slice(0, 60) || 'MuzaAi';
                           if (navigator.share) {
                             try {

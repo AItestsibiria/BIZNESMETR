@@ -1268,32 +1268,41 @@ export async function registerRoutes(
 
       const phoneToTransfer = currentUser.phone;
 
-      // Перенос данных от phone-only user → email user.
-      // Generations: переписываем userId.
-      try {
-        db.run(sql`UPDATE generations SET user_id = ${targetUser.id} WHERE user_id = ${currentUser.id}`);
-      } catch (e) { console.warn("[link-existing] generations move failed", e); }
-      // Все возможные таблицы с user_id (минимум — generations + payments + transactions если они есть). Делаем best-effort:
+      // Eugene 2026-05-16 Стратег-Критик #7: link-existing transaction.
+      // Раньше без BEGIN/COMMIT — если 5-й UPDATE падал, первые 4 не
+      // откатывались → данные расходились (юзер с phone, но без generations
+      // переехавших). Теперь всё в transaction — атомарно.
+      const raw = (db as any).$client;
+      // Whitelist таблиц — НЕ user-input, защищает от любой injection,
+      // даже если что-то пройдёт сквозь Drizzle parameterized.
       const userIdTables = ["payments", "transactions", "gen_activity", "song_drafts", "lyric_packs", "covers"];
-      for (const t of userIdTables) {
-        try {
-          db.run(sql.raw(`UPDATE ${t} SET user_id = ${targetUser.id} WHERE user_id = ${currentUser.id}`));
-        } catch {}
+      try {
+        raw.transaction(() => {
+          // 1. Перенос generations (Drizzle parameterized — безопасно)
+          db.run(sql`UPDATE generations SET user_id = ${targetUser.id} WHERE user_id = ${currentUser.id}`);
+          // 2. Перенос остальных таблиц через prepare (parameterized, не string interpolation)
+          for (const t of userIdTables) {
+            // table names ИЗ whitelist (НЕ из user input). prepared statement
+            // с placeholder'ами для значений.
+            try {
+              const stmt = raw.prepare(`UPDATE ${t} SET user_id = ? WHERE user_id = ?`);
+              stmt.run(targetUser.id, currentUser.id);
+            } catch {}
+          }
+          // 3. Привязываем phone к target user
+          db.update(users).set({ phone: phoneToTransfer, phoneVerified: 1 }).where(eq(users.id, targetUser.id)).run();
+          // 4. Soft-delete phone-only user
+          db.update(users).set({
+            deletedAt: new Date().toISOString(),
+            phone: null,
+            email: `merged-${currentUser.id}@deleted.local`,
+          } as any).where(eq(users.id, currentUser.id)).run();
+        })();
+      } catch (e: any) {
+        console.error("[link-existing] transaction failed:", e);
+        res.status(500).json({ message: "Ошибка объединения. Попробуйте позже или обратитесь в поддержку." });
+        return;
       }
-
-      // Привязываем phone к target user.
-      try {
-        db.update(users).set({ phone: phoneToTransfer, phoneVerified: 1 }).where(eq(users.id, targetUser.id)).run();
-      } catch {}
-
-      // Помечаем phone-only user удалённым (НЕ DELETE — soft).
-      try {
-        db.update(users).set({
-          deletedAt: new Date().toISOString(),
-          phone: null,
-          email: `merged-${currentUser.id}@deleted.local`,
-        } as any).where(eq(users.id, currentUser.id)).run();
-      } catch {}
 
       // Новый token на target user.
       const oldToken = getTokenFromRequest(req);

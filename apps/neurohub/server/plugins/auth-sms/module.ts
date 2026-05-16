@@ -486,16 +486,33 @@ router.post("/verify-otp", async (req, res) => {
       // Placeholder password — юзер не задавал пароль (phone-only flow).
       // Сможет задать через ЛК → Сменить пароль.
       const placeholderPassword = await bcrypt.hash(uuidv4() + crypto.randomBytes(16).toString("hex"), 10);
-      const inserted = db.insert(users).values({
-        name: `Автор ${phone.slice(-4)}`,
-        email: `${phone.replace(/[^\d]/g, "")}@phone.muziai.ru`,
-        password: placeholderPassword,
-        phone,
-        phoneVerified: 1,
-        country: country?.name || null,
-        countryCode: country?.code || null,
-      }).returning({ id: users.id }).get() as any;
-      const userId = inserted?.id;
+      // Eugene 2026-05-16 Стратег-Критик #16: UNIQUE constraint retry.
+      // Между select-existing и insert другой request мог вставить → 500.
+      // Ловим UNIQUE error, ищем existing, возвращаем его token.
+      let userId: number;
+      try {
+        const inserted = db.insert(users).values({
+          name: `Автор ${phone.slice(-4)}`,
+          email: `${phone.replace(/[^\d]/g, "")}@phone.muziai.ru`,
+          password: placeholderPassword,
+          phone,
+          phoneVerified: 1,
+          country: country?.name || null,
+          countryCode: country?.code || null,
+        }).returning({ id: users.id }).get() as any;
+        userId = inserted?.id;
+      } catch (e: any) {
+        // UNIQUE constraint failed → ищем existing
+        if (String(e?.message || "").includes("UNIQUE")) {
+          const existing = db.select().from(users).where(eq(users.phone, phone)).get() as any;
+          if (existing) {
+            const token = uuidv4();
+            tokenStore.set(token, existing.id);
+            return res.json({ data: { verified: true, phone, purpose, token, userId: existing.id, alreadyExists: true }, error: null });
+          }
+        }
+        throw e;
+      }
       // Eugene 2026-05-15 Босс «подарочный трек не обнаружен» — выдаём 1
       // welcome-gift первым 1000 авторам из РФ/СНГ. Same logic как при
       // email-регистрации (см. /api/auth/login).
@@ -724,16 +741,30 @@ router.post("/check-call", async (req, res) => {
       }
       const country = detectPhoneCountry(phone);
       const placeholderPassword = await bcrypt.hash(uuidv4() + crypto.randomBytes(16).toString("hex"), 10);
-      const inserted = db.insert(users).values({
-        name: `Автор ${phone.slice(-4)}`,
-        email: `${phone.replace(/[^\d]/g, "")}@phone.muziai.ru`,
-        password: placeholderPassword,
-        phone,
-        phoneVerified: 1,
-        country: country?.name || null,
-        countryCode: country?.code || null,
-      }).returning({ id: users.id }).get() as any;
-      const userId = inserted?.id;
+      // Eugene 2026-05-16 Стратег-Критик #16: UNIQUE retry.
+      let userId: number;
+      try {
+        const inserted = db.insert(users).values({
+          name: `Автор ${phone.slice(-4)}`,
+          email: `${phone.replace(/[^\d]/g, "")}@phone.muziai.ru`,
+          password: placeholderPassword,
+          phone,
+          phoneVerified: 1,
+          country: country?.name || null,
+          countryCode: country?.code || null,
+        }).returning({ id: users.id }).get() as any;
+        userId = inserted?.id;
+      } catch (e: any) {
+        if (String(e?.message || "").includes("UNIQUE")) {
+          const ex = db.select().from(users).where(eq(users.phone, phone)).get() as any;
+          if (ex) {
+            const tk = uuidv4();
+            tokenStore.set(tk, ex.id);
+            return res.json({ data: { verified: true, phone, purpose, method: "call", token: tk, userId: ex.id, alreadyExists: true }, error: null });
+          }
+        }
+        throw e;
+      }
       const giftRes = tryGiveWelcomeGift({ userId, countryCode: country?.code });
       const token = uuidv4();
       tokenStore.set(token, userId);

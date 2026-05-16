@@ -126,7 +126,7 @@ export function ShareQRSection() {
     if (!qrRef.current) return;
     qrRef.current.innerHTML = "";
 
-    renderQRWithLogo("https://muziai.ru", 240).then(finalBlob => {
+    renderQRWithLogo("https://muzaai.ru", 240).then(finalBlob => {
       if (!finalBlob || !qrRef.current) return;
       const finalUrl = URL.createObjectURL(finalBlob);
       const img = document.createElement("img");
@@ -138,20 +138,20 @@ export function ShareQRSection() {
       qrRef.current!.appendChild(img);
     }).catch(() => {
       // Fallback: render without logo
-      const qr = createQR("https://muziai.ru", 240);
+      const qr = createQR("https://muzaai.ru", 240);
       qr.append(qrRef.current!);
     });
   }, []);
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText("https://muziai.ru");
+    await navigator.clipboard.writeText("https://muzaai.ru");
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleCopyQR = async () => {
     try {
-      const blob = await renderQRWithLogo("https://muziai.ru", 600);
+      const blob = await renderQRWithLogo("https://muzaai.ru", 600);
       if (blob) {
         await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
         setCopied(true);
@@ -160,14 +160,14 @@ export function ShareQRSection() {
       }
     } catch {}
     // Fallback: copy link
-    await navigator.clipboard.writeText("https://muziai.ru");
+    await navigator.clipboard.writeText("https://muzaai.ru");
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleDownload = async () => {
     try {
-      const blob = await renderQRWithLogo("https://muziai.ru", 600);
+      const blob = await renderQRWithLogo("https://muzaai.ru", 600);
       if (blob) {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -181,20 +181,20 @@ export function ShareQRSection() {
       }
     } catch {}
     // Fallback
-    const qr = createQR("https://muziai.ru", 600);
+    const qr = createQR("https://muzaai.ru", 600);
     qr.download({ name: "MuzaAi-QR", extension: "png" });
   };
 
   const handleShare = async () => {
     if (navigator.share) {
       try {
-        const blob = await renderQRWithLogo("https://muziai.ru", 600);
+        const blob = await renderQRWithLogo("https://muzaai.ru", 600);
         if (blob) {
           const file = new File([blob], "MuzaAi-QR.png", { type: "image/png" });
           await navigator.share({
             title: "MuzaAi — AI Music",
             text: "Создавай музыку, тексты и обложки с помощью AI. Дарим 1000 ₽ по промокоду «Поехали»!",
-            url: "https://muziai.ru",
+            url: "https://muzaai.ru",
             files: [file],
           });
           return;
@@ -205,7 +205,7 @@ export function ShareQRSection() {
         await navigator.share({
           title: "MuzaAi — AI Music",
           text: "Создавай музыку, тексты и обложки с помощью AI. Дарим 1000 ₽ по промокоду «Поехали»!",
-          url: "https://muziai.ru",
+          url: "https://muzaai.ru",
         });
       } catch {}
     } else {
@@ -290,7 +290,7 @@ export function ShareQRSection() {
 export function TrackShareQR({ trackId, title }: { trackId: number; title: string }) {
   const qrRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
-  const shareUrl = `https://muziai.ru/share/${trackId}`;
+  const shareUrl = `https://muzaai.ru/share/${trackId}`;
 
   useEffect(() => {
     if (!qrRef.current) return;

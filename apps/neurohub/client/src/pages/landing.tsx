@@ -1158,7 +1158,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                     className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors"
                     title="Поделиться"
                     onClick={async () => {
-                      const url = `https://muziai.ru/#/track/${currentTrack.id}`;
+                      const url = `https://muzaai.ru/#/track/${currentTrack.id}`;
                       const title = currentTrack.displayTitle || currentTrack.prompt?.slice(0, 60) || 'MuzaAi';
                       if (navigator.share) {
                         try {
@@ -1435,7 +1435,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                       className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-white/10 transition-colors"
                       onClick={async (e) => {
                         e.stopPropagation();
-                        const url = `https://muziai.ru/share/${track.id}`;
+                        const url = `https://muzaai.ru/share/${track.id}`;
                         const title = track.displayTitle || track.prompt?.slice(0, 60) || 'MuzaAi';
                         if (navigator.share) {
                           try {
@@ -2129,7 +2129,7 @@ export default function LandingPage() {
               className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 hover:bg-white/[0.1] transition-colors"
               onClick={async () => {
                 if (navigator.share) {
-                  try { await navigator.share({ title: 'MuzaAi', text: 'Создавай музыку с AI → Нажмите «На экран Домой»', url: 'https://muziai.ru' }); return; } catch {}
+                  try { await navigator.share({ title: 'MuzaAi', text: 'Создавай музыку с AI → Нажмите «На экран Домой»', url: 'https://muzaai.ru' }); return; } catch {}
                 }
                 setShowInstallGuide("ios");
               }}
@@ -2150,7 +2150,7 @@ export default function LandingPage() {
                 const prompt = (window as any).__pwaInstallPrompt;
                 if (prompt) { prompt.prompt(); const r = await prompt.userChoice; if (r.outcome === 'accepted') (window as any).__pwaInstallPrompt = null; return; }
                 if (navigator.share) {
-                  try { await navigator.share({ title: 'MuzaAi', text: 'Создавай музыку с AI → Нажмите «Добавить на главный экран»', url: 'https://muziai.ru' }); return; } catch {}
+                  try { await navigator.share({ title: 'MuzaAi', text: 'Создавай музыку с AI → Нажмите «Добавить на главный экран»', url: 'https://muzaai.ru' }); return; } catch {}
                 }
                 setShowInstallGuide("android");
               }}

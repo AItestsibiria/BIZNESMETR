@@ -87,7 +87,7 @@ function serializeChatForShare(msgs: ChatMessage[]): string {
     const who = m.role === "user" ? "Я" : "🎀 Муза";
     return `${who}: ${m.text}`;
   });
-  return `Разговор с Музой (MuzaAi)\n${"━".repeat(20)}\n${lines.join("\n\n")}\n${"━".repeat(20)}\n\nХочешь продолжить? Открой https://muziai.ru и кликни на Музу.`;
+  return `Разговор с Музой (MuzaAi)\n${"━".repeat(20)}\n${lines.join("\n\n")}\n${"━".repeat(20)}\n\nХочешь продолжить? Открой https://muzaai.ru и кликни на Музу.`;
 }
 
 // Linkify — превращает голые URL в кликабельные ссылки внутри текста.
@@ -583,7 +583,7 @@ export function FloatingConsultant() {
               onClick={async () => {
                 trackEngagement("consultant_action", { action: "share_native" });
                 const text = "Привет! Порекомендую Музу — крутая в подборе песен под событие.";
-                const url = "https://muziai.ru";
+                const url = "https://muzaai.ru";
                 if (typeof navigator !== "undefined" && (navigator as any).share) {
                   try {
                     await (navigator as any).share({ title: "MuzaAi · Муза", text, url });
@@ -815,7 +815,7 @@ export function FloatingConsultant() {
                   <div className="text-[10px] text-white/50 px-2 py-1">Переслать диалог</div>
                   {(() => {
                     const text = encodeURIComponent(serializeChatForShare(chatMsgs));
-                    const url = encodeURIComponent("https://muziai.ru");
+                    const url = encodeURIComponent("https://muzaai.ru");
                     return (
                       <>
                         <a href={`https://t.me/share/url?url=${url}&text=${text}`} target="_blank" rel="noopener noreferrer"

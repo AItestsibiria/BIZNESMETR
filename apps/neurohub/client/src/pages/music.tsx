@@ -260,7 +260,7 @@ export default function MusicPage() {
       if (qIdx === -1) return null;
       const params = new URLSearchParams(hash.slice(qIdx));
       // Eugene 2026-05-11: расширенный pre-fill через URL — бот строит
-      // ссылку https://muziai.ru/#/music?mode=...&prompt=...&lyrics=...
+      // ссылку https://muzaai.ru/#/music?mode=...&prompt=...&lyrics=...
       // &title=...&style=...&voice=... — pre-fill всех полей формы.
       const urlPrompt = params.get("prompt");
       const urlLyrics = params.get("lyrics");

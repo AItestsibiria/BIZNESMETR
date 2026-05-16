@@ -44,7 +44,10 @@ const WEBHOOK_PATHS = new Set<string>([
 
 function isAllowedOrigin(origin: string | undefined, allowed: string[]): boolean {
   if (!origin) return false;
-  return allowed.some((a) => origin === a || origin.startsWith(a));
+  // Eugene 2026-05-16 Стратег-Критик аудит #8: startsWith → exact match.
+  // Раньше `origin.startsWith("https://muzaai.ru")` пропускал
+  // `https://muzaai.ru.evil.com` → CSRF possible. Только exact equality.
+  return allowed.some((a) => origin === a);
 }
 
 function originGuard(req: Request, res: Response, next: NextFunction): void {
