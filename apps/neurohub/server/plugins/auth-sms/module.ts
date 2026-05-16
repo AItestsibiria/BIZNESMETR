@@ -363,6 +363,12 @@ const CheckCallSchema = z.object({
   purpose: z.enum(["register", "login"]),
 });
 
+// Eugene 2026-05-16 Босс «reverse callcheck — юзер сам звонит на наш номер».
+// Тот же shape, отдельная purpose (call_reverse_*) чтобы изолировать TTL и
+// rate-limit от incoming flashcall.
+const SendReverseCallSchema = SendCallSchema;
+const CheckReverseCallSchema = CheckCallSchema;
+
 const router = Router();
 
 router.post("/send-otp", async (req, res) => {
@@ -808,6 +814,260 @@ router.post("/check-call", async (req, res) => {
   }
 });
 
+// === Reverse callcheck endpoints — Eugene 2026-05-16 Босс «юзер сам
+// звонит на наш номер». UX-flow:
+//   1. UI получает dialNumber через /send-reverse-call
+//   2. UI рендерит `<a href="tel:...">dialNumber</a>` — юзер тапает,
+//      открывается dialer, юзер нажимает «Вызов» со своего телефона
+//   3. UI polling'ует /check-reverse-call каждые 3 сек
+//   4. Если verified → создаём session token (login или register)
+//   5. Если 120 сек прошло — UI показывает fallback на email-auth
+// TTL короче (120 сек) чем у sms.ru окна (300 сек) — даём юзеру 2 мин,
+// потом fallback. Если юзер не успел — может попробовать ещё раз или
+// войти через email.
+const REVERSE_CALL_TTL_SEC = 120;
+
+router.post("/send-reverse-call", async (req, res) => {
+  const parsed = SendReverseCallSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ data: null, error: parsed.error.issues[0]?.message || "invalid" });
+  }
+  const { phone: phoneRaw, purpose } = parsed.data;
+  const v = validatePhoneForOtp(phoneRaw);
+  if (!v.ok || !v.country) {
+    return res.status(400).json({ data: null, error: v.error || "invalid phone" });
+  }
+  const phone = v.normalized;
+
+  // Те же проверки уникальности что для SMS/incoming-call flow.
+  if (purpose === "register") {
+    const exists = db.select({ id: users.id }).from(users).where(eq(users.phone, phone)).get();
+    if (exists) return res.status(409).json({ data: null, error: "Этот номер уже зарегистрирован — войдите по нему" });
+  }
+  if (purpose === "login") {
+    // Для reverse — НЕ возвращаем 404 если номер не найден. Допускаем
+    // upsert-style (как и /check-call): создадим новый phone-only аккаунт
+    // на verified-стадии. Это снимает trade-off «новые юзеры через тот же
+    // экран входа». Если Босс захочет жёсткости — добавим проверку обратно.
+  }
+
+  const rl = checkRateLimit(phone);
+  if (!rl.ok) return res.status(429).json({ data: null, error: rl.reason });
+
+  const provider = getProvider();
+  if (typeof (provider as any).reverseCallcheck !== "function") {
+    return res.status(501).json({ data: null, error: "Текущий SMS-провайдер не поддерживает звонок на наш номер" });
+  }
+  const disableSend = process.env.SMS_OTP_DISABLE === "1";
+  let result: CallcheckResult;
+  if (disableSend) {
+    result = {
+      ok: true,
+      callId: `TEST-REV-${Date.now()}`,
+      callPhone: "78005005555",
+      callPhonePretty: "+7 (800) 500-5555",
+    };
+  } else {
+    result = await (provider as any).reverseCallcheck(phone);
+  }
+
+  const logId = logProvider({
+    provider: `${provider.name}-reverse`,
+    phone,
+    purpose: `call_reverse_${purpose}`,
+    result: {
+      ok: result.ok,
+      status: result.ok ? "sent" : "failed",
+      providerMsgId: result.callId,
+      providerStatusText: result.ok ? `reverse-call dial ${result.callPhone}` : (result.errorMessage || "unknown"),
+      errorMessage: result.errorMessage,
+      responseRaw: result.responseRaw,
+    },
+    requestMeta: { country: v.country.code, zone: v.country.zone, ip: req.ip, dialNumber: result.callPhone },
+  });
+
+  if (!result.ok || !result.callId || !result.callPhone) {
+    return res.status(502).json({
+      data: null,
+      error: `Сервис звонков отклонил запрос: ${result.errorMessage || "unknown"}`,
+    });
+  }
+
+  const expiresAt = new Date(Date.now() + REVERSE_CALL_TTL_SEC * 1000).toISOString();
+  try {
+    db.insert(smsOtp).values({
+      phone,
+      otpHash: result.callId,
+      purpose: `call_reverse_${purpose}`,
+      providerLogId: logId,
+      expiresAt,
+    }).run();
+  } catch (e) {
+    bootRefs?.logger.warn?.("[auth-sms] reverse-call otp save failed", { error: String(e) });
+  }
+
+  bootRefs?.eventBus?.emit?.("auth.reverse_call_sent", {
+    purpose, country: v.country.code, provider: provider.name,
+  }, "auth-sms");
+
+  return res.json({
+    data: {
+      sent: true,
+      method: "reverse-call",
+      country: v.country.code,
+      countryName: v.country.name,
+      dialNumber: result.callPhone || null,
+      dialNumberPretty: result.callPhonePretty || null,
+      checkId: result.callId,
+      hint: result.callPhonePretty
+        ? `Тапните номер ${result.callPhonePretty} — откроется звонок. Нажмите «Вызов» — мы поймаем caller-id и подтвердим вход.`
+        : "Тапните номер — откроется звонок. Нажмите «Вызов» — мы поймаем caller-id и подтвердим вход.",
+      cooldownSec: 60,
+      expiresInSec: REVERSE_CALL_TTL_SEC,
+      fallbackAfterSec: REVERSE_CALL_TTL_SEC,
+    },
+    error: null,
+  });
+});
+
+router.post("/check-reverse-call", async (req, res) => {
+  const parsed = CheckReverseCallSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ data: null, error: parsed.error.issues[0]?.message || "invalid" });
+  }
+  const { phone: phoneRaw, purpose } = parsed.data;
+  const phone = normalizePhone(phoneRaw);
+  const callPurpose = `call_reverse_${purpose}`;
+
+  const row = db.select().from(smsOtp)
+    .where(and(eq(smsOtp.phone, phone), eq(smsOtp.purpose, callPurpose), eq(smsOtp.used, 0)))
+    .orderBy(desc(smsOtp.id))
+    .get() as any;
+  if (!row) return res.status(404).json({ data: null, error: "Запрос не найден — нажмите ещё раз" });
+  if (new Date(row.expiresAt).getTime() < Date.now()) {
+    return res.status(410).json({
+      data: null,
+      error: "Время ожидания истекло — попробуйте ещё раз или войдите через email",
+    });
+  }
+
+  const provider = getProvider();
+  if (typeof (provider as any).reverseCallcheckStatus !== "function") {
+    return res.status(501).json({ data: null, error: "Провайдер не поддерживает status polling" });
+  }
+  const checkId = row.otpHash;
+  const disableSend = process.env.SMS_OTP_DISABLE === "1";
+  let statusRes: CallcheckStatusResult;
+  if (disableSend && typeof checkId === "string" && checkId.startsWith("TEST-REV-")) {
+    // В test-mode фейк verified через 10 сек после создания (для clone).
+    const created = new Date((row as any).createdAt || row.expiresAt).getTime();
+    const isFakeVerified = Date.now() - created > 10_000;
+    statusRes = { ok: true, checkStatus: isFakeVerified ? 401 : 400, verified: isFakeVerified };
+  } else {
+    statusRes = await (provider as any).reverseCallcheckStatus(checkId);
+  }
+
+  if (!statusRes.verified) {
+    return res.json({
+      data: {
+        verified: false,
+        checkStatus: statusRes.checkStatus ?? null,
+        checkStatusText: statusRes.checkStatusText ?? null,
+        waiting: true,
+        expired: false,
+        error: statusRes.errorMessage || null,
+      },
+      error: null,
+    });
+  }
+
+  try {
+    db.update(smsOtp).set({ used: 1 }).where(eq(smsOtp.id, row.id)).run();
+  } catch {}
+
+  bootRefs?.eventBus?.emit?.("auth.reverse_call_verified", { phone: maskPhone(phone), purpose }, "auth-sms");
+
+  // Финализация: register / login — то же что для incoming flashcall.
+  try {
+    if (purpose === "register") {
+      const existing = db.select().from(users).where(eq(users.phone, phone)).get() as any;
+      if (existing) {
+        const token = uuidv4();
+        tokenStore.set(token, existing.id);
+        return res.json({
+          data: { verified: true, expired: false, phone, purpose, method: "reverse-call", token, userId: existing.id, alreadyExists: true },
+          error: null,
+        });
+      }
+      const country = detectPhoneCountry(phone);
+      const placeholderPassword = await bcrypt.hash(uuidv4() + crypto.randomBytes(16).toString("hex"), 10);
+      const inserted = db.insert(users).values({
+        name: `Автор ${phone.slice(-4)}`,
+        email: `${phone.replace(/[^\d]/g, "")}@phone.muziai.ru`,
+        password: placeholderPassword,
+        phone,
+        phoneVerified: 1,
+        country: country?.name || null,
+        countryCode: country?.code || null,
+      }).returning({ id: users.id }).get() as any;
+      const userId = inserted?.id;
+      const giftRes = tryGiveWelcomeGift({ userId, countryCode: country?.code });
+      const token = uuidv4();
+      tokenStore.set(token, userId);
+      bootRefs?.eventBus?.emit?.("auth.user.registered", { userId, channel: "reverse-call" }, "auth-sms");
+      return res.json({
+        data: { verified: true, expired: false, phone, purpose, method: "reverse-call", token, userId, welcomeGift: giftRes.gifted ? giftRes.position : null },
+        error: null,
+      });
+    }
+
+    if (purpose === "login") {
+      const user = db.select().from(users).where(eq(users.phone, phone)).get() as any;
+      if (!user) {
+        // Upsert: phone not found → создаём новый phone-only аккаунт.
+        // Consistent с /check-call поведением (Босс «связать email и номер,
+        // лёгкое решение» — UI потом покажет banner про linking в ЛК).
+        const country = detectPhoneCountry(phone);
+        const placeholderPassword = await bcrypt.hash(uuidv4() + crypto.randomBytes(16).toString("hex"), 10);
+        const inserted = db.insert(users).values({
+          name: `Автор ${phone.slice(-4)}`,
+          email: `${phone.replace(/[^\d]/g, "")}@phone.muziai.ru`,
+          password: placeholderPassword,
+          phone,
+          phoneVerified: 1,
+          country: country?.name || null,
+          countryCode: country?.code || null,
+        }).returning({ id: users.id }).get() as any;
+        const newUserId = inserted?.id;
+        const giftRes = tryGiveWelcomeGift({ userId: newUserId, countryCode: country?.code });
+        const token = uuidv4();
+        tokenStore.set(token, newUserId);
+        bootRefs?.eventBus?.emit?.("auth.user.registered", { userId: newUserId, channel: "reverse-call", upsert: true }, "auth-sms");
+        return res.json({
+          data: { verified: true, expired: false, phone, purpose, method: "reverse-call", token, userId: newUserId, newAccount: true, welcomeGift: giftRes.gifted ? giftRes.position : null },
+          error: null,
+        });
+      }
+      if (user.blocked) return res.status(403).json({ data: null, error: "Аккаунт заблокирован" });
+      if (!user.phoneVerified) {
+        try { db.update(users).set({ phoneVerified: 1 }).where(eq(users.id, user.id)).run(); } catch {}
+      }
+      const token = uuidv4();
+      tokenStore.set(token, user.id);
+      bootRefs?.eventBus?.emit?.("auth.user.logged_in", { userId: user.id, channel: "reverse-call" }, "auth-sms");
+      return res.json({
+        data: { verified: true, expired: false, phone, purpose, method: "reverse-call", token, userId: user.id },
+        error: null,
+      });
+    }
+
+    return res.status(400).json({ data: null, error: "Unknown purpose" });
+  } catch (e) {
+    bootRefs?.logger.error?.("[auth-sms] check-reverse-call finalize failed", { purpose, error: String(e) });
+    return res.status(500).json({ data: null, error: "Ошибка при создании сессии. Попробуйте ещё раз через минуту." });
+  }
+});
+
 // Admin: список настроенных провайдеров + balance.
 router.get("/providers", async (_req, res) => {
   const provider = getProvider();
@@ -828,10 +1088,17 @@ router.get("/providers", async (_req, res) => {
 
 const authSmsModule: Module = {
   name: "auth-sms",
-  version: "0.3.0",
-  description: "SMS-OTP + Callcheck (звонок от юзера на наш номер) регистрация/авторизация через SMS.ru (РФ + СНГ). Logs провайдера в admin panel. Без SMSRU_API_ID — degraded (логи пишутся, отправки нет). Endpoints: /send-otp, /verify-otp, /send-call, /check-call (polling), /providers.",
+  version: "0.4.0",
+  description: "SMS-OTP + Callcheck (incoming) + Reverse-callcheck (юзер сам звонит на наш номер, tap-to-dial, 120 сек TTL + fallback на email-auth) регистрация/авторизация через SMS.ru (РФ + СНГ). Logs провайдера в admin panel. Без SMSRU_API_ID — degraded (логи пишутся, отправки нет). Endpoints: /send-otp, /verify-otp, /send-call, /check-call (polling), /send-reverse-call, /check-reverse-call (polling), /providers.",
   routes: { prefix: "auth/sms", router },
-  publishes: ["auth.sms_otp_sent", "auth.sms_otp_verified", "auth.call_otp_sent", "auth.call_otp_verified"],
+  publishes: [
+    "auth.sms_otp_sent",
+    "auth.sms_otp_verified",
+    "auth.call_otp_sent",
+    "auth.call_otp_verified",
+    "auth.reverse_call_sent",
+    "auth.reverse_call_verified",
+  ],
   onLoad: async (ctx) => {
     bootRefs = { eventBus: ctx.eventBus, logger: ctx.logger };
     const provider = getProvider();
