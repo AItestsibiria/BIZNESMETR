@@ -595,6 +595,48 @@ export const userDataChangeRequests = sqliteTable("user_data_change_requests", {
 });
 export type UserDataChangeRequest = typeof userDataChangeRequests.$inferSelect;
 
+// === Agent upgrade (Eugene 2026-05-16 Босс): таблицы для AI-агента под 1M юзеров/год ===
+// 1) agent_notes — long-term memory о юзере (preferences / context / admin notes)
+// 2) agent_feedback — оценки ответов агента (helpful / wrong_info / rude / off_topic)
+// 3) agent_handoffs — эскалация на человека (user_request / low_confidence / ...)
+//
+// Изолированы от chatbot_messages чтобы можно было: чистить старые сообщения
+// (privacy) но сохранять долгосрочные предпочтения; отдельно агрегировать
+// фидбек для AI-обучения; иметь очередь handoff'ов для админ-панели.
+
+export const agentNotes = sqliteTable("agent_notes", {
+  id: text("id").primaryKey(),                       // uuid
+  userId: integer("user_id").notNull(),
+  kind: text("kind").notNull(),                      // 'preference' | 'context' | 'admin_note'
+  value: text("value").notNull(),
+  confidence: real("confidence").default(0.5),       // 0..1 уверенность извлечения
+  source: text("source"),                            // session_id или 'admin'
+  expiresAt: integer("expires_at"),                  // unix-ms, null = бессрочно
+  createdAt: integer("created_at").notNull(),        // unix-ms
+});
+export type AgentNote = typeof agentNotes.$inferSelect;
+
+export const agentFeedback = sqliteTable("agent_feedback", {
+  id: text("id").primaryKey(),                       // uuid
+  sessionId: text("session_id").notNull(),           // FK chatbot_sessions.id
+  messageId: text("message_id"),                     // FK chatbot_messages.id (nullable)
+  rating: integer("rating"),                         // -1 / 0 / +1
+  label: text("label"),                              // 'helpful' | 'wrong_info' | 'rude' | 'off_topic'
+  comment: text("comment"),
+  createdAt: integer("created_at").notNull(),        // unix-ms
+});
+export type AgentFeedback = typeof agentFeedback.$inferSelect;
+
+export const agentHandoffs = sqliteTable("agent_handoffs", {
+  id: text("id").primaryKey(),                       // uuid
+  sessionId: text("session_id").notNull(),
+  reason: text("reason").notNull(),                  // 'user_request' | 'low_confidence' | 'data_conflict' | 'destructive_action'
+  assignedTo: integer("assigned_to"),                // FK users.id (nullable, заполняется когда оператор подхватил)
+  status: text("status").notNull().default("open"),  // 'open' | 'in_progress' | 'closed'
+  createdAt: integer("created_at").notNull(),        // unix-ms
+});
+export type AgentHandoff = typeof agentHandoffs.$inferSelect;
+
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
   balance: true,

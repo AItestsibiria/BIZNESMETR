@@ -602,6 +602,51 @@ try {
     console.error("[MIGRATION] chatbot_sessions FSM columns failed:", e);
   }
 
+  // === Agent upgrade (Eugene 2026-05-16 Босс): таблицы AI-агента под 1M юзеров/год ===
+  // agent_notes / agent_feedback / agent_handoffs. Idempotent CREATE IF NOT EXISTS.
+  try {
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS agent_notes (
+        id TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        value TEXT NOT NULL,
+        confidence REAL DEFAULT 0.5,
+        source TEXT,
+        expires_at INTEGER,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS agent_notes_user_idx ON agent_notes(user_id, kind, created_at DESC);
+      CREATE INDEX IF NOT EXISTS agent_notes_expires_idx ON agent_notes(expires_at);
+
+      CREATE TABLE IF NOT EXISTS agent_feedback (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        message_id TEXT,
+        rating INTEGER,
+        label TEXT,
+        comment TEXT,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS agent_feedback_session_idx ON agent_feedback(session_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS agent_feedback_label_idx ON agent_feedback(label, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS agent_handoffs (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        assigned_to INTEGER,
+        status TEXT NOT NULL DEFAULT 'open',
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS agent_handoffs_session_idx ON agent_handoffs(session_id);
+      CREATE INDEX IF NOT EXISTS agent_handoffs_status_idx ON agent_handoffs(status, created_at DESC);
+      CREATE INDEX IF NOT EXISTS agent_handoffs_assigned_idx ON agent_handoffs(assigned_to, status);
+    `);
+  } catch (e) {
+    console.error("[MIGRATION] agent_* tables failed:", e);
+  }
+
   // Landing news (Eugene 2026-05-12 Босс): архив + CRUD редактирование.
   try {
     sqlite.exec(`CREATE TABLE IF NOT EXISTS landing_news (
