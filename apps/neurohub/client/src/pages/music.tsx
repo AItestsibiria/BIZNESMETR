@@ -410,6 +410,18 @@ export default function MusicPage() {
   // (подождать ещё / открыть дашборд)
   const [showLongWait, setShowLongWait] = useState(false);
   const [resultUrl, setResultUrl] = useState<string | null>(null);
+  // Eugene 2026-05-16: мульти-трек — храним массив готовых URL'ов
+  // (1-5 штук), Босс кликает «🎵 Трек N» → играет соответствующий.
+  // resultUrl остаётся как «активный сейчас» для AudioPlayer.
+  const [doneUrls, setDoneUrls] = useState<string[]>([]);
+  const [activeTrackIdx, setActiveTrackIdx] = useState<number>(0);
+  // Keep activeTrackIdx aligned с doneUrls.indexOf(resultUrl) — на случай
+  // если новый track пришёл позже остальных (порядок не совпадает с idx).
+  useEffect(() => {
+    if (!resultUrl || doneUrls.length === 0) return;
+    const idx = doneUrls.indexOf(resultUrl);
+    if (idx >= 0 && idx !== activeTrackIdx) setActiveTrackIdx(idx);
+  }, [resultUrl, doneUrls]);
   const [showInlineAuth, setShowInlineAuth] = useState(false);
   const [usedStyles, setUsedStyles] = useState<string[]>(transferred?.style ? [transferred.style] : []);
   // Eugene 2026-05-11: при заходе по pre-filled URL — все блоки сверху вниз
@@ -449,6 +461,9 @@ export default function MusicPage() {
         // Suno returns tracks array; backend normalizes to audioUrl
         const url = data.audioUrl || (Array.isArray(data.result) ? data.result[0]?.audio_url : data.result);
         setResultUrl(url);
+        // Eugene 2026-05-16: добавляем URL в doneUrls для кнопок «Трек N»,
+        // если ещё не добавлен.
+        if (url) setDoneUrls(prev => prev.includes(url) ? prev : [...prev, url]);
         setPolling(false);
         setLoading(false);
         stopBgMusic();
@@ -570,6 +585,9 @@ export default function MusicPage() {
               pendingTasks.delete(tid);
               if (d.status === "done" && d.audioUrl) {
                 setResultUrl(d.audioUrl);
+                // Eugene 2026-05-16: каждый готовый трек добавляем в doneUrls
+                // → меню «Трек N» в UI результата.
+                setDoneUrls(prev => prev.includes(d.audioUrl) ? prev : [...prev, d.audioUrl]);
                 doneCount++;
               } else if (d.status === "error" || d.status === "failed") {
                 if (d.userMessage) errorMessages.push(d.userMessage);
@@ -627,6 +645,8 @@ export default function MusicPage() {
       setLoading(true);
       startBgMusic();
       setResultUrl(null);
+      setDoneUrls([]); // Eugene 2026-05-16: сбрасываем список готовых треков.
+      setActiveTrackIdx(0);
       setLastPromptText(finalLyrics);
       const audioTaskIds: string[] = [];
       let lastIdAudio: number | null = null;
@@ -716,6 +736,8 @@ export default function MusicPage() {
     setLoading(true);
     startBgMusic();
     setResultUrl(null);
+    setDoneUrls([]); // Eugene 2026-05-16: сбрасываем список готовых треков.
+    setActiveTrackIdx(0);
     setHighlightStyles(false);
     setLastPromptText(legacyMode === "simple" ? prompt : lyrics);
     setUsedStyles(prev => {
@@ -2181,7 +2203,60 @@ export default function MusicPage() {
         {/* Result */}
         {resultUrl && (
           <div className="space-y-4" data-testid="music-result">
-            <AudioPlayer url={resultUrl} autoPlay />
+            {/* Eugene 2026-05-16: меню «🎵 Трек N» для мульти-генерации.
+                Клик переключает активный URL → AudioPlayer (autoPlay=true)
+                сам начнёт воспроизведение благодаря key={resultUrl}.
+                Активный — ⏸, остальные — ▶️. audioBus гарантирует один
+                активный аудио на весь сайт. */}
+            {doneUrls.length > 1 && (
+              <div className="gradient-border p-3 rounded-2xl" data-testid="track-menu">
+                <p className="text-[11px] text-muted-foreground mb-2 px-1">
+                  Готово {doneUrls.length} {doneUrls.length <= 4 ? "трека" : "треков"} — выберите для прослушивания:
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                  {doneUrls.map((url, idx) => {
+                    const isActive = idx === activeTrackIdx;
+                    return (
+                      <button
+                        key={url}
+                        type="button"
+                        onClick={() => {
+                          if (isActive) {
+                            // Pause/resume активный — AudioPlayer pauseAllExcept
+                            // через audio-bus синглтон.
+                            const audio = document.querySelector<HTMLAudioElement>(
+                              `[data-testid="audio-player"] audio`
+                            );
+                            if (audio) {
+                              if (audio.paused) audio.play().catch(() => {});
+                              else audio.pause();
+                            }
+                            return;
+                          }
+                          setActiveTrackIdx(idx);
+                          setResultUrl(url);
+                        }}
+                        className={`group h-12 rounded-xl border flex items-center justify-center gap-1.5 text-xs font-semibold transition-all hardware-button ${
+                          isActive
+                            ? "border-purple-400/60 bg-gradient-to-br from-purple-500/30 to-blue-500/20 text-white shadow-lg shadow-purple-500/30 scale-[1.03]"
+                            : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"
+                        }`}
+                        data-testid={`btn-track-${idx + 1}`}
+                      >
+                        {isActive ? (
+                          <Pause className="w-3.5 h-3.5 shrink-0" />
+                        ) : (
+                          <Play className="w-3.5 h-3.5 shrink-0 ml-0.5" />
+                        )}
+                        <span>🎵 Трек {idx + 1}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <AudioPlayer key={resultUrl} url={resultUrl} autoPlay />
 
             {/* Prompt copy */}
             {lastPromptText && (
@@ -2220,6 +2295,8 @@ export default function MusicPage() {
                 onClick={() => {
                   // Reset result, keep text, highlight unused styles
                   setResultUrl(null);
+                  setDoneUrls([]); // Eugene 2026-05-16
+                  setActiveTrackIdx(0);
                   setHighlightStyles(true);
                   // Keep only unused styles pre-selected, or clear to let user pick
                   setSelectedStyles([]);
