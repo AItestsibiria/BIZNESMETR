@@ -67,13 +67,38 @@ export default function LoginPhonePage() {
             phoneSubmitLabel="Получить звонок"
             submitLabel="Войти"
             onVerified={async ({ phone, token, newAccount }) => {
+              // Eugene 2026-05-16: guard на пустой token — backend в очень
+              // редких случаях может вернуть verified без token (race).
+              // Без guard юзер видел «вы авторизованы» и залипал.
               if (!token) {
-                toast({ title: "Не удалось войти", description: "Попробуйте через минуту", variant: "destructive" });
+                // eslint-disable-next-line no-console
+                console.warn("[AUTH] login-phone: onVerified received empty token");
+                toast({
+                  title: "Не удалось войти",
+                  description: "Сессия не выдана. Попробуйте ещё раз или войдите через email.",
+                  variant: "destructive",
+                });
                 return;
               }
+              // eslint-disable-next-line no-console
+              console.log("[AUTH] login-phone: onVerified, calling loginByToken");
               const u = await loginByToken(token, true);
-              // Eugene 2026-05-15 Босс «сразу заход в личный кабинет».
-              // Без modal — auth-flow заканчивается на /dashboard.
+              // Eugene 2026-05-16: проверяем результат loginByToken. Если
+              // null → backend /api/auth/me отверг token (заблокирован /
+              // удалён / истёк). Без проверки navigate('/dashboard') →
+              // dashboard видит user=null → редирект на /login → юзер
+              // залипает в loop. С проверкой — показываем toast и
+              // оставляем на login-phone (или редирект на email-login).
+              if (!u) {
+                toast({
+                  title: "Сессия не подтвердилась",
+                  description: "Попробуйте ещё раз или войдите через email.",
+                  variant: "destructive",
+                });
+                return;
+              }
+              // eslint-disable-next-line no-console
+              console.log("[AUTH] login-phone: navigate to /dashboard, user id:", u.id);
               if (newAccount) {
                 toast({
                   title: "✅ Вход выполнен — добро пожаловать!",

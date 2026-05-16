@@ -89,6 +89,8 @@ export default function RegisterPhonePage() {
             submitLabel="Зарегистрироваться"
             onVerified={async ({ phone, token, alreadyExists }) => {
               if (!token) {
+                // eslint-disable-next-line no-console
+                console.warn("[AUTH] register-phone: onVerified empty token");
                 toast({
                   title: "Аккаунт создан, но войти не удалось",
                   description: "Попробуй войти по тому же номеру",
@@ -97,7 +99,24 @@ export default function RegisterPhonePage() {
                 navigate("/login-phone");
                 return;
               }
+              // eslint-disable-next-line no-console
+              console.log("[AUTH] register-phone: onVerified, calling loginByToken");
               const u = await loginByToken(token, true);
+              // Eugene 2026-05-16: если /api/auth/me отверг token —
+              // редирект на /login-phone (там можно попробовать снова).
+              // Без guard navigate('/dashboard') → редирект на /login →
+              // юзер залипает.
+              if (!u) {
+                toast({
+                  title: "Сессия не подтвердилась",
+                  description: "Попробуйте войти по тому же номеру.",
+                  variant: "destructive",
+                });
+                navigate("/login-phone");
+                return;
+              }
+              // eslint-disable-next-line no-console
+              console.log("[AUTH] register-phone: navigate to /dashboard, user id:", u.id);
               toast({
                 title: alreadyExists ? "С возвращением!" : "Добро пожаловать!",
                 description: `Аккаунт ${u?.name || phone}`,
