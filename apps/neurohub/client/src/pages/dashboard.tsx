@@ -13,7 +13,7 @@ import {
   ArrowUpRight, ArrowDownLeft, Clock, CheckCircle2, XCircle, Loader2, Download, Globe, Lock, RotateCcw,
   Share2, Users, Copy, TrendingUp, Eye, BarChart3, Pencil, ExternalLink, Trash2, ArchiveRestore,
   Play, Pause, SkipForward, SkipBack, RefreshCcw, ChevronDown, Repeat, Repeat1, Ticket, FastForward,
-  AlertCircle, Wallet, Mic, Home,
+  AlertCircle, Wallet, Mic, Home, Maximize,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import GiftBadge from "@/components/gift-badge";
@@ -24,6 +24,7 @@ import { Label } from "@/components/ui/label";
 import { Loader2 } from "lucide-react";
 import { KaraokeLyrics } from "@/components/karaoke-lyrics";
 import { ExpandToggleButton } from "@/components/expand-toggle-button";
+import { CoverDetailsModal } from "@/components/cover-details-modal";
 import { setLockScreenTrack, setLockScreenPlaybackState } from "@/lib/lockscreen";
 import { muteBgMusic, unmuteBgMusic } from "@/components/background-music";
 
@@ -1023,6 +1024,8 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
   // coverExpanded — column-layout активного плеера: cover full-width сверху,
   // controls под ним. False = row-layout (current default).
   const [coverExpanded, setCoverExpanded] = useState(false);
+  // Eugene 2026-05-16 Босс «🔍 Детали» — full-screen cover modal в MyPlaylist.
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [showKaraoke, setShowKaraoke] = useState(false);
   const [lyricsSpeed, setLyricsSpeed] = useState(0);
   const [repeatMode, setRepeatMode] = useState<"off" | "all" | "one">("all"); // off=stop at end, all=loop playlist, one=loop single track
@@ -1337,6 +1340,17 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
                   title="Закольцевать трек"
                 >
                   <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12a7 7 0 1 0-3 5.7" /><polyline points="14 17 16 17.7 16.7 15.7" /><text x="12" y="15" textAnchor="middle" fontSize="9" fontWeight="700" stroke="none" fill="currentColor">1</text></svg>
+                </button>
+                {/* Eugene 2026-05-16 Босс «🔍 Детали справа от Repeat» —
+                    full-screen modal с обложкой 80% viewport, мета-блок. */}
+                <button
+                  className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 hover:text-purple-200 text-muted-foreground transition-colors"
+                  title="Детали обложки"
+                  aria-label="Открыть детали обложки"
+                  onClick={() => setDetailsOpen(true)}
+                  data-testid="btn-cover-details"
+                >
+                  <Maximize className="w-4 h-4" />
                 </button>
                 {/* Download + Share */}
                 <button
@@ -1808,6 +1822,21 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
           )}
         </DialogContent>
       </Dialog>
+      {/* Eugene 2026-05-16 Босс «🔍 Детали» — full-screen modal обложки.
+          Renders only when `current` exists; click anywhere → close. */}
+      <CoverDetailsModal
+        open={detailsOpen && !!current}
+        onClose={() => setDetailsOpen(false)}
+        track={current ? {
+          id: current.id,
+          imageUrl: getCoverUrl(current),
+          displayTitle: (current as any).displayTitle,
+          prompt: current.prompt,
+          authorName: (current as any).authorName,
+          createdAt: current.createdAt,
+          styleInfo: null,
+        } : null}
+      />
     </div>
   );
 }

@@ -1,11 +1,12 @@
 import { registerAudio, pauseAllExcept } from "../lib/audio-bus";
 import { useLocation, useRoute } from "wouter";
 import { useAuth } from "@/lib/auth";
-import { PenLine, Music, Image, Sparkles, ArrowRight, Zap, Download, Mic, Play, Pause, SkipForward, SkipBack, ChevronDown, ChevronUp, Share2, Repeat, Repeat1 } from "lucide-react";
+import { PenLine, Music, Image, Sparkles, ArrowRight, Zap, Download, Mic, Play, Pause, SkipForward, SkipBack, ChevronDown, ChevronUp, Share2, Repeat, Repeat1, Maximize } from "lucide-react";
 import { StudioMicEq } from "@/components/studio-mic-eq";
 import { ShareQRSection, TrackShareQR } from "@/components/share-qr";
 import { KaraokeLyrics } from "@/components/karaoke-lyrics";
 import { ExpandToggleButton } from "@/components/expand-toggle-button";
+import { CoverDetailsModal } from "@/components/cover-details-modal";
 import { muteBgMusic, unmuteBgMusic } from "@/components/background-music";
 import { setLockScreenTrack, setLockScreenPlaybackState } from "@/lib/lockscreen";
 import { apiRequest } from "@/lib/queryClient";
@@ -377,6 +378,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const [showKaraoke, setShowKaraoke] = useState(false);
   const [lyricsSpeed, setLyricsSpeed] = useState(0);
   const [repeatMode, setRepeatMode] = useState<"off" | "all" | "one">("all");
+  // Eugene 2026-05-16 Босс «кнопка 🔍 Детали справа от Repeat — full-screen modal».
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [countriesCount, setCountriesCount] = useState<number>(0);
   const [countriesList, setCountriesList] = useState<Array<{country:string;country_code:string;n:number}>>([]);
   const [showCountries, setShowCountries] = useState(false);
@@ -1303,6 +1306,17 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   >
                     <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12a7 7 0 1 0-3 5.7" /><polyline points="14 17 16 17.7 16.7 15.7" /><text x="12" y="15" textAnchor="middle" fontSize="9" fontWeight="700" stroke="none" fill="currentColor">1</text></svg>
                   </button>
+                  {/* Eugene 2026-05-16 Босс «🔍 Детали справа от Repeat» —
+                      открывает full-screen modal с большой обложкой и метой. */}
+                  <button
+                    className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 hover:text-purple-200 text-muted-foreground transition-colors"
+                    title="Детали обложки"
+                    aria-label="Открыть детали обложки"
+                    onClick={() => setDetailsOpen(true)}
+                    data-testid="btn-cover-details"
+                  >
+                    <Maximize className="w-4 h-4" />
+                  </button>
                   <button
                     className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors"
                     title="Скачать"
@@ -1359,6 +1373,22 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             </div>
           </div>
         )}
+
+        {/* Eugene 2026-05-16 Босс «🔍 Детали» — full-screen modal обложки.
+            Renders only when currentTrack is set; click anywhere → close. */}
+        <CoverDetailsModal
+          open={detailsOpen && !!currentTrack}
+          onClose={() => setDetailsOpen(false)}
+          track={currentTrack ? {
+            id: currentTrack.id,
+            imageUrl: currentTrack.imageUrl,
+            displayTitle: currentTrack.displayTitle,
+            prompt: currentTrack.prompt,
+            authorName: currentTrack.authorName,
+            createdAt: currentTrack.createdAt,
+            styleInfo: currentTrack.styleInfo,
+          } : null}
+        />
 
         {/* Expanded cover rendered inline after selected track (see renderExpandedCover below) */}
 
