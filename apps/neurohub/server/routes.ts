@@ -213,20 +213,67 @@ function humanizeStyle(rawStyle: string): string {
 }
 const GPTUNNEL_BASE = "https://gptunnel.ru/v1";
 
-// Robokassa payment config — values seem to be test placeholders, but keep them
-// out of the public repo in case they ever became real. Empty string fallback
-// means payment routes will reject on missing config rather than silently use
-// test creds against prod accounts.
-const ROBO_MERCHANT_LOGIN = process.env.ROBO_MERCHANT_LOGIN || "";
-const ROBO_PASSWORD1 = process.env.ROBO_PASSWORD1 || "";
-const ROBO_PASSWORD2 = process.env.ROBO_PASSWORD2 || "";
+// Robokassa payment config.
+//
+// Eugene 2026-05-16: Robokassa integration audit (docs/strategy/ROBOKASSA-INTEGRATION-PLAN.md).
+//
+// 1) ENV naming поддержан в обоих вариантах: `ROBO_MERCHANT_LOGIN`/`ROBO_PASSWORD1/2`
+//    (исторический) и `ROBO_LOGIN`/`ROBO_PASSWORD_1/2` (CLAUDE.md + api-health плагин).
+//    Какой задан в .env — тот и используется. Это позволяет не ломать prod до
+//    ручной нормализации .env на VPS.
+// 2) Test mode (`ROBO_IS_TEST=true`, default) использует **отдельную** пару
+//    тестовых паролей `ROBO_TEST_PASSWORD1/2` (если заданы). Если test-пароли
+//    пустые — fallback на prod-пароли (back-compat поведение, может вызвать
+//    error 29 у Robokassa если у магазина в кабинете test ≠ prod).
+// 3) Test и production используют один и тот же endpoint `auth.robokassa.ru/...`;
+//    различие — параметр `IsTest=1` в payload + пара test-паролей.
+const ROBO_BASE_URL = "https://auth.robokassa.ru/Merchant/Index.aspx";
 const ROBO_IS_TEST = process.env.ROBO_IS_TEST !== "false"; // default true (test mode)
-const ROBO_BASE_URL = ROBO_IS_TEST
-  ? "https://auth.robokassa.ru/Merchant/Index.aspx"
-  : "https://auth.robokassa.ru/Merchant/Index.aspx";
 
-function roboSignature(values: string[], password: string): string {
-  return crypto.createHash("md5").update(values.join(":")).digest("hex");
+function getRoboCreds(): {
+  login: string;
+  password1: string;
+  password2: string;
+  isTest: boolean;
+} {
+  const login = process.env.ROBO_MERCHANT_LOGIN || process.env.ROBO_LOGIN || "";
+  const prodP1 = process.env.ROBO_PASSWORD1 || process.env.ROBO_PASSWORD_1 || "";
+  const prodP2 = process.env.ROBO_PASSWORD2 || process.env.ROBO_PASSWORD_2 || "";
+  const testP1 = process.env.ROBO_TEST_PASSWORD1 || process.env.ROBO_TEST_PASSWORD_1 || "";
+  const testP2 = process.env.ROBO_TEST_PASSWORD2 || process.env.ROBO_TEST_PASSWORD_2 || "";
+  if (ROBO_IS_TEST) {
+    return {
+      login,
+      password1: testP1 || prodP1, // fallback на prod если test не задан
+      password2: testP2 || prodP2,
+      isTest: true,
+    };
+  }
+  return { login, password1: prodP1, password2: prodP2, isTest: false };
+}
+
+// Backward-compat экспорт для админ-логов которые могут читать имя:
+const ROBO_MERCHANT_LOGIN = getRoboCreds().login;
+
+/**
+ * Build Robokassa signature: MD5 of values joined by ":", returned as uppercase hex.
+ *
+ * Caller is responsible for putting password into the values array at the
+ * correct position (see ROBOKASSA-INTEGRATION-PLAN.md §2 for formulas).
+ * Shp_* params must be sorted alphabetically and appended in "Shp_key=value" form.
+ */
+function roboSignature(values: string[]): string {
+  return crypto.createHash("md5").update(values.join(":")).digest("hex").toUpperCase();
+}
+
+/**
+ * Build the Shp_* "key=value" segments for signature, sorted alphabetically.
+ * Returns array of strings ready to be joined into the signature string.
+ */
+function buildShpSignatureParts(shp: Record<string, string | number>): string[] {
+  return Object.keys(shp)
+    .sort((a, b) => a.localeCompare(b))
+    .map((key) => `${key}=${shp[key]}`);
 }
 
 // Gmail SMTP — tissan2021 for transport + client-facing from/replyTo
@@ -7464,16 +7511,44 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   }
 
   // Create payment → get Robokassa redirect URL
+  // Init signature: md5( MerchantLogin:OutSum:InvId:Password1:Shp_userId=N )
+  // (Password1 — для init/Success URL; Result URL использует Password2 — см. result handler).
   app.post("/api/payment/create", authMiddleware, (req: Request, res: Response) => {
+    const userId = (req as any).userId;
     try {
-      const userId = (req as any).userId;
       const user = storage.getUser(userId);
-      if (!user) { res.status(404).json({ message: "Пользователь не найден" }); return; }
+      if (!user) {
+        logUserActionFailure({
+          userId, channel: "web", action: "robokassa_init", statusCode: 404,
+          errorCode: "user_not_found", errorMessage: "Пользователь не найден",
+          endpoint: "/api/payment/create",
+        });
+        res.status(404).json({ message: "Пользователь не найден" });
+        return;
+      }
 
       const { amount } = req.body; // amount in rubles (99, 300, 500, 1000)
       const sumRubles = Number(amount);
       if (!sumRubles || sumRubles < 10 || sumRubles > 50000) {
+        logUserActionFailure({
+          userId, channel: "web", action: "robokassa_init", statusCode: 400,
+          errorCode: "amount_out_of_range",
+          errorMessage: `Сумма ${amount} вне диапазона 10..50000`,
+          endpoint: "/api/payment/create",
+        });
         res.status(400).json({ message: "Сумма от 10 до 50 000 ₽" });
+        return;
+      }
+
+      const creds = getRoboCreds();
+      if (!creds.login || !creds.password1) {
+        logUserActionFailure({
+          userId, channel: "web", action: "robokassa_init", statusCode: 503,
+          errorCode: "robokassa_not_configured",
+          errorMessage: "Платежи временно недоступны — Robokassa не настроена",
+          endpoint: "/api/payment/create",
+        });
+        res.status(503).json({ message: "Оплата временно недоступна. Попробуйте позже." });
         return;
       }
 
@@ -7481,7 +7556,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       const description = `Пополнение баланса MuzaAi: ${sumRubles} ₽`;
       const outSum = sumRubles.toFixed(2);
 
-      // Save payment to DB
+      // Save payment to DB (pending). Audit-trail для администратора.
       db.insert(payments).values({
         userId,
         invId,
@@ -7490,39 +7565,76 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         description,
       }).run();
 
-      // Build signature: MerchantLogin:OutSum:InvId:Password1:Shp_userId=X
-      const signString = `${ROBO_MERCHANT_LOGIN}:${outSum}:${invId}:${ROBO_PASSWORD1}:Shp_userId=${userId}`;
-      const signature = roboSignature([ROBO_MERCHANT_LOGIN, outSum, String(invId), ROBO_PASSWORD1, `Shp_userId=${userId}`], ROBO_PASSWORD1);
+      // Shp_* extras — отсортированы алфавитно, добавляются в подпись и в URL.
+      // См. ROBOKASSA-INTEGRATION-PLAN.md §2.
+      const shp = { Shp_userId: String(userId) };
+      const shpParts = buildShpSignatureParts(shp);
+      const signature = roboSignature([
+        creds.login,
+        outSum,
+        String(invId),
+        creds.password1,
+        ...shpParts,
+      ]);
 
       const params = new URLSearchParams({
-        MerchantLogin: ROBO_MERCHANT_LOGIN,
+        MerchantLogin: creds.login,
         OutSum: outSum,
         InvId: String(invId),
         Description: description,
         SignatureValue: signature,
         Email: user.email,
-        Shp_userId: String(userId),
-        ...(ROBO_IS_TEST ? { IsTest: "1" } : {}),
+        ...shp,
+        ...(creds.isTest ? { IsTest: "1" } : {}),
       });
 
       const paymentUrl = `${ROBO_BASE_URL}?${params.toString()}`;
 
-      console.log(`[PAYMENT] Created invoice #${invId} for user ${userId}: ${sumRubles} ₽`);
+      console.log(`[PAYMENT] Created invoice #${invId} for user ${userId}: ${sumRubles} ₽ (test=${creds.isTest})`);
       res.json({ paymentUrl, invId });
     } catch (e: any) {
       console.error("[PAYMENT] Error:", e);
-      res.status(500).json({ message: e.message });
+      logUserActionFailure({
+        userId, channel: "web", action: "robokassa_init", statusCode: 500,
+        errorCode: "internal_error",
+        errorMessage: String(e?.message || e).slice(0, 500),
+        endpoint: "/api/payment/create",
+      });
+      res.status(500).json({ message: "Ошибка при создании платежа" });
     }
   });
 
-  // Robokassa Result URL (webhook) — called by Robokassa server after successful payment
+  // Robokassa Result URL (webhook) — called by Robokassa server after successful payment.
+  // Robokassa требует ответ ровно `OK<InvId>` (plain text, 200) — иначе будет
+  // повторять callback с экспоненциальным backoff. Handler идемпотентен по InvId.
+  //
+  // Подпись: md5( OutSum:InvId:Password2[:Shp_*=...] ) — Password2, не Password1.
+  // См. ROBOKASSA-INTEGRATION-PLAN.md §2.2 + §3.
   app.post("/api/payment/result", express.urlencoded({ extended: false }), (req: Request, res: Response) => {
+    const { OutSum, InvId, SignatureValue, Shp_userId } = req.body;
     try {
-      const { OutSum, InvId, SignatureValue, Shp_userId } = req.body;
       console.log(`[PAYMENT RESULT] InvId=${InvId}, OutSum=${OutSum}, UserId=${Shp_userId}`);
 
-      // Verify signature: OutSum:InvId:Password2:Shp_userId=X
-      const expectedSig = roboSignature([OutSum, InvId, ROBO_PASSWORD2, `Shp_userId=${Shp_userId}`], ROBO_PASSWORD2);
+      const creds = getRoboCreds();
+      if (!creds.password2) {
+        console.error("[PAYMENT RESULT] Robokassa Password2 не настроен — игнорируем callback");
+        // Robokassa не получит OK<InvId> → будет повторять. Это правильное поведение:
+        // молча кредитовать с пустым паролем нельзя ни в коем случае.
+        res.status(503).send("Robokassa not configured");
+        return;
+      }
+
+      // Verify signature: OutSum:InvId:Password2[:Shp_userId=N]
+      // Shp_* params сортируются алфавитно (см. buildShpSignatureParts).
+      const shpParts = Shp_userId !== undefined
+        ? buildShpSignatureParts({ Shp_userId: String(Shp_userId) })
+        : [];
+      const expectedSig = roboSignature([
+        String(OutSum),
+        String(InvId),
+        creds.password2,
+        ...shpParts,
+      ]);
 
       // BACKEND-1 fix: timing-safe compare (Eugene 14:16). Раньше !== leak'ал
       // время через side-channel, можно было постепенно угадать пароль.
@@ -7534,7 +7646,16 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         } catch { return false; }
       })();
       if (!same) {
-        console.error(`[PAYMENT RESULT] Bad signature! Expected: ${expectedSig}, Got: ${SignatureValue}`);
+        // НЕ логируем сам expectedSig целиком (содержит косвенно подсказку
+        // о Password2 через MD5-input). Только длины + first4 для диагностики.
+        console.error(`[PAYMENT RESULT] Bad signature! exp.len=${exp.length} got.len=${got.length} exp.first4=${exp.slice(0, 4)} got.first4=${got.slice(0, 4)}`);
+        logUserActionFailure({
+          userId: Number(Shp_userId) || null, channel: "web", action: "robokassa_result",
+          statusCode: 400, errorCode: "bad_signature",
+          errorMessage: "Invalid Robokassa signature",
+          endpoint: "/api/payment/result",
+          context: { invId: String(InvId), outSum: String(OutSum) },
+        });
         res.status(400).send("Bad signature");
         return;
       }
@@ -7544,6 +7665,13 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
 
       if (!payment) {
         console.error(`[PAYMENT RESULT] Payment not found: InvId=${InvId}`);
+        logUserActionFailure({
+          userId: Number(Shp_userId) || null, channel: "web", action: "robokassa_result",
+          statusCode: 404, errorCode: "payment_not_found",
+          errorMessage: `Payment with InvId=${InvId} not found in DB`,
+          endpoint: "/api/payment/result",
+          context: { invId: String(InvId), outSum: String(OutSum) },
+        });
         res.status(404).send("Payment not found");
         return;
       }
@@ -7597,19 +7725,97 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       res.send(`OK${InvId}`);
     } catch (e: any) {
       console.error("[PAYMENT RESULT] Error:", e);
+      logUserActionFailure({
+        userId: Number(Shp_userId) || null, channel: "web", action: "robokassa_result",
+        statusCode: 500, errorCode: "internal_error",
+        errorMessage: String(e?.message || e).slice(0, 500),
+        endpoint: "/api/payment/result",
+        context: { invId: String(InvId), outSum: String(OutSum) },
+      });
       res.status(500).send("Error");
     }
   });
 
-  // Success URL — user redirected here after payment
-  app.get("/api/payment/success", (req: Request, res: Response) => {
-    res.redirect("/#/payment/success");
-  });
+  // Success URL — user redirected here after payment.
+  // Robokassa подписывает Success URL через Password1 (НЕ Password2 как Result URL).
+  // См. ROBOKASSA-INTEGRATION-PLAN.md §2.3 + §4.
+  //
+  // Принимаем GET (Robokassa по умолчанию редиректит GET'ом) и POST (на случай
+  // если в настройках магазина выбран POST). Подпись проверяем — но даже если
+  // не пройдёт, страницу всё равно показываем (реальное зачисление идёт через
+  // Result URL, Success — это только UI). На bad-signature только пишем в audit.
+  const handleSuccess = (req: Request, res: Response): void => {
+    try {
+      const src = req.method === "POST" ? req.body : req.query;
+      const OutSum = String(src.OutSum || "");
+      const InvId = String(src.InvId || "");
+      const SignatureValue = String(src.SignatureValue || "");
+      const Shp_userId = src.Shp_userId !== undefined ? String(src.Shp_userId) : undefined;
 
-  // Fail URL — user redirected here after failed/cancelled payment
-  app.get("/api/payment/fail", (req: Request, res: Response) => {
+      if (OutSum && InvId && SignatureValue) {
+        const creds = getRoboCreds();
+        if (creds.password1) {
+          const shpParts = Shp_userId !== undefined
+            ? buildShpSignatureParts({ Shp_userId })
+            : [];
+          const expectedSig = roboSignature([OutSum, InvId, creds.password1, ...shpParts]);
+          const got = SignatureValue.toUpperCase();
+          const exp = expectedSig.toUpperCase();
+          const same = got.length === exp.length && (() => {
+            try {
+              return crypto.timingSafeEqual(Buffer.from(got, "utf8"), Buffer.from(exp, "utf8"));
+            } catch { return false; }
+          })();
+          if (!same) {
+            console.warn(`[PAYMENT SUCCESS] Bad signature on Success URL (InvId=${InvId}). Showing UI anyway.`);
+            logUserActionFailure({
+              userId: Number(Shp_userId) || null, channel: "web", action: "robokassa_success",
+              statusCode: 200, errorCode: "bad_signature_on_success",
+              errorMessage: "Success URL получен с невалидной подписью (UI всё равно показан)",
+              endpoint: "/api/payment/success",
+              context: { invId: InvId, outSum: OutSum },
+            });
+          } else {
+            console.log(`[PAYMENT SUCCESS] InvId=${InvId} verified, user redirected to /#/payment/success`);
+          }
+        }
+      }
+    } catch (e: any) {
+      console.error("[PAYMENT SUCCESS] Verify error:", e?.message || e);
+    }
+    res.redirect("/#/payment/success");
+  };
+  app.get("/api/payment/success", handleSuccess);
+  app.post("/api/payment/success", express.urlencoded({ extended: false }), handleSuccess);
+
+  // Fail URL — user redirected here after failed/cancelled payment.
+  // Robokassa НЕ подписывает Fail URL (см. ROBOKASSA-INTEGRATION-PLAN.md §5),
+  // поэтому ничего в БД не меняем — только показываем UI и audit-логируем.
+  const handleFail = (req: Request, res: Response): void => {
+    try {
+      const src = req.method === "POST" ? req.body : req.query;
+      const InvId = src.InvId ? String(src.InvId) : null;
+      const OutSum = src.OutSum ? String(src.OutSum) : null;
+      console.log(`[PAYMENT FAIL] InvId=${InvId}, OutSum=${OutSum}`);
+      if (InvId) {
+        // payments.status оставляем 'pending' — статус 'failed' может быть
+        // поставлен отдельным TTL-крон'ом (24h без оплаты → failed).
+        const payment = db.select().from(payments).where(eq(payments.invId, parseInt(InvId))).get();
+        logUserActionFailure({
+          userId: payment?.userId ?? null, channel: "web", action: "robokassa_fail",
+          statusCode: 200, errorCode: "user_cancelled_or_failed",
+          errorMessage: "Пользователь не завершил оплату на стороне Robokassa",
+          endpoint: "/api/payment/fail",
+          context: { invId: InvId, outSum: OutSum || "" },
+        });
+      }
+    } catch (e: any) {
+      console.error("[PAYMENT FAIL] Audit error:", e?.message || e);
+    }
     res.redirect("/#/payment/fail");
-  });
+  };
+  app.get("/api/payment/fail", handleFail);
+  app.post("/api/payment/fail", express.urlencoded({ extended: false }), handleFail);
 
   // Get user payments history
   app.get("/api/payments", authMiddleware, (req: Request, res: Response) => {
