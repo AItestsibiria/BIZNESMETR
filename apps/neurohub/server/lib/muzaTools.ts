@@ -22,7 +22,15 @@ export type ToolDef = {
   };
 };
 
-export type ToolHandler = (input: any, context: { userId: number | null }) => Promise<string>;
+export type ToolContext = {
+  userId: number | null;
+  // Eugene 2026-05-16: для request_human_handoff с reason='owner_inquiry'
+  // нужны sessionId/channel — чтобы Telegram-alert вёл админа в нужный диалог.
+  sessionId?: string | null;
+  channel?: string | null;
+};
+
+export type ToolHandler = (input: any, context: ToolContext) => Promise<string>;
 
 const fmt = (n: number) => n.toLocaleString("ru-RU");
 
@@ -158,11 +166,11 @@ export const MUZA_TOOLS: ToolDef[] = [
   },
   {
     name: "request_human_handoff",
-    description: "Эскалация на живого оператора (создаёт запись в agent_handoffs со статусом open). Используй когда: юзер просит человека / низкая уверенность в ответе / конфликт данных / опасное действие (delete). reason ОБЯЗАТЕЛЕН.",
+    description: "Эскалация на живого оператора (создаёт запись в agent_handoffs со статусом open). Используй когда: юзер просит человека / низкая уверенность в ответе / конфликт данных / опасное действие (delete) / юзер задаёт вопросы про основателя MuzaAi (reason='owner_inquiry') — в последнем случае Босс получит мгновенный Telegram-alert и сможет подключиться к диалогу. reason ОБЯЗАТЕЛЕН.",
     input_schema: {
       type: "object",
       properties: {
-        reason: { type: "string", enum: ["user_request", "low_confidence", "data_conflict", "destructive_action"] },
+        reason: { type: "string", enum: ["user_request", "low_confidence", "data_conflict", "destructive_action", "owner_inquiry"] },
         comment: { type: "string", description: "Краткое описание ситуации для оператора (опц.)" },
       },
       required: ["reason"],
@@ -544,18 +552,19 @@ const HANDLERS: Record<string, ToolHandler> = {
     }
   },
 
-  async request_human_handoff({ reason, comment }, { userId }) {
-    console.log(`[TOOL request_human_handoff] reason=${reason} userId=${userId}`);
+  async request_human_handoff({ reason, comment }, { userId, sessionId, channel }) {
+    console.log(`[TOOL request_human_handoff] reason=${reason} userId=${userId} sessionId=${sessionId ? String(sessionId).slice(0, 12) : "?"}`);
     try {
-      const validReasons = ["user_request", "low_confidence", "data_conflict", "destructive_action"];
+      const validReasons = ["user_request", "low_confidence", "data_conflict", "destructive_action", "owner_inquiry"];
       const r = String(reason || "").trim();
       if (!validReasons.includes(r)) {
         return `Невалидный reason. Допустимые: ${validReasons.join(", ")}.`;
       }
-      // session_id берём из контекста — но в текущем интерфейсе передаётся
-      // только userId, поэтому используем "user:<id>" как placeholder.
-      // При интеграции с routes.ts session.id будет прокидываться явно.
-      const sessionRef = userId ? `user:${userId}` : "anon";
+      // session_id из контекста (web-chat прокидывает session.id). Если не
+      // передан — fallback "user:<id>" чтобы handoff всё равно создался.
+      const sessionRef = (sessionId && String(sessionId).trim().length > 0)
+        ? String(sessionId)
+        : (userId ? `user:${userId}` : "anon");
       const handoffId = crypto.randomUUID();
       db.insert(agentHandoffs).values({
         id: handoffId,
@@ -571,14 +580,57 @@ const HANDLERS: Record<string, ToolHandler> = {
         low_confidence: "в течение 30 минут",
         data_conflict: "в течение 15 минут",
         destructive_action: "сразу, как только проверим",
+        owner_inquiry: "сразу — Босс уже получил уведомление",
       };
       const expectedReplyTime = etaMap[r] || "в течение часа";
       const commentNote = comment ? ` Комментарий: ${String(comment).slice(0, 200)}` : "";
+
+      // Eugene 2026-05-16 Босс: для owner_inquiry — мгновенный Telegram-alert
+      // админу со ссылкой на диалог в admin-панели. Никаких secret-leak'ов:
+      // токен/admin_id берутся из env, в сообщении только публичные данные.
+      if (r === "owner_inquiry") {
+        const tgToken = process.env.TELEGRAM_BOT_TOKEN;
+        const adminId = process.env.ADMIN_TELEGRAM_ID;
+        if (tgToken && adminId) {
+          const ch = channel ? String(channel) : "?";
+          const uref = userId ? `#${userId}` : "anonymous";
+          const cref = comment ? String(comment).slice(0, 300) : "—";
+          // Markdown escape: ограничиваемся базовым набором — sessionRef содержит
+          // только uuid/digits, channel/userId — alphanumeric. URL не содержит spaces.
+          const text = [
+            "🚨 *Вопрос про основателя*",
+            "",
+            `User: \`${uref}\``,
+            `Channel: \`${ch}\``,
+            `Комментарий: ${cref}`,
+            "",
+            `Открыть диалог: ${PUBLIC_URL}/#/admin/v304?conversation=${encodeURIComponent(sessionRef)}`,
+          ].join("\n");
+          fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: adminId,
+              text,
+              parse_mode: "Markdown",
+              disable_web_page_preview: true,
+            }),
+            signal: AbortSignal.timeout(8_000),
+          }).catch((e: any) => {
+            console.error("[handoff-alert]", e?.message || e);
+          });
+        } else {
+          console.warn("[handoff-alert] TELEGRAM_BOT_TOKEN / ADMIN_TELEGRAM_ID не заданы — alert пропущен");
+        }
+      }
+
       return JSON.stringify({
         handoffId,
         reason: r,
         expectedReplyTime,
-        message: `Эскалировано (handoff #${handoffId.slice(0, 8)}). Скажи юзеру: «Передала живому оператору, ответят ${expectedReplyTime}. На срочные — hello@muziai.ru».${commentNote}`,
+        message: r === "owner_inquiry"
+          ? `Уведомление Боссу отправлено. Скажи юзеру: «Передала вопрос Боссу — он подключится в этот же чат как только сможет. Если срочно, оставьте контакт».${commentNote}`
+          : `Эскалировано (handoff #${handoffId.slice(0, 8)}). Скажи юзеру: «Передала живому оператору, ответят ${expectedReplyTime}. На срочные — hello@muziai.ru».${commentNote}`,
       });
     } catch (e: any) {
       return `Ошибка создания handoff: ${e.message}`;
@@ -624,7 +676,7 @@ function splitMarkdownSections(text: string): { section: string; text: string }[
   return out;
 }
 
-export async function executeTool(name: string, input: any, context: { userId: number | null }): Promise<string> {
+export async function executeTool(name: string, input: any, context: ToolContext): Promise<string> {
   const handler = HANDLERS[name];
   if (!handler) return `Tool "${name}" not found.`;
   try {

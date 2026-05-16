@@ -1697,7 +1697,7 @@ export async function registerRoutes(
     }
   }
 
-  async function callMuzaLLM(systemStable: string, systemDynamic: string, history: Array<{ role: string; content: string }>, userText: string, authUserId: number | null = null): Promise<string | null> {
+  async function callMuzaLLM(systemStable: string, systemDynamic: string, history: Array<{ role: string; content: string }>, userText: string, authUserId: number | null = null, toolCtx: { sessionId?: string | null; channel?: string | null } = {}): Promise<string | null> {
     const attempts = listAnthropicKeys();
     if (attempts.length === 0) return null;
     const systemBlocks: any[] = [
@@ -1754,7 +1754,7 @@ export async function registerRoutes(
           const toolResults: any[] = [];
           for (const block of j.content) {
             if (block.type === "tool_use") {
-              const result = await executeTool(block.name, block.input, { userId: authUserId });
+              const result = await executeTool(block.name, block.input, { userId: authUserId, sessionId: toolCtx.sessionId ?? null, channel: toolCtx.channel ?? null });
               console.log(`[MUZA-TOOL] ${block.name}(${JSON.stringify(block.input).slice(0,60)}) → ${result.slice(0,80)}`);
               toolResults.push({ type: "tool_result", tool_use_id: block.id, content: result });
             }
@@ -1787,7 +1787,7 @@ export async function registerRoutes(
               const tr: any[] = [];
               for (const block of j2.content) {
                 if (block.type === "tool_use") {
-                  const result = await executeTool(block.name, block.input, { userId: authUserId });
+                  const result = await executeTool(block.name, block.input, { userId: authUserId, sessionId: toolCtx.sessionId ?? null, channel: toolCtx.channel ?? null });
                   console.log(`[MUZA-TOOL-${loopIter}] ${block.name} → ${result.slice(0,60)}`);
                   tr.push({ type: "tool_result", tool_use_id: block.id, content: result });
                 }
@@ -2789,7 +2789,7 @@ ${safeUserText}`
         }
       }
 
-      let reply = await callMuzaLLM(systemStable, systemDynamic, llmHistory, augmentedUserText, authUserId);
+      let reply = await callMuzaLLM(systemStable, systemDynamic, llmHistory, augmentedUserText, authUserId, { sessionId: session.id, channel: session.channel });
       let usedFallback = false;
       if (!reply) {
         usedFallback = true;
