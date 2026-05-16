@@ -142,7 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loginByToken = useCallback(async (newToken: string, remember = true) => {
     setAuthState(newToken, null, remember);
     try {
-      const res = await fetch("/api/me", { headers: { Authorization: `Bearer ${newToken}` } });
+      const res = await fetch("/api/auth/me", { headers: { Authorization: `Bearer ${newToken}` } });
       if (res.ok) {
         const j = await res.json();
         const u = j?.data || j;
