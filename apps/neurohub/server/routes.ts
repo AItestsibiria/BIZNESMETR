@@ -3269,6 +3269,104 @@ ${safeUserText}`
     });
   });
 
+  // Eugene 2026-05-16 Босс: «Босс пишет от лица Музы» — Telegram-alert
+  // ведёт админа на диалог, дальше он может ответить юзеру прямо в нужный
+  // канал (TG/Max/Web). Сообщение сохраняется в chatbot_messages как role='bot'
+  // (юзер видит его как от помощницы, а не от админа).
+  app.post("/api/admin/v304/conversations/:sessionId/inject-message", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const sessionId = String(req.params.sessionId || "").trim();
+      if (!sessionId) return res.status(400).json({ ok: false, error: "missing sessionId" });
+      const text = String((req.body || {}).text || "").trim();
+      if (text.length === 0) return res.status(400).json({ ok: false, error: "missing text" });
+      if (text.length > 4000) return res.status(400).json({ ok: false, error: "text too long (max 4000)" });
+
+      const session = db.select().from(chatbotSessions)
+        .where(eq(chatbotSessions.id, sessionId)).get() as any;
+      if (!session) return res.status(404).json({ ok: false, error: "session not found" });
+
+      // 1. Запись в БД — юзер увидит при следующем polling/page-refresh.
+      db.insert(chatbotMessages).values({
+        sessionId,
+        role: "bot",
+        text,
+      }).run();
+      db.update(chatbotSessions)
+        .set({ lastMessageAt: new Date().toISOString() })
+        .where(eq(chatbotSessions.id, sessionId))
+        .run();
+
+      // 2. Push в канал юзера если это не web.
+      const channel = String(session.channel || "").toLowerCase();
+      const externalId = session.externalId ? String(session.externalId) : null;
+      let delivered: "db_only" | "telegram" | "max" | "skipped" = "db_only";
+      let deliveryError: string | null = null;
+
+      try {
+        if (channel === "telegram" && externalId) {
+          const tgToken = process.env.TELEGRAM_BOT_TOKEN;
+          if (tgToken) {
+            const r = await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: externalId,
+                text,
+                disable_web_page_preview: true,
+              }),
+              signal: AbortSignal.timeout(8_000),
+            });
+            if (!r.ok) {
+              deliveryError = `telegram ${r.status}`;
+              delivered = "skipped";
+            } else {
+              delivered = "telegram";
+            }
+          } else {
+            deliveryError = "TELEGRAM_BOT_TOKEN missing";
+            delivered = "skipped";
+          }
+        } else if (channel === "max" && externalId) {
+          const maxToken = process.env.MAX_BOT_TOKEN;
+          if (maxToken) {
+            const r = await fetch(`https://platform-api.max.ru/messages?chat_id=${encodeURIComponent(externalId)}`, {
+              method: "POST",
+              headers: { Authorization: maxToken, "Content-Type": "application/json" },
+              body: JSON.stringify({ text }),
+              signal: AbortSignal.timeout(8_000),
+            });
+            if (!r.ok) {
+              deliveryError = `max ${r.status}`;
+              delivered = "skipped";
+            } else {
+              delivered = "max";
+            }
+          } else {
+            deliveryError = "MAX_BOT_TOKEN missing";
+            delivered = "skipped";
+          }
+        } else if (channel === "web") {
+          // Web — юзер увидит при следующем polling. Запись в БД достаточно.
+          delivered = "db_only";
+        }
+      } catch (e: any) {
+        deliveryError = String(e?.message || e).slice(0, 200);
+        delivered = "skipped";
+      }
+
+      res.json({
+        ok: true,
+        sessionId,
+        channel,
+        delivered,
+        deliveryError,
+      });
+    } catch (e: any) {
+      console.error("[inject-message]", e);
+      res.status(500).json({ ok: false, error: "internal error" });
+    }
+  });
+
   // Eugene 2026-05-16 Босс: универсальный просмотр диалога по userId ИЛИ sessionId.
   // Telegram-alert при reason='owner_inquiry' ведёт сюда — у Босса в URL только
   // sessionId, поэтому endpoint обрабатывает оба формата:
