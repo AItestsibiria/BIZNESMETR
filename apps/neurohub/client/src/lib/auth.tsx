@@ -139,17 +139,60 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Eugene 2026-05-15: универсальный «у меня уже есть token, залогинь».
   // Используется SMS-OTP, Telegram-login, change_phone flow.
+  //
+  // Eugene 2026-05-16: критический фикс race condition «вы авторизованы
+  // но не входит в /dashboard». Проблема: после loginByToken parent сразу
+  // делал navigate("/dashboard"), но React-state setUser(u) ещё не flushed
+  // → dashboard рендерится с user=null → auth-guard срабатывал и
+  // редиректил на /login. Решение:
+  //   1. Гард на пустой token (если backend вернул verified без token —
+  //      возвращаем null, parent покажет toast и не редиректит).
+  //   2. Включаем isLoading=true на время fetch /api/auth/me. Dashboard
+  //      auth-guard ждёт `!authLoading && !user`, поэтому пока isLoading
+  //      true — не редиректит, показывает loader.
+  //   3. Diagnostic console.log на ключевых точках flow для отладки в
+  //      DevTools у Босса.
   const loginByToken = useCallback(async (newToken: string, remember = true) => {
+    if (!newToken || typeof newToken !== "string") {
+      // eslint-disable-next-line no-console
+      console.warn("[AUTH] loginByToken: empty token, aborting");
+      return null;
+    }
+    // eslint-disable-next-line no-console
+    console.log("[AUTH] loginByToken: start, token len:", newToken.length);
+    setIsLoading(true);
     setAuthState(newToken, null, remember);
     try {
       const res = await fetch("/api/auth/me", { headers: { Authorization: `Bearer ${newToken}` } });
       if (res.ok) {
         const j = await res.json();
-        const u = j?.data || j;
-        setAuthState(newToken, u as PublicUser, remember);
-        return u as PublicUser;
+        // Backend /api/auth/me возвращает user объект напрямую (см.
+        // routes.ts:1088 — res.json(publicUser), без wrapper). Но на случай
+        // если когда-то завернётся в {data: user} — оба варианта учитываем.
+        const u = (j && typeof j === "object" && "id" in j) ? j : (j?.data || null);
+        if (u && (u as any).id) {
+          // eslint-disable-next-line no-console
+          console.log("[AUTH] loginByToken: success, user id:", (u as any).id);
+          setAuthState(newToken, u as PublicUser, remember);
+          setIsLoading(false);
+          return u as PublicUser;
+        }
+        // eslint-disable-next-line no-console
+        console.warn("[AUTH] loginByToken: /api/auth/me returned no user payload", j);
+      } else {
+        // eslint-disable-next-line no-console
+        console.warn("[AUTH] loginByToken: /api/auth/me HTTP", res.status);
       }
-    } catch {}
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error("[AUTH] loginByToken: network error", e);
+    }
+    // Не удалось — откатываем token (cookie + globalToken). Это
+    // важно: иначе следующая навигация на /dashboard увидит token в
+    // cookie, AuthProvider useEffect снова дёрнет /api/auth/me и снова
+    // упадёт — юзер залипнет.
+    setAuthState(null, null, false);
+    setIsLoading(false);
     return null;
   }, [setAuthState]);
 
