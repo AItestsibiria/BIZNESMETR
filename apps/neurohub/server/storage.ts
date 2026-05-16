@@ -241,6 +241,10 @@ try {
   if (!gcn.includes("pending_title")) sqlite.exec("ALTER TABLE generations ADD COLUMN pending_title TEXT");
   if (!gcn.includes("title_change_token")) sqlite.exec("ALTER TABLE generations ADD COLUMN title_change_token TEXT");
   if (!gcn.includes("deleted_at")) sqlite.exec("ALTER TABLE generations ADD COLUMN deleted_at TEXT");
+  // Eugene 2026-05-16: scheduled_delete_at для errored треков (см. CLAUDE.md
+  // правило scheduled-delete-on-error). Cron в admin-overview каждый час
+  // переводит просроченные в soft-delete.
+  if (!gcn.includes("scheduled_delete_at")) sqlite.exec("ALTER TABLE generations ADD COLUMN scheduled_delete_at TEXT");
   if (!gcn.includes("error_reason")) sqlite.exec("ALTER TABLE generations ADD COLUMN error_reason TEXT");
   // Eugene 2026-05-14 Босс «при публикации админ выбирает: основной
   // плейлист или плейлист поздравлений». Default 'main'.

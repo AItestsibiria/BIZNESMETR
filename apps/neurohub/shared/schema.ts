@@ -71,6 +71,10 @@ export const generations = sqliteTable("generations", {
   pendingTitle: text("pending_title"), // ожидает подтверждения
   titleChangeToken: text("title_change_token"),
   deletedAt: text("deleted_at"), // soft-delete
+  // Eugene 2026-05-16: scheduled-delete для errored треков —
+  // юзер выбирает «удалить через 1/7/15/30 дней» в дашборде, cron
+  // в admin-overview каждый час чистит просроченные.
+  scheduledDeleteAt: text("scheduled_delete_at"), // ISO timestamp soft-delete cutoff
   errorReason: text("error_reason"), // человекочитаемая причина ошибки для UI
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 
