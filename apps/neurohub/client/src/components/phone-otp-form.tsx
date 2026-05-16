@@ -105,9 +105,17 @@ export default function PhoneOtpForm({
   // При expired показываем fallback-блок «Войти через email» (см. render ниже).
   const pollRef = useRef<number | null>(null);
   const [callExpired, setCallExpired] = useState(false);
+  // Eugene 2026-05-16: guard «вызвать onVerified только один раз». Без
+  // guard'а если backend два раза подряд вернёт verified (race на parallel
+  // polls), parent дважды получит loginByToken → дважды navigate → один
+  // из них может race с dashboard mount.
+  const verifiedFiredRef = useRef(false);
   useEffect(() => {
     if (step !== "code" || method !== "call") return;
     if (!callExpiresAt) return;
+    // Eugene 2026-05-16: если verified=true (после onVerified) — не
+    // стартуем polling (cleanup ниже снимает оставшийся timer).
+    if (verified) return;
     let cancelled = false;
 
     const tick = async () => {
@@ -127,9 +135,17 @@ export default function PhoneOtpForm({
           return;
         }
         if (j?.data?.verified === true && j?.data?.token) {
+          // Eugene 2026-05-16: однократный вызов onVerified. После — polling
+          // useEffect не перезапустится (verified в deps), но защищаемся
+          // ref'ом на случай если этот же tick'овский callback успеет
+          // фигнуть второй раз до того как cleanup отменит.
+          if (verifiedFiredRef.current) return;
+          verifiedFiredRef.current = true;
           // Помечаем как verified — UI сразу скрывает «Звоним…» loader,
           // parent через onVerified → loginByToken → navigate("/dashboard").
           setVerified(true);
+          // eslint-disable-next-line no-console
+          console.log("[AUTH] phone-otp-form: reverse-call verified, token len:", j.data.token?.length);
           onVerified({
             phone: j.data.phone || phone,
             purpose,
@@ -160,7 +176,7 @@ export default function PhoneOtpForm({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, method, callExpiresAt]);
+  }, [step, method, callExpiresAt, verified]);
 
   // Web OTP API — Android Chrome. Только для SMS-flow (call не передаёт код
   // через SMS, нечего слушать). AbortController чтобы прерывать при unmount.
@@ -304,7 +320,12 @@ export default function PhoneOtpForm({
       }
       // Eugene 2026-05-16: помечаем verified чтобы скрыть форму на время
       // паузы parent.loginByToken (~100-300ms /api/me), потом сразу navigate.
+      // Однократный guard на onVerified — см. polling выше.
+      if (verifiedFiredRef.current) return;
+      verifiedFiredRef.current = true;
       setVerified(true);
+      // eslint-disable-next-line no-console
+      console.log("[AUTH] phone-otp-form: SMS/call verified, token len:", j?.data?.token?.length);
       onVerified({
         phone: j?.data?.phone || phone,
         purpose,
