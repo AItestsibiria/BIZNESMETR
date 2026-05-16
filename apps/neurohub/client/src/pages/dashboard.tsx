@@ -2989,6 +2989,80 @@ export default function DashboardPage() {
                     )}
                   </div>
 
+                  {/* Eugene 2026-05-16: B.6+B.7 — Re-кнопки (Трек / Обложка / Текст).
+                      Каждая ведёт в /music, /covers или /lyrics с предзаполненной
+                      формой через sessionStorage 'musicRegenerate' (трек) или
+                      window.__transfer* (обложка/текст). */}
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1.5">🔄 Регенерация:</p>
+                    <div className="grid grid-cols-3 gap-1.5" data-testid="re-buttons-row">
+                      <button
+                        className="inline-flex items-center justify-center gap-1 px-2 py-2 text-xs font-medium rounded-lg border border-green-500/30 bg-green-500/10 text-green-300 hover:bg-green-500/20 hover:border-green-500/50 transition-colors"
+                        onClick={() => {
+                          let meta: any = {};
+                          try { meta = JSON.parse(selectedGen.style || "{}"); } catch {}
+                          const payload = {
+                            prompt: selectedGen.prompt || "",
+                            lyrics: meta.lyric || (selectedGen.type === "lyrics" ? selectedGen.resultUrl : selectedGen.prompt) || "",
+                            style: meta.style || meta.tags || "",
+                            title: (selectedGen as any).displayTitle || meta.title || "",
+                            voice: meta.voiceType === "duet" || meta.voiceType === "instrumental" ? "male" : (meta.voiceType || "male"),
+                            voiceType: meta.voiceType || (selectedGen as any).voiceType || "male",
+                            isDuet: meta.voiceType === "duet" || (selectedGen as any).voiceType === "duet",
+                            instrumental: meta.voiceType === "instrumental" || (selectedGen as any).voiceType === "instrumental",
+                            mode: meta.mode === "custom" ? "advanced" : "simple",
+                            fromGenId: selectedGen.id,
+                          };
+                          try { sessionStorage.setItem("musicRegenerate", JSON.stringify(payload)); } catch {}
+                          setSelectedGen(null);
+                          navigate("/music");
+                        }}
+                        data-testid={`btn-re-track-${selectedGen.id}`}
+                      >
+                        <RotateCcw className="w-3 h-3" /> Re Трек
+                      </button>
+                      <button
+                        className="inline-flex items-center justify-center gap-1 px-2 py-2 text-xs font-medium rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20 hover:border-cyan-500/50 transition-colors"
+                        onClick={() => {
+                          // Передаём ВСЁ инфо в /covers — re-генерация обложки на основе текущего трека.
+                          let trackStyle = "";
+                          try { const m = JSON.parse((selectedGen as any).style || "{}"); trackStyle = m.style || ""; } catch {}
+                          (window as any).__coverForTrack = selectedGen.id;
+                          (window as any).__coverPrompt = selectedGen.prompt?.slice(0, 100) || "";
+                          (window as any).__coverTrackInfo = {
+                            title: (selectedGen as any).displayTitle || selectedGen.prompt?.slice(0, 80) || "",
+                            authorName: (selectedGen as any).authorName || "",
+                            style: trackStyle,
+                            voiceType: (selectedGen as any).voiceType || "",
+                            promptFull: selectedGen.prompt || "",
+                          };
+                          setSelectedGen(null);
+                          navigate("/covers");
+                        }}
+                        data-testid={`btn-re-cover-${selectedGen.id}`}
+                      >
+                        <ImageIcon className="w-3 h-3" /> Re Обложка
+                      </button>
+                      <button
+                        className="inline-flex items-center justify-center gap-1 px-2 py-2 text-xs font-medium rounded-lg border border-violet-500/30 bg-violet-500/10 text-violet-300 hover:bg-violet-500/20 hover:border-violet-500/50 transition-colors"
+                        onClick={() => {
+                          // Передаём prompt/lyrics в /lyrics через sessionStorage transfer.
+                          try {
+                            const lyricsText = selectedGen.type === "lyrics" ? selectedGen.resultUrl || selectedGen.prompt
+                              : ((() => { try { const m = JSON.parse(selectedGen.style || "{}"); return m.lyric || selectedGen.prompt; } catch { return selectedGen.prompt; } })());
+                            sessionStorage.setItem("__lyricsTransfer", String(lyricsText || ""));
+                            sessionStorage.setItem("__lyricsRegenerateFromGen", String(selectedGen.id));
+                          } catch {}
+                          setSelectedGen(null);
+                          navigate("/lyrics");
+                        }}
+                        data-testid={`btn-re-lyrics-${selectedGen.id}`}
+                      >
+                        <PenLine className="w-3 h-3" /> Re Текст
+                      </button>
+                    </div>
+                  </div>
+
                   {/* Eugene 2026-05-14 Босс «Песня/Поздравление/Инструментальная»
                       переключатель категории трека (только для music).
                       Eugene 2026-05-15 Босс «Обязательно подтверждение автором
