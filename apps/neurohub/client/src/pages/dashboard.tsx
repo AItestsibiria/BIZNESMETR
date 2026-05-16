@@ -2128,10 +2128,23 @@ export default function DashboardPage() {
       const res = await apiRequest("POST", "/api/payment/create", { amount });
       const data = await res.json();
       if (data.paymentUrl) {
+        // Redirect юзера в Robokassa. После оплаты:
+        // - Robokassa делает server-to-server POST на /api/payment/result
+        //   (signature verified Password2, баланс кредитуется, OK<InvId> в ответ)
+        // - Robokassa редиректит юзера на /api/payment/success → /#/payment/success
+        // См. docs/strategy/ROBOKASSA-INTEGRATION-PLAN.md
         window.location.href = data.paymentUrl;
+        return;
       }
+      // 503/4xx без paymentUrl — показываем понятную ошибку (раньше молча
+      // снимали spinner и юзер ничего не видел).
+      toast({
+        title: "Не удалось создать платёж",
+        description: data.message || "Попробуйте через минуту или напишите в поддержку.",
+        variant: "destructive",
+      });
     } catch (err: any) {
-      toast({ title: "Ошибка", description: err.message, variant: "destructive" });
+      toast({ title: "Ошибка", description: err.message || "Сетевая ошибка", variant: "destructive" });
     } finally {
       setToppingUp(false);
     }
