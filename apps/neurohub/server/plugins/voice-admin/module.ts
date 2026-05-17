@@ -399,7 +399,49 @@ router.post(
 
     const durationMs = Date.now() - startedAt;
 
-    // 4) Audit-log (НЕ сохраняем audio, только meta + transcript/response).
+    // 4) Enriched audit-log (Eugene 2026-05-17).
+    //    - НЕ сохраняем audio (PII), только transcript/response/actions/meta.
+    //    - Чётко разделяем executedActions (изменили данные: kick_session,
+    //      change_registration_status, pause_bot, send_telegram_alert, reload_kb,
+    //      ...) и readonlyActions (только чтение: get_metrics, query_users,
+    //      get_recent_payments, get_recent_incidents, get_failed_users).
+    //    - Добавляем IP + UA для трассировки, флаг contextInjected (snapshot
+    //      dashboard был включён в LLM call).
+    //    - Limit transcript/response 800/2000 chars — больше не сохраняем,
+    //      это admin-voice, не длинный диалог.
+    const MUTATING_TOOLS = new Set([
+      "kick_session",
+      "change_registration_status",
+      "pause_bot",
+      "send_telegram_alert",
+      "reload_kb",
+    ]);
+    const executedActions = llmResult.actions
+      .filter((a) => MUTATING_TOOLS.has(a.tool))
+      .map((a) => ({
+        tool: a.tool,
+        input: a.input,
+        result: String(a.result).slice(0, 300),
+      }));
+    const readonlyActions = llmResult.actions
+      .filter((a) => !MUTATING_TOOLS.has(a.tool))
+      .map((a) => ({
+        tool: a.tool,
+        input: a.input,
+        result: String(a.result).slice(0, 200),
+      }));
+
+    const clientIp =
+      String(
+        (req.headers["x-forwarded-for"] || "")
+          .toString()
+          .split(",")[0]
+          .trim() ||
+          req.ip ||
+          "",
+      ).slice(0, 64) || null;
+    const clientUa = String(req.headers["user-agent"] || "").slice(0, 200) || null;
+
     try {
       db.run(sql`INSERT INTO admin_audit_log
         (admin_user_id, admin_email, action, entity, entity_key, before_json, after_json)
@@ -411,19 +453,22 @@ router.post(
           ${sessionId},
           ${null},
           ${JSON.stringify({
-            transcript: transcript.slice(0, 500),
-            response: llmResult.responseText.slice(0, 1000),
-            actions: llmResult.actions.map(a => ({
-              tool: a.tool,
-              input: a.input,
-              result: String(a.result).slice(0, 200),
-            })),
+            transcript: transcript.slice(0, 800),
+            response: llmResult.responseText.slice(0, 2000),
+            executedActions,
+            readonlyActions,
+            actionsTotal: llmResult.actions.length,
+            actionsMutating: executedActions.length,
+            actionsReadonly: readonlyActions.length,
             durationMs,
             ttsRequested: wantTts,
             ttsBytes: audioBase64 ? Math.round((audioBase64.length * 3) / 4) : 0,
             audioBytes: file.size,
             audioMime: baseMime,
             usage: llmResult.usage,
+            contextInjected: true,
+            clientIp,
+            clientUa,
           })}
         )`);
     } catch (e: any) {
@@ -468,14 +513,25 @@ router.get("/voice-command/recent", requireAdmin, (req, res) => {
       let parsed: any = null;
       try {
         parsed = JSON.parse(r.after_json || "{}");
-      } catch {}
+      } catch {
+        /* ignore */
+      }
+      // Backward-compat: старые записи имели `actions`, новые разделяют на
+      // executedActions (mutating) + readonlyActions. Объединяем для UI.
+      const exec = Array.isArray(parsed?.executedActions) ? parsed.executedActions : [];
+      const readonly = Array.isArray(parsed?.readonlyActions) ? parsed.readonlyActions : [];
+      const legacyActions = Array.isArray(parsed?.actions) ? parsed.actions : [];
+      const mergedActions = exec.length || readonly.length ? [...exec, ...readonly] : legacyActions;
       return {
         id: r.id,
         adminUserId: r.admin_user_id,
         createdAt: r.created_at,
         transcript: parsed?.transcript || "",
         response: parsed?.response || "",
-        actions: parsed?.actions || [],
+        actions: mergedActions,
+        executedActions: exec,
+        readonlyActions: readonly,
+        actionsMutating: parsed?.actionsMutating ?? exec.length,
         durationMs: parsed?.durationMs,
       };
     });
