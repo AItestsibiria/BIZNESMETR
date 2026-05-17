@@ -301,6 +301,11 @@ export const MUZA_TOOLS: ToolDef[] = [
       required: [],
     },
   },
+  {
+    name: "get_bot_channels_status",
+    description: "[ADMIN-ONLY] Состояние всех каналов общения (web / telegram / max) + LLM engine (primary anthropic + fallback timeweb-gateway). Возвращает короткий текст: какой канал зелёный / жёлтый / красный с проблемами. Используй когда админ спрашивает «как каналы», «всё ли работает», «что упало» или хочет голосовое summary. Под капотом — bot-channels-health плагин.",
+    input_schema: { type: "object", properties: {}, required: [] },
+  },
 ];
 
 // === Email 2FA wrapper helper (Eugene 2026-05-17 Босс) ===
@@ -1111,6 +1116,21 @@ const HANDLERS: Record<string, ToolHandler> = {
       return `Инциденты (${rows.length}):\n${lines.join("\n")}`;
     } catch (e: any) {
       return `Ошибка get_recent_incidents: ${e.message}`;
+    }
+  },
+
+  // Eugene 2026-05-17 Босс «голос Музе про каналы».
+  // Возвращает короткий status-summary всех каналов + LLM engine.
+  // Используется через admin-voice (voice-admin плагин) — Муза отвечает голосом
+  // что упало / что работает.
+  async get_bot_channels_status(_input, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
+    try {
+      // Динамический import чтобы избежать circular dependency между lib и plugin.
+      const mod = await import("../plugins/bot-channels-health/module");
+      return await mod.getChannelsStatusSummary();
+    } catch (e: any) {
+      return `Ошибка get_bot_channels_status: ${e.message}`;
     }
   },
 };
