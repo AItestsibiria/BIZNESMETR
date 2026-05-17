@@ -14,10 +14,11 @@
 // Стиль: glass-card + фирменные purple/cyan/amber/emerald gradient на dark bg.
 // Mobile-friendly: 1col mobile, 2-3col desktop.
 
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { registerAudio } from "@/lib/audio-bus";
 import {
   ResponsiveContainer,
   LineChart,
@@ -654,6 +655,244 @@ function ClickStatsSection({
 }
 
 // ============================================================
+// 🎙 Муза доложит — TTS озвучка важной информации через Yandex SpeechKit
+// (Eugene 2026-05-17 Босс). Кнопка большая, фирменная (purple→cyan gradient),
+// breathing-animation во время play, текст-subtitle.
+// ============================================================
+type TtsVoice = "alena" | "jane" | "oksana";
+
+const VOICE_OPTIONS: Array<{ key: TtsVoice; label: string; hint: string }> = [
+  { key: "alena", label: "Алёна", hint: "молодая, нежная — Муза по умолчанию" },
+  { key: "jane", label: "Джейн", hint: "постарше, бизнес-тон" },
+  { key: "oksana", label: "Оксана", hint: "нейтральный" },
+];
+
+function MusaBriefing({ period }: { period: Period }) {
+  const [loading, setLoading] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [text, setText] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [voice, setVoice] = useState<TtsVoice>(() => {
+    if (typeof window === "undefined") return "alena";
+    const saved = window.localStorage.getItem("tts-voice");
+    return (saved as TtsVoice) || "alena";
+  });
+  const [autoBriefing, setAutoBriefing] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("auto-briefing-on-mount") === "1";
+  });
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const blobUrlRef = useRef<string | null>(null);
+  const autoFiredRef = useRef(false);
+
+  const stop = useCallback(() => {
+    if (audioRef.current) {
+      try {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      } catch {}
+    }
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current);
+      blobUrlRef.current = null;
+    }
+    setPlaying(false);
+  }, []);
+
+  useEffect(() => () => stop(), [stop]);
+
+  const handleVoiceChange = (v: TtsVoice) => {
+    setVoice(v);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("tts-voice", v);
+    }
+  };
+
+  const handleAutoChange = (on: boolean) => {
+    setAutoBriefing(on);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("auto-briefing-on-mount", on ? "1" : "0");
+    }
+  };
+
+  const runBriefing = useCallback(async () => {
+    if (loading || playing) return;
+    setLoading(true);
+    setError(null);
+    setText(null);
+    try {
+      // 1) Берём текст доклада
+      const briefingRes = await fetch(
+        `/api/admin/v304/briefing-text?period=${period}`,
+        { credentials: "include" },
+      );
+      if (!briefingRes.ok) {
+        const tx = await briefingRes.text().catch(() => "");
+        throw new Error(`briefing ${briefingRes.status}: ${tx.slice(0, 120)}`);
+      }
+      const briefingJson = await briefingRes.json();
+      const briefingText: string =
+        briefingJson?.data?.text || briefingJson?.text || "";
+      if (!briefingText) throw new Error("Пустой текст доклада");
+      setText(briefingText);
+
+      // 2) Синтезируем mp3
+      const ttsRes = await fetch(`/api/admin/v304/tts`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: briefingText, voice }),
+      });
+      if (!ttsRes.ok) {
+        const tx = await ttsRes.text().catch(() => "");
+        throw new Error(`tts ${ttsRes.status}: ${tx.slice(0, 120)}`);
+      }
+      const blob = await ttsRes.blob();
+
+      // 3) Играем
+      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+      const url = URL.createObjectURL(blob);
+      blobUrlRef.current = url;
+      const audio = new Audio(url);
+      registerAudio(audio); // single-audio rule: pause других при play
+      audioRef.current = audio;
+      audio.onended = () => {
+        setPlaying(false);
+        if (blobUrlRef.current) {
+          URL.revokeObjectURL(blobUrlRef.current);
+          blobUrlRef.current = null;
+        }
+      };
+      audio.onerror = () => {
+        setPlaying(false);
+        setError("Ошибка воспроизведения mp3");
+      };
+      setPlaying(true);
+      await audio.play();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setPlaying(false);
+    } finally {
+      setLoading(false);
+    }
+  }, [period, voice, loading, playing]);
+
+  // Auto-briefing on mount (если включён в localStorage)
+  useEffect(() => {
+    if (autoBriefing && !autoFiredRef.current) {
+      autoFiredRef.current = true;
+      // Небольшая задержка чтобы UI успел отрисоваться
+      const t = setTimeout(() => {
+        runBriefing().catch(() => {});
+      }, 800);
+      return () => clearTimeout(t);
+    }
+    return undefined;
+  }, [autoBriefing, runBriefing]);
+
+  return (
+    <section
+      className="glass-card rounded-2xl p-4 border border-purple-500/30 hover:border-purple-500/50 transition-colors"
+      data-testid="musa-briefing"
+    >
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] font-sans px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-medium">
+              Муза
+            </span>
+            <span className="text-[10px] font-sans px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-medium">
+              TTS · Yandex
+            </span>
+          </div>
+          <h3 className="text-lg font-sans font-bold text-white">
+            <span className="bg-gradient-to-r from-purple-300 via-pink-300 to-cyan-300 bg-clip-text text-transparent">
+              Муза доложит
+            </span>
+          </h3>
+          <p className="text-sm font-sans text-muted-foreground leading-relaxed">
+            Озвучит короткий доклад по dashboard за выбранный период.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-2 shrink-0">
+          {!playing ? (
+            <Button
+              size="lg"
+              onClick={runBriefing}
+              disabled={loading}
+              data-testid="musa-briefing-play"
+              className={`btn-cosmic text-white font-bold px-6 py-5 rounded-xl shadow-lg shadow-purple-500/30 ${
+                loading ? "opacity-70" : "hover:scale-[1.02]"
+              } transition-all`}
+            >
+              {loading ? "Готовлю доклад…" : "🎙 Муза доложит"}
+            </Button>
+          ) : (
+            <Button
+              size="lg"
+              onClick={stop}
+              data-testid="musa-briefing-stop"
+              className="bg-red-500/80 hover:bg-red-500 text-white font-bold px-6 py-5 rounded-xl shadow-lg shadow-red-500/30 animate-pulse"
+            >
+              🔇 Замолчи
+            </Button>
+          )}
+
+          <div className="flex items-center gap-2 text-[11px]">
+            <label className="text-muted-foreground" htmlFor="musa-voice-pick">
+              Голос:
+            </label>
+            <select
+              id="musa-voice-pick"
+              className="bg-black/40 text-white rounded px-2 py-1 border border-white/10 text-xs"
+              value={voice}
+              onChange={(e) => handleVoiceChange(e.target.value as TtsVoice)}
+              disabled={playing || loading}
+              data-testid="musa-voice-select"
+            >
+              {VOICE_OPTIONS.map((v) => (
+                <option key={v.key} value={v.key}>
+                  {v.label} — {v.hint}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <label className="flex items-center gap-2 text-[11px] text-muted-foreground cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={autoBriefing}
+              onChange={(e) => handleAutoChange(e.target.checked)}
+              data-testid="musa-auto-briefing"
+              className="rounded border-white/20"
+            />
+            Автодоклад при входе в admin
+          </label>
+        </div>
+      </div>
+
+      {error && (
+        <div className="mt-3 text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
+          Ошибка: {error}
+        </div>
+      )}
+
+      {text && (
+        <div
+          className={`mt-3 text-sm text-white/90 bg-black/30 border border-white/10 rounded-lg px-3 py-2 leading-relaxed transition-all ${
+            playing ? "ring-2 ring-purple-400/40 shadow-[0_0_30px_-10px_rgba(167,139,250,0.6)]" : ""
+          }`}
+          data-testid="musa-briefing-subtitle"
+        >
+          {text}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ============================================================
 // MAIN TAB
 // ============================================================
 export default function MasterDashboardTab() {
@@ -732,6 +971,9 @@ export default function MasterDashboardTab() {
           </Button>
         </div>
       </div>
+
+      {/* 🎙 Муза доложит — TTS озвучка */}
+      <MusaBriefing period={period} />
 
       {/* 1. Status cards — light-status indicators */}
       <section>
