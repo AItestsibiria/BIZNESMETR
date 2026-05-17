@@ -47,6 +47,7 @@ import { getOrCreateVisitorId, readVisitorId } from "./lib/visitorCookie";
 import { getIpGeo } from "./lib/ipGeo";
 import { upsertUserProfile, linkProfileToUser, getProfileByUserId, getProfileByVisitorId } from "./lib/userProfilesStore";
 import { extractHost, KNOWN_DOMAINS, hostToBucket } from "./lib/extractHost";
+import { embedTrackId3, findSiblingCover } from "./lib/id3Writer";
 
 const AUTHORS_DIR = process.env.AUTHORS_DIR || path.join(process.cwd(), "authors");
 
@@ -174,6 +175,37 @@ async function saveGenFiles(genId: number) {
     // Also save cover image
     if (imageUrl) {
       await saveToAuthorFolder(genId, authorName, imageUrl, "jpg");
+    }
+    // Eugene 2026-05-17 Босс «iOS lock-screen logo вместо обложки».
+    // Embed real cover into mp3 APIC frame so iOS / Bluetooth / AirPlay /
+    // CarPlay see the right artwork (they read ID3 from byte-stream, NOT
+    // from Media Session API). saveGenFiles runs after both mp3 and jpg
+    // are on disk — perfect spot to write metadata once.
+    if (savedPath) {
+      try {
+        const absMp3 = path.join(AUTHORS_DIR, savedPath);
+        const siblingCover = findSiblingCover(absMp3);
+        const trackTitle =
+          gen.displayTitle ||
+          (gen.prompt ? gen.prompt.slice(0, 80) : null) ||
+          "MuzaAi Track";
+        const id3Res = await embedTrackId3({
+          mp3Path: absMp3,
+          title: trackTitle,
+          authorName: authorName !== "_noname" ? authorName : null,
+          coverPath: siblingCover,
+          keepExistingImage: false, // overwrite Suno's default art with our cover
+        });
+        if (id3Res.ok) {
+          console.log(
+            `[ID3] gen #${genId} embedded (cover=${id3Res.coverSource}, bytes=${id3Res.imageBytes || 0})`,
+          );
+        } else {
+          console.warn(`[ID3] gen #${genId} embed failed: ${id3Res.error}`);
+        }
+      } catch (e) {
+        console.error(`[ID3] Post-save ID3 embed failed for gen #${genId}:`, e);
+      }
     }
   } else if (gen.type === "cover") {
     savedPath = await saveToAuthorFolder(genId, authorName, gen.resultUrl, "png");
@@ -3126,6 +3158,160 @@ export async function registerRoutes(
       });
     } catch (e: any) {
       console.error("[backfill/id3-rebrand]", e);
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  // Eugene 2026-05-17 Босс «iOS lock-screen logo вместо обложки трека —
+  // реши кардинально». Backfill переписывает APIC frame в ALL existing
+  // mp3 файлах: подбирает реальный cover из gen_<id>.jpg (либо из
+  // coverGenId.localPath), уменьшает до 512×512, встраивает в mp3.
+  //
+  // Параметры query (опциональны):
+  //   ?limit=N        — обработать не больше N треков (default 500)
+  //   ?since=<iso>    — только треки созданные после ISO-даты
+  //   ?genId=<id>     — точечно один трек (для отладки)
+  //   ?dryRun=1       — не писать, только показать что было бы
+  //   ?force=1        — переписать ВСЕ существующие APIC (default
+  //                     keepExistingImage=false уже это делает)
+  //
+  // Body: { genIds?: number[] } — альтернативно список конкретных треков
+  //
+  // Возвращает: { ok, totalCandidates, updated, skipped, embedded,
+  //               coverSources: {argument,sibling-jpg,kept-existing,none},
+  //               errors: [{id, error}], firstSamples: [...] }
+  app.post("/api/admin/v304/id3-rebuild", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const limit = Math.min(2000, Math.max(1, Number(req.query.limit) || 500));
+      const since = String(req.query.since || "").trim();
+      const oneGenId = Number(req.query.genId);
+      const dryRun = req.query.dryRun === "1" || req.query.dryRun === "true";
+      const explicitIds = Array.isArray((req.body as any)?.genIds)
+        ? ((req.body as any).genIds as unknown[])
+            .map((x) => Number(x))
+            .filter((x) => Number.isFinite(x))
+        : null;
+
+      const filters: any[] = [
+        sql`type = 'music'`,
+        sql`status = 'done'`,
+        sql`local_path IS NOT NULL`,
+      ];
+      if (Number.isFinite(oneGenId)) {
+        filters.push(sql`id = ${oneGenId}`);
+      } else if (explicitIds && explicitIds.length) {
+        const idsCsv = explicitIds.join(",");
+        filters.push(sql.raw(`id IN (${idsCsv})`));
+      } else if (since) {
+        filters.push(sql`created_at >= ${since}`);
+      }
+      const whereSql = filters.reduce((acc, f, i) => (i === 0 ? sql`${f}` : sql`${acc} AND ${f}`));
+
+      const rows = db.all<any>(sql`
+        SELECT id, display_title, prompt, local_path, author_name, cover_gen_id
+        FROM generations
+        WHERE ${whereSql}
+        ORDER BY id DESC
+        LIMIT ${limit}
+      `);
+
+      const authorsDir = AUTHORS_DIR.replace(/\/$/, "");
+      let updated = 0;
+      let skipped = 0;
+      let embedded = 0;
+      const coverSources: Record<string, number> = {
+        argument: 0,
+        "sibling-jpg": 0,
+        "kept-existing": 0,
+        none: 0,
+      };
+      const errors: Array<{ id: number; error: string }> = [];
+      const firstSamples: Array<{
+        id: number;
+        title: string | null;
+        coverSource: string;
+        imageBytes?: number;
+        ok: boolean;
+      }> = [];
+
+      for (const r of rows) {
+        try {
+          const mp3Path = `${authorsDir}/${r.local_path}`;
+          if (!fs.existsSync(mp3Path)) {
+            skipped++;
+            continue;
+          }
+          // Resolve override cover from coverGenId if set
+          let overrideCover: string | null = null;
+          if (r.cover_gen_id) {
+            const coverRow = db.all<any>(sql`
+              SELECT local_path FROM generations WHERE id = ${r.cover_gen_id} LIMIT 1
+            `)[0];
+            if (coverRow?.local_path) {
+              const cp = `${authorsDir}/${coverRow.local_path}`;
+              if (fs.existsSync(cp)) overrideCover = cp;
+            }
+          }
+
+          if (dryRun) {
+            const sibling = findSiblingCover(mp3Path);
+            const src = overrideCover ? "argument" : sibling ? "sibling-jpg" : "none";
+            coverSources[src] = (coverSources[src] || 0) + 1;
+            if (firstSamples.length < 10) {
+              firstSamples.push({
+                id: r.id,
+                title: r.display_title,
+                coverSource: src,
+                ok: true,
+              });
+            }
+            continue;
+          }
+
+          const titleFallback =
+            r.display_title || (r.prompt ? String(r.prompt).slice(0, 80) : null);
+          const id3Res = await embedTrackId3({
+            mp3Path,
+            title: titleFallback,
+            authorName: r.author_name,
+            coverPath: overrideCover,
+            keepExistingImage: false,
+          });
+
+          if (id3Res.ok) {
+            updated++;
+            if (id3Res.imageEmbedded) embedded++;
+            coverSources[id3Res.coverSource] = (coverSources[id3Res.coverSource] || 0) + 1;
+            if (firstSamples.length < 10) {
+              firstSamples.push({
+                id: r.id,
+                title: r.display_title,
+                coverSource: id3Res.coverSource,
+                imageBytes: id3Res.imageBytes,
+                ok: true,
+              });
+            }
+          } else {
+            errors.push({ id: r.id, error: id3Res.error || "unknown" });
+          }
+        } catch (e: any) {
+          errors.push({ id: r.id, error: String(e?.message || e).slice(0, 200) });
+        }
+      }
+
+      res.json({
+        ok: true,
+        dryRun,
+        totalCandidates: rows.length,
+        updated,
+        skipped,
+        embedded,
+        coverSources,
+        errors: errors.slice(0, 20),
+        firstSamples,
+      });
+    } catch (e: any) {
+      console.error("[id3-rebuild]", e);
       res.status(500).json({ ok: false, error: String(e?.message || e) });
     }
   });
