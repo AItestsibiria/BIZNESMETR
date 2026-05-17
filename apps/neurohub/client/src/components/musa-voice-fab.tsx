@@ -1426,7 +1426,15 @@ export function MusaVoiceFab() {
                 {!dialogActiveRef.current ? (
                   <button
                     type="button"
-                    onClick={startDialogMode}
+                    onClick={() => {
+                      // Eugene 2026-05-17 Босс «после подтверждения сворачивай вниз
+                      // оставь хвост чтобы тапнуть для раскрытия и скрытия».
+                      // Запускаем dialog mode + сворачиваем panel — FAB микрофон
+                      // остаётся внизу как «хвост», тап на него снова раскрывает
+                      // panel без остановки слушания.
+                      startDialogMode();
+                      setTimeout(() => setOpen(false), 300);
+                    }}
                     disabled={state === "uploading" || state === "thinking"}
                     data-testid="musa-voice-dialog-start"
                     className="w-full px-4 py-3 rounded-xl font-sans font-bold text-sm text-white bg-gradient-to-r from-purple-500 via-fuchsia-500 to-cyan-500 shadow-[0_0_24px_rgba(124,58,237,0.5)] hover:scale-[1.02] active:scale-[0.98] transition-transform"
