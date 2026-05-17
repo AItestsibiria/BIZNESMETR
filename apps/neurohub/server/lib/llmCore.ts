@@ -183,8 +183,16 @@ export async function callTimeWebGateway(opts: {
     { role: "user", content: opts.userText },
   ];
 
+  // Eugene 2026-05-17 Босс «TimeWeb AI Proxy» — endpoint api.timeweb.ai/v1
+  // ждёт модель с namespace anthropic/... Подменяем (Anthropic direct
+  // принимает голое имя — там не задеваем). Дату-суффикс снимаем (
+  // claude-haiku-4-5-20251001 → anthropic/claude-haiku-4-5).
+  const tmwModel = opts.model.startsWith("anthropic/") || opts.model.startsWith("openai/")
+    ? opts.model
+    : `anthropic/${opts.model.replace(/-\d{8}$/, "")}`;
+
   const body = JSON.stringify({
-    model: opts.model,
+    model: tmwModel,
     messages,
     max_tokens: opts.maxTokens,
   });

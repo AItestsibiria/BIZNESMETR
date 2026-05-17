@@ -1296,35 +1296,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           </div>
         </div>
 
-        {/* 16 мая 2026 — открыта регистрация по номеру (тестовый этап) */}
-        <a
-          href="#/register-phone"
-          onClick={() => { try { window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior }); } catch {} }}
-          className="block glass-card rounded-2xl p-6 border border-emerald-500/30 hover:border-emerald-500/50 transition-colors cursor-pointer"
-        >
-          <div className="flex items-start gap-3">
-            <div className="w-14 shrink-0 flex items-start justify-center pt-1">
-              <span className="text-3xl">📞</span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-[10px] font-sans px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-medium">Новости</span>
-                <span className="text-[10px] font-sans text-muted-foreground">16 мая 2026</span>
-                <span className="text-[10px] font-sans px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-medium animate-pulse">тестовый режим</span>
-              </div>
-              <h3 className="text-lg font-sans font-bold text-white mb-2">Открыта <span className="bg-gradient-to-r from-emerald-300 via-cyan-300 to-purple-300 bg-clip-text text-transparent">регистрация по номеру телефона</span></h3>
-              <p className="text-sm font-sans text-muted-foreground leading-relaxed">
-                Тестовый этап для первых авторов.
-              </p>
-              <p className="text-sm font-sans text-muted-foreground leading-relaxed mt-1">
-                Регистрация по входящему звонку — занимает 20 секунд, без SMS и паролей.
-              </p>
-              <p className="text-sm font-sans text-muted-foreground leading-relaxed mt-2">
-                <span className="text-emerald-300 font-medium">Зарегистрироваться →</span>
-              </p>
-            </div>
-          </div>
-        </a>
+        {/* Eugene 2026-05-17 Босс «убери новость про регистрацию по телефону» —
+            скрыто пока reverse-flashcall flow не до отшлифован. */}
 
       </div>
     </section>

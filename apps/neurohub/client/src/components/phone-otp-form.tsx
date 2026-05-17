@@ -438,7 +438,7 @@ export default function PhoneOtpForm({
             autoFocus
           />
           <p className="text-[11px] text-muted-foreground">
-            РФ и страны СНГ. {method === "call" ? "Мы позвоним на этот номер — звонок бесплатный. Просто примите его, мы автоматически подтвердим вход." : "На номер придёт SMS с 6-значным кодом."}
+            РФ и страны СНГ. {method === "call" ? "Покажем номер 8800 — позвоните на него с этого телефона. Звонок бесплатный, можно сразу сбросить, мы узнаем ваш номер и впустим в кабинет." : "На номер придёт SMS с 6-значным кодом."}
           </p>
         </div>
 
@@ -480,7 +480,7 @@ export default function PhoneOtpForm({
         >
           {loading
             ? <Loader2 className="w-4 h-4 animate-spin" />
-            : (method === "call" ? "📞 ПОЛУЧИТЬ ЗВОНОК" : phoneSubmitLabel)}
+            : (method === "call" ? "📞 ПОКАЗАТЬ НОМЕР 8800" : phoneSubmitLabel)}
         </Button>
       </div>
     );
@@ -490,55 +490,64 @@ export default function PhoneOtpForm({
   // звонит на наш номер, мы ждём webhook/polling — никакого ввода кода).
   const isCall = method === "call";
 
-  // CALL flow: classical flashcall — sms.ru ЗВОНИТ юзеру. Показываем
-  // служебный номер (с которого будет вызов) крупно с pulse-glow, чтобы
-  // юзер увидел совпадение incoming caller-id и принял звонок.
-  // Eugene 2026-05-17 Босс «Нам никто не звонит» + «звонок бесплатный»:
-  // - заголовок «Сейчас вам позвонит MuzaAi…» (мы звоним, не юзер)
-  // - pulse-glow на номере чтобы привлечь внимание
-  // - amber→cyan «ЗВОНОК БЕСПЛАТНЫЙ» баннер крупным шрифтом
+  // CALL flow: REVERSE flashcall (sms.ru API) — юзер звонит со своего телефона
+  // на наш служебный 8800. Sms.ru видит входящий с этого номера → подтверждает.
+  // Eugene 2026-05-17 Босс «Это мы должны вести свой номер со своего телефона
+  // и набрать номер который указан 8800 — тогда провалимся в личный кабинет»:
+  // - 8800 номер крупно с tap-to-dial (tel: link)
+  // - «Позвоните бесплатно» инструкция
+  // - polling /check-call пока sms.ru не подтвердит incoming с того же номера
   if (isCall) {
     const expiresInSec = callExpiresAt ? Math.max(0, Math.floor((callExpiresAt - Date.now()) / 1000)) : 0;
     const mm = String(Math.floor(expiresInSec / 60)).padStart(2, "0");
     const ss = String(expiresInSec % 60).padStart(2, "0");
+    const callHref = callPhone ? `tel:${callPhone.replace(/[^+0-9]/g, "")}` : undefined;
     return (
       <div className="space-y-4">
         <p className="text-sm text-center text-muted-foreground">
-          Звоним на номер <span className="text-white font-medium">{phone}</span>
+          С номера <span className="text-white font-medium">{phone}</span>
           {countryHint && <span className="block text-[11px] mt-1 opacity-70">{countryHint}</span>}
         </p>
 
-        {/* Eugene 2026-05-17 Босс «ЗВОНОК БЕСПЛАТНЫЙ» крупным баннером
-            (amber→cyan gradient + neon-text). Сильный акцент на бесплатность —
-            юзеры боятся звонков с незнакомых номеров. */}
+        {/* «ЗВОНОК БЕСПЛАТНЫЙ» — мощный акцент перед 8800. */}
         <div className="text-center">
           <p className="text-2xl sm:text-3xl font-display font-bold bg-gradient-to-r from-amber-400 via-amber-300 to-cyan-400 bg-clip-text text-transparent neon-text tracking-wide" data-testid="banner-call-free">
             ЗВОНОК БЕСПЛАТНЫЙ
           </p>
-          <p className="text-[11px] text-amber-200/70 mt-1">Мы платим за вас — вам ничего не спишется</p>
+          <p className="text-[11px] text-amber-200/70 mt-1">Мы платим за вас — с вашего счёта ничего не спишется</p>
         </div>
 
-        {/* Brand-gradient panel — номер с которого позвонит sms.ru.
-            pulse-glow animation чтобы привлечь внимание к incoming caller-id. */}
+        {/* 8800 номер крупно + tel:link (тап на iPhone сразу открывает Phone.app
+            с уже набранным номером — остаётся только нажать вызов). */}
         <div className="bg-gradient-to-br from-purple-500/15 via-violet-500/10 to-blue-500/15 border border-purple-400/40 rounded-xl p-4 text-center shadow-[0_0_24px_rgba(168,85,247,0.15)]">
           <p className="text-sm text-white font-medium mb-2">
-            📞 Сейчас позвоним с номера:
+            📞 Позвоните с вашего телефона на номер:
           </p>
-          <div
-            className="inline-block px-5 py-3 mb-2 rounded-xl bg-gradient-to-r from-purple-500/30 via-violet-500/25 to-blue-500/25 border-2 border-purple-300/60 text-3xl font-extrabold text-white tracking-wide phone-pulse"
-            data-testid="call-phone-display"
-          >
-            {callPhonePretty || callPhone || "—"}
-          </div>
+          {callHref ? (
+            <a
+              href={callHref}
+              className="inline-block px-5 py-3 mb-2 rounded-xl bg-gradient-to-r from-purple-500/40 via-violet-500/35 to-blue-500/35 border-2 border-purple-300/70 text-3xl font-extrabold text-white tracking-wide phone-pulse no-underline hover:from-purple-500/60 hover:to-blue-500/55 active:scale-[0.98] transition-all"
+              data-testid="call-phone-display"
+            >
+              {callPhonePretty || callPhone || "—"}
+            </a>
+          ) : (
+            <div
+              className="inline-block px-5 py-3 mb-2 rounded-xl bg-gradient-to-r from-purple-500/30 via-violet-500/25 to-blue-500/25 border-2 border-purple-300/60 text-3xl font-extrabold text-white tracking-wide phone-pulse"
+              data-testid="call-phone-display"
+            >
+              {callPhonePretty || callPhone || "—"}
+            </div>
+          )}
           <p className="text-[11px] text-purple-200/80 mt-3">
-            🛡 Просто примите входящий с этого номера. Можно сбросить — мы всё равно узнаем ваш номер и впустим в кабинет. Кодов вводить не надо.
+            👉 Нажмите на номер — телефон сам наберёт. Можете сбросить сразу после соединения — мы узнаем ваш номер и сразу впустим в кабинет. Кодов вводить не нужно.
           </p>
         </div>
 
         {!callExpired && (
           <div className="text-center">
             <p className="text-[11px] text-muted-foreground">
-              Звоним вам… <span className="font-mono tabular-nums text-white/80">{mm}:{ss}</span>
+              Ждём ваш звонок… <span className="font-mono tabular-nums text-white/80">{mm}:{ss}</span>
             </p>
             <div className="flex justify-center mt-2">
               <Loader2 className="w-4 h-4 animate-spin text-purple-300" />

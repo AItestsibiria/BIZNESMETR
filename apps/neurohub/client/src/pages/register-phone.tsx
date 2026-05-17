@@ -91,14 +91,13 @@ export default function RegisterPhonePage() {
                 Привет, {greeting.name}! С возвращением 👋
               </h1>
               <p className="text-sm text-muted-foreground mt-2 font-sans">
-                Сейчас мы позвоним на ваш номер{" "}
-                <span className="font-mono text-white/80">{greeting.maskedPhone}</span> для входа.
+                С номера <span className="font-mono text-white/80">{greeting.maskedPhone}</span> — позвоните на наш 8800 для входа.
               </p>
             </>
           ) : (
             <>
               <h1 className="text-2xl sm:text-3xl font-display font-bold gradient-text">Регистрация по телефону</h1>
-              <p className="text-sm text-muted-foreground mt-2 font-sans">Подтверждение по входящему звонку — РФ и СНГ</p>
+              <p className="text-sm text-muted-foreground mt-2 font-sans">Подтверждение исходящим звонком с вашего номера на наш 8800 — РФ и СНГ</p>
             </>
           )}
 
@@ -119,7 +118,7 @@ export default function RegisterPhonePage() {
         <div className="gradient-border p-6 rounded-2xl space-y-4">
           {/* Explainer — снимает 80% вопросов «зачем мне звонят». */}
           <div className="rounded-xl bg-purple-500/10 border border-purple-400/30 px-3 py-3 text-xs text-purple-100/90 leading-relaxed">
-            🛡 Звонок полностью бесплатный — мы платим за вас. SMS не отправляется. Просто примите вызов или сбросьте его — мы автоматически подтвердим вход.
+            🛡 Звонок бесплатный для вас. Введите свой номер ниже — мы покажем наш 8800. Позвоните на него с этого телефона и сразу можно сбросить: мы узнаем ваш номер по caller-id и автоматически подтвердим вход. SMS не приходит, коды не нужны.
           </div>
 
           {/* Eugene 2026-05-15 Босс «согласие 152-ФЗ при регистрации».
@@ -158,7 +157,7 @@ export default function RegisterPhonePage() {
             // (login: ищет existing; register: создаёт нового).
             purpose={greeting ? "login" : "register"}
             allowMethods="call"
-            phoneSubmitLabel={greeting ? "📞 Получить звонок для входа" : "📞 ПОЛУЧИТЬ ЗВОНОК"}
+            phoneSubmitLabel={greeting ? "📞 Показать номер 8800 для входа" : "📞 ПОКАЗАТЬ НОМЕР 8800"}
             submitLabel={greeting ? "Войти" : "Зарегистрироваться"}
             onPhoneChecked={({ exists, name, maskedPhone }) => {
               if (exists && name && maskedPhone) {
