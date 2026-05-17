@@ -592,6 +592,23 @@ try {
     CREATE INDEX IF NOT EXISTS user_journey_session_idx ON user_journey_events(session_key, created_at);
     CREATE INDEX IF NOT EXISTS user_journey_user_idx ON user_journey_events(user_id, created_at);
     CREATE INDEX IF NOT EXISTS user_journey_page_idx ON user_journey_events(page, created_at);
+
+    -- Eugene 2026-05-17 Босс «воронки конверсии». Ежедневный snapshot
+    -- /api/admin/v304/funnels — позволяет строить тренд за N дней без
+    -- пересчёта тяжёлых SQL'ов. Заполняется cron'ом admin-overview в 03:00 MSK.
+    -- date — YYYY-MM-DD в MSK; funnel_id — ключ из FUNNELS;
+    -- steps_json — массив {id,label,count,conversionFromPrev}.
+    CREATE TABLE IF NOT EXISTS funnel_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
+      funnel_id TEXT NOT NULL,
+      steps_json TEXT NOT NULL,
+      total_conversion REAL,
+      top_dropoff_step TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS funnel_snapshots_uniq ON funnel_snapshots(date, funnel_id);
+    CREATE INDEX IF NOT EXISTS funnel_snapshots_funnel_idx ON funnel_snapshots(funnel_id, date);
   `);
 
   // Sprint 6 max-channel — расширяем chatbot_sessions для FSM
@@ -744,6 +761,11 @@ try {
 }
 
 export const db = drizzle(sqlite);
+
+// Raw sqlite handle для динамических read-only запросов (funnels, brain-export
+// и подобных мест где SQL собирается из конфигурации в runtime). Использовать
+// только с read-only SQL — модификации идут через drizzle/storage API.
+export const sqliteDb = sqlite;
 
 function toPublicUser(user: User): PublicUser {
   const { password, nameChangeToken, ...rest } = user;
