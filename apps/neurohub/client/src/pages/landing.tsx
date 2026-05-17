@@ -1548,6 +1548,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             prompt: currentTrack.prompt,
             authorName: currentTrack.authorName,
             createdAt: currentTrack.createdAt,
+            // Eugene 2026-05-17 Босс: дата публикации (не генерации).
+            publishedAt: (currentTrack as any).publishedAt,
             styleInfo: currentTrack.styleInfo,
           } : null}
           // Eugene 2026-05-17 — full plyer controls внутри модалки.
@@ -1704,7 +1706,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               ? "from-pink-500/20 to-purple-500/20"
               : "from-purple-500/20 to-blue-500/20";
             const typeLabel = isLyrics ? "Текст" : isCover ? "Обложка" : null;
-            const dateStr = track.createdAt ? new Date(track.createdAt).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" }) : "";
+            // Eugene 2026-05-17 Босс: дата ПУБЛИКАЦИИ (когда трек появился в
+            // плейлисте), а не дата генерации. Fallback на createdAt для
+            // back-compat (треки до миграции / приватные).
+            const dateSource = (track as any).publishedAt || track.createdAt;
+            const dateStr = dateSource ? new Date(dateSource).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" }) : "";
 
             return (
               <div key={track.id} data-testid={`button-play-track-${track.id}`}>
@@ -1821,7 +1827,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                 {isExpanded && (() => {
                   const eActive = playingId === track.id;
                   const ePlaying = eActive && isPlayingState;
-                  const eDateStr = track.createdAt ? new Date(track.createdAt).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" }) : "";
+                  // Eugene 2026-05-17 Босс: дата ПУБЛИКАЦИИ (fallback на createdAt).
+                  const eDateSource = (track as any).publishedAt || track.createdAt;
+                  const eDateStr = eDateSource ? new Date(eDateSource).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" }) : "";
                   return (
                     <div className="px-2 pb-2 pt-1">
                       <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-purple-500/20 animate-in fade-in zoom-in-95 duration-300">

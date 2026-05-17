@@ -55,6 +55,10 @@ export interface CoverDetailsTrack {
   prompt?: string | null;
   authorName?: string | null;
   createdAt?: string | null;
+  // Eugene 2026-05-17 Босс «публикация — другое событие, не дата генерации».
+  // Если есть publishedAt — показываем его как «Опубликовано N»; иначе
+  // fallback на createdAt с лейблом «Создано».
+  publishedAt?: string | null;
   styleInfo?: string | null;
 }
 
@@ -175,8 +179,13 @@ export function CoverDetailsModal({
   if (!open || !track) return null;
 
   const title = track.displayTitle || (track.prompt || "").slice(0, 80) || "Без названия";
-  const date = track.createdAt
-    ? new Date(track.createdAt).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })
+  // Eugene 2026-05-17 Босс: показываем дату ПУБЛИКАЦИИ (когда трек появился
+  // в плейлисте) с лейблом «Опубликовано». Fallback на дату генерации с
+  // лейблом «Создано» (для приватных черновиков publishedAt = NULL).
+  const dateSource = track.publishedAt || track.createdAt;
+  const dateLabel = track.publishedAt ? "Опубликовано" : "Создано";
+  const date = dateSource
+    ? new Date(dateSource).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })
     : "";
 
   const handleDrag = (_: unknown, info: PanInfo) => {
@@ -594,7 +603,9 @@ export function CoverDetailsModal({
             </p>
           )}
           {date && (
-            <p className="text-xs sm:text-sm text-white/40 mt-4 font-mono">{date}</p>
+            <p className="text-xs sm:text-sm text-white/40 mt-4 font-mono">
+              <span className="text-white/30 font-sans not-italic">{dateLabel}: </span>{date}
+            </p>
           )}
           <p className="text-xs text-white/40 mt-5 italic font-sans">
             {(onNext || onPrev)
