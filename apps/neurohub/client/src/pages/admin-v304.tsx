@@ -176,7 +176,7 @@ export default function AdminV304Page() {
   return (
     <div className="container mx-auto p-4 sm:p-6 max-w-7xl">
       <div className="flex items-center gap-3 mb-6">
-        <h1 className="text-2xl sm:text-3xl font-bold">Admin · v304</h1>
+        <h1 className="text-2xl sm:text-3xl font-display font-bold gradient-text">Admin · v304</h1>
         <ApiHealthLamp onJump={() => setTab("api-health")} />
         <div className="ml-auto">
           <AdminSearch

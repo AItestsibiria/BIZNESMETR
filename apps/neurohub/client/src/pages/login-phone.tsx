@@ -53,11 +53,11 @@ export default function LoginPhonePage() {
     <div className="min-h-screen flex items-center justify-center px-4 pt-16 hero-gradient">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center mx-auto mb-4">
-            <Music className="w-6 h-6 text-white" />
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-500 via-fuchsia-500 to-blue-500 flex items-center justify-center mx-auto mb-4 shadow-[0_0_32px_rgba(124,58,237,0.4)]">
+            <Music className="w-7 h-7 text-white" />
           </div>
-          <h1 className="text-xl font-bold gradient-text">Вход по телефону</h1>
-          <p className="text-sm text-muted-foreground mt-1">Подтверждение по входящему звонку — РФ и СНГ</p>
+          <h1 className="text-2xl sm:text-3xl font-display font-bold gradient-text">Вход по телефону</h1>
+          <p className="text-sm text-muted-foreground mt-2 font-sans">Подтверждение по входящему звонку — РФ и СНГ</p>
         </div>
 
         <div className="gradient-border p-6 rounded-2xl space-y-4">
