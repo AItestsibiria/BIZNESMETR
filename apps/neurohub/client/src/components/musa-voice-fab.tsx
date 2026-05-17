@@ -27,7 +27,33 @@ type VoiceAction = {
   tool: string;
   input: unknown;
   result: string;
+  brainFocus?: { nodeName: string };
 };
+
+// Eugene 2026-05-17 «вязка со вторым мозгом»: interim transcript keywords
+// → имя узла. Эмитим focus заранее (до server response) — даёт «мгновенную
+// реакцию» 3D мозга на голос. Регулярки RU-russified.
+const KEYWORD_TO_BRAIN_NODE: Array<{ re: RegExp; node: string }> = [
+  { re: /\b(метрик|статистик|показател|kpi)/i, node: "Аналитика" },
+  { re: /\b(юзер|пользовател|клиент|кто|сколько людей)/i, node: "Юзеры" },
+  { re: /\b(платеж|оплат|деньг|выручк|продаж|robokass)/i, node: "Платежи" },
+  { re: /\b(инцидент|ошибк|сбо|упал|падени|проблем)/i, node: "Incidents" },
+  { re: /\b(трек|музык|песн|генераци)/i, node: "Generations" },
+  { re: /\b(телеграм|telegram|тг|tg)/i, node: "Telegram" },
+  { re: /\b(максимум|max\b|макс\b)/i, node: "Max" },
+  { re: /\b(suno|сун)/i, node: "GPTunnel" },
+  { re: /\b(база знани|kb\b|knowledge)/i, node: "KnowledgeBase" },
+  { re: /\b(голос|tts|stt|speechkit|яндекс)/i, node: "Yandex" },
+  { re: /\b(claude|клод|anthropic|llm)/i, node: "Anthropic" },
+];
+
+function matchBrainNodeFromText(text: string): string | null {
+  const lower = text.toLowerCase();
+  for (const entry of KEYWORD_TO_BRAIN_NODE) {
+    if (entry.re.test(lower)) return entry.node;
+  }
+  return null;
+}
 
 type VoiceCommandResult = {
   transcript: string;
@@ -73,6 +99,20 @@ export function MusaVoiceFab() {
     if (typeof window === "undefined") return true;
     return window.localStorage.getItem("voice-command-tts") !== "0";
   });
+  // Eugene 2026-05-17 Босс «режим диалога»: continuous conversation —
+  // юзер говорит → 1.5 сек тишины → отправка → LLM → TTS → авто-возобновление
+  // listening. Сохраняется в localStorage пер-юзер.
+  const [dialogMode, setDialogMode] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("voice-command-dialog") === "1";
+  });
+  // Live interim transcript (видим что юзер сейчас говорит)
+  const [interimTranscript, setInterimTranscript] = useState<string>("");
+  // Eager-focus: подсветка узлов мозга по keyword'ам в interim transcript
+  const [eagerFocus, setEagerFocus] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    return window.localStorage.getItem("voice-command-eager-focus") !== "0";
+  });
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -84,6 +124,34 @@ export function MusaVoiceFab() {
   // Google STT) — браузер сам распознаёт речь, минуем MediaRecorder.
   // Решает «запись слишком короткая» — нет blob-threshold.
   const speechRecRef = useRef<any>(null);
+
+  // === Dialog mode refs (continuous conversation) ===
+  // dialogActiveRef — true когда юзер запустил dialog loop (явный «🛑 Закончить»
+  //   останавливает). Refs (не state) чтобы async-handlers видели актуальное
+  //   значение без замыкания.
+  const dialogActiveRef = useRef<boolean>(false);
+  // VAD silence timer: после 1.5 сек без interim updates — финализируем
+  //   transcript и отправляем на сервер.
+  const vadTimerRef = useRef<number | null>(null);
+  // Accumulator интервью-результатов между VAD-pause'ами (continuous=true).
+  //   На каждый final result добавляем text; при VAD silence — flush + reset.
+  const dialogTranscriptBufferRef = useRef<string>("");
+  // Когда TTS играет и юзер начинает говорить — barge-in. Запоминаем
+  //   время начала playback чтобы передать сколько мс ответа юзер услышал.
+  const ttsStartedAtRef = useRef<number>(0);
+  // Set последних подсвеченных eager-focus узлов — чтобы не спамить один
+  //   и тот же узел в течение одной фразы.
+  const eagerFocusedNodesRef = useRef<Set<string>>(new Set());
+  // AudioContext + analyser для visual pulse (амплитуда микрофона)
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const micAmpRafRef = useRef<number | null>(null);
+  const [micAmp, setMicAmp] = useState<number>(0);
+  // Live flag для «идёт TTS playback» — нужен для barge-in detection
+  //   (если interim возникает при ttsPlayingRef=true — pause audio).
+  const ttsPlayingRef = useRef<boolean>(false);
+  // Recent final transcript per dialog turn — для barge-in / debug
+  const lastDialogTranscriptRef = useRef<string>("");
 
   const loadHistory = useCallback(async () => {
     try {
@@ -137,6 +205,25 @@ export function MusaVoiceFab() {
     return () => {
       cleanupStream();
       stopPlayback();
+      // Dialog mode cleanup на unmount: остановить loop + analyser
+      dialogActiveRef.current = false;
+      if (vadTimerRef.current !== null) {
+        window.clearTimeout(vadTimerRef.current);
+        vadTimerRef.current = null;
+      }
+      if (speechRecRef.current) {
+        try { speechRecRef.current.stop(); } catch {/* ignore */}
+        try { speechRecRef.current.abort?.(); } catch {/* ignore */}
+        speechRecRef.current = null;
+      }
+      if (micAmpRafRef.current !== null) {
+        cancelAnimationFrame(micAmpRafRef.current);
+        micAmpRafRef.current = null;
+      }
+      if (audioCtxRef.current) {
+        try { audioCtxRef.current.close(); } catch {/* ignore */}
+        audioCtxRef.current = null;
+      }
     };
   }, [cleanupStream, stopPlayback]);
 
@@ -151,21 +238,36 @@ export function MusaVoiceFab() {
     async (data: VoiceCommandResult) => {
       setResult(data);
       loadHistory();
+      // Brain-focus integration (Eugene 2026-05-17):
+      //  1) Explicit focus_brain_node tool — берём имя из input / result marker.
+      //  2) Auto-focus по brainFocus в action (server enrich) — для каждой
+      //     data-tool action (get_metrics → Аналитика, query_users → Юзеры…).
+      //     Это даёт «облёт» 3D мозга по узлам в такт ответа.
       try {
         for (const a of data.actions || []) {
-          if (a.tool !== "focus_brain_node") continue;
-          const inp = a.input as { name?: string } | undefined;
-          const fromInput = inp?.name?.trim();
-          const fromResult = (() => {
-            const m = String(a.result || "").match(/\[FOCUS_BRAIN_NODE:([^\]]+)\]/);
-            return m ? m[1].trim() : null;
-          })();
-          const name = fromInput || fromResult;
-          if (name) {
-            window.dispatchEvent(new CustomEvent("brain-focus-node", { detail: { name } }));
+          // Explicit focus_brain_node tool
+          if (a.tool === "focus_brain_node") {
+            const inp = a.input as { name?: string } | undefined;
+            const fromInput = inp?.name?.trim();
+            const fromResult = (() => {
+              const m = String(a.result || "").match(/\[FOCUS_BRAIN_NODE:([^\]]+)\]/);
+              return m ? m[1].trim() : null;
+            })();
+            const name = fromInput || fromResult;
+            if (name) {
+              window.dispatchEvent(new CustomEvent("brain-focus-node", { detail: { name } }));
+            }
+          }
+          // Server-side auto-focus (brainFocus в action)
+          if (a.brainFocus?.nodeName) {
+            window.dispatchEvent(
+              new CustomEvent("brain-focus-node", { detail: { name: a.brainFocus.nodeName } }),
+            );
           }
         }
       } catch {/* ignore */}
+
+      // TTS playback (with voice-speaking event for SecondBrain3D pulse-glow)
       if (data.audioBase64 && data.audioContentType) {
         const audioBlob = base64ToBlob(data.audioBase64, data.audioContentType);
         if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
@@ -174,32 +276,79 @@ export function MusaVoiceFab() {
         const audio = new Audio(audioUrl);
         registerAudio(audio);
         audioRef.current = audio;
+        const wasDialog = dialogActiveRef.current;
         audio.onended = () => {
-          setState("idle");
+          ttsPlayingRef.current = false;
+          ttsStartedAtRef.current = 0;
+          window.dispatchEvent(new CustomEvent("voice-speaking", { detail: { active: false } }));
           if (blobUrlRef.current) { URL.revokeObjectURL(blobUrlRef.current); blobUrlRef.current = null; }
+          // Auto-resume listening в dialog mode — продолжаем диалог-loop
+          if (wasDialog && dialogActiveRef.current) {
+            // Defer один tick чтобы избежать «overlap» с предыдущим recognition
+            window.setTimeout(() => {
+              if (dialogActiveRef.current) {
+                startDialogTurnRef.current?.();
+              }
+            }, 100);
+          } else {
+            setState("idle");
+          }
         };
-        audio.onerror = () => { setState("idle"); setError("Ошибка воспроизведения mp3"); };
+        audio.onerror = () => {
+          ttsPlayingRef.current = false;
+          window.dispatchEvent(new CustomEvent("voice-speaking", { detail: { active: false } }));
+          setState("idle");
+          setError("Ошибка воспроизведения mp3");
+        };
         setState("playing");
-        await audio.play().catch((e) => { console.warn("auto-play blocked", e); setState("idle"); });
+        ttsPlayingRef.current = true;
+        ttsStartedAtRef.current = Date.now();
+        window.dispatchEvent(new CustomEvent("voice-speaking", { detail: { active: true } }));
+        await audio.play().catch((e) => {
+          console.warn("auto-play blocked", e);
+          ttsPlayingRef.current = false;
+          window.dispatchEvent(new CustomEvent("voice-speaking", { detail: { active: false } }));
+          setState("idle");
+        });
       } else {
-        setState("idle");
+        // Нет TTS — в dialog mode сразу продолжаем listening
+        if (dialogActiveRef.current) {
+          window.setTimeout(() => {
+            if (dialogActiveRef.current) {
+              startDialogTurnRef.current?.();
+            }
+          }, 100);
+        } else {
+          setState("idle");
+        }
       }
     },
     [loadHistory],
   );
 
+  // Forward-ref для recursive вызова startDialogTurn внутри audio.onended.
+  // Решает hoisting между useCallback definitions.
+  const startDialogTurnRef = useRef<(() => void) | null>(null);
+
   // Eugene 2026-05-17: text-only path для Web Speech API.
   // Минует STT — браузер уже распознал, шлём только transcript.
+  // dialogMode + previousResponseTruncatedAt пересылаются на сервер для
+  // короткого промпта + контекста barge-in.
   const uploadTranscript = useCallback(
-    async (transcript: string) => {
+    async (transcript: string, opts?: { previousResponseTruncatedAt?: number }) => {
       setState("thinking");
       try {
         const url = `/api/admin/v304/voice-command-text${autoTts ? "?tts=1" : ""}`;
+        const body: Record<string, unknown> = { transcript };
+        if (dialogActiveRef.current) body.dialogMode = true;
+        if (opts?.previousResponseTruncatedAt && opts.previousResponseTruncatedAt > 0) {
+          body.previousResponseTruncatedAt = opts.previousResponseTruncatedAt;
+        }
         const r = await fetch(url, {
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ transcript }),
+          body: JSON.stringify(body),
         });
         if (!r.ok) {
           const tx = await r.text().catch(() => "");
@@ -211,7 +360,16 @@ export function MusaVoiceFab() {
         await handleVoiceResult(j.data);
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
-        setState("idle");
+        // В dialog mode не выходим из loop — продолжаем listening (юзер
+        // может попытаться переспросить). Если 2 ошибки подряд — пусть нажмёт
+        // «Закончить» руками.
+        if (dialogActiveRef.current) {
+          window.setTimeout(() => {
+            if (dialogActiveRef.current) startDialogTurnRef.current?.();
+          }, 800);
+        } else {
+          setState("idle");
+        }
       }
     },
     [autoTts, handleVoiceResult],
@@ -302,6 +460,283 @@ export function MusaVoiceFab() {
     },
     [autoTts, loadHistory],
   );
+
+  // === Dialog mode: setting toggle + persistence ===
+  const handleDialogModeChange = (on: boolean) => {
+    setDialogMode(on);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("voice-command-dialog", on ? "1" : "0");
+    }
+    // Если выключили dialog mode на ходу — остановим loop
+    if (!on && dialogActiveRef.current) {
+      stopDialogModeRef.current?.();
+    }
+  };
+  const handleEagerFocusChange = (on: boolean) => {
+    setEagerFocus(on);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("voice-command-eager-focus", on ? "1" : "0");
+    }
+  };
+
+  // === Mic amplitude analyser (visual pulse в dialog mode) ===
+  // Создаём AudioContext + AnalyserNode из MediaStream, читаем уровень в RAF
+  // и пишем в state. Использует stream из getUserMedia который и так
+  // нужен для Web Speech API в большинстве браузеров.
+  const startMicAnalyser = useCallback(async () => {
+    try {
+      if (audioCtxRef.current) return; // already running
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const Ctx: typeof AudioContext =
+        (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!Ctx) return;
+      const ctx = new Ctx();
+      audioCtxRef.current = ctx;
+      const source = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      analyserRef.current = analyser;
+      const buf = new Uint8Array(analyser.frequencyBinCount);
+      const tick = () => {
+        if (!analyserRef.current) return;
+        analyserRef.current.getByteFrequencyData(buf);
+        let sum = 0;
+        for (let i = 0; i < buf.length; i++) sum += buf[i];
+        const avg = sum / buf.length / 255;
+        setMicAmp(avg);
+        micAmpRafRef.current = requestAnimationFrame(tick);
+      };
+      micAmpRafRef.current = requestAnimationFrame(tick);
+    } catch (e) {
+      console.warn("[voice-fab] mic analyser init failed:", e);
+    }
+  }, []);
+
+  const stopMicAnalyser = useCallback(() => {
+    if (micAmpRafRef.current !== null) {
+      cancelAnimationFrame(micAmpRafRef.current);
+      micAmpRafRef.current = null;
+    }
+    setMicAmp(0);
+    if (audioCtxRef.current) {
+      try { audioCtxRef.current.close(); } catch {/* ignore */}
+      audioCtxRef.current = null;
+    }
+    analyserRef.current = null;
+    if (streamRef.current) {
+      try { streamRef.current.getTracks().forEach(t => t.stop()); } catch {/* ignore */}
+      streamRef.current = null;
+    }
+  }, []);
+
+  // === Dialog turn: один шаг continuous conversation ===
+  // Запускает SpeechRecognition в continuous=true + interimResults=true.
+  // VAD: если 1500ms без interim updates — финализируем и шлём transcript.
+  // Eager-focus: если interim text матчит keyword — emit brain-focus-node
+  //   до server response (мгновенная реакция 3D).
+  const startDialogTurn = useCallback(() => {
+    if (typeof window === "undefined") return;
+    if (!dialogActiveRef.current) return;
+    const SR =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) {
+      setError("Браузер не поддерживает continuous Speech Recognition (нужен Chrome / Safari 14.5+)");
+      dialogActiveRef.current = false;
+      setState("idle");
+      return;
+    }
+    try {
+      // Очищаем предыдущий rec если был
+      if (speechRecRef.current) {
+        try { speechRecRef.current.stop(); } catch {/* ignore */}
+        speechRecRef.current = null;
+      }
+      const rec = new SR();
+      rec.lang = "ru-RU";
+      rec.interimResults = true;
+      rec.continuous = true;
+      rec.maxAlternatives = 1;
+
+      dialogTranscriptBufferRef.current = "";
+      eagerFocusedNodesRef.current.clear();
+      setInterimTranscript("");
+
+      const scheduleFlush = () => {
+        if (vadTimerRef.current !== null) {
+          window.clearTimeout(vadTimerRef.current);
+        }
+        vadTimerRef.current = window.setTimeout(() => {
+          // VAD silence triggered — flush accumulated transcript
+          const t = dialogTranscriptBufferRef.current.trim();
+          dialogTranscriptBufferRef.current = "";
+          setInterimTranscript("");
+          if (!t) {
+            // ничего не сказал — продолжаем listening
+            if (dialogActiveRef.current) {
+              try { rec.stop(); } catch {/* ignore */}
+            }
+            return;
+          }
+          lastDialogTranscriptRef.current = t;
+          // Stop рекогнайзер (onend → отправка). Используем stop() а не abort()
+          // чтобы получить onend callback который запустит flush.
+          try { rec.stop(); } catch {/* ignore */}
+          // Barge-in метка — если TTS играл, передаём сколько мс юзер услышал
+          let truncatedAt = 0;
+          if (ttsPlayingRef.current && ttsStartedAtRef.current > 0) {
+            truncatedAt = Math.max(0, Date.now() - ttsStartedAtRef.current);
+            // Pause TTS прямо сейчас
+            if (audioRef.current) {
+              try { audioRef.current.pause(); } catch {/* ignore */}
+            }
+            ttsPlayingRef.current = false;
+            window.dispatchEvent(new CustomEvent("voice-speaking", { detail: { active: false } }));
+          }
+          uploadTranscript(t, truncatedAt > 0 ? { previousResponseTruncatedAt: truncatedAt } : undefined);
+        }, 1500);
+      };
+
+      rec.onresult = (e: any) => {
+        let interimText = "";
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const r = e.results[i];
+          if (r.isFinal) {
+            dialogTranscriptBufferRef.current += " " + r[0].transcript;
+          } else {
+            interimText += r[0].transcript;
+          }
+        }
+        const displayText = (dialogTranscriptBufferRef.current + " " + interimText).trim();
+        setInterimTranscript(displayText);
+        scheduleFlush();
+        // Barge-in detection (Eugene 2026-05-17): если TTS играет и юзер
+        // начал говорить — pause TTS немедленно. Конечный transcript будет
+        // отправлен через VAD flush с previousResponseTruncatedAt.
+        if (ttsPlayingRef.current && displayText.length > 0) {
+          if (audioRef.current) {
+            try { audioRef.current.pause(); } catch {/* ignore */}
+          }
+          ttsPlayingRef.current = false;
+          window.dispatchEvent(new CustomEvent("voice-speaking", { detail: { active: false } }));
+        }
+        // Eager-focus (Eugene Босс «мгновенная реакция 3D на голос»):
+        // на каждом interim update проверяем keyword'ы — если новый узел,
+        // emit brain-focus-node заранее (до server response).
+        if (eagerFocus && interimText.length > 0) {
+          const node = matchBrainNodeFromText(displayText);
+          if (node && !eagerFocusedNodesRef.current.has(node)) {
+            eagerFocusedNodesRef.current.add(node);
+            window.dispatchEvent(new CustomEvent("brain-focus-node", { detail: { name: node } }));
+          }
+        }
+      };
+
+      rec.onerror = (e: any) => {
+        console.warn("[voice-fab dialog] SpeechRecognition error:", e?.error);
+        if (e?.error === "not-allowed") {
+          setError("Разреши доступ к микрофону (значок 🎤 в адресной строке).");
+          dialogActiveRef.current = false;
+          stopMicAnalyser();
+          setState("idle");
+          return;
+        }
+        // no-speech / audio-capture / network — не валим loop, перезапускаем
+        if (dialogActiveRef.current) {
+          window.setTimeout(() => {
+            if (dialogActiveRef.current) startDialogTurnRef.current?.();
+          }, 400);
+        }
+      };
+
+      rec.onend = () => {
+        if (vadTimerRef.current !== null) {
+          window.clearTimeout(vadTimerRef.current);
+          vadTimerRef.current = null;
+        }
+        // Если есть accumulated text — отправляем (для случая когда
+        // браузер сам завершил rec но VAD не успел сработать).
+        const t = dialogTranscriptBufferRef.current.trim();
+        if (t && dialogActiveRef.current && state !== "thinking" && state !== "uploading") {
+          dialogTranscriptBufferRef.current = "";
+          setInterimTranscript("");
+          lastDialogTranscriptRef.current = t;
+          let truncatedAt = 0;
+          if (ttsPlayingRef.current && ttsStartedAtRef.current > 0) {
+            truncatedAt = Math.max(0, Date.now() - ttsStartedAtRef.current);
+            if (audioRef.current) {
+              try { audioRef.current.pause(); } catch {/* ignore */}
+            }
+            ttsPlayingRef.current = false;
+          }
+          uploadTranscript(t, truncatedAt > 0 ? { previousResponseTruncatedAt: truncatedAt } : undefined);
+        }
+      };
+
+      speechRecRef.current = rec;
+      rec.start();
+      setState("recording");
+      setError(null);
+    } catch (e) {
+      console.warn("[voice-fab dialog] start failed:", e);
+      // Browser race-condition: «recognition has already started» — игнорим
+      if (dialogActiveRef.current) {
+        window.setTimeout(() => {
+          if (dialogActiveRef.current) startDialogTurnRef.current?.();
+        }, 400);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eagerFocus, uploadTranscript, state, stopMicAnalyser]);
+
+  // Bind ref so handleVoiceResult и rec.onerror могут вызывать startDialogTurn
+  // без circular-dependency проблем при useCallback.
+  useEffect(() => {
+    startDialogTurnRef.current = startDialogTurn;
+  }, [startDialogTurn]);
+
+  // === Stop dialog mode (выход из continuous loop) ===
+  const stopDialogModeRef = useRef<(() => void) | null>(null);
+  const stopDialogMode = useCallback(() => {
+    dialogActiveRef.current = false;
+    if (vadTimerRef.current !== null) {
+      window.clearTimeout(vadTimerRef.current);
+      vadTimerRef.current = null;
+    }
+    if (speechRecRef.current) {
+      try { speechRecRef.current.stop(); } catch {/* ignore */}
+      try { speechRecRef.current.abort?.(); } catch {/* ignore */}
+      speechRecRef.current = null;
+    }
+    if (audioRef.current) {
+      try { audioRef.current.pause(); } catch {/* ignore */}
+    }
+    ttsPlayingRef.current = false;
+    window.dispatchEvent(new CustomEvent("voice-speaking", { detail: { active: false } }));
+    stopMicAnalyser();
+    setInterimTranscript("");
+    setState("idle");
+  }, [stopMicAnalyser]);
+
+  useEffect(() => {
+    stopDialogModeRef.current = stopDialogMode;
+  }, [stopDialogMode]);
+
+  // === Start dialog mode (юзер нажал «🎙 Диалог») ===
+  const startDialogMode = useCallback(async () => {
+    setError(null);
+    setResult(null);
+    const SR =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) {
+      setError("Браузер не поддерживает continuous Speech Recognition (нужен Chrome / Safari 14.5+).");
+      return;
+    }
+    dialogActiveRef.current = true;
+    await startMicAnalyser();
+    startDialogTurnRef.current?.();
+  }, [startMicAnalyser]);
 
   const startRecording = useCallback(async () => {
     setError(null);
@@ -475,6 +910,13 @@ export function MusaVoiceFab() {
   }, []);
 
   const onMicClick = () => {
+    // Dialog mode active — клик на основной FAB интерпретируется как
+    // «остановить диалог». Юзер видит специальную кнопку «🛑 Закончить» в
+    // panel, но FAB тоже должен реагировать.
+    if (dialogActiveRef.current) {
+      stopDialogMode();
+      return;
+    }
     if (state === "idle") {
       if (!open) setOpen(true);
       // Eugene 2026-05-17: пробуем Web Speech API первым — на iOS Safari
@@ -497,8 +939,15 @@ export function MusaVoiceFab() {
     }
   };
 
-  const stateLabel =
-    state === "recording"
+  const stateLabel = dialogActiveRef.current
+    ? state === "recording"
+      ? "🎙 Диалог · слушает"
+      : state === "thinking"
+        ? "🧠 Диалог · думает"
+        : state === "playing"
+          ? "🔊 Диалог · отвечает"
+          : "🎙 Диалог активен"
+    : state === "recording"
       ? "🔴 Слушает..."
       : state === "uploading"
         ? "📤 Распознаёт..."
@@ -509,9 +958,11 @@ export function MusaVoiceFab() {
             : "🎤 Сказать Музе";
 
   // === FAB-кнопка ===
-  // idle = brand gradient + soft pulse, recording = red+ping, playing = cyan
-  const fabBg =
-    state === "recording"
+  // idle = brand gradient + soft pulse, recording = red+ping, playing = cyan,
+  // dialog active = brighter rainbow shimmer (continuous conversation).
+  const fabBg = dialogActiveRef.current
+    ? "bg-gradient-to-br from-purple-500 via-fuchsia-500 to-cyan-500 shadow-[0_0_48px_rgba(217,70,239,0.7)]"
+    : state === "recording"
       ? "bg-gradient-to-br from-red-500 via-pink-500 to-purple-500 shadow-[0_0_40px_rgba(239,68,68,0.7)]"
       : state === "playing"
         ? "bg-gradient-to-br from-emerald-500 via-cyan-500 to-blue-500 shadow-[0_0_40px_rgba(34,211,238,0.5)]"
@@ -519,8 +970,9 @@ export function MusaVoiceFab() {
           ? "bg-gradient-to-br from-purple-500 via-fuchsia-500 to-cyan-500 shadow-[0_0_32px_rgba(124,58,237,0.5)] hover:scale-110 musa-fab-pulse"
           : "bg-white/10 opacity-70 cursor-wait";
 
-  const fabIcon =
-    state === "recording"
+  const fabIcon = dialogActiveRef.current
+    ? "🎙"
+    : state === "recording"
       ? "⏹"
       : state === "playing"
         ? "🔇"
@@ -587,6 +1039,26 @@ export function MusaVoiceFab() {
                   />
                   Озвучивать ответ
                 </label>
+                <label className="flex items-center gap-1 text-muted-foreground cursor-pointer select-none text-[11px]">
+                  <input
+                    type="checkbox"
+                    checked={dialogMode}
+                    onChange={(e) => handleDialogModeChange(e.target.checked)}
+                    className="rounded border-white/20"
+                    data-testid="musa-voice-dialog-toggle"
+                  />
+                  🎙 Режим диалога
+                </label>
+                <label className="flex items-center gap-1 text-muted-foreground cursor-pointer select-none text-[11px]">
+                  <input
+                    type="checkbox"
+                    checked={eagerFocus}
+                    onChange={(e) => handleEagerFocusChange(e.target.checked)}
+                    className="rounded border-white/20"
+                    data-testid="musa-voice-eager-focus-toggle"
+                  />
+                  ✨ Мгновенный фокус мозга
+                </label>
               </div>
               <button
                 type="button"
@@ -603,6 +1075,63 @@ export function MusaVoiceFab() {
                 <span className="relative z-10">{fabIcon}</span>
               </button>
             </div>
+
+            {/* Dialog mode: start / stop кнопка + live transcript banner */}
+            {dialogMode && (
+              <div className="mt-3 space-y-2" data-testid="musa-voice-dialog-section">
+                {!dialogActiveRef.current ? (
+                  <button
+                    type="button"
+                    onClick={startDialogMode}
+                    disabled={state === "uploading" || state === "thinking"}
+                    data-testid="musa-voice-dialog-start"
+                    className="w-full px-4 py-3 rounded-xl font-sans font-bold text-sm text-white bg-gradient-to-r from-purple-500 via-fuchsia-500 to-cyan-500 shadow-[0_0_24px_rgba(124,58,237,0.5)] hover:scale-[1.02] active:scale-[0.98] transition-transform"
+                  >
+                    🎙 Начать диалог с Музой
+                  </button>
+                ) : (
+                  <>
+                    {/* Pulse circle с амплитудой микрофона */}
+                    <div className="flex items-center justify-center py-2">
+                      <div
+                        className="relative w-20 h-20 rounded-full bg-gradient-to-br from-purple-500/40 via-fuchsia-500/40 to-cyan-500/40 flex items-center justify-center transition-transform"
+                        style={{
+                          transform: `scale(${1 + Math.min(0.5, micAmp * 2)})`,
+                          boxShadow: `0 0 ${24 + Math.round(micAmp * 64)}px rgba(124,58,237,${0.4 + micAmp * 0.4})`,
+                        }}
+                        aria-hidden="true"
+                      >
+                        <span className="text-2xl">
+                          {ttsPlayingRef.current ? "🔊" : "🎙"}
+                        </span>
+                      </div>
+                    </div>
+                    {/* Live interim transcript banner */}
+                    {interimTranscript && (
+                      <div
+                        className="bg-cyan-500/10 border border-cyan-400/30 rounded-lg px-3 py-2"
+                        data-testid="musa-voice-interim"
+                      >
+                        <div className="text-[10px] uppercase tracking-wider text-cyan-300 mb-1">
+                          Слышу
+                        </div>
+                        <div className="text-sm text-white/90 whitespace-pre-wrap">
+                          {interimTranscript}
+                        </div>
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={stopDialogMode}
+                      data-testid="musa-voice-dialog-stop"
+                      className="w-full px-4 py-3 rounded-xl font-sans font-bold text-sm text-white bg-red-500/20 border-2 border-red-400/60 hover:bg-red-500/30 transition-colors"
+                    >
+                      🛑 Закончить диалог
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
 
             {error && (
               <div className="mt-2 text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
