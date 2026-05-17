@@ -245,8 +245,11 @@ export function MusaVoiceFab() {
       cleanupStream();
       const blob = new Blob(chunksRef.current, { type: "audio/webm" });
       chunksRef.current = [];
-      if (blob.size < 500) {
-        setError("Запись слишком короткая — попробуй ещё раз (минимум 1 сек).");
+      // Eugene 2026-05-17: снизил threshold с 500 → 200 байт (≈0.3 сек),
+      // 1 сек был слишком строгим — короткие команды «доложи» / «открой»
+      // легко не дотягивают. Сейчас отсекает только случайные click без речи.
+      if (blob.size < 200) {
+        setError("Запись очень короткая. Удерживай кнопку дольше — скажи фразу полностью.");
         setState("idle");
         return;
       }
