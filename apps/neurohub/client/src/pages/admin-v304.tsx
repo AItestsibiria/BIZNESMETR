@@ -27,6 +27,7 @@ import { Switch } from "@/components/ui/switch";
 import { Progress } from "@/components/ui/progress";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell } from "recharts";
 import MasterDashboardTab from "@/pages/admin/master-dashboard-tab";
+import { MusaVoiceFab } from "@/components/musa-voice-fab";
 
 type Overview = {
   timestamp: string;
@@ -250,6 +251,9 @@ export default function AdminV304Page() {
         <TabsContent value="dialogs"><DialogsTab toast={toast} /></TabsContent>
         <TabsContent value="journey"><JourneyTab toast={toast} /></TabsContent>
       </Tabs>
+
+      {/* 🎤 FAB «Сказать Музе» — доступна со всех admin-вкладок (Eugene 2026-05-17). */}
+      <MusaVoiceFab />
     </div>
   );
 }
