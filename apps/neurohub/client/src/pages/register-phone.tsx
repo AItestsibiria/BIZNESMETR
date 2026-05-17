@@ -2,6 +2,16 @@
 // Аналог /register, но flow: phone → SMS-OTP → создание users record → token.
 //
 // Ссылка снизу — переключение на /register (email-вариант).
+//
+// Eugene 2026-05-17 Босс «Нам никто не звонит» + «если автор то приветствуй
+// по имени»:
+//   1. После ввода phone форма делает POST /api/auth/sms/phone-check (быстрый
+//      lookup, no auth). Если автор уже есть → меняем UI на greeting-mode:
+//      «Привет, Иван! С возвращением 👋» + кнопка «📞 Получить звонок для входа».
+//      После successful verify → toast «С возвращением» + navigate /dashboard.
+//   2. Визуально усиливаем: «ЗВОНОК БЕСПЛАТНЫЙ» крупным баннером (amber→cyan
+//      gradient + neon-text), большой 📞 emoji glow halo, pulse-glow на номере
+//      для звонка, explainer «Просто примите вызов», prominent CTA-кнопка.
 
 import { useEffect, useState } from "react";
 import { useLocation, Link } from "wouter";
@@ -17,6 +27,10 @@ export default function RegisterPhonePage() {
   const { toast } = useToast();
   // Eugene 2026-05-15 Босс «согласие 152-ФЗ при регистрации».
   const [agreeToPDN, setAgreeToPDN] = useState(false);
+  // Eugene 2026-05-17 Босс «если автор то приветствуй по имени».
+  // greeting=null → обычная регистрация. greeting={name, maskedPhone} →
+  // existing user, UI в login-mode.
+  const [greeting, setGreeting] = useState<{ name: string; maskedPhone: string } | null>(null);
 
   useEffect(() => {
     if (user) navigate("/dashboard");
@@ -52,46 +66,109 @@ export default function RegisterPhonePage() {
       <div className="absolute inset-0 holographic pointer-events-none" aria-hidden="true" />
       <div className="w-full max-w-sm relative z-10">
         <div className="text-center mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-500 via-fuchsia-500 to-blue-500 flex items-center justify-center mx-auto mb-4 shadow-[0_0_32px_rgba(124,58,237,0.4)]">
-            <Music className="w-7 h-7 text-white" />
+          {/* Eugene 2026-05-17 Босс «образ главной двери» — большой 📞 emoji
+              size 8rem с purple glow halo. Visual focal point: юзер сразу
+              понимает что это «вход через телефон / звонок». */}
+          <div className="relative mx-auto mb-4 flex items-center justify-center" style={{ width: "10rem", height: "10rem" }}>
+            <div
+              className="absolute inset-0 rounded-full bg-gradient-to-br from-purple-500/30 via-fuchsia-500/20 to-blue-500/30 blur-2xl"
+              aria-hidden="true"
+            />
+            <div
+              className="relative flex items-center justify-center w-32 h-32 rounded-full bg-gradient-to-br from-purple-500/20 via-fuchsia-500/10 to-blue-500/20 border-2 border-purple-300/40 shadow-[0_0_48px_rgba(124,58,237,0.5)]"
+              data-testid="hero-door-icon"
+            >
+              <span className="text-7xl leading-none select-none" aria-hidden="true">📞</span>
+            </div>
+            <div className="absolute -bottom-1 -right-1 w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 via-fuchsia-500 to-blue-500 flex items-center justify-center shadow-[0_0_24px_rgba(124,58,237,0.6)]">
+              <Music className="w-6 h-6 text-white" />
+            </div>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-display font-bold gradient-text">Регистрация по телефону</h1>
-          <p className="text-sm text-muted-foreground mt-2 font-sans">Подтверждение по входящему звонку — РФ и СНГ</p>
+
+          {greeting ? (
+            <>
+              <h1 className="text-2xl sm:text-3xl font-display font-bold gradient-text" data-testid="greeting-heading">
+                Привет, {greeting.name}! С возвращением 👋
+              </h1>
+              <p className="text-sm text-muted-foreground mt-2 font-sans">
+                Сейчас мы позвоним на ваш номер{" "}
+                <span className="font-mono text-white/80">{greeting.maskedPhone}</span> для входа.
+              </p>
+            </>
+          ) : (
+            <>
+              <h1 className="text-2xl sm:text-3xl font-display font-bold gradient-text">Регистрация по телефону</h1>
+              <p className="text-sm text-muted-foreground mt-2 font-sans">Подтверждение по входящему звонку — РФ и СНГ</p>
+            </>
+          )}
+
+          {/* Eugene 2026-05-17 Босс «ЗВОНОК БЕСПЛАТНЫЙ» крупным баннером —
+              amber→cyan gradient + neon-text hi-tech акцент. Снимает страх
+              «а сколько спишут?». */}
+          <div className="mt-5">
+            <p
+              className="text-3xl md:text-5xl font-display font-bold bg-gradient-to-r from-amber-400 via-amber-300 to-cyan-400 bg-clip-text text-transparent neon-text tracking-wider"
+              data-testid="banner-call-free-hero"
+            >
+              ЗВОНОК БЕСПЛАТНЫЙ
+            </p>
+            <p className="text-xs text-amber-200/70 mt-1 font-sans">Мы платим за вас — вам ничего не спишется</p>
+          </div>
         </div>
 
         <div className="gradient-border p-6 rounded-2xl space-y-4">
+          {/* Explainer — снимает 80% вопросов «зачем мне звонят». */}
+          <div className="rounded-xl bg-purple-500/10 border border-purple-400/30 px-3 py-3 text-xs text-purple-100/90 leading-relaxed">
+            🛡 Звонок полностью бесплатный — мы платим за вас. SMS не отправляется. Просто примите вызов или сбросьте его — мы автоматически подтвердим вход.
+          </div>
+
           {/* Eugene 2026-05-15 Босс «согласие 152-ФЗ при регистрации».
               Чек-бокс ДО формы — если не согласен, форма заблокирована
-              через div.opacity-40 pointer-events-none. */}
-          <label className="flex items-start gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={agreeToPDN}
-              onChange={(e) => setAgreeToPDN(e.target.checked)}
-              className="w-4 h-4 mt-0.5 rounded border-white/20 bg-white/5 accent-purple-500 shrink-0"
-              data-testid="checkbox-agree-pdn"
-            />
-            <span className="text-[11px] text-muted-foreground leading-snug">
-              Я согласен с обработкой персональных данных в соответствии с
-              {" "}
-              <Link href="/privacy" className="text-purple-300 hover:text-purple-200 underline">
-                Политикой
-              </Link>
-              {" "}и{" "}
-              <Link href="/terms" className="text-purple-300 hover:text-purple-200 underline">
-                Условиями использования
-              </Link>
-              {" "}(152-ФЗ). Без согласия регистрация невозможна.
-            </span>
-          </label>
+              через div.opacity-40 pointer-events-none.
+              Для greeting-mode (existing user, login-flow) согласие уже было
+              дано при регистрации — скрываем чек-бокс. */}
+          {!greeting && (
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={agreeToPDN}
+                onChange={(e) => setAgreeToPDN(e.target.checked)}
+                className="w-4 h-4 mt-0.5 rounded border-white/20 bg-white/5 accent-purple-500 shrink-0"
+                data-testid="checkbox-agree-pdn"
+              />
+              <span className="text-[11px] text-muted-foreground leading-snug">
+                Я согласен с обработкой персональных данных в соответствии с
+                {" "}
+                <Link href="/privacy" className="text-purple-300 hover:text-purple-200 underline">
+                  Политикой
+                </Link>
+                {" "}и{" "}
+                <Link href="/terms" className="text-purple-300 hover:text-purple-200 underline">
+                  Условиями использования
+                </Link>
+                {" "}(152-ФЗ). Без согласия регистрация невозможна.
+              </span>
+            </label>
+          )}
 
-          <div className={agreeToPDN ? "" : "opacity-40 pointer-events-none select-none"} aria-disabled={!agreeToPDN}>
+          <div className={greeting || agreeToPDN ? "" : "opacity-40 pointer-events-none select-none"} aria-disabled={!greeting && !agreeToPDN}>
           <PhoneOtpForm
-            purpose="register"
+            // Eugene 2026-05-17 Босс: purpose динамически — existing user
+            // (greeting !== null) → login, иначе register. Backend различает
+            // (login: ищет existing; register: создаёт нового).
+            purpose={greeting ? "login" : "register"}
             allowMethods="call"
-            phoneSubmitLabel="Получить звонок"
-            submitLabel="Зарегистрироваться"
-            onVerified={async ({ phone, token, alreadyExists }) => {
+            phoneSubmitLabel={greeting ? "📞 Получить звонок для входа" : "📞 ПОЛУЧИТЬ ЗВОНОК"}
+            submitLabel={greeting ? "Войти" : "Зарегистрироваться"}
+            onPhoneChecked={({ exists, name, maskedPhone }) => {
+              if (exists && name && maskedPhone) {
+                setGreeting({ name, maskedPhone });
+              } else if (!exists && greeting) {
+                // Юзер сменил номер на новый — сбрасываем greeting.
+                setGreeting(null);
+              }
+            }}
+            onVerified={async ({ phone, token, alreadyExists, newAccount }) => {
               if (!token) {
                 // eslint-disable-next-line no-console
                 console.warn("[AUTH] register-phone: onVerified empty token");
@@ -121,8 +198,9 @@ export default function RegisterPhonePage() {
               }
               // eslint-disable-next-line no-console
               console.log("[AUTH] register-phone: navigate to /dashboard, user id:", u.id);
+              const wasReturning = !!greeting || alreadyExists || (newAccount === false);
               toast({
-                title: alreadyExists ? "С возвращением!" : "Добро пожаловать!",
+                title: wasReturning ? "С возвращением!" : "Добро пожаловать!",
                 description: `Аккаунт ${u?.name || phone}`,
               });
               navigate("/dashboard");
