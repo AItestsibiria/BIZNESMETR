@@ -80,6 +80,10 @@ export function MusaVoiceFab() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const blobUrlRef = useRef<string | null>(null);
   const autoStopTimerRef = useRef<number | null>(null);
+  // Eugene 2026-05-17: Web Speech API path (iOS Safari Siri-engine + Chrome
+  // Google STT) — браузер сам распознаёт речь, минуем MediaRecorder.
+  // Решает «запись слишком короткая» — нет blob-threshold.
+  const speechRecRef = useRef<any>(null);
 
   const loadHistory = useCallback(async () => {
     try {
@@ -142,6 +146,76 @@ export function MusaVoiceFab() {
       window.localStorage.setItem("voice-command-tts", on ? "1" : "0");
     }
   };
+
+  const handleVoiceResult = useCallback(
+    async (data: VoiceCommandResult) => {
+      setResult(data);
+      loadHistory();
+      try {
+        for (const a of data.actions || []) {
+          if (a.tool !== "focus_brain_node") continue;
+          const inp = a.input as { name?: string } | undefined;
+          const fromInput = inp?.name?.trim();
+          const fromResult = (() => {
+            const m = String(a.result || "").match(/\[FOCUS_BRAIN_NODE:([^\]]+)\]/);
+            return m ? m[1].trim() : null;
+          })();
+          const name = fromInput || fromResult;
+          if (name) {
+            window.dispatchEvent(new CustomEvent("brain-focus-node", { detail: { name } }));
+          }
+        }
+      } catch {/* ignore */}
+      if (data.audioBase64 && data.audioContentType) {
+        const audioBlob = base64ToBlob(data.audioBase64, data.audioContentType);
+        if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+        const audioUrl = URL.createObjectURL(audioBlob);
+        blobUrlRef.current = audioUrl;
+        const audio = new Audio(audioUrl);
+        registerAudio(audio);
+        audioRef.current = audio;
+        audio.onended = () => {
+          setState("idle");
+          if (blobUrlRef.current) { URL.revokeObjectURL(blobUrlRef.current); blobUrlRef.current = null; }
+        };
+        audio.onerror = () => { setState("idle"); setError("Ошибка воспроизведения mp3"); };
+        setState("playing");
+        await audio.play().catch((e) => { console.warn("auto-play blocked", e); setState("idle"); });
+      } else {
+        setState("idle");
+      }
+    },
+    [loadHistory],
+  );
+
+  // Eugene 2026-05-17: text-only path для Web Speech API.
+  // Минует STT — браузер уже распознал, шлём только transcript.
+  const uploadTranscript = useCallback(
+    async (transcript: string) => {
+      setState("thinking");
+      try {
+        const url = `/api/admin/v304/voice-command-text${autoTts ? "?tts=1" : ""}`;
+        const r = await fetch(url, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ transcript }),
+        });
+        if (!r.ok) {
+          const tx = await r.text().catch(() => "");
+          let err = tx.slice(0, 200);
+          try { const j = JSON.parse(tx); if (j?.error) err = j.error; } catch {/* ignore */}
+          throw new Error(`${r.status}: ${err}`);
+        }
+        const j = await r.json();
+        await handleVoiceResult(j.data);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        setState("idle");
+      }
+    },
+    [autoTts, handleVoiceResult],
+  );
 
   const uploadAudio = useCallback(
     async (blob: Blob) => {
@@ -311,6 +385,73 @@ export function MusaVoiceFab() {
     }, 60_000);
   }, [cleanupStream, uploadAudio]);
 
+  // Eugene 2026-05-17: Web Speech API primary path — браузер сам распознаёт.
+  // Если поддерживается — используем (no MediaRecorder, no STT server-side).
+  // Fallback на startRecording если SpeechRecognition недоступен.
+  const startSpeechRecognition = useCallback((): boolean => {
+    if (typeof window === "undefined") return false;
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) return false;
+    setError(null);
+    setResult(null);
+    try {
+      const rec = new SR();
+      rec.lang = "ru-RU";
+      rec.interimResults = false;
+      rec.continuous = false;
+      rec.maxAlternatives = 1;
+      let finalTranscript = "";
+      rec.onresult = (e: any) => {
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const r = e.results[i];
+          if (r.isFinal) finalTranscript += r[0].transcript;
+        }
+      };
+      rec.onerror = (e: any) => {
+        console.warn("[voice-fab] SpeechRecognition error:", e?.error);
+        // not-allowed / no-speech — показываем readable error
+        if (e?.error === "no-speech") {
+          setError("Не услышал речь — скажи чётче, ближе к микрофону.");
+          setState("idle");
+        } else if (e?.error === "not-allowed") {
+          setError("Разреши доступ к микрофону (значок 🎤 в адресной строке).");
+          setState("idle");
+        } else if (e?.error === "audio-capture") {
+          // Аппаратная проблема — fallback на MediaRecorder
+          startRecording();
+        } else {
+          setError(`SpeechRecognition: ${e?.error || "unknown"}`);
+          setState("idle");
+        }
+      };
+      rec.onend = () => {
+        const t = finalTranscript.trim();
+        if (t) {
+          uploadTranscript(t);
+        } else if (state === "recording") {
+          setState("idle");
+        }
+      };
+      speechRecRef.current = rec;
+      rec.start();
+      setState("recording");
+      return true;
+    } catch (e) {
+      console.warn("[voice-fab] SpeechRecognition init failed:", e);
+      return false;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uploadTranscript, state]);
+
+  const stopSpeechRecognition = useCallback(() => {
+    try {
+      if (speechRecRef.current) {
+        speechRecRef.current.stop();
+        speechRecRef.current = null;
+      }
+    } catch {/* ignore */}
+  }, []);
+
   const stopRecording = useCallback(() => {
     // Eugene 2026-05-17: защита от тапа дважды слишком быстро. iOS Safari
     // MediaRecorder.start() имеет задержку ~300-500ms перед первым chunk.
@@ -336,9 +477,21 @@ export function MusaVoiceFab() {
   const onMicClick = () => {
     if (state === "idle") {
       if (!open) setOpen(true);
-      startRecording();
+      // Eugene 2026-05-17: пробуем Web Speech API первым — на iOS Safari
+      // и Chrome работает stabильно. Только если не поддерживается —
+      // fallback на MediaRecorder + сервер STT.
+      if (!startSpeechRecognition()) {
+        startRecording();
+      }
     } else if (state === "recording") {
-      stopRecording();
+      // Сначала остановим Web Speech (если активен) — он сам отправит
+      // transcript через onend. Если был MediaRecorder — остановим его.
+      if (speechRecRef.current) {
+        stopSpeechRecognition();
+        setState("uploading");
+      } else {
+        stopRecording();
+      }
     } else if (state === "playing") {
       stopPlayback();
     }

@@ -494,6 +494,94 @@ router.post(
   },
 );
 
+// === POST /api/admin/v304/voice-command-text ===
+// Eugene 2026-05-17: альтернативный путь через Web Speech API — браузер
+// сам распознаёт речь (iOS Safari = Siri-engine, Chrome = Google STT) и
+// шлёт уже готовый transcript. Минует MediaRecorder + Yandex STT —
+// решает баг «запись слишком короткая» на iOS.
+router.post("/voice-command-text", requireAdmin, async (req: any, res) => {
+  const startedAt = Date.now();
+  const userId: number = req.userId;
+  const adminUser = req.adminUser;
+
+  const rateKey = `u:${userId}`;
+  if (!voiceRateOk(rateKey)) {
+    return res.status(429).json({ data: null, error: `rate-limit: ${VOICE_RATE_LIMIT} voice-commands per hour` });
+  }
+
+  const transcript = String(req.body?.transcript || "").trim().slice(0, 2000);
+  if (!transcript || transcript.length < 2) {
+    return res.status(400).json({ data: null, error: "Пустой transcript — ничего не распознано" });
+  }
+
+  const sessionId = `admin-voice:${userId}`;
+  let llmResult: AdminVoiceResult;
+  try {
+    llmResult = await callAdminVoiceLLM({ userId, sessionId, transcript });
+  } catch (e: any) {
+    console.error("[ADMIN-VOICE-TEXT] LLM exception:", e?.message || e);
+    return res.status(500).json({ data: null, error: `LLM error: ${String(e?.message || e).slice(0, 120)}` });
+  }
+
+  let audioBase64: string | undefined;
+  let audioContentType: string | undefined;
+  const wantTts = String(req.query.tts || "").trim() === "1";
+  if (wantTts && llmResult.responseText) {
+    try {
+      const tts = await synthesizeYandexTts({
+        text: llmResult.responseText.slice(0, 4500),
+        voice: "alena",
+        format: "mp3",
+      });
+      if (tts.ok && tts.audio) {
+        audioBase64 = tts.audio.toString("base64");
+        audioContentType = tts.contentType || "audio/mpeg";
+      }
+    } catch (e: any) {
+      console.warn("[ADMIN-VOICE-TEXT] TTS failed:", e?.message || e);
+    }
+  }
+
+  const durationMs = Date.now() - startedAt;
+
+  const MUTATING_TOOLS = new Set(["kick_session", "change_registration_status", "pause_bot", "send_telegram_alert", "reload_kb"]);
+  const executedActions = llmResult.actions.filter(a => MUTATING_TOOLS.has(a.tool)).map(a => ({ tool: a.tool, input: a.input, result: String(a.result).slice(0, 300) }));
+  const readonlyActions = llmResult.actions.filter(a => !MUTATING_TOOLS.has(a.tool)).map(a => ({ tool: a.tool, input: a.input, result: String(a.result).slice(0, 200) }));
+  const clientIp = String((req.headers["x-forwarded-for"] || "").toString().split(",")[0].trim() || req.ip || "").slice(0, 64) || null;
+  const clientUa = String(req.headers["user-agent"] || "").slice(0, 200) || null;
+
+  try {
+    db.run(sql`INSERT INTO admin_audit_log
+      (admin_user_id, admin_email, action, entity, entity_key, before_json, after_json)
+      VALUES (${userId}, ${adminUser?.email ?? null}, 'create', 'voice-admin:command-text', ${sessionId}, ${null},
+        ${JSON.stringify({
+          transcript: transcript.slice(0, 800),
+          response: llmResult.responseText.slice(0, 2000),
+          executedActions, readonlyActions,
+          actionsTotal: llmResult.actions.length,
+          actionsMutating: executedActions.length,
+          actionsReadonly: readonlyActions.length,
+          durationMs, ttsRequested: wantTts,
+          ttsBytes: audioBase64 ? Math.round((audioBase64.length * 3) / 4) : 0,
+          source: 'web-speech-api',
+          usage: llmResult.usage, contextInjected: true, clientIp, clientUa,
+        })})`);
+  } catch (e: any) {
+    console.warn("[ADMIN-VOICE-TEXT] audit-log failed:", e?.message || e);
+  }
+
+  return res.json({
+    data: {
+      transcript,
+      response: llmResult.responseText,
+      actions: llmResult.actions,
+      ...(audioBase64 ? { audioBase64, audioContentType } : {}),
+      meta: { durationMs, usage: llmResult.usage, ttsRequested: wantTts, source: 'web-speech-api' },
+    },
+    error: null,
+  });
+});
+
 // === GET /api/admin/v304/voice-command/recent ===
 // Последние N voice-commands из audit-log (для UI «история диалогов»).
 router.get("/voice-command/recent", requireAdmin, (req, res) => {
