@@ -1791,6 +1791,80 @@ export async function registerRoutes(
     return { reply: cleaned, quickReplies: matches.slice(0, 4) };
   }
 
+  // Eugene 2026-05-17 Босс «5-летняя девочка fix»: распознаём «юзер просит
+  // свои данные» по тексту чтобы fallback не задавал sales-вопросы про повод.
+  // Возвращает intent + label для «не дозвонилась» сообщения + retry QR-кнопку.
+  // null = текст не похож на запрос данных (тогда обычный sales-fallback).
+  function detectUserDataIntent(rawText: string): { code: string; label: string; retryLabel: string } | null {
+    const t = String(rawText || "").toLowerCase().trim();
+    if (!t) return null;
+    // Треки
+    if (/(пока(жи|жите)|пока(жи|жите) мои|мои трек|мои песни|что я создавал|моя истори|список тре|show my tracks?)/i.test(t)) {
+      return { code: "tracks", label: "ваши треки", retryLabel: "Покажи мои треки" };
+    }
+    // Платежи
+    if (/(истори(я|и) платеж|мои покупк|что я (оплат|оплачив)|мои оплат|мои транзакц|показать платеж)/i.test(t)) {
+      return { code: "payments", label: "историю платежей", retryLabel: "История платежей" };
+    }
+    // Баланс
+    if (/(мой баланс|сколько у меня (денег|треков|осталось)|есть ли бесплатн|подароч(н\w+|) трек)/i.test(t)) {
+      return { code: "balance", label: "ваш баланс", retryLabel: "Мой баланс" };
+    }
+    // Профиль
+    if (/(мой профиль|мои данные|кто я в системе|show my profile|что у меня в кабинет)/i.test(t)) {
+      return { code: "profile", label: "ваш профиль", retryLabel: "Мой профиль" };
+    }
+    // Тариф
+    if (/(мой тариф|какой у меня тариф|сколько подарочн)/i.test(t)) {
+      return { code: "tariff", label: "ваш тариф", retryLabel: "Мой тариф" };
+    }
+    // Зависшие треки
+    if (/(где мой трек|когда будет готов|трек висит|трек завис|у меня всё завис|все треки висят)/i.test(t)) {
+      return { code: "stuck", label: "статус вашей генерации", retryLabel: "Где мой трек" };
+    }
+    // Черновики
+    if (/(мой черновик|что я начинал|продолжим черновик|есть ли черновик)/i.test(t)) {
+      return { code: "draft", label: "ваш черновик", retryLabel: "Покажи черновик" };
+    }
+    return null;
+  }
+
+  // Eugene 2026-05-17 Босс «admin-notifications rule»: если LLM возвращает
+  // empty 3+ раз в течение 10 минут — шлём Telegram-alert админу. Rate-limit
+  // 1 alert/час по alertKey (см. Admin-notifications rule в CLAUDE.md).
+  const emptyLLMTimestamps = new Map<string, number[]>(); // channel → [ts...]
+  const lastAdminLLMAlertAt = new Map<string, number>();   // alertKey → ts
+  function notifyAdminOnRepeatedEmptyLLM(channel: string): void {
+    try {
+      const now = Date.now();
+      const windowMs = 10 * 60 * 1000;
+      const tsList = (emptyLLMTimestamps.get(channel) || []).filter((t) => now - t < windowMs);
+      tsList.push(now);
+      emptyLLMTimestamps.set(channel, tsList);
+      if (tsList.length < 3) return;
+      const alertKey = `empty-llm-${channel}`;
+      const lastAt = lastAdminLLMAlertAt.get(alertKey) || 0;
+      if (now - lastAt < 60 * 60 * 1000) return; // 1 alert/час
+      lastAdminLLMAlertAt.set(alertKey, now);
+      const tgToken = process.env.TELEGRAM_BOT_TOKEN;
+      const adminId = process.env.ADMIN_TELEGRAM_ID;
+      if (!tgToken || !adminId) return;
+      const text = `🚨 LLM-fallback (${channel}): ${tsList.length} empty replies за 10 мин. Юзеры видят hardcoded fallback вместо настоящего ответа. Проверь ключи в /admin/v304/🔑 API ключи.`;
+      fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: adminId,
+          text,
+          disable_web_page_preview: true,
+        }),
+        signal: AbortSignal.timeout(8_000),
+      }).catch((e: any) => console.warn("[ADMIN-ALERT empty-llm]", e?.message || e));
+    } catch (e: any) {
+      console.warn("[notifyAdminOnRepeatedEmptyLLM]", e?.message || e);
+    }
+  }
+
   // Eugene 2026-05-16 Босс «один мозг для всех каналов»: цепочка ключей,
   // token-stats, key-switch alerts, tool-use loop — теперь живут в
   // lib/llmCore.ts (единая точка для web/telegram/max). Здесь — только
@@ -2521,10 +2595,33 @@ export async function registerRoutes(
       let usedFallback = false;
       if (!reply) {
         usedFallback = true;
-        // Eugene 2026-05-14 Босс: «чат не отвечает» — раньше fallback был
-        // унылым «Принято! Я тут...». Теперь — пул живых фраз + 3 QR-кнопки
-        // (humanization + продолжение через клик даже без LLM).
-        if (pairedNow) {
+        // Eugene 2026-05-17 Босс «5-летняя девочка fix»: фиксируем empty LLM
+        // в user_action_failures + alert админу при череде empty (3+/10мин).
+        // Хелпер sync, не throw'ит — см. user-action-failures rule.
+        logUserActionFailure({
+          userId: authUserId,
+          channel: "web",
+          action: "chat-reply",
+          errorCode: "empty_llm_response",
+          errorMessage: "Все Anthropic ключи + TimeWeb fallback вернули null — пользователь получил hardcoded fallback",
+          endpoint: "/api/muza/chat",
+          context: {
+            sessionId: session.id.slice(0, 32),
+            textPreview: text.slice(0, 100),
+          },
+        });
+        notifyAdminOnRepeatedEmptyLLM("web");
+
+        // Eugene 2026-05-17 Босс «5-летняя девочка fix»: если юзер просит
+        // СВОИ ДАННЫЕ (треки/баланс/профиль/платежи) — fallback НЕ должен
+        // задавать sales-вопросы «какой повод». Это и есть тот баг что Босс
+        // увидел: юзер «Покажи мои треки» → бот «Поделюсь, у нас собирают
+        // песни на ДР, какой повод?». Маппим по intent — если совпало,
+        // даём честный fallback «не дозвонилась до данных» + полезные QR.
+        const intent = detectUserDataIntent(text);
+        if (intent) {
+          reply = `Пыталась посмотреть ${intent.label}, но связь с данными мигнула. Через секунду повторю — попробуйте ещё раз чуть позже.\n[QR:${intent.retryLabel}]\n[QR:Открыть кабинет]\n[QR:Я подожду]`;
+        } else if (pairedNow) {
           reply = "Узнаю тебя — продолжаем тут 🎵 Расскажи, к какому событию подбираем?\n[QR:День рождения]\n[QR:Просто хочу песню]\n[QR:Сначала покажи примеры]";
         } else {
           const persona = personaFor(session.id);

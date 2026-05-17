@@ -24,7 +24,7 @@
 // правка должна быть совместима со всеми тремя. Не добавлять channel-specific
 // логику внутри callUnifiedMuzaLLM — для этого есть opts.dynamicContext.
 
-import { MUZA_TOOLS, executeTool } from "./muzaTools";
+import { MUZA_TOOLS, executeTool, filterToolsForRole } from "./muzaTools";
 import { buildPersonaSystem } from "./consultantPersona";
 import { loadHistoryForLLM } from "./chatHistory";
 
@@ -57,6 +57,12 @@ export interface UnifiedLLMOpts {
   maxTokens?: number;
   /** Модель (default claude-haiku-4-5-20251001). Можно переопределить из канала. */
   model?: string;
+  /**
+   * Eugene 2026-05-17 Босс: роль вызывающего (user/admin/super_admin).
+   * Управляет фильтрацией tools — обычные юзеры не видят [ADMIN-ONLY] tools,
+   * админский voice-канал — видит всё. По умолчанию undefined → user-tools only.
+   */
+  role?: string | null;
 }
 
 export type KeySwitchEvent = {
@@ -316,12 +322,16 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
   const model = opts.model || "claude-haiku-4-5-20251001";
   const maxTokens = opts.maxTokens || 400;
 
+  // Eugene 2026-05-17 Босс: фильтруем admin-only tools для обычных каналов.
+  // role='admin' (voice-admin) → все tools; user channels → только user-tools.
+  const toolsForCall = filterToolsForRole(opts.role);
+
   const buildBody = () => JSON.stringify({
     model,
     max_tokens: maxTokens,
     system: systemBlocks,
     messages,
-    tools: MUZA_TOOLS,
+    tools: toolsForCall,
   });
 
   let prevFailed: { name: string; status: number | string; reason?: string } | null = null;
@@ -364,6 +374,7 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
               userId: opts.userId,
               sessionId: opts.sessionId,
               channel: opts.channel,
+              role: opts.role,
             });
             console.log(`[MUZA-TOOL/${opts.channel}] ${block.name}(${JSON.stringify(block.input).slice(0, 60)}) → ${result.slice(0, 80)}`);
             toolResults.push({ type: "tool_result", tool_use_id: block.id, content: result });
@@ -404,6 +415,7 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
                   userId: opts.userId,
                   sessionId: opts.sessionId,
                   channel: opts.channel,
+                  role: opts.role,
                 });
                 console.log(`[MUZA-TOOL-${loopIter}/${opts.channel}] ${block.name} → ${result.slice(0, 60)}`);
                 tr.push({ type: "tool_result", tool_use_id: block.id, content: result });
