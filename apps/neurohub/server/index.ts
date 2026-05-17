@@ -84,6 +84,8 @@ import voiceAdminModule from "./plugins/voice-admin/module";
 
 import funnelsModule from "./plugins/funnels/module";
 
+import supportModule from "./plugins/support/module";
+
 import * as fs from "node:fs";
 
 const app = express();
@@ -358,6 +360,8 @@ app.post("/api/_client-error", express.json(), (req, res) => {
     { name: "voice-admin", module: voiceAdminModule },
 
     { name: "funnels", module: funnelsModule },
+
+    { name: "support", module: supportModule },
 
   ];
 
