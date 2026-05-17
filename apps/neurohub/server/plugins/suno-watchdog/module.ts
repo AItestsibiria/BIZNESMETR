@@ -110,8 +110,11 @@ function shouldDedupe(kind: string): boolean {
 }
 
 async function sendTelegramAlert(text: string, chatId: string): Promise<void> {
-  const token = process.env.TELEGRAM_BOT_TOKEN || "8364453587:AAHp-Rujm1WU3hm6F3Lq0rmPp7iGHWzmTa0";
-  if (!token || !chatId) return;
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || !chatId) {
+    if (!token) bootRefs?.logger.warn("[suno-watchdog] TELEGRAM_BOT_TOKEN not set in env — alert skipped");
+    return;
+  }
   try {
     const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
@@ -560,7 +563,7 @@ router.get("/providers", async (req, res) => {
 
   // 4. Telegram bot (alerts + auth)
   probes.push((async () => {
-    const k = process.env.TELEGRAM_BOT_TOKEN || "8364453587:AAHp-Rujm1WU3hm6F3Lq0rmPp7iGHWzmTa0";
+    const k = process.env.TELEGRAM_BOT_TOKEN;
     if (!k) return { name: "Telegram bot", ok: false, ms: null, status: null, detail: "ENV_MISSING", present: false };
     const t0 = Date.now();
     try {
