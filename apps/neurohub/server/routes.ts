@@ -47,6 +47,7 @@ import { getOrCreateVisitorId, readVisitorId } from "./lib/visitorCookie";
 import { getIpGeo } from "./lib/ipGeo";
 import { upsertUserProfile, linkProfileToUser, getProfileByUserId, getProfileByVisitorId } from "./lib/userProfilesStore";
 import { extractHost, KNOWN_DOMAINS, hostToBucket } from "./lib/extractHost";
+import { embedTrackId3, findSiblingCover } from "./lib/id3Writer";
 
 const AUTHORS_DIR = process.env.AUTHORS_DIR || path.join(process.cwd(), "authors");
 
@@ -174,6 +175,37 @@ async function saveGenFiles(genId: number) {
     // Also save cover image
     if (imageUrl) {
       await saveToAuthorFolder(genId, authorName, imageUrl, "jpg");
+    }
+    // Eugene 2026-05-17 Босс «iOS lock-screen logo вместо обложки».
+    // Embed real cover into mp3 APIC frame so iOS / Bluetooth / AirPlay /
+    // CarPlay see the right artwork (they read ID3 from byte-stream, NOT
+    // from Media Session API). saveGenFiles runs after both mp3 and jpg
+    // are on disk — perfect spot to write metadata once.
+    if (savedPath) {
+      try {
+        const absMp3 = path.join(AUTHORS_DIR, savedPath);
+        const siblingCover = findSiblingCover(absMp3);
+        const trackTitle =
+          gen.displayTitle ||
+          (gen.prompt ? gen.prompt.slice(0, 80) : null) ||
+          "MuzaAi Track";
+        const id3Res = await embedTrackId3({
+          mp3Path: absMp3,
+          title: trackTitle,
+          authorName: authorName !== "_noname" ? authorName : null,
+          coverPath: siblingCover,
+          keepExistingImage: false, // overwrite Suno's default art with our cover
+        });
+        if (id3Res.ok) {
+          console.log(
+            `[ID3] gen #${genId} embedded (cover=${id3Res.coverSource}, bytes=${id3Res.imageBytes || 0})`,
+          );
+        } else {
+          console.warn(`[ID3] gen #${genId} embed failed: ${id3Res.error}`);
+        }
+      } catch (e) {
+        console.error(`[ID3] Post-save ID3 embed failed for gen #${genId}:`, e);
+      }
     }
   } else if (gen.type === "cover") {
     savedPath = await saveToAuthorFolder(genId, authorName, gen.resultUrl, "png");
