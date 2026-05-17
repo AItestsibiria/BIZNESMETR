@@ -127,6 +127,9 @@ export const genActivity = sqliteTable("gen_activity", {
   region: text("region"),
   country: text("country"),
   countryCode: text("country_code"), // ISO 3166-1 alpha-2 («RU», «US»)
+  // Eugene 2026-05-17 Босс: per-domain трекинг (muzaai.ru / muziai.ru /
+  // podaripesnu.ru / other). Заполняется через extractHost(req).
+  host: text("host"),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 
@@ -147,6 +150,9 @@ export const visitors = sqliteTable("visitors", {
   userId: integer("user_id"), // linked user if logged in
   pageUrl: text("page_url"),
   sessionId: text("session_id"),
+  // Eugene 2026-05-17 Босс: per-domain трекинг (muzaai.ru / muziai.ru /
+  // podaripesnu.ru / other). Заполняется через extractHost(req).
+  host: text("host"),
   visits: integer("visits").notNull().default(1),
   lastVisit: text("last_visit").default(sql`CURRENT_TIMESTAMP`),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
@@ -324,6 +330,10 @@ export const chatbotSessions = sqliteTable("chatbot_sessions", {
   webPairCode: text("web_pair_code"),
   // Когда последний раз код выдан юзеру в чате (anti-spam, не чаще раза в 6ч).
   webPairCodeOfferedAt: text("web_pair_code_offered_at"),
+  // Eugene 2026-05-17 Босс: per-domain трекинг (muzaai.ru / muziai.ru /
+  // podaripesnu.ru / other). Заполняется через extractHost(req) при создании
+  // web-сессии. Для telegram/max-bot сессий — null (там нет HTTP host).
+  host: text("host"),
   startedAt: text("started_at").default(sql`CURRENT_TIMESTAMP`),
   lastMessageAt: text("last_message_at").default(sql`CURRENT_TIMESTAMP`),
 });
@@ -729,6 +739,9 @@ export const userJourneyEvents = sqliteTable("user_journey_events", {
   eventType: text("event_type").notNull(),           // 'page_view' | 'click' | 'scroll_percent' | 'idle_30s' | 'form_focus' | 'form_abandon' | 'leave'
   page: text("page").notNull(),                      // '/', '/music', '/dashboard', '/register-phone', ...
   meta: text("meta"),                                // JSON: { x, y, elemId, scroll, durationMs, ... }
+  // Eugene 2026-05-17 Босс: per-domain трекинг (muzaai.ru / muziai.ru /
+  // podaripesnu.ru / other). Заполняется через extractHost(req).
+  host: text("host"),
   createdAt: text("created_at").notNull(),           // ISO timestamp с клиента (для точности порядка)
 });
 export type UserJourneyEvent = typeof userJourneyEvents.$inferSelect;
