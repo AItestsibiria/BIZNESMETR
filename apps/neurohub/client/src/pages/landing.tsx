@@ -1185,7 +1185,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         <div className="flex flex-col md:flex-row items-center gap-8">
           <div className="w-32 h-32 sm:w-40 sm:h-40 shrink-0 rounded-2xl bg-gradient-to-br from-purple-500/30 via-violet-500/25 to-blue-500/25 border-2 border-purple-300/40 flex items-center justify-center shadow-[0_0_48px_rgba(168,85,247,0.3)] relative overflow-hidden">
             <span className="absolute inset-0 bg-gradient-to-br from-purple-500/20 to-blue-500/20 blur-xl" aria-hidden="true" />
-            <div className="relative z-10 text-7xl">🎀</div>
+            <div className="relative z-10 text-7xl">✨</div>
           </div>
           <div className="flex-1 text-center md:text-left">
             <h2 className="text-3xl sm:text-4xl font-bold mb-3 leading-tight">
