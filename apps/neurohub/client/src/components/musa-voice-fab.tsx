@@ -278,8 +278,9 @@ export function MusaVoiceFab() {
       }
       await uploadAudio(blob);
     };
-    recorder.start();
+    recorder.start(250);
     setState("recording");
+    (window as any).__voiceRecordStartAt = Date.now();
     autoStopTimerRef.current = window.setTimeout(() => {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
         mediaRecorderRef.current.stop();
@@ -288,6 +289,21 @@ export function MusaVoiceFab() {
   }, [cleanupStream, uploadAudio]);
 
   const stopRecording = useCallback(() => {
+    // Eugene 2026-05-17: защита от тапа дважды слишком быстро. iOS Safari
+    // MediaRecorder.start() имеет задержку ~300-500ms перед первым chunk.
+    // Если stop вызван слишком быстро — blob пустой → "запись короткая".
+    const startedAt = (window as any).__voiceRecordStartAt || 0;
+    const elapsedMs = Date.now() - startedAt;
+    if (elapsedMs < 800) {
+      // Откладываем stop ещё на остаток до 800ms
+      window.setTimeout(() => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+          mediaRecorderRef.current.stop();
+          setState("uploading");
+        }
+      }, 800 - elapsedMs);
+      return;
+    }
     if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
       mediaRecorderRef.current.stop();
       setState("uploading");
