@@ -163,6 +163,11 @@ export default function SecondBrain3D() {
   const [edgePreview, setEdgePreview] = useState<{ from: string; to: string; kind?: string } | null>(
     null,
   );
+  // Eugene 2026-05-17 Босс «вязка со вторым мозгом»: voice-speaking state.
+  // Когда Муза «отвечает голосом» (TTS playing) — selected node пульсирует
+  // cyan-кольцами. Listening event 'voice-speaking' с detail.active эмитит
+  // MusaVoiceFab при audio.play() / onended / pause (barge-in).
+  const [voiceSpeaking, setVoiceSpeaking] = useState<boolean>(false);
 
   // Detect mobile
   useEffect(() => {
@@ -362,6 +367,18 @@ export default function SecondBrain3D() {
     return () => window.removeEventListener("brain-focus-node", onFocus as EventListener);
   }, [data]);
 
+  // Voice-speaking listener (Eugene 2026-05-17 «вязка с диалогом Музы»):
+  // когда TTS начинает играть → подсвечиваем currently focused node
+  // pulse-glow эффектом. Когда TTS заканчивается / barge-in → fade out.
+  useEffect(() => {
+    function onSpeaking(e: Event) {
+      const detail = (e as CustomEvent).detail as { active?: boolean } | undefined;
+      setVoiceSpeaking(!!detail?.active);
+    }
+    window.addEventListener("voice-speaking", onSpeaking as EventListener);
+    return () => window.removeEventListener("voice-speaking", onSpeaking as EventListener);
+  }, []);
+
   const selectedNode = useMemo(() => {
     if (!data || !selectedId) return null;
     return data.nodes.find(n => n.id === selectedId) || null;
@@ -440,6 +457,47 @@ export default function SecondBrain3D() {
         />
       ) : (
         <div ref={containerRef} className="absolute inset-0" />
+      )}
+
+      {/* Voice-speaking pulse-glow overlay (Eugene 2026-05-17): когда Муза
+          отвечает голосом (TTS playing) — 3 cyan rings пульсируют в центре,
+          сигнализируя живой диалог. Когда selectedNode есть — добавляется
+          badge с именем узла справа сверху. Fade-out при barge-in / onended.
+          Pointer-events-none — не блокирует interaction с 3D canvas. */}
+      {voiceSpeaking && (
+        <>
+          <style>{`
+            @keyframes brain-voice-ring {
+              0%   { transform: translate(-50%, -50%) scale(0.7); opacity: 0.85; }
+              80%  { transform: translate(-50%, -50%) scale(1.6); opacity: 0;    }
+              100% { transform: translate(-50%, -50%) scale(1.6); opacity: 0;    }
+            }
+            .brain-voice-ring-1 { animation: brain-voice-ring 1.6s ease-out infinite; }
+            .brain-voice-ring-2 { animation: brain-voice-ring 1.6s ease-out 0.4s infinite; }
+            .brain-voice-ring-3 { animation: brain-voice-ring 1.6s ease-out 0.8s infinite; }
+          `}</style>
+          <div
+            className="absolute inset-0 z-[5] pointer-events-none"
+            aria-hidden="true"
+            data-testid="brain-voice-pulse"
+          >
+            {[1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className={`absolute top-1/2 left-1/2 w-32 h-32 rounded-full border-2 border-cyan-400/60 brain-voice-ring-${i}`}
+                style={{ boxShadow: "0 0 32px rgba(0,212,255,0.5)" }}
+              />
+            ))}
+          </div>
+          {selectedNode && (
+            <div
+              className="absolute top-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 rounded-full bg-gradient-to-r from-cyan-500/30 via-purple-500/30 to-cyan-500/30 border border-cyan-400/50 backdrop-blur-md text-xs font-sans font-bold text-white shadow-[0_0_24px_rgba(0,212,255,0.5)]"
+              data-testid="brain-voice-focus-badge"
+            >
+              🔊 Муза говорит про <span className="text-cyan-300">{selectedNode.label}</span>
+            </div>
+          )}
+        </>
       )}
 
       {/* Top controls — search + filter */}
