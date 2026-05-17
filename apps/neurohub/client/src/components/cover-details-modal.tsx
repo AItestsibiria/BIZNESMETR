@@ -36,9 +36,17 @@
 // • Body text увеличен (text-base / text-lg)
 // • Фон deep-space с violet tint + brand-border + brand-glow
 // • Стрелки 14×14 с brand gradient hover-glow (purple/cyan)
+//
+// Eugene 2026-05-17 Босс «в раскрытой обложке — полный набор управления плеером»:
+// • Под обложкой — glass-card controls bar с play/pause/skip/seek/volume/repeat
+// • Аудио-элемент остаётся в родителе (landing/dashboard) — не remount
+// • State синхронизирован через props/callbacks; при закрытии modal playback
+//   продолжается; при повторном открытии — текущее состояние видно
+// • Mobile-friendly: touch-targets ≥44px, controls bar full-width
 import { useEffect, useRef, useState } from "react";
-import { X, ChevronLeft, ChevronRight, Info } from "lucide-react";
+import { X, ChevronLeft, ChevronRight, Info, Play, Pause, SkipBack, SkipForward, Repeat, Repeat1 } from "lucide-react";
 import { motion, AnimatePresence, type PanInfo } from "framer-motion";
+import { VolumeSlider } from "./volume-slider";
 
 export interface CoverDetailsTrack {
   id: number | string;
@@ -56,6 +64,25 @@ interface CoverDetailsModalProps {
   track: CoverDetailsTrack | null;
   onNext?: () => void;
   onPrev?: () => void;
+  // Eugene 2026-05-17 — расширенные controls (play/pause/seek/volume/repeat).
+  // Все опциональны: если callback не передан — соответствующая кнопка скрывается.
+  isPlaying?: boolean;
+  onPlayPause?: () => void;
+  currentTime?: number;     // seconds
+  duration?: number;        // seconds
+  onSeek?: (sec: number) => void;
+  volume?: number;          // 0..1
+  onVolumeChange?: (v: number) => void;
+  repeatMode?: "off" | "one" | "all";
+  onRepeatToggle?: () => void;
+}
+
+// Утилита mm:ss форматтер для seek-bar timestamps.
+function formatTime(sec: number): string {
+  if (!isFinite(sec) || sec < 0) return "0:00";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
 const SWIPE_OFFSET_THRESHOLD = 80;
@@ -63,7 +90,22 @@ const SWIPE_VELOCITY_THRESHOLD = 500;
 const HINT_STORAGE_KEY = "cover-modal-hint-seen";
 const HINT_AUTO_HIDE_MS = 3000;
 
-export function CoverDetailsModal({ open, onClose, track, onNext, onPrev }: CoverDetailsModalProps) {
+export function CoverDetailsModal({
+  open,
+  onClose,
+  track,
+  onNext,
+  onPrev,
+  isPlaying,
+  onPlayPause,
+  currentTime,
+  duration,
+  onSeek,
+  volume,
+  onVolumeChange,
+  repeatMode,
+  onRepeatToggle,
+}: CoverDetailsModalProps) {
   // dragDirection: 'left' | 'right' | null — для подсветки визуальных стрелок
   const [dragDirection, setDragDirection] = useState<"left" | "right" | null>(null);
   // didDragRef — флаг что был реальный swipe; используется чтобы
