@@ -6,9 +6,10 @@
 import { useEffect, useState } from "react";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
-import { Music, Phone, Mail, Loader2 } from "lucide-react";
+import { Music, Phone, Mail } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import PhoneOtpForm from "@/components/phone-otp-form";
+import { CyberSpinner } from "@/components/cyber-spinner";
 
 export default function RegisterPhonePage() {
   const { user, isLoading, loginByToken } = useAuth();
@@ -27,7 +28,7 @@ export default function RegisterPhonePage() {
     return (
       <div className="min-h-screen flex items-center justify-center px-4 pt-16 hero-gradient">
         <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin text-purple-300 mx-auto mb-3" />
+          <CyberSpinner sizePx={36} className="mx-auto mb-3" label="Проверяем сессию" />
           <p className="text-sm text-muted-foreground">Проверяем сессию…</p>
         </div>
       </div>
@@ -37,7 +38,7 @@ export default function RegisterPhonePage() {
     return (
       <div className="min-h-screen flex items-center justify-center px-4 pt-16 hero-gradient">
         <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin text-purple-300 mx-auto mb-3" />
+          <CyberSpinner sizePx={36} className="mx-auto mb-3" label="Переход в кабинет" />
           <p className="text-sm text-muted-foreground">Вы уже вошли — переход в кабинет…</p>
         </div>
       </div>
