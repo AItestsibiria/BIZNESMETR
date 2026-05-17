@@ -160,6 +160,9 @@ export default function SecondBrain3D() {
   const [statusFilter, setStatusFilter] = useState<"all" | "green" | "yellow" | "red">("all");
   const [is2DFallback, setIs2DFallback] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [edgePreview, setEdgePreview] = useState<{ from: string; to: string; kind?: string } | null>(
+    null,
+  );
 
   // Detect mobile
   useEffect(() => {
@@ -261,9 +264,7 @@ export default function SecondBrain3D() {
         .onLinkClick((l: GraphLink) => {
           const fromId = typeof l.source === "string" ? l.source : l.source.id;
           const toId = typeof l.target === "string" ? l.target : l.target.id;
-          const kind = l.kind || "связь";
-          // eslint-disable-next-line no-alert
-          alert(`Поток данных: ${fromId} → ${toId}\nТип: ${kind}`);
+          setEdgePreview({ from: fromId, to: toId, kind: l.kind });
         })
         .graphData(graphData);
 
@@ -475,6 +476,57 @@ export default function SecondBrain3D() {
       {data && (
         <div className="absolute bottom-3 right-3 z-10 text-[10px] font-mono bg-[#0a0a17]/70 backdrop-blur-md rounded-lg px-3 py-2 border border-purple-500/20 text-white/80">
           🟢{data.summary.health.green} · 🟡{data.summary.health.yellow} · 🔴{data.summary.health.red} · узлов {data.summary.totals.nodes} · связей {data.summary.totals.edges}
+        </div>
+      )}
+
+      {/* Edge preview tooltip — click по ребру */}
+      {edgePreview && (
+        <div className="absolute top-16 left-3 z-20 glass-card border border-cyan-500/30 rounded-2xl p-3 shadow-[0_0_24px_rgba(0,212,255,0.25)] max-w-xs">
+          <div className="flex items-start gap-2">
+            <div className="flex-1">
+              <h4 className="text-sm font-sans font-bold text-white mb-1">Поток данных</h4>
+              <p className="text-[11px] font-mono text-white/70">
+                {edgePreview.from} → {edgePreview.to}
+              </p>
+              <p className="text-[10px] font-sans text-cyan-300 mt-1">
+                Тип: {edgePreview.kind || "связь"}
+              </p>
+              {data && (() => {
+                const fromN = data.nodes.find(n => n.id === edgePreview.from);
+                const toN = data.nodes.find(n => n.id === edgePreview.to);
+                if (!fromN || !toN) return null;
+                return (
+                  <div className="mt-2 flex gap-2 text-[10px] font-sans">
+                    <button
+                      onClick={() => {
+                        navigateTo(fromN.id);
+                        setEdgePreview(null);
+                      }}
+                      className="px-2 py-1 rounded bg-white/5 hover:bg-purple-500/20 border border-white/10 text-white/80"
+                    >
+                      {statusEmoji(fromN.status)} {fromN.label}
+                    </button>
+                    <button
+                      onClick={() => {
+                        navigateTo(toN.id);
+                        setEdgePreview(null);
+                      }}
+                      className="px-2 py-1 rounded bg-white/5 hover:bg-purple-500/20 border border-white/10 text-white/80"
+                    >
+                      {statusEmoji(toN.status)} {toN.label}
+                    </button>
+                  </div>
+                );
+              })()}
+            </div>
+            <button
+              onClick={() => setEdgePreview(null)}
+              className="text-white/60 hover:text-white text-lg leading-none px-1"
+              aria-label="Закрыть"
+            >
+              ×
+            </button>
+          </div>
         </div>
       )}
 
