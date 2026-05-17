@@ -2132,7 +2132,7 @@ export default function LandingPage() {
 
           {/* Eugene 2026-05-15 Босс «Музу в топ рейтинга». H1 содержит
               «Муза» + «MuzaAi» — критичный SEO-сигнал для Яндекс/Google. */}
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold mb-6 leading-tight tracking-tight" data-testid="text-hero-title">
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-display font-bold mb-6 leading-tight tracking-tight" data-testid="text-hero-title">
             <span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent">Muza</span><span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">Ai</span>
             <span className="text-foreground"> · Муза</span>
             <br />
