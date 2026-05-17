@@ -6,9 +6,10 @@
 import { useEffect, useState } from "react";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
-import { Music, Phone, Mail, Loader2 } from "lucide-react";
+import { Music, Phone, Mail } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import PhoneOtpForm from "@/components/phone-otp-form";
+import { CyberSpinner } from "@/components/cyber-spinner";
 
 export default function RegisterPhonePage() {
   const { user, isLoading, loginByToken } = useAuth();
@@ -27,7 +28,7 @@ export default function RegisterPhonePage() {
     return (
       <div className="min-h-screen flex items-center justify-center px-4 pt-16 hero-gradient">
         <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin text-purple-300 mx-auto mb-3" />
+          <CyberSpinner sizePx={36} className="mx-auto mb-3" label="Проверяем сессию" />
           <p className="text-sm text-muted-foreground">Проверяем сессию…</p>
         </div>
       </div>
@@ -37,7 +38,7 @@ export default function RegisterPhonePage() {
     return (
       <div className="min-h-screen flex items-center justify-center px-4 pt-16 hero-gradient">
         <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin text-purple-300 mx-auto mb-3" />
+          <CyberSpinner sizePx={36} className="mx-auto mb-3" label="Переход в кабинет" />
           <p className="text-sm text-muted-foreground">Вы уже вошли — переход в кабинет…</p>
         </div>
       </div>
@@ -45,8 +46,11 @@ export default function RegisterPhonePage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 pt-16 hero-gradient">
-      <div className="w-full max-w-sm">
+    <div className="min-h-screen flex items-center justify-center px-4 pt-16 hero-gradient cyber-grid relative">
+      {/* Eugene 2026-05-17 — hi-tech акцент: holographic shimmer overlay
+          (subtle 12-сек 3-color, pointer-events-none) + cyber-grid фон. */}
+      <div className="absolute inset-0 holographic pointer-events-none" aria-hidden="true" />
+      <div className="w-full max-w-sm relative z-10">
         <div className="text-center mb-8">
           <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-500 via-fuchsia-500 to-blue-500 flex items-center justify-center mx-auto mb-4 shadow-[0_0_32px_rgba(124,58,237,0.4)]">
             <Music className="w-7 h-7 text-white" />

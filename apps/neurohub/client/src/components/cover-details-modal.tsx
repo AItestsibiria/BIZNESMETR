@@ -223,6 +223,13 @@ export function CoverDetailsModal({
       className="fixed inset-0 z-[200] flex items-center justify-center bg-gradient-to-br from-[#0a0a17]/95 via-[#1a0f2e]/95 to-[#0a0a17]/95 backdrop-blur-xl animate-in fade-in duration-200 cursor-zoom-out"
       data-testid="cover-details-modal"
     >
+      {/* Eugene 2026-05-17 — hi-tech holographic overlay поверх backdrop
+          (subtle 12-сек shimmer 3 brand-color, pointer-events-none чтобы
+          не блокировать клики). */}
+      <div
+        className="absolute inset-0 holographic pointer-events-none"
+        aria-hidden="true"
+      />
       {/* Info button — рядом с close */}
       <button
         type="button"
@@ -550,7 +557,9 @@ export function CoverDetailsModal({
         )}
 
         <div className="w-full text-center px-2 pb-4" onClick={(e) => e.stopPropagation()}>
-          <p className="text-3xl sm:text-4xl font-display font-bold gradient-text leading-tight">{title}</p>
+          {/* Eugene 2026-05-17 — neon-text accent поверх gradient-text для
+              hi-tech swipe режима (text-shadow glow currentColor). */}
+          <p className="text-3xl sm:text-4xl font-display font-bold gradient-text neon-text leading-tight">{title}</p>
           {track.authorName && (
             <p className="text-base sm:text-lg text-purple-300/90 mt-3 font-medium font-sans">{track.authorName}</p>
           )}

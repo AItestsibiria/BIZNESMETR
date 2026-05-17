@@ -194,7 +194,11 @@ function StatusLamp({ card }: { card: StatusCard }) {
       : card.status === "yellow"
       ? "border-amber-500/30 hover:border-amber-500/50"
       : "border-slate-500/20 hover:border-slate-500/40";
-  return (
+
+  // Eugene 2026-05-17 — hi-tech accent: красные карточки получают вращающийся
+  // animated-border, чтобы привлечь внимание админа без кричащих эффектов.
+  // Жёлтые/зелёные/unknown — обычная статичная рамка (правило subtle, не overkill).
+  const innerCard = (
     <Card
       className={`glass-card rounded-2xl border ${borderClass} transition-colors`}
       data-testid={`status-card-${card.key}`}
@@ -211,6 +215,15 @@ function StatusLamp({ card }: { card: StatusCard }) {
       </CardContent>
     </Card>
   );
+
+  if (card.status === "red") {
+    return (
+      <div className="animated-border rounded-2xl">
+        {innerCard}
+      </div>
+    );
+  }
+  return innerCard;
 }
 
 // ============================================================
@@ -1499,7 +1512,7 @@ export default function MasterDashboardTab() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 cyber-grid -m-2 p-2 sm:-m-4 sm:p-4 rounded-2xl">
       {/* Header — period selector + actions */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
