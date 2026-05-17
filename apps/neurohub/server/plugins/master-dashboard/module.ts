@@ -47,6 +47,11 @@ import {
   estimateTtsCostKopecks,
   type YandexVoice,
 } from "../../lib/yandexTts";
+import {
+  getPeriodRange,
+  normalizePeriodId,
+  type PeriodId,
+} from "../../lib/periodBoundaries";
 
 const router = Router();
 
@@ -81,15 +86,16 @@ const VALID_TTS_VOICES: YandexVoice[] = [
 
 // --- Период ---
 //
-// Period pills (Eugene 2026-05-17 Босс):
-//   yesterday — 00:00 MSK предыдущего дня до 23:59 MSK предыдущего дня
-//   today     — с 00:00 MSK текущего дня (без until)
-//   7d        — последние 7 дней
-//   30d       — последние 30 дней
-//   all       — без bounds
-//   custom    — задаётся параметрами from/to (ISO UTC)
+// Eugene 2026-05-17 Босс: единая логика period boundaries — cut-off 20:00 МСК.
+// Все расчёты теперь идут через `getPeriodRange(period)` из
+// `apps/neurohub/server/lib/periodBoundaries.ts`. Локальный
+// PeriodBounds-интерфейс остался для back-compat с существующими функциями
+// внутри модуля — он маппится 1:1 на { since: fromIso, until: toIso }.
+//
+// Поддерживается весь набор PeriodId (today, yesterday, 7d, 30d, 365d, all,
+// month-1..month-12, custom). См. Period-20-MSK rule в CLAUDE.md.
 
-type Period = "yesterday" | "today" | "7d" | "30d" | "all" | "custom";
+type Period = PeriodId;
 
 interface PeriodBounds {
   since: string | null;
@@ -101,53 +107,8 @@ function periodToBounds(
   customFrom?: string,
   customTo?: string,
 ): PeriodBounds {
-  const now = Date.now();
-  switch (p) {
-    case "yesterday": {
-      // С 00:00 MSK предыдущего дня до 00:00 MSK сегодняшнего (exclusive).
-      const todayMidnightMsk = new Date(now);
-      todayMidnightMsk.setUTCHours(0, 0, 0, 0);
-      todayMidnightMsk.setUTCHours(todayMidnightMsk.getUTCHours() - 3);
-      const yesterdayMidnightMsk = new Date(
-        todayMidnightMsk.getTime() - 24 * 3600 * 1000,
-      );
-      return {
-        since: yesterdayMidnightMsk.toISOString(),
-        until: todayMidnightMsk.toISOString(),
-      };
-    }
-    case "today": {
-      // С полуночи MSK (UTC+3) для удобства Босса — но в SQLite храним ISO UTC.
-      const d = new Date(now);
-      d.setUTCHours(0, 0, 0, 0);
-      // Сдвиг назад на 3 часа = полночь MSK выраженная в UTC.
-      d.setUTCHours(d.getUTCHours() - 3);
-      return { since: d.toISOString(), until: null };
-    }
-    case "7d":
-      return {
-        since: new Date(now - 7 * 24 * 3600 * 1000).toISOString(),
-        until: null,
-      };
-    case "30d":
-      return {
-        since: new Date(now - 30 * 24 * 3600 * 1000).toISOString(),
-        until: null,
-      };
-    case "all":
-      return { since: null, until: null };
-    case "custom": {
-      const since = customFrom && isValidIso(customFrom) ? customFrom : null;
-      const until = customTo && isValidIso(customTo) ? customTo : null;
-      return { since, until };
-    }
-  }
-}
-
-function isValidIso(s: string): boolean {
-  if (typeof s !== "string" || s.length < 8 || s.length > 40) return false;
-  const t = Date.parse(s);
-  return Number.isFinite(t);
+  const range = getPeriodRange(p, customFrom, customTo);
+  return { since: range.fromIso, until: range.toIso };
 }
 
 // Back-compat для существующих call-site'ов (brain-export).
@@ -156,18 +117,7 @@ function periodToSince(p: Period): string | null {
 }
 
 function parsePeriod(raw: unknown): Period {
-  const s = String(raw || "").toLowerCase();
-  if (
-    s === "yesterday" ||
-    s === "today" ||
-    s === "7d" ||
-    s === "30d" ||
-    s === "all" ||
-    s === "custom"
-  ) {
-    return s;
-  }
-  return "7d";
+  return normalizePeriodId(raw);
 }
 
 // --- Кэш на 60 секунд ---
@@ -1916,7 +1866,7 @@ const masterDashboardModule: Module = {
   publishes: [],
   onLoad: async (ctx) => {
     ctx.logger.info(
-      "master-dashboard online — GET /api/admin/v304/dashboard-summary (period=yesterday|today|7d|30d|all|custom + from/to), /dashboard-detail/:metric, /brain-export, /click-stats, /briefing-text, POST /tts (cache 60s)",
+      "master-dashboard online — GET /api/admin/v304/dashboard-summary (period=today|yesterday|7d|30d|365d|all|month-1..month-12|custom + from/to, cut-off 20:00 МСК), /dashboard-detail/:metric, /brain-export, /click-stats, /briefing-text, POST /tts (cache 60s)",
     );
   },
   healthCheck: () => ({ status: "ok" }),

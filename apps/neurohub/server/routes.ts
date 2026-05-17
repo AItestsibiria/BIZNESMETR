@@ -42,6 +42,7 @@ import {
   type ProtectedAction,
 } from "./lib/adminTwoFactor";
 import { recordAuditEntry, queryAuditLog } from "./lib/adminAuditLog";
+import { getPeriodRange } from "./lib/periodBoundaries";
 
 const AUTHORS_DIR = process.env.AUTHORS_DIR || path.join(process.cwd(), "authors");
 
@@ -798,13 +799,14 @@ export async function registerRoutes(
     if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
     res.setHeader("Cache-Control", "no-store");
 
-    // Фильтр периода
+    // Фильтр периода — единая логика через periodBoundaries (cut-off 20:00 МСК).
+    // Eugene 2026-05-17 Босс «единая логика period boundaries во всех endpoints».
     const period = String(req.query.period || "all");
     let dateFilter = "";
-    if (period === "today") dateFilter = "WHERE last_visit >= datetime('now','-1 day')";
-    else if (period === "yesterday") dateFilter = "WHERE last_visit >= datetime('now','-2 days') AND last_visit < datetime('now','-1 day')";
-    else if (period === "week") dateFilter = "WHERE last_visit >= datetime('now','-7 days')";
-    else if (period === "month") dateFilter = "WHERE last_visit >= datetime('now','-30 days')";
+    if (period && period !== "all") {
+      const r = getPeriodRange(period);
+      dateFilter = `WHERE last_visit >= '${r.fromIso}' AND last_visit < '${r.toIso}'`;
+    }
 
     const raw = db.$client;
     // Быстрые сводки (для верхних карточек)
@@ -7424,14 +7426,14 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   app.get("/api/admin/gen-stats", authMiddleware, (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);
     if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
+    // Eugene 2026-05-17 Босс: единая логика period boundaries (cut-off 20:00 МСК).
     const period = (req.query.period as string) || 'all';
     const raw = db.$client;
     let dateFilter = '';
-    if (period === 'day') dateFilter = "AND ga.created_at >= datetime('now', '-1 day')";
-    else if (period === 'yesterday') dateFilter = "AND ga.created_at >= datetime('now', '-2 days') AND ga.created_at < datetime('now', '-1 day')";
-    else if (period === 'week') dateFilter = "AND ga.created_at >= datetime('now', '-7 days')";
-    else if (period === 'month') dateFilter = "AND ga.created_at >= datetime('now', '-30 days')";
-    else if (period === 'year') dateFilter = "AND ga.created_at >= datetime('now', '-365 days')";
+    if (period && period !== 'all') {
+      const r = getPeriodRange(period);
+      dateFilter = `AND ga.created_at >= '${r.fromIso}' AND ga.created_at < '${r.toIso}'`;
+    }
     // Top 10 by total activity
     const top = raw.prepare(`SELECT ga.gen_id, g.display_title, g.prompt, g.type, g.author_name,
       SUM(CASE WHEN ga.action='play' THEN 1 ELSE 0 END) as plays,
@@ -7457,14 +7459,14 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   app.get("/api/admin/top-downloads", authMiddleware, (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);
     if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
+    // Eugene 2026-05-17 Босс: единая логика period boundaries (cut-off 20:00 МСК).
     const period = (req.query.period as string) || 'all';
     const raw = db.$client;
     let dateFilter = '';
-    if (period === 'day') dateFilter = "AND ga.created_at >= datetime('now', '-1 day')";
-    else if (period === 'yesterday') dateFilter = "AND ga.created_at >= datetime('now', '-2 days') AND ga.created_at < datetime('now', '-1 day')";
-    else if (period === 'week') dateFilter = "AND ga.created_at >= datetime('now', '-7 days')";
-    else if (period === 'month') dateFilter = "AND ga.created_at >= datetime('now', '-30 days')";
-    else if (period === 'year') dateFilter = "AND ga.created_at >= datetime('now', '-365 days')";
+    if (period && period !== 'all') {
+      const r = getPeriodRange(period);
+      dateFilter = `AND ga.created_at >= '${r.fromIso}' AND ga.created_at < '${r.toIso}'`;
+    }
     const rows = raw.prepare(`SELECT ga.gen_id, g.display_title, g.prompt, g.type, g.author_name,
       COUNT(*) as downloads,
       MAX(ga.created_at) as last_download
@@ -7493,12 +7495,13 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
     res.setHeader("Cache-Control", "no-store");
     const genId = parseInt(req.params.id);
-    const period = String(req.query.period || "all"); // yesterday | today | week | month | all
+    // Eugene 2026-05-17 Босс: единая логика period boundaries (cut-off 20:00 МСК).
+    const period = String(req.query.period || "all");
     let dateFilter = "";
-    if (period === "today") dateFilter = "AND created_at >= datetime('now','-1 day')";
-    else if (period === "yesterday") dateFilter = "AND created_at >= datetime('now','-2 days') AND created_at < datetime('now','-1 day')";
-    else if (period === "week") dateFilter = "AND created_at >= datetime('now','-7 days')";
-    else if (period === "month") dateFilter = "AND created_at >= datetime('now','-30 days')";
+    if (period && period !== "all") {
+      const r = getPeriodRange(period);
+      dateFilter = `AND created_at >= '${r.fromIso}' AND created_at < '${r.toIso}'`;
+    }
 
     const raw = db.$client;
     // Все события (включая IP) за период

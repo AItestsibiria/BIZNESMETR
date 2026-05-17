@@ -43,25 +43,25 @@ import {
   type FunnelDef,
   type FunnelStepDef,
 } from "../../lib/funnelDefs";
+import {
+  getPeriodRange,
+  normalizePeriodId,
+  type PeriodId,
+} from "../../lib/periodBoundaries";
 
 const router = Router();
 
-// --- Period helpers (совместимо с master-dashboard) -----------------------
+// --- Period helpers ---
+//
+// Eugene 2026-05-17 Босс: единая логика period boundaries (cut-off 20:00 МСК)
+// через `getPeriodRange()` из `apps/neurohub/server/lib/periodBoundaries.ts`.
+// Локальный PeriodRange — { since, until } — обёртка над { fromIso, toIso }
+// для обратной совместимости с существующими call-site'ами в модуле.
 
-type Period = "today" | "yesterday" | "7d" | "30d" | "all";
+type Period = PeriodId;
 
 function parsePeriod(raw: unknown): Period {
-  const s = String(raw || "").toLowerCase();
-  if (
-    s === "today" ||
-    s === "yesterday" ||
-    s === "7d" ||
-    s === "30d" ||
-    s === "all"
-  ) {
-    return s;
-  }
-  return "7d";
+  return normalizePeriodId(raw);
 }
 
 interface PeriodRange {
@@ -70,36 +70,8 @@ interface PeriodRange {
 }
 
 function periodToRange(p: Period): PeriodRange {
-  const now = Date.now();
-  switch (p) {
-    case "today": {
-      // С полуночи MSK (UTC+3) — но в SQLite храним ISO UTC.
-      const d = new Date(now);
-      d.setUTCHours(0, 0, 0, 0);
-      d.setUTCHours(d.getUTCHours() - 3);
-      return { since: d.toISOString(), until: null };
-    }
-    case "yesterday": {
-      const d = new Date(now);
-      d.setUTCHours(0, 0, 0, 0);
-      d.setUTCHours(d.getUTCHours() - 3);
-      const until = new Date(d).toISOString();
-      d.setUTCDate(d.getUTCDate() - 1);
-      return { since: d.toISOString(), until };
-    }
-    case "7d":
-      return {
-        since: new Date(now - 7 * 24 * 3600 * 1000).toISOString(),
-        until: null,
-      };
-    case "30d":
-      return {
-        since: new Date(now - 30 * 24 * 3600 * 1000).toISOString(),
-        until: null,
-      };
-    case "all":
-      return { since: null, until: null };
-  }
+  const range = getPeriodRange(p);
+  return { since: range.fromIso, until: range.toIso };
 }
 
 // --- Cache 60 sec ----------------------------------------------------------
