@@ -2910,6 +2910,209 @@ export async function registerRoutes(
     }
   });
 
+  // ==================== USER JOURNEY — admin endpoints ====================
+  // Eugene 2026-05-17 Босс «карта пути юзера + voronka».
+  //
+  // GET /api/admin/v304/journey-summary?since=ISO — топ-страницы, среднее
+  //   время на странице, exit-pages, conversion funnel landing → register-phone.
+  // GET /api/admin/v304/journey/sessions?limit=&since= — список последних
+  //   N сессий с метаданными (events, duration, exit, conversion).
+  // GET /api/admin/v304/journey/:sessionKey — все события одной сессии
+  //   упорядочены по timestamp (timeline).
+
+  app.get("/api/admin/v304/journey-summary", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const sinceParam = String(req.query.since || "");
+      const since = sinceParam || new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      // Топ-страницы по page_view.
+      const topPages = db.all<any>(sql`
+        SELECT page, COUNT(*) as views,
+               COUNT(DISTINCT session_key) as uniqSessions
+        FROM user_journey_events
+        WHERE event_type = 'page_view' AND created_at >= ${since}
+        GROUP BY page
+        ORDER BY views DESC
+        LIMIT 30
+      `);
+      // Exit-pages: последняя page для каждой session_key (через subquery).
+      const exitPages = db.all<any>(sql`
+        SELECT page, COUNT(*) as exits
+        FROM (
+          SELECT session_key,
+                 (SELECT page FROM user_journey_events e2
+                  WHERE e2.session_key = e1.session_key AND e2.created_at >= ${since}
+                  ORDER BY e2.created_at DESC LIMIT 1) as page
+          FROM user_journey_events e1
+          WHERE e1.created_at >= ${since}
+          GROUP BY session_key
+        )
+        GROUP BY page
+        ORDER BY exits DESC
+        LIMIT 20
+      `);
+      // Conversion funnel: landing → register-phone → form_focus → form submit.
+      // form submit = form_focus без последующего form_abandon на той же сессии.
+      const funnelLanding = db.all<any>(sql`
+        SELECT COUNT(DISTINCT session_key) as c
+        FROM user_journey_events
+        WHERE event_type = 'page_view' AND page = '/' AND created_at >= ${since}
+      `)[0]?.c || 0;
+      const funnelRegister = db.all<any>(sql`
+        SELECT COUNT(DISTINCT session_key) as c
+        FROM user_journey_events
+        WHERE event_type = 'page_view' AND page = '/register-phone' AND created_at >= ${since}
+      `)[0]?.c || 0;
+      const funnelFormFocus = db.all<any>(sql`
+        SELECT COUNT(DISTINCT session_key) as c
+        FROM user_journey_events
+        WHERE event_type = 'form_focus' AND page = '/register-phone' AND created_at >= ${since}
+      `)[0]?.c || 0;
+      const funnelAbandon = db.all<any>(sql`
+        SELECT COUNT(DISTINCT session_key) as c
+        FROM user_journey_events
+        WHERE event_type = 'form_abandon' AND page = '/register-phone' AND created_at >= ${since}
+      `)[0]?.c || 0;
+
+      // Среднее время на странице — разница между page_view и следующим page_view
+      // у той же сессии. Грубая оценка через MIN/MAX (без window-функций SQLite
+      // оставляет это упрощённым — улучшим позже когда понадобится).
+      const avgSessionDuration = db.all<any>(sql`
+        SELECT AVG(dur) as avgMs FROM (
+          SELECT session_key,
+                 (julianday(MAX(created_at)) - julianday(MIN(created_at))) * 86400 * 1000 as dur
+          FROM user_journey_events
+          WHERE created_at >= ${since}
+          GROUP BY session_key
+          HAVING COUNT(*) > 1
+        )
+      `)[0]?.avgMs || 0;
+
+      // Smart Муза-триггеры за период.
+      const idleFires = db.all<any>(sql`
+        SELECT page, COUNT(*) as c FROM user_journey_events
+        WHERE event_type = 'idle_30s' AND created_at >= ${since}
+        GROUP BY page ORDER BY c DESC LIMIT 10
+      `);
+      const formAbandons = db.all<any>(sql`
+        SELECT page, COUNT(*) as c FROM user_journey_events
+        WHERE event_type = 'form_abandon' AND created_at >= ${since}
+        GROUP BY page ORDER BY c DESC LIMIT 10
+      `);
+
+      const totalEvents = db.all<any>(sql`
+        SELECT COUNT(*) as c FROM user_journey_events WHERE created_at >= ${since}
+      `)[0]?.c || 0;
+      const totalSessions = db.all<any>(sql`
+        SELECT COUNT(DISTINCT session_key) as c FROM user_journey_events WHERE created_at >= ${since}
+      `)[0]?.c || 0;
+
+      res.json({
+        ok: true,
+        since,
+        totals: {
+          events: totalEvents,
+          sessions: totalSessions,
+          avgSessionMs: Math.round(Number(avgSessionDuration) || 0),
+        },
+        topPages,
+        exitPages,
+        funnel: {
+          landing: Number(funnelLanding) || 0,
+          register_page: Number(funnelRegister) || 0,
+          form_focus: Number(funnelFormFocus) || 0,
+          form_abandon: Number(funnelAbandon) || 0,
+        },
+        smart: {
+          idleFires,
+          formAbandons,
+        },
+      });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  app.get("/api/admin/v304/journey/sessions", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const limit = Math.min(200, Math.max(10, Number(req.query.limit) || 50));
+      const sinceParam = String(req.query.since || "");
+      const since = sinceParam || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      // Группировка по session_key с агрегатами.
+      const rows = db.all<any>(sql`
+        SELECT
+          session_key as sessionKey,
+          MAX(user_id) as userId,
+          COUNT(*) as eventCount,
+          MIN(created_at) as startedAt,
+          MAX(created_at) as endedAt,
+          (julianday(MAX(created_at)) - julianday(MIN(created_at))) * 86400 * 1000 as durationMs,
+          (SELECT page FROM user_journey_events e2
+           WHERE e2.session_key = e1.session_key
+           ORDER BY e2.created_at DESC LIMIT 1) as exitPage,
+          (SELECT page FROM user_journey_events e2
+           WHERE e2.session_key = e1.session_key
+           ORDER BY e2.created_at ASC LIMIT 1) as entryPage,
+          (SELECT COUNT(*) FROM user_journey_events e2
+           WHERE e2.session_key = e1.session_key AND e2.event_type = 'page_view') as pageViews,
+          (SELECT COUNT(*) FROM user_journey_events e2
+           WHERE e2.session_key = e1.session_key AND e2.event_type = 'idle_30s') as idleCount,
+          (SELECT COUNT(*) FROM user_journey_events e2
+           WHERE e2.session_key = e1.session_key AND e2.event_type = 'form_abandon') as abandonCount
+        FROM user_journey_events e1
+        WHERE created_at >= ${since}
+        GROUP BY session_key
+        ORDER BY endedAt DESC
+        LIMIT ${limit}
+      `);
+      // Конверсия для каждой сессии — попала на /register-phone и form_focus?
+      const sessions = rows.map((r: any) => {
+        const converted = r.pageViews >= 2 && Number(r.idleCount || 0) === 0;
+        const bounced = Number(r.pageViews || 0) <= 1 && Number(r.durationMs || 0) < 10_000;
+        return {
+          sessionKey: r.sessionKey,
+          userId: r.userId,
+          eventCount: r.eventCount,
+          pageViews: r.pageViews,
+          startedAt: r.startedAt,
+          endedAt: r.endedAt,
+          durationMs: Math.round(Number(r.durationMs) || 0),
+          entryPage: r.entryPage,
+          exitPage: r.exitPage,
+          idleCount: r.idleCount,
+          abandonCount: r.abandonCount,
+          converted,
+          bounced,
+        };
+      });
+      res.json({ ok: true, since, count: sessions.length, sessions });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  // Timeline одной сессии — все события упорядочены по timestamp.
+  app.get("/api/admin/v304/journey/:sessionKey", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const sk = String(req.params.sessionKey || "").trim().slice(0, 64);
+      if (!sk) return res.status(400).json({ ok: false, error: "sessionKey required" });
+      const rows = db.all<any>(sql`
+        SELECT id, event_type as eventType, page, meta, user_id as userId, created_at as createdAt
+        FROM user_journey_events
+        WHERE session_key = ${sk}
+        ORDER BY created_at ASC, id ASC
+        LIMIT 5000
+      `);
+      const events = rows.map((r: any) => {
+        let metaParsed: any = null;
+        if (r.meta) { try { metaParsed = JSON.parse(r.meta); } catch {} }
+        return { ...r, meta: metaParsed };
+      });
+      res.json({ ok: true, sessionKey: sk, count: events.length, events });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
   // Eugene 2026-05-15 Босс «строку поиска по всей панели — типа Google
   // по проекту». Глобальный search для admin-v304: users (name/email/phone)
   // + generations (display_title/prompt). Tabs ищутся client-side из
