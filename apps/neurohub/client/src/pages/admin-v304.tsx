@@ -216,6 +216,7 @@ export default function AdminV304Page() {
           <TabsTrigger value="bot-stats">🤖 Бот</TabsTrigger>
           <TabsTrigger value="ai-keys">🤖 Ключи AI</TabsTrigger>
           <TabsTrigger value="api-health">🔑 API ключи</TabsTrigger>
+          <TabsTrigger value="bot-channels">🔌 Каналы</TabsTrigger>
           <TabsTrigger value="delegates">🤝 Заместители</TabsTrigger>
           <TabsTrigger value="secrets">🔑 Секреты</TabsTrigger>
           <TabsTrigger value="templates">Шаблоны</TabsTrigger>
@@ -241,6 +242,7 @@ export default function AdminV304Page() {
         <TabsContent value="bot-stats"><BotStatsTab toast={toast} /></TabsContent>
         <TabsContent value="ai-keys"><AiKeysTab toast={toast} /></TabsContent>
         <TabsContent value="api-health"><ApiHealthTab toast={toast} /></TabsContent>
+        <TabsContent value="bot-channels"><BotChannelsTab toast={toast} /></TabsContent>
         <TabsContent value="delegates"><DelegatesTab toast={toast} /></TabsContent>
         <TabsContent value="secrets"><SecretsTab toast={toast} /></TabsContent>
         <TabsContent value="templates"><TemplatesTab toast={toast} /></TabsContent>
@@ -1990,6 +1992,239 @@ function ApiHealthTab({ toast }: { toast: any }) {
       <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] text-[11px] text-white/50">
         💡 Зелёная лампочка наверху админки = все ключи живы. Жёлтая = есть untested (старее суток). Красная = хотя бы один упал.
         Для ротации ключа — см. <code>CLAUDE.md</code> → «Key rotation pattern».
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// Bot Channels Tab — Eugene 2026-05-17 Босс «системная интеграция всех каналов».
+// Показывает per-channel health (web, telegram, max) + LLM engine probe.
+// Карточки с лампочкой статуса + manual «🔄 Перепроверить сейчас».
+// ============================================================
+function BotChannelsTab({ toast }: { toast: any }) {
+  const { data: raw, isLoading, refetch } = useQuery<any>({
+    queryKey: ["/api/admin/v304/bot-channels-health"],
+    refetchInterval: 60_000,
+  });
+  const data = raw?.data;
+  const [busy, setBusy] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const recheckOne = async (id: string) => {
+    setBusy(id);
+    try {
+      const r = await apiRequest("POST", `/api/admin/v304/bot-channels-health/recheck/${encodeURIComponent(id)}`, {});
+      const j = await r.json();
+      if (j.data) {
+        const ok = j.data.status === "green";
+        toast({
+          title: ok ? `✓ ${j.data.name}` : `${j.data.status === "yellow" ? "⚠" : "✗"} ${j.data.name}`,
+          description: ok ? "OK" : (j.data.lastError || (j.data.issues && j.data.issues[0]) || "—"),
+          variant: ok ? "default" : "destructive",
+        });
+        refetch();
+      } else {
+        toast({ title: "Ошибка", description: j.error || "—", variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "Сетевая ошибка", description: String(e?.message || e), variant: "destructive" });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const recheckAll = async () => {
+    setBusy("__all__");
+    try {
+      const r = await apiRequest("POST", "/api/admin/v304/bot-channels-health/recheck", {});
+      const j = await r.json();
+      if (j.data?.channels) {
+        const reds = j.data.channels.filter((c: any) => c.status === "red").length;
+        const yellows = j.data.channels.filter((c: any) => c.status === "yellow").length;
+        toast({
+          title: reds > 0 ? `🔴 ${reds} канал(ов) упало` : yellows > 0 ? `🟡 ${yellows} с предупреждениями` : "🟢 Все каналы OK",
+          variant: reds > 0 ? "destructive" : "default",
+        });
+        refetch();
+      } else {
+        toast({ title: "Ошибка", description: j.error || "—", variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "Сетевая ошибка", description: String(e?.message || e), variant: "destructive" });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const copyReport = () => {
+    if (!data) return;
+    const lines: string[] = [
+      `Bot Channels Health · ${data.checkedAt}`,
+      `Overall: ${data.overallStatus}`,
+      "",
+    ];
+    for (const c of data.channels || []) {
+      const dot = c.status === "green" ? "🟢" : c.status === "yellow" ? "🟡" : c.status === "red" ? "🔴" : "⚪";
+      lines.push(`${dot} ${c.name} [${c.id}]`);
+      if (c.metric) lines.push(`   metric: ${c.metric}`);
+      if (c.issues && c.issues.length > 0) lines.push(`   issues: ${c.issues.join("; ")}`);
+      if (c.lastError) lines.push(`   error: ${c.lastError}`);
+      lines.push(`   last checked: ${c.lastCheckedAt || "untested"}`);
+      lines.push("");
+    }
+    if (data.llmEngine) {
+      const pDot = data.llmEngine.primaryStatus === "ok" ? "🟢" : data.llmEngine.primaryStatus === "fail" ? "🔴" : "⚪";
+      const fDot = data.llmEngine.fallbackStatus === "ok" ? "🟢" : data.llmEngine.fallbackStatus === "fail" ? "🔴" : "⚪";
+      lines.push("LLM engine:");
+      lines.push(`${pDot} primary (${data.llmEngine.primary}): ${data.llmEngine.primaryStatus}${data.llmEngine.primaryError ? ` — ${data.llmEngine.primaryError}` : ""}`);
+      lines.push(`${fDot} fallback (${data.llmEngine.fallback}): ${data.llmEngine.fallbackStatus}${data.llmEngine.fallbackError ? ` — ${data.llmEngine.fallbackError}` : ""}`);
+    }
+    navigator.clipboard.writeText(lines.join("\n")).then(() => {
+      toast({ title: "📋 Отчёт скопирован" });
+    });
+  };
+
+  const overallColor = data?.overallStatus === "green"
+    ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/30"
+    : data?.overallStatus === "yellow"
+    ? "text-amber-400 bg-amber-500/10 border-amber-500/30"
+    : "text-red-400 bg-red-500/10 border-red-500/30";
+  const overallText = data?.overallStatus === "green"
+    ? "🟢 Все каналы работают"
+    : data?.overallStatus === "yellow"
+    ? "🟡 Есть предупреждения"
+    : data?.overallStatus === "red"
+    ? "🔴 Есть упавшие каналы"
+    : "—";
+
+  const statusEmoji = (s: string) =>
+    s === "green" ? "🟢" : s === "yellow" ? "🟡" : s === "red" ? "🔴" : "⚪";
+  const statusColor = (s: string) =>
+    s === "green" ? "border-emerald-500/30 from-emerald-500/[0.05]"
+      : s === "yellow" ? "border-amber-500/30 from-amber-500/[0.05]"
+      : s === "red" ? "border-red-500/30 from-red-500/[0.05]"
+      : "border-white/[0.08] from-white/[0.02]";
+
+  return (
+    <div className="space-y-4">
+      <div className="p-4 rounded-2xl border border-cyan-500/20 bg-gradient-to-br from-cyan-500/[0.04] via-purple-500/[0.04] to-amber-500/[0.04]">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <h2 className="text-lg font-bold text-white">🔌 Каналы общения</h2>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={copyReport}
+              disabled={!data}
+              className="text-[11px] px-3 py-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.10] text-white/70 border border-white/[0.08] disabled:opacity-40"
+            >
+              📋 Копировать отчёт
+            </button>
+            <button
+              onClick={recheckAll}
+              disabled={busy !== null}
+              className="text-[11px] px-3 py-1 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 border border-purple-400/30 disabled:opacity-40"
+            >
+              {busy === "__all__" ? "Проверяю…" : "🔄 Перепроверить все"}
+            </button>
+          </div>
+        </div>
+        <div className={`inline-block px-3 py-1 rounded-full text-[12px] font-semibold border ${overallColor}`}>
+          {overallText}
+        </div>
+        {data?.checkedAt && (
+          <div className="text-[10px] text-white/40 mt-1">
+            Обновлено: {new Date(data.checkedAt).toLocaleString("ru-RU")}
+          </div>
+        )}
+      </div>
+
+      {isLoading && (
+        <div className="text-[12px] text-white/40">Загружаю…</div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {(data?.channels || []).map((c: any) => (
+          <div
+            key={c.id}
+            className={`p-3 rounded-2xl border bg-gradient-to-br ${statusColor(c.status)} to-transparent cursor-pointer`}
+            onClick={() => setExpanded(expanded === c.id ? null : c.id)}
+          >
+            <div className="flex items-start justify-between gap-2 mb-2">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">{statusEmoji(c.status)}</span>
+                <div>
+                  <div className="text-[13px] font-bold text-white">{c.name}</div>
+                  <div className="text-[10px] text-white/40 font-mono">{c.id}</div>
+                </div>
+              </div>
+              <button
+                onClick={(e) => { e.stopPropagation(); recheckOne(c.id); }}
+                disabled={busy !== null}
+                className="text-[10px] px-2 py-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.10] text-white/70 border border-white/[0.08] disabled:opacity-40"
+              >
+                {busy === c.id ? "…" : "🔄"}
+              </button>
+            </div>
+            {c.metric && (
+              <div className="text-[11px] text-cyan-300 mb-1">📊 {c.metric}</div>
+            )}
+            {c.issues && c.issues.length > 0 && (
+              <ul className="text-[10px] text-amber-200/80 space-y-0.5 mb-1">
+                {c.issues.map((iss: string, ii: number) => (
+                  <li key={ii}>• {iss}</li>
+                ))}
+              </ul>
+            )}
+            {c.lastError && (
+              <div className="text-[10px] text-red-300/80 truncate" title={c.lastError}>
+                ✗ {c.lastError}
+              </div>
+            )}
+            <div className="text-[9px] text-white/30 mt-1">
+              {c.lastCheckedAt ? `проверено: ${new Date(c.lastCheckedAt).toLocaleString("ru-RU")}` : "ещё не проверено"}
+            </div>
+            {expanded === c.id && c.details && Object.keys(c.details).length > 0 && (
+              <div className="mt-2 pt-2 border-t border-white/[0.05]">
+                <pre className="text-[9px] text-white/50 whitespace-pre-wrap font-mono break-all">
+                  {JSON.stringify(c.details, null, 2)}
+                </pre>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {data?.llmEngine && (
+        <div className="p-4 rounded-2xl border border-purple-500/20 bg-gradient-to-br from-purple-500/[0.05] to-cyan-500/[0.05]">
+          <h3 className="text-[13px] font-bold text-white mb-2">🧠 LLM Engine (unified для всех каналов)</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div className="p-2 rounded-lg bg-white/[0.04] border border-white/[0.06]">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-lg">{statusEmoji(data.llmEngine.primaryStatus === "ok" ? "green" : data.llmEngine.primaryStatus === "fail" ? "red" : "skip")}</span>
+                <div className="text-[12px] font-bold text-white">primary · {data.llmEngine.primary}</div>
+              </div>
+              <div className="text-[10px] text-white/60">status: <span className="font-mono">{data.llmEngine.primaryStatus}</span></div>
+              {data.llmEngine.primaryError && (
+                <div className="text-[10px] text-red-300/80 mt-1 break-all">{data.llmEngine.primaryError}</div>
+              )}
+            </div>
+            <div className="p-2 rounded-lg bg-white/[0.04] border border-white/[0.06]">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-lg">{statusEmoji(data.llmEngine.fallbackStatus === "ok" ? "green" : data.llmEngine.fallbackStatus === "fail" ? "red" : "skip")}</span>
+                <div className="text-[12px] font-bold text-white">fallback · {data.llmEngine.fallback}</div>
+              </div>
+              <div className="text-[10px] text-white/60">status: <span className="font-mono">{data.llmEngine.fallbackStatus}</span></div>
+              {data.llmEngine.fallbackError && (
+                <div className="text-[10px] text-red-300/80 mt-1 break-all">{data.llmEngine.fallbackError}</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="text-[11px] text-white/40 px-1">
+        💡 Карточки автообновляются каждые 60 сек. Cron каждый час проверяет все каналы + шлёт Telegram-alert админу при смене статуса (green → red/yellow).
+        Web-чат при downtime LLM показывает юзеру баннер с резервными каналами (Telegram / Max).
       </div>
     </div>
   );
