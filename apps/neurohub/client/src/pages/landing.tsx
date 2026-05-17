@@ -7,6 +7,7 @@ import { ShareQRSection, TrackShareQR } from "@/components/share-qr";
 import { KaraokeLyrics } from "@/components/karaoke-lyrics";
 import { ExpandToggleButton } from "@/components/expand-toggle-button";
 import { CoverDetailsModal } from "@/components/cover-details-modal";
+import { VolumeSlider } from "@/components/volume-slider";
 import { muteBgMusic, unmuteBgMusic } from "@/components/background-music";
 import { setLockScreenTrack, setLockScreenPlaybackState } from "@/lib/lockscreen";
 import { apiRequest } from "@/lib/queryClient";
@@ -380,6 +381,18 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const [repeatMode, setRepeatMode] = useState<"off" | "all" | "one">("all");
   // Eugene 2026-05-16 Босс «кнопка 🔍 Детали справа от Repeat — full-screen modal».
   const [detailsOpen, setDetailsOpen] = useState(false);
+  // Eugene 2026-05-17 Босс «стильный ползунок громкости в плеере».
+  // Persist в localStorage пер-юзер (muzaai-volume).
+  const [volume, setVolume] = useState<number>(() => {
+    try {
+      const stored = localStorage.getItem("muzaai-volume");
+      const v = stored ? parseFloat(stored) : NaN;
+      return Number.isFinite(v) ? Math.min(Math.max(v, 0), 1) : 0.5;
+    } catch { return 0.5; }
+  });
+  // volumeRef — синхронная копия для использования в playTrack (immediate read).
+  const volumeRef = useRef<number>(0.5);
+  volumeRef.current = volume;
   const [countriesCount, setCountriesCount] = useState<number>(0);
   const [countriesList, setCountriesList] = useState<Array<{country:string;country_code:string;n:number}>>([]);
   const [showCountries, setShowCountries] = useState(false);
@@ -470,6 +483,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   );
   const tracksRef = useRef<any[]>([]);
   useEffect(() => { tracksRef.current = tracks; }, [tracks]);
+  // Eugene 2026-05-17 — sync volume → audioRef + persist в localStorage.
+  // Также применяется при каждом playTrack (audio.volume = 0.5 → перезапишется
+  // из стейта сразу после создания через этот effect).
+  useEffect(() => {
+    try { localStorage.setItem("muzaai-volume", String(volume)); } catch {}
+    if (audioRef.current) {
+      try { audioRef.current.volume = volume; } catch {}
+    }
+  }, [volume]);
   // Eugene 2026-05-10: ref для отфильтрованного списка (category+search).
   // handleEnded и skip-кнопки должны использовать ИМЕННО видимый юзеру
   // плейлист, иначе после конца трека выпадает не тот параметр.
@@ -717,7 +739,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       });
 
     registerAudio(audio);
-    audio.volume = 0.5;
+    audio.volume = volumeRef.current;
     playingTrackRef.current = track;
     // Сохраняем в global для cross-page survival (Eugene 14:09)
     if (typeof window !== "undefined") {
@@ -1325,6 +1347,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   >
                     <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12a7 7 0 1 0-3 5.7" /><polyline points="14 17 16 17.7 16.7 15.7" /><text x="12" y="15" textAnchor="middle" fontSize="9" fontWeight="700" stroke="none" fill="currentColor">1</text></svg>
                   </button>
+                  {/* Eugene 2026-05-17 Босс «стильный ползунок громкости в плеере» — после Repeat */}
+                  <VolumeSlider
+                    volume={volume}
+                    onVolumeChange={setVolume}
+                    className="w-[110px] sm:w-[140px]"
+                  />
                   {/* Eugene 2026-05-16 Босс «🔍 Детали справа от Repeat» —
                       открывает full-screen modal с большой обложкой и метой. */}
                   <button
@@ -1825,6 +1853,13 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               >
                                 <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12a7 7 0 1 0-3 5.7" /><polyline points="14 17 16 17.7 16.7 15.7" /><text x="12" y="15" textAnchor="middle" fontSize="9" fontWeight="700" stroke="none" fill="currentColor">1</text></svg>
                               </button>
+                              {/* Eugene 2026-05-17 Босс — ползунок громкости в expanded плеере */}
+                              <VolumeSlider
+                                volume={volume}
+                                onVolumeChange={setVolume}
+                                className="w-[100px] sm:w-[130px]"
+                                showPercent={false}
+                              />
                             </div>
                             <button className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors" onClick={() => setExpandedId(null)}>
                               <ChevronDown className="w-4 h-4 text-white/70" />
