@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { playMuzaChime, playMuzaTick, playMuzaSparkle } from "../lib/muza-sounds";
+import { onJourneyEvent } from "../lib/user-journey";
 
 // Eugene 2026-05-14 Босс: «после 1 dismiss через 1 мин, если ещё раз — 1 час».
 const REAPPEAR_MS_FIRST = 60_000;     // 1 минута после первого dismiss
@@ -151,6 +152,21 @@ export function FloatingConsultant() {
   // перемещать. Углы возвращают в центр». Snap-positions для chat drawer.
   const [drawerSnap, setDrawerSnap] = useState<"br" | "bl" | "tr" | "tl" | "center">("br");
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  // Eugene 2026-05-17 Босс: smart-триггер Музы по journey-событиям.
+  // Когда юзер «долго думает» (idle 30 сек, form_abandon, scroll и не клик'нул
+  // CTA на лендинге) — Муза появляется со speech-bubble подсказкой,
+  // соответствующей контексту страницы.
+  // smartBubbleText — кастомный текст подсказки (вместо стандартного «Заходи в
+  // чат — креативить»). smartHighlight — анимация attention (slight bounce +
+  // glow) если Муза уже видна.
+  const [smartBubbleText, setSmartBubbleText] = useState<string | null>(null);
+  const [smartHighlight, setSmartHighlight] = useState(false);
+  // Once-per-session флаги для каждого триггера (не спамим юзера).
+  const smartFiredRef = useRef<Set<string>>(new Set());
+  // Время старта сессии на текущей странице — для «90 сек без play» триггера.
+  const pageEnteredAtRef = useRef<number>(Date.now());
+  const pageHadPlayRef = useRef<boolean>(false);
 
   // Авто-скролл вниз при новом сообщении
   useEffect(() => {
@@ -439,27 +455,130 @@ export function FloatingConsultant() {
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [visible, chatOpen]);
 
+  // Eugene 2026-05-17 Босс: smart-триггер Музы — появляется когда юзер долго
+  // думает (idle/form-abandon/no-play). Подписка на user-journey events.
+  //
+  // Сценарии:
+  //   a. idle_30s на любой странице → подсказка «Помочь?»
+  //   b. form_abandon на /register-phone / /music → «Не получается? Помогу»
+  //   c. 90 сек на landing без play → «Послушай несколько треков 🎵»
+  //   d. idle_30s на /music без формы → «Не знаешь с чего начать?»
+  //
+  // Каждый триггер — once per session (smartFiredRef). Не спамим юзера.
+  // Если Муза скрыта/dismissed — показываем. Если уже видна — highlight.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const showWithBubble = (key: string, bubbleText: string) => {
+      if (smartFiredRef.current.has(key)) return;
+      smartFiredRef.current.add(key);
+      if (chatOpen) return; // не дёргаем во время разговора
+      setSmartBubbleText(bubbleText);
+      if (visible) {
+        // Уже видна — animate attention.
+        setSmartHighlight(true);
+        window.setTimeout(() => setSmartHighlight(false), 2500);
+      } else {
+        // Скрыта — показываем (минуя dismiss-cooldown).
+        if (timerRef.current) window.clearTimeout(timerRef.current);
+        setVisible(true);
+        trackEngagement("consultant_impression", { trigger: key });
+      }
+      // Автоматически убираем кастомный текст через 12 сек —
+      // возвращается стандартное «Заходи в чат — креативить».
+      window.setTimeout(() => setSmartBubbleText(null), 12_000);
+    };
+
+    const off = onJourneyEvent(({ type, page, meta }) => {
+      // Сброс счётчиков при смене страницы.
+      if (type === "page_view") {
+        pageEnteredAtRef.current = Date.now();
+        pageHadPlayRef.current = false;
+        return;
+      }
+      // Маркер play (click по play-button / audio play).
+      if (type === "click") {
+        const txt = String(meta?.text || "").toLowerCase();
+        const elemId = String(meta?.id || "").toLowerCase();
+        if (txt.includes("play") || elemId.includes("play") || elemId.includes("audio")) {
+          pageHadPlayRef.current = true;
+        }
+        return;
+      }
+      // idle_30s — основной триггер.
+      if (type === "idle_30s") {
+        // На /music — «не знаешь с чего начать?»
+        if (page === "/music") {
+          showWithBubble("idle:music", "Не знаешь с чего начать? Помогу собрать идею 🎵");
+          return;
+        }
+        // На /register-phone — «не получается? войди через email или напиши мне»
+        if (page === "/register-phone" || page === "/login-phone") {
+          showWithBubble("idle:auth", "Не получается войти? Спроси меня — подскажу 💡");
+          return;
+        }
+        // На любой другой странице — generic «Помочь?»
+        showWithBubble("idle:" + page, "Помочь? Я тут, спрашивай 💜");
+        return;
+      }
+      // form_abandon — самый сильный сигнал «застрял на форме».
+      if (type === "form_abandon") {
+        if (page === "/register-phone" || page === "/login-phone") {
+          showWithBubble("abandon:auth", "Не получается? Войди через email или напиши мне 💌");
+          return;
+        }
+        if (page === "/music") {
+          showWithBubble("abandon:music", "Застряла форма? Расскажи идею словами — помогу собрать ✨");
+          return;
+        }
+        showWithBubble("abandon:" + page, "Не получается заполнить? Спроси меня 💜");
+      }
+    });
+
+    // 90 сек на landing без play — проверяем тикером.
+    const landingTick = window.setInterval(() => {
+      const cur = (window.location.hash || "#/").slice(1).split("?")[0] || "/";
+      if (cur !== "/") return;
+      if (pageHadPlayRef.current) return;
+      const elapsed = Date.now() - pageEnteredAtRef.current;
+      if (elapsed >= 90_000) {
+        showWithBubble("landing:no-play", "Послушай несколько треков для вдохновения 🎵");
+      }
+    }, 15_000);
+
+    return () => {
+      off();
+      window.clearInterval(landingTick);
+    };
+  }, [visible, chatOpen]);
+
   if (!visible) return null;
 
   return (
     <div
-      className={`fixed z-30 bottom-3 right-3 sm:bottom-4 sm:right-4 transition-opacity duration-500 ${exiting ? "opacity-0 consultant-slide-out" : "opacity-100 consultant-slide-in animate-in fade-in"}`}
+      className={`fixed z-30 bottom-3 right-3 sm:bottom-4 sm:right-4 transition-opacity duration-500 ${exiting ? "opacity-0 consultant-slide-out" : "opacity-100 consultant-slide-in animate-in fade-in"} ${smartHighlight ? "consultant-attention" : ""}`}
       data-testid="floating-consultant"
     >
       <div className="relative">
         {/* Eugene 2026-05-14 Босс «нажатие на облако заводит в чат».
-            Облако кликабельно — открывает чат напрямую. */}
+            Облако кликабельно — открывает чат напрямую.
+            Eugene 2026-05-17 Босс: при smart-триггере (idle/form_abandon)
+            текст облака меняется на контекстную подсказку. */}
         {!expanded && !reaction && !chatOpen && (
           <button
             type="button"
             onClick={openChat}
-            className="absolute bottom-full right-0 mb-2 px-4 py-2.5 bg-gradient-to-br from-purple-500/30 to-blue-500/25 backdrop-blur-md border border-purple-300/40 text-[12px] font-medium text-white text-center leading-tight max-w-[160px] animate-in fade-in slide-in-from-bottom-2 duration-300 shadow-lg shadow-purple-500/20 hover:from-purple-500/50 hover:to-blue-500/40 hover:scale-105 transition-all cursor-pointer"
+            className={`absolute bottom-full right-0 mb-2 px-4 py-2.5 backdrop-blur-md border text-[12px] font-medium text-white text-center leading-tight max-w-[180px] animate-in fade-in slide-in-from-bottom-2 duration-300 shadow-lg hover:scale-105 transition-all cursor-pointer ${
+              smartBubbleText
+                ? "bg-gradient-to-br from-pink-500/40 to-purple-500/30 border-pink-300/50 shadow-pink-500/30 hover:from-pink-500/60 hover:to-purple-500/45"
+                : "bg-gradient-to-br from-purple-500/30 to-blue-500/25 border-purple-300/40 shadow-purple-500/20 hover:from-purple-500/50 hover:to-blue-500/40"
+            }`}
             style={{
               borderRadius: "55% 45% 45% 50% / 60% 50% 60% 40%",
             }}
             aria-label="Открыть чат с Музой"
           >
-            Заходи в чат —<br />креативить ✨
+            {smartBubbleText ? smartBubbleText : <>Заходи в чат —<br />креативить ✨</>}
           </button>
         )}
 
