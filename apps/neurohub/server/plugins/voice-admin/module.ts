@@ -44,7 +44,87 @@ import { transcribeRussianAudio } from "../../lib/transcribe";
 import { synthesizeYandexTts } from "../../lib/yandexTts";
 import { MUZA_TOOLS, executeTool } from "../../lib/muzaTools";
 import { buildPersonaSystem } from "../../lib/consultantPersona";
+import {
+  getCachedDashboardSummary,
+  getCachedClickStats,
+  getCachedBrainExport,
+} from "../master-dashboard/module";
 import type { Module } from "../../core";
+
+// === Dashboard context injection (Eugene 2026-05-17) ===
+//
+// Перед LLM-вызовом собираем актуальный snapshot админ-дашборда:
+// dashboard-summary (статусы + период-метрики) + brain-export (плагины) +
+// click-stats (топ-кликов). Это идёт в systemBlocks как dynamicContext, чтобы
+// Муза отвечала ТОЧНЫМИ цифрами а не выдумывала.
+//
+// Источник всех данных — те же кэшированные функции которые отдают endpoint'ы
+// /api/admin/v304/dashboard-summary, /click-stats, /brain-export. TTL 60 сек =
+// LLM-call видит свежие данные с небольшим запозданием, и мы не дёргаем БД
+// каждый voice-command.
+
+function buildDashboardContext(): string {
+  try {
+    const dashboard = getCachedDashboardSummary("today");
+    const clickStats = getCachedClickStats("today");
+    const brain = getCachedBrainExport();
+
+    const m = dashboard.metrics;
+    const sumRub = Math.round(m.payments.sumKopecks / 100);
+    const statusLines = (dashboard.statusCards || [])
+      .map((s) => `- ${s.emoji} ${s.label}: ${s.status.toUpperCase()} (${s.metric})`)
+      .join("\n");
+    const allOk = (dashboard.statusCards || []).every((s) => s.status === "green");
+    const redCount = (dashboard.statusCards || []).filter((s) => s.status === "red").length;
+    const yellowCount = (dashboard.statusCards || []).filter((s) => s.status === "yellow").length;
+
+    const topClicks = (clickStats.topElements || [])
+      .slice(0, 5)
+      .map(
+        (c, i) =>
+          `  ${i + 1}. ${c.elementKey}${c.elementText ? ` («${String(c.elementText).slice(0, 40)}»)` : ""}: ${c.count} кликов, ${c.uniqueUsers} юзеров`,
+      )
+      .join("\n");
+
+    return [
+      "[ADMIN DASHBOARD CONTEXT — текущие фактические данные за сегодня]",
+      "",
+      `Status: ${allOk ? "🟢 все системы OK" : `⚠️ ${redCount} red, ${yellowCount} yellow`}`,
+      "",
+      "Метрики за сегодня:",
+      `- Регистрации: ${m.registrations.total}`,
+      `- Прослушивания: ${m.plays.total} (уник IP: ${m.plays.unique}, отброшено: ${m.plays.rejected})`,
+      `- Генерации music: ${m.generations.music.done} OK / ${m.generations.music.error} ошибок / ${m.generations.music.processing} в процессе`,
+      `- Платежи: ${m.payments.count} шт · ${sumRub} ₽`,
+      `- Посетители: уник ${m.visitors.unique} / всего ${m.visitors.total}`,
+      `- Скачивания: ${m.downloads.count}`,
+      "",
+      "Status indicators:",
+      statusLines || "  (нет данных)",
+      "",
+      "Топ-5 кликов сегодня:",
+      topClicks || "  (нет данных за сегодня)",
+      `Всего кликов сегодня: ${clickStats.totalClicks} (уник юзеров: ${clickStats.uniqueClickers})`,
+      "",
+      "Brain (системная карта):",
+      `- Узлов: ${brain.nodesCount}, связей: ${brain.edgesCount}`,
+      `- Здоровых плагинов: ${brain.green}, degraded: ${brain.yellow}, упавших: ${brain.red}`,
+      brain.topPlugins.length > 0
+        ? `- Топ плагины: ${brain.topPlugins.slice(0, 8).join(", ")}`
+        : "",
+      "",
+      `[Snapshot: ${dashboard.generatedAt}; кэш 60 сек]`,
+      "",
+      "ПРАВИЛО: используй эти цифры в ответе. НЕ выдумывай метрики — они актуальные.",
+      "Если Босс просит число которого здесь НЕТ — скажи это явно или вызови tool get_metrics.",
+    ]
+      .filter((s) => s !== "")
+      .join("\n");
+  } catch (e: any) {
+    console.warn("[ADMIN-VOICE] buildDashboardContext failed:", e?.message || e);
+    return "[ADMIN DASHBOARD CONTEXT: не удалось собрать snapshot — используй tools get_metrics для актуальных данных]";
+  }
+}
 
 // === Multer (memoryStorage, max 5 MB) ===
 const MAX_AUDIO_BYTES = 5 * 1024 * 1024;
@@ -105,7 +185,7 @@ async function callAdminVoiceLLM(opts: {
   let outputTokens = 0;
 
   const stable = buildPersonaSystem(opts.sessionId);
-  const dynamicContext = [
+  const modeContext = [
     "[ADMIN-VOICE MODE]",
     "Сейчас ты разговариваешь с Боссом голосом в admin-panel.",
     "Тон: коротко, по-деловому, без эмодзи в озвучке.",
@@ -118,9 +198,14 @@ async function callAdminVoiceLLM(opts: {
     "Ответ озвучивается через TTS — пиши простыми фразами, без markdown.",
   ].join("\n");
 
+  // Свежий dashboard snapshot (cached 60 сек). Inject как отдельный
+  // system-block — модель видит фактические цифры до начала reasoning'а.
+  const dashboardContext = buildDashboardContext();
+
   const systemBlocks: any[] = [
     { type: "text", text: stable, cache_control: { type: "ephemeral", ttl: "1h" } },
-    { type: "text", text: dynamicContext },
+    { type: "text", text: modeContext },
+    { type: "text", text: dashboardContext },
   ];
 
   const messages: any[] = [

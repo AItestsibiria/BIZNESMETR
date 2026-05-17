@@ -1300,6 +1300,117 @@ router.post("/tts", requireAdmin, async (req, res) => {
   }
 });
 
+// === Public helpers (для других плагинов, например voice-admin) ===
+//
+// Эти функции переиспользуются voice-admin плагином чтобы инжектировать
+// актуальный контекст dashboard в LLM-вызов «Сказать Музе» (Eugene 2026-05-17).
+// Reuse-working-solutions rule: один источник истины, без дубликации SQL.
+//
+// Возвращают cached snapshot если он свежий (TTL 60 сек), иначе пересчитывают.
+// Никогда не throw'ят — на любую ошибку возвращают пустой/нейтральный объект.
+
+export function getCachedDashboardSummary(period: Period = "today"): {
+  period: Period;
+  statusCards: GroupStatus[];
+  metrics: PeriodMetrics;
+  generatedAt: string;
+} {
+  try {
+    let snap: any = getCached(period);
+    if (!snap) {
+      const since = periodToSince(period);
+      snap = {
+        period,
+        since,
+        generatedAt: new Date().toISOString(),
+        cacheExpiresAt: new Date(Date.now() + CACHE_TTL_MS).toISOString(),
+        statusCards: buildStatusCards(),
+        metrics: buildPeriodMetrics(since),
+        charts: buildChartSeries(period, since),
+      };
+      setCached(period, snap);
+    }
+    return {
+      period: snap.period,
+      statusCards: snap.statusCards,
+      metrics: snap.metrics,
+      generatedAt: snap.generatedAt,
+    };
+  } catch {
+    return {
+      period,
+      statusCards: [],
+      metrics: {
+        plays: { total: 0, unique: 0, rejected: 0 },
+        downloads: { count: 0 },
+        registrations: { total: 0, byChannel: [] },
+        generations: {
+          music: { done: 0, error: 0, processing: 0 },
+          lyrics: { done: 0, error: 0 },
+          cover: { done: 0, error: 0 },
+        },
+        payments: { count: 0, sumKopecks: 0 },
+        visitors: { unique: 0, total: 0 },
+      },
+      generatedAt: new Date().toISOString(),
+    };
+  }
+}
+
+export function getCachedClickStats(period: Period = "today"): ClickStats {
+  try {
+    let cs = getCachedClicks(period);
+    if (!cs) {
+      const since = periodToSince(period);
+      cs = buildClickStats(period, since);
+      setCachedClicks(period, cs);
+    }
+    return cs;
+  } catch {
+    return {
+      topClicks: [],
+      byPage: {},
+      topElements: [],
+      totalClicks: 0,
+      uniqueClickers: 0,
+      period,
+      since: null,
+      generatedAt: new Date().toISOString(),
+    };
+  }
+}
+
+// Brain-export snapshot (минимальный slice для context injection).
+// Не дёргает heavy полный builder — берёт plugins + nodes/edges totals.
+export function getCachedBrainExport(): {
+  nodesCount: number;
+  edgesCount: number;
+  green: number;
+  yellow: number;
+  red: number;
+  topPlugins: string[];
+} {
+  try {
+    const plugins = allSafe<{ name: string; status: string }>(
+      sql`SELECT name, status FROM plugins_registry ORDER BY name`,
+    );
+    const active = plugins.filter((p) => p.status === "active").length;
+    const failed = plugins.filter((p) => p.status === "failed").length;
+    const degraded = plugins.length - active - failed;
+    // approx edges: plugins reading DB (1 each) + provider→plugin wirings (10 hardcoded)
+    return {
+      nodesCount: plugins.length + 5 /* channels */ + 6 /* providers */ + 2 /* core */ + 4 /* metrics */,
+      edgesCount: plugins.length + 5 + 10 + 4,
+      green: active,
+      yellow: degraded,
+      red: failed,
+      topPlugins: plugins.slice(0, 10).map((p) => p.name),
+    };
+  } catch {
+    return { nodesCount: 0, edgesCount: 0, green: 0, yellow: 0, red: 0, topPlugins: [] };
+  }
+}
+
 const masterDashboardModule: Module = {
   name: "master-dashboard",
   version: "0.1.0",
