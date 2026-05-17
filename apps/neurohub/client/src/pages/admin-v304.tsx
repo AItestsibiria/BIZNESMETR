@@ -26,6 +26,7 @@ import { JourneyTab } from "@/pages/admin/journey-tab";
 import { Switch } from "@/components/ui/switch";
 import { Progress } from "@/components/ui/progress";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell } from "recharts";
+import MasterDashboardTab from "@/pages/admin/master-dashboard-tab";
 
 type Overview = {
   timestamp: string;
@@ -151,7 +152,7 @@ export default function AdminV304Page() {
   const { toast } = useToast();
   // Eugene 2026-05-15 Босс «строка поиска по всей панели — Google по проекту».
   // Контролируемый Tabs + global search jumps к нужной вкладке.
-  const [tab, setTab] = useState("overview");
+  const [tab, setTab] = useState("master-dashboard");
 
   // Защита на стороне клиента — мягкая (бэк всё равно проверит).
   // Админ-доступ для тех, чей email есть в server-side ADMIN_EMAIL списке;
@@ -208,6 +209,7 @@ export default function AdminV304Page() {
       </div>
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="mb-4 flex flex-wrap">
+          <TabsTrigger value="master-dashboard">🧠 Сводка</TabsTrigger>
           <TabsTrigger value="overview">Обзор</TabsTrigger>
           <TabsTrigger value="friend">👤 Муза</TabsTrigger>
           <TabsTrigger value="bot-stats">🤖 Бот</TabsTrigger>
@@ -223,6 +225,7 @@ export default function AdminV304Page() {
           <TabsTrigger value="dialogs">💬 Диалоги</TabsTrigger>
           <TabsTrigger value="journey">🗺 Путь</TabsTrigger>
         </TabsList>
+        <TabsContent value="master-dashboard"><MasterDashboardTab /></TabsContent>
         <TabsContent value="overview"><OverviewTab toast={toast} /></TabsContent>
         <TabsContent value="friend">
           <div className="space-y-6">
