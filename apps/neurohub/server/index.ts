@@ -77,6 +77,7 @@ import sunoWatchdogModule from "./plugins/suno-watchdog/module";
 import authSmsModule from "./plugins/auth-sms/module";
 import apiHealthModule from "./plugins/api-health/module";
 import landingCmsModule from "./plugins/landing-cms/module";
+import masterDashboardModule from "./plugins/master-dashboard/module";
 import * as fs from "node:fs";
 
 const app = express();
@@ -345,6 +346,7 @@ app.post("/api/_client-error", express.json(), (req, res) => {
     { name: "auth-sms", module: authSmsModule },
     { name: "api-health", module: apiHealthModule },
     { name: "landing-cms", module: landingCmsModule },
+    { name: "master-dashboard", module: masterDashboardModule },
   ];
 
   const validModules: any[] = [];
