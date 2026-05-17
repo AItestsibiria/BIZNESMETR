@@ -459,17 +459,36 @@ export type AudioUpload = typeof audioUploads.$inferSelect;
 // архивные — только в админке (история).
 export const landingNews = sqliteTable("landing_news", {
   id: integer("id").primaryKey({ autoIncrement: true }),
+  // Eugene 2026-05-17 Босс: добавлена группировка по category (подпапка)
+  // для admin CMS — «Главные / Анонсы / Истории / …». Default 'main' чтобы
+  // существующие записи не сломались.
+  category: text("category").notNull().default("main"),
   title: text("title").notNull(),                  // HTML allowed (gradient spans)
-  body: text("body").notNull(),                    // HTML allowed
+  body: text("body").notNull(),                    // HTML allowed (legacy column)
+  // Sanitized HTML/Markdown тело (новые записи пишутся сюда). Legacy `body`
+  // остаётся для записей 2026-05-12. Frontend читает bodyHtml ?? body.
+  bodyHtml: text("body_html"),
   iconEmoji: text("icon_emoji"),                   // 🚀/🎤/👤/🛠 etc
   imageUrl: text("image_url"),                     // /consultant-avatar.svg or external
+  // Путь к загруженному в админке изображению (uploads/landing-icons/...).
+  iconUrl: text("icon_url"),
+  ctaUrl: text("cta_url"),                         // куда ведёт CTA
+  ctaLabel: text("cta_label"),                     // текст CTA
   badgeColor: text("badge_color").default("purple"), // purple/cyan/green/pink/amber/blue
   borderColor: text("border_color").default("purple"),// для рамки
-  publishedAt: text("published_at").notNull(),     // отображаемая дата
-  position: integer("position").notNull().default(0), // sort: больше = выше
-  active: integer("active").notNull().default(1),  // 1=показывается на лендинге; 0=архив
+  publishedAt: text("published_at"),               // отображаемая дата (ISO)
+  position: integer("position").notNull().default(0), // legacy sort
+  // Новое поле sortOrder — приоритет в админке. Frontend сортирует
+  // по `sortOrder DESC` (внутри category), fallback на `position DESC`.
+  sortOrder: integer("sort_order").notNull().default(0),
+  active: integer("active").notNull().default(1),  // legacy
+  // isVisible: 1 = публикуется на /api/landing-news, 0 = скрыто.
+  // Дублирует `active` для нового CMS-кода; legacy записи имеют active=1.
+  isVisible: integer("is_visible").notNull().default(1),
+  // Накопительный счётчик просмотров (POST /api/landing-news/:id/view).
+  viewCount: integer("view_count").notNull().default(0),
   archivedAt: text("archived_at"),                 // когда отправлено в архив
-  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
   updatedAt: text("updated_at").default(sql`CURRENT_TIMESTAMP`),
 });
 export type LandingNews = typeof landingNews.$inferSelect;

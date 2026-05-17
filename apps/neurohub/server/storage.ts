@@ -673,23 +673,50 @@ try {
   }
 
   // Landing news (Eugene 2026-05-12 Босс): архив + CRUD редактирование.
+  // Eugene 2026-05-17 Босс: расширение под CMS — category, body_html, icon_url,
+  // cta_url, cta_label, sort_order, is_visible, view_count. Все ALTER'ы
+  // идемпотентные через try/catch (SQLite не поддерживает IF NOT EXISTS
+  // для ADD COLUMN). published_at допускает NULL для черновиков.
   try {
     sqlite.exec(`CREATE TABLE IF NOT EXISTS landing_news (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      category TEXT NOT NULL DEFAULT 'main',
       title TEXT NOT NULL,
-      body TEXT NOT NULL,
+      body TEXT NOT NULL DEFAULT '',
+      body_html TEXT,
       icon_emoji TEXT,
       image_url TEXT,
+      icon_url TEXT,
+      cta_url TEXT,
+      cta_label TEXT,
       badge_color TEXT DEFAULT 'purple',
       border_color TEXT DEFAULT 'purple',
-      published_at TEXT NOT NULL,
+      published_at TEXT,
       position INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
       active INTEGER NOT NULL DEFAULT 1,
+      is_visible INTEGER NOT NULL DEFAULT 1,
+      view_count INTEGER NOT NULL DEFAULT 0,
       archived_at TEXT,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     )`);
+    // ALTER'ы для существующих БД (созданных 2026-05-12).
+    const alters = [
+      `ALTER TABLE landing_news ADD COLUMN category TEXT NOT NULL DEFAULT 'main'`,
+      `ALTER TABLE landing_news ADD COLUMN body_html TEXT`,
+      `ALTER TABLE landing_news ADD COLUMN icon_url TEXT`,
+      `ALTER TABLE landing_news ADD COLUMN cta_url TEXT`,
+      `ALTER TABLE landing_news ADD COLUMN cta_label TEXT`,
+      `ALTER TABLE landing_news ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0`,
+      `ALTER TABLE landing_news ADD COLUMN is_visible INTEGER NOT NULL DEFAULT 1`,
+      `ALTER TABLE landing_news ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0`,
+    ];
+    for (const stmt of alters) {
+      try { sqlite.exec(stmt); } catch { /* колонка уже существует */ }
+    }
     sqlite.exec(`CREATE INDEX IF NOT EXISTS landing_news_active_idx ON landing_news(active, position DESC)`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS landing_news_cat_sort_idx ON landing_news(category, sort_order DESC, id DESC)`);
   } catch (e) {
     console.error("[MIGRATION] landing_news failed:", e);
   }
