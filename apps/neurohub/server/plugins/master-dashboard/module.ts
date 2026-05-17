@@ -39,8 +39,45 @@ import { sql } from "drizzle-orm";
 import { db } from "../../storage";
 import { requireAdmin } from "../../core/adminAuth";
 import type { Module } from "../../core";
+import { buildAdminBriefing } from "../../lib/musaBriefing";
+import {
+  synthesizeYandexTts,
+  getTtsFromCache,
+  putTtsInCache,
+  estimateTtsCostKopecks,
+  type YandexVoice,
+} from "../../lib/yandexTts";
 
 const router = Router();
+
+// --- Rate limit per admin для TTS (10 запросов в минуту) ---
+// Yandex TTS платный (~0.40₽ за вызов 1000 симв) — защищаемся от случайного
+// flood'а из UI (Босс кликает «Доложить» подряд несколько раз).
+const ttsRateMap = new Map<string, { count: number; resetAt: number }>();
+const TTS_RATE_LIMIT = 10;          // запросов
+const TTS_RATE_WINDOW_MS = 60_000;  // в минуту
+
+function ttsRateOk(key: string): boolean {
+  const now = Date.now();
+  const entry = ttsRateMap.get(key);
+  if (!entry || entry.resetAt < now) {
+    ttsRateMap.set(key, { count: 1, resetAt: now + TTS_RATE_WINDOW_MS });
+    return true;
+  }
+  if (entry.count >= TTS_RATE_LIMIT) return false;
+  entry.count++;
+  return true;
+}
+
+const VALID_TTS_VOICES: YandexVoice[] = [
+  "alena",
+  "jane",
+  "oksana",
+  "filipp",
+  "ermil",
+  "omazh",
+  "zahar",
+];
 
 // --- Период ---
 
@@ -1104,16 +1141,156 @@ router.get("/brain-export", requireAdmin, (_req, res) => {
   }
 });
 
+// --- GET /api/admin/v304/briefing-text ---
+//
+// Eugene 2026-05-17 Босс «Муза доложит». Собирает русский текст-доклад из
+// текущего dashboard-summary snapshot. UI получает текст, чтобы:
+//  1) показать subtitle во время озвучки,
+//  2) передать его в POST /tts для генерации mp3.
+//
+// Возвращает {text, period, generatedAt, length}.
+
+router.get("/briefing-text", requireAdmin, (req, res) => {
+  try {
+    const period = parsePeriod(req.query.period);
+    let snapshot: any = getCached(period);
+    if (!snapshot) {
+      const since = periodToSince(period);
+      snapshot = {
+        period,
+        since,
+        generatedAt: new Date().toISOString(),
+        cacheExpiresAt: new Date(Date.now() + CACHE_TTL_MS).toISOString(),
+        statusCards: buildStatusCards(),
+        metrics: buildPeriodMetrics(since),
+        charts: buildChartSeries(period, since),
+      };
+      setCached(period, snapshot);
+    }
+    const text = buildAdminBriefing({
+      period,
+      statusCards: snapshot.statusCards,
+      metrics: snapshot.metrics,
+    });
+    res.json({
+      data: {
+        text,
+        period,
+        generatedAt: snapshot.generatedAt,
+        length: text.length,
+        costKopecks: estimateTtsCostKopecks(text.length),
+      },
+      error: null,
+    });
+  } catch (err) {
+    res
+      .status(500)
+      .json({ data: null, error: err instanceof Error ? err.message : "internal" });
+  }
+});
+
+// --- POST /api/admin/v304/tts ---
+//
+// Озвучка произвольного русского текста через Yandex SpeechKit TTS.
+// Body: { text: string, voice?: 'alena'|'jane'|'oksana'|... }
+// Response: audio/mpeg (binary mp3 stream).
+//
+// Особенности:
+//  - rate-limit 10/мин на admin (TTS платный, ~0.40₽ за вызов).
+//  - In-memory cache 5 мин по hash(text+voice) — повторный клик «Доложить»
+//    бесплатен.
+//  - Audit-log в admin_audit_log (для траты бюджета).
+
+router.post("/tts", requireAdmin, async (req, res) => {
+  try {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const text = typeof body.text === "string" ? body.text.trim() : "";
+    const voiceRaw = typeof body.voice === "string" ? body.voice : "alena";
+    const voice: YandexVoice = (VALID_TTS_VOICES as string[]).includes(voiceRaw)
+      ? (voiceRaw as YandexVoice)
+      : "alena";
+
+    if (!text) {
+      return res.status(400).json({ data: null, error: "text is required" });
+    }
+    if (text.length > 5000) {
+      return res
+        .status(400)
+        .json({ data: null, error: `text too long (${text.length} > 5000)` });
+    }
+
+    // Per-admin rate limit (key = userId если есть, иначе IP)
+    const userId = (req as any).userId ?? (req as any).user?.id ?? null;
+    const rateKey = userId ? `u:${userId}` : `ip:${req.ip || "anon"}`;
+    if (!ttsRateOk(rateKey)) {
+      return res
+        .status(429)
+        .json({ data: null, error: "rate-limit: 10 TTS requests per minute" });
+    }
+
+    // Cache lookup
+    const cached = getTtsFromCache(text, voice, "mp3");
+    if (cached) {
+      res.setHeader("Content-Type", cached.contentType);
+      res.setHeader("Content-Length", String(cached.audio.length));
+      res.setHeader("X-Cache", "HIT");
+      res.setHeader("Cache-Control", "no-store");
+      return res.end(cached.audio);
+    }
+
+    const result = await synthesizeYandexTts({ text, voice, format: "mp3" });
+    if (!result.ok || !result.audio) {
+      return res
+        .status(result.httpStatus && result.httpStatus >= 400 ? 502 : 500)
+        .json({ data: null, error: result.error || "TTS synthesis failed" });
+    }
+
+    putTtsInCache(text, voice, "mp3", result.audio, result.contentType || "audio/mpeg");
+
+    // Audit-log: фиксируем расход (НЕ пишем text — может быть PII).
+    // action='create' — admin_audit_log CHECK ограничен create/update/delete/restore.
+    // Поэтому семантику «tts synthesize» кладём в entity + after_json.
+    try {
+      db.run(sql`INSERT INTO admin_audit_log (admin_user_id, action, entity, entity_key, before_json, after_json)
+                 VALUES (${userId}, 'create', 'tts:yandex', ${voice},
+                 ${null},
+                 ${JSON.stringify({
+                   action: "synthesize",
+                   textLen: text.length,
+                   voice,
+                   format: "mp3",
+                   bytes: result.audio.length,
+                   costKopecks: estimateTtsCostKopecks(text.length),
+                   durationMs: result.durationMs ?? null,
+                 })})`);
+    } catch (e) {
+      // Audit не должен ломать ответ — продолжаем.
+      console.warn("[TTS] audit-log insert failed:", e instanceof Error ? e.message : e);
+    }
+
+    res.setHeader("Content-Type", result.contentType || "audio/mpeg");
+    res.setHeader("Content-Length", String(result.audio.length));
+    res.setHeader("X-Cache", "MISS");
+    res.setHeader("Cache-Control", "no-store");
+    return res.end(result.audio);
+  } catch (err) {
+    console.error("[TTS] handler exception:", err);
+    return res
+      .status(500)
+      .json({ data: null, error: err instanceof Error ? err.message : "internal" });
+  }
+});
+
 const masterDashboardModule: Module = {
   name: "master-dashboard",
   version: "0.1.0",
   description:
-    "Главная аналитическая dashboard — точка сбора всей статистики проекта + Second Brain export.",
+    "Главная аналитическая dashboard — точка сбора всей статистики проекта + Second Brain export + Yandex TTS «Муза доложит».",
   routes: { prefix: "admin/v304", router },
   publishes: [],
   onLoad: async (ctx) => {
     ctx.logger.info(
-      "master-dashboard online — GET /api/admin/v304/dashboard-summary, /brain-export, /click-stats (cache 60s)",
+      "master-dashboard online — GET /api/admin/v304/dashboard-summary, /brain-export, /click-stats, /briefing-text, POST /tts (cache 60s)",
     );
   },
   healthCheck: () => ({ status: "ok" }),
