@@ -330,9 +330,18 @@ export function CoverDetailsModal({
           </button>
         )}
 
+        {/* Eugene 2026-05-17 Босс «бутират свет вокруг обложки в фирменных
+            цветах пусть переливаются». Brand aura wrap — animated conic
+            gradient (purple→fuchsia→cyan→amber) + blur + spin + opacity pulse.
+            Обложка остаётся резкой внутри. */}
+        <div className="relative w-full">
+          <div
+            aria-hidden="true"
+            className="absolute -inset-4 sm:-inset-6 rounded-3xl opacity-80 blur-3xl pointer-events-none cover-aura"
+          />
         {/* Обложка с swipe-жестом */}
         <div
-          className="w-full aspect-square max-h-[85vh] rounded-3xl overflow-hidden bg-gradient-to-br from-[#1a0f2e] via-[#0a0a17] to-[#0f1830] shadow-[0_0_64px_rgba(124,58,237,0.25)] border border-purple-500/20 relative"
+          className="relative w-full aspect-square max-h-[85vh] rounded-3xl overflow-hidden bg-gradient-to-br from-[#1a0f2e] via-[#0a0a17] to-[#0f1830] shadow-[0_0_64px_rgba(124,58,237,0.25)] border border-purple-500/20"
           onClick={(e) => e.stopPropagation()}
         >
           <AnimatePresence mode="wait" initial={false}>
@@ -424,6 +433,7 @@ export function CoverDetailsModal({
               </div>
             </div>
           )}
+        </div>
         </div>
 
         {/* Eugene 2026-05-17 — controls bar (play/pause/skip/seek/volume/repeat).

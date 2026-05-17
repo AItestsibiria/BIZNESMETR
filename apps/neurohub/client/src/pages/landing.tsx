@@ -1403,9 +1403,18 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                 expand button). Кнопка ExpandToggleButton также скрыта на
                 mobile через `hidden md:flex` в её className. */}
             <div className={`flex gap-4 items-center ${coverExpanded ? "md:flex-col md:items-stretch" : ""}`}>
+              {/* Eugene 2026-05-17 Босс «бутират свет вокруг обложки в фирменных
+                  цветах пусть переливаются» — обёртка с animated brand aura
+                  (purple→fuchsia→cyan→amber conic gradient + blur + slow spin
+                  + pulse opacity). Обложка остаётся резкой внутри. */}
+              <div className={`relative shrink-0 ${coverExpanded ? "md:w-full md:aspect-square" : "w-20 h-20 sm:w-24 sm:h-24"}`}>
+                <div
+                  aria-hidden="true"
+                  className={`absolute -inset-2 rounded-2xl opacity-70 blur-2xl pointer-events-none cover-aura ${coverExpanded ? "md:-inset-3" : ""}`}
+                />
               <div
-                className={`relative shrink-0 bg-gradient-to-br from-purple-500/30 to-blue-500/30 flex items-center justify-center cursor-pointer shadow-lg shadow-purple-500/10 overflow-hidden transition-all duration-300 w-20 h-20 sm:w-24 sm:h-24 rounded-xl ${
-                  coverExpanded ? "md:w-full md:h-auto md:aspect-square md:rounded-2xl" : ""
+                className={`relative bg-gradient-to-br from-purple-500/30 to-blue-500/30 flex items-center justify-center cursor-pointer shadow-lg shadow-purple-500/10 overflow-hidden transition-all duration-300 w-full h-full rounded-xl ${
+                  coverExpanded ? "md:rounded-2xl" : ""
                 }`}
                 onClick={() => setExpandedId(expandedId === currentTrack.id ? null : currentTrack.id)}
               >
@@ -1424,6 +1433,19 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   onToggle={() => setCoverExpanded(v => !v)}
                   className="absolute top-2 right-2 z-10"
                 />
+              </div>
+              {/* Eugene 2026-05-17 Босс «S под обложку» — S-кнопка свайп-режима
+                  под обложкой, по центру. Bomb-цвет purple→fuchsia→cyan +
+                  pulse glow. */}
+              <button
+                className="mt-2 mx-auto block w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 via-fuchsia-500 to-cyan-400 hover:from-purple-400 hover:via-fuchsia-400 hover:to-cyan-300 flex items-center justify-center text-white font-display font-bold text-xl transition-all shadow-[0_0_28px_rgba(217,70,239,0.7)] hover:shadow-[0_0_44px_rgba(217,70,239,0.95)] hover:scale-110 active:scale-95 border border-fuchsia-300/50 animate-details-pulse"
+                title="Свайп-режим — листай ← → большие обложки"
+                aria-label="Свайп-режим"
+                onClick={() => setDetailsOpen(true)}
+                data-testid="btn-cover-s-under"
+              >
+                <span className="drop-shadow-[0_0_8px_rgba(255,255,255,0.9)] -translate-y-0.5">S</span>
+              </button>
               </div>
               {/* Info + controls */}
               <div className="flex-1 min-w-0">
@@ -1479,18 +1501,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                     onVolumeChange={setVolume}
                     className="w-[110px] sm:w-[140px]"
                   />
-                  {/* Eugene 2026-05-17 Босс «кнопка S свайп цвет Бомба» —
-                      компактная яркая S-кнопка справа от Repeat — открывает
-                      full-screen swipe modal с большой обложкой. */}
-                  <button
-                    className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 via-fuchsia-500 to-cyan-400 hover:from-purple-400 hover:via-fuchsia-400 hover:to-cyan-300 flex items-center justify-center text-white font-display font-bold text-lg transition-all shadow-[0_0_24px_rgba(217,70,239,0.6)] hover:shadow-[0_0_36px_rgba(217,70,239,0.85)] hover:scale-110 active:scale-95 border border-fuchsia-300/50 animate-details-pulse"
-                    title="Свайп-режим — листай ← → большие обложки"
-                    aria-label="Открыть свайп-режим"
-                    onClick={() => setDetailsOpen(true)}
-                    data-testid="btn-cover-details"
-                  >
-                    <span className="drop-shadow-[0_0_8px_rgba(255,255,255,0.9)]">S</span>
-                  </button>
+                  {/* Eugene 2026-05-17 — S-кнопка перенесена ПОД обложку
+                      (см. btn-cover-s-under выше). Здесь убрана чтобы не
+                      дублировать. */}
                   <button
                     className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors"
                     title="Скачать"
