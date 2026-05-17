@@ -5,7 +5,7 @@
 // ответе возвращается auditId, по которому можно откатить через
 // POST /api/admin/v304/audit/:id/restore. Это и видно на вкладке Audit.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -219,6 +219,7 @@ export default function AdminV304Page() {
           <TabsTrigger value="leads">Лиды</TabsTrigger>
           <TabsTrigger value="audit">Audit log</TabsTrigger>
           <TabsTrigger value="failures">⚠️ Проблемы</TabsTrigger>
+          <TabsTrigger value="dialogs">💬 Диалоги</TabsTrigger>
         </TabsList>
         <TabsContent value="overview"><OverviewTab toast={toast} /></TabsContent>
         <TabsContent value="friend">
@@ -241,6 +242,7 @@ export default function AdminV304Page() {
         <TabsContent value="leads"><LeadsTab toast={toast} /></TabsContent>
         <TabsContent value="audit"><AuditTab toast={toast} /></TabsContent>
         <TabsContent value="failures"><FailuresTab toast={toast} /></TabsContent>
+        <TabsContent value="dialogs"><DialogsTab toast={toast} /></TabsContent>
       </Tabs>
     </div>
   );
@@ -3269,6 +3271,393 @@ function FailuresTab({ toast: _t }: { toast: any }) {
           </CardContent>
         </Card>
       )}
+    </div>
+  );
+}
+
+// ============================================================
+// 💬 Диалоги — список chat-сессий бота по всем каналам + drawer.
+// Eugene 2026-05-17 Босс «архив и текущие диалоги по любому каналу».
+// ============================================================
+type DialogSession = {
+  id: string;
+  channel: string;
+  externalId: string | null;
+  userId: number | null;
+  userName: string | null;
+  userEmail: string | null;
+  userProfile: any | null;
+  personaName: string | null;
+  startedAt: string | null;
+  lastMessageAt: string | null;
+  messageCount: number;
+  lastUserMessage: string;
+  lastMessageRole: string | null;
+  isActive: boolean;
+};
+
+type DialogsResponse = {
+  sessions: DialogSession[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+  channel: string;
+  status: string;
+  generatedAt: string;
+};
+
+function dialogChannelIcon(ch: string): string {
+  return ({ web: "🌐", telegram: "📱", max: "💬", vk: "🔵", email: "✉️" } as Record<string, string>)[ch] || "•";
+}
+
+function dialogChannelLabel(ch: string): string {
+  return ({ web: "Web", telegram: "Telegram", max: "Max", vk: "VK", email: "Email" } as Record<string, string>)[ch] || ch;
+}
+
+function relativeTime(iso: string | null): string {
+  if (!iso) return "—";
+  try {
+    const ts = new Date(iso).getTime();
+    if (!Number.isFinite(ts)) return iso.slice(0, 16);
+    const diff = Date.now() - ts;
+    const m = Math.round(diff / 60000);
+    if (m < 1) return "только что";
+    if (m < 60) return `${m} мин назад`;
+    const h = Math.round(m / 60);
+    if (h < 24) return `${h} ч назад`;
+    const d = Math.round(h / 24);
+    if (d === 1) return "вчера";
+    if (d < 7) return `${d} дн назад`;
+    return new Date(iso).toLocaleDateString("ru-RU", { day: "2-digit", month: "short", year: d > 365 ? "2-digit" : undefined });
+  } catch {
+    return iso.slice(0, 16);
+  }
+}
+
+function DialogsTab({ toast }: { toast: any }) {
+  const [channel, setChannel] = useState<"all" | "web" | "telegram" | "max">("all");
+  const [status, setStatus] = useState<"all" | "active" | "archive">("all");
+  const [q, setQ] = useState("");
+  const [qDebounced, setQDebounced] = useState("");
+  const [accumulated, setAccumulated] = useState<DialogSession[]>([]);
+  const [offset, setOffset] = useState(0);
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  // Debounce search 300ms.
+  useEffect(() => {
+    const id = setTimeout(() => setQDebounced(q), 300);
+    return () => clearTimeout(id);
+  }, [q]);
+
+  // Reset pagination/accumulated при смене фильтра.
+  const filterKey = `${channel}|${status}|${qDebounced}`;
+  useEffect(() => {
+    setOffset(0);
+    setAccumulated([]);
+  }, [filterKey]);
+
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["admin-dialogs", channel, status, qDebounced, offset],
+    queryFn: () => {
+      const p = new URLSearchParams();
+      p.set("channel", channel);
+      p.set("status", status);
+      if (qDebounced.trim()) p.set("q", qDebounced.trim());
+      p.set("limit", "50");
+      p.set("offset", String(offset));
+      return fetcher<DialogsResponse>(`/api/admin/v304/conversations?${p.toString()}`);
+    },
+    // Polling: каждые 10 сек только когда status=active (live updates).
+    refetchInterval: status === "active" ? 10_000 : false,
+  });
+
+  // Merge new page into accumulated (loadMore). offset=0 — base; offset>0 — append.
+  useEffect(() => {
+    if (!data?.sessions) return;
+    if (offset === 0) {
+      setAccumulated(data.sessions);
+    } else {
+      setAccumulated((prev) => {
+        // Идемпотентно: только если новая страница ещё не присоединена.
+        if (prev.length >= offset + data.sessions.length) return prev;
+        return [...prev.slice(0, offset), ...data.sessions];
+      });
+    }
+  }, [data, offset]);
+  const sessions: DialogSession[] = accumulated;
+
+  const total = data?.total || 0;
+  const hasMore = data?.hasMore || false;
+
+  const counts = {
+    total,
+    active: status === "active" ? total : undefined,
+    archive: status === "archive" ? total : undefined,
+  };
+
+  const CHANNEL_OPTS: Array<{ key: "all" | "web" | "telegram" | "max"; label: string }> = [
+    { key: "all", label: "Все" },
+    { key: "web", label: "🌐 Web" },
+    { key: "telegram", label: "📱 Telegram" },
+    { key: "max", label: "💬 Max" },
+  ];
+  const STATUS_OPTS: Array<{ key: "all" | "active" | "archive"; label: string }> = [
+    { key: "all", label: "Все" },
+    { key: "active", label: "🟢 Активные" },
+    { key: "archive", label: "📁 Архив" },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-3 flex-wrap">
+            <span>💬 Диалоги бота — все каналы</span>
+            <span className="text-xs text-muted-foreground font-normal">
+              всего: <b>{counts.total}</b>
+              {status === "active" && counts.active !== undefined && <> · активных: <b className="text-green-400">{counts.active}</b></>}
+              {status === "archive" && counts.archive !== undefined && <> · в архиве: <b>{counts.archive}</b></>}
+              {status === "active" && <> · polling 10s</>}
+            </span>
+          </CardTitle>
+          <p className="text-xs text-muted-foreground mt-1">
+            Web · Telegram · Max — список chat-сессий с превью последнего сообщения. Клик → открыть переписку и ответить от лица Музы.
+          </p>
+        </CardHeader>
+        <CardContent>
+          {/* Filters bar */}
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            <div className="flex flex-wrap items-center gap-1">
+              {CHANNEL_OPTS.map((o) => (
+                <button
+                  key={o.key}
+                  onClick={() => setChannel(o.key)}
+                  data-testid={`btn-dialogs-channel-${o.key}`}
+                  className={`text-xs px-3 py-1 rounded-md transition-colors ${channel === o.key ? "bg-primary text-primary-foreground" : "bg-white/5 hover:bg-white/10"}`}
+                >{o.label}</button>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-1 sm:ml-2">
+              {STATUS_OPTS.map((o) => (
+                <button
+                  key={o.key}
+                  onClick={() => setStatus(o.key)}
+                  data-testid={`btn-dialogs-status-${o.key}`}
+                  className={`text-xs px-3 py-1 rounded-md transition-colors ${status === o.key ? "bg-emerald-600/40 text-white border border-emerald-500/40" : "bg-white/5 hover:bg-white/10"}`}
+                >{o.label}</button>
+              ))}
+            </div>
+            <Input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="По имени, ID, externalId…"
+              className="text-xs h-8 max-w-[260px] flex-1 min-w-[180px]"
+              data-testid="input-dialogs-search"
+            />
+            <button
+              onClick={() => refetch()}
+              className="text-xs px-3 py-1 rounded-md bg-white/5 hover:bg-white/10 ml-auto"
+              data-testid="btn-dialogs-refresh"
+            >🔄 Обновить</button>
+          </div>
+
+          {isLoading && sessions.length === 0 ? (
+            <div className="text-xs text-white/40 py-8 text-center">Загружаю…</div>
+          ) : null}
+
+          {!isLoading && sessions.length === 0 && (
+            <div className="text-center py-8 text-muted-foreground text-sm">
+              Ничего не найдено{q ? ` по запросу «${q}»` : ""}.
+            </div>
+          )}
+
+          {sessions.length > 0 && (
+            <div className="space-y-1.5">
+              {sessions.map((s) => (
+                <button
+                  key={s.id}
+                  onClick={() => setOpenId(s.id)}
+                  data-testid={`row-dialog-${s.id}`}
+                  className="w-full text-left flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 px-3 py-2 rounded-lg bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.04] hover:border-white/[0.10] transition-colors"
+                >
+                  <div className="flex items-center gap-2 min-w-0 sm:w-56 shrink-0">
+                    <span className="text-base shrink-0" title={dialogChannelLabel(s.channel)}>{dialogChannelIcon(s.channel)}</span>
+                    {s.isActive && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" title="Активен (24ч)" />}
+                    <div className="min-w-0">
+                      <div className="text-[13px] text-white/90 truncate">
+                        {s.userName || (s.userId ? `user #${s.userId}` : (s.externalId ? `ext:${s.externalId}` : "Аноним"))}
+                      </div>
+                      <div className="text-[10px] text-white/40 truncate font-mono">
+                        {s.userId ? `id:${s.userId}` : null}
+                        {s.userId && s.externalId ? " · " : null}
+                        {s.externalId ? `${dialogChannelLabel(s.channel)}:${s.externalId}` : null}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0 text-[12px] text-white/60 italic truncate">
+                    {s.lastMessageRole === "bot" ? <span className="text-purple-300/70 not-italic">🎀 </span> : null}
+                    {s.lastUserMessage || <span className="text-white/30">— нет сообщений —</span>}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/[0.04] text-white/60 tabular-nums" title="Сообщений в сессии">
+                      💬 {s.messageCount}
+                    </span>
+                    <span className="text-[10px] text-white/40 tabular-nums whitespace-nowrap min-w-[80px] text-right">
+                      {relativeTime(s.lastMessageAt)}
+                    </span>
+                  </div>
+                </button>
+              ))}
+              {hasMore && (
+                <div className="pt-2 text-center">
+                  <button
+                    onClick={() => setOffset(offset + 50)}
+                    data-testid="btn-dialogs-load-more"
+                    className="text-xs px-4 py-1.5 rounded-md bg-white/5 hover:bg-white/10"
+                  >Загрузить ещё ({total - sessions.length} осталось)</button>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {openId && (
+        <ConversationDrawer
+          sessionId={openId}
+          onClose={() => setOpenId(null)}
+          toast={toast}
+        />
+      )}
+    </div>
+  );
+}
+
+// Drawer (полноэкранный modal на мобайле, sidebar справа на desktop).
+function ConversationDrawer({ sessionId, onClose, toast }: { sessionId: string; onClose: () => void; toast: any }) {
+  const [replyText, setReplyText] = useState("");
+
+  const { data, isLoading, refetch } = useQuery<any>({
+    queryKey: ["admin-conversation-detail", sessionId],
+    queryFn: async () => {
+      // Этот endpoint возвращает {ok, user, sessions, messages, handoffs}, без data-envelope.
+      const r = await fetch(`/api/admin/v304/conversations/${encodeURIComponent(sessionId)}`, { credentials: "include" });
+      if (!r.ok) throw new Error(`${r.status}`);
+      return r.json();
+    },
+    refetchInterval: 10_000,
+  });
+
+  const injectMutation = useMutation({
+    mutationFn: async (text: string) => {
+      const r = await apiRequest("POST", `/api/admin/v304/conversations/${encodeURIComponent(sessionId)}/inject-message`, { text });
+      return r.json();
+    },
+    onSuccess: (j: any) => {
+      setReplyText("");
+      const delivered = j?.delivered || "—";
+      const note = delivered === "telegram" ? "Отправлено в Telegram" :
+                   delivered === "max"      ? "Отправлено в Max" :
+                   delivered === "db_only"  ? "Сохранено (Web — юзер увидит при следующем poll)" :
+                                              `Не доставлено: ${j?.deliveryError || "?"}`;
+      toast({ title: "Сообщение отправлено", description: note });
+      refetch();
+    },
+    onError: (e: any) => toast({ title: "Ошибка отправки", description: String(e?.message || e), variant: "destructive" }),
+  });
+
+  const user = data?.user;
+  const sessions = (data?.sessions || []) as any[];
+  const messages = (data?.messages || []) as any[];
+  const firstSession = sessions[0] || {};
+  const channel = String(firstSession.channel || "");
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-stretch justify-end"
+      onClick={onClose}
+    >
+      <div
+        className="w-full sm:max-w-2xl bg-background border-l border-border shadow-2xl flex flex-col h-full"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="px-4 py-3 border-b border-border flex items-center gap-3 shrink-0">
+          <button onClick={onClose} className="text-xl text-muted-foreground hover:text-foreground" data-testid="btn-conv-close">✕</button>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-white flex items-center gap-2">
+              <span>{dialogChannelIcon(channel)}</span>
+              <span className="truncate">{user?.name || (user?.id ? `user #${user.id}` : "Аноним")}</span>
+              {firstSession.personaName && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30 shrink-0">
+                  🎀 {firstSession.personaName}
+                </span>
+              )}
+            </div>
+            <div className="text-[10px] text-muted-foreground font-mono truncate">
+              {sessionId}
+              {sessions.length > 1 && <> · {sessions.length} сессий cross-channel</>}
+            </div>
+          </div>
+        </div>
+
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2" data-testid="list-conv-messages">
+          {isLoading && <div className="text-xs text-white/40 text-center py-4">Загружаю…</div>}
+          {messages.length === 0 && !isLoading && (
+            <div className="text-xs text-white/40 text-center py-4">Сообщений пока нет.</div>
+          )}
+          {messages.map((m: any, i: number) => {
+            const isUser = m.sender === "user";
+            return (
+              <div key={i} className={`flex ${isUser ? "justify-start" : "justify-end"}`}>
+                <div className={`max-w-[85%] rounded-2xl px-3 py-2 ${isUser
+                  ? "bg-white/[0.06] text-white/90"
+                  : "bg-purple-500/15 text-purple-100 border border-purple-500/20"}`}>
+                  <div className="text-[10px] text-white/40 mb-0.5 flex items-center gap-1.5">
+                    <span>{isUser ? "👤" : "🎀"}</span>
+                    {m.channel && m.channel !== channel && <span title="Из другого канала">[{dialogChannelLabel(m.channel)}]</span>}
+                    <span>{relativeTime(m.createdAt)}</span>
+                  </div>
+                  <div className="text-[13px] whitespace-pre-wrap break-words">{m.text}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Reply box */}
+        <div className="border-t border-border px-4 py-3 shrink-0 bg-background/95">
+          <div className="text-[10px] text-muted-foreground mb-1 flex items-center justify-between">
+            <span>Отправить от лица Музы 🎀 ({dialogChannelLabel(channel)})</span>
+            <span>{replyText.length}/4000</span>
+          </div>
+          <Textarea
+            value={replyText}
+            onChange={(e) => setReplyText(e.target.value.slice(0, 4000))}
+            placeholder="Напиши ответ от лица Музы…"
+            className="text-sm min-h-[60px] mb-2"
+            data-testid="textarea-conv-reply"
+          />
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onClose}
+              data-testid="btn-conv-cancel"
+            >Закрыть</Button>
+            <Button
+              size="sm"
+              onClick={() => injectMutation.mutate(replyText.trim())}
+              disabled={injectMutation.isPending || replyText.trim().length === 0}
+              data-testid="btn-conv-send"
+            >
+              {injectMutation.isPending ? "Отправляю…" : "Отправить →"}
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
