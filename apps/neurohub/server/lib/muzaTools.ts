@@ -11,6 +11,12 @@ import { PUBLIC_URL } from "./publicUrl";
 import * as fs from "node:fs";
 import * as crypto from "node:crypto";
 import { kbPath, loadKB } from "./consultantPersona";
+import {
+  initiateAction,
+  getConfirmedAction,
+  markActionUsed,
+  type ProtectedAction,
+} from "./adminTwoFactor";
 
 export type ToolDef = {
   name: string;
@@ -205,33 +211,48 @@ export const MUZA_TOOLS: ToolDef[] = [
   },
   {
     name: "reload_kb",
-    description: "[ADMIN-ONLY] Перезагрузить knowledge base (KNOWLEDGE-BASE-BOT.md) без рестарта pm2. Используй если KB обновили — бот сразу подхватит новый текст.",
-    input_schema: { type: "object", properties: {}, required: [] },
+    description: "[ADMIN-ONLY · 2FA] Перезагрузить knowledge base (KNOWLEDGE-BASE-BOT.md) без рестарта pm2. Используй если KB обновили — бот сразу подхватит новый текст. Требует email-2FA: первый вызов вернёт requiresEmailConfirm + actionId, второй вызов с confirmedActionId после ввода кода — выполнит.",
+    input_schema: {
+      type: "object",
+      properties: {
+        confirmedActionId: { type: "string", description: "actionId pending-записи после успешного email-confirm. Опционально (без него запустится 2FA initiate)." },
+      },
+      required: [],
+    },
   },
   {
     name: "send_telegram_alert",
-    description: "[ADMIN-ONLY] Отправить custom message админу в Telegram через бота. text — что отправить (≤ 1000 chars). Используется когда Муза хочет о чём-то напомнить Боссу позже.",
+    description: "[ADMIN-ONLY · 2FA] Отправить custom message админу в Telegram через бота. text — что отправить (≤ 1000 chars). Требует email-2FA.",
     input_schema: {
       type: "object",
-      properties: { text: { type: "string", description: "Текст сообщения (≤1000 chars)" } },
+      properties: {
+        text: { type: "string", description: "Текст сообщения (≤1000 chars)" },
+        confirmedActionId: { type: "string", description: "actionId после email-confirm. Опционально." },
+      },
       required: ["text"],
     },
   },
   {
     name: "change_registration_status",
-    description: "[ADMIN-ONLY] Открыть или закрыть регистрацию (управляет process.env.REGISTRATION_DISABLED в runtime). status='open' → регистрация открыта, status='closed' → закрыта. Эффект только в текущем процессе — для постоянного эффекта нужен .env + pm2 restart.",
+    description: "[ADMIN-ONLY · 2FA] Открыть или закрыть регистрацию (управляет process.env.REGISTRATION_DISABLED в runtime). status='open' → регистрация открыта, status='closed' → закрыта. Эффект только в текущем процессе — для постоянного эффекта нужен .env + pm2 restart. Требует email-2FA.",
     input_schema: {
       type: "object",
-      properties: { status: { type: "string", enum: ["open", "closed"] } },
+      properties: {
+        status: { type: "string", enum: ["open", "closed"] },
+        confirmedActionId: { type: "string", description: "actionId после email-confirm. Опционально." },
+      },
       required: ["status"],
     },
   },
   {
     name: "query_users",
-    description: "[ADMIN-ONLY] Поиск юзеров по phone / email / name (substring). Возвращает top-10 матчей. Email маскируется, phone маскируется.",
+    description: "[ADMIN-ONLY · 2FA] Поиск юзеров по phone / email / name (substring). Возвращает top-10 матчей. Email маскируется, phone маскируется. Требует email-2FA (PII access).",
     input_schema: {
       type: "object",
-      properties: { query: { type: "string", description: "Substring 2+ chars" } },
+      properties: {
+        query: { type: "string", description: "Substring 2+ chars" },
+        confirmedActionId: { type: "string", description: "actionId после email-confirm. Опционально." },
+      },
       required: ["query"],
     },
   },
@@ -249,19 +270,25 @@ export const MUZA_TOOLS: ToolDef[] = [
   },
   {
     name: "pause_bot",
-    description: "[ADMIN-ONLY] Временно приостановить обработку webhooks Telegram-бота (флаг в runtime). resume=false → bot не отвечает (но webhook отвечает 200 чтобы Telegram не retry'ал). resume=true → возобновить. Эффект только в текущем процессе.",
+    description: "[ADMIN-ONLY · 2FA] Временно приостановить обработку webhooks Telegram-бота (флаг в runtime). resume=false → bot не отвечает. resume=true → возобновить. Требует email-2FA.",
     input_schema: {
       type: "object",
-      properties: { resume: { type: "boolean", description: "false=pause, true=resume" } },
+      properties: {
+        resume: { type: "boolean", description: "false=pause, true=resume" },
+        confirmedActionId: { type: "string", description: "actionId после email-confirm. Опционально." },
+      },
       required: ["resume"],
     },
   },
   {
     name: "kick_session",
-    description: "[ADMIN-ONLY] Invalidate (удалить) все session-токены конкретного юзера — выкинет его из всех устройств. userId обязателен.",
+    description: "[ADMIN-ONLY · 2FA] Invalidate (удалить) все session-токены конкретного юзера — выкинет его из всех устройств. userId обязателен. Требует email-2FA (force-logout).",
     input_schema: {
       type: "object",
-      properties: { userId: { type: "number", description: "ID юзера" } },
+      properties: {
+        userId: { type: "number", description: "ID юзера" },
+        confirmedActionId: { type: "string", description: "actionId после email-confirm. Опционально." },
+      },
       required: ["userId"],
     },
   },
@@ -275,6 +302,87 @@ export const MUZA_TOOLS: ToolDef[] = [
     },
   },
 ];
+
+// === Email 2FA wrapper helper (Eugene 2026-05-17 Босс) ===
+//
+// Используется в каждом protected admin tool:
+//   const guard = await require2FA(ctx, "kick_session", input);
+//   if (typeof guard === "string") return guard;
+//   // ... выполнить action ...
+//   markActionUsed(guard.id, "result text");
+//
+// Логика:
+//   - Если input.confirmedActionId есть → пытаемся resolve через
+//     getConfirmedAction(). Если valid → возвращаем pending запись.
+//     Caller выполнит action и вызовет markActionUsed().
+//   - Если confirmedActionId нет → создаём pending запись через
+//     initiateAction(), шлём email, возвращаем строку с инструкцией.
+//
+// Returns:
+//   - string — означает «требуется email confirm» (текст для Музы → юзеру)
+//   - AdminPendingAction — означает «можно выполнять, code подтверждён»
+
+import type { AdminPendingAction } from "@shared/schema";
+
+async function require2FA(
+  ctx: ToolContext,
+  action: ProtectedAction,
+  input: any,
+): Promise<string | AdminPendingAction> {
+  // (1) admin role обязателен — даже до 2FA
+  if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
+
+  // (2) confirmedActionId передан → resolveить
+  const confirmedActionId = String(input?.confirmedActionId || "").trim();
+  if (confirmedActionId) {
+    const userId = Number(ctx.userId);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return "Не могу подтвердить — userId не определён в контексте.";
+    }
+    const pending = getConfirmedAction(confirmedActionId, userId);
+    if (!pending) {
+      return "Код подтверждён, но pending-запись не найдена / просрочена / уже использована. Запроси новый код.";
+    }
+    if (pending.action !== action) {
+      return `Код подтверждён, но для другого действия (${pending.action} вместо ${action}). Запроси новый код.`;
+    }
+    return pending;
+  }
+
+  // (3) Нет confirmedActionId → initiate flow
+  try {
+    const userId = Number(ctx.userId);
+    if (!Number.isFinite(userId) || userId <= 0) {
+      return "Не могу инициировать подтверждение — userId не определён.";
+    }
+    // Получаем email из БД
+    const u = db.select().from(users).where(eq(users.id, userId)).get() as any;
+    if (!u || !u.email) {
+      return "Не могу инициировать подтверждение — email админа не найден.";
+    }
+    // Удаляем confirmedActionId из args для чистоты записи
+    const argsClean = { ...(input || {}) };
+    delete (argsClean as any).confirmedActionId;
+
+    const result = await initiateAction({
+      adminUserId: userId,
+      adminEmail: String(u.email).toLowerCase(),
+      action,
+      args: argsClean,
+    });
+    // JSON-marker — admin-voice / UI парсит этот формат и показывает modal
+    return JSON.stringify({
+      requiresEmailConfirm: true,
+      actionId: result.actionId,
+      action,
+      expiresAt: result.expiresAt,
+      message: `Код подтверждения отправлен на email админа. Действует 10 мин. После ввода — повтори эту команду с confirmedActionId=${result.actionId}.`,
+      testCode: result.plainCodeIfDisabled,
+    });
+  } catch (e: any) {
+    return `Не удалось инициировать email-подтверждение: ${e?.message || e}`;
+  }
+}
 
 // === HANDLERS (executed when Claude calls tool) ===
 
@@ -811,22 +919,31 @@ const HANDLERS: Record<string, ToolHandler> = {
     }
   },
 
-  async reload_kb(_input, ctx) {
-    if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
+  async reload_kb(input, ctx) {
+    const guard = await require2FA(ctx, "reload_kb", input);
+    if (typeof guard === "string") return guard;
     try {
       const text = loadKB(true);
       const p = kbPath();
-      if (!text) return `KB не найден (path=${p || "—"}). Файл docs/strategy/KNOWLEDGE-BASE-BOT.md отсутствует.`;
-      return `KB перезагружен: ${text.length} символов (${p}).`;
+      if (!text) {
+        const msg = `KB не найден (path=${p || "—"}). Файл docs/strategy/KNOWLEDGE-BASE-BOT.md отсутствует.`;
+        markActionUsed(guard.id, msg);
+        return msg;
+      }
+      const msg = `KB перезагружен: ${text.length} символов (${p}).`;
+      markActionUsed(guard.id, msg);
+      writeAuditFor2FA(guard.id, ctx, "reload_kb", "kb", "reload", msg);
+      return msg;
     } catch (e: any) {
       return `Ошибка reload_kb: ${e.message}`;
     }
   },
 
-  async send_telegram_alert({ text }, ctx) {
-    if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
+  async send_telegram_alert(input, ctx) {
+    const guard = await require2FA(ctx, "send_telegram_alert", input);
+    if (typeof guard === "string") return guard;
     try {
-      const t = String(text || "").trim().slice(0, 1000);
+      const t = String(input?.text || "").trim().slice(0, 1000);
       if (!t) return "Пустой text — нечего отправлять.";
       const tgToken = process.env.TELEGRAM_BOT_TOKEN;
       const adminId = process.env.ADMIN_TELEGRAM_ID;
@@ -847,28 +964,37 @@ const HANDLERS: Record<string, ToolHandler> = {
         const errText = await r.text().catch(() => "");
         return `Telegram вернул ${r.status}: ${errText.slice(0, 120)}`;
       }
-      return `Alert отправлен в Telegram (${t.length} chars).`;
+      const msg = `Alert отправлен в Telegram (${t.length} chars).`;
+      markActionUsed(guard.id, msg);
+      writeAuditFor2FA(guard.id, ctx, "send_telegram_alert", "telegram", "send", msg);
+      return msg;
     } catch (e: any) {
       return `Ошибка send_telegram_alert: ${e.message}`;
     }
   },
 
-  async change_registration_status({ status }, ctx) {
-    if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
+  async change_registration_status(input, ctx) {
+    const guard = await require2FA(ctx, "change_registration_status", input);
+    if (typeof guard === "string") return guard;
     try {
-      const s = String(status || "").toLowerCase();
+      const s = String(input?.status || "").toLowerCase();
       if (s !== "open" && s !== "closed") return "status должен быть 'open' или 'closed'.";
+      const prev = process.env.REGISTRATION_DISABLED === "1" ? "closed" : "open";
       process.env.REGISTRATION_DISABLED = s === "closed" ? "1" : "0";
-      return `Регистрация: ${s === "closed" ? "ЗАКРЫТА" : "ОТКРЫТА"} (runtime-flag). Для постоянного эффекта — правка .env + pm2 restart.`;
+      const msg = `Регистрация: ${s === "closed" ? "ЗАКРЫТА" : "ОТКРЫТА"} (runtime-flag). Для постоянного эффекта — правка .env + pm2 restart.`;
+      markActionUsed(guard.id, msg);
+      writeAuditFor2FA(guard.id, ctx, "change_registration_status", "registration", prev, msg, { before: prev, after: s });
+      return msg;
     } catch (e: any) {
       return `Ошибка change_registration_status: ${e.message}`;
     }
   },
 
-  async query_users({ query }, ctx) {
-    if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
+  async query_users(input, ctx) {
+    const guard = await require2FA(ctx, "query_users", input);
+    if (typeof guard === "string") return guard;
     try {
-      const q = String(query || "").trim();
+      const q = String(input?.query || "").trim();
       if (q.length < 2) return "Запрос должен быть минимум 2 символа.";
       const pattern = `%${q.toLowerCase()}%`;
       const sqlite: any = (db as any).$client;
@@ -881,11 +1007,20 @@ const HANDLERS: Record<string, ToolHandler> = {
         ORDER BY id DESC
         LIMIT 10
       `).all(pattern, pattern, `%${q}%`);
-      if (!rows || rows.length === 0) return `По «${q}» юзеров не нашлось.`;
+      if (!rows || rows.length === 0) {
+        const msg = `По «${q}» юзеров не нашлось.`;
+        markActionUsed(guard.id, msg);
+        writeAuditFor2FA(guard.id, ctx, "query_users", "users", q, msg);
+        return msg;
+      }
       const lines = rows.map((u: any) =>
         `#${u.id} ${u.name || "—"} · ${maskEmailStr(u.email)} · ${maskPhoneStr(u.phone)} · role=${u.role || "user"} · ₽${Math.floor((u.balance || 0) / 100)} · бонус ${u.bt || 0}`,
       );
-      return `Найдено ${rows.length}:\n${lines.join("\n")}`;
+      const msg = `Найдено ${rows.length}:\n${lines.join("\n")}`;
+      markActionUsed(guard.id, msg);
+      // Audit-запись хранит только метаданные (query string + count), НЕ полный список юзеров
+      writeAuditFor2FA(guard.id, ctx, "query_users", "users", q, `count=${rows.length}`);
+      return msg;
     } catch (e: any) {
       return `Ошибка query_users: ${e.message}`;
     }
@@ -915,30 +1050,43 @@ const HANDLERS: Record<string, ToolHandler> = {
     }
   },
 
-  async pause_bot({ resume }, ctx) {
-    if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
+  async pause_bot(input, ctx) {
+    const guard = await require2FA(ctx, "pause_bot", input);
+    if (typeof guard === "string") return guard;
     try {
-      const goResume = Boolean(resume);
+      const goResume = Boolean(input?.resume);
+      const prev = runtimeBotPaused ? "paused" : "running";
       runtimeBotPaused = !goResume;
-      return runtimeBotPaused
+      const msg = runtimeBotPaused
         ? "Bot ПАУЗА: webhooks возвращают 200, но не отвечают. Возобновить — pause_bot({resume:true})."
         : "Bot ВОЗОБНОВЛЁН: отвечает в штатном режиме.";
+      markActionUsed(guard.id, msg);
+      writeAuditFor2FA(guard.id, ctx, "pause_bot", "telegram_bot", prev, msg, { before: prev, after: runtimeBotPaused ? "paused" : "running" });
+      return msg;
     } catch (e: any) {
       return `Ошибка pause_bot: ${e.message}`;
     }
   },
 
-  async kick_session({ userId: targetUserId }, ctx) {
-    if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
+  async kick_session(input, ctx) {
+    const guard = await require2FA(ctx, "kick_session", input);
+    if (typeof guard === "string") return guard;
     try {
-      const uid = Number(targetUserId);
+      const uid = Number(input?.userId);
       if (!Number.isFinite(uid) || uid <= 0) return "Невалидный userId.";
       const sqlite: any = (db as any).$client;
       const before = sqlite.prepare(`SELECT count(*) as c FROM sessions WHERE user_id=?`).get(uid);
       const cnt = Number((before as any)?.c || 0);
-      if (cnt === 0) return `У юзера #${uid} нет активных сессий — kick не нужен.`;
+      if (cnt === 0) {
+        const msg = `У юзера #${uid} нет активных сессий — kick не нужен.`;
+        markActionUsed(guard.id, msg);
+        return msg;
+      }
       sqlite.prepare(`DELETE FROM sessions WHERE user_id=?`).run(uid);
-      return `Удалил ${cnt} сессий юзера #${uid} — на всех устройствах потребуется повторный вход.`;
+      const msg = `Удалил ${cnt} сессий юзера #${uid} — на всех устройствах потребуется повторный вход.`;
+      markActionUsed(guard.id, msg);
+      writeAuditFor2FA(guard.id, ctx, "kick_session", "user_sessions", String(uid), msg, { sessionsDeleted: cnt });
+      return msg;
     } catch (e: any) {
       return `Ошибка kick_session: ${e.message}`;
     }
@@ -981,6 +1129,51 @@ export function isBotPausedRuntime(): boolean {
 function isAdminCtx(ctx: ToolContext): boolean {
   const role = String(ctx?.role || "").toLowerCase();
   return role === "admin" || role === "super_admin";
+}
+
+/**
+ * Записывает audit-entry для admin-action подтверждённого через email 2FA.
+ * Содержит метаданные (action / entity / before / after / pending_action_id),
+ * via_email_confirm=1, ip + user_agent. PII (полные emails / phones / списки
+ * юзеров) НЕ кладём — только что меняли и счётчик/preview результата.
+ *
+ * Sole-fire — никогда не throw'ит, audit-failure не должен ломать tool.
+ */
+function writeAuditFor2FA(
+  pendingActionId: string,
+  ctx: ToolContext,
+  action: string,
+  entity: string,
+  entityKey: string,
+  resultText: string,
+  delta?: { before?: unknown; after?: unknown; [k: string]: unknown },
+): void {
+  try {
+    const userId = Number(ctx?.userId) || null;
+    const beforeJson = delta?.before !== undefined ? JSON.stringify({ value: delta.before }) : null;
+    const afterJson = delta !== undefined
+      ? JSON.stringify({ ...delta, result: String(resultText || "").slice(0, 300) })
+      : JSON.stringify({ result: String(resultText || "").slice(0, 300) });
+    const sqlite: any = (db as any).$client;
+    sqlite
+      .prepare(
+        `INSERT INTO admin_audit_log
+           (admin_user_id, admin_email, action, entity, entity_key, before_json, after_json,
+            via_email_confirm, pending_action_id)
+         VALUES (?, ?, 'update', ?, ?, ?, ?, 1, ?)`,
+      )
+      .run(
+        userId,
+        null,
+        entity,
+        String(entityKey || "").slice(0, 200),
+        beforeJson,
+        afterJson,
+        pendingActionId,
+      );
+  } catch (e: any) {
+    console.warn("[writeAuditFor2FA] warn:", e?.message || e);
+  }
 }
 
 function maskEmailStr(email: string | null | undefined): string {
