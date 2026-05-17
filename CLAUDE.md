@@ -623,6 +623,34 @@ Audit-сценарий перед коммитом UI-фичи:
 - `apps/neurohub/client/src/pages/landing.tsx` hero (h1 с gradient span + font-display)
 - `apps/neurohub/client/src/index.css` — все brand utilities (`.glass-card`, `.btn-cosmic`, `.gradient-text`, и т.д.)
 
+#### Hi-tech accents (Eugene 2026-05-17)
+
+Поверх базовой brand-палитры добавлены **subtle cyber/sci-fi-эффекты** для hi-tech ощущения. Все CSS-only (mobile-first, никакого JS particle system), reduced-motion-safe.
+
+| Utility | Эффект | Где применять |
+|---|---|---|
+| `.scan-line` | Animated horizontal scan-полоса (cyan) сверху вниз каждые 4 сек | Hero sections, status panels, live-индикаторы |
+| `.neon-text` | Neon glow поверх `currentColor` (text-shadow 8px+16px) | Hi-tech title-акценты поверх `gradient-text` |
+| `.animated-border` | Вращающийся 4-цветный gradient (purple/cyan/amber/magenta), 8 сек цикл, padding-wrapper для inner content | Карточки требующие attention (status / live / featured) |
+| `.holographic` | Голографический shimmer фон (3 brand-color layers), 12 сек цикл, backdrop-blur | Modal overlays, featured cards, swipe-modals |
+| `.cyber-grid` | Subtle 32×32px hi-tech сетка (purple+cyan, 4% opacity) | Admin dashboards, technical panels |
+| `.particle-bg` | 2 floating CSS particles (purple+cyan) — 6-7 сек циклы | Вокруг ключевых CTA, FAB-кнопок в idle |
+| `.hud-frame` | Sci-fi corner brackets (требует `<div className="hud-bl">` + `hud-br` детей для нижних углов) | Технические панели, status widgets |
+
+Правила использования:
+1. **Subtle, не overkill.** Один utility на блок — не комбинируем 3+ эффекта на одном элементе.
+2. **Mobile-first.** Все эффекты тестированы на iPhone Safari. Не использовать на mobile если эффект тяжёлый (например `cyber-grid` на полноэкранных body — OK; `animated-border` на сотне item-карточек — нет).
+3. **Performance.** Никаких JS particle systems. CSS-only. Anim'ы используют `transform` / `opacity` / `background-position` — composited layers.
+4. **Reduced motion.** Все шевелящиеся утилиты автоматически отключаются через `@media (prefers-reduced-motion: reduce)`.
+5. **Reuse brand colors.** Только из палитры (#7C3AED / #00D4FF / #FBBF24 / #FF006E). Не вводить новые hex.
+
+Применено в проекте (2026-05-17):
+- `pages/admin/master-dashboard-tab.tsx` — `cyber-grid` фон + `animated-border` на status cards
+- `components/cover-details-modal.tsx` — `holographic` overlay + `neon-text` на title
+- `components/musa-voice-fab.tsx` — `particle-bg` вокруг кнопки в idle
+- `pages/landing.tsx` hero — `scan-line` overlay + `neon-text` на «MuzaAi»
+- `pages/login-phone.tsx` / `register-phone.tsx` — `holographic` + `cyber-grid` фон
+
 ### Triumph-tag rule (Eugene 2026-05-10)
 
 **Когда Eugene говорит «Триумф» / «Победа» / «Сохрани редакцию» с ракетами 🚀 — создаю git tag формата `triumph-DDMMYY` на текущем HEAD с описанием что вошло.**
