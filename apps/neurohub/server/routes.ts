@@ -6629,14 +6629,19 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     if (typeof elapsedRaw === "number" && elapsedRaw < 5) {
       return { count: false, reason: "too-short" };
     }
-    // 5. Dedup по (gen_id, IP, hour). 1 play от IP в час максимум.
+    // 5. Dedup по (gen_id, IP, window). Раньше было 60 мин — но мобильные
+    //    операторы РФ (MTS/Beeline/Megafon) выдают один IP тысячам юзеров
+    //    через NAT → после первого плея блокировались ВСЕ остальные с того
+    //    же IP час. Eugene 2026-05-17 (Босс «1% conversion plays/visits»):
+    //    окно сжато 60 → 10 мин — сохраняется защита от накруток
+    //    (быстро рефрешить нельзя), но NAT-юзеры теперь засчитываются.
     try {
       const ip = String(req.ip || req.headers["x-forwarded-for"] || "").split(",")[0].trim();
       if (ip) {
-        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+        const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
         const recent = db.get<{ c: number }>(sql`
           SELECT COUNT(*) as c FROM gen_activity
-          WHERE gen_id = ${gen.id} AND action = 'play' AND ip = ${ip} AND created_at >= ${oneHourAgo}
+          WHERE gen_id = ${gen.id} AND action = 'play' AND ip = ${ip} AND created_at >= ${tenMinAgo}
         `);
         if ((recent?.c || 0) > 0) return { count: false, reason: "ip-dedup-1h" };
       }

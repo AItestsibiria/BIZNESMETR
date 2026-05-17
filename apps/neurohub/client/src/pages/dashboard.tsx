@@ -1145,7 +1145,20 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
     setPlayingId(gen.id);
     muteBgMusic();
     if (expandedIdRef.current !== null) setExpandedId(gen.id);
-    fetch(`/api/playlist/play/${gen.id}`, { method: "POST" }).catch(() => {});
+    // Eugene 2026-05-17 (Босс «1% conversion plays/visits»): засчитываем play
+    // только после 5 сек реального воспроизведения с elapsedSec=5 — backend
+    // shouldCountPlay() правило применяется (раньше fetch без body → fallback).
+    const _playGenId = gen.id;
+    window.setTimeout(() => {
+      if (audio && !audio.paused && audio.currentTime >= 5) {
+        fetch(`/api/playlist/play/${_playGenId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ elapsedSec: 5 }),
+          keepalive: true,
+        }).catch(() => {});
+      }
+    }, 5000);
     timerRef.current = window.setInterval(() => {
       if (audio && !audio.paused) setCurrentTime(audio.currentTime);
     }, 250);
@@ -1344,8 +1357,8 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
                 {/* Eugene 2026-05-16 Босс «🔍 Детали справа от Repeat» —
                     full-screen modal с обложкой 80% viewport, мета-блок. */}
                 <button
-                  className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 hover:text-purple-200 text-muted-foreground transition-colors"
-                  title="Детали обложки"
+                  className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-500/20 to-cyan-500/20 hover:from-purple-500/40 hover:to-cyan-500/40 flex items-center justify-center text-purple-200 hover:text-white transition-all border border-purple-400/30 shadow-[0_0_12px_rgba(168,85,247,0.3)] animate-details-pulse"
+                  title="Детали обложки — свайпай ← → для смены трека"
                   aria-label="Открыть детали обложки"
                   onClick={() => setDetailsOpen(true)}
                   data-testid="btn-cover-details"

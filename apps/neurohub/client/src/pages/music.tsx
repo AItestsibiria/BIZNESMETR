@@ -98,11 +98,33 @@ function AudioPlayer({ url, autoPlay }: { url: string; autoPlay?: boolean }) {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(0.8);
+  // Eugene 2026-05-17 (Босс audit «1% conversion plays/visits»): главный leak
+  // что music.tsx плеер не трекал плеи. Решение: после 5 сек воспроизведения
+  // отправляем POST /api/playlist/play/<id> с elapsedSec=5. ID извлекаем из
+  // URL вида `/api/stream/<id>.mp3` или `/api/stream/<id>`.
+  const playTrackedRef = useRef(false);
+  useEffect(() => { playTrackedRef.current = false; }, [url]);
 
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    const onTime = () => setCurrentTime(audio.currentTime);
+    const onTime = () => {
+      setCurrentTime(audio.currentTime);
+      // Track play after 5 sec elapsed, once per URL
+      if (!playTrackedRef.current && audio.currentTime >= 5) {
+        playTrackedRef.current = true;
+        const m = String(url || "").match(/\/api\/stream\/(\d+)(?:\.[a-z0-9]+)?(?:\?|$)/i);
+        const genId = m && m[1];
+        if (genId) {
+          fetch(`/api/playlist/play/${genId}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ elapsedSec: 5 }),
+            keepalive: true,
+          }).catch(() => {});
+        }
+      }
+    };
     const onMeta = () => setDuration(audio.duration);
     const onEnd = () => { setPlaying(false); };
     const onPlay = () => { stopBgMusic(); };
@@ -123,7 +145,7 @@ function AudioPlayer({ url, autoPlay }: { url: string; autoPlay?: boolean }) {
       audio.removeEventListener("ended", onEnd);
       audio.removeEventListener("play", onPlay);
     };
-  }, [autoPlay]);
+  }, [autoPlay, url]);
 
   const togglePlay = () => {
     if (!audioRef.current) return;

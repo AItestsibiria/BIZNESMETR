@@ -375,6 +375,28 @@
   50%      { transform: scale(1.015) translateY(-0.6px) rotate(0deg); }
   75%      { transform: scale(1.008) translateY(-0.3px) rotate(-0.6deg); }
 }
+
+/* Eugene 2026-05-17 Босс: кнопка «Детали» (Maximize) должна моргать
+   нежно ненавязчиво — чтобы юзер заметил и узнал что туда можно тапнуть
+   для раскрытия cover details + swipe-навигации.
+   Период 5 сек, лёгкое усиление glow + scale (не overdone). */
+@keyframes detailsPulse {
+  0%, 70%, 100% {
+    box-shadow: 0 0 12px rgba(168, 85, 247, 0.3);
+    transform: scale(1);
+  }
+  80% {
+    box-shadow: 0 0 24px rgba(168, 85, 247, 0.7), 0 0 36px rgba(34, 211, 238, 0.4);
+    transform: scale(1.06);
+  }
+  90% {
+    box-shadow: 0 0 18px rgba(168, 85, 247, 0.5);
+    transform: scale(1.03);
+  }
+}
+.animate-details-pulse {
+  animation: detailsPulse 5s ease-in-out infinite;
+}
 .consultant-dance {
   animation: consultantBreathe 6s ease-in-out infinite;
   transform-origin: 50% 95%;
@@ -703,4 +725,43 @@
   .border.active-elevate-2:not(.no-active-interaction-elevate)::after {
     inset: -1px;
   }
+}
+
+/* Eugene 2026-05-17 — CoverDetailsModal обучающие анимации.
+   • cover-hint-pulse — обе стрелки в first-time hint overlay пульсируют
+     (scale + opacity), ~1.4s цикл. Без задержки между стрелками — синхрон.
+   • cover-arrow-wiggle-{left,right} — на mobile постоянная subtle нудж
+     влево-вправо ±3px каждые 4 сек, намёк что можно свайпнуть.
+*/
+@keyframes coverHintPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.85;
+    box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.4);
+  }
+  50% {
+    transform: scale(1.18);
+    opacity: 1;
+    box-shadow: 0 0 24px 8px rgba(168, 85, 247, 0.45);
+  }
+}
+.cover-hint-pulse {
+  animation: coverHintPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes coverArrowWiggleLeft {
+  0%, 100% { transform: translate(0, -50%); }
+  25%      { transform: translate(-3px, -50%); }
+  50%      { transform: translate(0, -50%); }
+}
+@keyframes coverArrowWiggleRight {
+  0%, 100% { transform: translate(0, -50%); }
+  25%      { transform: translate(3px, -50%); }
+  50%      { transform: translate(0, -50%); }
+}
+.cover-arrow-wiggle-left {
+  animation: coverArrowWiggleLeft 4s ease-in-out infinite;
+}
+.cover-arrow-wiggle-right {
+  animation: coverArrowWiggleRight 4s ease-in-out infinite;
 }
