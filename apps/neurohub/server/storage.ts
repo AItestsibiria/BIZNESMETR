@@ -216,6 +216,37 @@ try {
     CREATE INDEX IF NOT EXISTS user_data_change_status_idx ON user_data_change_requests(status, expires_at);
   `);
 
+  // Admin 2FA login codes (Eugene 2026-05-17 Босс) — Level 1 защиты.
+  // После успешной первичной аутентификации админа (email+password ИЛИ
+  // phone callcheck) НЕ выдаём session token напрямую. Создаём 6-значный
+  // код, шлём админу на email, возвращаем sessionDraftId. Юзер вводит код
+  // → /api/auth/admin-verify-code → token.
+  //
+  // Поля:
+  //   - code_hash      sha256 от plain-кода (никогда не храним plain).
+  //   - session_draft_id  UUID — внешний идентификатор для фронта.
+  //   - channel        как именно прошла первичная аутентификация.
+  //   - attempts       до 3, потом блок (статус expired).
+  //   - expires_at     ISO, 10 минут от created_at.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS admin_login_codes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      code_hash TEXT NOT NULL,
+      ip TEXT,
+      user_agent TEXT,
+      expires_at TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending',
+      session_draft_id TEXT NOT NULL,
+      channel TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS admin_login_codes_user_status_idx ON admin_login_codes(user_id, status);
+    CREATE INDEX IF NOT EXISTS admin_login_codes_expires_idx ON admin_login_codes(expires_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS admin_login_codes_draft_idx ON admin_login_codes(session_draft_id);
+  `);
+
   // Eugene 2026-05-14 Босс «папка заместителей в админ-панели».
   try {
     sqlite.exec(`CREATE TABLE IF NOT EXISTS admin_delegates (

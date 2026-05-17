@@ -694,6 +694,34 @@ export const userJourneyEvents = sqliteTable("user_journey_events", {
 });
 export type UserJourneyEvent = typeof userJourneyEvents.$inferSelect;
 
+// === Admin 2FA login codes (Eugene 2026-05-17 Босс): Level 1 защиты —
+// при успешном email/password или phone-call login админа НЕ выдаём token
+// сразу, а создаём 6-значный код, отправляем на email админа. Юзер вводит
+// код → /api/auth/admin-verify-code → token. Cookie auth_token без 2FA
+// больше не достаточно для admin-доступа.
+//
+// Hash sha256(code) — никогда не храним plain. Attempts limit 3 (после
+// блокируем код, требуем нового send). TTL 10 мин. Cleanup cron каждый час.
+export const adminLoginCodes = sqliteTable("admin_login_codes", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull(),
+  codeHash: text("code_hash").notNull(),                // sha256(code)
+  ip: text("ip"),
+  userAgent: text("user_agent"),
+  expiresAt: text("expires_at").notNull(),              // ISO timestamp (now+10min)
+  attempts: integer("attempts").notNull().default(0),
+  status: text("status").notNull().default("pending"),  // pending | used | expired
+  // Eugene 2026-05-17: sessionDraftId — UUID который backend возвращает
+  // фронту после успешного password/call check. Фронт показывает поле для
+  // 6-значного кода, шлёт {sessionDraftId, code}. Backend ищет запись по
+  // sessionDraftId (не по userId — защищает от race если у админа открыто
+  // 2 окна). Дополнительно проверяет статус=pending, expires_at не истёк.
+  sessionDraftId: text("session_draft_id").notNull(),
+  channel: text("channel").notNull(),                   // 'email_password' | 'phone_call' | 'phone_reverse_call'
+  createdAt: text("created_at").notNull(),
+});
+export type AdminLoginCode = typeof adminLoginCodes.$inferSelect;
+
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
   balance: true,
