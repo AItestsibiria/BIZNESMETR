@@ -33,6 +33,18 @@ import {
 } from "./lib/llmCore";
 import { smsProviderLogs, smsOtp } from "@shared/schema";
 import { logUserActionFailure } from "./lib/userActionFailures";
+import {
+  shouldRequireAdmin2FA,
+  createAdmin2FACode,
+  verifyAdmin2FACode,
+  sendAdmin2FAEmail,
+  sendAdmin2FAAlert,
+  isOffHoursMsk,
+  hasSeenAdminIp,
+  rememberAdminIp,
+  startAdmin2FACleanupCron,
+  isAdminRole,
+} from "./lib/admin2fa";
 
 const AUTHORS_DIR = process.env.AUTHORS_DIR || path.join(process.cwd(), "authors");
 
@@ -607,6 +619,9 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   ensureSeedAdmin();
+  // Eugene 2026-05-17 Босс — Level 1 защиты: cron очистки expired admin 2FA
+  // кодов (раз в час, retention 7 дней). Запускаем один раз при старте.
+  try { startAdmin2FACleanupCron(); } catch {}
 
   // RULE: Generations are NEVER auto-deleted. Lifespan is unlimited.
   // Only the author can delete their own generation (with email confirmation).
@@ -1097,8 +1112,9 @@ export async function registerRoutes(
 
   app.post("/api/auth/login", async (req: Request, res: Response) => {
     const ip = req.ip || req.socket.remoteAddress || "unknown";
-    if (!rateLimit(ip + ":login", 10, 900000)) {
-      res.status(429).json({ message: "Слишком много попыток. Подождите 15 минут." }); return;
+    if (!rateLimit(ip + ":login", 5, 3600000)) {
+      // Eugene 2026-05-17 Босс «5 login attempts/hour/IP» — ужесточили.
+      res.status(429).json({ message: "Слишком много попыток. Подождите час." }); return;
     }
     if (req.body.website) { res.status(200).json({ token: "ok", user: {} }); return; }
     logEngagement(req, "email_login_attempt", { channel: "email", meta: { email: String(req.body?.email || "").slice(0, 80) } });
@@ -1131,12 +1147,228 @@ export async function registerRoutes(
         return;
       }
 
+      // Eugene 2026-05-17 Босс — Level 1: 2FA для админов.
+      // Если у user.role admin/super_admin и не bypass / не trusted_ip →
+      // создаём admin_login_codes запись, шлём email, возвращаем requireAdminCode.
+      // Token НЕ выдаётся до подтверждения кода.
+      if (shouldRequireAdmin2FA(user.role, req)) {
+        const created = createAdmin2FACode({
+          userId: user.id,
+          channel: "email_password",
+          req,
+        });
+        // Off-hours / new IP alerts — асинхронно, не блокируем response.
+        if (isOffHoursMsk()) {
+          sendAdmin2FAAlert({
+            reason: "off_hours",
+            userId: user.id,
+            email: user.email,
+            ip: created.ip,
+            ua: created.ua,
+          });
+        }
+        if (!hasSeenAdminIp(user.id, created.ip)) {
+          sendAdmin2FAAlert({
+            reason: "new_ip",
+            userId: user.id,
+            email: user.email,
+            ip: created.ip,
+            ua: created.ua,
+            detail: "Login email/password с нового IP. Если это не ты — смени пароль.",
+          });
+        }
+        // Audit-log создания кода (но НЕ записываем сам код — только метадату).
+        try {
+          db.run(sql`INSERT INTO admin_audit_log (admin_user_id, admin_email, action, entity, entity_key, before_json, after_json)
+                     VALUES (${user.id}, ${user.email}, 'create', 'admin_login_code', ${created.sessionDraftId},
+                     ${null}, ${JSON.stringify({ channel: "email_password", ip: created.ip, ua: created.ua.slice(0, 120) })})`);
+        } catch {}
+
+        // Шлём email (await — если SMTP сломан, юзер должен это увидеть).
+        const emailRes = await sendAdmin2FAEmail(
+          { mailTransport, fromAddress: CLIENT_EMAIL, fromLabel: "MuzaAi Admin" },
+          user.email,
+          { adminName: user.name, code: created.code, ip: created.ip, ua: created.ua },
+        );
+        if (!emailRes.ok) {
+          logUserActionFailure({
+            userId: user.id,
+            channel: "web", action: "admin_2fa_email", statusCode: 502,
+            errorCode: "smtp_failed",
+            errorMessage: emailRes.error || "SMTP failed",
+            endpoint: "/api/auth/login",
+          });
+          // Возвращаем requireAdminCode всё равно — админ может попросить
+          // resend, а Босс может выставить ADMIN_2FA_BYPASS=1 если SMTP лежит.
+          res.status(502).json({
+            requireAdminCode: true,
+            sessionDraftId: created.sessionDraftId,
+            warning: "Код создан, но email не отправлен. Свяжись с Eugene или используй bypass.",
+          });
+          return;
+        }
+
+        res.json({
+          requireAdminCode: true,
+          sessionDraftId: created.sessionDraftId,
+          // Подсказка фронту: код пришёл на этот email (маскированный для UI).
+          emailHint: user.email.replace(/(.{2}).*(@.*)/, "$1***$2"),
+          expiresInSec: 600,
+        });
+        return;
+      }
+
       const token = uuidv4();
       tokenStore.set(token, user.id);
       logEngagement(req, "email_login_success", { channel: "email", userId: user.id });
 
       const { password: _, nameChangeToken: __nct, ...publicUser } = user;
       res.json({ token, user: publicUser });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // Eugene 2026-05-17 Босс «Level 1: admin 2FA через email-код».
+  // POST /api/auth/admin-verify-code { sessionDraftId, code }
+  // → проверка кода (sha256 compare, max 3 attempts, 10 мин TTL)
+  // → если OK: tokenStore.set + полный user в ответе как обычный login.
+  // Rate-limit: 3 попытки за 15 мин по IP (защита bruteforce кода).
+  app.post("/api/auth/admin-verify-code", async (req: Request, res: Response) => {
+    const ip = req.ip || req.socket.remoteAddress || "unknown";
+    if (!rateLimit(ip + ":admin-verify", 3, 15 * 60 * 1000)) {
+      res.status(429).json({ message: "Слишком много попыток. Подождите 15 минут." });
+      return;
+    }
+    try {
+      const sessionDraftId = String(req.body?.sessionDraftId || "").trim();
+      const code = String(req.body?.code || "").trim();
+      if (!sessionDraftId || !code) {
+        res.status(400).json({ message: "sessionDraftId и code обязательны" });
+        return;
+      }
+      const result = verifyAdmin2FACode(sessionDraftId, code);
+      if (!result.ok) {
+        // Алерт если попытки исчерпаны.
+        if (result.exhausted) {
+          // Достаём userId из записи (verify уже знает кому принадлежит).
+          try {
+            const row = db.all<{ user_id: number; ip: string; user_agent: string }>(
+              sql`SELECT user_id, ip, user_agent FROM admin_login_codes WHERE session_draft_id = ${sessionDraftId} LIMIT 1`
+            )[0];
+            if (row) {
+              const u = storage.getUser(row.user_id);
+              sendAdmin2FAAlert({
+                reason: result.errorCode === "max_attempts" ? "code_exhausted" : "failed_attempts",
+                userId: row.user_id,
+                email: u?.email || null,
+                ip: row.ip || ip,
+                ua: row.user_agent || "",
+                detail: `3 неверные попытки ввода кода (sessionDraftId=${sessionDraftId.slice(0, 8)}…)`,
+              });
+            }
+          } catch {}
+        }
+        logUserActionFailure({
+          channel: "web", action: "admin_2fa_verify", statusCode: 400,
+          errorCode: result.errorCode || "wrong_code",
+          errorMessage: result.errorMessage || "Неверный код",
+          endpoint: "/api/auth/admin-verify-code",
+        });
+        res.status(400).json({
+          message: result.errorMessage || "Неверный код",
+          attemptsLeft: result.attemptsLeft,
+          errorCode: result.errorCode,
+        });
+        return;
+      }
+
+      const userId = result.userId!;
+      const user = storage.getUser(userId);
+      if (!user) {
+        res.status(404).json({ message: "Пользователь не найден" });
+        return;
+      }
+      if (user.blocked) {
+        res.status(403).json({ message: "Аккаунт заблокирован" });
+        return;
+      }
+      // Финальная защита: roles могли поменяться между send и verify (revoke
+      // админских прав посреди flow). Если уже не admin — отказываем.
+      if (!isAdminRole(user.role)) {
+        res.status(403).json({ message: "Роль изменилась — войдите заново" });
+        return;
+      }
+
+      const token = uuidv4();
+      tokenStore.set(token, user.id);
+      rememberAdminIp(user.id, ip);
+      logEngagement(req, "admin_2fa_success", { channel: "admin", userId: user.id });
+
+      try {
+        db.run(sql`INSERT INTO admin_audit_log (admin_user_id, admin_email, action, entity, entity_key, before_json, after_json)
+                   VALUES (${user.id}, ${user.email}, 'update', 'admin_login_code', ${sessionDraftId},
+                   ${JSON.stringify({ status: "pending" })}, ${JSON.stringify({ status: "used", ip })})`);
+      } catch {}
+
+      const { password: _, nameChangeToken: __nct, ...publicUser } = user;
+      res.json({ token, user: publicUser });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // Resend admin 2FA code — создаёт новую запись (старая остаётся expired
+  // или pending до своего TTL). Тот же sessionDraftId? НЕТ — новый, чтобы
+  // не путать. Фронт получает новый sessionDraftId и заменяет старый.
+  app.post("/api/auth/admin-resend-code", async (req: Request, res: Response) => {
+    const ip = req.ip || req.socket.remoteAddress || "unknown";
+    if (!rateLimit(ip + ":admin-resend", 3, 15 * 60 * 1000)) {
+      res.status(429).json({ message: "Слишком часто. Подождите 15 минут." });
+      return;
+    }
+    try {
+      const sessionDraftId = String(req.body?.sessionDraftId || "").trim();
+      if (!sessionDraftId) {
+        res.status(400).json({ message: "sessionDraftId обязателен" });
+        return;
+      }
+      // Находим userId по предыдущей записи, проверяем что не used.
+      const row = db.all<{ user_id: number; channel: string; status: string }>(
+        sql`SELECT user_id, channel, status FROM admin_login_codes WHERE session_draft_id = ${sessionDraftId} LIMIT 1`
+      )[0];
+      if (!row) {
+        res.status(404).json({ message: "Сессия не найдена — войдите заново" });
+        return;
+      }
+      if (row.status === "used") {
+        res.status(409).json({ message: "Сессия уже подтверждена" });
+        return;
+      }
+      const user = storage.getUser(row.user_id);
+      if (!user || !isAdminRole(user.role) || user.blocked) {
+        res.status(403).json({ message: "Не разрешено" });
+        return;
+      }
+      // Помечаем старую как expired (если pending).
+      try {
+        db.run(sql`UPDATE admin_login_codes SET status = 'expired' WHERE session_draft_id = ${sessionDraftId} AND status = 'pending'`);
+      } catch {}
+
+      const channel = (row.channel as "email_password" | "phone_call" | "phone_reverse_call") || "email_password";
+      const created = createAdmin2FACode({ userId: user.id, channel, req });
+      const emailRes = await sendAdmin2FAEmail(
+        { mailTransport, fromAddress: CLIENT_EMAIL, fromLabel: "MuzaAi Admin" },
+        user.email,
+        { adminName: user.name, code: created.code, ip: created.ip, ua: created.ua },
+      );
+      res.json({
+        requireAdminCode: true,
+        sessionDraftId: created.sessionDraftId,
+        emailHint: user.email.replace(/(.{2}).*(@.*)/, "$1***$2"),
+        expiresInSec: 600,
+        emailSent: emailRes.ok,
+      });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
