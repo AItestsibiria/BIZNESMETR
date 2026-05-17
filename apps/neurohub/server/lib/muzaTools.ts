@@ -51,12 +51,12 @@ const fmt = (n: number) => n.toLocaleString("ru-RU");
 export const MUZA_TOOLS: ToolDef[] = [
   {
     name: "get_user_tracks",
-    description: "Получить топ-5 треков текущего юзера по прослушиваниям + сводку. Используй когда юзер спрашивает про свои треки/статистику/прогресс. БЕЗ параметров — берёт userId из контекста сессии. Если userId не известен (юзер не залогинен) — вернёт «не залогинен».",
+    description: "ПРИОРИТЕТ! Используй ЭТО когда юзер просит свои треки: «покажи мои треки», «мои песни», «что я создавал», «моя история», «список треков», «show my tracks». БЕЗ предварительных вопросов «какой повод» — сразу tool. БЕЗ параметров — берёт userId из контекста сессии. Если userId не известен (юзер не залогинен) — вернёт «не залогинен».",
     input_schema: { type: "object", properties: {}, required: [] },
   },
   {
     name: "get_user_balance",
-    description: "Получить баланс юзера в ₽ + бонусные треки. Используй когда юзер спрашивает «сколько у меня денег» / «есть ли бесплатный трек».",
+    description: "ПРИОРИТЕТ! Используй когда юзер спрашивает «сколько у меня денег», «мой баланс», «есть ли бесплатный трек», «сколько подарочных треков», «сколько у меня треков осталось». БЕЗ параметров — сразу tool.",
     input_schema: { type: "object", properties: {}, required: [] },
   },
   {
@@ -110,7 +110,7 @@ export const MUZA_TOOLS: ToolDef[] = [
   },
   {
     name: "check_recent_payments",
-    description: "Проверить последние 5 платежей юзера + статус. Используй когда юзер жалуется на оплату / списание / двойной заряд.",
+    description: "ПРИОРИТЕТ! Используй когда юзер просит историю платежей: «мои покупки», «история платежей», «что я оплачивал», «мои оплаты», «жалуется на оплату» / «списание» / «двойной заряд». Возвращает последние 5 транзакций (top-ups + списания). БЕЗ предварительных вопросов — сразу tool.",
     input_schema: { type: "object", properties: {}, required: [] },
   },
   {
@@ -133,7 +133,7 @@ export const MUZA_TOOLS: ToolDef[] = [
   // === Agent upgrade (Eugene 2026-05-16): 7 недостающих tools ===
   {
     name: "get_user_profile",
-    description: "Профиль текущего юзера: displayName, email (МАСКИРОВАННЫЙ), tariff, credits, memberSince. Используй когда юзер спрашивает «кто я / что у меня» / надо подытожить его данные. Без параметров — берёт userId из контекста.",
+    description: "ПРИОРИТЕТ! Используй когда юзер просит свой профиль / данные: «мой профиль», «мои данные», «кто я», «show my profile», «что у меня в кабинете». Возвращает: displayName, email (МАСКИРОВАННЫЙ), tariff, credits, memberSince. БЕЗ предварительных вопросов — сразу tool.",
     input_schema: { type: "object", properties: {}, required: [] },
   },
   {
@@ -1386,4 +1386,19 @@ export async function executeTool(name: string, input: any, context: ToolContext
     console.error(`[TOOL ${name}]`, e);
     return `Ошибка вызова tool: ${e.message}`;
   }
+}
+
+// Eugene 2026-05-17 Босс «не показывать админские tools обычному юзеру».
+// Tools у которых description начинается с "[ADMIN-ONLY" — отдаются только
+// каналам где role='admin'/'super_admin' (voice-admin). Обычные каналы
+// (web/telegram/max) получают чистый набор user-tools — это снижает шум
+// в Claude tool-selection и убирает риск что LLM попытается вызвать
+// админский tool (хотя в нём всё равно стоит isAdminCtx-guard).
+const ADMIN_TOOL_MARKER = /^\s*\[ADMIN-ONLY/i;
+
+export function filterToolsForRole(role: string | null | undefined): ToolDef[] {
+  const r = String(role || "").toLowerCase();
+  const isAdmin = r === "admin" || r === "super_admin";
+  if (isAdmin) return MUZA_TOOLS;
+  return MUZA_TOOLS.filter((t) => !ADMIN_TOOL_MARKER.test(t.description));
 }
