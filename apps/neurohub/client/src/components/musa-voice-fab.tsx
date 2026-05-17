@@ -531,7 +531,19 @@ export function MusaVoiceFab() {
         </div>
       )}
 
-      {/* Сам FAB — fixed bottom-right, виден на всех вкладках */}
+      {/* Сам FAB — fixed bottom-right, виден на всех вкладках.
+          Eugene 2026-05-17 — в idle вокруг FAB рисуются 2 floating CSS-частицы
+          (через wrapper .particle-bg на большей зоне). Wrapper pointer-events-none
+          чтобы клики на пустые зоны не блокировались — клики идут только на
+          button (z-10 относительно wrapper). В active states (recording /
+          playing / uploading) wrapper не рендерим — нет particles. */}
+      {state === "idle" && (
+        <div
+          className="particle-bg fixed z-40 w-32 h-32 sm:w-40 sm:h-40 right-0 sm:right-0 pointer-events-none"
+          style={{ bottom: "max(0rem, env(safe-area-inset-bottom, 0rem))" }}
+          aria-hidden="true"
+        />
+      )}
       <button
         type="button"
         onClick={() => {
