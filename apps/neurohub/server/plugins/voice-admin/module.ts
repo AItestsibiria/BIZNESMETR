@@ -126,6 +126,36 @@ function buildDashboardContext(): string {
   }
 }
 
+// === Auto-focus map (Eugene 2026-05-17 «вязка со вторым мозгом») ===
+//
+// Когда LLM вызывает data-tool (read-only) — добавляем подсказку какой узел
+// в 3D «Втором мозге» следует подсветить. Frontend (musa-voice-fab) парсит
+// action.brainFocus и эмитит CustomEvent 'brain-focus-node' параллельно с
+// существующим focus_brain_node tool.
+const TOOL_TO_BRAIN_NODE: Record<string, string> = {
+  get_metrics: "Аналитика",
+  get_failed_users: "Юзеры",
+  query_users: "Юзеры",
+  get_recent_payments: "Платежи",
+  get_recent_incidents: "Incidents",
+  get_bot_channels_status: "Telegram",
+  reload_kb: "KnowledgeBase",
+  send_telegram_alert: "Telegram",
+  pause_bot: "Telegram",
+  kick_session: "Sessions",
+  change_registration_status: "Auth",
+};
+
+function enrichActionsWithBrainFocus(
+  actions: Array<{ tool: string; input: any; result: string }>,
+): Array<{ tool: string; input: any; result: string; brainFocus?: { nodeName: string } }> {
+  return actions.map((a) => {
+    const nodeName = TOOL_TO_BRAIN_NODE[a.tool];
+    if (nodeName) return { ...a, brainFocus: { nodeName } };
+    return a;
+  });
+}
+
 // === Multer (memoryStorage, max 5 MB) ===
 const MAX_AUDIO_BYTES = 5 * 1024 * 1024;
 const ALLOWED_MIMES = new Set([
@@ -179,24 +209,47 @@ async function callAdminVoiceLLM(opts: {
   userId: number;
   sessionId: string;
   transcript: string;
+  dialogMode?: boolean;
+  previousResponseTruncatedAt?: number;
 }): Promise<AdminVoiceResult> {
   const actions: Array<{ tool: string; input: any; result: string }> = [];
   let inputTokens = 0;
   let outputTokens = 0;
 
   const stable = buildPersonaSystem(opts.sessionId);
-  const modeContext = [
+  // Dialog mode (Eugene 2026-05-17 Босс «continuous conversation»):
+  // более короткий промпт + приоритет tool calls + минимум воды. Юзер слышит
+  // ответ голосом в continuous loop — длинные тексты утомят.
+  const baseLines = [
     "[ADMIN-VOICE MODE]",
     "Сейчас ты разговариваешь с Боссом голосом в admin-panel.",
     "Тон: коротко, по-деловому, без эмодзи в озвучке.",
     "Тебе доступны ADMIN-ONLY tools — используй их когда Босс просит данные или действия:",
     "get_metrics, get_failed_users, reload_kb, send_telegram_alert,",
     "change_registration_status, query_users, get_recent_payments,",
-    "pause_bot, kick_session, get_recent_incidents.",
+    "pause_bot, kick_session, get_recent_incidents, focus_brain_node.",
     "Если Босс просит что-то деструктивное (kick_session, change_registration_status,",
     "pause_bot) — сначала озвучь что собираешься сделать, потом выполни.",
     "Ответ озвучивается через TTS — пиши простыми фразами, без markdown.",
-  ].join("\n");
+  ];
+  if (opts.dialogMode) {
+    baseLines.push(
+      "",
+      "[DIALOG MODE — CONTINUOUS CONVERSATION]",
+      "Это live-диалог: Босс говорит, ты отвечаешь, цикл повторяется без пауз.",
+      "ЖЁСТКОЕ ПРАВИЛО: ответ — 1-2 коротких предложения, максимум 25 слов.",
+      "Приоритет tool calls над многословием: если можешь вызвать tool — вызови сразу.",
+      "Если уместно показать визуальный фокус — вызывай focus_brain_node параллельно с data-tool.",
+      "Никаких «Конечно, Босс» / «Сейчас посмотрю» — сразу к делу.",
+    );
+    if (opts.previousResponseTruncatedAt && opts.previousResponseTruncatedAt > 0) {
+      baseLines.push(
+        "",
+        `[INTERRUPTION] Предыдущий твой ответ был прерван Боссом на ~${opts.previousResponseTruncatedAt}мс воспроизведения — он не дослушал. Учти контекст: возможно он переспрашивает то же или поправляет.`,
+      );
+    }
+  }
+  const modeContext = baseLines.join("\n");
 
   // Свежий dashboard snapshot (cached 60 сек). Inject как отдельный
   // system-block — модель видит фактические цифры до начала reasoning'а.
@@ -231,7 +284,9 @@ async function callAdminVoiceLLM(opts: {
   }
 
   const model = process.env.ADMIN_VOICE_MODEL || "claude-haiku-4-5-20251001";
-  const maxTokens = 600;
+  // Dialog mode → shorter cap (1-2 предложения хватит 200 токенов), faster
+  // streaming → faster TTS playback → tighter conversation loop.
+  const maxTokens = opts.dialogMode ? 220 : 600;
 
   for (const key of keyCandidates) {
     try {
@@ -479,7 +534,7 @@ router.post(
       data: {
         transcript,
         response: llmResult.responseText,
-        actions: llmResult.actions,
+        actions: enrichActionsWithBrainFocus(llmResult.actions),
         ...(audioBase64
           ? { audioBase64, audioContentType }
           : {}),
@@ -513,11 +568,26 @@ router.post("/voice-command-text", requireAdmin, async (req: any, res) => {
   if (!transcript || transcript.length < 2) {
     return res.status(400).json({ data: null, error: "Пустой transcript — ничего не распознано" });
   }
+  // Eugene 2026-05-17 Босс «режим диалога»: dialogMode=true → короткие
+  // ответы 1-2 предложения, более агрессивный приоритет tool calls.
+  // previousResponseTruncatedAt — метка barge-in (юзер прервал предыдущий
+  // TTS playback на этой позиции в мс).
+  const dialogMode = req.body?.dialogMode === true;
+  const previousResponseTruncatedAt =
+    typeof req.body?.previousResponseTruncatedAt === "number"
+      ? Math.max(0, Math.floor(req.body.previousResponseTruncatedAt))
+      : undefined;
 
   const sessionId = `admin-voice:${userId}`;
   let llmResult: AdminVoiceResult;
   try {
-    llmResult = await callAdminVoiceLLM({ userId, sessionId, transcript });
+    llmResult = await callAdminVoiceLLM({
+      userId,
+      sessionId,
+      transcript,
+      dialogMode,
+      previousResponseTruncatedAt,
+    });
   } catch (e: any) {
     console.error("[ADMIN-VOICE-TEXT] LLM exception:", e?.message || e);
     return res.status(500).json({ data: null, error: `LLM error: ${String(e?.message || e).slice(0, 120)}` });
@@ -574,9 +644,16 @@ router.post("/voice-command-text", requireAdmin, async (req: any, res) => {
     data: {
       transcript,
       response: llmResult.responseText,
-      actions: llmResult.actions,
+      actions: enrichActionsWithBrainFocus(llmResult.actions),
       ...(audioBase64 ? { audioBase64, audioContentType } : {}),
-      meta: { durationMs, usage: llmResult.usage, ttsRequested: wantTts, source: 'web-speech-api' },
+      meta: {
+        durationMs,
+        usage: llmResult.usage,
+        ttsRequested: wantTts,
+        source: 'web-speech-api',
+        dialogMode,
+        ...(typeof previousResponseTruncatedAt === "number" ? { previousResponseTruncatedAt } : {}),
+      },
     },
     error: null,
   });
