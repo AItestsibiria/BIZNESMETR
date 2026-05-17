@@ -604,6 +604,16 @@ router.post("/webhook", async (req, res) => {
       bootRefs?.logger.info?.("[telegram-bot] skipping duplicate update", { update_id: update.update_id });
       return;
     }
+    // Eugene 2026-05-17 Босс «pause_bot tool через admin-voice».
+    // Если Муза приостановила бота через voice-command — webhook возвращает
+    // 200 (см. выше), но не обрабатывает update. Telegram не делает retry.
+    try {
+      const { isBotPausedRuntime } = await import("../../lib/muzaTools");
+      if (isBotPausedRuntime()) {
+        bootRefs?.logger.info?.("[telegram-bot] paused (runtime) — skipping update");
+        return;
+      }
+    } catch {}
 
     // Callback queries (нажатие на InlineKeyboard кнопку)
     if (update.callback_query) {
