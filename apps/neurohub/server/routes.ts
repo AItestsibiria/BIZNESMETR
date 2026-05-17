@@ -41,6 +41,7 @@ import {
   isProtectedAction,
   type ProtectedAction,
 } from "./lib/adminTwoFactor";
+import { recordAuditEntry, queryAuditLog } from "./lib/adminAuditLog";
 
 const AUTHORS_DIR = process.env.AUTHORS_DIR || path.join(process.cwd(), "authors");
 
@@ -2882,12 +2883,15 @@ export async function registerRoutes(
     const before = { isPublic: gen.isPublic };
     const newIsPublic = map[status];
     db.update(generations).set({ isPublic: newIsPublic }).where(eq(generations.id, genId)).run();
-    // Audit-log: пишем raw insert чтобы не тащить adminAuditLog import сюда.
-    try {
-      db.run(sql`INSERT INTO admin_audit_log (admin_user_id, action, entity, entity_key, before_json, after_json)
-                 VALUES (${tryGetUserId(req)}, 'update', 'generation_playlist', ${String(genId)},
-                 ${JSON.stringify(before)}, ${JSON.stringify({ isPublic: newIsPublic, requestedStatus: status })})`);
-    } catch {}
+    // Audit-log: enriched через recordAuditEntry (захватывает ip + user_agent).
+    recordAuditEntry({
+      req,
+      action: "update",
+      entity: "generation_playlist",
+      entityKey: String(genId),
+      before,
+      after: { isPublic: newIsPublic, requestedStatus: status },
+    });
     res.json({ ok: true, id: genId, status, isPublic: newIsPublic });
   });
 
@@ -8820,22 +8824,19 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   );
 
   // Audit-log просмотр — enriched columns (via_email_confirm + ip + ua).
+  // Filters: ?limit=N, ?entity=X, ?adminUserId=N, ?viaEmailConfirm=1, ?since=ISO
   app.get(
     "/api/admin/v304/audit-log",
     requireAdmin,
     (req: Request, res: Response) => {
       try {
-        const lim = Math.min(100, Math.max(1, Number(req.query?.limit) || 50));
-        const sqlite: any = (db as any).$client;
-        const rows = sqlite
-          .prepare(
-            `SELECT id, admin_user_id, admin_email, action, entity, entity_key,
-                   via_email_confirm, ip, user_agent, pending_action_id, created_at
-             FROM admin_audit_log
-             ORDER BY id DESC
-             LIMIT ?`,
-          )
-          .all(lim);
+        const rows = queryAuditLog({
+          limit: Number(req.query?.limit) || 100,
+          entity: typeof req.query?.entity === "string" ? req.query.entity : undefined,
+          adminUserId: req.query?.adminUserId ? Number(req.query.adminUserId) : undefined,
+          viaEmailConfirmOnly: req.query?.viaEmailConfirm === "1",
+          since: typeof req.query?.since === "string" ? req.query.since : undefined,
+        });
         return res.json({ data: rows, error: null });
       } catch (e: any) {
         return res.status(500).json({ data: null, error: String(e?.message || e) });

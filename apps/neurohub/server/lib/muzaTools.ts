@@ -1134,46 +1134,44 @@ function isAdminCtx(ctx: ToolContext): boolean {
 /**
  * Записывает audit-entry для admin-action подтверждённого через email 2FA.
  * Содержит метаданные (action / entity / before / after / pending_action_id),
- * via_email_confirm=1, ip + user_agent. PII (полные emails / phones / списки
- * юзеров) НЕ кладём — только что меняли и счётчик/preview результата.
+ * via_email_confirm=1. PII (полные emails / phones / списки юзеров)
+ * НЕ кладём — только что меняли и счётчик/preview результата.
  *
+ * Использует общий recordAuditEntry helper из lib/adminAuditLog.ts.
  * Sole-fire — никогда не throw'ит, audit-failure не должен ломать tool.
+ *
+ * Note: ip/user_agent для admin-voice channel недоступны напрямую в
+ * ToolContext (Muza tools не получают req). Они хранятся в pending запись
+ * (admin_pending_actions.ip / .user_agent) на момент initiate — это
+ * операционно достаточно для security forensics.
  */
 function writeAuditFor2FA(
   pendingActionId: string,
   ctx: ToolContext,
-  action: string,
+  _action: string,
   entity: string,
   entityKey: string,
   resultText: string,
   delta?: { before?: unknown; after?: unknown; [k: string]: unknown },
 ): void {
-  try {
-    const userId = Number(ctx?.userId) || null;
-    const beforeJson = delta?.before !== undefined ? JSON.stringify({ value: delta.before }) : null;
-    const afterJson = delta !== undefined
-      ? JSON.stringify({ ...delta, result: String(resultText || "").slice(0, 300) })
-      : JSON.stringify({ result: String(resultText || "").slice(0, 300) });
-    const sqlite: any = (db as any).$client;
-    sqlite
-      .prepare(
-        `INSERT INTO admin_audit_log
-           (admin_user_id, admin_email, action, entity, entity_key, before_json, after_json,
-            via_email_confirm, pending_action_id)
-         VALUES (?, ?, 'update', ?, ?, ?, ?, 1, ?)`,
-      )
-      .run(
-        userId,
-        null,
-        entity,
-        String(entityKey || "").slice(0, 200),
-        beforeJson,
-        afterJson,
-        pendingActionId,
-      );
-  } catch (e: any) {
-    console.warn("[writeAuditFor2FA] warn:", e?.message || e);
-  }
+  // Lazy require to avoid circular import at module-load time.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { recordAuditEntry } = require("./adminAuditLog") as typeof import("./adminAuditLog");
+  const userId = Number(ctx?.userId) || null;
+  const before = delta?.before !== undefined ? { value: delta.before } : undefined;
+  const after = delta !== undefined
+    ? { ...delta, result: String(resultText || "").slice(0, 300) }
+    : { result: String(resultText || "").slice(0, 300) };
+  recordAuditEntry({
+    adminUserId: userId,
+    action: "update",
+    entity,
+    entityKey: String(entityKey || "").slice(0, 200),
+    before,
+    after,
+    viaEmailConfirm: true,
+    pendingActionId,
+  });
 }
 
 function maskEmailStr(email: string | null | undefined): string {
