@@ -1153,7 +1153,13 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               </div>
               <h3 className="text-lg font-sans font-bold text-white mb-2">Открыта <span className="bg-gradient-to-r from-emerald-300 via-cyan-300 to-purple-300 bg-clip-text text-transparent">регистрация по номеру телефона</span></h3>
               <p className="text-sm font-sans text-muted-foreground leading-relaxed">
-                Тестовый этап для первых авторов. Регистрация по входящему звонку — занимает 20 секунд, без SMS и паролей. <span className="text-emerald-300 font-medium">Зарегистрироваться →</span>
+                Тестовый этап для первых авторов.
+              </p>
+              <p className="text-sm font-sans text-muted-foreground leading-relaxed mt-1">
+                Регистрация по входящему звонку — занимает 20 секунд, без SMS и паролей.
+              </p>
+              <p className="text-sm font-sans text-muted-foreground leading-relaxed mt-2">
+                <span className="text-emerald-300 font-medium">Зарегистрироваться →</span>
               </p>
             </div>
           </div>
