@@ -45,6 +45,32 @@ type StatusCard = {
   detail?: Record<string, unknown>;
 };
 
+type ClickStatRow = {
+  page: string;
+  elementKey: string;
+  elementText: string | null;
+  count: number;
+  uniqueUsers: number;
+};
+type PageStatRow = {
+  page: string;
+  totalClicks: number;
+  pageViews: number;
+  avgTimeMs: number;
+  bounceRate: number;
+};
+type ClickStats = {
+  topClicks: ClickStatRow[];
+  byPage: Record<string, PageStatRow>;
+  topElements: ClickStatRow[];
+  totalClicks: number;
+  uniqueClickers: number;
+  period: Period;
+  since: string | null;
+  generatedAt: string;
+  fromCache?: boolean;
+};
+
 type DashboardSummary = {
   period: Period;
   since: string | null;
@@ -334,6 +360,300 @@ function FlowChart({ flow }: { flow: { registrations: number; firstTrack: number
 }
 
 // ============================================================
+// ClickStats — топ-10 элементов bar chart + drawer + by-page таблица
+// ============================================================
+
+function formatMs(ms: number): string {
+  if (!ms || ms <= 0) return "—";
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s} сек`;
+  const m = Math.floor(s / 60);
+  const rs = s % 60;
+  return `${m}м ${rs}с`;
+}
+
+function shortLabel(elem: ClickStatRow): string {
+  const text = (elem.elementText || "").trim();
+  if (text) return text.slice(0, 24);
+  const key = (elem.elementKey || "").trim();
+  return key.slice(0, 24) || "—";
+}
+
+function ClickStatsSection({
+  clicks,
+  isLoading,
+}: {
+  clicks: ClickStats | undefined;
+  isLoading: boolean;
+}) {
+  const [drawerElem, setDrawerElem] = useState<ClickStatRow | null>(null);
+  const top10 = (clicks?.topElements || []).slice(0, 10).map((r) => ({
+    ...r,
+    label: shortLabel(r),
+  }));
+  const pageRows = clicks
+    ? Object.values(clicks.byPage).sort((a, b) => b.totalClicks - a.totalClicks)
+    : [];
+
+  if (isLoading && !clicks) {
+    return (
+      <section>
+        <h3 className="text-sm font-bold text-white mb-2">
+          🖱 Топ кликов — Агент Клик
+        </h3>
+        <div className="text-xs text-muted-foreground">Загружаю click-stats…</div>
+      </section>
+    );
+  }
+
+  if (!clicks || clicks.totalClicks === 0) {
+    return (
+      <section>
+        <h3 className="text-sm font-bold text-white mb-2">
+          🖱 Топ кликов — Агент Клик
+        </h3>
+        <Card className="glass-card rounded-2xl border border-violet-500/20">
+          <CardContent className="p-4">
+            <div className="text-xs text-muted-foreground">
+              Пока нет кликов за выбранный период. Дождитесь активности юзеров
+              или расширьте интервал.
+            </div>
+          </CardContent>
+        </Card>
+      </section>
+    );
+  }
+
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-bold text-white">
+          🖱 Топ кликов — Агент Клик ·{" "}
+          <span className="text-violet-300">{clicks.totalClicks}</span>{" "}
+          <span className="text-muted-foreground">за период,</span>{" "}
+          <span className="text-cyan-300">{clicks.uniqueClickers}</span>{" "}
+          <span className="text-muted-foreground">уникальных</span>
+        </h3>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Bar chart top-10 elements */}
+        <Card className="glass-card rounded-2xl border border-violet-500/20">
+          <CardContent className="p-4">
+            <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
+              Топ-10 элементов · клик → детали
+            </div>
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={top10}
+                  layout="vertical"
+                  margin={{ left: 10, right: 10 }}
+                >
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="rgba(255,255,255,0.06)"
+                  />
+                  <XAxis
+                    type="number"
+                    stroke="rgba(255,255,255,0.4)"
+                    tick={{ fontSize: 10 }}
+                  />
+                  <YAxis
+                    dataKey="label"
+                    type="category"
+                    stroke="rgba(255,255,255,0.4)"
+                    tick={{ fontSize: 10 }}
+                    width={140}
+                  />
+                  <Tooltip
+                    content={({ active, payload }: any) => {
+                      if (!active || !payload || !payload.length) return null;
+                      const p = payload[0].payload as ClickStatRow & {
+                        label: string;
+                      };
+                      return (
+                        <div className="glass-card rounded-lg p-3 border border-white/10 backdrop-blur-md text-xs">
+                          <div className="font-bold text-white mb-1">
+                            {p.elementText || p.elementKey}
+                          </div>
+                          <div className="text-muted-foreground">
+                            ключ: <span className="text-white">{p.elementKey}</span>
+                          </div>
+                          <div className="text-muted-foreground">
+                            кликов:{" "}
+                            <span className="text-violet-300 font-medium">
+                              {p.count}
+                            </span>
+                          </div>
+                          <div className="text-muted-foreground">
+                            уникальных:{" "}
+                            <span className="text-cyan-300 font-medium">
+                              {p.uniqueUsers}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    }}
+                  />
+                  <Bar
+                    dataKey="count"
+                    fill={COLORS.plays}
+                    onClick={(d: any) => setDrawerElem(d as ClickStatRow)}
+                    cursor="pointer"
+                  >
+                    {top10.map((_, i) => (
+                      <Cell
+                        key={i}
+                        fill={PIE_PALETTE[i % PIE_PALETTE.length]}
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* By-page table */}
+        <Card className="glass-card rounded-2xl border border-cyan-500/20">
+          <CardContent className="p-4">
+            <div className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
+              📊 По страницам · сортировка по кликам
+            </div>
+            <div className="overflow-x-auto max-h-72 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-black/40 backdrop-blur">
+                  <tr className="text-left text-muted-foreground">
+                    <th className="py-1 pr-2 font-medium">Страница</th>
+                    <th className="py-1 px-2 font-medium text-right">Клики</th>
+                    <th className="py-1 px-2 font-medium text-right">Время</th>
+                    <th className="py-1 pl-2 font-medium text-right">Bounce</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pageRows.slice(0, 30).map((r) => (
+                    <tr
+                      key={r.page}
+                      className="border-t border-white/[0.04] hover:bg-white/[0.02]"
+                    >
+                      <td
+                        className="py-1.5 pr-2 text-white max-w-[180px] truncate"
+                        title={r.page}
+                      >
+                        {r.page}
+                      </td>
+                      <td className="py-1.5 px-2 text-right text-violet-300 font-medium">
+                        {r.totalClicks}
+                      </td>
+                      <td className="py-1.5 px-2 text-right text-muted-foreground">
+                        {formatMs(r.avgTimeMs)}
+                      </td>
+                      <td
+                        className={`py-1.5 pl-2 text-right ${
+                          r.bounceRate > 0.7
+                            ? "text-red-400"
+                            : r.bounceRate > 0.4
+                            ? "text-amber-300"
+                            : "text-emerald-300"
+                        }`}
+                      >
+                        {Math.round(r.bounceRate * 100)}%
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {pageRows.length === 0 && (
+                <div className="text-muted-foreground text-xs py-4 text-center">
+                  Нет данных по страницам
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Detail drawer (модалка) */}
+      {drawerElem && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={() => setDrawerElem(null)}
+        >
+          <Card
+            className="glass-card rounded-2xl border border-violet-500/40 max-w-lg w-full"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <CardContent className="p-5">
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <div className="text-xs uppercase text-muted-foreground">
+                    Элемент
+                  </div>
+                  <div className="text-lg font-bold text-white">
+                    {drawerElem.elementText || drawerElem.elementKey}
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setDrawerElem(null)}
+                >
+                  ✕
+                </Button>
+              </div>
+              <div className="space-y-2 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Ключ:</span>{" "}
+                  <span className="text-white font-mono text-xs">
+                    {drawerElem.elementKey}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Кликов:</span>{" "}
+                  <span className="text-violet-300 font-medium">
+                    {drawerElem.count}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Уникальных юзеров:</span>{" "}
+                  <span className="text-cyan-300 font-medium">
+                    {drawerElem.uniqueUsers}
+                  </span>
+                </div>
+                <div className="pt-3 border-t border-white/10 mt-3">
+                  <div className="text-xs text-muted-foreground mb-2">
+                    Страницы, где элемент встречается чаще всего:
+                  </div>
+                  <ul className="text-xs space-y-1">
+                    {(clicks?.topClicks || [])
+                      .filter((r) => r.elementKey === drawerElem.elementKey)
+                      .slice(0, 8)
+                      .map((r, i) => (
+                        <li key={i} className="flex justify-between gap-2">
+                          <span
+                            className="text-white truncate max-w-[260px]"
+                            title={r.page}
+                          >
+                            {r.page}
+                          </span>
+                          <span className="text-violet-300 font-medium">
+                            {r.count}
+                          </span>
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ============================================================
 // MAIN TAB
 // ============================================================
 export default function MasterDashboardTab() {
@@ -343,6 +663,12 @@ export default function MasterDashboardTab() {
     queryFn: () =>
       fetcher<DashboardSummary>(`/api/admin/v304/dashboard-summary?period=${period}`),
     refetchInterval: 30_000,
+  });
+  const { data: clickStats, isLoading: clicksLoading } = useQuery<ClickStats>({
+    queryKey: [`/api/admin/v304/click-stats?period=${period}`],
+    queryFn: () =>
+      fetcher<ClickStats>(`/api/admin/v304/click-stats?period=${period}`),
+    refetchInterval: 60_000,
   });
 
   if (isLoading && !data) {
@@ -470,6 +796,9 @@ export default function MasterDashboardTab() {
           />
         </div>
       </section>
+
+      {/* 2.5. Click-stats (Агент Клик) */}
+      <ClickStatsSection clicks={clickStats} isLoading={clicksLoading} />
 
       {/* 3. Charts grid */}
       <section>
