@@ -962,6 +962,36 @@ Audit-сценарий перед коммитом аналитического 
 
 Применяется к: ошибкам интеграции с внешними сервисами (Suno/GPTunnel/Yandex/Robokassa/Telegram). Не применяется к: чисто внутренним багам (TypeScript, React state).
 
+### Prod-auto-deploy + versioned backup rule (Eugene 2026-05-17, **сильнее Clone-deprecated rule в части deploy-канала**)
+
+**Деплой на prod muziai.ru идёт через `git push` в `claude/add-claude-documentation-OW5V7` → systemd timer `neurohub-prod-auto-deploy.timer` на VPS `31.130.148.107` каждую минуту pulls + builds + swaps dist + restarts pm2.** GH Actions UI больше не использую — Босс просил «GH пушим, GH Actions сложно».
+
+Скрипт: `deploy/auto-deploy-prod.sh` (живёт на VPS как `/usr/local/bin/neurohub-prod-auto-deploy.sh`, self-update из репо при каждом запуске).
+
+**Versioned backup перед каждым deploy** (уже встроено в скрипт):
+- Файл: `/var/backups/neurohub-prod-auto/dist-YYYYMMDD-HHMMSS-<SHA7>.tar.gz`
+  - `YYYYMMDD-HHMMSS` — UTC timestamp момента deploy
+  - `<SHA7>` — короткий SHA текущего (старого) коммита до swap
+- TTL: хранится 10 последних, более старые auto-удаляются
+- При health-check fail (`/api/example/ping`) — auto-rollback: распаковка последнего backup → pm2 restart → Telegram alert админу
+
+Откат вручную к конкретной версии:
+```bash
+ssh root@31.130.148.107 'ls -t /var/backups/neurohub-prod-auto/dist-*.tar.gz | head -10'
+ssh root@31.130.148.107 'cd /var/www/neurohub && rm -rf dist && tar xzf /var/backups/neurohub-prod-auto/dist-<TIMESTAMP>-<SHA>.tar.gz && pm2 restart neurohub --update-env'
+```
+
+**Что Босс делает:** ничего. Push на feature branch → через 1-2 минуты на prod. Если что упало — Telegram alert + auto-rollback.
+
+**Что Босс может проверить (Termius Snippet):**
+```bash
+ssh root@31.130.148.107 'tail -10 /var/log/neurohub-prod-auto-deploy.log && cd /opt/muziai-src && git log --oneline -1 && pm2 status neurohub'
+```
+
+GH Actions workflow `deploy-prod.yml` остаётся как **резерв** (когда timer падает или нужен deploy с другой ветки). По умолчанию = timer pull from GitHub.
+
+Этим правилом отменяется (предыдущее) Clone-deprecated rule в части «GH UI как primary канал» — теперь primary = systemd timer pull from GitHub. Push в `claude/add-claude-documentation-OW5V7` достаточно.
+
 ### Clone-deprecated + GH-only deploy rule (Eugene 2026-05-15, **сильнее всех предыдущих deploy-правил**)
 
 **Clone (`clone.muziai.ru`) больше не используется как промежуточный environment.** Auto-deploy на clone продолжает работать (cron на VPS 72.56.1.149 берёт коммиты из ветки `claude/add-claude-documentation-OW5V7`), но его результаты — не predeploy-проверка для prod. Все изменения идут сразу в production muziai.ru.
