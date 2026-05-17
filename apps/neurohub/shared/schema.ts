@@ -675,6 +675,25 @@ export const agentHandoffs = sqliteTable("agent_handoffs", {
 });
 export type AgentHandoff = typeof agentHandoffs.$inferSelect;
 
+// === User journey events (Eugene 2026-05-17 Босс): карта пути юзера от
+// захода до выхода — page_view, click, scroll_percent, idle, form_focus,
+// form_abandon, leave. Используется для (1) admin-аналитики "куда уходят",
+// (2) smart-триггеров Музы — появление при долгом думании на форме / idle.
+//
+// sessionKey — browser-side uuid в localStorage (живёт между визитами).
+// Гости тоже трекаются (userId nullable). Не пишем sensitive pages
+// (/admin/*). Не leak'аем PII в meta (email/phone в meta — маскированы).
+export const userJourneyEvents = sqliteTable("user_journey_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  sessionKey: text("session_key").notNull(),         // uuid (localStorage)
+  userId: integer("user_id"),                        // null если гость
+  eventType: text("event_type").notNull(),           // 'page_view' | 'click' | 'scroll_percent' | 'idle_30s' | 'form_focus' | 'form_abandon' | 'leave'
+  page: text("page").notNull(),                      // '/', '/music', '/dashboard', '/register-phone', ...
+  meta: text("meta"),                                // JSON: { x, y, elemId, scroll, durationMs, ... }
+  createdAt: text("created_at").notNull(),           // ISO timestamp с клиента (для точности порядка)
+});
+export type UserJourneyEvent = typeof userJourneyEvents.$inferSelect;
+
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
   balance: true,

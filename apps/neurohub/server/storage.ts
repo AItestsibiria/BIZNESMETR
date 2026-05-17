@@ -573,6 +573,25 @@ try {
       last_used_at TEXT
     );
     CREATE INDEX IF NOT EXISTS audio_uploads_user_idx ON audio_uploads(user_id, created_at DESC);
+
+    -- Eugene 2026-05-17 Босс «карта пути юзера + smart Муза-триггер».
+    -- Карта всех действий юзера от захода до выхода: page_view, click,
+    -- scroll_percent, idle_30s, form_focus, form_abandon, leave.
+    -- sessionKey — uuid в localStorage, живёт между визитами.
+    -- userId nullable (гости тоже трекаются для анализа конверсии).
+    -- /admin/* страницы НЕ пишем (privacy + шум).
+    CREATE TABLE IF NOT EXISTS user_journey_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_key TEXT NOT NULL,
+      user_id INTEGER,
+      event_type TEXT NOT NULL,
+      page TEXT NOT NULL,
+      meta TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS user_journey_session_idx ON user_journey_events(session_key, created_at);
+    CREATE INDEX IF NOT EXISTS user_journey_user_idx ON user_journey_events(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS user_journey_page_idx ON user_journey_events(page, created_at);
   `);
 
   // Sprint 6 max-channel — расширяем chatbot_sessions для FSM
