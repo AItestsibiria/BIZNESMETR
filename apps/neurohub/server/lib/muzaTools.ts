@@ -312,6 +312,11 @@ export const MUZA_TOOLS: ToolDef[] = [
       required: ["name"],
     },
   },
+  {
+    name: "get_bot_channels_status",
+    description: "[ADMIN-ONLY] Состояние всех каналов общения (web / telegram / max) + LLM engine (primary anthropic + fallback timeweb-gateway). Возвращает короткий текст: какой канал зелёный / жёлтый / красный с проблемами. Используй когда админ спрашивает «как каналы», «всё ли работает», «что упало» или хочет голосовое summary. Под капотом — bot-channels-health плагин.",
+    input_schema: { type: "object", properties: {}, required: [] },
+  },
 ];
 
 // === Email 2FA wrapper helper (Eugene 2026-05-17 Босс) ===
@@ -1129,11 +1134,17 @@ const HANDLERS: Record<string, ToolHandler> = {
     if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
     const term = String(name || "").trim();
     if (!term) return "Не указано имя узла.";
-    // Возвращаем токен который фронт-side musa-voice-fab распарсит и
-    // эмитнет CustomEvent('brain-focus-node', { detail: { name } }) — это
-    // ловит SecondBrain3D и подъезжает камерой к узлу. Префикс
-    // [FOCUS_BRAIN_NODE:] — это marker для UI-парсера.
     return `[FOCUS_BRAIN_NODE:${term}] Фокусирую камеру на узле «${term}» во Втором мозге.`;
+  },
+
+  async get_bot_channels_status(_input, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
+    try {
+      const mod = await import("../plugins/bot-channels-health/module");
+      return await mod.getChannelsStatusSummary();
+    } catch (e: any) {
+      return `Ошибка get_bot_channels_status: ${e.message}`;
+    }
   },
 };
 
