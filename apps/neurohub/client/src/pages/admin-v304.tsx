@@ -27,6 +27,7 @@ import { Switch } from "@/components/ui/switch";
 import { Progress } from "@/components/ui/progress";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell } from "recharts";
 import MasterDashboardTab from "@/pages/admin/master-dashboard-tab";
+import SupportTicketsTab from "@/pages/admin/support-tickets-tab";
 import { MusaVoiceFab } from "@/components/musa-voice-fab";
 
 type Overview = {
@@ -155,6 +156,20 @@ export default function AdminV304Page() {
   // Контролируемый Tabs + global search jumps к нужной вкладке.
   const [tab, setTab] = useState("master-dashboard");
 
+  // Eugene 2026-05-17 Босс «техподдержка» — поддержка deep-link из Telegram
+  // alert'а: #/admin/v304?tab=support&ticket=XXX → open Обращения tab.
+  useEffect(() => {
+    try {
+      const hash = window.location.hash || "";
+      const qi = hash.indexOf("?");
+      if (qi < 0) return;
+      const params = new URLSearchParams(hash.slice(qi + 1));
+      const wantTab = params.get("tab");
+      if (wantTab) setTab(wantTab);
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Защита на стороне клиента — мягкая (бэк всё равно проверит).
   // Админ-доступ для тех, чей email есть в server-side ADMIN_EMAIL списке;
   // на клиенте это знание неполное, поэтому показываем UI всем
@@ -224,6 +239,7 @@ export default function AdminV304Page() {
           <TabsTrigger value="audit">Audit log</TabsTrigger>
           <TabsTrigger value="failures">⚠️ Проблемы</TabsTrigger>
           <TabsTrigger value="dialogs">💬 Диалоги</TabsTrigger>
+          <TabsTrigger value="support">🆘 Обращения</TabsTrigger>
           <TabsTrigger value="journey">🗺 Путь</TabsTrigger>
         </TabsList>
         <TabsContent value="master-dashboard"><MasterDashboardTab /></TabsContent>
@@ -249,6 +265,7 @@ export default function AdminV304Page() {
         <TabsContent value="audit"><AuditTab toast={toast} /></TabsContent>
         <TabsContent value="failures"><FailuresTab toast={toast} /></TabsContent>
         <TabsContent value="dialogs"><DialogsTab toast={toast} /></TabsContent>
+        <TabsContent value="support"><SupportTicketsTab toast={toast} /></TabsContent>
         <TabsContent value="journey"><JourneyTab toast={toast} /></TabsContent>
       </Tabs>
 
