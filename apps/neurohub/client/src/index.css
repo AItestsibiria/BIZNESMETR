@@ -779,3 +779,180 @@
 .cover-arrow-wiggle-right {
   animation: coverArrowWiggleRight 4s ease-in-out infinite;
 }
+
+/* ============================================================
+   Hi-tech accents (Eugene 2026-05-17, Brand-style consistency rule)
+   Subtle cyber/sci-fi-эффекты поверх brand-palette: Cyber Violet (#7C3AED),
+   Electric Blue (#00D4FF), Amber Glow (#FBBF24), Hot Magenta (#FF006E).
+   Все эффекты — CSS-only, mobile-first (iPhone Safari OK),
+   performance-friendly (никаких heavy JS particle systems).
+
+   Применение:
+   - .scan-line — overlay поверх hero / status panels
+   - .neon-text — hi-tech акценты в titles (поверх gradient-text)
+   - .animated-border — карточки требующие attention (status / live)
+   - .holographic — modal backdrops / featured cards
+   - .cyber-grid — фоновая сетка для admin / dashboard
+   - .particle-bg — лёгкие частицы вокруг ключевых CTA
+   - .hud-frame — sci-fi corner brackets вокруг панелей
+   ============================================================ */
+
+/* --- scan-line — animated horizontal scan поверх элемента --- */
+@keyframes scanLine {
+  0%, 100% { transform: translateY(0); opacity: 0; }
+  50%      { transform: translateY(100%); opacity: 0.6; }
+}
+.scan-line {
+  position: relative;
+  overflow: hidden;
+}
+.scan-line::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #00d4ff, transparent);
+  animation: scanLine 4s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* --- neon-text — neon glow поверх currentColor --- */
+.neon-text {
+  text-shadow:
+    0 0 8px currentColor,
+    0 0 16px currentColor;
+}
+
+/* --- animated-border — вращающийся gradient border (wrapper) --- */
+@keyframes borderRotate {
+  to { background-position: 400% center; }
+}
+.animated-border {
+  position: relative;
+  background: linear-gradient(
+    90deg,
+    #7c3aed,
+    #00d4ff,
+    #fbbf24,
+    #ff006e,
+    #7c3aed
+  );
+  background-size: 400% auto;
+  animation: borderRotate 8s linear infinite;
+  padding: 1.5px;
+  border-radius: inherit;
+}
+
+/* --- holographic — голографический shimmer фон --- */
+@keyframes holoShift {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+.holographic {
+  background: linear-gradient(
+    135deg,
+    rgba(124, 58, 237, 0.10),
+    rgba(0, 212, 255, 0.10),
+    rgba(255, 0, 110, 0.10)
+  );
+  background-size: 200% 200%;
+  animation: holoShift 12s ease infinite;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+/* --- cyber-grid — subtle hi-tech grid background --- */
+.cyber-grid {
+  background-image:
+    linear-gradient(rgba(124, 58, 237, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 212, 255, 0.04) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* --- particle-bg — лёгкие частицы (CSS-only) --- */
+@keyframes particleFloat {
+  0%, 100% { transform: translateY(0) translateX(0); opacity: 0.6; }
+  50%      { transform: translateY(-20px) translateX(10px); opacity: 1; }
+}
+@keyframes particleFloat2 {
+  0%, 100% { transform: translateY(0) translateX(0); opacity: 0.5; }
+  50%      { transform: translateY(18px) translateX(-12px); opacity: 0.9; }
+}
+.particle-bg {
+  position: relative;
+}
+.particle-bg::before,
+.particle-bg::after {
+  content: '';
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  background: radial-gradient(circle, #7c3aed 0%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+.particle-bg::before {
+  top: 10%;
+  left: 15%;
+  animation: particleFloat 6s ease-in-out infinite;
+}
+.particle-bg::after {
+  bottom: 12%;
+  right: 18%;
+  background: radial-gradient(circle, #00d4ff 0%, transparent 70%);
+  animation: particleFloat2 7s ease-in-out infinite 1s;
+}
+
+/* --- hud-frame — sci-fi corner brackets вокруг панели --- */
+.hud-frame {
+  position: relative;
+}
+.hud-frame::before,
+.hud-frame::after,
+.hud-frame > .hud-bl,
+.hud-frame > .hud-br {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 2px solid #00d4ff;
+  pointer-events: none;
+}
+.hud-frame::before {
+  top: -2px;
+  left: -2px;
+  border-right: none;
+  border-bottom: none;
+}
+.hud-frame::after {
+  top: -2px;
+  right: -2px;
+  border-left: none;
+  border-bottom: none;
+}
+.hud-frame > .hud-bl {
+  bottom: -2px;
+  left: -2px;
+  border-right: none;
+  border-top: none;
+}
+.hud-frame > .hud-br {
+  bottom: -2px;
+  right: -2px;
+  border-left: none;
+  border-top: none;
+}
+
+/* Reduced motion — отключаем шевелящиеся эффекты для accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .scan-line::before,
+  .animated-border,
+  .holographic,
+  .particle-bg::before,
+  .particle-bg::after {
+    animation: none;
+  }
+}
