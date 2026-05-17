@@ -71,7 +71,15 @@ const PERSONA_COLOR: Record<string, string> = {
 
 // Eugene 2026-05-14 Босс: inline-чат с Музой на сайте + cross-channel pair-code.
 // quickReplies — 2-3 кнопки-варианта после bot-message, клик = auto-send.
-type ChatMessage = { role: "user" | "bot"; text: string; quickReplies?: string[] };
+type BackupChannel = { id: string; name: string; url: string; hint: string };
+type ChatMessage = {
+  role: "user" | "bot";
+  text: string;
+  quickReplies?: string[];
+  // Eugene 2026-05-17 Босс «резервные каналы». Если LLM упал, бот ставит
+  // backupChannels в последнее сообщение, фронт рендерит баннер под текстом.
+  backupChannels?: BackupChannel[];
+};
 
 // Quick-reply chips — типичные первые сообщения чтобы юзер не залипал
 // на пустом инпуте. Сменяются после первой реплики.
@@ -316,9 +324,17 @@ export function FloatingConsultant() {
         await new Promise(resolve => window.setTimeout(resolve, delay));
         try { playMuzaChime({ volume: 0.04 }); } catch {}
         // Сначала показываем текст БЕЗ кнопок
+        // Eugene 2026-05-17 Босс: если LLM упал (usedFallback) — прикрепляем
+        // backupChannels к этому сообщению. Под текстом отрисуется баннер
+        // с альтернативными каналами (Telegram, Max).
+        const backupChannels: BackupChannel[] | undefined =
+          j.usedFallback && Array.isArray(j.backupChannels) && j.backupChannels.length > 0
+            ? j.backupChannels
+            : undefined;
         setChatMsgs(m => [...m, {
           role: "bot",
           text: j.reply,
+          backupChannels,
           // quickReplies подадим отдельной перезаписью через ещё одну паузу
         }]);
         setChatSending(false);
@@ -1037,6 +1053,35 @@ export function FloatingConsultant() {
                         ? <a key={j} href={p.href} target="_blank" rel="noopener noreferrer" className="underline text-cyan-300 hover:text-cyan-200">{p.text}</a>
                         : <span key={j}>{p.text}</span>
                       )}</div>
+                    {/* Eugene 2026-05-17 Босс «резервные каналы при downtime».
+                        Если LLM вернул fallback — показываем баннер с
+                        альтернативами (Telegram / Max). Юзер не остаётся
+                        без ответа: переходит в работающий канал одним кликом. */}
+                    {m.role === "bot" && m.backupChannels && m.backupChannels.length > 0 && (
+                      <div className="w-full max-w-[80%] mt-1 p-3 rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/10 via-purple-500/10 to-cyan-500/10">
+                        <div className="flex items-center gap-2 mb-1.5 text-[11px] text-amber-200/90 font-semibold">
+                          <span>⚠️</span>
+                          <span>Чат временно недоступен</span>
+                        </div>
+                        <div className="text-[11px] text-white/70 mb-2">
+                          Напишите нам в одном из мессенджеров — отвечу там быстро:
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {m.backupChannels.map((bc, bi) => (
+                            <a
+                              key={bi}
+                              href={bc.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[12px] px-3 py-1.5 rounded-full bg-gradient-to-br from-purple-500/25 to-cyan-500/25 hover:from-purple-500/45 hover:to-cyan-500/45 text-white border border-purple-400/40 hover:border-purple-300/60 transition-colors shadow-md shadow-purple-500/10"
+                              title={bc.hint}
+                            >
+                              {bc.id === "telegram" ? "✈️ " : bc.id === "max" ? "💬 " : "🔌 "}{bc.name}
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     {/* Eugene 2026-05-14 Босс: QR-кнопки кликабельны на ЛЮБОМ
                         bot-msg (повторное нажатие меняет выбор для дальнейшего). */}
                     {showQR && (
