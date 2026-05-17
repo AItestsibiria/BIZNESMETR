@@ -4,26 +4,26 @@
 // Содержит:
 // 1) Light-status indicators (карточки по группам) — LLM, Generation, Auth,
 //    Payments, Bots, DB, Disk. Auto-refresh каждые 30 сек.
-//    Click на карточку → expand panel с деталями (drill-down).
-// 2) Period pills (🟪 Вчера / 🟦 Сегодня / 🟩 Неделя / 🟨 Месяц / 📅 Другой период).
-//    Click → instant refetch. 📅 раскрывает date-range picker (from/to).
+// 2) Date-range picker (Сегодня / 7 дней / 30 дней / За всё время)
 // 3) Статистика по периоду — prosects, downloads, regs, gens, pays, visits.
-//    Click на метрику → expand panel (by-day breakdown, top elements, etc).
 // 4) Дизайнерские диаграммы Recharts с hover combined overlay.
 //
 // Источник данных:
-//   GET /api/admin/v304/dashboard-summary?period=yesterday|today|7d|30d|all|custom&from=ISO&to=ISO
-//   GET /api/admin/v304/dashboard-detail/:metric?period=... (drill-down)
+//   GET /api/admin/v304/dashboard-summary?period=today|7d|30d|all
 //
 // Стиль: glass-card + фирменные purple/cyan/amber/emerald gradient на dark bg.
-// Mobile-friendly: 1col mobile, 2-3col desktop, pills wrap, expanded panel full-width.
+// Mobile-friendly: 1col mobile, 2-3col desktop.
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AnimatePresence, motion } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { registerAudio } from "@/lib/audio-bus";
+import {
+  AdminConfirmAction,
+  detectPendingConfirm,
+  type PendingConfirmInfo,
+} from "@/components/admin-confirm-action";
 import {
   ResponsiveContainer,
   LineChart,
@@ -40,7 +40,7 @@ import {
   Legend,
 } from "recharts";
 
-type Period = "yesterday" | "today" | "7d" | "30d" | "all" | "custom";
+type Period = "today" | "7d" | "30d" | "all";
 
 type StatusCard = {
   key: string;
@@ -121,90 +121,11 @@ function fetcher<T>(url: string): Promise<T> {
 }
 
 const PERIOD_LABELS: Record<Period, string> = {
-  yesterday: "Вчера",
   today: "Сегодня",
-  "7d": "Неделя",
-  "30d": "Месяц",
+  "7d": "7 дней",
+  "30d": "30 дней",
   all: "За всё время",
-  custom: "Другой период",
 };
-
-const PERIOD_PILLS: Array<{
-  id: Period;
-  label: string;
-  icon: string;
-  active: string;  // tailwind gradient when active
-  inactive: string;
-  glow: string;
-}> = [
-  {
-    id: "yesterday",
-    label: "Вчера",
-    icon: "🟪",
-    active:
-      "bg-gradient-to-br from-purple-500/40 via-fuchsia-500/30 to-purple-600/40 border-purple-400/60 text-white",
-    inactive:
-      "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/[0.08] hover:border-purple-400/30",
-    glow: "shadow-[0_0_24px_rgba(124,58,237,0.45)]",
-  },
-  {
-    id: "today",
-    label: "Сегодня",
-    icon: "🟦",
-    active:
-      "bg-gradient-to-br from-cyan-500/40 via-blue-500/30 to-cyan-600/40 border-cyan-400/60 text-white",
-    inactive:
-      "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/[0.08] hover:border-cyan-400/30",
-    glow: "shadow-[0_0_24px_rgba(0,212,255,0.45)]",
-  },
-  {
-    id: "7d",
-    label: "Неделя",
-    icon: "🟩",
-    active:
-      "bg-gradient-to-br from-emerald-500/40 via-green-500/30 to-emerald-600/40 border-emerald-400/60 text-white",
-    inactive:
-      "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/[0.08] hover:border-emerald-400/30",
-    glow: "shadow-[0_0_24px_rgba(57,255,20,0.4)]",
-  },
-  {
-    id: "30d",
-    label: "Месяц",
-    icon: "🟨",
-    active:
-      "bg-gradient-to-br from-amber-500/40 via-yellow-500/30 to-amber-600/40 border-amber-400/60 text-white",
-    inactive:
-      "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/[0.08] hover:border-amber-400/30",
-    glow: "shadow-[0_0_24px_rgba(251,191,36,0.45)]",
-  },
-  {
-    id: "custom",
-    label: "Другой период",
-    icon: "📅",
-    active:
-      "bg-gradient-to-br from-pink-500/40 via-fuchsia-500/30 to-purple-500/40 border-pink-400/60 text-white",
-    inactive:
-      "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/[0.08] hover:border-pink-400/30",
-    glow: "shadow-[0_0_24px_rgba(255,0,110,0.4)]",
-  },
-];
-
-// "YYYY-MM-DD" → ISO для query-string. Берём начало дня MSK для from, конец для to.
-function dateToIso(dateStr: string, endOfDay = false): string | null {
-  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null;
-  // MSK = UTC+3. Начало дня MSK == 21:00 UTC предыдущего дня.
-  // Чтобы не путаться: интерпретируем yyyy-mm-dd как локальный MSK день.
-  const [y, m, d] = dateStr.split("-").map(n => parseInt(n, 10));
-  // 00:00 MSK = UTC-3 → 21:00 предыдущего дня UTC, но Date.UTC проще:
-  // строим UTC момент = yyyy-mm-dd 00:00 minus 3h (т.е. 21:00 предыдущего UTC дня).
-  // Для endOfDay используем next day 00:00 MSK = yyyy-mm-(d+1) 00:00 MSK.
-  const base = new Date(Date.UTC(y, m - 1, d, 0, 0, 0));
-  base.setUTCHours(base.getUTCHours() - 3); // → 21:00 предыдущего UTC дня
-  if (endOfDay) {
-    base.setUTCHours(base.getUTCHours() + 24); // следующий день 00:00 MSK
-  }
-  return base.toISOString();
-}
 
 // ---- цветовая палитра — единый источник для всех графиков ----
 const COLORS = {
@@ -217,23 +138,9 @@ const COLORS = {
 const PIE_PALETTE = ["#a78bfa", "#22d3ee", "#fbbf24", "#34d399", "#f472b6", "#fb7185"];
 
 // ============================================================
-// Status card — лампочка-индикатор (clickable → expand details)
+// Status card — лампочка-индикатор
 // ============================================================
-function StatusLamp({
-  card,
-  expanded,
-  loading,
-  detail,
-  detailError,
-  onToggle,
-}: {
-  card: StatusCard;
-  expanded: boolean;
-  loading: boolean;
-  detail: Record<string, unknown> | undefined;
-  detailError: string | null;
-  onToggle: () => void;
-}) {
+function StatusLamp({ card }: { card: StatusCard }) {
   const color =
     card.status === "green"
       ? "bg-emerald-400 ring-emerald-400/40 shadow-emerald-400/60"
@@ -251,609 +158,70 @@ function StatusLamp({
       ? "border-amber-500/30 hover:border-amber-500/50"
       : "border-slate-500/20 hover:border-slate-500/40";
   return (
-    <div className="flex flex-col gap-0">
-      <Card
-        className={`glass-card rounded-2xl border ${borderClass} transition-all cursor-pointer ${
-          expanded ? "ring-1 ring-purple-400/40 shadow-[0_0_20px_-10px_rgba(167,139,250,0.6)]" : ""
-        }`}
-        data-testid={`status-card-${card.key}`}
-        onClick={onToggle}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onToggle();
-          }
-        }}
-      >
-        <CardContent className="p-4">
-          <div className="flex items-center gap-3 mb-2">
-            <span className="text-3xl">{card.emoji}</span>
-            <span className={`w-3 h-3 rounded-full ring-2 shadow-md ${color}`} />
-            <div className="ml-auto text-[10px] uppercase text-muted-foreground tracking-wider">
-              {card.label}
-            </div>
+    <Card
+      className={`glass-card rounded-2xl border ${borderClass} transition-colors`}
+      data-testid={`status-card-${card.key}`}
+    >
+      <CardContent className="p-4">
+        <div className="flex items-center gap-3 mb-2">
+          <span className="text-3xl">{card.emoji}</span>
+          <span className={`w-3 h-3 rounded-full ring-2 shadow-md ${color}`} />
+          <div className="ml-auto text-[10px] uppercase text-muted-foreground tracking-wider">
+            {card.label}
           </div>
-          <div className="text-sm font-medium text-white flex items-center justify-between gap-2">
-            <span className="truncate">{card.metric}</span>
-            <span
-              aria-hidden
-              className={`text-xs text-muted-foreground transition-transform ${
-                expanded ? "rotate-180" : ""
-              }`}
-            >
-              ▾
-            </span>
-          </div>
-        </CardContent>
-      </Card>
-
-      <AnimatePresence initial={false}>
-        {expanded && (
-          <motion.div
-            key="status-detail"
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.22, ease: "easeOut" }}
-            className="overflow-hidden"
-          >
-            <div className="mt-2 rounded-2xl border border-purple-400/30 bg-gradient-to-br from-[#1a0f2e]/80 via-[#0a0a17]/80 to-[#0f1830]/80 backdrop-blur p-4">
-              <StatusDetailContent
-                metric={card.key}
-                loading={loading}
-                detail={detail}
-                error={detailError}
-              />
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-function StatusDetailContent({
-  metric,
-  loading,
-  detail,
-  error,
-}: {
-  metric: string;
-  loading: boolean;
-  detail: Record<string, unknown> | undefined;
-  error: string | null;
-}) {
-  if (loading && !detail) {
-    return <div className="text-xs text-muted-foreground">Загружаю детали…</div>;
-  }
-  if (error) {
-    return (
-      <div className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded px-2 py-1.5">
-        Ошибка: {error}
-      </div>
-    );
-  }
-  if (!detail) return null;
-  return <StatusDetailBody metric={metric} detail={detail} />;
-}
-
-// Рендеринг конкретного status-detail (LLM/Generation/Auth/Payments/...)
-function StatusDetailBody({
-  metric,
-  detail,
-}: {
-  metric: string;
-  detail: Record<string, unknown>;
-}) {
-  if (metric === "llm") {
-    const channels = (detail.channels as Array<{
-      id: string;
-      label: string;
-      status: "ok" | "missing";
-      label2?: string;
-    }>) || [];
-    return (
-      <div className="space-y-2">
-        <div className="text-[11px] uppercase text-muted-foreground tracking-wider">
-          LLM-каналы
         </div>
-        <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {channels.map((c) => (
-            <li
-              key={c.id}
-              className={`flex items-center justify-between rounded-lg border px-2.5 py-1.5 text-xs ${
-                c.status === "ok"
-                  ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-100"
-                  : "border-red-400/30 bg-red-500/10 text-red-100"
-              }`}
-            >
-              <span className="font-medium">{c.label}</span>
-              <span className="text-[10px] uppercase tracking-wider">
-                {c.status === "ok" ? "✓ ok" : "× нет ключа"}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </div>
-    );
-  }
-  if (metric === "generation") {
-    const last24h = (detail.last24h as {
-      done: number;
-      error: number;
-      processing: number;
-      total: number;
-      successRate: number;
-    }) || { done: 0, error: 0, processing: 0, total: 0, successRate: 0 };
-    const topErrors = (detail.topErrors as Array<{ reason: string; count: number }>) || [];
-    return (
-      <div className="space-y-3">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-          <DetailStat label="Успех" value={last24h.done} color="emerald" />
-          <DetailStat label="Ошибки" value={last24h.error} color="red" />
-          <DetailStat label="В работе" value={last24h.processing} color="amber" />
-          <DetailStat
-            label="Success rate"
-            value={`${last24h.successRate}%`}
-            color={last24h.successRate >= 95 ? "emerald" : last24h.successRate >= 90 ? "amber" : "red"}
-          />
-        </div>
-        {topErrors.length > 0 && (
-          <div>
-            <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
-              Топ-5 ошибок (24ч)
-            </div>
-            <ul className="space-y-1 text-xs">
-              {topErrors.map((e, i) => (
-                <li
-                  key={i}
-                  className="flex justify-between gap-2 rounded border border-white/10 bg-white/[0.03] px-2 py-1"
-                >
-                  <span className="truncate text-red-200 max-w-[70%]" title={e.reason}>
-                    {e.reason}
-                  </span>
-                  <span className="text-red-300 font-medium">{e.count}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </div>
-    );
-  }
-  if (metric === "auth") {
-    const byChannel = (detail.byChannel as Array<{ channel: string; count: number }>) || [];
-    const failedAttempts = (detail.failedAttempts as Array<{
-      action: string;
-      errorCode: string;
-      count: number;
-    }>) || [];
-    const providers = (detail.providers as { sms: boolean; email: boolean; telegram: boolean }) || {
-      sms: false,
-      email: false,
-      telegram: false,
-    };
-    return (
-      <div className="space-y-3">
-        <div>
-          <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
-            Каналы регистрации
-          </div>
-          <ul className="flex flex-wrap gap-2 text-xs">
-            {byChannel.map((c, i) => (
-              <li
-                key={i}
-                className="rounded-full border border-cyan-400/30 bg-cyan-500/10 text-cyan-100 px-2.5 py-1"
-              >
-                {c.channel}: <span className="font-medium">{c.count}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div className="grid grid-cols-3 gap-2 text-xs">
-          {(["sms", "email", "telegram"] as const).map((p) => (
-            <div
-              key={p}
-              className={`rounded-lg border px-2 py-1.5 text-center ${
-                providers[p]
-                  ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-100"
-                  : "border-red-400/30 bg-red-500/10 text-red-100"
-              }`}
-            >
-              <div className="text-[10px] uppercase text-muted-foreground">{p}</div>
-              <div className="font-medium">{providers[p] ? "✓" : "×"}</div>
-            </div>
-          ))}
-        </div>
-        {failedAttempts.length > 0 && (
-          <div>
-            <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
-              Failed attempts (период)
-            </div>
-            <ul className="space-y-1 text-xs">
-              {failedAttempts.slice(0, 8).map((f, i) => (
-                <li
-                  key={i}
-                  className="flex justify-between gap-2 rounded border border-white/10 bg-white/[0.03] px-2 py-1"
-                >
-                  <span className="truncate text-red-200 max-w-[65%]" title={`${f.action} · ${f.errorCode}`}>
-                    {f.action} · {f.errorCode}
-                  </span>
-                  <span className="text-red-300 font-medium">{f.count}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </div>
-    );
-  }
-  if (metric === "payments") {
-    const data = (detail.since24h as {
-      summary: Array<{ status: string; count: number; sumKopecks: number }>;
-      recent: Array<{
-        invId: number;
-        amountKopecks: number;
-        status: string;
-        description: string | null;
-        createdAt: string;
-      }>;
-    }) || { summary: [], recent: [] };
-    return (
-      <div className="space-y-3">
-        <div className="flex flex-wrap gap-2 text-xs">
-          {data.summary.map((s, i) => (
-            <div
-              key={i}
-              className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 text-emerald-100 px-2.5 py-1.5"
-            >
-              <span className="uppercase text-[10px] tracking-wider">{s.status}</span>
-              {" · "}
-              <span className="font-medium">{s.count}</span>
-              {" · "}
-              <span>{Math.round(s.sumKopecks / 100).toLocaleString("ru-RU")}₽</span>
-            </div>
-          ))}
-        </div>
-        {data.recent.length > 0 ? (
-          <div>
-            <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
-              Последние инвойсы (24ч)
-            </div>
-            <div className="max-h-56 overflow-y-auto">
-              <table className="w-full text-xs">
-                <thead className="sticky top-0 bg-black/40 backdrop-blur">
-                  <tr className="text-left text-muted-foreground">
-                    <th className="py-1 pr-2 font-medium">Inv</th>
-                    <th className="py-1 px-2 font-medium text-right">Сумма</th>
-                    <th className="py-1 px-2 font-medium">Статус</th>
-                    <th className="py-1 pl-2 font-medium">Время</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.recent.map((p) => (
-                    <tr
-                      key={p.invId}
-                      className="border-t border-white/[0.04]"
-                    >
-                      <td className="py-1.5 pr-2 font-mono text-white/80">{p.invId}</td>
-                      <td className="py-1.5 px-2 text-right text-white">
-                        {Math.round(p.amountKopecks / 100).toLocaleString("ru-RU")}₽
-                      </td>
-                      <td
-                        className={`py-1.5 px-2 ${
-                          p.status === "paid"
-                            ? "text-emerald-300"
-                            : p.status === "failed"
-                            ? "text-red-300"
-                            : "text-amber-300"
-                        }`}
-                      >
-                        {p.status}
-                      </td>
-                      <td className="py-1.5 pl-2 text-muted-foreground font-mono text-[10px]">
-                        {new Date(p.createdAt).toLocaleTimeString("ru-RU")}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ) : (
-          <div className="text-xs text-muted-foreground">Инвойсов за 24ч нет</div>
-        )}
-      </div>
-    );
-  }
-  if (metric === "bots") {
-    const channels = (detail.channels as Array<{
-      id: string;
-      configured: boolean;
-      sessions24h: number;
-    }>) || [];
-    const failures = (detail.failures24h as Array<{
-      channel: string;
-      action: string;
-      errorCode: string;
-      count: number;
-      lastAt: string;
-    }>) || [];
-    return (
-      <div className="space-y-3">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-          {channels.map((c) => (
-            <div
-              key={c.id}
-              className={`rounded-lg border px-3 py-2 ${
-                c.configured
-                  ? "border-emerald-400/30 bg-emerald-500/10"
-                  : "border-red-400/30 bg-red-500/10"
-              }`}
-            >
-              <div className="text-[10px] uppercase text-muted-foreground">{c.id}</div>
-              <div className="text-white font-medium">
-                {c.configured ? "✓ настроен" : "× нет токена"}
-              </div>
-              <div className="text-muted-foreground">сессий 24ч: {c.sessions24h}</div>
-            </div>
-          ))}
-        </div>
-        {failures.length > 0 && (
-          <div>
-            <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
-              Последние ошибки channel-handler'ов
-            </div>
-            <ul className="space-y-1 text-xs">
-              {failures.map((f, i) => (
-                <li
-                  key={i}
-                  className="flex justify-between gap-2 rounded border border-white/10 bg-white/[0.03] px-2 py-1"
-                >
-                  <span className="truncate text-red-200 max-w-[65%]">
-                    [{f.channel}] {f.action} · {f.errorCode}
-                  </span>
-                  <span className="text-red-300 font-medium">{f.count}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </div>
-    );
-  }
-  if (metric === "db") {
-    const integrity = String(detail.integrity || "unknown");
-    const dbSizeMb = Number(detail.dbSizeMb || 0);
-    const tables = (detail.tables as Array<{ name: string; rows: number }>) || [];
-    return (
-      <div className="space-y-3">
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <DetailStat
-            label="PRAGMA integrity_check"
-            value={integrity}
-            color={integrity === "ok" ? "emerald" : "red"}
-          />
-          <DetailStat label="Размер БД" value={`${dbSizeMb} МБ`} color="amber" />
-        </div>
-        {tables.length > 0 && (
-          <div>
-            <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
-              Топ таблиц по объёму (rows)
-            </div>
-            <div className="max-h-56 overflow-y-auto">
-              <table className="w-full text-xs">
-                <tbody>
-                  {tables.map((t) => (
-                    <tr key={t.name} className="border-t border-white/[0.04]">
-                      <td className="py-1 pr-2 text-white font-mono text-[11px]">{t.name}</td>
-                      <td className="py-1 pl-2 text-right text-violet-300 font-medium">
-                        {t.rows.toLocaleString("ru-RU")}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-  if (metric === "disk") {
-    const dbSizeMb = Number(detail.dbSizeMb || 0);
-    const backups = (detail.backups as Array<{
-      name: string;
-      size: number;
-      mtime: string;
-    }>) || [];
-    return (
-      <div className="space-y-3">
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <DetailStat label="data.db" value={`${dbSizeMb} МБ`} color="amber" />
-          <DetailStat label="Бэкапов" value={backups.length} color="cyan" />
-        </div>
-        {backups.length > 0 ? (
-          <div>
-            <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
-              Последние backups
-            </div>
-            <ul className="space-y-1 text-xs max-h-48 overflow-y-auto">
-              {backups.map((b, i) => (
-                <li
-                  key={i}
-                  className="flex justify-between gap-2 rounded border border-white/10 bg-white/[0.03] px-2 py-1"
-                >
-                  <span className="truncate text-white font-mono text-[10px] max-w-[60%]" title={b.name}>
-                    {b.name}
-                  </span>
-                  <span className="text-muted-foreground">
-                    {Math.round(b.size / 1024 / 1024)} МБ ·{" "}
-                    {new Date(b.mtime).toLocaleDateString("ru-RU")}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : (
-          <div className="text-xs text-muted-foreground">
-            Бэкапы недоступны (нет {String(detail.backupDir || "/var/backups/neurohub-auto")})
-          </div>
-        )}
-      </div>
-    );
-  }
-  // Fallback — JSON для дебага
-  return (
-    <pre className="text-[10px] text-muted-foreground whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
-      {JSON.stringify(detail, null, 2)}
-    </pre>
-  );
-}
-
-function DetailStat({
-  label,
-  value,
-  color = "violet",
-}: {
-  label: string;
-  value: string | number;
-  color?: "violet" | "cyan" | "amber" | "emerald" | "red" | "pink";
-}) {
-  const colorMap: Record<string, string> = {
-    violet: "border-violet-400/30 bg-violet-500/10 text-violet-200",
-    cyan: "border-cyan-400/30 bg-cyan-500/10 text-cyan-200",
-    amber: "border-amber-400/30 bg-amber-500/10 text-amber-200",
-    emerald: "border-emerald-400/30 bg-emerald-500/10 text-emerald-200",
-    red: "border-red-400/30 bg-red-500/10 text-red-200",
-    pink: "border-pink-400/30 bg-pink-500/10 text-pink-200",
-  };
-  return (
-    <div className={`rounded-lg border ${colorMap[color]} px-2.5 py-1.5`}>
-      <div className="text-[10px] uppercase text-muted-foreground tracking-wider">
-        {label}
-      </div>
-      <div className="text-sm font-bold text-white mt-0.5">{value}</div>
-    </div>
+        <div className="text-sm font-medium text-white">{card.metric}</div>
+      </CardContent>
+    </Card>
   );
 }
 
 // ============================================================
-// Period pills (Eugene 2026-05-17 Босс): большие фирменные кнопки
-// 🟪 Вчера / 🟦 Сегодня / 🟩 Неделя / 🟨 Месяц / 📅 Другой период.
-// Click = instant refetch. Custom → раскрывает date-range picker.
+// Date-range picker
 // ============================================================
 function PeriodSelector({
   period,
   onChange,
-  customFrom,
-  customTo,
-  onCustomChange,
 }: {
   period: Period;
   onChange: (p: Period) => void;
-  customFrom: string;
-  customTo: string;
-  onCustomChange: (from: string, to: string) => void;
 }) {
+  const buttons: Array<{ key: Period; label: string }> = [
+    { key: "today", label: "Сегодня" },
+    { key: "7d", label: "7 дней" },
+    { key: "30d", label: "30 дней" },
+    { key: "all", label: "За всё время" },
+  ];
   return (
-    <div className="flex flex-col gap-2 w-full sm:w-auto">
-      <div className="flex flex-wrap gap-2">
-        {PERIOD_PILLS.map(p => {
-          const isActive = period === p.id;
-          return (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => onChange(p.id)}
-              data-testid={`period-${p.id}`}
-              className={`group relative inline-flex items-center gap-1.5 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full border text-xs sm:text-sm font-sans font-medium transition-all ${
-                isActive ? `${p.active} ${p.glow}` : p.inactive
-              }`}
-            >
-              <span className="text-base sm:text-lg leading-none">{p.icon}</span>
-              <span>{p.label}</span>
-              {isActive && (
-                <span
-                  aria-hidden
-                  className="absolute inset-0 rounded-full ring-1 ring-white/20 pointer-events-none"
-                />
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      <AnimatePresence initial={false}>
-        {period === "custom" && (
-          <motion.div
-            key="custom-range"
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.22, ease: "easeOut" }}
-            className="overflow-hidden"
-          >
-            <div className="flex flex-wrap items-end gap-2 pt-1 px-1">
-              <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
-                с
-                <input
-                  type="date"
-                  value={customFrom}
-                  onChange={(e) => onCustomChange(e.target.value, customTo)}
-                  data-testid="period-custom-from"
-                  className="bg-black/40 text-white text-xs px-2 py-1.5 rounded-lg border border-pink-400/30 hover:border-pink-400/60 focus:border-pink-400 focus:outline-none transition-colors"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
-                по
-                <input
-                  type="date"
-                  value={customTo}
-                  onChange={(e) => onCustomChange(customFrom, e.target.value)}
-                  data-testid="period-custom-to"
-                  className="bg-black/40 text-white text-xs px-2 py-1.5 rounded-lg border border-pink-400/30 hover:border-pink-400/60 focus:border-pink-400 focus:outline-none transition-colors"
-                />
-              </label>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => onChange("all")}
-                data-testid="period-custom-clear"
-                className="h-[34px]"
-              >
-                Сбросить
-              </Button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+    <div className="flex flex-wrap gap-2">
+      {buttons.map((b) => (
+        <Button
+          key={b.key}
+          variant={period === b.key ? "default" : "outline"}
+          size="sm"
+          onClick={() => onChange(b.key)}
+          data-testid={`period-${b.key}`}
+        >
+          {b.label}
+        </Button>
+      ))}
     </div>
   );
 }
 
 // ============================================================
 // Metric box (компактная цифра + подпись)
-// Если задан metricKey + onClick — клик раскрывает expand-panel в section ниже.
 // ============================================================
 function MetricBox({
   label,
   value,
   hint,
   color = "violet",
-  metricKey,
-  expanded,
-  onClick,
 }: {
   label: string;
   value: string | number;
   hint?: string;
   color?: "violet" | "cyan" | "amber" | "emerald" | "pink";
-  metricKey?: string;
-  expanded?: boolean;
-  onClick?: () => void;
 }) {
   const colorMap: Record<string, string> = {
     violet: "from-violet-500/15 to-transparent border-violet-500/30 text-violet-300",
@@ -862,485 +230,16 @@ function MetricBox({
     emerald: "from-emerald-500/15 to-transparent border-emerald-500/30 text-emerald-300",
     pink: "from-pink-500/15 to-transparent border-pink-500/30 text-pink-300",
   };
-  const glowMap: Record<string, string> = {
-    violet: "ring-violet-400/40 shadow-[0_0_20px_-8px_rgba(167,139,250,0.6)]",
-    cyan: "ring-cyan-400/40 shadow-[0_0_20px_-8px_rgba(34,211,238,0.6)]",
-    amber: "ring-amber-400/40 shadow-[0_0_20px_-8px_rgba(251,191,36,0.6)]",
-    emerald: "ring-emerald-400/40 shadow-[0_0_20px_-8px_rgba(52,211,153,0.6)]",
-    pink: "ring-pink-400/40 shadow-[0_0_20px_-8px_rgba(244,114,182,0.6)]",
-  };
-  const clickable = !!onClick;
   return (
     <div
-      className={`rounded-xl p-3 bg-gradient-to-br border transition-all ${colorMap[color]} ${
-        clickable ? "cursor-pointer hover:brightness-110" : ""
-      } ${expanded ? `ring-1 ${glowMap[color]}` : ""}`}
-      data-testid={`metric-${metricKey || label}`}
-      onClick={onClick}
-      role={clickable ? "button" : undefined}
-      tabIndex={clickable ? 0 : undefined}
-      onKeyDown={
-        clickable
-          ? (e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                onClick?.();
-              }
-            }
-          : undefined
-      }
+      className={`rounded-xl p-3 bg-gradient-to-br border ${colorMap[color]}`}
+      data-testid={`metric-${label}`}
     >
-      <div className="flex items-start justify-between gap-1">
-        <div className="text-xs uppercase tracking-wider text-muted-foreground">
-          {label}
-        </div>
-        {clickable && (
-          <span
-            aria-hidden
-            className={`text-[10px] text-muted-foreground transition-transform ${
-              expanded ? "rotate-180" : ""
-            }`}
-          >
-            ▾
-          </span>
-        )}
+      <div className="text-xs uppercase tracking-wider text-muted-foreground">
+        {label}
       </div>
       <div className="text-2xl font-bold mt-1 text-white">{value}</div>
       {hint && <div className="text-[10px] text-muted-foreground mt-1">{hint}</div>}
-    </div>
-  );
-}
-
-// ============================================================
-// MetricDetailPanel — full-width drill-down под секцией метрик периода
-// (graceful render каждого detail-варианта). Открывается через `expandedKey`
-// со скоупом metric:* в MasterDashboardTab.
-// ============================================================
-function MetricDetailPanel({
-  metric,
-  loading,
-  detail,
-  error,
-}: {
-  metric: string;
-  loading: boolean;
-  detail: Record<string, unknown> | undefined;
-  error: string | null;
-}) {
-  const title = (() => {
-    switch (metric) {
-      case "plays":
-        return "Прослушивания — детально";
-      case "registrations":
-        return "Регистрации — детально";
-      case "generations":
-        return "Генерации — детально";
-      case "payments":
-        return "Платежи — детально";
-      case "visitors":
-        return "Посетители — детально";
-      default:
-        return `Метрика — ${metric}`;
-    }
-  })();
-  return (
-    <div className="rounded-2xl border border-purple-400/30 bg-gradient-to-br from-[#1a0f2e]/80 via-[#0a0a17]/80 to-[#0f1830]/80 backdrop-blur p-4">
-      <div className="text-xs uppercase tracking-wider text-muted-foreground mb-3">
-        {title}
-      </div>
-      {loading && !detail ? (
-        <div className="text-xs text-muted-foreground">Загружаю детали…</div>
-      ) : error ? (
-        <div className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded px-2 py-1.5">
-          Ошибка: {error}
-        </div>
-      ) : detail ? (
-        <MetricDetailBody metric={metric} detail={detail} />
-      ) : null}
-    </div>
-  );
-}
-
-function MetricDetailBody({
-  metric,
-  detail,
-}: {
-  metric: string;
-  detail: Record<string, unknown>;
-}) {
-  if (metric === "plays") {
-    const byDay = (detail.byDay as Array<{ date: string; count: number }>) || [];
-    const byHour = (detail.byHour as Array<{ hour: number; count: number }>) || [];
-    const topTracks = (detail.topTracks as Array<{ id: number; title: string; plays: number }>) || [];
-    const rejected = (detail.rejected as Array<{ reason: string; count: number }>) || [];
-    return (
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="space-y-3">
-          <div>
-            <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
-              По дням
-            </div>
-            <div className="h-40">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={byDay}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                  <XAxis dataKey="date" stroke="rgba(255,255,255,0.4)" tick={{ fontSize: 9 }} />
-                  <YAxis stroke="rgba(255,255,255,0.4)" tick={{ fontSize: 9 }} />
-                  <Tooltip content={<CombinedTooltip />} />
-                  <Bar dataKey="count" name="прослушиваний" fill={COLORS.plays} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-          <div>
-            <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
-              По часам (сумма за период)
-            </div>
-            <div className="h-32">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={byHour}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                  <XAxis dataKey="hour" stroke="rgba(255,255,255,0.4)" tick={{ fontSize: 9 }} />
-                  <YAxis stroke="rgba(255,255,255,0.4)" tick={{ fontSize: 9 }} />
-                  <Tooltip content={<CombinedTooltip />} />
-                  <Bar dataKey="count" name="по часу" fill={COLORS.visitors} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </div>
-        <div className="space-y-3">
-          {topTracks.length > 0 && (
-            <div>
-              <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
-                Топ-10 треков
-              </div>
-              <ul className="space-y-1 text-xs max-h-48 overflow-y-auto">
-                {topTracks.map((t) => (
-                  <li
-                    key={t.id}
-                    className="flex justify-between gap-2 rounded border border-white/10 bg-white/[0.03] px-2 py-1"
-                  >
-                    <span className="truncate text-white max-w-[75%]" title={t.title}>
-                      {t.title}
-                    </span>
-                    <span className="text-violet-300 font-medium">{t.plays}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {rejected.length > 0 && (
-            <div>
-              <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
-                Отклонённые play (anti-fraud)
-              </div>
-              <ul className="space-y-1 text-xs">
-                {rejected.map((r, i) => (
-                  <li
-                    key={i}
-                    className="flex justify-between gap-2 rounded border border-amber-400/20 bg-amber-500/5 px-2 py-1"
-                  >
-                    <span className="truncate text-amber-200 max-w-[70%]">
-                      {r.reason || "—"}
-                    </span>
-                    <span className="text-amber-300 font-medium">{r.count}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-  if (metric === "registrations") {
-    const byChannel = (detail.byChannel as Array<{ name: string; value: number }>) || [];
-    const byDay = (detail.byDay as Array<{ date: string; count: number }>) || [];
-    const total = Number(detail.total || 0);
-    const verified = Number(detail.verified || 0);
-    return (
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <DetailStat label="Всего" value={total} color="cyan" />
-            <DetailStat
-              label="Верифицировано"
-              value={verified}
-              color="emerald"
-            />
-          </div>
-          <div>
-            <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
-              По каналу
-            </div>
-            <div className="h-44">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={byChannel}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={70}
-                    label={({ name, value }) => `${name}: ${value}`}
-                  >
-                    {byChannel.map((_, i) => (
-                      <Cell key={i} fill={PIE_PALETTE[i % PIE_PALETTE.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </div>
-        <div>
-          <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
-            По дням
-          </div>
-          <div className="h-56">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={byDay}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                <XAxis dataKey="date" stroke="rgba(255,255,255,0.4)" tick={{ fontSize: 9 }} />
-                <YAxis stroke="rgba(255,255,255,0.4)" tick={{ fontSize: 9 }} />
-                <Tooltip content={<CombinedTooltip />} />
-                <Bar dataKey="count" name="регистраций" fill={COLORS.registrations} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </div>
-    );
-  }
-  if (metric === "generations") {
-    const byType = (detail.byType as Array<{
-      type: string;
-      status: string;
-      count: number;
-    }>) || [];
-    const avgDur = (detail.avgDuration as Array<{ type: string; avgSeconds: number }>) || [];
-    // Группируем by type → {done, error, processing}
-    const grouped = byType.reduce(
-      (acc, r) => {
-        if (!acc[r.type]) acc[r.type] = { type: r.type, done: 0, error: 0, processing: 0, other: 0 };
-        if (r.status === "done") acc[r.type].done = r.count;
-        else if (r.status === "error") acc[r.type].error = r.count;
-        else if (r.status === "processing") acc[r.type].processing = r.count;
-        else acc[r.type].other += r.count;
-        return acc;
-      },
-      {} as Record<string, { type: string; done: number; error: number; processing: number; other: number }>,
-    );
-    const rows = Object.values(grouped);
-    return (
-      <div className="space-y-3">
-        <div>
-          <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
-            By type × status
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-left text-muted-foreground">
-                  <th className="py-1 pr-2 font-medium">Тип</th>
-                  <th className="py-1 px-2 font-medium text-right text-emerald-300">done</th>
-                  <th className="py-1 px-2 font-medium text-right text-red-300">error</th>
-                  <th className="py-1 px-2 font-medium text-right text-amber-300">processing</th>
-                  <th className="py-1 pl-2 font-medium text-right text-muted-foreground">other</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.type} className="border-t border-white/[0.04]">
-                    <td className="py-1.5 pr-2 text-white font-mono text-[11px]">{r.type}</td>
-                    <td className="py-1.5 px-2 text-right text-emerald-300">{r.done}</td>
-                    <td className="py-1.5 px-2 text-right text-red-300">{r.error}</td>
-                    <td className="py-1.5 px-2 text-right text-amber-300">{r.processing}</td>
-                    <td className="py-1.5 pl-2 text-right text-muted-foreground">{r.other}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        {avgDur.length > 0 && (
-          <div>
-            <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
-              Среднее время генерации (done)
-            </div>
-            <ul className="flex flex-wrap gap-2 text-xs">
-              {avgDur.map((a) => (
-                <li
-                  key={a.type}
-                  className="rounded-full border border-amber-400/30 bg-amber-500/10 text-amber-100 px-3 py-1"
-                >
-                  {a.type}: <span className="font-medium">{a.avgSeconds}c</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </div>
-    );
-  }
-  if (metric === "payments") {
-    const byStatus = (detail.byStatus as Array<{
-      status: string;
-      count: number;
-      sumKopecks: number;
-      sumRub: number;
-    }>) || [];
-    const recent = (detail.recent as Array<{
-      invId: number;
-      userId: number;
-      amountRub: number;
-      status: string;
-      description: string | null;
-      createdAt: string;
-    }>) || [];
-    return (
-      <div className="space-y-3">
-        <div className="flex flex-wrap gap-2 text-xs">
-          {byStatus.map((s) => (
-            <div
-              key={s.status}
-              className={`rounded-lg border px-3 py-1.5 ${
-                s.status === "paid"
-                  ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-100"
-                  : s.status === "failed"
-                  ? "border-red-400/30 bg-red-500/10 text-red-100"
-                  : "border-amber-400/30 bg-amber-500/10 text-amber-100"
-              }`}
-            >
-              <span className="uppercase text-[10px] tracking-wider">{s.status}</span>
-              {" · "}
-              <span className="font-medium">{s.count}</span>
-              {" · "}
-              <span>{s.sumRub.toLocaleString("ru-RU")}₽</span>
-            </div>
-          ))}
-        </div>
-        {recent.length > 0 && (
-          <div>
-            <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
-              Последние платежи (период, до 30)
-            </div>
-            <div className="max-h-72 overflow-y-auto">
-              <table className="w-full text-xs">
-                <thead className="sticky top-0 bg-black/40 backdrop-blur">
-                  <tr className="text-left text-muted-foreground">
-                    <th className="py-1 pr-2 font-medium">Inv</th>
-                    <th className="py-1 px-2 font-medium">User</th>
-                    <th className="py-1 px-2 font-medium text-right">Сумма</th>
-                    <th className="py-1 px-2 font-medium">Статус</th>
-                    <th className="py-1 pl-2 font-medium">Время</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recent.map((p) => (
-                    <tr key={p.invId} className="border-t border-white/[0.04]">
-                      <td className="py-1.5 pr-2 font-mono text-white/80 text-[11px]">
-                        {p.invId}
-                      </td>
-                      <td className="py-1.5 px-2 font-mono text-cyan-300 text-[11px]">
-                        #{p.userId}
-                      </td>
-                      <td className="py-1.5 px-2 text-right text-white">
-                        {p.amountRub.toLocaleString("ru-RU")}₽
-                      </td>
-                      <td
-                        className={`py-1.5 px-2 ${
-                          p.status === "paid"
-                            ? "text-emerald-300"
-                            : p.status === "failed"
-                            ? "text-red-300"
-                            : "text-amber-300"
-                        }`}
-                      >
-                        {p.status}
-                      </td>
-                      <td className="py-1.5 pl-2 text-muted-foreground font-mono text-[10px]">
-                        {new Date(p.createdAt).toLocaleString("ru-RU")}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-  if (metric === "visitors") {
-    const unique = Number(detail.unique || 0);
-    const total = Number(detail.total || 0);
-    const byCountry = (detail.byCountry as Array<{ name: string; count: number }>) || [];
-    const byCity = (detail.byCity as Array<{ name: string; count: number }>) || [];
-    const byDevice = (detail.byDevice as Array<{ name: string; count: number }>) || [];
-    const byBrowser = (detail.byBrowser as Array<{ name: string; count: number }>) || [];
-    return (
-      <div className="space-y-3">
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <DetailStat label="Уникальных" value={unique} color="pink" />
-          <DetailStat label="Визитов всего" value={total} color="cyan" />
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <VisitorChips title="Страны" items={byCountry} color="pink" />
-          <VisitorChips title="Города" items={byCity} color="cyan" />
-          <VisitorChips title="Девайс" items={byDevice} color="amber" />
-          <VisitorChips title="Браузер" items={byBrowser} color="violet" />
-        </div>
-      </div>
-    );
-  }
-  // Fallback
-  return (
-    <pre className="text-[10px] text-muted-foreground whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
-      {JSON.stringify(detail, null, 2)}
-    </pre>
-  );
-}
-
-function VisitorChips({
-  title,
-  items,
-  color,
-}: {
-  title: string;
-  items: Array<{ name: string; count: number }>;
-  color: "violet" | "cyan" | "amber" | "emerald" | "pink";
-}) {
-  const colorMap: Record<string, string> = {
-    violet: "border-violet-400/30 bg-violet-500/10 text-violet-200",
-    cyan: "border-cyan-400/30 bg-cyan-500/10 text-cyan-200",
-    amber: "border-amber-400/30 bg-amber-500/10 text-amber-200",
-    emerald: "border-emerald-400/30 bg-emerald-500/10 text-emerald-200",
-    pink: "border-pink-400/30 bg-pink-500/10 text-pink-200",
-  };
-  return (
-    <div>
-      <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
-        {title}
-      </div>
-      {items.length > 0 ? (
-        <ul className="flex flex-wrap gap-1.5 text-xs">
-          {items.slice(0, 10).map((c, i) => (
-            <li
-              key={i}
-              className={`rounded-full border ${colorMap[color]} px-2 py-0.5`}
-            >
-              {c.name}{" "}
-              <span className="font-medium text-white/80">{c.count}</span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <div className="text-[11px] text-muted-foreground">—</div>
-      )}
     </div>
   );
 }
@@ -1999,129 +898,505 @@ function MusaBriefing({ period }: { period: Period }) {
 }
 
 // ============================================================
-// Hook: fetch detail для expanded card. Кэширует через react-query, перезаливает
-// при смене period. Если expandedKey=null — query disabled (нет запроса).
+// 🎤 Сказать Музе — голосовая команда Админ ↔ Муза
+// (Eugene 2026-05-17 Босс). MediaRecorder → POST /voice-command (audio webm)
+// → transcript + Муза-response + executed actions + optional TTS.
+//
+// UX:
+//  - Большая круглая кнопка purple→cyan с микрофоном
+//  - Pulsing ring во время записи
+//  - Auto-stop через 60 сек (cost cap)
+//  - Permission denied → toast
+//  - Loading state: «Слушает... Распознаёт... Думает...»
+//  - Result panel: transcript + response + actions, auto-play TTS
+//  - История последних 5 команд (collapsible)
 // ============================================================
-function useExpandedDetail(
-  expandedKey: string | null,
-  period: Period,
-  customFrom: string,
-  customTo: string,
-) {
-  const url = expandedKey
-    ? buildDashboardUrl(
-        `/api/admin/v304/dashboard-detail/${encodeURIComponent(expandedKey)}`,
-        period,
-        customFrom,
-        customTo,
-      )
-    : null;
-  const customReady =
-    period !== "custom" ||
-    (Boolean(customFrom) && Boolean(customTo) && customFrom <= customTo);
-  return useQuery<Record<string, unknown>>({
-    queryKey: [url],
-    queryFn: () => fetcher<Record<string, unknown>>(url as string),
-    enabled: !!url && customReady,
-    staleTime: 30_000,
+
+type VoiceAction = { tool: string; input: any; result: string };
+
+type VoiceCommandResult = {
+  transcript: string;
+  response: string;
+  actions: VoiceAction[];
+  audioBase64?: string;
+  audioContentType?: string;
+  meta?: {
+    durationMs: number;
+    usage?: { inputTokens: number; outputTokens: number };
+    ttsRequested?: boolean;
+  };
+};
+
+type RecentVoiceItem = {
+  id: number;
+  adminUserId: number | null;
+  createdAt: string;
+  transcript: string;
+  response: string;
+  actions: VoiceAction[];
+  durationMs?: number;
+};
+
+function base64ToBlob(b64: string, contentType: string): Blob {
+  const byteChars = atob(b64);
+  const byteNumbers = new Array(byteChars.length);
+  for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
+  const byteArray = new Uint8Array(byteNumbers);
+  return new Blob([byteArray], { type: contentType });
+}
+
+function MusaVoiceCommand() {
+  const [state, setState] = useState<"idle" | "recording" | "uploading" | "thinking" | "playing">(
+    "idle",
+  );
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<VoiceCommandResult | null>(null);
+  const [history, setHistory] = useState<RecentVoiceItem[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [autoTts, setAutoTts] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    return window.localStorage.getItem("voice-command-tts") !== "0";
   });
+  // Email-2FA pending confirm — Eugene 2026-05-17 Босс.
+  // Когда tool возвращает requiresEmailConfirm=true в result.actions[*].result,
+  // показываем модалку. После confirm — callback фактически только закрывает
+  // модалку (saved actionId записан в admin_pending_actions со status=confirmed
+  // → Босс повторяет ту же голосовую команду, на этот раз require2FA()
+  // resolveит через getConfirmedAction).
+  const [pendingConfirm, setPendingConfirm] = useState<PendingConfirmInfo | null>(null);
+  const [pendingConfirmOpen, setPendingConfirmOpen] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const blobUrlRef = useRef<string | null>(null);
+  const autoStopTimerRef = useRef<number | null>(null);
+
+  const loadHistory = useCallback(async () => {
+    try {
+      const r = await fetch("/api/admin/v304/voice-command/recent?limit=5", {
+        credentials: "include",
+      });
+      if (!r.ok) return;
+      const j = await r.json();
+      setHistory(j?.data?.items || []);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    loadHistory();
+  }, [loadHistory]);
+
+  const cleanupStream = useCallback(() => {
+    if (streamRef.current) {
+      try {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+      } catch {}
+      streamRef.current = null;
+    }
+    if (autoStopTimerRef.current) {
+      window.clearTimeout(autoStopTimerRef.current);
+      autoStopTimerRef.current = null;
+    }
+  }, []);
+
+  const stopPlayback = useCallback(() => {
+    if (audioRef.current) {
+      try {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      } catch {}
+    }
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current);
+      blobUrlRef.current = null;
+    }
+    if (state === "playing") setState("idle");
+  }, [state]);
+
+  useEffect(() => {
+    return () => {
+      cleanupStream();
+      stopPlayback();
+    };
+  }, [cleanupStream, stopPlayback]);
+
+  const handleAutoTtsChange = (on: boolean) => {
+    setAutoTts(on);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("voice-command-tts", on ? "1" : "0");
+    }
+  };
+
+  const startRecording = useCallback(async () => {
+    setError(null);
+    setResult(null);
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setError("Браузер не поддерживает запись микрофона.");
+      return;
+    }
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+      const msg =
+        e instanceof Error && e.name === "NotAllowedError"
+          ? "Разреши доступ к микрофону (значок 🎤 в адресной строке)."
+          : e instanceof Error
+          ? e.message
+          : String(e);
+      setError(msg);
+      return;
+    }
+    streamRef.current = stream;
+    // MediaRecorder в webm/opus — Yandex STT перепакует через ffmpeg.
+    let recorder: MediaRecorder;
+    try {
+      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : "audio/webm";
+      recorder = new MediaRecorder(stream, { mimeType: mime });
+    } catch {
+      recorder = new MediaRecorder(stream);
+    }
+    mediaRecorderRef.current = recorder;
+    chunksRef.current = [];
+    recorder.ondataavailable = (e) => {
+      if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+    };
+    recorder.onstop = async () => {
+      cleanupStream();
+      const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+      chunksRef.current = [];
+      if (blob.size < 500) {
+        setError("Запись слишком короткая — попробуй ещё раз (минимум 1 сек).");
+        setState("idle");
+        return;
+      }
+      await uploadAudio(blob);
+    };
+    recorder.start();
+    setState("recording");
+    // Auto-stop через 60 сек (cost cap)
+    autoStopTimerRef.current = window.setTimeout(() => {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+        mediaRecorderRef.current.stop();
+      }
+    }, 60_000);
+  }, [cleanupStream]);
+
+  const stopRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      mediaRecorderRef.current.stop();
+      // setState переключится в uploadAudio
+      setState("uploading");
+    }
+  }, []);
+
+  const uploadAudio = useCallback(
+    async (blob: Blob) => {
+      setState("uploading");
+      try {
+        const fd = new FormData();
+        fd.append("audio", blob, "voice.webm");
+        const url = `/api/admin/v304/voice-command${autoTts ? "?tts=1" : ""}`;
+        const r = await fetch(url, {
+          method: "POST",
+          credentials: "include",
+          body: fd,
+        });
+        if (!r.ok) {
+          const tx = await r.text().catch(() => "");
+          let err = tx.slice(0, 200);
+          try {
+            const j = JSON.parse(tx);
+            if (j?.error) err = j.error;
+          } catch {}
+          throw new Error(`${r.status}: ${err}`);
+        }
+        setState("thinking");
+        const j = await r.json();
+        const data: VoiceCommandResult = j.data;
+        setResult(data);
+        // Detect requiresEmailConfirm в actions[*].result (Eugene 2026-05-17 Босс)
+        if (data.actions && data.actions.length > 0) {
+          for (const a of data.actions) {
+            const pending = detectPendingConfirm(a.result);
+            if (pending) {
+              setPendingConfirm(pending);
+              setPendingConfirmOpen(true);
+              break;
+            }
+          }
+        }
+        // History refresh
+        loadHistory();
+        // Auto-play TTS
+        if (data.audioBase64 && data.audioContentType) {
+          const audioBlob = base64ToBlob(data.audioBase64, data.audioContentType);
+          if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+          const audioUrl = URL.createObjectURL(audioBlob);
+          blobUrlRef.current = audioUrl;
+          const audio = new Audio(audioUrl);
+          registerAudio(audio);
+          audioRef.current = audio;
+          audio.onended = () => {
+            setState("idle");
+            if (blobUrlRef.current) {
+              URL.revokeObjectURL(blobUrlRef.current);
+              blobUrlRef.current = null;
+            }
+          };
+          audio.onerror = () => {
+            setState("idle");
+            setError("Ошибка воспроизведения mp3");
+          };
+          setState("playing");
+          await audio.play().catch((e) => {
+            console.warn("auto-play blocked", e);
+            setState("idle");
+          });
+        } else {
+          setState("idle");
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        setState("idle");
+      }
+    },
+    [autoTts, loadHistory],
+  );
+
+  const onMicClick = () => {
+    if (state === "idle") {
+      startRecording();
+    } else if (state === "recording") {
+      stopRecording();
+    } else if (state === "playing") {
+      stopPlayback();
+    }
+  };
+
+  const stateLabel =
+    state === "recording"
+      ? "🔴 Слушает... (нажми чтобы остановить)"
+      : state === "uploading"
+      ? "📤 Распознаёт..."
+      : state === "thinking"
+      ? "🧠 Думает..."
+      : state === "playing"
+      ? "🔊 Озвучивает (нажми чтобы остановить)"
+      : "🎤 Сказать Музе";
+
+  return (
+    <>
+    <section
+      className="glass-card rounded-2xl p-4 border border-cyan-500/30 hover:border-cyan-500/50 transition-colors"
+      data-testid="musa-voice-command"
+    >
+      <div className="flex items-start gap-3">
+        <span className="text-3xl">🎙</span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] font-sans px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-medium">
+              Голос
+            </span>
+            <span className="text-[10px] font-sans px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-medium">
+              Admin · Tools
+            </span>
+            <span className="text-[10px] font-sans px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-medium">
+              Yandex STT/TTS
+            </span>
+          </div>
+          <h3 className="text-lg font-sans font-bold text-white mb-2">
+            <span className="bg-gradient-to-r from-purple-300 via-cyan-300 to-emerald-300 bg-clip-text text-transparent">
+              Сказать Музе
+            </span>
+          </h3>
+          <p className="text-sm font-sans text-muted-foreground leading-relaxed">
+            Нажми кнопку, проговори команду — Муза распознает, выполнит и озвучит ответ.
+            Доступны admin-tools: метрики, поиск юзеров, инциденты, платежи, перезагрузка KB.
+            Лимит: 30 команд в час, до 60 сек на запись.
+          </p>
+
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={onMicClick}
+              disabled={state === "uploading" || state === "thinking"}
+              data-testid="musa-voice-mic"
+              className={`relative w-20 h-20 rounded-full font-bold text-2xl flex items-center justify-center transition-all
+                ${
+                  state === "recording"
+                    ? "bg-gradient-to-br from-red-500 via-pink-500 to-purple-500 shadow-[0_0_40px_rgba(239,68,68,0.7)] animate-pulse"
+                    : state === "playing"
+                    ? "bg-gradient-to-br from-emerald-500 via-cyan-500 to-blue-500 shadow-[0_0_40px_rgba(34,211,238,0.5)]"
+                    : state === "idle"
+                    ? "bg-gradient-to-br from-purple-500 via-fuchsia-500 to-cyan-500 shadow-[0_0_32px_rgba(124,58,237,0.5)] hover:scale-110"
+                    : "bg-white/10 opacity-70 cursor-wait"
+                }`}
+              aria-label={stateLabel}
+              title={stateLabel}
+            >
+              {state === "recording" && (
+                <span className="absolute inset-0 rounded-full ring-4 ring-red-400/40 animate-ping" />
+              )}
+              <span className="relative z-10">
+                {state === "recording" ? "⏹" : state === "playing" ? "🔇" : "🎤"}
+              </span>
+            </button>
+
+            <div className="flex flex-col gap-1 text-xs">
+              <div className="font-medium text-white">{stateLabel}</div>
+              <label className="flex items-center gap-1 text-muted-foreground cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={autoTts}
+                  onChange={(e) => handleAutoTtsChange(e.target.checked)}
+                  className="rounded border-white/20"
+                  data-testid="musa-voice-tts-toggle"
+                />
+                Озвучивать ответ
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {error && (
+        <div className="mt-3 text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">
+          Ошибка: {error}
+        </div>
+      )}
+
+      {result && (
+        <div className="mt-3 space-y-2" data-testid="musa-voice-result">
+          <div className="bg-black/30 border border-white/10 rounded-lg px-3 py-2">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
+              Распознано
+            </div>
+            <div className="text-sm text-white/90">{result.transcript}</div>
+          </div>
+          <div
+            className={`bg-gradient-to-br from-purple-500/10 to-cyan-500/10 border rounded-lg px-3 py-2 transition-all ${
+              state === "playing"
+                ? "border-cyan-400/60 ring-2 ring-cyan-400/40 shadow-[0_0_24px_rgba(34,211,238,0.4)]"
+                : "border-purple-500/20"
+            }`}
+          >
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
+              Муза ответила
+            </div>
+            <div className="text-sm text-white whitespace-pre-wrap">{result.response}</div>
+          </div>
+          {result.actions && result.actions.length > 0 && (
+            <details className="bg-black/30 border border-amber-500/20 rounded-lg px-3 py-2" open>
+              <summary className="text-[11px] uppercase tracking-wider text-amber-300 cursor-pointer">
+                Выполненные действия ({result.actions.length})
+              </summary>
+              <ul className="mt-2 space-y-1 text-xs">
+                {result.actions.map((a, i) => (
+                  <li key={i} className="border-l-2 border-amber-500/40 pl-2">
+                    <div className="text-amber-300 font-mono">
+                      {a.tool}({JSON.stringify(a.input).slice(0, 80)})
+                    </div>
+                    <div className="text-white/70 whitespace-pre-wrap">
+                      {String(a.result).slice(0, 400)}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {result.meta && (
+            <div className="text-[10px] text-muted-foreground font-mono">
+              {result.meta.durationMs}ms · tokens in/out{" "}
+              {result.meta.usage?.inputTokens ?? 0}/{result.meta.usage?.outputTokens ?? 0}
+              {result.meta.ttsRequested && " · TTS ✓"}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="mt-3">
+        <button
+          type="button"
+          onClick={() => setHistoryOpen((v) => !v)}
+          className="text-[11px] text-muted-foreground hover:text-white transition-colors"
+          data-testid="musa-voice-history-toggle"
+        >
+          {historyOpen ? "▼" : "▶"} История ({history.length})
+        </button>
+        {historyOpen && (
+          <div className="mt-2 space-y-2">
+            {history.length === 0 ? (
+              <div className="text-[11px] text-muted-foreground">Ещё нет команд.</div>
+            ) : (
+              history.map((h) => (
+                <div
+                  key={h.id}
+                  className="bg-black/20 border border-white/[0.06] rounded-lg px-3 py-2 text-xs"
+                >
+                  <div className="text-[10px] text-muted-foreground font-mono mb-1">
+                    #{h.id} · {new Date(h.createdAt).toLocaleString("ru-RU")}
+                    {h.durationMs ? ` · ${h.durationMs}ms` : ""}
+                  </div>
+                  <div className="text-white/80">
+                    <span className="text-cyan-300">→</span> {h.transcript}
+                  </div>
+                  <div className="text-white/60 mt-1">
+                    <span className="text-purple-300">←</span> {h.response.slice(0, 200)}
+                    {h.response.length > 200 ? "…" : ""}
+                  </div>
+                  {h.actions && h.actions.length > 0 && (
+                    <div className="text-[10px] text-amber-300/70 mt-1 font-mono">
+                      {h.actions.map((a) => a.tool).join(", ")}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+    </section>
+    <AdminConfirmAction
+      open={pendingConfirmOpen}
+      pending={pendingConfirm}
+      authToken={typeof window !== "undefined" ? localStorage.getItem("token") || undefined : undefined}
+      onConfirmed={() => {
+        setPendingConfirmOpen(false);
+        // Auto-toast — code accepted, Босс может повторить голосовую команду
+        // (с этим же intent — но Муза снова вызовет tool и теперь require2FA
+        // resolveит через getConfirmedAction, action выполнится).
+        if (typeof window !== "undefined") {
+          // Use existing toast if available, otherwise console
+          console.info("[admin-2fa] code accepted. Повтори команду — действие выполнится.");
+        }
+      }}
+      onCancel={() => setPendingConfirmOpen(false)}
+    />
+    </>
+  );
 }
 
 // ============================================================
 // MAIN TAB
 // ============================================================
-function buildDashboardUrl(
-  base: string,
-  period: Period,
-  customFrom: string,
-  customTo: string,
-): string {
-  const params = new URLSearchParams({ period });
-  if (period === "custom") {
-    const fromIso = dateToIso(customFrom);
-    const toIso = dateToIso(customTo, true);
-    if (fromIso) params.set("from", fromIso);
-    if (toIso) params.set("to", toIso);
-  }
-  return `${base}?${params.toString()}`;
-}
-
 export default function MasterDashboardTab() {
   const [period, setPeriod] = useState<Period>("7d");
-  // Custom range — input value (YYYY-MM-DD). По умолчанию пусто; превращается
-  // в ISO только когда оба поля заполнены и period === 'custom'.
-  const [customFrom, setCustomFrom] = useState<string>("");
-  const [customTo, setCustomTo] = useState<string>("");
-
-  // Дефолтные значения для date-pickers при первом открытии custom
-  const handlePeriodChange = useCallback(
-    (next: Period) => {
-      setPeriod(next);
-      if (next === "custom" && !customFrom && !customTo) {
-        const today = new Date();
-        const weekAgo = new Date(today.getTime() - 7 * 24 * 3600 * 1000);
-        const fmt = (d: Date) =>
-          `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(
-            d.getUTCDate(),
-          ).padStart(2, "0")}`;
-        setCustomFrom(fmt(weekAgo));
-        setCustomTo(fmt(today));
-      }
-    },
-    [customFrom, customTo],
-  );
-
-  // Custom enabled только когда оба поля заполнены — иначе шлём period=custom
-  // без from/to и backend пускает в "all".
-  const customReady =
-    period !== "custom" ||
-    (Boolean(customFrom) && Boolean(customTo) && customFrom <= customTo);
-
-  const summaryUrl = buildDashboardUrl(
-    "/api/admin/v304/dashboard-summary",
-    period,
-    customFrom,
-    customTo,
-  );
-  const clicksUrl = buildDashboardUrl(
-    "/api/admin/v304/click-stats",
-    period,
-    customFrom,
-    customTo,
-  );
-
   const { data, isLoading, refetch } = useQuery<DashboardSummary>({
-    queryKey: [summaryUrl],
-    queryFn: () => fetcher<DashboardSummary>(summaryUrl),
+    queryKey: [`/api/admin/v304/dashboard-summary?period=${period}`],
+    queryFn: () =>
+      fetcher<DashboardSummary>(`/api/admin/v304/dashboard-summary?period=${period}`),
     refetchInterval: 30_000,
-    enabled: customReady,
   });
   const { data: clickStats, isLoading: clicksLoading } = useQuery<ClickStats>({
-    queryKey: [clicksUrl],
-    queryFn: () => fetcher<ClickStats>(clicksUrl),
+    queryKey: [`/api/admin/v304/click-stats?period=${period}`],
+    queryFn: () =>
+      fetcher<ClickStats>(`/api/admin/v304/click-stats?period=${period}`),
     refetchInterval: 60_000,
-    enabled: customReady,
   });
-
-  // Single-expanded model: только одна карточка раскрыта одновременно.
-  // Ключ имеет префикс — status:<key> или metric:<key> — чтобы избежать коллизий
-  // между статус-картами (например, key='payments') и period metric (тоже 'payments').
-  const [expandedKey, setExpandedKey] = useState<string | null>(null);
-
-  // Backend endpoint имена для drill-down. status-cards имеют key, для period
-  // metric — наш собственный набор имён.
-  const detailBackendKey = (() => {
-    if (!expandedKey) return null;
-    const [scope, key] = expandedKey.split(":");
-    if (scope === "metric" && key === "payments") return "payments-period";
-    return key;
-  })();
-  const expandedQuery = useExpandedDetail(
-    detailBackendKey,
-    period,
-    customFrom,
-    customTo,
-  );
 
   if (isLoading && !data) {
     return (
@@ -2164,17 +1439,8 @@ export default function MasterDashboardTab() {
             обновление каждые 30 сек {data.fromCache && "· из кэша"}
           </p>
         </div>
-        <div className="flex flex-wrap items-end gap-3">
-          <PeriodSelector
-            period={period}
-            onChange={handlePeriodChange}
-            customFrom={customFrom}
-            customTo={customTo}
-            onCustomChange={(f, t) => {
-              setCustomFrom(f);
-              setCustomTo(t);
-            }}
-          />
+        <div className="flex flex-wrap items-center gap-2">
+          <PeriodSelector period={period} onChange={setPeriod} />
           <Button
             variant="outline"
             size="sm"
@@ -2197,143 +1463,71 @@ export default function MasterDashboardTab() {
       {/* 🎙 Муза доложит — TTS озвучка */}
       <MusaBriefing period={period} />
 
-      {/* 1. Status cards — light-status indicators (click → expand details) */}
+      {/* 🎤 Сказать Музе — голосовой диалог Админ ↔ Муза */}
+      <MusaVoiceCommand />
+
+      {/* 1. Status cards — light-status indicators */}
       <section>
         <h3 className="text-sm font-bold text-white mb-2">
-          1. Лампочки статусов · {data.statusCards.length} групп · клик для деталей
+          1. Лампочки статусов · {data.statusCards.length} групп
         </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {data.statusCards.map((c) => {
-            const scopedKey = `status:${c.key}`;
-            const isExpanded = expandedKey === scopedKey;
-            const detail = isExpanded
-              ? ((expandedQuery.data as unknown as Record<string, unknown>) || undefined)
-              : undefined;
-            return (
-              <StatusLamp
-                key={c.key}
-                card={c}
-                expanded={isExpanded}
-                loading={isExpanded && expandedQuery.isLoading}
-                detail={detail}
-                detailError={
-                  isExpanded && expandedQuery.error
-                    ? expandedQuery.error instanceof Error
-                      ? expandedQuery.error.message
-                      : String(expandedQuery.error)
-                    : null
-                }
-                onToggle={() =>
-                  setExpandedKey((cur) => (cur === scopedKey ? null : scopedKey))
-                }
-              />
-            );
-          })}
+          {data.statusCards.map((c) => (
+            <StatusLamp key={c.key} card={c} />
+          ))}
         </div>
       </section>
 
-      {/* 2. Period metrics — boxes (click → expand details ниже) */}
+      {/* 2. Period metrics — boxes */}
       <section>
         <h3 className="text-sm font-bold text-white mb-2">
-          2. Метрики · {PERIOD_LABELS[period]} · клик для drill-down
+          2. Метрики · {PERIOD_LABELS[period]}
         </h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {(() => {
-            // metric:<id> ↔ MetricBox. Загрузки/downloads нет drill-down (один счётчик).
-            const toggle = (id: string) => () =>
-              setExpandedKey((cur) => (cur === `metric:${id}` ? null : `metric:${id}`));
-            const isExpanded = (id: string) => expandedKey === `metric:${id}`;
-            return (
-              <>
-                <MetricBox
-                  label="Прослушивания"
-                  value={data.metrics.plays.total}
-                  hint={`${data.metrics.plays.unique} уник · ${data.metrics.plays.rejected} реджект`}
-                  color="violet"
-                  metricKey="plays"
-                  expanded={isExpanded("plays")}
-                  onClick={toggle("plays")}
-                />
-                <MetricBox
-                  label="Загрузки"
-                  value={data.metrics.downloads.count}
-                  color="cyan"
-                />
-                <MetricBox
-                  label="Регистрации"
-                  value={data.metrics.registrations.total}
-                  hint={data.metrics.registrations.byChannel
-                    .map((b) => `${b.channel}: ${b.count}`)
-                    .join(" · ")}
-                  color="emerald"
-                  metricKey="registrations"
-                  expanded={isExpanded("registrations")}
-                  onClick={toggle("registrations")}
-                />
-                <MetricBox
-                  label="Генерации"
-                  value={
-                    data.metrics.generations.music.done +
-                    data.metrics.generations.lyrics.done +
-                    data.metrics.generations.cover.done
-                  }
-                  hint={`music ${data.metrics.generations.music.done}/${
-                    data.metrics.generations.music.error
-                  } ошибок`}
-                  color="amber"
-                  metricKey="generations"
-                  expanded={isExpanded("generations")}
-                  onClick={toggle("generations")}
-                />
-                <MetricBox
-                  label="Платежи"
-                  value={`${sumRub.toLocaleString("ru-RU")}₽`}
-                  hint={`${data.metrics.payments.count} оплат`}
-                  color="emerald"
-                  metricKey="payments"
-                  expanded={isExpanded("payments")}
-                  onClick={toggle("payments")}
-                />
-                <MetricBox
-                  label="Посетители"
-                  value={data.metrics.visitors.unique}
-                  hint={`${data.metrics.visitors.total} визитов`}
-                  color="pink"
-                  metricKey="visitors"
-                  expanded={isExpanded("visitors")}
-                  onClick={toggle("visitors")}
-                />
-              </>
-            );
-          })()}
+          <MetricBox
+            label="Прослушивания"
+            value={data.metrics.plays.total}
+            hint={`${data.metrics.plays.unique} уник · ${data.metrics.plays.rejected} реджект`}
+            color="violet"
+          />
+          <MetricBox
+            label="Загрузки"
+            value={data.metrics.downloads.count}
+            color="cyan"
+          />
+          <MetricBox
+            label="Регистрации"
+            value={data.metrics.registrations.total}
+            hint={data.metrics.registrations.byChannel
+              .map((b) => `${b.channel}: ${b.count}`)
+              .join(" · ")}
+            color="emerald"
+          />
+          <MetricBox
+            label="Генерации"
+            value={
+              data.metrics.generations.music.done +
+              data.metrics.generations.lyrics.done +
+              data.metrics.generations.cover.done
+            }
+            hint={`music ${data.metrics.generations.music.done}/${
+              data.metrics.generations.music.error
+            } ошибок`}
+            color="amber"
+          />
+          <MetricBox
+            label="Платежи"
+            value={`${sumRub.toLocaleString("ru-RU")}₽`}
+            hint={`${data.metrics.payments.count} оплат`}
+            color="emerald"
+          />
+          <MetricBox
+            label="Посетители"
+            value={data.metrics.visitors.unique}
+            hint={`${data.metrics.visitors.total} визитов`}
+            color="pink"
+          />
         </div>
-
-        {/* Expand panel — full-width под grid */}
-        <AnimatePresence initial={false}>
-          {expandedKey && expandedKey.startsWith("metric:") && (
-            <motion.div
-              key="metric-detail"
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.22, ease: "easeOut" }}
-              className="overflow-hidden mt-3"
-            >
-              <MetricDetailPanel
-                metric={expandedKey.split(":")[1]}
-                loading={expandedQuery.isLoading}
-                detail={(expandedQuery.data as Record<string, unknown> | undefined) || undefined}
-                error={
-                  expandedQuery.error
-                    ? expandedQuery.error instanceof Error
-                      ? expandedQuery.error.message
-                      : String(expandedQuery.error)
-                    : null
-                }
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
       </section>
 
       {/* 2.5. Click-stats (Агент Клик) */}
