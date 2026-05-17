@@ -448,6 +448,41 @@ function checkRateLimit(phone: string): { ok: boolean; reason?: string } {
 
 // === Endpoints ===
 
+// Eugene 2026-05-17 Босс «если автор то приветствуй по имени». Перед
+// SMS/звонком фронт делает быстрый lookup чтобы узнать: phone уже зарегистрирован?
+// Если да — UI меняется на login-mode с приветствием «Привет, <имя>!»; если нет
+// — обычная регистрация. Возвращаем только имя + маска телефона (никаких
+// email/паролей/полного номера/userId).
+//
+// Rate limit: 5 запросов / мин / IP — защита от phone-enumeration атак.
+const PhoneCheckSchema = z.object({
+  phone: z.string().min(5).max(30),
+});
+
+// In-memory rate limiter (ip → { count, resetAt }). Совпадает по форме с
+// rateLimit() из routes.ts; локальный т.к. модуль изолирован.
+const phoneCheckRateMap = new Map<string, { count: number; resetAt: number }>();
+function checkPhoneCheckRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const windowMs = 60 * 1000;
+  const max = 5;
+  const entry = phoneCheckRateMap.get(ip);
+  if (!entry || now > entry.resetAt) {
+    phoneCheckRateMap.set(ip, { count: 1, resetAt: now + windowMs });
+    return true;
+  }
+  if (entry.count >= max) return false;
+  entry.count++;
+  return true;
+}
+// Cleanup expired entries every 10 минут (защита от утечки памяти).
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of phoneCheckRateMap) {
+    if (now > entry.resetAt) phoneCheckRateMap.delete(ip);
+  }
+}, 10 * 60 * 1000).unref?.();
+
 const SendOtpSchema = z.object({
   phone: z.string().min(5).max(30),
   purpose: z.enum(["register", "login", "change_phone", "change_email"]),
@@ -479,6 +514,46 @@ const SendReverseCallSchema = SendCallSchema;
 const CheckReverseCallSchema = CheckCallSchema;
 
 const router = Router();
+
+// Eugene 2026-05-17 Босс «если автор то приветствуй по имени». Быстрый
+// lookup до отправки SMS/звонка — фронт узнаёт: phone уже есть → показать
+// приветствие; нет → обычная регистрация. Без auth. Rate-limit 5/мин/IP.
+router.post("/phone-check", async (req, res) => {
+  const ip = String(req.ip || req.headers["x-forwarded-for"] || "0.0.0.0").split(",")[0].trim();
+  if (!checkPhoneCheckRateLimit(ip)) {
+    return res.status(429).json({ data: null, error: "Слишком много запросов — подождите минуту" });
+  }
+  const parsed = PhoneCheckSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ data: null, error: parsed.error.issues[0]?.message || "invalid" });
+  }
+  const v = validatePhoneForOtp(parsed.data.phone);
+  if (!v.ok || !v.country) {
+    return res.status(400).json({ data: null, error: v.error || "invalid phone" });
+  }
+  const phone = v.normalized;
+  try {
+    const row = db.select({
+      id: users.id,
+      name: users.name,
+    }).from(users).where(and(eq(users.phone, phone), eq(users.phoneVerified, 1))).limit(1).get() as any;
+    bootRefs?.logger.info?.("[auth-sms] phone-check", { phone: maskPhone(phone), exists: !!row });
+    if (row) {
+      return res.json({
+        data: {
+          exists: true,
+          name: row.name || `Автор ${phone.slice(-4)}`,
+          maskedPhone: maskPhone(phone),
+        },
+        error: null,
+      });
+    }
+    return res.json({ data: { exists: false }, error: null });
+  } catch (e) {
+    bootRefs?.logger.error?.("[auth-sms] phone-check failed", { error: String(e) });
+    return res.status(500).json({ data: null, error: "Не удалось проверить номер" });
+  }
+});
 
 router.post("/send-otp", async (req, res) => {
   const parsed = SendOtpSchema.safeParse(req.body);

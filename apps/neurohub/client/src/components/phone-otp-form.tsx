@@ -57,6 +57,17 @@ interface Props {
   // 'change_phone' и 'change_email' доступны только для 'sms' (callcheck
   // backend поддерживает только register/login).
   allowMethods?: "sms" | "call" | "both";
+  // Eugene 2026-05-17 Босс «если автор то приветствуй по имени». Колбэк
+  // фронт вызывает после успешного phone-check (POST /phone-check). Если
+  // exists=true — родитель (register-phone) меняет UI на login-mode
+  // «Привет, <имя>!» + кнопка «Получить звонок для входа». Колбэк должен
+  // вернуться синхронно. Если опущен — никакой pre-check не делается.
+  onPhoneChecked?: (info: {
+    phone: string;
+    exists: boolean;
+    name?: string;
+    maskedPhone?: string;
+  }) => void;
 }
 
 export default function PhoneOtpForm({
@@ -66,6 +77,7 @@ export default function PhoneOtpForm({
   submitLabel = "Подтвердить",
   phoneSubmitLabel = "Получить код",
   allowMethods,
+  onPhoneChecked,
 }: Props) {
   // Eugene 2026-05-16 Босс «только звонок, SMS-toggle скрыть».
   // Дефолт: для register/login — звонок (callcheck flashcall),
@@ -107,10 +119,12 @@ export default function PhoneOtpForm({
     return () => clearTimeout(t);
   }, [cooldown]);
 
-  // Eugene 2026-05-16 Босс «reverse-callcheck — юзер сам звонит на наш номер,
-  // 120 сек до fallback на email». Polling /check-reverse-call каждые 3 сек.
-  // Stop conditions: verified | expires (120 сек) | unmount | server error 410.
-  // При expired показываем fallback-блок «Войти через email» (см. render ниже).
+  // Eugene 2026-05-17 Босс «Нам никто не звонит» — возврат к classical
+  // flashcall: sms.ru ЗВОНИТ юзеру на его номер. Юзер видит входящий с
+  // нашего служебного номера, принимает или отклоняет — sms.ru фиксирует
+  // событие и backend polling'ует /check-call до verified=true (status 401).
+  // Polling каждые 3 сек, TTL 300 сек (callcheck window sms.ru).
+  // Stop conditions: verified | expires | unmount | server error 410.
   const pollRef = useRef<number | null>(null);
   const [callExpired, setCallExpired] = useState(false);
   // Eugene 2026-05-16: guard «вызвать onVerified только один раз». Без
@@ -133,7 +147,7 @@ export default function PhoneOtpForm({
         return;
       }
       try {
-        const r = await apiRequest("POST", "/api/auth/sms/check-reverse-call", { phone, purpose });
+        const r = await apiRequest("POST", "/api/auth/sms/check-call", { phone, purpose });
         const j = await r.json();
         if (cancelled) return;
         if (j?.error) {
@@ -241,14 +255,38 @@ export default function PhoneOtpForm({
       return;
     }
     setLoading(true);
+
+    // Eugene 2026-05-17 Босс «если автор то приветствуй по имени» —
+    // pre-check для register/login flow. Узнаём существует ли уже автор
+    // с этим номером, чтобы родитель мог переключить UI в greeting-mode.
+    // Колбэк опционален, ошибки phone-check не блокируют дальнейший flow.
+    if (onPhoneChecked && (purpose === "register" || purpose === "login")) {
+      try {
+        const r = await apiRequest("POST", "/api/auth/sms/phone-check", { phone });
+        const j = await r.json();
+        if (j?.data) {
+          onPhoneChecked({
+            phone,
+            exists: !!j.data.exists,
+            name: j.data.name,
+            maskedPhone: j.data.maskedPhone,
+          });
+        }
+      } catch (e) {
+        // Тихо игнорируем — phone-check не должен блокировать auth.
+        // eslint-disable-next-line no-console
+        console.warn("[phone-otp-form] phone-check failed (non-blocking):", e);
+      }
+    }
+
     // Eugene 2026-05-15 Босс «всё чтобы работало». Если выбран звонок но
     // sms.ru его отклонил (callcheck не активирован / нет баланса /
     // временно недоступен) — автоматически fallback на SMS, чтобы юзер
     // всегда получил код. fallbackInfo пишем в state для UX.
-    // Eugene 2026-05-16: для call используем reverse-callcheck flow (юзер
-     // сам звонит на наш номер, 120 сек TTL + email-fallback после expiry).
+    // Eugene 2026-05-17 Босс «Нам никто не звонит»: classical flashcall —
+    // sms.ru ЗВОНИТ юзеру (/send-call). Юзер видит входящий и принимает.
     const tryEndpoint = async (m: OtpMethod) => {
-      const ep = m === "call" ? "/api/auth/sms/send-reverse-call" : "/api/auth/sms/send-otp";
+      const ep = m === "call" ? "/api/auth/sms/send-call" : "/api/auth/sms/send-otp";
       const r = await apiRequest("POST", ep, { phone, purpose });
       const j = await r.json();
       return { ok: r.ok && !j?.error, data: j?.data, error: j?.error, statusCode: r.status };
@@ -291,20 +329,20 @@ export default function PhoneOtpForm({
       setCountryHint(res.data?.countryName ? (used === "call" ? `Звонок в ${res.data.countryName}` : `Отправлено в ${res.data.countryName}`) : null);
       if (used === "call") {
         setCallHint(res.data?.hint || null);
-        // Eugene 2026-05-16: reverse-callcheck возвращает dialNumber /
-        // dialNumberPretty. Старые callPhone / callPhonePretty оставлены как
-        // backward-compat если backend временно вернёт incoming-call payload.
-        setCallPhone(res.data?.dialNumber || res.data?.callPhone || null);
+        // Eugene 2026-05-17 Босс «Нам никто не звонит» — classical flashcall:
+        // backend /send-call возвращает callPhone (служебный номер sms.ru
+        // С КОТОРОГО будет звонок юзеру) + callPhonePretty. dialNumber/Pretty
+        // оставлены как backward-compat если фронт получит старый payload.
+        setCallPhone(res.data?.callPhone || res.data?.dialNumber || null);
         setCallPhonePretty(
-          res.data?.dialNumberPretty ||
-            res.data?.callPhonePretty ||
-            res.data?.dialNumber ||
+          res.data?.callPhonePretty ||
+            res.data?.dialNumberPretty ||
             res.data?.callPhone ||
+            res.data?.dialNumber ||
             null,
         );
-        // Reverse-callcheck TTL 120 сек (backend REVERSE_CALL_TTL_SEC). После
-        // — UI показывает fallback на email-auth.
-        setCallExpiresAt(Date.now() + (Number(res.data?.expiresInSec || 120) * 1000));
+        // Classical callcheck TTL 300 сек (sms.ru окно). После — fallback UI.
+        setCallExpiresAt(Date.now() + (Number(res.data?.expiresInSec || 300) * 1000));
         setCallPollAttempts(0);
         setCallExpired(false);
       } else {
@@ -400,7 +438,7 @@ export default function PhoneOtpForm({
             autoFocus
           />
           <p className="text-[11px] text-muted-foreground">
-            РФ и страны СНГ. {method === "call" ? "Вы тапнете по номеру — откроется звонок, нажмёте «Вызов» со своего телефона. Платить не надо." : "На номер придёт SMS с 6-значным кодом."}
+            РФ и страны СНГ. {method === "call" ? "Мы позвоним на этот номер — звонок бесплатный. Просто примите его, мы автоматически подтвердим вход." : "На номер придёт SMS с 6-значным кодом."}
           </p>
         </div>
 
@@ -442,7 +480,7 @@ export default function PhoneOtpForm({
         >
           {loading
             ? <Loader2 className="w-4 h-4 animate-spin" />
-            : (method === "call" ? "Показать номер для звонка" : phoneSubmitLabel)}
+            : (method === "call" ? "📞 ПОЛУЧИТЬ ЗВОНОК" : phoneSubmitLabel)}
         </Button>
       </div>
     );
@@ -452,76 +490,55 @@ export default function PhoneOtpForm({
   // звонит на наш номер, мы ждём webhook/polling — никакого ввода кода).
   const isCall = method === "call";
 
-  // CALL flow: показываем call_phone_pretty крупно + кнопку tel:link +
-  // статус polling'a. Юзер ничего не вводит.
-  // Eugene 2026-05-15 Босс правки UX:
-  // - «не ждем звонка а звоним» → текст «Звоним...» с акцентом на действие юзера
-  // - выделить номер ярче + БЕСПЛАТНЫЙ pill
-  // - добавить кнопку «Сохранить в контакты» (vCard)
-  // - после verified → success-state + auto-navigate (через onVerified в parent)
+  // CALL flow: classical flashcall — sms.ru ЗВОНИТ юзеру. Показываем
+  // служебный номер (с которого будет вызов) крупно с pulse-glow, чтобы
+  // юзер увидел совпадение incoming caller-id и принял звонок.
+  // Eugene 2026-05-17 Босс «Нам никто не звонит» + «звонок бесплатный»:
+  // - заголовок «Сейчас вам позвонит MuzaAi…» (мы звоним, не юзер)
+  // - pulse-glow на номере чтобы привлечь внимание
+  // - amber→cyan «ЗВОНОК БЕСПЛАТНЫЙ» баннер крупным шрифтом
   if (isCall) {
     const expiresInSec = callExpiresAt ? Math.max(0, Math.floor((callExpiresAt - Date.now()) / 1000)) : 0;
     const mm = String(Math.floor(expiresInSec / 60)).padStart(2, "0");
     const ss = String(expiresInSec % 60).padStart(2, "0");
-    const cleanPhone = callPhone ? callPhone.replace(/[^\d+]/g, "") : "";
-    const telHref = cleanPhone ? `tel:${cleanPhone.startsWith("+") ? cleanPhone : "+" + cleanPhone}` : "#";
-    // vCard для «Сохранить в контакты» — Data URI с MIME text/vcard
-    const vcardData = cleanPhone
-      ? `BEGIN:VCARD\nVERSION:3.0\nFN:MuzaAi (вход по звонку)\nORG:MuzaAi\nTEL;TYPE=WORK,VOICE:${cleanPhone.startsWith("+") ? cleanPhone : "+" + cleanPhone}\nURL:https://muzaai.ru\nEND:VCARD`
-      : "";
-    const vcardHref = vcardData ? `data:text/vcard;charset=utf-8,${encodeURIComponent(vcardData)}` : "#";
     return (
       <div className="space-y-4">
         <p className="text-sm text-center text-muted-foreground">
-          Звонок с номера <span className="text-white font-medium">{phone}</span>
+          Звоним на номер <span className="text-white font-medium">{phone}</span>
           {countryHint && <span className="block text-[11px] mt-1 opacity-70">{countryHint}</span>}
         </p>
 
-        {/* Eugene 2026-05-15 Босс «цвета в стили MuzaAi» — brand-gradient
-            purple → violet → blue (фирменная гамма MuzaAi), вместо
-            emerald/cyan. БЕСПЛАТНЫЙ pill amber (контрастный akcent).
-            Eugene 2026-05-16: tap-to-dial — номер крупный, кликабельный,
-            юзер тапает → открывается dialer → нажимает «Вызов». */}
+        {/* Eugene 2026-05-17 Босс «ЗВОНОК БЕСПЛАТНЫЙ» крупным баннером
+            (amber→cyan gradient + neon-text). Сильный акцент на бесплатность —
+            юзеры боятся звонков с незнакомых номеров. */}
+        <div className="text-center">
+          <p className="text-2xl sm:text-3xl font-display font-bold bg-gradient-to-r from-amber-400 via-amber-300 to-cyan-400 bg-clip-text text-transparent neon-text tracking-wide" data-testid="banner-call-free">
+            ЗВОНОК БЕСПЛАТНЫЙ
+          </p>
+          <p className="text-[11px] text-amber-200/70 mt-1">Мы платим за вас — вам ничего не спишется</p>
+        </div>
+
+        {/* Brand-gradient panel — номер с которого позвонит sms.ru.
+            pulse-glow animation чтобы привлечь внимание к incoming caller-id. */}
         <div className="bg-gradient-to-br from-purple-500/15 via-violet-500/10 to-blue-500/15 border border-purple-400/40 rounded-xl p-4 text-center shadow-[0_0_24px_rgba(168,85,247,0.15)]">
           <p className="text-sm text-white font-medium mb-2">
-            📞 Тапните номер и нажмите «Вызов»:
+            📞 Сейчас позвоним с номера:
           </p>
-          <a
-            href={telHref}
-            className="inline-block px-5 py-3 mb-2 rounded-xl bg-gradient-to-r from-purple-500/30 via-violet-500/25 to-blue-500/25 border-2 border-purple-300/60 text-3xl font-extrabold text-white tracking-wide hover:scale-[1.02] transition-transform shadow-lg shadow-purple-500/25"
-            data-testid="call-phone-link"
+          <div
+            className="inline-block px-5 py-3 mb-2 rounded-xl bg-gradient-to-r from-purple-500/30 via-violet-500/25 to-blue-500/25 border-2 border-purple-300/60 text-3xl font-extrabold text-white tracking-wide phone-pulse"
+            data-testid="call-phone-display"
           >
             {callPhonePretty || callPhone || "—"}
-          </a>
-          <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-400/15 border border-amber-400/40 text-amber-200 text-[11px] font-bold tracking-wide ml-2">
-            🆓 БЕСПЛАТНЫЙ
           </div>
           <p className="text-[11px] text-purple-200/80 mt-3">
-            Звонок сбросится автоматически — это бесплатно. Мы узнаем ваш номер по caller-id и впустим в кабинет. Кодов вводить не надо.
+            🛡 Просто примите входящий с этого номера. Можно сбросить — мы всё равно узнаем ваш номер и впустим в кабинет. Кодов вводить не надо.
           </p>
-          <div className="flex items-center justify-center gap-2 mt-3">
-            <a
-              href={telHref}
-              className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-gradient-to-r from-purple-500/25 to-blue-500/20 border border-purple-300/40 text-purple-100 hover:from-purple-500/35 hover:to-blue-500/30 transition-colors"
-              data-testid="link-call-now"
-            >
-              📞 Позвонить сейчас
-            </a>
-            <a
-              href={vcardHref}
-              download="MuzaAi-vhod.vcf"
-              className="inline-flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-white/[0.04] border border-purple-300/20 text-white/70 hover:bg-purple-500/10 hover:text-white"
-              data-testid="link-save-vcard"
-            >
-              💾 Сохранить в контакты
-            </a>
-          </div>
         </div>
 
         {!callExpired && (
           <div className="text-center">
             <p className="text-[11px] text-muted-foreground">
-              Ждём ваш звонок… <span className="font-mono tabular-nums text-white/80">{mm}:{ss}</span>
+              Звоним вам… <span className="font-mono tabular-nums text-white/80">{mm}:{ss}</span>
             </p>
             <div className="flex justify-center mt-2">
               <Loader2 className="w-4 h-4 animate-spin text-purple-300" />
@@ -529,19 +546,17 @@ export default function PhoneOtpForm({
           </div>
         )}
 
-        {/* Eugene 2026-05-16 Босс «если не дозвонился через 120 сек —
-            fallback на email-auth большой кнопкой». Большой prominent
-            блок с двумя действиями: повторить звонок ИЛИ войти через
-            email (главное действие). Не показываем мелкую error-строку —
-            юзеру нужна большая кликабельная альтернатива. */}
+        {/* Eugene 2026-05-17 Босс «если звонок не прошёл — fallback на
+            email-auth большой кнопкой». Большой prominent блок с двумя
+            действиями: повторить звонок ИЛИ войти через email. */}
         {callExpired && (
           <div className="bg-gradient-to-br from-amber-500/10 via-orange-500/10 to-rose-500/10 border-2 border-amber-400/40 rounded-xl p-4 space-y-3">
             <div className="text-center">
               <p className="text-base text-white font-semibold">
-                Не получилось дозвониться?
+                Звонок не прошёл?
               </p>
               <p className="text-xs text-amber-100/80 mt-1">
-                Попробуйте ещё раз или войдите через email — это надёжнее, если звонок не проходит.
+                Попробуйте ещё раз или войдите через email — это надёжнее, если звонок не доходит.
               </p>
             </div>
             <Link href="/login">
