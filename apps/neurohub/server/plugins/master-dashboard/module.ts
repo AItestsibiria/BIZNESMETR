@@ -1982,4 +1982,59 @@ const masterDashboardModule: Module = {
   healthCheck: () => ({ status: "ok" }),
 };
 
+// === Exported helpers for voice-admin / dialogue-mode (Eugene 2026-05-17) ===
+// Возвращают payloads которые ожидает callAdminVoiceLLM в voice-admin/module.ts
+// для buildDashboardContext (LLM context injection). Без Express response wrapper.
+// Используют тот же кэш TTL 60 сек что и HTTP endpoints.
+
+export function getCachedDashboardSummary(period: string = "today"): any {
+  const p = parsePeriod(period);
+  const bounds = periodToBounds(p);
+  const key = `${cacheKey(p, bounds)}|d=all`;
+  const cached = getCached(key);
+  if (cached) return cached;
+  const payload = {
+    period: p,
+    since: bounds.since,
+    until: bounds.until,
+    generatedAt: new Date().toISOString(),
+    statusCards: buildStatusCards(),
+    metrics: buildPeriodMetrics(bounds, null),
+  };
+  setCached(key, payload);
+  return payload;
+}
+
+export function getCachedClickStats(period: string = "today"): any {
+  const p = parsePeriod(period);
+  const bounds = periodToBounds(p);
+  try {
+    return buildClickStats(p, bounds, null);
+  } catch {
+    return { topElements: [], byPage: [], totalClicks: 0, uniqueClickers: 0 };
+  }
+}
+
+export function getCachedBrainExport(): any {
+  try {
+    const statusCards = buildStatusCards();
+    const greenCount = statusCards.filter(s => s.status === "green").length;
+    const yellowCount = statusCards.filter(s => s.status === "yellow").length;
+    const redCount = statusCards.filter(s => s.status === "red").length;
+    const plugins = allSafe<{ name: string; status: string }>(
+      sql`SELECT name, status FROM plugins_registry`,
+    );
+    return {
+      nodesCount: plugins.length + 6,
+      edgesCount: plugins.length * 2,
+      green: greenCount,
+      yellow: yellowCount,
+      red: redCount,
+      topPlugins: plugins.slice(0, 10).map(p => p.name),
+    };
+  } catch {
+    return { nodesCount: 0, edgesCount: 0, green: 0, yellow: 0, red: 0, topPlugins: [] };
+  }
+}
+
 export default masterDashboardModule;
