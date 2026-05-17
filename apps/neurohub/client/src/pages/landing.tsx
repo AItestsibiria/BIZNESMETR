@@ -1434,17 +1434,17 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   className="absolute top-2 right-2 z-10"
                 />
               </div>
-              {/* Eugene 2026-05-17 Босс «S под обложку» — S-кнопка свайп-режима
-                  под обложкой, по центру. Bomb-цвет purple→fuchsia→cyan +
-                  pulse glow. */}
+              {/* Eugene 2026-05-17 Босс «S под обложку + спиши в размер
+                  плеера». S-кнопка по ширине = размеру обложки (20/24/full
+                  если expanded). Bomb-gradient + pulse glow. */}
               <button
-                className="mt-2 mx-auto block w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 via-fuchsia-500 to-cyan-400 hover:from-purple-400 hover:via-fuchsia-400 hover:to-cyan-300 flex items-center justify-center text-white font-display font-bold text-xl transition-all shadow-[0_0_28px_rgba(217,70,239,0.7)] hover:shadow-[0_0_44px_rgba(217,70,239,0.95)] hover:scale-110 active:scale-95 border border-fuchsia-300/50 animate-details-pulse"
+                className={`mt-2 mx-auto flex items-center justify-center rounded-full bg-gradient-to-br from-purple-500 via-fuchsia-500 to-cyan-400 hover:from-purple-400 hover:via-fuchsia-400 hover:to-cyan-300 text-white font-display font-bold transition-all shadow-[0_0_20px_rgba(217,70,239,0.65)] hover:shadow-[0_0_36px_rgba(217,70,239,0.9)] hover:scale-105 active:scale-95 border border-fuchsia-300/50 animate-details-pulse h-7 w-20 sm:w-24 text-sm ${coverExpanded ? "md:w-full md:h-9 md:text-base" : ""}`}
                 title="Свайп-режим — листай ← → большие обложки"
                 aria-label="Свайп-режим"
                 onClick={() => setDetailsOpen(true)}
                 data-testid="btn-cover-s-under"
               >
-                <span className="drop-shadow-[0_0_8px_rgba(255,255,255,0.9)] -translate-y-0.5">S</span>
+                <span className="drop-shadow-[0_0_6px_rgba(255,255,255,0.9)]">S · свайп ← →</span>
               </button>
               </div>
               {/* Info + controls */}
