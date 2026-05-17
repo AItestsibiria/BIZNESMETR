@@ -1662,7 +1662,7 @@ export async function registerRoutes(
   //
   // userId извлекается из Bearer token если присутствует (anon → null).
   const JOURNEY_EVENT_TYPES = new Set([
-    "page_view", "click", "scroll_percent",
+    "page_view", "page_exit", "click", "scroll_percent",
     "idle_30s", "form_focus", "form_abandon", "leave",
   ]);
   // Per-sessionKey throttle: следим за последним временем batch'а.

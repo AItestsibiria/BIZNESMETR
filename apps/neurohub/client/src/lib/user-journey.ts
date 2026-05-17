@@ -5,6 +5,8 @@
 //
 // События:
 // - page_view      — каждое изменение location (hash routing wouter)
+// - page_exit      — при смене страницы или leave; meta.duration_ms = время с
+//                    page_view до exit. Eugene 2026-05-17 «Агент Клик».
 // - click          — global delegation на `<button>`, `<a>`, `[data-track]`
 // - scroll_percent — throttled (1 раз / 5 сек) текущий scroll%
 // - idle_30s       — 30 сек без mouse/keyboard activity (1 раз per page)
@@ -30,6 +32,7 @@ const SCROLL_THROTTLE_MS = 5_000;
 
 export type JourneyEventType =
   | "page_view"
+  | "page_exit"
   | "click"
   | "scroll_percent"
   | "idle_30s"
@@ -57,6 +60,8 @@ let _formTouchedAt = 0;
 let _formAbandonTimer: number | null = null;
 let _formAbandonFiredThisFocus = false;
 let _focusedElementsThisPage = new Set<string>();
+let _pageEnterAt = 0;
+let _pageExitFired = false;
 
 function getOrCreateSessionKey(): string {
   if (_sessionKey) return _sessionKey;
@@ -151,9 +156,25 @@ function recordActivity() {
   _lastActivityAt = Date.now();
 }
 
+function emitPageExit(reason: "navigate" | "leave") {
+  // Сначала отправляем page_exit для предыдущей страницы (если был page_view).
+  if (_pageExitFired) return;
+  if (!_currentPage || _pageEnterAt === 0) return;
+  const duration = Date.now() - _pageEnterAt;
+  if (duration <= 0) return;
+  _pageExitFired = true;
+  enqueue(
+    "page_exit",
+    { duration_ms: duration, reason },
+    _currentPage,
+  );
+}
+
 function setupPageView() {
   const path = currentPagePath();
   if (path === _currentPage) return;
+  // Перед сменой страницы — закрываем счётчик предыдущей page_exit'ом.
+  emitPageExit("navigate");
   _currentPage = path;
   _idleFiredThisPage = false;
   _focusedElementsThisPage.clear();
@@ -164,6 +185,8 @@ function setupPageView() {
   _focusedFormElement = null;
   _formTouchedAt = 0;
   _formAbandonFiredThisFocus = false;
+  _pageEnterAt = Date.now();
+  _pageExitFired = false;
   enqueue("page_view", { referrer: document.referrer || undefined }, path);
 }
 
@@ -276,6 +299,8 @@ function onFormSubmit() {
 }
 
 function onBeforeUnload() {
+  // page_exit для текущей страницы перед самим leave.
+  emitPageExit("leave");
   // Финальный leave + flush через sendBeacon.
   enqueue("leave", { sessionMs: Date.now() - (window as any).__journeyStartedAt });
   flush(true).catch(() => {});
