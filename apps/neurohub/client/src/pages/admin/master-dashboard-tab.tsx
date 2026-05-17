@@ -40,7 +40,15 @@ import {
   Legend,
 } from "recharts";
 
-type Period = "today" | "7d" | "30d" | "all";
+// Eugene 2026-05-17 Босс: расширенный period selector — cut-off 20:00 МСК
+// (см. Period-20-MSK rule в CLAUDE.md). Все варианты в одном типе для UI и
+// для query-параметра /api/admin/v304/dashboard-summary?period=...
+type Period =
+  | "today" | "yesterday"
+  | "7d" | "30d" | "365d" | "all"
+  | "month-1" | "month-2" | "month-3" | "month-4"
+  | "month-5" | "month-6" | "month-7" | "month-8"
+  | "month-9" | "month-10" | "month-11" | "month-12";
 
 type StatusCard = {
   key: string;
@@ -122,10 +130,39 @@ function fetcher<T>(url: string): Promise<T> {
 
 const PERIOD_LABELS: Record<Period, string> = {
   today: "Сегодня",
-  "7d": "7 дней",
-  "30d": "30 дней",
-  all: "За всё время",
+  yesterday: "Вчера",
+  "7d": "Неделя",
+  "30d": "Месяц",
+  "365d": "Год",
+  all: "Всё время",
+  "month-1": "Январь",
+  "month-2": "Февраль",
+  "month-3": "Март",
+  "month-4": "Апрель",
+  "month-5": "Май",
+  "month-6": "Июнь",
+  "month-7": "Июль",
+  "month-8": "Август",
+  "month-9": "Сентябрь",
+  "month-10": "Октябрь",
+  "month-11": "Ноябрь",
+  "month-12": "Декабрь",
 };
+
+const MONTH_SHORT_LABELS: Array<{ key: Period; label: string }> = [
+  { key: "month-1", label: "Янв" },
+  { key: "month-2", label: "Фев" },
+  { key: "month-3", label: "Мар" },
+  { key: "month-4", label: "Апр" },
+  { key: "month-5", label: "Май" },
+  { key: "month-6", label: "Июн" },
+  { key: "month-7", label: "Июл" },
+  { key: "month-8", label: "Авг" },
+  { key: "month-9", label: "Сен" },
+  { key: "month-10", label: "Окт" },
+  { key: "month-11", label: "Ноя" },
+  { key: "month-12", label: "Дек" },
+];
 
 // ---- цветовая палитра — единый источник для всех графиков ----
 const COLORS = {
@@ -177,7 +214,9 @@ function StatusLamp({ card }: { card: StatusCard }) {
 }
 
 // ============================================================
-// Date-range picker
+// Date-range picker (Eugene 2026-05-17 Босс «расширенный period selector»)
+// Row 1: Сегодня / Вчера / Неделя / Месяц / Год / Всё время
+// Row 2 (по клику «Месяцы ▾»): Янв..Дек текущего года
 // ============================================================
 function PeriodSelector({
   period,
@@ -186,25 +225,58 @@ function PeriodSelector({
   period: Period;
   onChange: (p: Period) => void;
 }) {
-  const buttons: Array<{ key: Period; label: string }> = [
+  const [monthsOpen, setMonthsOpen] = useState(false);
+  const primaryButtons: Array<{ key: Period; label: string }> = [
     { key: "today", label: "Сегодня" },
-    { key: "7d", label: "7 дней" },
-    { key: "30d", label: "30 дней" },
-    { key: "all", label: "За всё время" },
+    { key: "yesterday", label: "Вчера" },
+    { key: "7d", label: "Неделя" },
+    { key: "30d", label: "Месяц" },
+    { key: "365d", label: "Год" },
+    { key: "all", label: "Всё время" },
   ];
+  const isMonthActive = period.startsWith("month-");
   return (
-    <div className="flex flex-wrap gap-2">
-      {buttons.map((b) => (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap gap-2 items-center">
+        {primaryButtons.map((b) => (
+          <Button
+            key={b.key}
+            variant={period === b.key ? "default" : "outline"}
+            size="sm"
+            onClick={() => onChange(b.key)}
+            data-testid={`period-${b.key}`}
+          >
+            {b.label}
+          </Button>
+        ))}
         <Button
-          key={b.key}
-          variant={period === b.key ? "default" : "outline"}
+          variant={isMonthActive ? "default" : "outline"}
           size="sm"
-          onClick={() => onChange(b.key)}
-          data-testid={`period-${b.key}`}
+          onClick={() => setMonthsOpen((v) => !v)}
+          data-testid="period-months-toggle"
+          aria-expanded={monthsOpen}
         >
-          {b.label}
+          {isMonthActive ? PERIOD_LABELS[period] : "Месяцы"} {monthsOpen ? "▴" : "▾"}
         </Button>
-      ))}
+      </div>
+      {monthsOpen && (
+        <div
+          className="flex flex-wrap gap-2 p-3 rounded-xl border border-purple-500/20 bg-purple-500/5"
+          data-testid="period-months-row"
+        >
+          {MONTH_SHORT_LABELS.map((b) => (
+            <Button
+              key={b.key}
+              variant={period === b.key ? "default" : "outline"}
+              size="sm"
+              onClick={() => onChange(b.key)}
+              data-testid={`period-${b.key}`}
+            >
+              {b.label}
+            </Button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
