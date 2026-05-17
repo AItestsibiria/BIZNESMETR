@@ -7,9 +7,10 @@ import { Label } from "@/components/ui/label";
 import { Music, Loader2, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
+import Admin2FAForm from "@/components/admin-2fa-form";
 
 export default function LoginPage() {
-  const { login, user } = useAuth();
+  const { login, user, loginByToken } = useAuth();
   const [, navigate] = useLocation();
 
   useEffect(() => {
@@ -22,12 +23,55 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
+  // Eugene 2026-05-17 Босс — Level 1 защиты: после email/password backend
+  // может вернуть {requireAdminCode: true, sessionDraftId} вместо token.
+  // Показываем 2FA-форму ниже основной (по сути замещаем).
+  const [admin2FA, setAdmin2FA] = useState<{
+    sessionDraftId: string;
+    emailHint?: string;
+    expiresInSec?: number;
+    warning?: string;
+  } | null>(null);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      await login(email, password, remember);
-      // Navigation handled by useEffect watching user state
+      // Eugene 2026-05-17: используем raw apiRequest чтобы поймать
+      // {requireAdminCode: true} — обычный useAuth.login сразу выставляет
+      // user через token, что для 2FA-flow нам не нужно.
+      const res = await apiRequest("POST", "/api/auth/login", { email, password });
+      const data = await res.json();
+      if (data?.requireAdminCode) {
+        setAdmin2FA({
+          sessionDraftId: data.sessionDraftId,
+          emailHint: data.emailHint,
+          expiresInSec: data.expiresInSec,
+          warning: data.warning,
+        });
+        toast({
+          title: "🔐 Требуется код из email",
+          description: `Мы отправили 6-значный код на ${data.emailHint || "ваш email"}. Введите его ниже.`,
+        });
+        return;
+      }
+      if (data?.token) {
+        const u = await loginByToken(data.token, remember);
+        if (!u) {
+          toast({
+            title: "Сессия не подтвердилась",
+            description: "Попробуйте ещё раз.",
+            variant: "destructive",
+          });
+        }
+        // Navigation handled by useEffect watching user state
+      } else {
+        toast({
+          title: "Ошибка входа",
+          description: data?.message || "Не удалось войти",
+          variant: "destructive",
+        });
+      }
     } catch (err: any) {
       toast({
         title: "Ошибка входа",
@@ -37,6 +81,20 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleAdmin2FAVerified = async (data: { token: string }) => {
+    const u = await loginByToken(data.token, remember);
+    if (!u) {
+      toast({
+        title: "Сессия не подтвердилась",
+        description: "Попробуйте ещё раз.",
+        variant: "destructive",
+      });
+      return;
+    }
+    toast({ title: "✅ Admin-вход выполнен", description: u.name || u.email });
+    // useEffect выше сам редиректит на /dashboard.
   };
 
   return (
@@ -51,36 +109,54 @@ export default function LoginPage() {
           <p className="text-sm text-muted-foreground mt-1">Войдите, чтобы создавать музыку</p>
         </div>
 
-        {/* Eugene 2026-05-15 Босс «внедри фронт по звонку» — primary CTA. */}
-        <Link
-          href="/login-phone"
-          className="block gradient-border p-5 rounded-2xl mb-4 hover:bg-emerald-500/5 transition-colors group"
-          data-testid="link-login-phone-primary"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500/30 to-cyan-500/30 flex items-center justify-center text-2xl">
-              📞
-            </div>
-            <div className="flex-1">
-              <p className="text-base font-semibold text-white group-hover:text-emerald-200">
-                Вход по звонку
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Без пароля — звоните на наш номер.
-              </p>
-            </div>
-            <span className="text-emerald-300 text-lg">→</span>
+        {/* Eugene 2026-05-17 Босс — Level 1 защиты: если backend вернул
+            requireAdminCode → показываем 2FA-форму вместо обычной. */}
+        {admin2FA && (
+          <div className="gradient-border p-6 rounded-2xl mb-4">
+            <Admin2FAForm
+              sessionDraftId={admin2FA.sessionDraftId}
+              emailHint={admin2FA.emailHint}
+              expiresInSec={admin2FA.expiresInSec}
+              warning={admin2FA.warning}
+              onVerified={handleAdmin2FAVerified}
+              onCancel={() => setAdmin2FA(null)}
+            />
           </div>
-        </Link>
+        )}
 
-        <div className="flex items-center gap-3 my-4">
-          <div className="flex-1 h-px bg-white/[0.08]" />
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60">или email/пароль</span>
-          <div className="flex-1 h-px bg-white/[0.08]" />
-        </div>
+        {/* Eugene 2026-05-15 Босс «внедри фронт по звонку» — primary CTA.
+            Скрываем когда показываем 2FA — чтобы не загромождать. */}
+        {!admin2FA && <>
+          <Link
+            href="/login-phone"
+            className="block gradient-border p-5 rounded-2xl mb-4 hover:bg-emerald-500/5 transition-colors group"
+            data-testid="link-login-phone-primary"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500/30 to-cyan-500/30 flex items-center justify-center text-2xl">
+                📞
+              </div>
+              <div className="flex-1">
+                <p className="text-base font-semibold text-white group-hover:text-emerald-200">
+                  Вход по звонку
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Без пароля — звоните на наш номер.
+                </p>
+              </div>
+              <span className="text-emerald-300 text-lg">→</span>
+            </div>
+          </Link>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="gradient-border p-6 rounded-2xl space-y-4">
+          <div className="flex items-center gap-3 my-4">
+            <div className="flex-1 h-px bg-white/[0.08]" />
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60">или email/пароль</span>
+            <div className="flex-1 h-px bg-white/[0.08]" />
+          </div>
+        </>}
+
+        {/* Form — скрываем когда показываем 2FA */}
+        {!admin2FA && <form onSubmit={handleSubmit} className="gradient-border p-6 rounded-2xl space-y-4">
           <div className="space-y-2">
             <Label htmlFor="email" className="text-sm text-muted-foreground">Email</Label>
             <Input
@@ -144,19 +220,19 @@ export default function LoginPage() {
               Забыли пароль?
             </Link>
           </div>
-        </form>
+        </form>}
 
-        {/* Telegram Login */}
-        <div className="mt-4">
+        {/* Telegram Login — скрываем когда показываем 2FA */}
+        {!admin2FA && <div className="mt-4">
           <TelegramLoginBtn />
-        </div>
+        </div>}
 
-        <p className="text-center text-sm text-muted-foreground mt-6">
+        {!admin2FA && <p className="text-center text-sm text-muted-foreground mt-6">
           Нет аккаунта?{" "}
           <Link href="/register" className="text-purple-400 hover:text-purple-300 font-medium" data-testid="link-to-register">
             Зарегистрироваться
           </Link>
-        </p>
+        </p>}
       </div>
     </div>
   );

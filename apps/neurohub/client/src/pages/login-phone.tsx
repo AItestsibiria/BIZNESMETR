@@ -8,17 +8,28 @@
 // происходит» — раньше modal link-existing блокировал redirect. Теперь
 // сразу /dashboard + toast про возможность связать email в настройках.
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { Music, Phone, Mail, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import PhoneOtpForm from "@/components/phone-otp-form";
+import Admin2FAForm from "@/components/admin-2fa-form";
 
 export default function LoginPhonePage() {
   const { user, isLoading, loginByToken } = useAuth();
   const [, navigate] = useLocation();
   const { toast } = useToast();
+
+  // Eugene 2026-05-17 Босс — Level 1 защиты: после phone callcheck backend
+  // может вернуть {requireAdminCode: true, sessionDraftId} если phone-аккаунт
+  // оказался admin'ом. Показываем 2FA-форму поверх phone-формы.
+  const [admin2FA, setAdmin2FA] = useState<{
+    sessionDraftId: string;
+    emailHint?: string;
+    expiresInSec?: number;
+    warning?: string;
+  } | null>(null);
 
   useEffect(() => {
     if (user) navigate("/dashboard");

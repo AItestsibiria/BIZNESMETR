@@ -41,6 +41,14 @@ interface Props {
     // аккаунт (login → register fallback). UI должен показать «у вас уже
     // есть email-аккаунт? привяжите его в ЛК».
     newAccount?: boolean;
+    // Eugene 2026-05-17 Босс — Level 1 защиты: если backend вернул
+    // requireAdminCode, parent должен переключиться на 2FA-форму вместо
+    // того чтобы вызывать loginByToken.
+    requireAdminCode?: boolean;
+    sessionDraftId?: string;
+    emailHint?: string;
+    expiresInSec?: number;
+    warning?: string;
   }) => void;
   submitLabel?: string;       // label кнопки на 2-м шаге (default: «Подтвердить»)
   phoneSubmitLabel?: string;  // label на 1-м шаге (default: «Получить код»)
@@ -132,6 +140,23 @@ export default function PhoneOtpForm({
           // 410 expired → переходим в expired-state (не показываем error,
           // показываем fallback на email). 404 → тоже expired (запрос истёк).
           setCallExpired(true);
+          return;
+        }
+        // Eugene 2026-05-17 Босс — Level 1 защиты: если admin → требуется 2FA.
+        if (j?.data?.verified === true && j?.data?.requireAdminCode && j?.data?.sessionDraftId) {
+          if (verifiedFiredRef.current) return;
+          verifiedFiredRef.current = true;
+          setVerified(true);
+          onVerified({
+            phone: j.data.phone || phone,
+            purpose,
+            requireAdminCode: true,
+            sessionDraftId: j.data.sessionDraftId,
+            emailHint: j.data.emailHint,
+            expiresInSec: j.data.expiresInSec,
+            warning: j.data.warning,
+            method: "call",
+          });
           return;
         }
         if (j?.data?.verified === true && j?.data?.token) {
