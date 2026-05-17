@@ -307,6 +307,108 @@ export async function sendAdmin2FAEmail(
   }
 }
 
+// === Self-contained admin gate for plugins (auth-sms, future channels) ===
+//
+// Любой плагин который выдаёт session token может перед выдачей сделать:
+//
+//   const gate = await adminGateBeforeToken(userId, channel, req);
+//   if (gate.requireAdminCode) return res.json({ requireAdminCode: true, sessionDraftId: gate.sessionDraftId, emailHint, expiresInSec: 600 });
+//   // иначе — выдаём token как обычно
+//
+// Это делает 2FA-логику переиспользуемой без impose тонкой связи с routes.ts.
+// Lazy import nodemailer чтобы не утяжелять bundle если плагин не используется.
+
+let cachedTransport: Transporter | null = null;
+async function getOrCreateMailer(): Promise<{ transport: Transporter; from: string } | null> {
+  if (cachedTransport) {
+    return { transport: cachedTransport, from: process.env.GMAIL_USER || "tissan2021@gmail.com" };
+  }
+  try {
+    const nodemailer = (await import("nodemailer")).default;
+    const user = process.env.GMAIL_USER || "tissan2021@gmail.com";
+    const pass = process.env.GMAIL_APP_PASSWORD || "";
+    if (!pass) return null;
+    cachedTransport = nodemailer.createTransport({
+      service: "gmail",
+      auth: { user, pass },
+    });
+    return { transport: cachedTransport, from: user };
+  } catch {
+    return null;
+  }
+}
+
+export interface AdminGateResult {
+  requireAdminCode: boolean;
+  sessionDraftId?: string;
+  emailHint?: string;
+  expiresInSec?: number;
+  warning?: string;
+}
+
+interface AdminGateInput {
+  userId: number;
+  channel: "email_password" | "phone_call" | "phone_reverse_call";
+  req: Request;
+  adminEmail: string;
+  adminName: string | null;
+  adminRole: string | null | undefined;
+}
+
+export async function adminGateBeforeToken(input: AdminGateInput): Promise<AdminGateResult> {
+  if (!shouldRequireAdmin2FA(input.adminRole, input.req)) {
+    return { requireAdminCode: false };
+  }
+  const created = createAdmin2FACode({
+    userId: input.userId,
+    channel: input.channel,
+    req: input.req,
+  });
+  // Off-hours / new IP alerts.
+  if (isOffHoursMsk()) {
+    sendAdmin2FAAlert({
+      reason: "off_hours",
+      userId: input.userId,
+      email: input.adminEmail,
+      ip: created.ip,
+      ua: created.ua,
+    });
+  }
+  if (!hasSeenAdminIp(input.userId, created.ip)) {
+    sendAdmin2FAAlert({
+      reason: "new_ip",
+      userId: input.userId,
+      email: input.adminEmail,
+      ip: created.ip,
+      ua: created.ua,
+      detail: `Login channel=${input.channel} с нового IP.`,
+    });
+  }
+  // Email.
+  const mailer = await getOrCreateMailer();
+  let emailSent = false;
+  let warning: string | undefined;
+  if (mailer) {
+    const r = await sendAdmin2FAEmail(
+      { mailTransport: mailer.transport, fromAddress: mailer.from, fromLabel: "MuzaAi Admin" },
+      input.adminEmail,
+      { adminName: input.adminName, code: created.code, ip: created.ip, ua: created.ua },
+    );
+    emailSent = r.ok;
+    if (!r.ok) warning = "Email не отправлен. Свяжись с Eugene.";
+  } else {
+    warning = "SMTP не сконфигурирован. Используй ADMIN_2FA_BYPASS=1 для emergency.";
+  }
+  const emailHint = input.adminEmail.replace(/(.{2}).*(@.*)/, "$1***$2");
+  return {
+    requireAdminCode: true,
+    sessionDraftId: created.sessionDraftId,
+    emailHint,
+    expiresInSec: 600,
+    warning: emailSent ? undefined : warning,
+  };
+}
+
 // === Telegram alert ===
 
 export interface SendAdmin2FAAlertOpts {

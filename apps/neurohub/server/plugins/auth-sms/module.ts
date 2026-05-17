@@ -70,6 +70,7 @@ import type { BootContext, Module } from "../../core";
 import { validatePhoneForOtp, maskPhone, normalizePhone, detectPhoneCountry } from "../../lib/phoneCountry";
 import { tokenStore } from "../../lib/tokenStore";
 import { tryGiveWelcomeGift } from "../../lib/welcomeGift";
+import { adminGateBeforeToken, isAdminRole } from "../../lib/admin2fa";
 
 let bootRefs: { eventBus: BootContext["eventBus"]; logger: BootContext["logger"] } | null = null;
 
