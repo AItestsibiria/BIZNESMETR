@@ -3007,28 +3007,30 @@ export async function registerRoutes(
       `)[0]?.c || 0;
 
       res.json({
-        ok: true,
-        since,
-        totals: {
-          events: totalEvents,
-          sessions: totalSessions,
-          avgSessionMs: Math.round(Number(avgSessionDuration) || 0),
+        data: {
+          since,
+          totals: {
+            events: totalEvents,
+            sessions: totalSessions,
+            avgSessionMs: Math.round(Number(avgSessionDuration) || 0),
+          },
+          topPages,
+          exitPages,
+          funnel: {
+            landing: Number(funnelLanding) || 0,
+            register_page: Number(funnelRegister) || 0,
+            form_focus: Number(funnelFormFocus) || 0,
+            form_abandon: Number(funnelAbandon) || 0,
+          },
+          smart: {
+            idleFires,
+            formAbandons,
+          },
         },
-        topPages,
-        exitPages,
-        funnel: {
-          landing: Number(funnelLanding) || 0,
-          register_page: Number(funnelRegister) || 0,
-          form_focus: Number(funnelFormFocus) || 0,
-          form_abandon: Number(funnelAbandon) || 0,
-        },
-        smart: {
-          idleFires,
-          formAbandons,
-        },
+        error: null,
       });
     } catch (e: any) {
-      res.status(500).json({ ok: false, error: String(e?.message || e) });
+      res.status(500).json({ data: null, error: String(e?.message || e) });
     }
   });
 
@@ -3084,9 +3086,9 @@ export async function registerRoutes(
           bounced,
         };
       });
-      res.json({ ok: true, since, count: sessions.length, sessions });
+      res.json({ data: { since, count: sessions.length, sessions }, error: null });
     } catch (e: any) {
-      res.status(500).json({ ok: false, error: String(e?.message || e) });
+      res.status(500).json({ data: null, error: String(e?.message || e) });
     }
   });
 
@@ -3094,7 +3096,7 @@ export async function registerRoutes(
   app.get("/api/admin/v304/journey/:sessionKey", requireAdmin, (req: Request, res: Response) => {
     try {
       const sk = String(req.params.sessionKey || "").trim().slice(0, 64);
-      if (!sk) return res.status(400).json({ ok: false, error: "sessionKey required" });
+      if (!sk) return res.status(400).json({ data: null, error: "sessionKey required" });
       const rows = db.all<any>(sql`
         SELECT id, event_type as eventType, page, meta, user_id as userId, created_at as createdAt
         FROM user_journey_events
@@ -3107,9 +3109,9 @@ export async function registerRoutes(
         if (r.meta) { try { metaParsed = JSON.parse(r.meta); } catch {} }
         return { ...r, meta: metaParsed };
       });
-      res.json({ ok: true, sessionKey: sk, count: events.length, events });
+      res.json({ data: { sessionKey: sk, count: events.length, events }, error: null });
     } catch (e: any) {
-      res.status(500).json({ ok: false, error: String(e?.message || e) });
+      res.status(500).json({ data: null, error: String(e?.message || e) });
     }
   });
 

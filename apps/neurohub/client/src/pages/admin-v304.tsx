@@ -22,6 +22,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import AdminSearch from "@/components/admin-search";
+import { JourneyTab } from "@/pages/admin/journey-tab";
 import { Switch } from "@/components/ui/switch";
 import { Progress } from "@/components/ui/progress";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell } from "recharts";
@@ -220,6 +221,7 @@ export default function AdminV304Page() {
           <TabsTrigger value="audit">Audit log</TabsTrigger>
           <TabsTrigger value="failures">⚠️ Проблемы</TabsTrigger>
           <TabsTrigger value="dialogs">💬 Диалоги</TabsTrigger>
+          <TabsTrigger value="journey">🗺 Путь</TabsTrigger>
         </TabsList>
         <TabsContent value="overview"><OverviewTab toast={toast} /></TabsContent>
         <TabsContent value="friend">
@@ -243,6 +245,7 @@ export default function AdminV304Page() {
         <TabsContent value="audit"><AuditTab toast={toast} /></TabsContent>
         <TabsContent value="failures"><FailuresTab toast={toast} /></TabsContent>
         <TabsContent value="dialogs"><DialogsTab toast={toast} /></TabsContent>
+        <TabsContent value="journey"><JourneyTab toast={toast} /></TabsContent>
       </Tabs>
     </div>
   );
