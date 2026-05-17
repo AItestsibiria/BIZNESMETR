@@ -28,6 +28,7 @@ import { CoverDetailsModal } from "@/components/cover-details-modal";
 import { VolumeSlider } from "@/components/volume-slider";
 import { setLockScreenTrack, setLockScreenPlaybackState } from "@/lib/lockscreen";
 import { muteBgMusic, unmuteBgMusic } from "@/components/background-music";
+import { SupportModal } from "@/components/support-modal";
 
 const typeIcons: Record<string, typeof PenLine> = {
   lyrics: PenLine,
@@ -2235,6 +2236,8 @@ export default function DashboardPage() {
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState("");
   const nameInputRef = useRef<HTMLInputElement>(null);
+  // Eugene 2026-05-17 Босс «кнопка техподдержка → муза бот фиксирует обращение».
+  const [supportOpen, setSupportOpen] = useState(false);
 
   const startEditName = () => {
     setNameValue(user?.name || "");
@@ -3527,10 +3530,27 @@ export default function DashboardPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Support link */}
-      <div className="mt-8 text-center">
-        <a href="#" onClick={(e) => { e.preventDefault(); window.location.href = `mailto:${["Tis","san","21","@","gm","ail",".","com"].join("")}?subject=${encodeURIComponent("MuzaAi — обращение")}`; }} className="text-xs text-purple-400/60 hover:text-purple-300 transition-colors">Поддержка</a>
+      {/* Support — кнопка «🆘 Техподдержка» (Eugene 2026-05-17 Босс) */}
+      <div className="mt-8 mb-4 flex flex-col items-center gap-3">
+        <button
+          onClick={() => setSupportOpen(true)}
+          className="btn-cosmic px-6 py-3 rounded-2xl font-sans font-semibold text-base text-white shadow-[0_0_32px_rgba(124,58,237,0.4)] hover:scale-[1.02] transition-transform"
+        >
+          🆘 Техподдержка
+        </button>
+        <a
+          href="#"
+          onClick={(e) => { e.preventDefault(); window.location.href = `mailto:${["Tis","san","21","@","gm","ail",".","com"].join("")}?subject=${encodeURIComponent("MuzaAi — обращение")}`; }}
+          className="text-xs text-purple-400/50 hover:text-purple-300 transition-colors"
+        >
+          Или напишите на email
+        </a>
       </div>
+      <SupportModal
+        open={supportOpen}
+        onOpenChange={setSupportOpen}
+        context={{ page: "/dashboard", currentTrackId: selectedGen?.id }}
+      />
     </div>
   );
 }

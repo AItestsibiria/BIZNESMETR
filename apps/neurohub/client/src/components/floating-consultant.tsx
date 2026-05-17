@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { playMuzaChime, playMuzaTick, playMuzaSparkle } from "../lib/muza-sounds";
 import { onJourneyEvent } from "../lib/user-journey";
+import { SupportModal } from "./support-modal";
 
 // Eugene 2026-05-14 Босс: «после 1 dismiss через 1 мин, если ещё раз — 1 час».
 const REAPPEAR_MS_FIRST = 60_000;     // 1 минута после первого dismiss
@@ -156,6 +157,8 @@ export function FloatingConsultant() {
   const [shareMenuOpen, setShareMenuOpen] = useState(false);
   // Eugene 2026-05-14 Босс «зарегистрироваться открывает меню».
   const [registerMenuOpen, setRegisterMenuOpen] = useState(false);
+  // Eugene 2026-05-17 Босс «кнопка техподдержка → муза бот».
+  const [supportOpen, setSupportOpen] = useState(false);
   // Eugene 2026-05-14 Босс «при нажатии на левую часть по вертикали можно
   // перемещать. Углы возвращают в центр». Snap-positions для chat drawer.
   const [drawerSnap, setDrawerSnap] = useState<"br" | "bl" | "tr" | "tl" | "center">("br");
@@ -710,6 +713,18 @@ export function FloatingConsultant() {
                 </a>
               </div>
             )}
+            {/* Eugene 2026-05-17 Босс: кнопка «🆘 Техподдержка» — открывает
+                Муза-чат + создаёт ticket в agent_handoffs + alert админу. */}
+            <button
+              type="button"
+              onClick={() => {
+                trackEngagement("consultant_action", { action: "support_button" });
+                setSupportOpen(true);
+              }}
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.06] transition-colors text-[12px] text-white/90 text-left"
+            >
+              <span>🆘</span> Техподдержка
+            </button>
             {/* Eugene 2026-05-15 Босс «уменьшить по высоте» — Share-submenu
                 удалён (он дублирует Telegram/Max выше). Single share-button —
                 native share API. */}
@@ -1191,6 +1206,12 @@ export function FloatingConsultant() {
         </div>,
         document.body
       )}
+      {/* Eugene 2026-05-17 Босс «техподдержка». */}
+      <SupportModal
+        open={supportOpen}
+        onOpenChange={setSupportOpen}
+        context={{ page: typeof window !== "undefined" ? window.location.hash : undefined }}
+      />
     </div>
   );
 }
