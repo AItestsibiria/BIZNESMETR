@@ -85,9 +85,21 @@ type ClickStats = {
   fromCache?: boolean;
 };
 
+// Eugene 2026-05-17 Босс: per-domain трекинг (muzaai.ru / muziai.ru /
+// podaripesnu.ru / other). 'all' — без фильтра.
+type DomainBucket = "all" | "muzaai.ru" | "muziai.ru" | "podaripesnu.ru" | "other";
+
+type DomainMetrics = {
+  visitors: number;
+  plays: number;
+  registrations: number;
+  payments: { count: number; rub: number };
+};
+
 type DashboardSummary = {
   period: Period;
   since: string | null;
+  domain?: string | null;
   generatedAt: string;
   cacheExpiresAt: string;
   fromCache?: boolean;
@@ -162,6 +174,23 @@ const MONTH_SHORT_LABELS: Array<{ key: Period; label: string }> = [
   { key: "month-10", label: "Окт" },
   { key: "month-11", label: "Ноя" },
   { key: "month-12", label: "Дек" },
+];
+
+// Eugene 2026-05-17 Босс: domain selector — глобальный фильтр на dashboard.
+const DOMAIN_LABELS: Record<DomainBucket, string> = {
+  all: "Все",
+  "muzaai.ru": "MuzaAi.ru",
+  "muziai.ru": "MuziAi.ru",
+  "podaripesnu.ru": "podaripesnu.ru",
+  other: "Прочие",
+};
+
+const DOMAIN_OPTIONS: Array<{ key: DomainBucket; label: string }> = [
+  { key: "all", label: "Все" },
+  { key: "muzaai.ru", label: "MuzaAi.ru" },
+  { key: "muziai.ru", label: "MuziAi.ru" },
+  { key: "podaripesnu.ru", label: "podaripesnu.ru" },
+  { key: "other", label: "Прочие" },
 ];
 
 // ---- цветовая палитра — единый источник для всех графиков ----
@@ -278,6 +307,163 @@ function PeriodSelector({
         </div>
       )}
     </div>
+  );
+}
+
+// ============================================================
+// Domain selector (Eugene 2026-05-17 Босс «per-domain трекинг»)
+// Глобальный фильтр сверху dashboard: Все / MuzaAi.ru / MuziAi.ru /
+// podaripesnu.ru / Прочие. Передаётся как `?domain=...` во все
+// аналитические endpoint'ы.
+// Brand-style: glass-card, gradient на active, font-mono для пилюль.
+// ============================================================
+function DomainSelector({
+  domain,
+  onChange,
+}: {
+  domain: DomainBucket;
+  onChange: (d: DomainBucket) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-xs font-sans text-muted-foreground select-none">
+        🌐 Домен:
+      </span>
+      {DOMAIN_OPTIONS.map((o) => (
+        <Button
+          key={o.key}
+          variant={domain === o.key ? "default" : "outline"}
+          size="sm"
+          onClick={() => onChange(o.key)}
+          data-testid={`domain-${o.key}`}
+          className={
+            domain === o.key
+              ? "bg-gradient-to-r from-purple-500 via-fuchsia-500 to-blue-500 shadow-[0_0_16px_rgba(124,58,237,0.4)] border-transparent text-white"
+              : "border-purple-400/20 hover:bg-purple-500/10 text-white/80"
+          }
+        >
+          {o.label}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+// ============================================================
+// By-Domain breakdown (Eugene 2026-05-17 Босс): таблица всех 4 bucket'ов
+// (3 known + other) × 4 метрики (visitors / plays / regs / payments).
+// Источник — /api/admin/v304/brain-export → data.byDomain.
+// ============================================================
+function ByDomainSection() {
+  const { data, isLoading, refetch } = useQuery<{ byDomain?: Record<string, DomainMetrics> }>({
+    queryKey: ["/api/admin/v304/brain-export"],
+    queryFn: () =>
+      fetcher<{ byDomain?: Record<string, DomainMetrics> }>("/api/admin/v304/brain-export"),
+    refetchInterval: 120_000,
+  });
+
+  const buckets: DomainBucket[] = ["muzaai.ru", "muziai.ru", "podaripesnu.ru", "other"];
+  const byDomain = data?.byDomain || {};
+
+  const copyTable = () => {
+    const rows = [
+      ["Метрика", ...buckets.map(b => DOMAIN_LABELS[b])].join("\t"),
+      ["Visitors (уник)", ...buckets.map(b => byDomain[b]?.visitors ?? 0)].join("\t"),
+      ["Plays (30д)", ...buckets.map(b => byDomain[b]?.plays ?? 0)].join("\t"),
+      ["Регистрации", ...buckets.map(b => byDomain[b]?.registrations ?? 0)].join("\t"),
+      ["Платежи (#)", ...buckets.map(b => byDomain[b]?.payments.count ?? 0)].join("\t"),
+      ["Сумма (₽)", ...buckets.map(b => byDomain[b]?.payments.rub ?? 0)].join("\t"),
+    ].join("\n");
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(rows);
+    }
+  };
+
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-bold text-white">
+          🌐 По доменам · 30 дней
+          <span className="ml-2 text-[11px] font-sans text-muted-foreground">
+            (best-effort first-touch domain для users / payments)
+          </span>
+        </h3>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={copyTable} data-testid="copy-bydomain-table">
+            📋 Копировать
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => refetch()} data-testid="refresh-bydomain">
+            🔄
+          </Button>
+        </div>
+      </div>
+      <div className="glass-card rounded-2xl p-4 border border-purple-500/20 overflow-x-auto">
+        {isLoading && !data ? (
+          <div className="text-xs font-sans text-muted-foreground py-4 text-center">
+            Загружаю byDomain breakdown…
+          </div>
+        ) : (
+          <table className="w-full text-xs font-sans">
+            <thead>
+              <tr className="text-left text-[11px] uppercase tracking-wider text-muted-foreground border-b border-purple-500/20">
+                <th className="py-2 pr-3">Метрика</th>
+                {buckets.map(b => (
+                  <th key={b} className="py-2 px-3 text-right">
+                    {DOMAIN_LABELS[b]}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="text-white/90">
+              <ByDomainRow label="Visitors (уник)" buckets={buckets} byDomain={byDomain}
+                getValue={m => m.visitors} />
+              <ByDomainRow label="Plays" buckets={buckets} byDomain={byDomain}
+                getValue={m => m.plays} />
+              <ByDomainRow label="Регистрации" buckets={buckets} byDomain={byDomain}
+                getValue={m => m.registrations} />
+              <ByDomainRow label="Платежи (#)" buckets={buckets} byDomain={byDomain}
+                getValue={m => m.payments.count} />
+              <ByDomainRow label="Сумма (₽)" buckets={buckets} byDomain={byDomain}
+                getValue={m => m.payments.rub} highlight />
+            </tbody>
+          </table>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function ByDomainRow({
+  label,
+  buckets,
+  byDomain,
+  getValue,
+  highlight = false,
+}: {
+  label: string;
+  buckets: DomainBucket[];
+  byDomain: Record<string, DomainMetrics>;
+  getValue: (m: DomainMetrics) => number;
+  highlight?: boolean;
+}) {
+  return (
+    <tr className="border-b border-purple-500/10 last:border-b-0">
+      <td className="py-2 pr-3 font-sans text-white/80">{label}</td>
+      {buckets.map(b => {
+        const m = byDomain[b];
+        const v = m ? getValue(m) : 0;
+        return (
+          <td
+            key={b}
+            className={`py-2 px-3 text-right font-mono ${
+              highlight ? "text-emerald-300 font-bold" : "text-cyan-300"
+            }`}
+          >
+            {v.toLocaleString("ru-RU")}
+          </td>
+        );
+      })}
+    </tr>
   );
 }
 
@@ -1457,16 +1643,20 @@ function MusaVoiceCommand() {
 // ============================================================
 export default function MasterDashboardTab() {
   const [period, setPeriod] = useState<Period>("7d");
+  // Eugene 2026-05-17 Босс «per-domain трекинг».
+  // 'all' = без фильтра, не передаём ?domain= в URL чтобы не дробить кэш.
+  const [domain, setDomain] = useState<DomainBucket>("all");
+  const domainQ = domain !== "all" ? `&domain=${domain}` : "";
   const { data, isLoading, refetch } = useQuery<DashboardSummary>({
-    queryKey: [`/api/admin/v304/dashboard-summary?period=${period}`],
+    queryKey: [`/api/admin/v304/dashboard-summary?period=${period}${domainQ}`],
     queryFn: () =>
-      fetcher<DashboardSummary>(`/api/admin/v304/dashboard-summary?period=${period}`),
+      fetcher<DashboardSummary>(`/api/admin/v304/dashboard-summary?period=${period}${domainQ}`),
     refetchInterval: 30_000,
   });
   const { data: clickStats, isLoading: clicksLoading } = useQuery<ClickStats>({
-    queryKey: [`/api/admin/v304/click-stats?period=${period}`],
+    queryKey: [`/api/admin/v304/click-stats?period=${period}${domainQ}`],
     queryFn: () =>
-      fetcher<ClickStats>(`/api/admin/v304/click-stats?period=${period}`),
+      fetcher<ClickStats>(`/api/admin/v304/click-stats?period=${period}${domainQ}`),
     refetchInterval: 60_000,
   });
 
@@ -1532,11 +1722,17 @@ export default function MasterDashboardTab() {
         </div>
       </div>
 
+      {/* 🌐 Domain selector — глобальный per-domain фильтр */}
+      <DomainSelector domain={domain} onChange={setDomain} />
+
       {/* 🎙 Муза доложит — TTS озвучка */}
       <MusaBriefing period={period} />
 
       {/* 🎤 Сказать Музе — голосовой диалог Админ ↔ Муза */}
       <MusaVoiceCommand />
+
+      {/* 🌐 By-Domain breakdown — отдельная секция от brain-export */}
+      <ByDomainSection />
 
       {/* 1. Status cards — light-status indicators */}
       <section>

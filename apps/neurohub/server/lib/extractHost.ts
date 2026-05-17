@@ -11,6 +11,7 @@
 // фильтры в master-dashboard / funnels / visitor-stats.
 
 import type { Request } from "express";
+import { z } from "zod";
 
 /**
  * Список «известных» бренд-доменов проекта. Всё что не из этого списка
@@ -58,3 +59,12 @@ export function isKnownDomain(host: string | null | undefined): host is KnownDom
   const norm = host.toLowerCase().replace(/^www\./, "").split(":")[0];
   return (KNOWN_DOMAINS as readonly string[]).includes(norm);
 }
+
+/**
+ * Zod schema для query param `?domain=...` admin endpoints'ов.
+ * Whitelist'ом разрешены: 3 known домена + 'other' + 'all'.
+ * Empty / unknown / отсутствие → undefined (без фильтра).
+ */
+export const DomainQuerySchema = z
+  .enum([...KNOWN_DOMAINS, "other", "all"] as [string, ...string[]])
+  .optional();
