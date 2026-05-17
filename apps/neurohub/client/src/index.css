@@ -946,13 +946,30 @@
   border-top: none;
 }
 
+/* Eugene 2026-05-17 Босс «pulse-glow на номере для звонка» — мерцающий
+   glow между purple и cyan, чтобы юзер сразу заметил служебный номер с
+   которого ожидается звонок. Используется в phone-otp-form classical
+   flashcall step. */
+@keyframes phone-pulse {
+  0%, 100% {
+    box-shadow: 0 0 16px rgba(124, 58, 237, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 48px rgba(0, 212, 255, 0.8);
+  }
+}
+.phone-pulse {
+  animation: phone-pulse 2s ease-in-out infinite;
+}
+
 /* Reduced motion — отключаем шевелящиеся эффекты для accessibility */
 @media (prefers-reduced-motion: reduce) {
   .scan-line::before,
   .animated-border,
   .holographic,
   .particle-bg::before,
-  .particle-bg::after {
+  .particle-bg::after,
+  .phone-pulse {
     animation: none;
   }
 }
