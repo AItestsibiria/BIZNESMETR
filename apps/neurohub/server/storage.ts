@@ -322,6 +322,14 @@ try {
   // Eugene 2026-05-07: единое поле voice_type для всех путей генерации
   // (см. server/lib/normalizeVocalParams.ts).
   if (!gcn.includes("voice_type")) sqlite.exec("ALTER TABLE generations ADD COLUMN voice_type TEXT");
+  // Eugene 2026-05-17 Босс «публикация — другое событие, не дата генерации».
+  // published_at выставляется при переходе is_public с 0 на >=1. NULL для
+  // черновиков. Backfill ниже: для существующих public-треков ставим
+  // published_at = created_at (известна только дата генерации; better than null).
+  if (!gcn.includes("published_at")) {
+    sqlite.exec("ALTER TABLE generations ADD COLUMN published_at TEXT");
+    sqlite.exec("UPDATE generations SET published_at = created_at WHERE published_at IS NULL AND is_public >= 1");
+  }
 
   // gen_activity: геолокация IP
   const gaCols = sqlite.prepare("PRAGMA table_info(gen_activity)").all() as { name: string }[];
@@ -995,17 +1003,24 @@ export class DatabaseStorage implements IStorage {
     isPublic?: number;
     authorName?: string;
   }): Generation {
+    // Eugene 2026-05-17 Босс «публикация ≠ генерация». При создании трека
+    // сразу public (isPublic>=1) — publishedAt = now (это первая публикация,
+    // одновременно с генерацией). Для черновиков (isPublic=0) — NULL,
+    // выставится при будущем publish.
+    const isPub = data.isPublic ?? 1;
+    const publishedAt = isPub >= 1 ? new Date().toISOString() : null;
     return db.insert(generations).values({
       userId: data.userId,
       type: data.type,
       prompt: data.prompt,
       style: data.style || null,
       cost: data.cost || 9900,
-      isPublic: data.isPublic ?? 1,
+      isPublic: isPub,
       authorName: data.authorName || null,
       taskId: data.taskId || null,
       status: data.status || "pending",
-    }).returning().get();
+      publishedAt,
+    } as any).returning().get();
   }
 
   updateGeneration(id: number, data: Partial<{ status: string; resultUrl: string; resultData: string; taskId: string }>): void {
