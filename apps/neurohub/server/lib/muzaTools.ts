@@ -342,6 +342,82 @@ export const MUZA_TOOLS: ToolDef[] = [
       required: ["ticketId", "summary"],
     },
   },
+
+  // === USER-FACING player tools (Eugene 2026-05-17 Босс «голосовое управление
+  // плейлистом и треками»). Доступны и admin'у и обычному юзеру.
+  {
+    name: "play_track",
+    description: "Запустить воспроизведение трека. Если указан trackId или query — переключаем на этот трек. Если ничего не указано — продолжить (resume) текущий. Используй когда юзер говорит «играй», «включи», «плей», «воспроизведи», «продолжай», «давай слушать».",
+    input_schema: {
+      type: "object",
+      properties: {
+        trackId: { type: "number", description: "ID трека (если знаешь)" },
+        query: { type: "string", description: "Поисковый запрос — название трека / автора / стиля (если юзер говорит «включи Луну»)" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "pause_player",
+    description: "Пауза. Юзер говорит «пауза», «стоп», «остановись», «погоди».",
+    input_schema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "next_track",
+    description: "Следующий трек. «следующий», «дальше», «next», «вперёд», «другой».",
+    input_schema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "prev_track",
+    description: "Предыдущий трек. «предыдущий», «назад», «prev», «верни», «обратно».",
+    input_schema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "set_volume",
+    description: "Изменить громкость 0-100. «громче», «тише», «громкость 50», «потише», «погромче». Если «громче» — current+20, «тише» — current-20, точное значение — указанное.",
+    input_schema: {
+      type: "object",
+      properties: {
+        level: { type: "number", description: "0-100 — точное значение громкости" },
+        delta: { type: "number", description: "Относительное изменение (+20 / -20)" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "set_repeat",
+    description: "Режим повтора. «закольцуй», «повтори», «не повторяй», «играй по кругу», «один раз».",
+    input_schema: {
+      type: "object",
+      properties: {
+        mode: { type: "string", enum: ["off", "one", "all"], description: "off=без повтора, one=повтор текущего трека, all=плейлист по кругу" },
+      },
+      required: ["mode"],
+    },
+  },
+  {
+    name: "find_tracks",
+    description: "Найти треки по запросу — title / автор / lyrics / стиль. Используй для «найди про лето», «покажи джаз», «треки от Васи». Возвращает топ-5 с их id — Муза может затем play_track с найденным id.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Поисковый запрос (3-5 слов)" },
+        limit: { type: "number", description: "1-20, default 5" },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "filter_playlist",
+    description: "Переключить плейлист на main (одобренные) / new (новые авторы) / my (только мои). «покажи новых», «топ авторов», «мои треки в плеере».",
+    input_schema: {
+      type: "object",
+      properties: {
+        type: { type: "string", enum: ["main", "new", "my"], description: "main=основной плейлист (одобренные), new=новые авторы, my=мои треки" },
+      },
+      required: ["type"],
+    },
+  },
 ];
 
 // === Email 2FA wrapper helper (Eugene 2026-05-17 Босс) ===
@@ -882,6 +958,123 @@ const HANDLERS: Record<string, ToolHandler> = {
     } catch (e: any) {
       return `Ошибка создания handoff: ${e.message}`;
     }
+  },
+
+  // === USER-FACING player handlers (Eugene 2026-05-17 Босс).
+  // Возвращают строку с marker [PLAYER_ACTION:type:payload] — frontend
+  // парсит regex и эмитит CustomEvent 'muza-player-action'. Slушают
+  // landing.tsx + dashboard.tsx → вызывают existing playTrack / skipNext /
+  // setVolume / etc. Reuse-working-solutions rule: НЕ дублируем player state.
+  // Доступны всем (admin + обычный юзер), tools без isAdminCtx guard.
+
+  async play_track({ trackId, query }) {
+    try {
+      // (1) query → SQL search → найти best match → marker с найденным id
+      if (query) {
+        const q = String(query || "").trim().toLowerCase();
+        if (!q) return "Пустой запрос — скажи название трека или ключевое слово.";
+        const rows = (db as any).$client.prepare(`
+          SELECT id, display_title, prompt FROM generations
+          WHERE type='music' AND status='done' AND is_public > 0
+            AND deleted_at IS NULL AND result_url IS NOT NULL
+            AND (lower(COALESCE(display_title, '')) LIKE ?
+                 OR lower(COALESCE(prompt, '')) LIKE ?
+                 OR lower(COALESCE(author_name, '')) LIKE ?
+                 OR lower(COALESCE(style, '')) LIKE ?)
+          ORDER BY id DESC LIMIT 5
+        `).all(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+        if (!rows || rows.length === 0) {
+          return `Не нашла трек по запросу «${query}». Попробуй другую формулировку.`;
+        }
+        const t = rows[0];
+        const title = t.display_title || String(t.prompt || "").slice(0, 40) || "трек";
+        return `[PLAYER_ACTION:play:${t.id}] Включаю «${title}».`;
+      }
+      // (2) trackId → marker напрямую
+      if (typeof trackId === "number" && Number.isFinite(trackId) && trackId > 0) {
+        return `[PLAYER_ACTION:play:${trackId}] Включаю трек ${trackId}.`;
+      }
+      // (3) Без параметров — resume текущего
+      return `[PLAYER_ACTION:resume] Продолжаю.`;
+    } catch (e: any) {
+      return `Ошибка play_track: ${e.message}`;
+    }
+  },
+
+  async pause_player() {
+    return `[PLAYER_ACTION:pause] Пауза.`;
+  },
+
+  async next_track() {
+    return `[PLAYER_ACTION:next] Следующий.`;
+  },
+
+  async prev_track() {
+    return `[PLAYER_ACTION:prev] Предыдущий.`;
+  },
+
+  async set_volume({ level, delta }) {
+    if (typeof level === "number" && Number.isFinite(level)) {
+      const clamped = Math.max(0, Math.min(100, Math.round(level)));
+      return `[PLAYER_ACTION:volume:${clamped}] Громкость ${clamped}.`;
+    }
+    if (typeof delta === "number" && Number.isFinite(delta)) {
+      const d = Math.round(delta);
+      return `[PLAYER_ACTION:volume_delta:${d}] ${d > 0 ? "Громче." : "Тише."}`;
+    }
+    return "Не понятно — насколько громче или тише. Скажи число от 0 до 100 или «громче / тише».";
+  },
+
+  async set_repeat({ mode }) {
+    const m = String(mode || "").toLowerCase();
+    if (m !== "off" && m !== "one" && m !== "all") {
+      return "Режим повтора может быть off / one / all.";
+    }
+    const ru: Record<string, string> = {
+      off: "выключила повтор",
+      one: "зациклила трек",
+      all: "плейлист по кругу",
+    };
+    return `[PLAYER_ACTION:repeat:${m}] ${ru[m]}.`;
+  },
+
+  async find_tracks({ query, limit }) {
+    try {
+      const q = String(query || "").trim().toLowerCase();
+      if (!q) return "Пустой запрос.";
+      const lim = Math.max(1, Math.min(20, Number(limit) || 5));
+      const rows = (db as any).$client.prepare(`
+        SELECT id, display_title, prompt, author_name, style FROM generations
+        WHERE type='music' AND status='done' AND is_public > 0
+          AND deleted_at IS NULL AND result_url IS NOT NULL
+          AND (lower(COALESCE(display_title, '')) LIKE ?
+               OR lower(COALESCE(prompt, '')) LIKE ?
+               OR lower(COALESCE(author_name, '')) LIKE ?
+               OR lower(COALESCE(style, '')) LIKE ?)
+        ORDER BY id DESC LIMIT ?
+      `).all(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, lim);
+      if (!rows || rows.length === 0) return `Не нашла треки по «${query}».`;
+      const list = rows
+        .map((r: any, i: number) => {
+          const title = r.display_title || String(r.prompt || "").slice(0, 50) || "—";
+          const author = r.author_name ? ` от ${r.author_name}` : "";
+          return `${i + 1}. ${title}${author} (id ${r.id})`;
+        })
+        .join("\n");
+      const ids = rows.map((r: any) => r.id).join(",");
+      return `[PLAYER_ACTION:show_search:${ids}] Нашла ${rows.length}:\n${list}`;
+    } catch (e: any) {
+      return `Ошибка find_tracks: ${e.message}`;
+    }
+  },
+
+  async filter_playlist({ type }) {
+    const t = String(type || "").toLowerCase();
+    if (t !== "main" && t !== "new" && t !== "my") {
+      return "Тип плейлиста: main, new или my.";
+    }
+    const label = t === "main" ? "основной" : t === "new" ? "новые авторы" : "мои треки";
+    return `[PLAYER_ACTION:filter:${t}] Показываю плейлист «${label}».`;
   },
 
   // === ADMIN-ONLY handlers (Eugene 2026-05-17) ===

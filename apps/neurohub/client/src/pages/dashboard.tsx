@@ -1111,6 +1111,112 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
     g => g.type === "music" && g.status === "done" && g.resultUrl && !g.deletedAt && matchesSearch(g)
   );
 
+  // === Голосовое управление плеером (Eugene 2026-05-17 Босс) ===
+  // Слушаем CustomEvent 'muza-player-action' от MusaVoiceFab → вызываем
+  // existing player методы (playTrack / setVolume / setRepeatMode).
+  // Reuse-working-solutions: не дублируем player state.
+  //
+  // ВАЖНО: hook должен быть ВЫШЕ early-return ниже (rule of hooks).
+  // Используем ref-pattern — listener'у нужен доступ к функциям/state,
+  // которые объявлены НИЖЕ. Ref обновляется на каждый render.
+  const musicTracksRef = useRef<Generation[]>([]);
+  musicTracksRef.current = musicTracks;
+  const playingIdRef = useRef<number | null>(null);
+  playingIdRef.current = playingId;
+  const playerCallbacksRef = useRef<{
+    playTrack: ((g: Generation) => void) | null;
+    setVolume: (v: number | ((cur: number) => number)) => void;
+    setRepeatMode: (m: "off" | "one" | "all") => void;
+  }>({ playTrack: null, setVolume, setRepeatMode });
+  // setVolume/setRepeatMode стабильны, playTrack обновляется ниже после
+  // declaration через отдельный useEffect (см. ниже).
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<{ action?: string; payload?: string | null }>;
+      const action = String(ce?.detail?.action || "");
+      const payload = ce?.detail?.payload ?? null;
+      const cb = playerCallbacksRef.current;
+      try {
+        switch (action) {
+          case "play": {
+            const id = Number(payload);
+            if (!Number.isFinite(id) || id <= 0) return;
+            const t = musicTracksRef.current.find((x) => x.id === id);
+            if (t && cb.playTrack) cb.playTrack(t);
+            break;
+          }
+          case "resume": {
+            const list = musicTracksRef.current;
+            if (list.length === 0) return;
+            const current = list.find((t) => t.id === playingIdRef.current) || list[0];
+            if (current && cb.playTrack) {
+              if (audioRef.current && playingIdRef.current === current.id && audioRef.current.paused) {
+                audioRef.current.play().catch(() => {});
+              } else if (!audioRef.current || playingIdRef.current !== current.id) {
+                cb.playTrack(current);
+              }
+            }
+            break;
+          }
+          case "pause": {
+            if (audioRef.current && !audioRef.current.paused) {
+              audioRef.current.pause();
+            }
+            break;
+          }
+          case "next": {
+            const list = musicTracksRef.current;
+            if (list.length === 0) return;
+            const idx = list.findIndex((t) => t.id === playingIdRef.current);
+            const next = (idx + 1) % list.length;
+            if (list[next] && cb.playTrack) cb.playTrack(list[next]);
+            break;
+          }
+          case "prev": {
+            const list = musicTracksRef.current;
+            if (list.length === 0) return;
+            const idx = list.findIndex((t) => t.id === playingIdRef.current);
+            const prev = (idx - 1 + list.length) % list.length;
+            if (list[prev] && cb.playTrack) cb.playTrack(list[prev]);
+            break;
+          }
+          case "volume": {
+            const v = Number(payload);
+            if (Number.isFinite(v)) cb.setVolume(Math.max(0, Math.min(1, v / 100)));
+            break;
+          }
+          case "volume_delta": {
+            const d = Number(payload);
+            if (Number.isFinite(d)) {
+              cb.setVolume((cur: number) => Math.max(0, Math.min(1, cur + d / 100)));
+            }
+            break;
+          }
+          case "repeat": {
+            const m = String(payload || "").toLowerCase();
+            if (m === "off" || m === "one" || m === "all") {
+              cb.setRepeatMode(m as "off" | "one" | "all");
+            }
+            break;
+          }
+          case "filter":
+          case "show_search":
+            // dashboard не имеет main/new toggle (это landing) — игнорируем filter.
+            // show_search — UI-расширение на будущее.
+            break;
+          default:
+            break;
+        }
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn("[dashboard] muza-player-action error:", err);
+      }
+    };
+    window.addEventListener("muza-player-action", handler as EventListener);
+    return () => window.removeEventListener("muza-player-action", handler as EventListener);
+  }, []);
+
   if (!generations) return <div className="mb-8"><p className="text-xs text-muted-foreground">Загрузка...</p></div>;
   if (musicTracks.length === 0) return null;
 
@@ -1241,6 +1347,10 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
     const next = (idx + 1) % musicTracks.length;
     playTrack(musicTracks[next]);
   };
+
+  // Eugene 2026-05-17 Босс: refresh callback-ref после declaration playTrack,
+  // setVolume и setRepeatMode — чтобы listener выше видел actual function.
+  playerCallbacksRef.current = { playTrack, setVolume, setRepeatMode };
 
   const current = musicTracks.find(t => t.id === playingId) || musicTracks[0] || null;
   const progress = trackDuration > 0 ? (currentTime / trackDuration) * 100 : 0;

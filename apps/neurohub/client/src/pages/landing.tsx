@@ -947,6 +947,132 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     if (musicTracks[nextIdx]) playTrack(musicTracks[nextIdx]);
   };
 
+  // === Голосовое управление плеером (Eugene 2026-05-17 Босс) ===
+  // Слушаем CustomEvent 'muza-player-action' который эмитит MusaVoiceFab
+  // после tool-call. Reuse-working-solutions rule: используем существующие
+  // playTrack / togglePlay / skipNext / setVolume / setRepeatMode /
+  // setPlaylistKind — НЕ дублируем player state.
+  //
+  // Используем ref-pattern (playerActionsRef) — listener регистрируется
+  // один раз, но всегда видит свежие функции/state через ref.current.
+  const playerActionsRef = useRef({
+    playTrack,
+    togglePlay,
+    skipNext,
+    setPlayingId,
+    setVolume,
+    setRepeatMode,
+    setPlaylistKind,
+  });
+  // Обновляем ref на каждый render — closure'ы внутри listener'а
+  // всегда читают актуальные функции/setter'ы.
+  playerActionsRef.current = {
+    playTrack,
+    togglePlay,
+    skipNext,
+    setPlayingId,
+    setVolume,
+    setRepeatMode,
+    setPlaylistKind,
+  };
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const ce = e as CustomEvent<{ action?: string; payload?: string | null }>;
+      const action = String(ce?.detail?.action || "");
+      const payload = ce?.detail?.payload ?? null;
+      const A = playerActionsRef.current;
+      try {
+        switch (action) {
+          case "play": {
+            const id = Number(payload);
+            if (!Number.isFinite(id) || id <= 0) return;
+            const t = tracksRef.current.find((x: any) => x.id === id);
+            if (t) A.playTrack(t);
+            break;
+          }
+          case "resume": {
+            // Если есть current — togglePlay. Иначе берём первый из плейлиста.
+            const list = filteredMusicRef.current && filteredMusicRef.current.length > 0
+              ? filteredMusicRef.current
+              : tracksRef.current.filter((t: any) => t.type === "music" && t.audioUrl);
+            if (list.length === 0) return;
+            const current = list.find((t: any) => t.id === playingIdRef.current) || list[0];
+            if (current) A.togglePlay(current);
+            break;
+          }
+          case "pause": {
+            // Если играет — togglePlay сделает pause.
+            if (audioRef.current && !audioRef.current.paused) {
+              audioRef.current.pause();
+            }
+            break;
+          }
+          case "next": {
+            A.skipNext();
+            break;
+          }
+          case "prev": {
+            // skipPrev определён ниже после early-return, дублируем минимум
+            // через те же refs (тот же алгоритм что в skipPrev).
+            const fl = filteredMusicRef.current;
+            const list = fl && fl.length > 0
+              ? fl
+              : tracksRef.current.filter((t: any) => t.type === "music" && t.audioUrl);
+            if (list.length === 0) return;
+            const idx = list.findIndex((t: any) => t.id === playingIdRef.current);
+            const prev = idx > 0 ? idx - 1 : list.length - 1;
+            if (list[prev]) A.playTrack(list[prev]);
+            break;
+          }
+          case "volume": {
+            const v = Number(payload);
+            if (Number.isFinite(v)) {
+              A.setVolume(Math.max(0, Math.min(1, v / 100)));
+            }
+            break;
+          }
+          case "volume_delta": {
+            const d = Number(payload);
+            if (Number.isFinite(d)) {
+              A.setVolume((cur) => Math.max(0, Math.min(1, cur + d / 100)));
+            }
+            break;
+          }
+          case "repeat": {
+            const m = String(payload || "").toLowerCase();
+            if (m === "off" || m === "one" || m === "all") {
+              A.setRepeatMode(m as "off" | "one" | "all");
+            }
+            break;
+          }
+          case "filter": {
+            const t = String(payload || "").toLowerCase();
+            if (t === "main" || t === "new") A.setPlaylistKind(t as "main" | "new");
+            // 'my' для landing — только инфо. У landing нет «my» режима.
+            break;
+          }
+          case "show_search": {
+            // Поисковая выборка — opt в будущем. Сейчас оставляем no-op,
+            // Муза уже текстом озвучила список.
+            break;
+          }
+          default:
+            break;
+        }
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn("[landing] muza-player-action error:", err);
+      }
+    };
+    window.addEventListener("muza-player-action", handler as EventListener);
+    return () => window.removeEventListener("muza-player-action", handler as EventListener);
+  }, []);
+
+  // playingIdRef — синхронная копия для listener'а (closure-free).
+  const playingIdRef = useRef<number | null>(null);
+  playingIdRef.current = playingId;
+
   if (tracks.length === 0) return null;
 
   const currentTrack = tracks.find(t => t.id === playingId);
