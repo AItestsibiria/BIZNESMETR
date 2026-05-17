@@ -2866,6 +2866,146 @@ export async function registerRoutes(
     });
   });
 
+  // Eugene 2026-05-17 Босс «архив и текущие диалоги бота по любому каналу».
+  // Список chatbot-сессий с фильтрами channel/status/q + pagination.
+  // - channel: 'all' | 'web' | 'telegram' | 'max'
+  // - status:  'all' | 'active' (last_message_at within last 24h) | 'archive'
+  // - q:       подстрока поиска (userId, externalId, имя/email юзера, JSON
+  //            userProfile)
+  // Сортировка: last_message_at DESC. Возвращает превью userMessage (первые
+  // 100 символов последнего user-сообщения), messageCount, isActive флаг.
+  // Sensitive поля (phone, email full, tokens) НЕ возвращаются.
+  app.get("/api/admin/v304/conversations", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const channelRaw = String((req.query.channel || "all")).toLowerCase();
+      const statusRaw = String((req.query.status || "all")).toLowerCase();
+      const q = String(req.query.q || "").trim();
+      const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+      const offset = Math.max(0, Number(req.query.offset) || 0);
+
+      const allowedChannels = new Set(["all", "web", "telegram", "max"]);
+      const channel = allowedChannels.has(channelRaw) ? channelRaw : "all";
+      const allowedStatus = new Set(["all", "active", "archive"]);
+      const status = allowedStatus.has(statusRaw) ? statusRaw : "all";
+
+      // 24h cutoff для active/archive фильтра.
+      const cutoffIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+      // Drizzle `sql` template literal — все user-inputs параметризируются.
+      // Собираем WHERE-условия как sql-фрагменты, потом join'им через AND.
+      const conds: any[] = [];
+      if (channel !== "all") conds.push(sql`s.channel = ${channel}`);
+      if (status === "active") conds.push(sql`s.last_message_at >= ${cutoffIso}`);
+      else if (status === "archive") conds.push(sql`(s.last_message_at IS NULL OR s.last_message_at < ${cutoffIso})`);
+      if (q) {
+        // ESCAPE '\\' защищает %/_ внутри пользовательского запроса.
+        const like = `%${q.replace(/[\\%_]/g, "\\$&")}%`;
+        const asNumber = Number(q);
+        if (Number.isFinite(asNumber) && asNumber > 0) {
+          conds.push(sql`(s.external_id LIKE ${like} ESCAPE '\\' OR s.user_id = ${asNumber} OR s.user_profile LIKE ${like} ESCAPE '\\' OR u.name LIKE ${like} ESCAPE '\\' OR u.email LIKE ${like} ESCAPE '\\')`);
+        } else {
+          conds.push(sql`(s.external_id LIKE ${like} ESCAPE '\\' OR s.user_profile LIKE ${like} ESCAPE '\\' OR u.name LIKE ${like} ESCAPE '\\' OR u.email LIKE ${like} ESCAPE '\\')`);
+        }
+      }
+      // Глуем WHERE-блок (sql.empty если фильтров нет).
+      let whereSql: any = sql.empty();
+      if (conds.length > 0) {
+        whereSql = sql`WHERE `;
+        for (let i = 0; i < conds.length; i++) {
+          whereSql = i === 0 ? sql`${whereSql}${conds[i]}` : sql`${whereSql} AND ${conds[i]}`;
+        }
+      }
+
+      // Total — отдельный COUNT(*) запрос (пагинация).
+      const totalRow = db.get<{ c: number }>(sql`
+        SELECT COUNT(*) as c
+        FROM chatbot_sessions s
+        LEFT JOIN users u ON u.id = s.user_id
+        ${whereSql}
+      `);
+      const total = Number(totalRow?.c || 0);
+
+      // Page (limit/offset валидированы в Number() выше — безопасно интерполировать).
+      const rows = db.all<any>(sql`
+        SELECT
+          s.id as id,
+          s.channel as channel,
+          s.external_id as externalId,
+          s.user_id as userId,
+          s.user_profile as userProfile,
+          s.persona_name as personaName,
+          s.started_at as startedAt,
+          s.last_message_at as lastMessageAt,
+          u.name as userName,
+          u.email as userEmail,
+          (SELECT COUNT(*) FROM chatbot_messages m WHERE m.session_id = s.id) as messageCount,
+          (SELECT text FROM chatbot_messages m WHERE m.session_id = s.id AND m.role = 'user' ORDER BY m.id DESC LIMIT 1) as lastUserMessage,
+          (SELECT text FROM chatbot_messages m WHERE m.session_id = s.id ORDER BY m.id DESC LIMIT 1) as lastMessage,
+          (SELECT role FROM chatbot_messages m WHERE m.session_id = s.id ORDER BY m.id DESC LIMIT 1) as lastMessageRole
+        FROM chatbot_sessions s
+        LEFT JOIN users u ON u.id = s.user_id
+        ${whereSql}
+        ORDER BY (s.last_message_at IS NULL), s.last_message_at DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `);
+
+      const sessions = rows.map((r) => {
+        // Не утечь sensitive поля из userProfile JSON (phone/email full).
+        let safeProfile: any = null;
+        if (r.userProfile) {
+          try {
+            const parsed = JSON.parse(String(r.userProfile));
+            if (parsed && typeof parsed === "object") {
+              const { phone, phoneNumber, email, password, ...rest } = parsed;
+              safeProfile = rest;
+            }
+          } catch {}
+        }
+        const preview = String(r.lastUserMessage || r.lastMessage || "").slice(0, 100);
+        const isActive = r.lastMessageAt ? (r.lastMessageAt >= cutoffIso) : false;
+        // Маска email для списка: i***@domain — полный email только в детальной view.
+        let userEmailMasked: string | null = null;
+        if (r.userEmail) {
+          const at = String(r.userEmail).indexOf("@");
+          if (at > 0) userEmailMasked = `${String(r.userEmail).slice(0, 1)}***${String(r.userEmail).slice(at)}`;
+        }
+        return {
+          id: r.id,
+          channel: r.channel,
+          externalId: r.externalId,
+          userId: r.userId,
+          userName: r.userName || null,
+          userEmail: userEmailMasked,
+          userProfile: safeProfile,
+          personaName: r.personaName || null,
+          startedAt: r.startedAt,
+          lastMessageAt: r.lastMessageAt,
+          messageCount: Number(r.messageCount || 0),
+          lastUserMessage: preview,
+          lastMessageRole: r.lastMessageRole || null,
+          isActive,
+        };
+      });
+
+      res.json({
+        data: {
+          sessions,
+          total,
+          limit,
+          offset,
+          hasMore: offset + sessions.length < total,
+          channel,
+          status,
+          generatedAt: new Date().toISOString(),
+        },
+        error: null,
+      });
+    } catch (e: any) {
+      console.error("[admin/conversations]", e);
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
   app.get("/api/admin/v304/user/:userId/conversations", requireAdmin, (req: Request, res: Response) => {
     const userId = Number(req.params.userId);
     if (!Number.isFinite(userId) || userId <= 0) {
