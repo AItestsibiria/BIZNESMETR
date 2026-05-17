@@ -37,6 +37,51 @@ import {
 
 type Period = "today" | "7d" | "30d" | "all";
 
+// ===== Funnels (Eugene 2026-05-17 Босс «воронки конверсии») ===============
+//
+// Период для воронок совпадает с master-dashboard, но backend дополнительно
+// поддерживает 'yesterday'. Маппим UI 'today' → API 'today' и т.д.
+type FunnelStepResult = {
+  id: string;
+  label: string;
+  count: number;
+  conversionFromPrev: number | null;
+  lostFromPrev: number | null;
+};
+type FunnelTopDropoff = {
+  stepId: string;
+  stepLabel: string;
+  lostCount: number;
+  ratio: number;
+};
+type FunnelResult = {
+  id: string;
+  name: string;
+  description: string;
+  period: string;
+  since: string | null;
+  until: string | null;
+  steps: FunnelStepResult[];
+  totalConversion: number | null;
+  topDropoff: FunnelTopDropoff | null;
+};
+type FunnelsPayload = {
+  period: string;
+  since: string | null;
+  until: string | null;
+  generatedAt: string;
+  cacheExpiresAt: string;
+  fromCache?: boolean;
+  funnels: FunnelResult[];
+  drilldown: null | {
+    funnelId: string;
+    stepId: string;
+    stepLabel: string;
+    topReasons: Array<{ key: string; count: number }>;
+    recent: Array<{ key: string; at: string; meta?: Record<string, unknown> }>;
+  };
+};
+
 type StatusCard = {
   key: string;
   label: string;
@@ -649,6 +694,420 @@ function ClickStatsSection({
             </CardContent>
           </Card>
         </div>
+      )}
+    </section>
+  );
+}
+
+// ============================================================
+// 🪜 Воронки конверсии — где юзеры проседают (Eugene 2026-05-17 Босс)
+// 4 воронки: phone_registration / email_registration / track_creation / payment
+// ============================================================
+
+function formatPct(v: number | null): string {
+  if (v === null || Number.isNaN(v)) return "—";
+  return `${Math.round(v * 100)}%`;
+}
+
+function conversionColor(rate: number | null): string {
+  if (rate === null) return "bg-slate-500/30 border-slate-500/40";
+  if (rate >= 0.5) return "bg-emerald-500/30 border-emerald-500/50";
+  if (rate >= 0.2) return "bg-amber-500/30 border-amber-500/50";
+  return "bg-red-500/30 border-red-500/50";
+}
+function conversionTextColor(rate: number | null): string {
+  if (rate === null) return "text-slate-300";
+  if (rate >= 0.5) return "text-emerald-300";
+  if (rate >= 0.2) return "text-amber-300";
+  return "text-red-300";
+}
+
+function FunnelBar({
+  step,
+  maxCount,
+  index,
+  onDrillDown,
+}: {
+  step: FunnelStepResult;
+  maxCount: number;
+  index: number;
+  onDrillDown: (stepId: string) => void;
+}) {
+  const width = maxCount > 0 ? Math.max(4, (step.count / maxCount) * 100) : 4;
+  const color = conversionColor(step.conversionFromPrev);
+  const textColor = conversionTextColor(step.conversionFromPrev);
+  return (
+    <button
+      type="button"
+      onClick={() => onDrillDown(step.id)}
+      data-track={`funnel-step-${step.id}`}
+      className="w-full text-left group"
+      data-testid={`funnel-step-${step.id}`}
+    >
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <div className="text-xs text-white/80 flex items-center gap-2 min-w-0">
+          <span className="font-mono text-[10px] text-muted-foreground shrink-0">
+            {index + 1}.
+          </span>
+          <span className="truncate group-hover:text-white">{step.label}</span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 text-xs">
+          <span className="font-mono text-white font-medium">
+            {step.count.toLocaleString("ru-RU")}
+          </span>
+          {step.conversionFromPrev !== null && (
+            <span className={`font-mono ${textColor}`}>
+              {formatPct(step.conversionFromPrev)}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="relative h-7 rounded-md bg-white/[0.04] overflow-hidden border border-white/10 group-hover:border-purple-500/40 transition-colors">
+        <div
+          className={`absolute inset-y-0 left-0 ${color} border-r transition-all`}
+          style={{ width: `${width}%` }}
+        />
+        {step.lostFromPrev !== null && step.lostFromPrev > 0 && (
+          <div className="absolute inset-0 flex items-center justify-end pr-2">
+            <span className="text-[10px] text-red-300/80 font-mono">
+              −{step.lostFromPrev.toLocaleString("ru-RU")}
+            </span>
+          </div>
+        )}
+      </div>
+    </button>
+  );
+}
+
+function FunnelCard({
+  funnel,
+  period,
+  onDrillDown,
+}: {
+  funnel: FunnelResult;
+  period: Period;
+  onDrillDown: (funnelId: string, stepId: string) => void;
+}) {
+  const maxCount = funnel.steps.reduce((m, s) => Math.max(m, s.count), 0);
+  return (
+    <Card className="glass-card rounded-2xl border border-purple-500/20">
+      <CardContent className="p-4 space-y-3">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div className="min-w-0">
+            <h4 className="text-sm font-bold text-white">{funnel.name}</h4>
+            <p className="text-[11px] text-muted-foreground mt-1 leading-relaxed">
+              {funnel.description}
+            </p>
+          </div>
+          <div className="text-right shrink-0">
+            <div className="text-[10px] uppercase text-muted-foreground tracking-wider">
+              Конверсия
+            </div>
+            <div
+              className={`text-2xl font-bold font-mono ${conversionTextColor(
+                funnel.totalConversion,
+              )}`}
+            >
+              {formatPct(funnel.totalConversion)}
+            </div>
+          </div>
+        </div>
+
+        {/* Topdropoff highlight */}
+        {funnel.topDropoff && funnel.topDropoff.lostCount > 0 && (
+          <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs">
+            <span className="text-red-300 font-bold">🔴 Главное проседание:</span>{" "}
+            <span className="text-white">{funnel.topDropoff.stepLabel}</span>{" "}
+            <span className="text-red-200">
+              ({formatPct(funnel.topDropoff.ratio)} потери ·{" "}
+              {funnel.topDropoff.lostCount.toLocaleString("ru-RU")} юзеров)
+            </span>
+          </div>
+        )}
+
+        {/* Steps */}
+        <div className="space-y-2">
+          {funnel.steps.map((s, i) => (
+            <FunnelBar
+              key={s.id}
+              step={s}
+              maxCount={maxCount}
+              index={i}
+              onDrillDown={(stepId) => onDrillDown(funnel.id, stepId)}
+            />
+          ))}
+        </div>
+
+        <div className="text-[10px] text-muted-foreground pt-1">
+          Период: {period} · клик на шаг → drill-down причин
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function FunnelDrillDownDialog({
+  funnelId,
+  stepId,
+  period,
+  onClose,
+}: {
+  funnelId: string;
+  stepId: string;
+  period: Period;
+  onClose: () => void;
+}) {
+  const [data, setData] = useState<FunnelsPayload | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    fetcher<FunnelsPayload>(
+      `/api/admin/v304/funnels?period=${period}&funnelId=${encodeURIComponent(
+        funnelId,
+      )}&stepId=${encodeURIComponent(stepId)}`,
+    )
+      .then((d) => {
+        if (!cancelled) setData(d);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(String(e?.message || e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [funnelId, stepId, period]);
+
+  const drill = data?.drilldown ?? null;
+  const funnel = data?.funnels?.find((f) => f.id === funnelId) ?? null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <Card
+        className="glass-card rounded-2xl border border-purple-500/40 max-w-2xl w-full max-h-[85vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <CardContent className="p-5 space-y-4">
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="text-xs uppercase text-muted-foreground tracking-wider">
+                Drill-down · {funnel?.name ?? funnelId}
+              </div>
+              <div className="text-lg font-bold text-white mt-1">
+                {drill?.stepLabel ?? stepId}
+              </div>
+            </div>
+            <Button size="sm" variant="outline" onClick={onClose}>
+              ✕
+            </Button>
+          </div>
+
+          {loading && (
+            <div className="text-sm text-muted-foreground">Загружаю детали…</div>
+          )}
+          {error && <div className="text-sm text-red-400">Ошибка: {error}</div>}
+
+          {drill && (
+            <>
+              <section>
+                <h5 className="text-xs uppercase text-muted-foreground tracking-wider mb-2">
+                  Топ причин / меток
+                </h5>
+                {drill.topReasons.length === 0 ? (
+                  <div className="text-xs text-muted-foreground">
+                    Нет данных
+                  </div>
+                ) : (
+                  <ul className="space-y-1 text-xs">
+                    {drill.topReasons.map((r, i) => (
+                      <li
+                        key={i}
+                        className="flex justify-between gap-2 border-b border-white/[0.04] pb-1"
+                      >
+                        <span
+                          className="text-white truncate max-w-[360px]"
+                          title={r.key}
+                        >
+                          {r.key}
+                        </span>
+                        <span className="text-violet-300 font-mono">
+                          {r.count}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              <section>
+                <h5 className="text-xs uppercase text-muted-foreground tracking-wider mb-2">
+                  Последние 20 событий
+                </h5>
+                {drill.recent.length === 0 ? (
+                  <div className="text-xs text-muted-foreground">
+                    Нет записей
+                  </div>
+                ) : (
+                  <ul className="space-y-1 text-xs">
+                    {drill.recent.map((r, i) => (
+                      <li
+                        key={i}
+                        className="flex justify-between gap-2 border-b border-white/[0.04] pb-1"
+                      >
+                        <span className="text-white font-mono">
+                          {r.key}
+                        </span>
+                        <span className="text-muted-foreground text-[10px]">
+                          {r.at}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+            </>
+          )}
+
+          {data && !drill && !loading && (
+            <div className="text-xs text-muted-foreground">
+              Detail-данные не доступны для этого шага.
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function FunnelsSection({ period }: { period: Period }) {
+  const [funnelTab, setFunnelTab] = useState<string>("phone_registration");
+  const [drillTarget, setDrillTarget] = useState<{
+    funnelId: string;
+    stepId: string;
+  } | null>(null);
+
+  const { data, isLoading, error, refetch } = useQuery<FunnelsPayload>({
+    queryKey: [`/api/admin/v304/funnels?period=${period}`],
+    queryFn: () =>
+      fetcher<FunnelsPayload>(`/api/admin/v304/funnels?period=${period}`),
+    refetchInterval: 60_000,
+  });
+
+  const funnels = data?.funnels ?? [];
+  const currentFunnel = funnels.find((f) => f.id === funnelTab) ?? funnels[0];
+
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+        <h3 className="text-sm font-bold text-white">
+          🪜 Воронки конверсии — где юзеры проседают
+        </h3>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => refetch()}
+          data-testid="refresh-funnels"
+        >
+          🔄 Обновить
+        </Button>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex flex-wrap gap-2 mb-3">
+        {funnels.map((f) => (
+          <Button
+            key={f.id}
+            variant={funnelTab === f.id ? "default" : "outline"}
+            size="sm"
+            onClick={() => setFunnelTab(f.id)}
+            data-testid={`funnel-tab-${f.id}`}
+          >
+            {f.name}
+            {f.totalConversion !== null && (
+              <span
+                className={`ml-2 text-[10px] font-mono ${conversionTextColor(
+                  f.totalConversion,
+                )}`}
+              >
+                {formatPct(f.totalConversion)}
+              </span>
+            )}
+          </Button>
+        ))}
+      </div>
+
+      {isLoading && !data && (
+        <div className="text-xs text-muted-foreground">Загружаю воронки…</div>
+      )}
+      {error && (
+        <div className="text-xs text-red-400">
+          Ошибка загрузки: {String(error)}
+        </div>
+      )}
+
+      {currentFunnel && (
+        <FunnelCard
+          funnel={currentFunnel}
+          period={period}
+          onDrillDown={(funnelId, stepId) =>
+            setDrillTarget({ funnelId, stepId })
+          }
+        />
+      )}
+
+      {/* Summary хвост — все воронки одной строкой */}
+      {funnels.length > 1 && (
+        <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
+          {funnels.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              onClick={() => setFunnelTab(f.id)}
+              className={`text-left rounded-lg px-3 py-2 border transition-colors ${
+                funnelTab === f.id
+                  ? "border-purple-500/60 bg-purple-500/10"
+                  : "border-white/10 bg-white/[0.02] hover:border-purple-500/30"
+              }`}
+              data-testid={`funnel-summary-${f.id}`}
+            >
+              <div className="text-[10px] uppercase text-muted-foreground tracking-wider truncate">
+                {f.name}
+              </div>
+              <div className="flex items-baseline gap-2 mt-1">
+                <span
+                  className={`text-lg font-mono font-bold ${conversionTextColor(
+                    f.totalConversion,
+                  )}`}
+                >
+                  {formatPct(f.totalConversion)}
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  {f.steps[0]?.count ?? 0} → {f.steps[f.steps.length - 1]?.count ?? 0}
+                </span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Drill-down modal */}
+      {drillTarget && (
+        <FunnelDrillDownDialog
+          funnelId={drillTarget.funnelId}
+          stepId={drillTarget.stepId}
+          period={period}
+          onClose={() => setDrillTarget(null)}
+        />
       )}
     </section>
   );
@@ -1490,6 +1949,9 @@ export default function MasterDashboardTab() {
 
       {/* 2.5. Click-stats (Агент Клик) */}
       <ClickStatsSection clicks={clickStats} isLoading={clicksLoading} />
+
+      {/* 2.6. Funnels (воронки конверсии) */}
+      <FunnelsSection period={period} />
 
       {/* 3. Charts grid */}
       <section>
