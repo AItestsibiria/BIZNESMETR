@@ -542,6 +542,20 @@ try {
     CREATE INDEX IF NOT EXISTS user_action_failures_user_idx ON user_action_failures(user_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS user_action_failures_created_idx ON user_action_failures(created_at DESC);
 
+    -- Eugene 2026-05-17 Босс «Ярс — это я, расширь логирование + Telegram alert».
+    -- Каждое упоминание «Ярс»/«yars» (word-boundary) в любом канале (telegram,
+    -- max, web) фиксируется в этой таблице для admin-просмотра.
+    CREATE TABLE IF NOT EXISTS yars_mentions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      user_id INTEGER,
+      channel TEXT NOT NULL,             -- 'web' | 'telegram' | 'max'
+      text TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS yars_mentions_recent_idx ON yars_mentions(created_at DESC);
+    CREATE INDEX IF NOT EXISTS yars_mentions_session_idx ON yars_mentions(session_id, created_at DESC);
+
     -- Sprint 3.1 audio-input: пользовательские аудио-файлы для cover/extend.
     -- SHA256 = идемпотентность.
     CREATE TABLE IF NOT EXISTS audio_uploads (
