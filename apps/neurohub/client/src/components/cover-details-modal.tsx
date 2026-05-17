@@ -230,6 +230,18 @@ export function CoverDetailsModal({
         className="absolute inset-0 holographic pointer-events-none"
         aria-hidden="true"
       />
+      {/* Eugene 2026-05-17 Босс «на большой обложке тоже S» — bomb-цвет S кнопка.
+          Подсказка о swipe-режиме, при click тоже toggle info popover. */}
+      <button
+        type="button"
+        aria-label="Свайп-режим (S)"
+        onClick={(e) => { e.stopPropagation(); setShowInfo(v => !v); }}
+        className="absolute top-4 right-28 w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 via-fuchsia-500 to-cyan-400 hover:from-purple-400 hover:via-fuchsia-400 hover:to-cyan-300 flex items-center justify-center text-white font-display font-bold text-lg transition-all shadow-[0_0_24px_rgba(217,70,239,0.6)] hover:shadow-[0_0_36px_rgba(217,70,239,0.85)] hover:scale-110 active:scale-95 border border-fuchsia-300/50 animate-details-pulse z-10"
+        data-testid="cover-details-swipe-s"
+      >
+        <span className="drop-shadow-[0_0_8px_rgba(255,255,255,0.9)]">S</span>
+      </button>
+
       {/* Info button — рядом с close */}
       <button
         type="button"
