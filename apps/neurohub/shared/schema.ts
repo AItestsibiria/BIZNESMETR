@@ -77,6 +77,13 @@ export const generations = sqliteTable("generations", {
   scheduledDeleteAt: text("scheduled_delete_at"), // ISO timestamp soft-delete cutoff
   errorReason: text("error_reason"), // человекочитаемая причина ошибки для UI
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+  // Eugene 2026-05-17 Босс: дата ПУБЛИКАЦИИ (не генерации). Автор может
+  // сгенерировать 10 мая, опубликовать 17 мая — это разные события.
+  // NULL для черновиков (is_public=0). Выставляется когда is_public
+  // меняется с 0 на >=1. При последующих переключениях main↔new — не обновляется
+  // (первая публикация запоминается). При unpublish (->0) — НЕ trim'аем
+  // (на случай re-publish увидим прошлую дату).
+  publishedAt: text("published_at"),
 
   // v304 Sprint 2: Suno на 100% (см. docs/strategy/original/02 §1, §2.1)
   structuralTags: text("structural_tags"),  // JSON: [{ tag: '[Verse]', startSec: 0 }, ...]

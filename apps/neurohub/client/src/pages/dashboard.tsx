@@ -392,6 +392,15 @@ function PendingPublications() {
                 <p className="text-sm font-medium text-white truncate">{p.display_title || (p.prompt || '').slice(0, 50)}</p>
                 <p className="text-[11px] text-muted-foreground mt-0.5">{p.author_name || p.user_name} · {p.type} · #{p.id}</p>
                 {p.user_email && <p className="text-[10px] text-muted-foreground/60">{p.user_email}</p>}
+                {/* Eugene 2026-05-17 Босс: видна разница «когда сгенерирован» vs «когда опубликован» */}
+                <p className="text-[10px] text-muted-foreground/50 mt-0.5 font-mono">
+                  <span className="text-white/30">Создан:</span> {p.created_at ? new Date(p.created_at).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" }) : "—"}
+                  {p.published_at && (
+                    <>
+                      <span className="text-white/30 ml-2">Опубл.:</span> {new Date(p.published_at).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" })}
+                    </>
+                  )}
+                </p>
               </div>
             </div>
             {/* Audio player for music */}
@@ -1551,7 +1560,9 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
         const eActive = playingId === eGen.id;
         const isAnyPlaying = playingId !== null && audioRef.current && !audioRef.current.paused;
         const ePlaying = eActive && isAnyPlaying;
-        const eDateStr = eGen.createdAt ? new Date(eGen.createdAt).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" }) : "";
+        // Eugene 2026-05-17 Босс: дата ПУБЛИКАЦИИ если есть, иначе fallback на createdAt.
+        const eDateSource = (eGen as any).publishedAt || eGen.createdAt;
+        const eDateStr = eDateSource ? new Date(eDateSource).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" }) : "";
         return (
           <div className="mb-4">
             <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-purple-500/20 animate-in fade-in zoom-in-95 duration-300">
@@ -1682,7 +1693,10 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
           const isActive = playingId === gen.id;
           const isPlaying = isActive && audioRef.current && !audioRef.current.paused;
           const isExpanded = expandedId === gen.id;
-          const dateStr = gen.createdAt ? new Date(gen.createdAt).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" }) : "";
+          // Eugene 2026-05-17 Босс: дата ПУБЛИКАЦИИ если есть (для треков в плейлисте),
+          // иначе fallback на createdAt (для приватных черновиков).
+          const dateSource = (gen as any).publishedAt || gen.createdAt;
+          const dateStr = dateSource ? new Date(dateSource).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" }) : "";
           return (
             <div key={gen.id}>
               <div
@@ -1992,6 +2006,8 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
           prompt: current.prompt,
           authorName: (current as any).authorName,
           createdAt: current.createdAt,
+          // Eugene 2026-05-17 Босс: дата публикации (не генерации).
+          publishedAt: (current as any).publishedAt,
           styleInfo: null,
         } : null}
         // Eugene 2026-05-17 — full player controls внутри модалки.

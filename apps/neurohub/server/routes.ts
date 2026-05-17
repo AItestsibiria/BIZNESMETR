@@ -3325,9 +3325,16 @@ export async function registerRoutes(
     }
     const gen = db.select().from(generations).where(eq(generations.id, genId)).get() as any;
     if (!gen) return res.status(404).json({ ok: false, error: "generation not found" });
-    const before = { isPublic: gen.isPublic };
+    const before = { isPublic: gen.isPublic, publishedAt: gen.publishedAt };
     const newIsPublic = map[status];
-    db.update(generations).set({ isPublic: newIsPublic }).where(eq(generations.id, genId)).run();
+    // Eugene 2026-05-17 Босс «публикация = отдельное событие». Set publishedAt
+    // только при ПЕРВОМ переходе из приватного (0) в публичный (>=1).
+    // Последующие main↔new — не трогаем (первая публикация запоминается).
+    // При unpublish (->0) — НЕ trim'аем (на случай re-publish увидим прошлую дату).
+    const shouldSetPublishedAt = (gen.isPublic === 0) && (newIsPublic >= 1) && !gen.publishedAt;
+    const updatePatch: any = { isPublic: newIsPublic };
+    if (shouldSetPublishedAt) updatePatch.publishedAt = new Date().toISOString();
+    db.update(generations).set(updatePatch).where(eq(generations.id, genId)).run();
     // Audit-log: enriched через recordAuditEntry (захватывает ip + user_agent).
     recordAuditEntry({
       req,
@@ -3335,9 +3342,9 @@ export async function registerRoutes(
       entity: "generation_playlist",
       entityKey: String(genId),
       before,
-      after: { isPublic: newIsPublic, requestedStatus: status },
+      after: { isPublic: newIsPublic, requestedStatus: status, publishedAt: updatePatch.publishedAt ?? gen.publishedAt },
     });
-    res.json({ ok: true, id: genId, status, isPublic: newIsPublic });
+    res.json({ ok: true, id: genId, status, isPublic: newIsPublic, publishedAt: updatePatch.publishedAt ?? gen.publishedAt });
   });
 
   // Кандидаты на перевод в основной плейлист — треки isPublic=2 (Новые
@@ -3348,7 +3355,7 @@ export async function registerRoutes(
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const rows = db.all<any>(sql`
         SELECT g.id, g.display_title as displayTitle, g.prompt, g.user_id as userId,
-               g.created_at as createdAt, g.type, g.author_name as authorName,
+               g.created_at as createdAt, g.published_at as publishedAt, g.type, g.author_name as authorName,
                (SELECT COUNT(*) FROM gen_activity ga WHERE ga.gen_id = g.id AND ga.action = 'play' AND ga.created_at >= ${since}) as plays24h,
                (SELECT COUNT(*) FROM gen_activity ga WHERE ga.gen_id = g.id AND ga.action = 'play') as playsTotal
         FROM generations g
@@ -4524,6 +4531,7 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
         errorReason: gen.errorReason || null,
         prompt: gen.displayTitle || gen.prompt,
         createdAt: gen.createdAt,
+        publishedAt: (gen as any).publishedAt || null,
         taskId: gen.taskId || null,
       });
       return;
@@ -4578,6 +4586,7 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
       imageUrl,
       authorName: gen.authorName || author?.name || "Аноним",
       createdAt: gen.createdAt,
+      publishedAt: (gen as any).publishedAt || null,
       lyrics,
       isBonus,
       bonusFromGenId,
@@ -5191,7 +5200,7 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
       const raw = (db as any).$client;
       const rows = raw.prepare(`
         SELECT g.id, g.user_id, g.type, g.prompt, g.display_title, g.author_name,
-               g.cover_gen_id, g.created_at, g.style, g.pool,
+               g.cover_gen_id, g.created_at, g.published_at, g.style, g.pool,
                u.name AS user_name, u.email AS user_email
         FROM generations g
         LEFT JOIN users u ON u.id = g.user_id
@@ -5231,12 +5240,17 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
       let meta: any = {};
       try { meta = JSON.parse(gen.style || "{}"); } catch {}
       meta.approvedOnce = true;
-      db.update(generations).set({
+      // Eugene 2026-05-17: publishedAt при первой публикации (0→1 через v304 модерацию).
+      const approvePatch: any = {
         isPublic: 1,
         pool,
         style: JSON.stringify(meta),
         rejectionReason: null,
-      } as any).where(eq(generations.id, id)).run();
+      };
+      if ((gen.isPublic ?? 0) === 0 && !(gen as any).publishedAt) {
+        approvePatch.publishedAt = new Date().toISOString();
+      }
+      db.update(generations).set(approvePatch).where(eq(generations.id, id)).run();
       res.json({ ok: true, pool });
     } catch (e: any) {
       console.error("[PUB-APPROVE]", e);
@@ -7490,11 +7504,16 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         return { ...t, plays, downloads, category };
       });
       if (sortMode === "date") {
-        scored.sort((a, b) => sortDir * (new Date(b.createdAt || "").getTime() - new Date(a.createdAt || "").getTime()));
+        // Eugene 2026-05-17 Босс: sort=date теперь по publishedAt (когда трек
+        // появился в плейлисте), а не по createdAt (когда сгенерирован).
+        // Fallback на createdAt если publishedAt = NULL (backward-compat).
+        const dateOf = (t: any) => new Date((t as any).publishedAt || t.createdAt || "").getTime();
+        scored.sort((a, b) => sortDir * (dateOf(b) - dateOf(a)));
       } else if (sortMode === "top_month") {
-        // Only tracks from last 30 days, sorted by plays
-        const recent = scored.filter(t => new Date(t.createdAt || "").getTime() > monthAgo);
-        const older = scored.filter(t => new Date(t.createdAt || "").getTime() <= monthAgo);
+        // Only tracks from last 30 days, sorted by plays (по publishedAt — фактич. появлению)
+        const dateOf = (t: any) => new Date((t as any).publishedAt || t.createdAt || "").getTime();
+        const recent = scored.filter(t => dateOf(t) > monthAgo);
+        const older = scored.filter(t => dateOf(t) <= monthAgo);
         recent.sort((a, b) => sortDir * (b.plays - a.plays));
         scored.length = 0; scored.push(...recent, ...older);
       } else if (sortMode === "random") {
@@ -7603,6 +7622,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
           imageUrl,
           authorName: t.authorName || "",
           createdAt: t.createdAt,
+          publishedAt: (t as any).publishedAt || null,
           plays: t.plays || 0,
           duration: Math.round(duration),
           lyric,
@@ -7660,9 +7680,20 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
 
     const gen = db.select().from(generations).where(eq(generations.id, genId)).get();
     if (!gen) { res.status(404).json({ message: "Не найдено" }); return; }
+    // Eugene 2026-05-17 Босс «публикация = другое событие». Helper для
+    // выставления publishedAt только при ПЕРВОМ переходе 0 -> >=1.
+    const buildPublishPatch = (newIsPublic: number): Record<string, any> => {
+      const patch: Record<string, any> = { isPublic: newIsPublic };
+      if ((gen.isPublic ?? 0) === 0 && newIsPublic >= 1 && !gen.publishedAt) {
+        patch.publishedAt = new Date().toISOString();
+      }
+      return patch;
+    };
+
     // Admin can toggle directly + moderate any track
     if (isAdmin) {
-      db.update(generations).set({ isPublic: isPublic ? 1 : 0 }).where(eq(generations.id, genId)).run();
+      const newIsPublic = isPublic ? 1 : 0;
+      db.update(generations).set(buildPublishPatch(newIsPublic)).where(eq(generations.id, genId)).run();
       res.json({ ok: true });
       return;
     }
@@ -7677,15 +7708,16 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       } catch {}
       if (wasApproved) {
         // Already approved once — author can publish freely
-        db.update(generations).set({ isPublic: 1 }).where(eq(generations.id, genId)).run();
+        db.update(generations).set(buildPublishPatch(1)).where(eq(generations.id, genId)).run();
         res.json({ ok: true });
       } else {
         // First time — request moderation
-        db.update(generations).set({ isPublic: 2 }).where(eq(generations.id, genId)).run();
+        db.update(generations).set(buildPublishPatch(2)).where(eq(generations.id, genId)).run();
         res.json({ ok: true, pending: true, message: "Запрос на публикацию отправлен" });
       }
     } else {
-      // Author can unpublish/cancel their own
+      // Author can unpublish/cancel their own. publishedAt НЕ trim'аем —
+      // последняя дата публикации сохраняется на случай re-publish.
       db.update(generations).set({ isPublic: 0 }).where(eq(generations.id, genId)).run();
       res.json({ ok: true });
     }
@@ -7696,7 +7728,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const user = storage.getUser((req as any).userId);
     if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
     const raw = db.$client;
-    const rows = raw.prepare(`SELECT g.id, g.display_title, g.prompt, g.type, g.author_name, g.created_at, g.user_id,
+    const rows = raw.prepare(`SELECT g.id, g.display_title, g.prompt, g.type, g.author_name, g.created_at, g.published_at, g.user_id,
       u.name as user_name, u.email as user_email
       FROM generations g LEFT JOIN users u ON g.user_id = u.id
       WHERE g.is_public = 2 AND g.deleted_at IS NULL
@@ -7721,7 +7753,12 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       let meta: any = {};
       try { meta = JSON.parse(gen.style || '{}'); } catch {}
       meta.approvedOnce = true;
-      db.update(generations).set({ isPublic: 1, style: JSON.stringify(meta) }).where(eq(generations.id, genId)).run();
+      // Eugene 2026-05-17: publishedAt при первой публикации (0→1 через модерацию).
+      const approvePatch: any = { isPublic: 1, style: JSON.stringify(meta) };
+      if ((gen.isPublic ?? 0) === 0 && !(gen as any).publishedAt) {
+        approvePatch.publishedAt = new Date().toISOString();
+      }
+      db.update(generations).set(approvePatch).where(eq(generations.id, genId)).run();
       console.log(`[MODERATE] Approved gen #${genId}`);
       // Notify author by email
       if (author?.email) {
@@ -7784,9 +7821,14 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   app.post("/api/admin/publish-all-covers", authMiddleware, (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);
     if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).json({ message: "Только админ" }); return; }
-    const r = db.update(generations).set({ isPublic: 1 }).where(and(eq(generations.type, "cover"), eq(generations.status, "done"), sql`${generations.deletedAt} IS NULL`, eq(generations.isPublic, 0))).run();
-    console.log(`[ADMIN] Published all covers: ${r.changes}`);
-    res.json({ ok: true, published: r.changes });
+    // Eugene 2026-05-17: bulk publish — все ставятся в isPublic=1 + publishedAt=NOW
+    // только для тех у кого publishedAt ещё NULL (первая публикация).
+    const nowIso = new Date().toISOString();
+    const r = db.update(generations).set({ isPublic: 1, publishedAt: nowIso } as any).where(and(eq(generations.type, "cover"), eq(generations.status, "done"), sql`${generations.deletedAt} IS NULL`, eq(generations.isPublic, 0), sql`${generations.publishedAt} IS NULL`)).run();
+    // Для тех у кого publishedAt уже был (re-publish после unpublish) — только isPublic.
+    const r2 = db.update(generations).set({ isPublic: 1 }).where(and(eq(generations.type, "cover"), eq(generations.status, "done"), sql`${generations.deletedAt} IS NULL`, eq(generations.isPublic, 0))).run();
+    console.log(`[ADMIN] Published all covers: ${r.changes + r2.changes} (first-pub: ${r.changes}, re-pub: ${r2.changes})`);
+    res.json({ ok: true, published: r.changes + r2.changes });
   });
 
   // Set priority for a cover (7 days, admin only)
@@ -7796,7 +7838,13 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const genId = parseInt(req.params.id);
     const days = req.body.days || 7;
     const until = new Date(Date.now() + days * 24 * 3600 * 1000).toISOString();
-    db.update(generations).set({ priorityUntil: until, isPublic: 1 }).where(eq(generations.id, genId)).run();
+    // Eugene 2026-05-17: publishedAt при первой публикации через priority-set.
+    const gen = db.select().from(generations).where(eq(generations.id, genId)).get() as any;
+    const priorityPatch: any = { priorityUntil: until, isPublic: 1 };
+    if (gen && (gen.isPublic ?? 0) === 0 && !gen.publishedAt) {
+      priorityPatch.publishedAt = new Date().toISOString();
+    }
+    db.update(generations).set(priorityPatch).where(eq(generations.id, genId)).run();
     console.log(`[ADMIN] Priority set for #${genId} until ${until}`);
     res.json({ ok: true, until });
   });
@@ -8461,7 +8509,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
           fs.renameSync(filePath, destPath);
           const newRelPath = path.relative(AUTHORS_DIR, destPath);
 
-          // Create generation record
+          // Create generation record (Eugene 2026-05-17: publishedAt при isPublic=1)
           const gen = db.insert(generations).values({
             userId: targetUserId,
             type,
@@ -8475,7 +8523,8 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
             isPublic: 1,
             authorName,
             localPath: newRelPath,
-          }).returning().get();
+            publishedAt: new Date().toISOString(),
+          } as any).returning().get();
 
           // Fix resultUrl for non-lyrics to point to actual stream
           if (type !== "lyrics") {
