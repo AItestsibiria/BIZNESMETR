@@ -355,6 +355,11 @@ export const adminAuditLog = sqliteTable("admin_audit_log", {
   beforeJson: text("before_json"),                 // null если create
   afterJson: text("after_json"),                   // null если delete (hard)
   restoredFromAuditId: integer("restored_from_audit_id"),
+  // Eugene 2026-05-17 Босс: enriched audit для email 2FA tracking.
+  viaEmailConfirm: integer("via_email_confirm").notNull().default(0),
+  ip: text("ip"),
+  userAgent: text("user_agent"),
+  pendingActionId: text("pending_action_id"),      // FK admin_pending_actions.id (UUID)
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 
@@ -632,6 +637,40 @@ export const userDataChangeRequests = sqliteTable("user_data_change_requests", {
   confirmedAt: text("confirmed_at"),
 });
 export type UserDataChangeRequest = typeof userDataChangeRequests.$inferSelect;
+
+// === Admin email 2FA (Eugene 2026-05-17 Босс «максимальная защита admin») ===
+// Очередь pending admin-actions, требующих подтверждения по email.
+// Любое разрушительное действие (kick_session / query_users / delete_user /
+// refund_payment / pause_bot / reload_kb / change_registration_status / ...)
+// сначала создаёт запись здесь + шлёт 6-значный код на admin email.
+// Admin вводит код в UI-модалке → action выполняется.
+//
+// Plain code НИКОГДА не пишется в БД — только sha256 hash.
+// TTL 10 минут — после expires_at action нельзя подтвердить.
+//
+// status: 'pending' (создано, ждём кода) | 'confirmed' (код принят, action готов к exec)
+//       | 'used' (action выполнен) | 'expired' (TTL истёк, не подтверждён)
+//       | 'failed' (5+ неверных попыток)
+//
+// Spec: docs/strategy/ADMIN-SECURITY-AUDIT-170526.md.
+export const adminPendingActions = sqliteTable("admin_pending_actions", {
+  id: text("id").primaryKey(),                     // uuid
+  adminUserId: integer("admin_user_id").notNull(),
+  adminEmail: text("admin_email").notNull(),       // snapshot — даже если email сменится
+  action: text("action").notNull(),                // 'kick_session' | 'query_users' | ...
+  argsJson: text("args_json").notNull(),           // input для tool (JSON)
+  codeHash: text("code_hash").notNull(),           // sha256(plain code)
+  attempts: integer("attempts").notNull().default(0),
+  status: text("status").notNull().default("pending"),
+  ip: text("ip"),
+  userAgent: text("user_agent"),
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+  expiresAt: text("expires_at").notNull(),         // ISO, +10 мин от createdAt
+  confirmedAt: text("confirmed_at"),
+  usedAt: text("used_at"),
+  resultText: text("result_text"),                 // что вернул handler (для audit)
+});
+export type AdminPendingAction = typeof adminPendingActions.$inferSelect;
 
 // === Agent upgrade (Eugene 2026-05-16 Босс): таблицы для AI-агента под 1M юзеров/год ===
 // 1) agent_notes — long-term memory о юзере (preferences / context / admin notes)

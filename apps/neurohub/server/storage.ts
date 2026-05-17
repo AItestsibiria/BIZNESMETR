@@ -214,6 +214,29 @@ try {
     );
     CREATE INDEX IF NOT EXISTS user_data_change_user_idx ON user_data_change_requests(user_id, status);
     CREATE INDEX IF NOT EXISTS user_data_change_status_idx ON user_data_change_requests(status, expires_at);
+
+    -- Eugene 2026-05-17 Босс «максимальная защита admin panel — email 2FA».
+    -- Очередь pending admin-actions требующих подтверждения по email.
+    -- См. docs/strategy/ADMIN-SECURITY-AUDIT-170526.md.
+    CREATE TABLE IF NOT EXISTS admin_pending_actions (
+      id TEXT PRIMARY KEY,
+      admin_user_id INTEGER NOT NULL,
+      admin_email TEXT NOT NULL,
+      action TEXT NOT NULL,
+      args_json TEXT NOT NULL,
+      code_hash TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending',
+      ip TEXT,
+      user_agent TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      expires_at TEXT NOT NULL,
+      confirmed_at TEXT,
+      used_at TEXT,
+      result_text TEXT
+    );
+    CREATE INDEX IF NOT EXISTS admin_pending_actions_admin_idx ON admin_pending_actions(admin_user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS admin_pending_actions_status_idx ON admin_pending_actions(status, expires_at);
   `);
 
   // Admin 2FA login codes (Eugene 2026-05-17 Босс) — Level 1 защиты.
@@ -312,6 +335,22 @@ try {
   const vCols = sqlite.prepare("PRAGMA table_info(visitors)").all() as { name: string }[];
   const vn = vCols.map(c => c.name);
   if (!vn.includes("country_code")) sqlite.exec("ALTER TABLE visitors ADD COLUMN country_code TEXT");
+
+  // admin_audit_log: enriched columns для Eugene 2026-05-17 «email 2FA tracking».
+  // via_email_confirm=1 — действие было подтверждено через email-OTP code.
+  // ip / user_agent — кто конкретно и откуда выполнил admin-action.
+  // pending_action_id — FK на admin_pending_actions.id (UUID), даёт связь
+  // audit-entry ↔ pending-action.
+  try {
+    const auditCols = sqlite.prepare("PRAGMA table_info(admin_audit_log)").all() as { name: string }[];
+    const acn = auditCols.map(c => c.name);
+    if (!acn.includes("via_email_confirm")) sqlite.exec("ALTER TABLE admin_audit_log ADD COLUMN via_email_confirm INTEGER NOT NULL DEFAULT 0");
+    if (!acn.includes("ip")) sqlite.exec("ALTER TABLE admin_audit_log ADD COLUMN ip TEXT");
+    if (!acn.includes("user_agent")) sqlite.exec("ALTER TABLE admin_audit_log ADD COLUMN user_agent TEXT");
+    if (!acn.includes("pending_action_id")) sqlite.exec("ALTER TABLE admin_audit_log ADD COLUMN pending_action_id TEXT");
+  } catch (e) {
+    console.warn("[BOOTSTRAP] admin_audit_log ALTER warn:", (e as Error).message);
+  }
 
   // v304 foundation tables (Sprint 1).
   // Spec: docs/strategy/original/07-DEPLOY-ROADMAP-СХЕМА-БД.md §3.
