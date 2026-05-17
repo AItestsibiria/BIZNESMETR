@@ -43,6 +43,7 @@ import {
 } from "./lib/adminTwoFactor";
 import { recordAuditEntry, queryAuditLog } from "./lib/adminAuditLog";
 import { getPeriodRange } from "./lib/periodBoundaries";
+import { extractHost, KNOWN_DOMAINS, hostToBucket } from "./lib/extractHost";
 
 const AUTHORS_DIR = process.env.AUTHORS_DIR || path.join(process.cwd(), "authors");
 
@@ -593,11 +594,13 @@ async function resolveIpGeo(ip: string): Promise<{ city: string; region: string;
 }
 
 // Log gen activity. Георезолв делается фоново (не блокирует ответ пользователя).
-function logGenActivity(genId: number, action: string, ip?: string) {
+// Eugene 2026-05-17 Босс: host — per-domain трекинг (muzaai.ru / muziai.ru /
+// podaripesnu.ru). Опциональный — старые call-site'ы не передают (NULL → "other").
+function logGenActivity(genId: number, action: string, ip?: string, host?: string | null) {
   const cleanIp = (ip || "").replace(/^::ffff:/, "").trim();
   let inserted: any;
   try {
-    inserted = db.insert(genActivity).values({ genId, action, ip: cleanIp }).returning().get();
+    inserted = db.insert(genActivity).values({ genId, action, ip: cleanIp, host: host || null }).returning().get();
   } catch { return; }
   // Асинхронно дорезолвим географию
   if (inserted?.id && cleanIp) {
@@ -768,13 +771,25 @@ export async function registerRoutes(
       const { fingerprint, pageUrl, sessionId } = req.body;
       const { device, browser, os } = parseUA(ua);
       const geo = await getGeo(ip);
+      // Per-domain трекинг (Eugene 2026-05-17 Босс): muzaai.ru / muziai.ru /
+      // podaripesnu.ru. Старые записи без host → bucket "other".
+      const host = extractHost(req);
       // Upsert by fingerprint or IP
       const key = fingerprint || ip;
       const existing = db.select().from(visitors).where(sql`${visitors.fingerprint} = ${key} OR (${visitors.ip} = ${ip} AND ${visitors.fingerprint} IS NULL)`).get();
       if (existing) {
-        db.update(visitors).set({ visits: existing.visits + 1, lastVisit: new Date().toISOString(), pageUrl: pageUrl || existing.pageUrl, userId: req.body.userId || existing.userId }).where(eq(visitors.id, existing.id)).run();
+        // host обновляем только если был NULL — иначе оставляем первый
+        // зарегистрированный домен (visitor мог зайти с muzaai.ru, потом
+        // переключиться на muziai.ru — но для аналитики важен первоисточник).
+        db.update(visitors).set({
+          visits: existing.visits + 1,
+          lastVisit: new Date().toISOString(),
+          pageUrl: pageUrl || existing.pageUrl,
+          userId: req.body.userId || existing.userId,
+          host: existing.host || host || null,
+        }).where(eq(visitors.id, existing.id)).run();
       } else {
-        db.insert(visitors).values({ ip, fingerprint: key, country: geo.country, countryCode: geo.countryCode, city: geo.city, region: geo.region, userAgent: ua, referer: req.headers.referer || '', device, browser, os, pageUrl, sessionId, userId: req.body.userId || null }).run();
+        db.insert(visitors).values({ ip, fingerprint: key, country: geo.country, countryCode: geo.countryCode, city: geo.city, region: geo.region, userAgent: ua, referer: req.headers.referer || '', device, browser, os, pageUrl, sessionId, userId: req.body.userId || null, host }).run();
       }
       res.json({ ok: true });
     } catch { res.json({ ok: true }); }
@@ -1716,8 +1731,13 @@ export async function registerRoutes(
         if (token && tokenStore.has(token)) userId = tokenStore.get(token) || null;
       } catch {}
 
+      // Per-domain трекинг (Eugene 2026-05-17 Босс): один host на весь batch
+      // (юзер не может прыгать между muzaai.ru/muziai.ru/podaripesnu.ru в
+      // одном batch'е — это разные nginx upstreams).
+      const host = extractHost(req);
+
       // Normalize + filter.
-      const rows: { sessionKey: string; userId: number | null; eventType: string; page: string; meta: string | null; createdAt: string; }[] = [];
+      const rows: { sessionKey: string; userId: number | null; eventType: string; page: string; meta: string | null; host: string | null; createdAt: string; }[] = [];
       for (const ev of events) {
         if (!ev || typeof ev !== "object") continue;
         const type = String(ev.type || "").trim();
@@ -1743,7 +1763,7 @@ export async function registerRoutes(
         } catch {
           createdAt = new Date().toISOString();
         }
-        rows.push({ sessionKey, userId, eventType: type, page, meta: metaStr, createdAt });
+        rows.push({ sessionKey, userId, eventType: type, page, meta: metaStr, host, createdAt });
       }
       if (rows.length === 0) {
         res.json({ ok: true, inserted: 0 });
@@ -1877,7 +1897,10 @@ export async function registerRoutes(
   });
 
   // Создать или найти web-сессию для clientSessionId.
-  function getOrCreateWebSession(clientSessionId: string) {
+  // Eugene 2026-05-17 Босс: host — per-domain трекинг (muzaai.ru / muziai.ru /
+  // podaripesnu.ru). Записываем при создании сессии. Для telegram/max-bot
+  // сессий host=NULL (там нет HTTP host).
+  function getOrCreateWebSession(clientSessionId: string, host?: string | null) {
     // clientSessionId — uuid от клиента, хранится в его sessionStorage.
     // Используем его как session.id (channel='web', externalId=clientSessionId).
     const id = `web:${clientSessionId.slice(0, 60)}`;
@@ -1890,6 +1913,7 @@ export async function registerRoutes(
       externalId: clientSessionId,
       state: "active",
       personaName: persona.name,
+      host: host || null,
     }).run();
     return db.select().from(chatbotSessions).where(eq(chatbotSessions.id, id)).get();
   }
@@ -2267,7 +2291,7 @@ export async function registerRoutes(
         }
       }
       if (!session) {
-        session = getOrCreateWebSession(clientSessionId);
+        session = getOrCreateWebSession(clientSessionId, extractHost(req));
       }
 
       // Soft-auth — линкуем userId к session если юзер залогинен.
@@ -2424,7 +2448,7 @@ export async function registerRoutes(
       if (!session) {
         const wantId = clientSessionId.startsWith("web:") ? clientSessionId : `web:${clientSessionId}`;
         session = db.select().from(chatbotSessions).where(eq(chatbotSessions.id, wantId)).get()
-          || getOrCreateWebSession(clientSessionId.replace(/^web:/, ""));
+          || getOrCreateWebSession(clientSessionId.replace(/^web:/, ""), extractHost(req));
       }
 
       // Сохраняем user message
@@ -4221,7 +4245,7 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
       // Access: download is available for public tracks and own tracks
       // Note: <a href> downloads can't send Authorization header
       // Track IDs are not enumerable — protection through non-guessability
-      logGenActivity(gen.id, 'download', req.ip);
+      logGenActivity(gen.id, 'download', req.ip, extractHost(req));
       // Increment download count in style JSON
       try {
         let meta: any = {};
@@ -7003,10 +7027,10 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       const decision = shouldCountPlay(req, gen);
       if (!decision.count) {
         // Записываем reject в gen_activity для аналитики (action='play_rejected').
-        try { logGenActivity(genId, `play_rejected:${decision.reason}`, req.ip); } catch {}
+        try { logGenActivity(genId, `play_rejected:${decision.reason}`, req.ip, extractHost(req)); } catch {}
         return res.json({ ok: true, counted: false, reason: decision.reason });
       }
-      logGenActivity(genId, 'play', req.ip);
+      logGenActivity(genId, 'play', req.ip, extractHost(req));
       let meta: any = {};
       try { meta = JSON.parse(gen.style || "{}"); } catch {}
       meta.plays = (meta.plays || 0) + 1;
@@ -7393,10 +7417,10 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
           if (!gen) return res.json({ ok: false });
           const decision = shouldCountPlay(req, gen);
           if (!decision.count) {
-            try { logGenActivity(genId, `play_rejected:${decision.reason}`, req.ip); } catch {}
+            try { logGenActivity(genId, `play_rejected:${decision.reason}`, req.ip, extractHost(req)); } catch {}
             return res.json({ ok: true, counted: false, reason: decision.reason });
           }
-          logGenActivity(genId, 'play', req.ip);
+          logGenActivity(genId, 'play', req.ip, extractHost(req));
           let meta: any = {};
           try { meta = JSON.parse(gen.style || "{}"); } catch {}
           meta.plays = (meta.plays || 0) + 1;
@@ -7406,7 +7430,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         } catch { return res.json({ ok: false }); }
       }
       // copy/share/download — старая логика без фильтрации.
-      logGenActivity(genId, action, req.ip);
+      logGenActivity(genId, action, req.ip, extractHost(req));
       if (action === 'download') {
         try {
           const gen = db.select().from(generations).where(eq(generations.id, genId)).get();
