@@ -642,6 +642,26 @@ router.post("/verify-otp", async (req, res) => {
       if (!user.phoneVerified) {
         try { db.update(users).set({ phoneVerified: 1 }).where(eq(users.id, user.id)).run(); } catch {}
       }
+      // Eugene 2026-05-17 Босс — Level 1: 2FA gate для админов (SMS-OTP flow).
+      if (isAdminRole(user.role)) {
+        const gate = await adminGateBeforeToken({
+          userId: user.id, channel: "phone_call", req,
+          adminEmail: user.email, adminName: user.name, adminRole: user.role,
+        });
+        if (gate.requireAdminCode) {
+          return res.json({
+            data: {
+              verified: true, phone, purpose,
+              requireAdminCode: true,
+              sessionDraftId: gate.sessionDraftId,
+              emailHint: gate.emailHint,
+              expiresInSec: gate.expiresInSec,
+              warning: gate.warning,
+            },
+            error: null,
+          });
+        }
+      }
       const token = uuidv4();
       tokenStore.set(token, user.id);
       bootRefs?.eventBus?.emit?.("auth.user.logged_in", { userId: user.id, channel: "sms" }, "auth-sms");
@@ -883,6 +903,29 @@ router.post("/check-call", async (req, res) => {
         const giftRes = tryGiveWelcomeGift({ userId, countryCode: country?.code });
         welcomeGiftPos = giftRes.gifted ? giftRes.position : null;
       }
+      // Eugene 2026-05-17 Босс — Level 1: 2FA gate для существующего админа.
+      // Если phone-аккаунт оказался admin'ом — НЕ выдаём token сразу.
+      // (created=true означает только что upsertPhoneUser создал phone-only
+      // record, у такого юзера role=user — но проверка делаем все равно.)
+      if (!created && isAdminRole((u as any).role)) {
+        const gate = await adminGateBeforeToken({
+          userId, channel: "phone_call", req,
+          adminEmail: (u as any).email, adminName: (u as any).name, adminRole: (u as any).role,
+        });
+        if (gate.requireAdminCode) {
+          return res.json({
+            data: {
+              verified: true, phone, purpose, method: "call",
+              requireAdminCode: true,
+              sessionDraftId: gate.sessionDraftId,
+              emailHint: gate.emailHint,
+              expiresInSec: gate.expiresInSec,
+              warning: gate.warning,
+            },
+            error: null,
+          });
+        }
+      }
       const token = uuidv4();
       tokenStore.set(token, userId);
       bootRefs?.eventBus?.emit?.(
@@ -1121,6 +1164,26 @@ router.post("/check-reverse-call", async (req, res) => {
         const country = detectPhoneCountry(phone);
         const giftRes = tryGiveWelcomeGift({ userId, countryCode: country?.code });
         welcomeGiftPos = giftRes.gifted ? giftRes.position : null;
+      }
+      // Eugene 2026-05-17 Босс — Level 1: 2FA gate для админов (reverse-call flow).
+      if (!created && isAdminRole((u as any).role)) {
+        const gate = await adminGateBeforeToken({
+          userId, channel: "phone_reverse_call", req,
+          adminEmail: (u as any).email, adminName: (u as any).name, adminRole: (u as any).role,
+        });
+        if (gate.requireAdminCode) {
+          return res.json({
+            data: {
+              verified: true, expired: false, phone, purpose, method: "reverse-call",
+              requireAdminCode: true,
+              sessionDraftId: gate.sessionDraftId,
+              emailHint: gate.emailHint,
+              expiresInSec: gate.expiresInSec,
+              warning: gate.warning,
+            },
+            error: null,
+          });
+        }
       }
       const token = uuidv4();
       tokenStore.set(token, userId);

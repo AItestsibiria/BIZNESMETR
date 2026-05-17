@@ -23,7 +23,8 @@ export type EngagementType =
   | "consultant_open"          // юзер кликнул на образ — открыл меню
   | "consultant_action"        // клик на пункт меню (Telegram/Max/Создать/Регистрация)
   | "music_generate_attempt"   // POST /api/music/generate (любой режим)
-  | "music_generate_success";  // дошёл до 100%
+  | "music_generate_success"   // дошёл до 100%
+  | "admin_2fa_success";       // admin прошёл email-код 2FA (Level 1 защиты)
 
 export type EngagementChannel = "site" | "telegram" | "max" | "email" | null;
 
