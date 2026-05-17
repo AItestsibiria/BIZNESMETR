@@ -583,6 +583,13 @@ try {
       sqlite.exec("CREATE INDEX IF NOT EXISTS chatbot_sessions_pair_code_idx ON chatbot_sessions(web_pair_code)");
     }
     if (!has("web_pair_code_offered_at")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN web_pair_code_offered_at TEXT");
+    // Eugene 2026-05-17 Босс «архив + текущие диалоги»: индекс под
+    // ORDER BY last_message_at DESC + фильтры по channel/last_message_at
+    // (admin GET /api/admin/v304/conversations). Composite (channel,
+    // last_message_at DESC) покрывает оба самых частых запроса:
+    // «все каналы по свежести» и «один канал по свежести».
+    sqlite.exec("CREATE INDEX IF NOT EXISTS chatbot_sessions_last_message_idx ON chatbot_sessions(last_message_at DESC)");
+    sqlite.exec("CREATE INDEX IF NOT EXISTS chatbot_sessions_channel_last_idx ON chatbot_sessions(channel, last_message_at DESC)");
   } catch (e) {
     console.error("[MIGRATION] chatbot_sessions FSM columns failed:", e);
   }
