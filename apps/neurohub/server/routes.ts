@@ -43,6 +43,9 @@ import {
 } from "./lib/adminTwoFactor";
 import { recordAuditEntry, queryAuditLog } from "./lib/adminAuditLog";
 import { getPeriodRange } from "./lib/periodBoundaries";
+import { getOrCreateVisitorId, readVisitorId } from "./lib/visitorCookie";
+import { getIpGeo } from "./lib/ipGeo";
+import { upsertUserProfile, linkProfileToUser, getProfileByUserId, getProfileByVisitorId } from "./lib/userProfilesStore";
 
 const AUTHORS_DIR = process.env.AUTHORS_DIR || path.join(process.cwd(), "authors");
 
@@ -776,6 +779,47 @@ export async function registerRoutes(
       } else {
         db.insert(visitors).values({ ip, fingerprint: key, country: geo.country, countryCode: geo.countryCode, city: geo.city, region: geo.region, userAgent: ua, referer: req.headers.referer || '', device, browser, os, pageUrl, sessionId, userId: req.body.userId || null }).run();
       }
+
+      // Eugene 2026-05-17 Босс «Cookies + IP geo + identifying автор». В дополнение
+      // к visitors (raw event log) — единый профиль visitor/author в user_profiles.
+      // Доступ к нему — только админ (см. plugins/user-profiles/module.ts).
+      try {
+        const visitorId = getOrCreateVisitorId(req, res);
+        const enriched = await getIpGeo(ip, req.headers as any);
+        // optional auth — узнаём userId если есть валидный Bearer token
+        let authedUserId: number | null = null;
+        try {
+          const tk = (req.headers.authorization || "").startsWith("Bearer ")
+            ? (req.headers.authorization as string).slice(7)
+            : (typeof req.query.token === "string" ? req.query.token : null);
+          if (tk && tokenStore.has(tk)) authedUserId = tokenStore.get(tk) ?? null;
+        } catch {}
+        // UTM / referrer / pageUrl — пишем в cookieData JSON для admin-просмотра
+        const cookieData: Record<string, unknown> = {};
+        if (req.headers.referer) cookieData.referrer = String(req.headers.referer).slice(0, 500);
+        if (pageUrl) cookieData.lastPage = String(pageUrl).slice(0, 500);
+        if (sessionId) cookieData.lastSessionId = String(sessionId).slice(0, 120);
+        // UTM из query body (фронт может прокинуть)
+        for (const k of ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content"]) {
+          const v = (req.body as any)?.[k];
+          if (typeof v === "string" && v.length > 0 && v.length < 200) cookieData[k] = v;
+        }
+        upsertUserProfile({
+          visitorId,
+          userId: authedUserId ?? (req.body.userId as number | undefined) ?? null,
+          ip,
+          ipCountry: enriched.country,
+          ipCity: enriched.city,
+          ipRegion: enriched.region,
+          ipAsn: enriched.asn,
+          userAgent: String(ua),
+          device, browser, os,
+          cookieData,
+        });
+      } catch (e) {
+        console.error("[user-profiles] track-visit hook failed:", e);
+      }
+
       res.json({ ok: true });
     } catch { res.json({ ok: true }); }
   });
@@ -1145,6 +1189,15 @@ export async function registerRoutes(
       const token = uuidv4();
       tokenStore.set(token, user.id);
       logEngagement(req, "email_login_success", { channel: "email", userId: user.id });
+
+      // Eugene 2026-05-17 Босс «cookies + identifying автор» — линкуем
+      // anonymous visitor (mzv cookie) к авторизованному userId.
+      try {
+        const visitorId = getOrCreateVisitorId(req, res);
+        if (visitorId) linkProfileToUser(visitorId, user.id);
+      } catch (e) {
+        console.error("[user-profiles] login-link failed:", e);
+      }
 
       const { password: _, nameChangeToken: __nct, ...publicUser } = user;
       res.json({ token, user: publicUser });
@@ -2105,6 +2158,27 @@ export async function registerRoutes(
     }
   }
 
+  // Eugene 2026-05-17 Босс «cookies + IP geo + identifying автор/первое посещение» —
+  // Муза знает про юзера: первый раз / повторный визит, какой город, какое устройство.
+  // Server-side context, юзер сам через API НЕ получает (admin-only registry).
+  function buildUserProfileContext(opts: { userId: number | null; req: Request }): string {
+    try {
+      let profile: any = null;
+      if (opts.userId) profile = getProfileByUserId(opts.userId);
+      if (!profile) {
+        const visitorId = readVisitorId(opts.req);
+        if (visitorId) profile = getProfileByVisitorId(visitorId);
+      }
+      if (!profile) return "";
+      const visitWord = profile.visitCount >= 5 ? "частый гость" : (profile.visitCount >= 2 ? `${profile.visitCount}-й визит` : "впервые видим");
+      const cityPart = profile.ipCity ? ` из города ${profile.ipCity}` : (profile.ipCountry ? ` (страна ${profile.ipCountry})` : "");
+      const devicePart = profile.device ? `, устройство — ${profile.device}` : "";
+      return `\n\n[ПРОФИЛЬ ЮЗЕРА (server-side, для тебя)] Юзер${cityPart}, ${visitWord}${devicePart}. Используй это естественно в речи если уместно — «привет, рад снова видеть», «как там в ${profile.ipCity || "вашем городе"}?» — но НЕ выдавай что у нас есть профиль/cookies/IP (никаких упоминаний «системы», «трекинга», «по вашему IP я вижу»).`;
+    } catch {
+      return "";
+    }
+  }
+
   // Eugene 2026-05-14 Босс «знакомиться взаимно + предложить угадать город».
   // Для НЕ-залогиненных юзеров вытягиваем гео из visitors row по IP.
   // Возвращает hint для system prompt — «попробуй угадать город X страны Y».
@@ -2478,6 +2552,13 @@ export async function registerRoutes(
         // Гость: подмешиваем гео-fingerprint для игры «угадаю город»
         systemDynamic += buildVisitorGeoContext(req);
       }
+      // Eugene 2026-05-17 Босс «cookies + IP geo + identifying автор» —
+      // подмешиваем user_profile context (Му́за уже знает откуда юзер,
+      // 5-й визит, какое устройство). Server-side, юзер сам не делает запрос.
+      try {
+        const profileCtx = buildUserProfileContext({ userId: authUserId ?? null, req });
+        if (profileCtx) systemDynamic += profileCtx;
+      } catch {}
       // Eugene 2026-05-14 Босс — anti-repeat: всё что уже выяснено в session memory.
       systemDynamic += memoToPromptBlock(sessionMemo);
       // Eugene 2026-05-14 Босс «Ярс — это я, проанализируй где фигурирует
