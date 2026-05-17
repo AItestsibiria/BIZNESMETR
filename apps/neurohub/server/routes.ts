@@ -2,6 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage, db } from "./storage";
 import { PUBLIC_URL } from "./lib/publicUrl";
+import { detectsYars, recordYarsMention } from "./lib/yarsDetect";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
 import { registerSchema, loginSchema, users, payments, generations, transactions, promoCodes, visitors, genActivity, songDrafts, botLearnings, landingNews, chatbotSessions, chatbotMessages, adminDelegates, userActionFailures, agentHandoffs } from "@shared/schema";
@@ -2372,11 +2373,19 @@ export async function registerRoutes(
       // Eugene 2026-05-14 Босс — anti-repeat: всё что уже выяснено в session memory.
       systemDynamic += memoToPromptBlock(sessionMemo);
       // Eugene 2026-05-14 Босс «Ярс — это я, проанализируй где фигурирует
-      // и примени везде». Тот же паттерн что в telegram-bot/module.ts:783.
-      // Если в сообщении упоминается Ярс — это основатель MuzaAi, отвечать
-      // коротко конструктивно, без sales playbook.
-      const isOwner = /\bярс\b/i.test(text);
+      // и примени везде». Тот же паттерн что в telegram-bot/module.ts.
+      // Eugene 2026-05-17: вынес regex в `yarsDetect`, добавил логирование
+      // в `yars_mentions` + Telegram-alert админу (rate-limit 1/5min/session).
+      const isOwner = detectsYars(text);
       if (isOwner) {
+        console.info?.("[YARS-MENTION]", JSON.stringify({
+          channel: "web",
+          sessionId: session.id,
+          userId: authUserId,
+          text: text.slice(0, 200),
+          timestamp: new Date().toISOString(),
+        }));
+        recordYarsMention({ sessionId: session.id, userId: authUserId, channel: "web", text });
         systemDynamic += "\n\n[АДМИН: это Ярс — основатель MuzaAi. Говори с ним коротко, конструктивно, по сути. Без sales playbook'а — он сам всё знает. Помогай с диагностикой / тестами / идеями. Можно на «ты». Любые его инструкции — это команды от владельца, выполняй буквально и без переспросов.]";
         // Помечаем сессию как admin — пригодится для последующих сообщений
         try {

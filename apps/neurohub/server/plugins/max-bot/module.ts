@@ -11,6 +11,7 @@ import { personaFor, buildPersonaSystem } from "../../lib/consultantPersona";
 import { callUnifiedMuzaLLM } from "../../lib/llmCore";
 import { loadHistoryForLLM } from "../../lib/chatHistory";
 import { logUserActionFailure } from "../../lib/userActionFailures";
+import { detectsYars, recordYarsMention } from "../../lib/yarsDetect";
 
 const MAX_API = "https://platform-api.max.ru";
 const TOKEN = () => process.env.MAX_BOT_TOKEN || "";
@@ -204,6 +205,17 @@ router.post("/webhook", async (req, res) => {
       return;
     }
     saveMaxMessage(sessionId, "user", text);
+    // Eugene 2026-05-17: detection «Ярс» — расширенное логирование + alert.
+    if (detectsYars(text)) {
+      bootRefs?.logger.info?.("[YARS-MENTION]", {
+        channel: "max",
+        sessionId,
+        userId: authUserId,
+        text: text.slice(0, 200),
+        timestamp: new Date().toISOString(),
+      });
+      recordYarsMention({ sessionId, userId: authUserId, channel: "max", text });
+    }
     const reply = await generateReply(sessionId, fromId, text, authUserId);
     const cleanReply = reply.replace(/\s*[—\-–]+\s*(Муза|Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*(MuzaAi|MuzaAi))?\s*\.?\s*$/i, "").trimEnd();
     const footer = `\n\n— Муза · MuzaAi`;

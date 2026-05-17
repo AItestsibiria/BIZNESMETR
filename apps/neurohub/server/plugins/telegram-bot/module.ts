@@ -31,6 +31,7 @@ import { debounceMessage, bypassDebounce } from "../../lib/messageDebouncer";
 import { loadHistoryForLLM } from "../../lib/chatHistory";
 import { callUnifiedMuzaLLM } from "../../lib/llmCore";
 import { logUserActionFailure } from "../../lib/userActionFailures";
+import { detectsYars, recordYarsMention } from "../../lib/yarsDetect";
 
 const TELEGRAM_API = "https://api.telegram.org";
 
@@ -769,7 +770,24 @@ async function processIncomingText(chatId: string, fromId: string, sessionId: st
     const ltmHint = ltm ? `\n\n[ВОСПОМИНАНИЕ О ПРОШЛЫХ РАЗГОВОРАХ: ${ltm}]` : "";
     // Eugene 2026-05-11: «Ярс — это я». Если в сообщении упоминается Ярс —
     // это сам Eugene (основатель MuzaAi). Подмешиваем admin-context.
-    const isOwner = /\bярс\b/i.test(text);
+    // Eugene 2026-05-17: расширил detection + логирование в `yars_mentions`
+    // + Telegram-alert админу (rate-limited 1/5min per session).
+    const isOwner = detectsYars(text);
+    if (isOwner) {
+      let yarsUserId: number | null = null;
+      try {
+        const sRow = db.select().from(chatbotSessions).where(eq(chatbotSessions.id, sessionId)).get() as any;
+        yarsUserId = sRow?.userId ?? null;
+      } catch {}
+      bootRefs?.logger.info?.("[YARS-MENTION]", {
+        channel: "telegram",
+        sessionId,
+        userId: yarsUserId,
+        text: text.slice(0, 200),
+        timestamp: new Date().toISOString(),
+      });
+      recordYarsMention({ sessionId, userId: yarsUserId, channel: "telegram", text });
+    }
     const ownerHint = isOwner
       ? "\n\n[АДМИН: это Ярс — основатель MuzaAi. Говори с ним коротко, конструктивно, по сути. Без sales playbook'а — он сам всё знает. Помогай с диагностикой / тестами / идеями. Можно на «ты».]"
       : "";
