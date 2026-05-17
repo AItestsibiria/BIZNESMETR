@@ -405,17 +405,21 @@ app.post("/api/_client-error", express.json(), (req, res) => {
 
   // ALWAYS serve the app on the port specified in the environment variable PORT
   // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
+  // Eugene 2026-05-17 (security audit): Node.js слушает ТОЛЬКО на localhost
+  // (`127.0.0.1`), а не `0.0.0.0`. nginx проксирует с :443/:80 на 127.0.0.1:5000.
+  // Раньше `0.0.0.0:5000` был открыт снаружи — это позволяло обходить
+  // nginx (без CSRF guard, без rate-limit, без SSL).
+  // Можно override через env `BIND_HOST=0.0.0.0` если очень нужно (dev / debug).
   const port = parseInt(process.env.PORT || "5000", 10);
+  const host = process.env.BIND_HOST || "127.0.0.1";
   httpServer.listen(
     {
       port,
-      host: "0.0.0.0",
+      host,
       reusePort: true,
     },
     () => {
-      log(`serving on port ${port}`);
+      log(`serving on ${host}:${port}`);
     },
   );
 })();
