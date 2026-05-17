@@ -836,17 +836,24 @@ function PeriodSelector({
 
 // ============================================================
 // Metric box (компактная цифра + подпись)
+// Если задан metricKey + onClick — клик раскрывает expand-panel в section ниже.
 // ============================================================
 function MetricBox({
   label,
   value,
   hint,
   color = "violet",
+  metricKey,
+  expanded,
+  onClick,
 }: {
   label: string;
   value: string | number;
   hint?: string;
   color?: "violet" | "cyan" | "amber" | "emerald" | "pink";
+  metricKey?: string;
+  expanded?: boolean;
+  onClick?: () => void;
 }) {
   const colorMap: Record<string, string> = {
     violet: "from-violet-500/15 to-transparent border-violet-500/30 text-violet-300",
@@ -855,16 +862,485 @@ function MetricBox({
     emerald: "from-emerald-500/15 to-transparent border-emerald-500/30 text-emerald-300",
     pink: "from-pink-500/15 to-transparent border-pink-500/30 text-pink-300",
   };
+  const glowMap: Record<string, string> = {
+    violet: "ring-violet-400/40 shadow-[0_0_20px_-8px_rgba(167,139,250,0.6)]",
+    cyan: "ring-cyan-400/40 shadow-[0_0_20px_-8px_rgba(34,211,238,0.6)]",
+    amber: "ring-amber-400/40 shadow-[0_0_20px_-8px_rgba(251,191,36,0.6)]",
+    emerald: "ring-emerald-400/40 shadow-[0_0_20px_-8px_rgba(52,211,153,0.6)]",
+    pink: "ring-pink-400/40 shadow-[0_0_20px_-8px_rgba(244,114,182,0.6)]",
+  };
+  const clickable = !!onClick;
   return (
     <div
-      className={`rounded-xl p-3 bg-gradient-to-br border ${colorMap[color]}`}
-      data-testid={`metric-${label}`}
+      className={`rounded-xl p-3 bg-gradient-to-br border transition-all ${colorMap[color]} ${
+        clickable ? "cursor-pointer hover:brightness-110" : ""
+      } ${expanded ? `ring-1 ${glowMap[color]}` : ""}`}
+      data-testid={`metric-${metricKey || label}`}
+      onClick={onClick}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={
+        clickable
+          ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onClick?.();
+              }
+            }
+          : undefined
+      }
     >
-      <div className="text-xs uppercase tracking-wider text-muted-foreground">
-        {label}
+      <div className="flex items-start justify-between gap-1">
+        <div className="text-xs uppercase tracking-wider text-muted-foreground">
+          {label}
+        </div>
+        {clickable && (
+          <span
+            aria-hidden
+            className={`text-[10px] text-muted-foreground transition-transform ${
+              expanded ? "rotate-180" : ""
+            }`}
+          >
+            ▾
+          </span>
+        )}
       </div>
       <div className="text-2xl font-bold mt-1 text-white">{value}</div>
       {hint && <div className="text-[10px] text-muted-foreground mt-1">{hint}</div>}
+    </div>
+  );
+}
+
+// ============================================================
+// MetricDetailPanel — full-width drill-down под секцией метрик периода
+// (graceful render каждого detail-варианта). Открывается через `expandedKey`
+// со скоупом metric:* в MasterDashboardTab.
+// ============================================================
+function MetricDetailPanel({
+  metric,
+  loading,
+  detail,
+  error,
+}: {
+  metric: string;
+  loading: boolean;
+  detail: Record<string, unknown> | undefined;
+  error: string | null;
+}) {
+  const title = (() => {
+    switch (metric) {
+      case "plays":
+        return "Прослушивания — детально";
+      case "registrations":
+        return "Регистрации — детально";
+      case "generations":
+        return "Генерации — детально";
+      case "payments":
+        return "Платежи — детально";
+      case "visitors":
+        return "Посетители — детально";
+      default:
+        return `Метрика — ${metric}`;
+    }
+  })();
+  return (
+    <div className="rounded-2xl border border-purple-400/30 bg-gradient-to-br from-[#1a0f2e]/80 via-[#0a0a17]/80 to-[#0f1830]/80 backdrop-blur p-4">
+      <div className="text-xs uppercase tracking-wider text-muted-foreground mb-3">
+        {title}
+      </div>
+      {loading && !detail ? (
+        <div className="text-xs text-muted-foreground">Загружаю детали…</div>
+      ) : error ? (
+        <div className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded px-2 py-1.5">
+          Ошибка: {error}
+        </div>
+      ) : detail ? (
+        <MetricDetailBody metric={metric} detail={detail} />
+      ) : null}
+    </div>
+  );
+}
+
+function MetricDetailBody({
+  metric,
+  detail,
+}: {
+  metric: string;
+  detail: Record<string, unknown>;
+}) {
+  if (metric === "plays") {
+    const byDay = (detail.byDay as Array<{ date: string; count: number }>) || [];
+    const byHour = (detail.byHour as Array<{ hour: number; count: number }>) || [];
+    const topTracks = (detail.topTracks as Array<{ id: number; title: string; plays: number }>) || [];
+    const rejected = (detail.rejected as Array<{ reason: string; count: number }>) || [];
+    return (
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="space-y-3">
+          <div>
+            <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
+              По дням
+            </div>
+            <div className="h-40">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={byDay}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                  <XAxis dataKey="date" stroke="rgba(255,255,255,0.4)" tick={{ fontSize: 9 }} />
+                  <YAxis stroke="rgba(255,255,255,0.4)" tick={{ fontSize: 9 }} />
+                  <Tooltip content={<CombinedTooltip />} />
+                  <Bar dataKey="count" name="прослушиваний" fill={COLORS.plays} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+          <div>
+            <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
+              По часам (сумма за период)
+            </div>
+            <div className="h-32">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={byHour}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                  <XAxis dataKey="hour" stroke="rgba(255,255,255,0.4)" tick={{ fontSize: 9 }} />
+                  <YAxis stroke="rgba(255,255,255,0.4)" tick={{ fontSize: 9 }} />
+                  <Tooltip content={<CombinedTooltip />} />
+                  <Bar dataKey="count" name="по часу" fill={COLORS.visitors} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+        <div className="space-y-3">
+          {topTracks.length > 0 && (
+            <div>
+              <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
+                Топ-10 треков
+              </div>
+              <ul className="space-y-1 text-xs max-h-48 overflow-y-auto">
+                {topTracks.map((t) => (
+                  <li
+                    key={t.id}
+                    className="flex justify-between gap-2 rounded border border-white/10 bg-white/[0.03] px-2 py-1"
+                  >
+                    <span className="truncate text-white max-w-[75%]" title={t.title}>
+                      {t.title}
+                    </span>
+                    <span className="text-violet-300 font-medium">{t.plays}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {rejected.length > 0 && (
+            <div>
+              <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
+                Отклонённые play (anti-fraud)
+              </div>
+              <ul className="space-y-1 text-xs">
+                {rejected.map((r, i) => (
+                  <li
+                    key={i}
+                    className="flex justify-between gap-2 rounded border border-amber-400/20 bg-amber-500/5 px-2 py-1"
+                  >
+                    <span className="truncate text-amber-200 max-w-[70%]">
+                      {r.reason || "—"}
+                    </span>
+                    <span className="text-amber-300 font-medium">{r.count}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+  if (metric === "registrations") {
+    const byChannel = (detail.byChannel as Array<{ name: string; value: number }>) || [];
+    const byDay = (detail.byDay as Array<{ date: string; count: number }>) || [];
+    const total = Number(detail.total || 0);
+    const verified = Number(detail.verified || 0);
+    return (
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <DetailStat label="Всего" value={total} color="cyan" />
+            <DetailStat
+              label="Верифицировано"
+              value={verified}
+              color="emerald"
+            />
+          </div>
+          <div>
+            <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
+              По каналу
+            </div>
+            <div className="h-44">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={byChannel}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={70}
+                    label={({ name, value }) => `${name}: ${value}`}
+                  >
+                    {byChannel.map((_, i) => (
+                      <Cell key={i} fill={PIE_PALETTE[i % PIE_PALETTE.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
+            По дням
+          </div>
+          <div className="h-56">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={byDay}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                <XAxis dataKey="date" stroke="rgba(255,255,255,0.4)" tick={{ fontSize: 9 }} />
+                <YAxis stroke="rgba(255,255,255,0.4)" tick={{ fontSize: 9 }} />
+                <Tooltip content={<CombinedTooltip />} />
+                <Bar dataKey="count" name="регистраций" fill={COLORS.registrations} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (metric === "generations") {
+    const byType = (detail.byType as Array<{
+      type: string;
+      status: string;
+      count: number;
+    }>) || [];
+    const avgDur = (detail.avgDuration as Array<{ type: string; avgSeconds: number }>) || [];
+    // Группируем by type → {done, error, processing}
+    const grouped = byType.reduce(
+      (acc, r) => {
+        if (!acc[r.type]) acc[r.type] = { type: r.type, done: 0, error: 0, processing: 0, other: 0 };
+        if (r.status === "done") acc[r.type].done = r.count;
+        else if (r.status === "error") acc[r.type].error = r.count;
+        else if (r.status === "processing") acc[r.type].processing = r.count;
+        else acc[r.type].other += r.count;
+        return acc;
+      },
+      {} as Record<string, { type: string; done: number; error: number; processing: number; other: number }>,
+    );
+    const rows = Object.values(grouped);
+    return (
+      <div className="space-y-3">
+        <div>
+          <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
+            By type × status
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-muted-foreground">
+                  <th className="py-1 pr-2 font-medium">Тип</th>
+                  <th className="py-1 px-2 font-medium text-right text-emerald-300">done</th>
+                  <th className="py-1 px-2 font-medium text-right text-red-300">error</th>
+                  <th className="py-1 px-2 font-medium text-right text-amber-300">processing</th>
+                  <th className="py-1 pl-2 font-medium text-right text-muted-foreground">other</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.type} className="border-t border-white/[0.04]">
+                    <td className="py-1.5 pr-2 text-white font-mono text-[11px]">{r.type}</td>
+                    <td className="py-1.5 px-2 text-right text-emerald-300">{r.done}</td>
+                    <td className="py-1.5 px-2 text-right text-red-300">{r.error}</td>
+                    <td className="py-1.5 px-2 text-right text-amber-300">{r.processing}</td>
+                    <td className="py-1.5 pl-2 text-right text-muted-foreground">{r.other}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        {avgDur.length > 0 && (
+          <div>
+            <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
+              Среднее время генерации (done)
+            </div>
+            <ul className="flex flex-wrap gap-2 text-xs">
+              {avgDur.map((a) => (
+                <li
+                  key={a.type}
+                  className="rounded-full border border-amber-400/30 bg-amber-500/10 text-amber-100 px-3 py-1"
+                >
+                  {a.type}: <span className="font-medium">{a.avgSeconds}c</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    );
+  }
+  if (metric === "payments") {
+    const byStatus = (detail.byStatus as Array<{
+      status: string;
+      count: number;
+      sumKopecks: number;
+      sumRub: number;
+    }>) || [];
+    const recent = (detail.recent as Array<{
+      invId: number;
+      userId: number;
+      amountRub: number;
+      status: string;
+      description: string | null;
+      createdAt: string;
+    }>) || [];
+    return (
+      <div className="space-y-3">
+        <div className="flex flex-wrap gap-2 text-xs">
+          {byStatus.map((s) => (
+            <div
+              key={s.status}
+              className={`rounded-lg border px-3 py-1.5 ${
+                s.status === "paid"
+                  ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-100"
+                  : s.status === "failed"
+                  ? "border-red-400/30 bg-red-500/10 text-red-100"
+                  : "border-amber-400/30 bg-amber-500/10 text-amber-100"
+              }`}
+            >
+              <span className="uppercase text-[10px] tracking-wider">{s.status}</span>
+              {" · "}
+              <span className="font-medium">{s.count}</span>
+              {" · "}
+              <span>{s.sumRub.toLocaleString("ru-RU")}₽</span>
+            </div>
+          ))}
+        </div>
+        {recent.length > 0 && (
+          <div>
+            <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
+              Последние платежи (период, до 30)
+            </div>
+            <div className="max-h-72 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-black/40 backdrop-blur">
+                  <tr className="text-left text-muted-foreground">
+                    <th className="py-1 pr-2 font-medium">Inv</th>
+                    <th className="py-1 px-2 font-medium">User</th>
+                    <th className="py-1 px-2 font-medium text-right">Сумма</th>
+                    <th className="py-1 px-2 font-medium">Статус</th>
+                    <th className="py-1 pl-2 font-medium">Время</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recent.map((p) => (
+                    <tr key={p.invId} className="border-t border-white/[0.04]">
+                      <td className="py-1.5 pr-2 font-mono text-white/80 text-[11px]">
+                        {p.invId}
+                      </td>
+                      <td className="py-1.5 px-2 font-mono text-cyan-300 text-[11px]">
+                        #{p.userId}
+                      </td>
+                      <td className="py-1.5 px-2 text-right text-white">
+                        {p.amountRub.toLocaleString("ru-RU")}₽
+                      </td>
+                      <td
+                        className={`py-1.5 px-2 ${
+                          p.status === "paid"
+                            ? "text-emerald-300"
+                            : p.status === "failed"
+                            ? "text-red-300"
+                            : "text-amber-300"
+                        }`}
+                      >
+                        {p.status}
+                      </td>
+                      <td className="py-1.5 pl-2 text-muted-foreground font-mono text-[10px]">
+                        {new Date(p.createdAt).toLocaleString("ru-RU")}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+  if (metric === "visitors") {
+    const unique = Number(detail.unique || 0);
+    const total = Number(detail.total || 0);
+    const byCountry = (detail.byCountry as Array<{ name: string; count: number }>) || [];
+    const byCity = (detail.byCity as Array<{ name: string; count: number }>) || [];
+    const byDevice = (detail.byDevice as Array<{ name: string; count: number }>) || [];
+    const byBrowser = (detail.byBrowser as Array<{ name: string; count: number }>) || [];
+    return (
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <DetailStat label="Уникальных" value={unique} color="pink" />
+          <DetailStat label="Визитов всего" value={total} color="cyan" />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <VisitorChips title="Страны" items={byCountry} color="pink" />
+          <VisitorChips title="Города" items={byCity} color="cyan" />
+          <VisitorChips title="Девайс" items={byDevice} color="amber" />
+          <VisitorChips title="Браузер" items={byBrowser} color="violet" />
+        </div>
+      </div>
+    );
+  }
+  // Fallback
+  return (
+    <pre className="text-[10px] text-muted-foreground whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
+      {JSON.stringify(detail, null, 2)}
+    </pre>
+  );
+}
+
+function VisitorChips({
+  title,
+  items,
+  color,
+}: {
+  title: string;
+  items: Array<{ name: string; count: number }>;
+  color: "violet" | "cyan" | "amber" | "emerald" | "pink";
+}) {
+  const colorMap: Record<string, string> = {
+    violet: "border-violet-400/30 bg-violet-500/10 text-violet-200",
+    cyan: "border-cyan-400/30 bg-cyan-500/10 text-cyan-200",
+    amber: "border-amber-400/30 bg-amber-500/10 text-amber-200",
+    emerald: "border-emerald-400/30 bg-emerald-500/10 text-emerald-200",
+    pink: "border-pink-400/30 bg-pink-500/10 text-pink-200",
+  };
+  return (
+    <div>
+      <div className="text-[11px] uppercase text-muted-foreground tracking-wider mb-1">
+        {title}
+      </div>
+      {items.length > 0 ? (
+        <ul className="flex flex-wrap gap-1.5 text-xs">
+          {items.slice(0, 10).map((c, i) => (
+            <li
+              key={i}
+              className={`rounded-full border ${colorMap[color]} px-2 py-0.5`}
+            >
+              {c.name}{" "}
+              <span className="font-medium text-white/80">{c.count}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="text-[11px] text-muted-foreground">—</div>
+      )}
     </div>
   );
 }
@@ -1756,56 +2232,108 @@ export default function MasterDashboardTab() {
         </div>
       </section>
 
-      {/* 2. Period metrics — boxes */}
+      {/* 2. Period metrics — boxes (click → expand details ниже) */}
       <section>
         <h3 className="text-sm font-bold text-white mb-2">
-          2. Метрики · {PERIOD_LABELS[period]}
+          2. Метрики · {PERIOD_LABELS[period]} · клик для drill-down
         </h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <MetricBox
-            label="Прослушивания"
-            value={data.metrics.plays.total}
-            hint={`${data.metrics.plays.unique} уник · ${data.metrics.plays.rejected} реджект`}
-            color="violet"
-          />
-          <MetricBox
-            label="Загрузки"
-            value={data.metrics.downloads.count}
-            color="cyan"
-          />
-          <MetricBox
-            label="Регистрации"
-            value={data.metrics.registrations.total}
-            hint={data.metrics.registrations.byChannel
-              .map((b) => `${b.channel}: ${b.count}`)
-              .join(" · ")}
-            color="emerald"
-          />
-          <MetricBox
-            label="Генерации"
-            value={
-              data.metrics.generations.music.done +
-              data.metrics.generations.lyrics.done +
-              data.metrics.generations.cover.done
-            }
-            hint={`music ${data.metrics.generations.music.done}/${
-              data.metrics.generations.music.error
-            } ошибок`}
-            color="amber"
-          />
-          <MetricBox
-            label="Платежи"
-            value={`${sumRub.toLocaleString("ru-RU")}₽`}
-            hint={`${data.metrics.payments.count} оплат`}
-            color="emerald"
-          />
-          <MetricBox
-            label="Посетители"
-            value={data.metrics.visitors.unique}
-            hint={`${data.metrics.visitors.total} визитов`}
-            color="pink"
-          />
+          {(() => {
+            // metric:<id> ↔ MetricBox. Загрузки/downloads нет drill-down (один счётчик).
+            const toggle = (id: string) => () =>
+              setExpandedKey((cur) => (cur === `metric:${id}` ? null : `metric:${id}`));
+            const isExpanded = (id: string) => expandedKey === `metric:${id}`;
+            return (
+              <>
+                <MetricBox
+                  label="Прослушивания"
+                  value={data.metrics.plays.total}
+                  hint={`${data.metrics.plays.unique} уник · ${data.metrics.plays.rejected} реджект`}
+                  color="violet"
+                  metricKey="plays"
+                  expanded={isExpanded("plays")}
+                  onClick={toggle("plays")}
+                />
+                <MetricBox
+                  label="Загрузки"
+                  value={data.metrics.downloads.count}
+                  color="cyan"
+                />
+                <MetricBox
+                  label="Регистрации"
+                  value={data.metrics.registrations.total}
+                  hint={data.metrics.registrations.byChannel
+                    .map((b) => `${b.channel}: ${b.count}`)
+                    .join(" · ")}
+                  color="emerald"
+                  metricKey="registrations"
+                  expanded={isExpanded("registrations")}
+                  onClick={toggle("registrations")}
+                />
+                <MetricBox
+                  label="Генерации"
+                  value={
+                    data.metrics.generations.music.done +
+                    data.metrics.generations.lyrics.done +
+                    data.metrics.generations.cover.done
+                  }
+                  hint={`music ${data.metrics.generations.music.done}/${
+                    data.metrics.generations.music.error
+                  } ошибок`}
+                  color="amber"
+                  metricKey="generations"
+                  expanded={isExpanded("generations")}
+                  onClick={toggle("generations")}
+                />
+                <MetricBox
+                  label="Платежи"
+                  value={`${sumRub.toLocaleString("ru-RU")}₽`}
+                  hint={`${data.metrics.payments.count} оплат`}
+                  color="emerald"
+                  metricKey="payments"
+                  expanded={isExpanded("payments")}
+                  onClick={toggle("payments")}
+                />
+                <MetricBox
+                  label="Посетители"
+                  value={data.metrics.visitors.unique}
+                  hint={`${data.metrics.visitors.total} визитов`}
+                  color="pink"
+                  metricKey="visitors"
+                  expanded={isExpanded("visitors")}
+                  onClick={toggle("visitors")}
+                />
+              </>
+            );
+          })()}
         </div>
+
+        {/* Expand panel — full-width под grid */}
+        <AnimatePresence initial={false}>
+          {expandedKey && expandedKey.startsWith("metric:") && (
+            <motion.div
+              key="metric-detail"
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.22, ease: "easeOut" }}
+              className="overflow-hidden mt-3"
+            >
+              <MetricDetailPanel
+                metric={expandedKey.split(":")[1]}
+                loading={expandedQuery.isLoading}
+                detail={(expandedQuery.data as Record<string, unknown> | undefined) || undefined}
+                error={
+                  expandedQuery.error
+                    ? expandedQuery.error instanceof Error
+                      ? expandedQuery.error.message
+                      : String(expandedQuery.error)
+                    : null
+                }
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </section>
 
       {/* 2.5. Click-stats (Агент Клик) */}
