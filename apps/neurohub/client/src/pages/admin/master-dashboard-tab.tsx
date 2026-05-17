@@ -1654,8 +1654,27 @@ function MusaVoiceCommand() {
 // ============================================================
 // MAIN TAB
 // ============================================================
+// Eugene 2026-05-17 Босс «по умолчанию параметры в проекте везде сегодня».
+// localStorage 'admin-period' — синхронизированный выбор period на все вкладки
+// админки (Period-20-MSK rule cut-off 20:00 МСК).
+function readDefaultPeriod(): Period {
+  if (typeof window === "undefined") return "today";
+  const saved = window.localStorage.getItem("admin-period");
+  if (saved && (saved === "today" || saved === "yesterday" || saved === "7d" || saved === "30d" || saved === "365d" || saved === "all" || saved.startsWith("month-") || saved === "custom")) {
+    return saved as Period;
+  }
+  return "today";
+}
+
 export default function MasterDashboardTab() {
-  const [period, setPeriod] = useState<Period>("7d");
+  const [period, setPeriodState] = useState<Period>(readDefaultPeriod());
+  const setPeriod = (p: Period) => {
+    setPeriodState(p);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("admin-period", p);
+      window.dispatchEvent(new CustomEvent("admin-period-change", { detail: p }));
+    }
+  };
   // Eugene 2026-05-17 Босс «per-domain трекинг».
   // 'all' = без фильтра, не передаём ?domain= в URL чтобы не дробить кэш.
   const [domain, setDomain] = useState<DomainBucket>("all");

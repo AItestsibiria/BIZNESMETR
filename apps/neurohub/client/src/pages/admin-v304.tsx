@@ -154,6 +154,57 @@ function ApiHealthLamp({ onJump }: { onJump: () => void }) {
   );
 }
 
+// Eugene 2026-05-17 Босс «по умолчанию параметры везде сегодня + кнопка выбора».
+// Глобальный period-selector в header админки. Состояние в localStorage
+// синхронизируется через CustomEvent 'admin-period-change' с master-dashboard.
+function GlobalPeriodSelector() {
+  const PERIODS: Array<{ id: string; label: string }> = [
+    { id: "today", label: "Сегодня" },
+    { id: "yesterday", label: "Вчера" },
+    { id: "7d", label: "Неделя" },
+    { id: "30d", label: "Месяц" },
+    { id: "365d", label: "Год" },
+    { id: "all", label: "Всё время" },
+  ];
+  const [period, setPeriodLocal] = useState<string>(() => {
+    if (typeof window === "undefined") return "today";
+    return window.localStorage.getItem("admin-period") || "today";
+  });
+  useEffect(() => {
+    const onChange = (e: any) => {
+      const p = e.detail || e.detail?.period;
+      if (typeof p === "string") setPeriodLocal(p);
+    };
+    window.addEventListener("admin-period-change", onChange);
+    return () => window.removeEventListener("admin-period-change", onChange);
+  }, []);
+  const pick = (id: string) => {
+    setPeriodLocal(id);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("admin-period", id);
+      window.dispatchEvent(new CustomEvent("admin-period-change", { detail: id }));
+    }
+  };
+  return (
+    <div className="mb-4 flex flex-wrap items-center gap-2 glass-card rounded-2xl p-3 border border-purple-500/20">
+      <span className="text-xs text-muted-foreground font-mono mr-1">📅 Период:</span>
+      {PERIODS.map(p => (
+        <button
+          key={p.id}
+          onClick={() => pick(p.id)}
+          className={
+            period === p.id
+              ? "px-3 py-1.5 text-sm rounded-full bg-gradient-to-r from-purple-500 via-fuchsia-500 to-cyan-400 text-white font-medium shadow-[0_0_16px_rgba(217,70,239,0.5)] border border-fuchsia-300/50"
+              : "px-3 py-1.5 text-sm rounded-full bg-white/5 text-white/70 hover:bg-white/10 hover:text-white transition-colors border border-white/10"
+          }
+        >
+          {p.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function AdminV304Page() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -228,6 +279,12 @@ export default function AdminV304Page() {
           ]}
         />
       </div>
+      {/* Eugene 2026-05-17 Босс «по умолчанию параметры в проекте везде сегодня» —
+          глобальный period selector в header админки. Default = today.
+          Состояние синхронизируется с master-dashboard через localStorage +
+          'admin-period-change' CustomEvent. */}
+      <GlobalPeriodSelector />
+
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="mb-4 flex flex-wrap">
           <TabsTrigger value="master-dashboard">🧠 Сводка</TabsTrigger>
