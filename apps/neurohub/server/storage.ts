@@ -679,6 +679,36 @@ try {
     );
     CREATE UNIQUE INDEX IF NOT EXISTS funnel_snapshots_uniq ON funnel_snapshots(date, funnel_id);
     CREATE INDEX IF NOT EXISTS funnel_snapshots_funnel_idx ON funnel_snapshots(funnel_id, date);
+
+    -- Eugene 2026-05-17 Босс «Cookies надо собирать и привязывать к профилю
+    -- автора только у админа доступ». Union таблица: один row на visitor
+    -- (анонимный) или один row на authed-user. Линкуется к users.id когда
+    -- visitor становится authed. cookieData — JSON {utm_*, referrer, devices[]}.
+    -- Доступ — только админ через requireAdmin guard в plugins/user-profiles.
+    CREATE TABLE IF NOT EXISTS user_profiles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,                    -- nullable (anonymous visitors)
+      visitor_id TEXT NOT NULL,           -- mzv cookie fingerprint
+      cookie_data TEXT,                   -- JSON
+      ip TEXT,
+      ip_country TEXT,
+      ip_city TEXT,
+      ip_region TEXT,
+      ip_asn TEXT,
+      user_agent TEXT,
+      device TEXT,
+      browser TEXT,
+      os TEXT,
+      first_seen TEXT NOT NULL,
+      last_seen TEXT NOT NULL,
+      visit_count INTEGER NOT NULL DEFAULT 1,
+      is_existing_author INTEGER DEFAULT 0,
+      deleted_at TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS user_profiles_visitor_idx ON user_profiles(visitor_id);
+    CREATE INDEX IF NOT EXISTS user_profiles_user_idx ON user_profiles(user_id);
+    CREATE INDEX IF NOT EXISTS user_profiles_last_seen_idx ON user_profiles(last_seen DESC);
+    CREATE INDEX IF NOT EXISTS user_profiles_country_seen_idx ON user_profiles(ip_country, last_seen);
   `);
 
   // Sprint 6 max-channel — расширяем chatbot_sessions для FSM
