@@ -23,6 +23,7 @@ import * as crypto from "node:crypto";
 import { sql, eq, and, desc } from "drizzle-orm";
 import { db } from "../storage";
 import { adminPendingActions, type AdminPendingAction } from "@shared/schema";
+import { renderAdminConfirmEmail, sendViaGmail } from "./adminEmailTemplates";
 
 export type ProtectedAction =
   | "change_registration_status"
@@ -72,101 +73,29 @@ function genActionId(): string {
   return crypto.randomUUID();
 }
 
-// === Email sender (re-uses existing nodemailer transport via dynamic import to
-// avoid circular dependency on server/routes.ts at module-load time) ===
+// === Email sender — обёртка над adminEmailTemplates ===
+// Сам шаблон + Gmail SMTP в lib/adminEmailTemplates.ts (вынесено для
+// тестируемости и повторного использования другими admin-notification flow).
 
 export interface EmailContext {
   email: string;
   code: string;
   action: ProtectedAction;
   argsPreview: string;
+  ip?: string | null;
+  userAgent?: string | null;
 }
 
 export async function sendAdminConfirmEmail(ctx: EmailContext): Promise<void> {
-  // Dynamic import to avoid circular dependency with server/routes.ts which
-  // imports many things on module load.
-  const nodemailer = await import("nodemailer");
-  const GMAIL_USER = process.env.GMAIL_USER || "tissan2021@gmail.com";
-  const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD || "";
-
-  if (!GMAIL_APP_PASSWORD) {
-    console.warn("[adminTwoFactor] GMAIL_APP_PASSWORD не установлен — email-confirm недоступен");
-    throw new Error("Email-канал не настроен (GMAIL_APP_PASSWORD missing)");
-  }
-
-  const transport = nodemailer.createTransport({
-    service: "gmail",
-    auth: { user: GMAIL_USER, pass: GMAIL_APP_PASSWORD },
+  const { subject, text, html } = renderAdminConfirmEmail({
+    code: ctx.code,
+    action: ctx.action,
+    argsPreview: ctx.argsPreview,
+    ip: ctx.ip ?? null,
+    userAgent: ctx.userAgent ?? null,
+    ttlMin: Math.round(CODE_TTL_MS / 60_000),
   });
-
-  const subject = `🔐 Код подтверждения admin-действия MuzaAi`;
-  const actionRu = ACTION_LABEL_RU[ctx.action] || ctx.action;
-
-  const html = `
-    <div style="font-family: -apple-system, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px; background: #09090b; border-radius: 16px; border: 1px solid #1a1a2e;">
-      <div style="text-align: center; margin-bottom: 24px;">
-        <span style="font-size: 24px; font-weight: 700; background: linear-gradient(135deg, #8b5cf6, #3b82f6); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">MuzaAi · Admin</span>
-      </div>
-      <p style="color: #e2e2e2; font-size: 15px; line-height: 1.6; margin-bottom: 8px;">Запрошено admin-действие:</p>
-      <p style="color: #fff; font-size: 16px; line-height: 1.6; margin: 8px 0 4px 0;"><strong>${escapeHtml(actionRu)}</strong></p>
-      <p style="color: #888; font-size: 13px; line-height: 1.4; margin: 4px 0 16px 0; font-family: monospace;">${escapeHtml(ctx.argsPreview)}</p>
-      <p style="color: #e2e2e2; font-size: 14px; line-height: 1.6;">Код подтверждения (действует 10 минут):</p>
-      <div style="text-align: center; margin: 16px 0 24px 0;">
-        <span style="display: inline-block; font-size: 36px; font-weight: 700; letter-spacing: 8px; color: #fff; background: linear-gradient(135deg, #8b5cf6, #3b82f6); padding: 16px 32px; border-radius: 12px; font-family: monospace;">${ctx.code}</span>
-      </div>
-      <div style="border-top: 1px solid #1a1a2e; padding-top: 16px; margin-top: 16px;">
-        <p style="color: #f87171; font-size: 13px; line-height: 1.6; margin: 0 0 8px 0;"><strong>Если это не ты — НЕМЕДЛЕННО:</strong></p>
-        <ol style="color: #d4d4d8; font-size: 13px; line-height: 1.7; padding-left: 20px; margin: 0;">
-          <li>Смени пароль admin-аккаунта</li>
-          <li>Проверь <code>admin_audit_log</code> — кто и когда заходил</li>
-          <li>Включи SSH-only auth и rotate session secrets</li>
-        </ol>
-      </div>
-    </div>`;
-
-  const text = [
-    `MuzaAi · Admin`,
-    ``,
-    `Запрошено admin-действие: ${actionRu}`,
-    `Параметры: ${ctx.argsPreview}`,
-    ``,
-    `Код подтверждения: ${ctx.code}`,
-    `(действует 10 минут)`,
-    ``,
-    `Если это не ты — НЕМЕДЛЕННО:`,
-    `1. Смени пароль admin-аккаунта`,
-    `2. Проверь admin_audit_log`,
-    `3. Включи SSH-only auth и rotate session secrets`,
-  ].join("\n");
-
-  await transport.sendMail({
-    from: `"MuzaAi Admin" <${GMAIL_USER}>`,
-    to: ctx.email,
-    subject,
-    text,
-    html,
-  });
-}
-
-const ACTION_LABEL_RU: Record<ProtectedAction, string> = {
-  change_registration_status: "Изменить статус регистрации",
-  kick_session: "Удалить все сессии юзера (force logout)",
-  query_users: "Поиск юзеров по PII (email/phone/name)",
-  send_telegram_alert: "Отправить Telegram-сообщение админу",
-  reload_kb: "Перезагрузить knowledge base бота",
-  pause_bot: "Пауза/возобновление Telegram-бота",
-  restart_pm2: "Перезапуск pm2-процесса (downtime)",
-  delete_user: "Удалить юзера (hard-delete)",
-  refund_payment: "Возврат платежа",
-};
-
-function escapeHtml(s: string): string {
-  return String(s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+  await sendViaGmail(ctx.email, subject, text, html);
 }
 
 // === Rate limit for initiate (per admin) ===
@@ -256,6 +185,8 @@ export async function initiateAction(input: InitiateInput): Promise<InitiateResu
       code,
       action: input.action,
       argsPreview: previewArgs(input.args),
+      ip: input.ip ?? null,
+      userAgent: input.userAgent ?? null,
     });
   } catch (e) {
     // Если email не отправился — удаляем pending запись (нет смысла оставлять
