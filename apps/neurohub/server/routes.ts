@@ -2562,12 +2562,41 @@ export async function registerRoutes(
 
       // Re-extract memo с учётом нового user-message (для UI таблицы).
       const updatedMemo = extractMemoryFromHistory(loadSessionHistory(session.id, 30));
+
+      // Eugene 2026-05-17 Босс «резервные каналы при downtime».
+      // Когда LLM упал (usedFallback=true) — фронт показывает баннер с
+      // альтернативными каналами связи. Берём только включённые.
+      let backupChannels: Array<{ id: string; name: string; url: string; hint: string }> | undefined;
+      if (usedFallback) {
+        const bots: Array<{ id: string; name: string; url: string; hint: string }> = [];
+        const tgUser = process.env.TELEGRAM_BOT_USERNAME || "Muziaipodari_bot";
+        if (process.env.TELEGRAM_BOT_TOKEN) {
+          bots.push({
+            id: "telegram",
+            name: "Telegram",
+            url: `https://t.me/${tgUser}`,
+            hint: `Напишите @${tgUser}`,
+          });
+        }
+        if (process.env.MAX_BOT_TOKEN) {
+          const maxLink = process.env.MAX_BOT_LINK || "https://max.ru";
+          bots.push({
+            id: "max",
+            name: "Max",
+            url: maxLink,
+            hint: "Откройте чат в Max",
+          });
+        }
+        if (bots.length > 0) backupChannels = bots;
+      }
+
       res.json({
         ok: true,
         sessionId: session.id,
         reply,
         quickReplies,
         usedFallback,
+        backupChannels,
         paired: pairedNow,
         pairedFromChannel: pairedNow ? session.channel : null,
         memo: updatedMemo,
