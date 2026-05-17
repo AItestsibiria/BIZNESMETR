@@ -11,6 +11,7 @@ import { PUBLIC_URL } from "./publicUrl";
 import * as fs from "node:fs";
 import * as crypto from "node:crypto";
 import { kbPath, loadKB } from "./consultantPersona";
+import { recordAuditEntry } from "./adminAuditLog";
 import {
   initiateAction,
   getConfirmedAction,
@@ -316,6 +317,30 @@ export const MUZA_TOOLS: ToolDef[] = [
     name: "get_bot_channels_status",
     description: "[ADMIN-ONLY] Состояние всех каналов общения (web / telegram / max) + LLM engine (primary anthropic + fallback timeweb-gateway). Возвращает короткий текст: какой канал зелёный / жёлтый / красный с проблемами. Используй когда админ спрашивает «как каналы», «всё ли работает», «что упало» или хочет голосовое summary. Под капотом — bot-channels-health плагин.",
     input_schema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "escalate_to_admin",
+    description: "Эскалация открытого support-ticket'а на админа: ставит priority='high' и шлёт Telegram-alert админу. Используй когда: юзер просит срочно / проблема критична / ты не можешь решить вопрос в чате. ticketId обязателен (получается из создания ticket'а).",
+    input_schema: {
+      type: "object",
+      properties: {
+        ticketId: { type: "string", description: "ID ticket'а (uuid из support-create)" },
+        reason: { type: "string", description: "Краткая причина (≤200 chars)" },
+      },
+      required: ["ticketId", "reason"],
+    },
+  },
+  {
+    name: "resolve_ticket",
+    description: "Закрытие support-ticket'а как resolved: ставит status='resolved' и пишет admin-резюме в чат. Используй когда: юзер сказал «спасибо/решено» / вопрос явно закрыт. ticketId обязателен.",
+    input_schema: {
+      type: "object",
+      properties: {
+        ticketId: { type: "string", description: "ID ticket'а" },
+        summary: { type: "string", description: "Резюме решения (≤500 chars) — пойдёт в админ-логи" },
+      },
+      required: ["ticketId", "summary"],
+    },
   },
 ];
 
@@ -1144,6 +1169,99 @@ const HANDLERS: Record<string, ToolHandler> = {
       return await mod.getChannelsStatusSummary();
     } catch (e: any) {
       return `Ошибка get_bot_channels_status: ${e.message}`;
+    }
+  },
+
+  async escalate_to_admin({ ticketId, reason }, { userId, sessionId, channel }) {
+    console.log(`[TOOL escalate_to_admin] ticketId=${String(ticketId).slice(0, 12)} userId=${userId}`);
+    try {
+      const id = String(ticketId || "").trim();
+      const r = String(reason || "").trim().slice(0, 200);
+      if (!id) return "Нужен ticketId.";
+      const ticket: any = db.select().from(agentHandoffs).where(eq(agentHandoffs.id, id)).get();
+      if (!ticket) return `Ticket ${id.slice(0, 8)} не найден.`;
+      const now = Date.now();
+      db.update(agentHandoffs).set({
+        priority: "high",
+        status: ticket.status === "open" ? "in_progress" : ticket.status,
+        updatedAt: now,
+      } as any).where(eq(agentHandoffs.id, id)).run();
+
+      const tgToken = process.env.TELEGRAM_BOT_TOKEN;
+      const adminId = process.env.ADMIN_TELEGRAM_ID;
+      if (tgToken && adminId) {
+        const uref = userId ? `#${userId}` : "anonymous";
+        const ch = channel ? String(channel) : (ticket.channel || "?");
+        const url = `${PUBLIC_URL}/#/admin/v304?tab=support&ticket=${encodeURIComponent(id)}`;
+        const text = [
+          "🚨 *Эскалация ticket'а на админа*",
+          "",
+          `Ticket: \`${id.slice(0, 8)}\``,
+          `User: \`${uref}\``,
+          `Канал: \`${ch}\``,
+          `Причина: ${r || "—"}`,
+          "",
+          `Открыть: ${url}`,
+        ].join("\n");
+        fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: adminId,
+            text,
+            parse_mode: "Markdown",
+            disable_web_page_preview: true,
+          }),
+          signal: AbortSignal.timeout(8_000),
+        }).catch((e: any) => {
+          console.error("[escalate_to_admin alert]", e?.message || e);
+        });
+      }
+      return JSON.stringify({
+        ticketId: id,
+        status: "in_progress",
+        priority: "high",
+        message: `Эскалировано админу. Скажи юзеру: «Передала Боссу — он подключится в этот чат, как только сможет. На срочное — hello@muziai.ru».`,
+      });
+    } catch (e: any) {
+      return `Ошибка эскалации: ${e.message}`;
+    }
+  },
+
+  async resolve_ticket({ ticketId, summary }, { userId }) {
+    console.log(`[TOOL resolve_ticket] ticketId=${String(ticketId).slice(0, 12)} userId=${userId}`);
+    try {
+      const id = String(ticketId || "").trim();
+      const s = String(summary || "").trim().slice(0, 500);
+      if (!id) return "Нужен ticketId.";
+      const ticket: any = db.select().from(agentHandoffs).where(eq(agentHandoffs.id, id)).get();
+      if (!ticket) return `Ticket ${id.slice(0, 8)} не найден.`;
+      const now = Date.now();
+      db.update(agentHandoffs).set({
+        status: "resolved",
+        updatedAt: now,
+        resolvedAt: now,
+      } as any).where(eq(agentHandoffs.id, id)).run();
+
+      try {
+        recordAuditEntry({
+          adminUserId: null,
+          adminEmail: "muza-bot",
+          action: "update",
+          entity: "support_ticket",
+          entityKey: id,
+          before: { status: ticket.status },
+          after: { status: "resolved", summary: s, via: "muza_auto" },
+        });
+      } catch {}
+
+      return JSON.stringify({
+        ticketId: id,
+        status: "resolved",
+        message: `Закрыла ticket как resolved. Скажи юзеру: «Рада, что разобрались! Если что-то ещё — пишите.» Резюме сохранила админу.`,
+      });
+    } catch (e: any) {
+      return `Ошибка закрытия ticket: ${e.message}`;
     }
   },
 };

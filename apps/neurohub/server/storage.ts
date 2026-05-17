@@ -778,6 +778,29 @@ try {
     console.error("[MIGRATION] agent_* tables failed:", e);
   }
 
+  // Eugene 2026-05-17 Босс «техподдержка»: расширение agent_handoffs под
+  // support-ticket flow. Per No-duplicates rule переиспользуем existing table
+  // вместо создания parallel support_tickets. SQLite ADD COLUMN — idempotent
+  // через try/catch (нет IF NOT EXISTS для ALTER).
+  const handoffAlters = [
+    `ALTER TABLE agent_handoffs ADD COLUMN user_id INTEGER`,
+    `ALTER TABLE agent_handoffs ADD COLUMN channel TEXT`,
+    `ALTER TABLE agent_handoffs ADD COLUMN subject TEXT`,
+    `ALTER TABLE agent_handoffs ADD COLUMN priority TEXT DEFAULT 'normal'`,
+    `ALTER TABLE agent_handoffs ADD COLUMN updated_at INTEGER`,
+    `ALTER TABLE agent_handoffs ADD COLUMN resolved_at INTEGER`,
+    `ALTER TABLE agent_handoffs ADD COLUMN meta TEXT`,
+  ];
+  for (const stmt of handoffAlters) {
+    try { sqlite.exec(stmt); } catch { /* column exists — fine */ }
+  }
+  try {
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS agent_handoffs_user_idx ON agent_handoffs(user_id, status, created_at DESC)`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS agent_handoffs_priority_idx ON agent_handoffs(priority, status)`);
+  } catch (e) {
+    console.error("[MIGRATION] agent_handoffs support indexes failed:", e);
+  }
+
   // Landing news (Eugene 2026-05-12 Босс): архив + CRUD редактирование.
   // Eugene 2026-05-17 Босс: расширение под CMS — category, body_html, icon_url,
   // cta_url, cta_label, sort_order, is_visible, view_count. Все ALTER'ы

@@ -707,10 +707,22 @@ export type AgentFeedback = typeof agentFeedback.$inferSelect;
 export const agentHandoffs = sqliteTable("agent_handoffs", {
   id: text("id").primaryKey(),                       // uuid
   sessionId: text("session_id").notNull(),
-  reason: text("reason").notNull(),                  // 'user_request' | 'low_confidence' | 'data_conflict' | 'destructive_action'
+  reason: text("reason").notNull(),                  // 'user_request' | 'low_confidence' | 'data_conflict' | 'destructive_action' | 'support_button'
   assignedTo: integer("assigned_to"),                // FK users.id (nullable, заполняется когда оператор подхватил)
-  status: text("status").notNull().default("open"),  // 'open' | 'in_progress' | 'closed'
+  status: text("status").notNull().default("open"),  // 'open' | 'in_progress' | 'resolved' | 'closed'
   createdAt: integer("created_at").notNull(),        // unix-ms
+  // Eugene 2026-05-17 Босс «техподдержка»: расширение под support-ticket flow.
+  // Когда юзер нажимает «🆘 Техподдержка» в кабинете — создаётся handoff с
+  // reason='support_button' + заполненными userId/channel/subject/priority/meta.
+  // Существующие handoff'ы (request_human_handoff из muzaTools) продолжают
+  // работать — новые поля nullable, не ломают старые записи.
+  userId: integer("user_id"),                        // FK users.id (nullable — анон тоже может)
+  channel: text("channel"),                          // 'web' | 'telegram' | 'max' | null (для legacy)
+  subject: text("subject"),                          // краткая тема обращения (auto или manual)
+  priority: text("priority").default("normal"),      // 'low' | 'normal' | 'high' | 'urgent'
+  updatedAt: integer("updated_at"),                  // unix-ms (для last-touch sorting)
+  resolvedAt: integer("resolved_at"),                // unix-ms (когда статус стал 'resolved'/'closed')
+  meta: text("meta"),                                // JSON: { userAgent, ip, page, currentTrackId, ... }
 });
 export type AgentHandoff = typeof agentHandoffs.$inferSelect;
 
