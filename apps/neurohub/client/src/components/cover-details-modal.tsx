@@ -28,6 +28,14 @@
 // • На mobile стрелки subtle wiggle ±3px каждые 4 сек (намёк на жест)
 // • Desktop hover → стрелки scale-110, фирменный purple gradient
 // • LocalStorage flag `cover-modal-hint-seen` — overlay показывается раз
+//
+// Eugene 2026-05-17 Босс «фирменный стиль MuzaAi» (Brand-style consistency):
+// • Container растянут: w-[90vw] max-w-[900px] / sm:max-w-[1100px]
+// • Cover больше: aspect-square max-h-[85vh]
+// • Title крупнее + font-display + gradient-text (purple→blue)
+// • Body text увеличен (text-base / text-lg)
+// • Фон deep-space с violet tint + brand-border + brand-glow
+// • Стрелки 14×14 с brand gradient hover-glow (purple/cyan)
 import { useEffect, useRef, useState } from "react";
 import { X, ChevronLeft, ChevronRight, Info } from "lucide-react";
 import { motion, AnimatePresence, type PanInfo } from "framer-motion";
@@ -170,7 +178,7 @@ export function CoverDetailsModal({ open, onClose, track, onNext, onPrev }: Cove
       aria-modal="true"
       aria-label="Детали обложки"
       onClick={handleBackdropClick}
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/85 backdrop-blur-md animate-in fade-in duration-200 cursor-zoom-out"
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-gradient-to-br from-[#0a0a17]/95 via-[#1a0f2e]/95 to-[#0a0a17]/95 backdrop-blur-xl animate-in fade-in duration-200 cursor-zoom-out"
       data-testid="cover-details-modal"
     >
       {/* Info button — рядом с close */}
@@ -226,21 +234,21 @@ export function CoverDetailsModal({ open, onClose, track, onNext, onPrev }: Cove
         </div>
       )}
 
-      <div className="w-[80vw] max-w-[600px] flex flex-col items-center gap-4 px-4 relative">
+      <div className="w-[90vw] max-w-[900px] sm:max-w-[1100px] flex flex-col items-center gap-5 px-4 relative">
         {/* Левая стрелка-хинт (показывается если есть onPrev) */}
         {onPrev && (
           <button
             type="button"
             aria-label="Предыдущий трек"
             onClick={(e) => { e.stopPropagation(); dismissHint(); onPrev(); }}
-            className={`hidden sm:flex absolute left-[-56px] top-1/2 -translate-y-1/2 w-12 h-12 rounded-full items-center justify-center transition-all z-10 ${
+            className={`hidden sm:flex absolute left-[-72px] top-1/2 -translate-y-1/2 w-14 h-14 rounded-full items-center justify-center transition-all z-10 ${
               dragDirection === "right"
-                ? "bg-gradient-to-br from-purple-500/60 to-cyan-500/40 border border-purple-400/60 scale-110 text-white shadow-lg shadow-purple-500/30"
-                : "bg-white/5 border border-white/10 text-white/40 hover:bg-gradient-to-br hover:from-purple-500/40 hover:to-cyan-500/30 hover:text-white hover:scale-110 hover:border-purple-400/40"
+                ? "bg-gradient-to-br from-purple-500 via-fuchsia-500/80 to-cyan-500/70 border border-purple-300/70 scale-110 text-white shadow-[0_0_32px_rgba(124,58,237,0.6)]"
+                : "bg-white/5 border border-purple-400/20 text-white/50 hover:bg-gradient-to-br hover:from-purple-500/60 hover:via-fuchsia-500/50 hover:to-cyan-500/40 hover:text-white hover:scale-110 hover:border-purple-400/60 hover:shadow-[0_0_32px_rgba(124,58,237,0.5)]"
             }`}
             data-testid="cover-details-prev"
           >
-            <ChevronLeft className="w-7 h-7" />
+            <ChevronLeft className="w-8 h-8" />
           </button>
         )}
 
@@ -250,20 +258,20 @@ export function CoverDetailsModal({ open, onClose, track, onNext, onPrev }: Cove
             type="button"
             aria-label="Следующий трек"
             onClick={(e) => { e.stopPropagation(); dismissHint(); onNext(); }}
-            className={`hidden sm:flex absolute right-[-56px] top-1/2 -translate-y-1/2 w-12 h-12 rounded-full items-center justify-center transition-all z-10 ${
+            className={`hidden sm:flex absolute right-[-72px] top-1/2 -translate-y-1/2 w-14 h-14 rounded-full items-center justify-center transition-all z-10 ${
               dragDirection === "left"
-                ? "bg-gradient-to-br from-purple-500/60 to-cyan-500/40 border border-purple-400/60 scale-110 text-white shadow-lg shadow-purple-500/30"
-                : "bg-white/5 border border-white/10 text-white/40 hover:bg-gradient-to-br hover:from-purple-500/40 hover:to-cyan-500/30 hover:text-white hover:scale-110 hover:border-purple-400/40"
+                ? "bg-gradient-to-br from-purple-500 via-fuchsia-500/80 to-cyan-500/70 border border-purple-300/70 scale-110 text-white shadow-[0_0_32px_rgba(124,58,237,0.6)]"
+                : "bg-white/5 border border-purple-400/20 text-white/50 hover:bg-gradient-to-br hover:from-purple-500/60 hover:via-fuchsia-500/50 hover:to-cyan-500/40 hover:text-white hover:scale-110 hover:border-purple-400/60 hover:shadow-[0_0_32px_rgba(124,58,237,0.5)]"
             }`}
             data-testid="cover-details-next"
           >
-            <ChevronRight className="w-7 h-7" />
+            <ChevronRight className="w-8 h-8" />
           </button>
         )}
 
         {/* Обложка с swipe-жестом */}
         <div
-          className="w-full aspect-square max-h-[80vh] rounded-2xl overflow-hidden bg-gradient-to-br from-purple-900/40 to-blue-900/40 shadow-2xl shadow-purple-500/20 border border-white/10 relative"
+          className="w-full aspect-square max-h-[85vh] rounded-3xl overflow-hidden bg-gradient-to-br from-[#1a0f2e] via-[#0a0a17] to-[#0f1830] shadow-[0_0_64px_rgba(124,58,237,0.25)] border border-purple-500/20 relative"
           onClick={(e) => e.stopPropagation()}
         >
           <AnimatePresence mode="wait" initial={false}>
@@ -358,22 +366,22 @@ export function CoverDetailsModal({ open, onClose, track, onNext, onPrev }: Cove
         </div>
 
         <div className="w-full text-center px-2 pb-4" onClick={(e) => e.stopPropagation()}>
-          <p className="text-xl sm:text-2xl font-bold text-white leading-tight">{title}</p>
+          <p className="text-3xl sm:text-4xl font-display font-bold gradient-text leading-tight">{title}</p>
           {track.authorName && (
-            <p className="text-sm sm:text-base text-purple-300/90 mt-1.5 font-medium">{track.authorName}</p>
+            <p className="text-base sm:text-lg text-purple-300/90 mt-3 font-medium font-sans">{track.authorName}</p>
           )}
           {track.styleInfo && (
-            <p className="text-xs sm:text-sm text-white/60 mt-2">{track.styleInfo}</p>
+            <p className="text-sm sm:text-base text-cyan-200/70 mt-2 font-sans">{track.styleInfo}</p>
           )}
           {track.prompt && track.prompt !== title && (
-            <p className="text-xs sm:text-sm text-white/50 mt-3 leading-relaxed max-h-32 overflow-y-auto">
+            <p className="text-sm sm:text-base text-white/60 mt-4 leading-relaxed max-h-40 overflow-y-auto font-sans">
               {track.prompt.slice(0, 240)}{track.prompt.length > 240 ? "…" : ""}
             </p>
           )}
           {date && (
-            <p className="text-[11px] text-white/40 mt-3">{date}</p>
+            <p className="text-xs sm:text-sm text-white/40 mt-4 font-mono">{date}</p>
           )}
-          <p className="text-[11px] text-white/40 mt-4 italic">
+          <p className="text-xs text-white/40 mt-5 italic font-sans">
             {(onNext || onPrev)
               ? "Свайп ← → или стрелки клавиатуры. Кликните вне обложки, чтобы закрыть"
               : "Кликните в любую точку, чтобы закрыть"}
