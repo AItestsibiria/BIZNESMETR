@@ -7000,9 +7000,17 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       const genId = parseInt(req.params.id);
       const gen = db.select().from(generations).where(eq(generations.id, genId)).get();
       if (!gen) return res.json({ ok: false });
+      // Eugene 2026-05-17 IDOR-fix: приватные треки (isPublic=0) — только владелец/админ.
+      if ((gen.isPublic ?? 0) === 0) {
+        const authedUser = (req as any).user || (req as any).authedUser;
+        const authedUserId = authedUser?.id || (req as any).userId;
+        const isAdmin = ['admin', 'super_admin'].includes(String(authedUser?.role || '').toLowerCase());
+        if (!isAdmin && gen.userId !== authedUserId) {
+          return res.status(403).json({ ok: false, error: "private-track" });
+        }
+      }
       const decision = shouldCountPlay(req, gen);
       if (!decision.count) {
-        // Записываем reject в gen_activity для аналитики (action='play_rejected').
         try { logGenActivity(genId, `play_rejected:${decision.reason}`, req.ip); } catch {}
         return res.json({ ok: true, counted: false, reason: decision.reason });
       }
@@ -7384,13 +7392,25 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const genId = parseInt(req.params.id);
     const action = req.params.action;
     if (['copy', 'share', 'download', 'play'].includes(action)) {
+      const gen = db.select().from(generations).where(eq(generations.id, genId)).get();
+      if (!gen) return res.json({ ok: false });
+      // Eugene 2026-05-17 IDOR-fix: запрет накрутки/leak'а через чужие приватные
+      // треки. Если gen.isPublic === 0 — действие разрешено только владельцу
+      // или админу (authMiddleware не применяется в этом endpoint'е, поэтому
+      // проверяем Bearer/cookie вручную через resolveUserFromReq если есть).
+      if ((gen.isPublic ?? 0) === 0) {
+        const authedUser = (req as any).user || (req as any).authedUser;
+        const authedUserId = authedUser?.id || (req as any).userId;
+        const isAdmin = ['admin', 'super_admin'].includes(String(authedUser?.role || '').toLowerCase());
+        if (!isAdmin && gen.userId !== authedUserId) {
+          return res.status(403).json({ ok: false, error: "private-track" });
+        }
+      }
       // Eugene 2026-05-15 Босс «правило прослушиваний» — для action=play
       // применяется shouldCountPlay (5+ сек, IP-dedup, author-self, admin,
       // bot-UA исключаются). Для copy/share/download — без фильтрации.
       if (action === 'play') {
         try {
-          const gen = db.select().from(generations).where(eq(generations.id, genId)).get();
-          if (!gen) return res.json({ ok: false });
           const decision = shouldCountPlay(req, gen);
           if (!decision.count) {
             try { logGenActivity(genId, `play_rejected:${decision.reason}`, req.ip); } catch {}
@@ -7409,13 +7429,10 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       logGenActivity(genId, action, req.ip);
       if (action === 'download') {
         try {
-          const gen = db.select().from(generations).where(eq(generations.id, genId)).get();
-          if (gen) {
-            let meta: any = {};
-            try { meta = JSON.parse(gen.style || "{}"); } catch {}
-            meta.downloads = (meta.downloads || 0) + 1;
-            db.update(generations).set({ style: JSON.stringify(meta) }).where(eq(generations.id, genId)).run();
-          }
+          let meta: any = {};
+          try { meta = JSON.parse(gen.style || "{}"); } catch {}
+          meta.downloads = (meta.downloads || 0) + 1;
+          db.update(generations).set({ style: JSON.stringify(meta) }).where(eq(generations.id, genId)).run();
         } catch {}
       }
     }
