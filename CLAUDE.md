@@ -834,6 +834,45 @@ Rate-limit alert'ов:
 | `/api/admin/v304/yars-mentions` | Упоминания Ярса |
 | `/api/admin/v304/api-keys/health` | Статусы всех API ключей |
 
+### Period-20-MSK rule (Eugene 2026-05-17)
+
+**Cut-off дня = 20:00 МСК. Все аналитические endpoints используют ОДИН helper — `getPeriodRange(period)` из `apps/neurohub/server/lib/periodBoundaries.ts`. Своих period-расчётов больше нет.**
+
+Что закрывает анти-паттерн: до этого правила каждый модуль (master-dashboard, funnels, visitor-stats, gen-stats, top-downloads, gen-activity-geo) имел СВОЮ логику cut-off дня — кто-то 00:00 МСК, кто-то rolling -24h от текущего момента, кто-то datetime('now','-1 day'). Цифры за «сегодня» расходились между модулями: visitor-stats считал одно, gen-stats другое, master-dashboard третье. Босс не мог сверить плеи/регистрации/визиты.
+
+Cut-off semantics:
+- **«Сегодня»** = `[вчера 20:00 МСК .. сегодня 20:00 МСК)` (или до текущего момента если 20:00 ещё не наступило).
+- **«Вчера»** = `[позавчера 20:00 МСК .. вчера 20:00 МСК)`.
+- **«Неделя/Месяц/Год»** = rolling от `now - 7d/30d/365d` до `now` (точно столько-то дней назад, не календарь).
+- **«month-N»** для N=1..12 = `[N-го месяца 1 числа 20:00 МСК .. (N+1)-го месяца 1 числа 20:00 МСК)` в текущем году.
+- **«Всё время»** = с 2024-01-01 UTC до `now`.
+- **«custom»** = заданные параметрами `from` / `to` ISO bounds.
+
+Технически:
+- `MSK_OFFSET_HOURS = 3`, `CUTOFF_HOUR_MSK = 20`. 20:00 МСК = 17:00 UTC.
+- `getPeriodRange(period, customFrom?, customTo?)` → `{ fromIso, toIso, label, id }`. `fromIso` включительно, `toIso` исключительно (полуоткрытый интервал).
+- `periodSqlFilter(period, column?)` → готовый SQL WHERE-фрагмент `column >= 'X' AND column < 'Y'`.
+- `normalizePeriodId(raw)` → валидный `PeriodId` (fallback 'today').
+- `listPeriodIds()` → массив `{id, label}` для UI селекторов.
+
+Применяется к (все endpoints с фильтром по периоду):
+1. `master-dashboard/module.ts` — `dashboard-summary`, `click-stats`, `dashboard-detail/:metric`, `briefing-text`, `brain-export`.
+2. `funnels/module.ts` — `funnels` (период) + `funnel-daily-snapshot` (per-date через `rangeForDate` — это специальный case, остаётся локальным).
+3. `routes.ts` — `visitor-stats`, `gen-stats`, `top-downloads`, `gen-activity-geo`.
+4. Любые **новые** endpoints с `?period=…` параметром.
+
+НЕ применяется к:
+- Fixed-window метрикам (status indicators всегда «последние 24 часа», `now-5min` для login-bot-attempt).
+- Per-date snapshots (funnel daily snapshot за конкретный YYYY-MM-DD MSK-день).
+- Per-user pagination cursors (`days=N` для chat-funnel — это N-days window, не period-pill).
+
+Audit-сценарий перед коммитом аналитического endpoint'а:
+1. `grep -n "datetime('now',.*-.*day\|new Date(Date.now() - .* \* 24" <файл>` — ничего не нашлось ✓
+2. `grep -n "getPeriodRange\|periodToBounds\|periodToRange" <файл>` — должно быть в каждом endpoint'е с period-параметром.
+3. Открыть https://muzaai.ru/admin/v304 с одним и тем же `period=today` в нескольких вкладках — цифры за «сегодня» в visitor-stats, gen-stats, master-dashboard должны совпадать.
+
+Если цифры расходятся — кто-то нарушил это правило. Найти и заменить на `getPeriodRange()`.
+
 ### Reuse-working-solutions rule (Eugene 2026-05-07)
 
 **Запоминай какие решения работают без отказно — приоритетно используй их повторно.** Перед написанием НОВОГО endpoint'а / pipeline'а / компонента — сначала смотрю, есть ли в кодовой базе аналог, который уже подтверждённо работает в проде. Если есть — funnel через него, не создаю параллельный путь.
@@ -855,6 +894,7 @@ Rate-limit alert'ов:
 - `normalizeVocalParams()` (server/lib/normalizeVocalParams.ts) — единый normalizer voice (Female Vocal / Male Vocal / Duet / Instrumental).
 - `btn-cosmic` (index.css) — magic shimmer-gradient CSS class. Используется на landing CTA + magic-кнопке /music.
 - `pollProcessingGenerations()` + bonus 2-й трек (admin-overview/module.ts).
+- `getPeriodRange()` (server/lib/periodBoundaries.ts) — единая логика period boundaries (cut-off 20:00 МСК). Используется во всех аналитических endpoints (master-dashboard, funnels, visitor-stats, gen-stats, top-downloads, gen-activity-geo). См. Period-20-MSK rule.
 
 ### Numbered options rule (Eugene 2026-05-07)
 
