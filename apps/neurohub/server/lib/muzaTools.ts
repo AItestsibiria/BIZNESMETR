@@ -418,6 +418,23 @@ export const MUZA_TOOLS: ToolDef[] = [
       required: ["type"],
     },
   },
+  // === Voice picker (Eugene 2026-05-17 Босс «8 голосов Yandex, можно менять
+  // кликом и по команде»). Tool возвращает marker [VOICE_CHANGED:<voice>:<emotion>]
+  // → frontend парсит, сохраняет в localStorage, использует в следующих
+  // /voice-command-text / /voice-command request'ах через voice + emotion в body.
+  // Доступен и admin, и user (UX-фича для всех).
+  {
+    name: "change_voice",
+    description: "Сменить голос Музы для TTS. Доступны 8 голосов Yandex SpeechKit: alena (Алёна, женский тёплый, default), jane (Джейн, женский нейтральный), oksana (Оксана, женский эмоциональный), omazh (Омаж, женский медленный), zahar (Захар, мужской глубокий), ermil (Эрмиль, мужской позитивный), filipp (Филипп, мужской спокойный), madirus (Мадирус, мужской премиум, low pitch). Эмоция: neutral / good / evil (только для alena/jane/oksana/omazh). Используй когда юзер говорит «смени голос», «другим голосом», «мужским», «голос Захара», «эмоциональнее», «грубее».",
+    input_schema: {
+      type: "object",
+      properties: {
+        voice: { type: "string", enum: ["alena", "jane", "oksana", "omazh", "zahar", "ermil", "filipp", "madirus"], description: "Голос Yandex SpeechKit" },
+        emotion: { type: "string", enum: ["neutral", "good", "evil"], description: "Опц., default neutral. Только для женских голосов (alena/jane/oksana/omazh)." },
+      },
+      required: ["voice"],
+    },
+  },
 ];
 
 // === Email 2FA wrapper helper (Eugene 2026-05-17 Босс) ===
@@ -1075,6 +1092,34 @@ const HANDLERS: Record<string, ToolHandler> = {
     }
     const label = t === "main" ? "основной" : t === "new" ? "новые авторы" : "мои треки";
     return `[PLAYER_ACTION:filter:${t}] Показываю плейлист «${label}».`;
+  },
+
+  // Voice picker (Eugene 2026-05-17 Босс): marker [VOICE_CHANGED:<voice>:<emotion>]
+  // парсится frontend'ом → сохранение в localStorage + использование в следующих
+  // TTS request'ах. Эмоция применима только для женских голосов; для мужских
+  // (zahar/ermil/filipp/madirus) Yandex API игнорирует её — но мы всё равно
+  // пишем neutral для consistency.
+  async change_voice({ voice, emotion }) {
+    const allowed = new Set(["alena", "jane", "oksana", "omazh", "zahar", "ermil", "filipp", "madirus"]);
+    const allowedEmotions = new Set(["neutral", "good", "evil"]);
+    const v = String(voice || "alena").toLowerCase();
+    const e = String(emotion || "neutral").toLowerCase();
+    if (!allowed.has(v)) {
+      return `Не знаю голос «${voice}». Доступны: Алёна, Джейн, Оксана, Омаж, Захар, Эрмиль, Филипп, Мадирус.`;
+    }
+    const finalEmotion = allowedEmotions.has(e) ? e : "neutral";
+    const ru: Record<string, string> = {
+      alena: "Алёна",
+      jane: "Джейн",
+      oksana: "Оксана",
+      omazh: "Омаж",
+      zahar: "Захар",
+      ermil: "Эрмиль",
+      filipp: "Филипп",
+      madirus: "Мадирус",
+    };
+    const ruVoice = ru[v] || v;
+    return `[VOICE_CHANGED:${v}:${finalEmotion}] Хорошо, говорю голосом ${ruVoice}.`;
   },
 
   // === ADMIN-ONLY handlers (Eugene 2026-05-17) ===
