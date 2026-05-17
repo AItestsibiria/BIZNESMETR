@@ -1018,6 +1018,57 @@ router.get("/brain-export", requireAdmin, (_req, res) => {
       edges.push({ from: m.id, to: "core:db", kind: "reads-from" });
     }
 
+    // clickStats — топ-горячие точки сайта (для 3D «горячих зон» в Second Brain).
+    // Берём минимальный slice: top-20 элементов + byPage. Полный список в
+    // /click-stats endpoint'е. Cache shared (через те же 60 сек).
+    let clickStatsSlice: {
+      topElements: Array<{
+        elementKey: string;
+        elementText: string | null;
+        count: number;
+        uniqueUsers: number;
+      }>;
+      byPage: Record<string, {
+        totalClicks: number;
+        pageViews: number;
+        avgTimeMs: number;
+        bounceRate: number;
+      }>;
+      totalClicks: number;
+      uniqueClickers: number;
+    } = { topElements: [], byPage: {}, totalClicks: 0, uniqueClickers: 0 };
+    try {
+      let cs = getCachedClicks("30d");
+      if (!cs) {
+        cs = buildClickStats("30d", since30);
+        setCachedClicks("30d", cs);
+      }
+      clickStatsSlice = {
+        topElements: cs.topElements.map(e => ({
+          elementKey: e.elementKey,
+          elementText: e.elementText,
+          count: e.count,
+          uniqueUsers: e.uniqueUsers,
+        })),
+        byPage: Object.fromEntries(
+          Object.entries(cs.byPage).map(([page, p]) => [
+            page,
+            {
+              totalClicks: p.totalClicks,
+              pageViews: p.pageViews,
+              avgTimeMs: p.avgTimeMs,
+              bounceRate: p.bounceRate,
+            },
+          ]),
+        ),
+        totalClicks: cs.totalClicks,
+        uniqueClickers: cs.uniqueClickers,
+      };
+    } catch {
+      // user_journey_events может ещё не быть на старой БД — оставляем пустой
+      // slice. Не блокируем brain-export.
+    }
+
     res.json({
       data: {
         generatedAt: new Date().toISOString(),
@@ -1025,6 +1076,7 @@ router.get("/brain-export", requireAdmin, (_req, res) => {
         since: since30,
         nodes,
         edges,
+        clickStats: clickStatsSlice,
         summary: {
           totals: {
             nodes: nodes.length,
@@ -1032,6 +1084,8 @@ router.get("/brain-export", requireAdmin, (_req, res) => {
             plugins: pluginNodes.length,
             channels: channelNodes.length,
             providers: providerNodes.length,
+            clicks: clickStatsSlice.totalClicks,
+            uniqueClickers: clickStatsSlice.uniqueClickers,
           },
           health: {
             green: nodes.filter(n => n.status === "green").length,
