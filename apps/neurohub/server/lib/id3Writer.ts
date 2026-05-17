@@ -193,8 +193,15 @@ export async function embedTrackId3(opts: EmbedTrackId3Options): Promise<EmbedTr
     }
 
     const updateResult = NodeID3.update(tags, mp3Path);
-    result.tagsWritten = updateResult !== false;
-    result.ok = result.tagsWritten;
+    // NodeID3.update returns true on success, Error instance on failure
+    if (updateResult instanceof Error) {
+      result.error = updateResult.message;
+      result.tagsWritten = false;
+      result.ok = false;
+    } else {
+      result.tagsWritten = true;
+      result.ok = true;
+    }
     return result;
   } catch (e) {
     result.error = e instanceof Error ? e.message : String(e);
