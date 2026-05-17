@@ -330,11 +330,18 @@ try {
   if (!gan.includes("region")) sqlite.exec("ALTER TABLE gen_activity ADD COLUMN region TEXT");
   if (!gan.includes("country")) sqlite.exec("ALTER TABLE gen_activity ADD COLUMN country TEXT");
   if (!gan.includes("country_code")) sqlite.exec("ALTER TABLE gen_activity ADD COLUMN country_code TEXT");
+  // Eugene 2026-05-17 Босс: per-domain трекинг (muzaai.ru / muziai.ru /
+  // podaripesnu.ru / other). Старые записи — NULL → bucket "other".
+  if (!gan.includes("host")) sqlite.exec("ALTER TABLE gen_activity ADD COLUMN host TEXT");
+  sqlite.exec("CREATE INDEX IF NOT EXISTS gen_activity_host_date ON gen_activity(host, created_at DESC)");
 
-  // visitors: country_code
+  // visitors: country_code + host
   const vCols = sqlite.prepare("PRAGMA table_info(visitors)").all() as { name: string }[];
   const vn = vCols.map(c => c.name);
   if (!vn.includes("country_code")) sqlite.exec("ALTER TABLE visitors ADD COLUMN country_code TEXT");
+  // Eugene 2026-05-17 Босс: per-domain трекинг.
+  if (!vn.includes("host")) sqlite.exec("ALTER TABLE visitors ADD COLUMN host TEXT");
+  sqlite.exec("CREATE INDEX IF NOT EXISTS visitors_host_date ON visitors(host, last_visit DESC)");
 
   // admin_audit_log: enriched columns для Eugene 2026-05-17 «email 2FA tracking».
   // via_email_confirm=1 — действие было подтверждено через email-OTP code.
@@ -662,6 +669,9 @@ try {
     CREATE INDEX IF NOT EXISTS user_journey_session_idx ON user_journey_events(session_key, created_at);
     CREATE INDEX IF NOT EXISTS user_journey_user_idx ON user_journey_events(user_id, created_at);
     CREATE INDEX IF NOT EXISTS user_journey_page_idx ON user_journey_events(page, created_at);
+    -- Eugene 2026-05-17 Босс: per-domain трекинг — индекс используется
+    -- master-dashboard / brain-export для byDomain breakdown.
+    CREATE INDEX IF NOT EXISTS user_journey_host_idx ON user_journey_events(host, created_at);
 
     -- Eugene 2026-05-17 Босс «воронки конверсии». Ежедневный snapshot
     -- /api/admin/v304/funnels — позволяет строить тренд за N дней без
@@ -711,6 +721,20 @@ try {
     CREATE INDEX IF NOT EXISTS user_profiles_country_seen_idx ON user_profiles(ip_country, last_seen);
   `);
 
+  // Eugene 2026-05-17 Босс: per-domain трекинг — host колонка для
+  // user_journey_events на существующих БД (новые создаются с host из
+  // CREATE TABLE выше — но для уже накатанных нужен ALTER).
+  try {
+    const ujCols = sqlite.prepare("PRAGMA table_info(user_journey_events)").all() as { name: string }[];
+    const ujn = ujCols.map(c => c.name);
+    if (!ujn.includes("host")) {
+      sqlite.exec("ALTER TABLE user_journey_events ADD COLUMN host TEXT");
+      sqlite.exec("CREATE INDEX IF NOT EXISTS user_journey_host_idx ON user_journey_events(host, created_at)");
+    }
+  } catch (e) {
+    console.warn("[BOOTSTRAP] user_journey_events host ALTER warn:", (e as Error).message);
+  }
+
   // Sprint 6 max-channel — расширяем chatbot_sessions для FSM
   // (Eugene 2026-05-07 12:00). Идемпотентно через PRAGMA-check.
   try {
@@ -733,6 +757,10 @@ try {
       sqlite.exec("CREATE INDEX IF NOT EXISTS chatbot_sessions_pair_code_idx ON chatbot_sessions(web_pair_code)");
     }
     if (!has("web_pair_code_offered_at")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN web_pair_code_offered_at TEXT");
+    // Eugene 2026-05-17 Босс: per-domain трекинг (muzaai.ru / muziai.ru /
+    // podaripesnu.ru / other). Заполняется через extractHost(req) при
+    // создании web-сессии. Для telegram/max-bot сессий — NULL.
+    if (!has("host")) sqlite.exec("ALTER TABLE chatbot_sessions ADD COLUMN host TEXT");
     // Eugene 2026-05-17 Босс «архив + текущие диалоги»: индекс под
     // ORDER BY last_message_at DESC + фильтры по channel/last_message_at
     // (admin GET /api/admin/v304/conversations). Composite (channel,

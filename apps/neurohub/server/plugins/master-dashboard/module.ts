@@ -52,6 +52,7 @@ import {
   normalizePeriodId,
   type PeriodId,
 } from "../../lib/periodBoundaries";
+import { KNOWN_DOMAINS, type DomainBucket } from "../../lib/extractHost";
 
 const router = Router();
 
@@ -388,6 +389,43 @@ function buildRangeCondition(
   return sql`1=1`;
 }
 
+// --- Host фильтр (Eugene 2026-05-17 Босс per-domain трекинг) ---
+//
+// Принимает DomainBucket | null. null = все домены (без фильтра).
+// 'other' = host NULL OR host NOT IN (known domains).
+// Конкретный domain — точное совпадение host.
+//
+// `column` — литерал кода (typically "host"), безопасно для sql.raw.
+// KNOWN_DOMAINS — внутренние константы (Reuse-working-solutions rule).
+function buildHostCondition(
+  column: string,
+  bucket: DomainBucket | null,
+): any {
+  if (!bucket) return sql`1=1`;
+  if (bucket === "other") {
+    return sql`(${sql.raw(column)} IS NULL OR ${sql.raw(column)} NOT IN (${sql.join(
+      KNOWN_DOMAINS.map(d => sql`${d}`), sql`, `,
+    )}))`;
+  }
+  return sql`${sql.raw(column)} = ${bucket}`;
+}
+
+/**
+ * Eugene 2026-05-17 Босс: нормализует ?domain=... параметр запроса в
+ * DomainBucket | null (null = все домены).
+ */
+function parseDomainParam(raw: unknown): DomainBucket | null {
+  if (!raw) return null;
+  const s = String(raw).trim().toLowerCase();
+  if (!s || s === "all") return null;
+  if (s === "other") return "other";
+  for (const d of KNOWN_DOMAINS) {
+    if (s === d) return d;
+  }
+  // unknown value — игнорируем (fallback на «все домены»).
+  return null;
+}
+
 // --- Метрики за период ---
 
 interface PeriodMetrics {
@@ -403,28 +441,56 @@ interface PeriodMetrics {
   visitors: { unique: number; total: number };
 }
 
-function buildPeriodMetrics(bounds: PeriodBounds | string | null): PeriodMetrics {
+function buildPeriodMetrics(
+  bounds: PeriodBounds | string | null,
+  domain: DomainBucket | null = null,
+): PeriodMetrics {
   // Back-compat: старые call-site'ы передавали только since.
   const { since, until } = normalizeBounds(bounds);
   const sinceCondition = buildRangeCondition("created_at", since, until);
+  // Host фильтры для разных таблиц (Eugene 2026-05-17 Босс per-domain).
+  // gen_activity, visitors, user_journey_events, chatbot_sessions — есть host.
+  // users, payments, generations — host НЕТ → joinim через visitors.userId
+  // (first-touch domain юзера). Если у юзера нет visitor row → bucket "other".
+  const gaHostCond = buildHostCondition("host", domain);
+  const visitorsHostCond = buildHostCondition("host", domain);
+  // Для users / payments: подзапрос «есть ли visitor с этим host у этого user_id».
+  // domain=null → пропускаем фильтр (back-compat).
+  const userDomainSubquery = (userIdCol: string) => {
+    if (!domain) return sql`1=1`;
+    if (domain === "other") {
+      // either никакой visitor row, или все visitor rows этого юзера — other.
+      return sql`NOT EXISTS (
+        SELECT 1 FROM visitors v
+        WHERE v.user_id = ${sql.raw(userIdCol)}
+          AND v.host IN (${sql.join(KNOWN_DOMAINS.map(d => sql`${d}`), sql`, `)})
+      )`;
+    }
+    return sql`EXISTS (
+      SELECT 1 FROM visitors v
+      WHERE v.user_id = ${sql.raw(userIdCol)} AND v.host = ${domain}
+    )`;
+  };
 
   // Plays / play_rejected — оба из gen_activity.
   const plays = countSafe(
-    sql`SELECT count(*) as c FROM gen_activity WHERE action='play' AND ${sinceCondition}`,
+    sql`SELECT count(*) as c FROM gen_activity WHERE action='play' AND ${sinceCondition} AND ${gaHostCond}`,
   );
   const playsUnique = countSafe(
-    sql`SELECT count(DISTINCT ip) as c FROM gen_activity WHERE action='play' AND ${sinceCondition}`,
+    sql`SELECT count(DISTINCT ip) as c FROM gen_activity WHERE action='play' AND ${sinceCondition} AND ${gaHostCond}`,
   );
   const playsRejected = countSafe(
-    sql`SELECT count(*) as c FROM gen_activity WHERE action LIKE 'play_rejected%' AND ${sinceCondition}`,
+    sql`SELECT count(*) as c FROM gen_activity WHERE action LIKE 'play_rejected%' AND ${sinceCondition} AND ${gaHostCond}`,
   );
 
   const downloads = countSafe(
-    sql`SELECT count(*) as c FROM gen_activity WHERE action='download' AND ${sinceCondition}`,
+    sql`SELECT count(*) as c FROM gen_activity WHERE action='download' AND ${sinceCondition} AND ${gaHostCond}`,
   );
 
+  // users — host через JOIN. domain=null → без фильтра (быстрый путь).
+  const usersDomainCond = userDomainSubquery("users.id");
   const registrationsTotal = countSafe(
-    sql`SELECT count(*) as c FROM users WHERE ${sinceCondition}`,
+    sql`SELECT count(*) as c FROM users WHERE ${sinceCondition} AND ${usersDomainCond}`,
   );
 
   // Каналы регистраций: пытаемся вычислить по наличию полей.
@@ -438,39 +504,43 @@ function buildPeriodMetrics(bounds: PeriodBounds | string | null): PeriodMetrics
           END as channel,
           count(*) as c
         FROM users
-        WHERE ${sinceCondition}
+        WHERE ${sinceCondition} AND ${usersDomainCond}
         GROUP BY channel`,
   );
 
+  // generations: host через JOIN с visitors по userId (best-effort first-touch).
+  const gensDomainCond = userDomainSubquery("generations.user_id");
   const gensMusicDone = countSafe(
-    sql`SELECT count(*) as c FROM generations WHERE type='music' AND status='done' AND deleted_at IS NULL AND ${sinceCondition}`,
+    sql`SELECT count(*) as c FROM generations WHERE type='music' AND status='done' AND deleted_at IS NULL AND ${sinceCondition} AND ${gensDomainCond}`,
   );
   const gensMusicError = countSafe(
-    sql`SELECT count(*) as c FROM generations WHERE type='music' AND status='error' AND deleted_at IS NULL AND ${sinceCondition}`,
+    sql`SELECT count(*) as c FROM generations WHERE type='music' AND status='error' AND deleted_at IS NULL AND ${sinceCondition} AND ${gensDomainCond}`,
   );
   const gensMusicProcessing = countSafe(
-    sql`SELECT count(*) as c FROM generations WHERE type='music' AND status='processing' AND deleted_at IS NULL AND ${sinceCondition}`,
+    sql`SELECT count(*) as c FROM generations WHERE type='music' AND status='processing' AND deleted_at IS NULL AND ${sinceCondition} AND ${gensDomainCond}`,
   );
   const gensLyricsDone = countSafe(
-    sql`SELECT count(*) as c FROM generations WHERE type='lyrics' AND status='done' AND deleted_at IS NULL AND ${sinceCondition}`,
+    sql`SELECT count(*) as c FROM generations WHERE type='lyrics' AND status='done' AND deleted_at IS NULL AND ${sinceCondition} AND ${gensDomainCond}`,
   );
   const gensLyricsError = countSafe(
-    sql`SELECT count(*) as c FROM generations WHERE type='lyrics' AND status='error' AND deleted_at IS NULL AND ${sinceCondition}`,
+    sql`SELECT count(*) as c FROM generations WHERE type='lyrics' AND status='error' AND deleted_at IS NULL AND ${sinceCondition} AND ${gensDomainCond}`,
   );
   const gensCoverDone = countSafe(
-    sql`SELECT count(*) as c FROM generations WHERE type='cover' AND status='done' AND deleted_at IS NULL AND ${sinceCondition}`,
+    sql`SELECT count(*) as c FROM generations WHERE type='cover' AND status='done' AND deleted_at IS NULL AND ${sinceCondition} AND ${gensDomainCond}`,
   );
   const gensCoverError = countSafe(
-    sql`SELECT count(*) as c FROM generations WHERE type='cover' AND status='error' AND deleted_at IS NULL AND ${sinceCondition}`,
+    sql`SELECT count(*) as c FROM generations WHERE type='cover' AND status='error' AND deleted_at IS NULL AND ${sinceCondition} AND ${gensDomainCond}`,
   );
 
+  // payments: host через JOIN с visitors по userId (best-effort).
+  const paymentsDomainCond = userDomainSubquery("payments.user_id");
   const paymentsCount = countSafe(
-    sql`SELECT count(*) as c FROM payments WHERE status='paid' AND ${sinceCondition}`,
+    sql`SELECT count(*) as c FROM payments WHERE status='paid' AND ${sinceCondition} AND ${paymentsDomainCond}`,
   );
   const paymentsSum = (() => {
     try {
       const r = db.get<{ s: number | null }>(
-        sql`SELECT COALESCE(SUM(amount),0) as s FROM payments WHERE status='paid' AND ${sinceCondition}`,
+        sql`SELECT COALESCE(SUM(amount),0) as s FROM payments WHERE status='paid' AND ${sinceCondition} AND ${paymentsDomainCond}`,
       );
       return r?.s ?? 0;
     } catch {
@@ -478,11 +548,13 @@ function buildPeriodMetrics(bounds: PeriodBounds | string | null): PeriodMetrics
     }
   })();
 
+  // visitors: host напрямую (есть в схеме). Сохраняем существующий фильтр по
+  // created_at (back-compat) — last_visit-фильтр идёт в отдельных endpoint'ах.
   const visitorsUnique = countSafe(
-    sql`SELECT count(DISTINCT fingerprint) as c FROM visitors WHERE ${sinceCondition}`,
+    sql`SELECT count(DISTINCT fingerprint) as c FROM visitors WHERE ${sinceCondition} AND ${visitorsHostCond}`,
   );
   const visitorsTotal = countSafe(
-    sql`SELECT count(*) as c FROM visitors WHERE ${sinceCondition}`,
+    sql`SELECT count(*) as c FROM visitors WHERE ${sinceCondition} AND ${visitorsHostCond}`,
   );
 
   return {
@@ -724,13 +796,20 @@ function setCachedClicks(key: string, data: ClickStats): void {
   clickStatsCache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
 }
 
-function buildClickStats(period: Period, bounds: PeriodBounds): ClickStats {
+function buildClickStats(
+  period: Period,
+  bounds: PeriodBounds,
+  domain: DomainBucket | null = null,
+): ClickStats {
   const { since, until } = bounds;
   const fromIso = since || "1970-01-01T00:00:00.000Z";
   // Когда задан upper bound — условие включает until; иначе только нижнее.
-  const inRange = until
+  const inRangeOnly = until
     ? sql`created_at >= ${fromIso} AND created_at < ${until}`
     : sql`created_at >= ${fromIso}`;
+  // Eugene 2026-05-17 Босс: per-domain фильтр (user_journey_events.host).
+  const hostCond = buildHostCondition("host", domain);
+  const inRange = sql`${inRangeOnly} AND ${hostCond}`;
 
   // Топ-50 click-элементов по page × element_key.
   // json_extract возвращает NULL если поле отсутствует — COALESCE даёт fallback.
@@ -922,12 +1001,14 @@ router.get("/click-stats", requireAdmin, (req, res) => {
       typeof req.query.from === "string" ? req.query.from : undefined,
       typeof req.query.to === "string" ? req.query.to : undefined,
     );
-    const key = cacheKey(period, bounds);
+    // Eugene 2026-05-17 Босс: опциональный domain-фильтр (per-domain трекинг).
+    const domain = parseDomainParam(req.query.domain);
+    const key = `${cacheKey(period, bounds)}|d=${domain || "all"}`;
     const cached = getCachedClicks(key);
     if (cached) {
       return res.json({ data: { ...cached, fromCache: true }, error: null });
     }
-    const payload = buildClickStats(period, bounds);
+    const payload = buildClickStats(period, bounds, domain);
     setCachedClicks(key, payload);
     res.json({ data: { ...payload, fromCache: false }, error: null });
   } catch (err) {
@@ -947,7 +1028,10 @@ router.get("/dashboard-summary", requireAdmin, (req, res) => {
       typeof req.query.from === "string" ? req.query.from : undefined,
       typeof req.query.to === "string" ? req.query.to : undefined,
     );
-    const key = cacheKey(period, bounds);
+    // Eugene 2026-05-17 Босс: опциональный domain-фильтр (per-domain трекинг).
+    const domain = parseDomainParam(req.query.domain);
+    // Ключ кэша — period + domain (разные домены кэшируются отдельно).
+    const key = `${cacheKey(period, bounds)}|d=${domain || "all"}`;
     const cached = getCached(key);
     if (cached) {
       return res.json({ data: { ...cached, fromCache: true }, error: null });
@@ -956,10 +1040,11 @@ router.get("/dashboard-summary", requireAdmin, (req, res) => {
       period,
       since: bounds.since,
       until: bounds.until,
+      domain,
       generatedAt: new Date().toISOString(),
       cacheExpiresAt: new Date(Date.now() + CACHE_TTL_MS).toISOString(),
       statusCards: buildStatusCards(),
-      metrics: buildPeriodMetrics(bounds),
+      metrics: buildPeriodMetrics(bounds, domain),
       charts: buildChartSeries(period, bounds),
     };
     setCached(key, payload);
@@ -995,6 +1080,30 @@ router.get("/brain-export", requireAdmin, (_req, res) => {
     const statusCards = buildStatusCards();
     const metrics30 = buildPeriodMetrics(periodToSince("30d"));
     const since30 = periodToSince("30d");
+
+    // Eugene 2026-05-17 Босс: per-domain breakdown за 30д.
+    // Для каждого bucket (3 known + other) — visitors / plays / registrations
+    // / payments. Тяжёлый запрос но один раз — кэшируется в caller (brain-export
+    // dump не chatty).
+    const domainBuckets: Array<DomainBucket> = [...KNOWN_DOMAINS, "other"];
+    const byDomain: Record<DomainBucket, {
+      visitors: number;
+      plays: number;
+      registrations: number;
+      payments: { count: number; rub: number };
+    }> = {} as any;
+    for (const bucket of domainBuckets) {
+      const m = buildPeriodMetrics(periodToBounds("30d"), bucket);
+      byDomain[bucket] = {
+        visitors: m.visitors.unique,
+        plays: m.plays.total,
+        registrations: m.registrations.total,
+        payments: {
+          count: m.payments.count,
+          rub: Math.round(m.payments.sumKopecks / 100),
+        },
+      };
+    }
 
     // Plugins из registry
     const plugins = allSafe<{ name: string; status: string; version: string }>(
@@ -1186,6 +1295,7 @@ router.get("/brain-export", requireAdmin, (_req, res) => {
         nodes,
         edges,
         clickStats: clickStatsSlice,
+        byDomain,
         summary: {
           totals: {
             nodes: nodes.length,
