@@ -301,6 +301,17 @@ export const MUZA_TOOLS: ToolDef[] = [
       required: [],
     },
   },
+  {
+    name: "focus_brain_node",
+    description: "[ADMIN-ONLY · UI] Сфокусировать камеру в 3D «Втором мозге» на указанном узле. Передаётся имя узла или его id (например 'plugin:telegram-bot', 'provider:gptunnel', 'core:db', 'Telegram', 'GPTunnel'). Поиск substring-match по label/id. Возвращает подтверждение — фронт перехватывает result через actions[] и эмитит CustomEvent 'brain-focus-node' который слушает SecondBrain3D компонент.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Имя узла или его id (например 'GPTunnel', 'telegram', 'core:db')" },
+      },
+      required: ["name"],
+    },
+  },
 ];
 
 // === Email 2FA wrapper helper (Eugene 2026-05-17 Босс) ===
@@ -1112,6 +1123,17 @@ const HANDLERS: Record<string, ToolHandler> = {
     } catch (e: any) {
       return `Ошибка get_recent_incidents: ${e.message}`;
     }
+  },
+
+  async focus_brain_node({ name }, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
+    const term = String(name || "").trim();
+    if (!term) return "Не указано имя узла.";
+    // Возвращаем токен который фронт-side musa-voice-fab распарсит и
+    // эмитнет CustomEvent('brain-focus-node', { detail: { name } }) — это
+    // ловит SecondBrain3D и подъезжает камерой к узлу. Префикс
+    // [FOCUS_BRAIN_NODE:] — это marker для UI-парсера.
+    return `[FOCUS_BRAIN_NODE:${term}] Фокусирую камеру на узле «${term}» во Втором мозге.`;
   },
 };
 

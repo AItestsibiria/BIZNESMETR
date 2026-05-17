@@ -171,6 +171,29 @@ export function MusaVoiceFab() {
         const data: VoiceCommandResult = j.data;
         setResult(data);
         loadHistory();
+        // focus_brain_node integration (Eugene 2026-05-17 Босс): если LLM
+        // вызвала tool focus_brain_node, парсим имя узла и эмитим
+        // CustomEvent — SecondBrain3D компонент его ловит и подъезжает
+        // камерой. Marker: [FOCUS_BRAIN_NODE:<name>] в result строке.
+        try {
+          for (const a of data.actions || []) {
+            if (a.tool !== "focus_brain_node") continue;
+            const inp = a.input as { name?: string } | undefined;
+            const fromInput = inp?.name?.trim();
+            const fromResult = (() => {
+              const m = String(a.result || "").match(/\[FOCUS_BRAIN_NODE:([^\]]+)\]/);
+              return m ? m[1].trim() : null;
+            })();
+            const name = fromInput || fromResult;
+            if (name) {
+              window.dispatchEvent(
+                new CustomEvent("brain-focus-node", { detail: { name } }),
+              );
+            }
+          }
+        } catch {
+          /* ignore — non-fatal UI integration */
+        }
         if (data.audioBase64 && data.audioContentType) {
           const audioBlob = base64ToBlob(data.audioBase64, data.audioContentType);
           if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
