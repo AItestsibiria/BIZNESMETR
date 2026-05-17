@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import AdminSearch from "@/components/admin-search";
 import { JourneyTab } from "@/pages/admin/journey-tab";
+import { UserProfilesTab } from "@/pages/admin/user-profiles-tab";
 import { Switch } from "@/components/ui/switch";
 import { Progress } from "@/components/ui/progress";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell } from "recharts";
@@ -247,6 +248,7 @@ export default function AdminV304Page() {
           <TabsTrigger value="dialogs">💬 Диалоги</TabsTrigger>
           <TabsTrigger value="support">🆘 Обращения</TabsTrigger>
           <TabsTrigger value="journey">🗺 Путь</TabsTrigger>
+          <TabsTrigger value="user-profiles">👤 Профили</TabsTrigger>
         </TabsList>
         <TabsContent value="master-dashboard"><MasterDashboardTab /></TabsContent>
         <TabsContent value="brain-3d">
@@ -288,6 +290,7 @@ export default function AdminV304Page() {
         <TabsContent value="dialogs"><DialogsTab toast={toast} /></TabsContent>
         <TabsContent value="support"><SupportTicketsTab toast={toast} /></TabsContent>
         <TabsContent value="journey"><JourneyTab toast={toast} /></TabsContent>
+        <TabsContent value="user-profiles"><UserProfilesTab toast={toast} /></TabsContent>
       </Tabs>
 
       {/* 🎤 FAB «Сказать Музе» — доступна со всех admin-вкладок (Eugene 2026-05-17). */}

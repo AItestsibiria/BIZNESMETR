@@ -83,6 +83,7 @@ import botChannelsHealthModule from "./plugins/bot-channels-health/module";
 import voiceAdminModule from "./plugins/voice-admin/module";
 
 import funnelsModule from "./plugins/funnels/module";
+import userProfilesModule from "./plugins/user-profiles/module";
 
 import supportModule from "./plugins/support/module";
 
@@ -360,6 +361,7 @@ app.post("/api/_client-error", express.json(), (req, res) => {
     { name: "voice-admin", module: voiceAdminModule },
 
     { name: "funnels", module: funnelsModule },
+    { name: "user-profiles", module: userProfilesModule },
 
     { name: "support", module: supportModule },
 

@@ -152,6 +152,36 @@ export const visitors = sqliteTable("visitors", {
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 
+// Eugene 2026-05-17 Босс «Cookies надо собирать и привязывать к профилю автора
+// только у админа доступ» + ранее «cookies + IP geo + identifying автор/первое
+// посещение». Union таблица: дополняет `visitors` (raw page-by-page tracking)
+// единым per-visitor профилем с историей devices/cookies/visits.
+//
+// visitors  → лента событий (одна запись на каждое посещение/page)
+// user_profiles → один row на visitor (или auth user), агрегирует данные
+//
+// Доступ — ТОЛЬКО админ (см. plugins/user-profiles/module.ts → requireAdmin).
+export const userProfiles = sqliteTable("user_profiles", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id"),                                // nullable — anonymous visitors тоже
+  visitorId: text("visitor_id").notNull(),                   // cookie fingerprint (mzv cookie)
+  cookieData: text("cookie_data"),                           // JSON: utm_*, referrer, devices history, ...
+  ip: text("ip"),
+  ipCountry: text("ip_country"),
+  ipCity: text("ip_city"),
+  ipRegion: text("ip_region"),
+  ipAsn: text("ip_asn"),
+  userAgent: text("user_agent"),
+  device: text("device"),
+  browser: text("browser"),
+  os: text("os"),
+  firstSeen: text("first_seen").notNull(),
+  lastSeen: text("last_seen").notNull(),
+  visitCount: integer("visit_count").notNull().default(1),
+  isExistingAuthor: integer("is_existing_author", { mode: "boolean" }).default(false),
+  deletedAt: text("deleted_at"),                              // GDPR soft-delete
+});
+
 // ============================================================
 // v304: foundation tables (Sprint 1)
 // Read docs/strategy/original/07-DEPLOY-ROADMAP-СХЕМА-БД.md §3.

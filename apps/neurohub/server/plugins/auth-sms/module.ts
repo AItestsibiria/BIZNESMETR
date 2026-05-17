@@ -71,6 +71,8 @@ import { validatePhoneForOtp, maskPhone, normalizePhone, detectPhoneCountry } fr
 import { tokenStore } from "../../lib/tokenStore";
 import { tryGiveWelcomeGift } from "../../lib/welcomeGift";
 import { adminGateBeforeToken, isAdminRole } from "../../lib/admin2fa";
+import { readVisitorId } from "../../lib/visitorCookie";
+import { linkProfileToUser } from "../../lib/userProfilesStore";
 
 let bootRefs: { eventBus: BootContext["eventBus"]; logger: BootContext["logger"] } | null = null;
 
@@ -698,6 +700,8 @@ router.post("/verify-otp", async (req, res) => {
       }
       const token = uuidv4();
       tokenStore.set(token, userId);
+      // Eugene 2026-05-17 Босс «cookies → автор линкуем» (см. visitorCookie rule).
+      try { const v = readVisitorId(req); if (v) linkProfileToUser(v, userId); } catch {}
       bootRefs?.eventBus?.emit?.(
         created ? "auth.user.registered" : "auth.user.logged_in",
         { userId, channel: "sms", upsert: !created },
@@ -739,6 +743,7 @@ router.post("/verify-otp", async (req, res) => {
       }
       const token = uuidv4();
       tokenStore.set(token, user.id);
+      try { const v = readVisitorId(req); if (v) linkProfileToUser(v, user.id); } catch {}
       bootRefs?.eventBus?.emit?.("auth.user.logged_in", { userId: user.id, channel: "sms" }, "auth-sms");
       return res.json({
         data: { verified: true, phone, purpose, token, userId: user.id, newAccount: false },
@@ -949,6 +954,7 @@ router.post("/check-call", async (req, res) => {
       }
       const token = uuidv4();
       tokenStore.set(token, userId);
+      try { const v = readVisitorId(req); if (v) linkProfileToUser(v, userId); } catch {}
       bootRefs?.eventBus?.emit?.(
         created ? "auth.user.registered" : "auth.user.logged_in",
         { userId, channel: "call", upsert: !created },
@@ -1003,6 +1009,7 @@ router.post("/check-call", async (req, res) => {
       }
       const token = uuidv4();
       tokenStore.set(token, userId);
+      try { const v = readVisitorId(req); if (v) linkProfileToUser(v, userId); } catch {}
       bootRefs?.eventBus?.emit?.(
         created ? "auth.user.registered" : "auth.user.logged_in",
         { userId, channel: "call", upsert: created },
@@ -1213,6 +1220,7 @@ router.post("/check-reverse-call", async (req, res) => {
       }
       const token = uuidv4();
       tokenStore.set(token, userId);
+      try { const v = readVisitorId(req); if (v) linkProfileToUser(v, userId); } catch {}
       bootRefs?.eventBus?.emit?.(
         created ? "auth.user.registered" : "auth.user.logged_in",
         { userId, channel: "reverse-call", upsert: !created },
@@ -1262,6 +1270,7 @@ router.post("/check-reverse-call", async (req, res) => {
       }
       const token = uuidv4();
       tokenStore.set(token, userId);
+      try { const v = readVisitorId(req); if (v) linkProfileToUser(v, userId); } catch {}
       bootRefs?.eventBus?.emit?.(
         created ? "auth.user.registered" : "auth.user.logged_in",
         { userId, channel: "reverse-call", upsert: created },
