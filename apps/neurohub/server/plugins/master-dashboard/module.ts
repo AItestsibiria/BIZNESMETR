@@ -10,18 +10,28 @@
 //  - GET /api/admin/v304/brain-export
 //      Полный snapshot всей метрики проекта в формате nodes/edges/metrics.
 //      Data source для будущей 3D визуализации Second Brain.
+//      Добавлена секция clickStats — топ клик-элементы и аналитика по страницам
+//      для горячих точек сайта.
+//  - GET /api/admin/v304/click-stats?period=today|7d|30d|all
+//      Aggregate по `user_journey_events` (event_type='click' + 'page_view' +
+//      'page_exit'): топ клик-элементов, метрики по страницам (total clicks,
+//      avg time, bounce rate), top-20 элементов, totals. Кэш 60 сек.
 //
 // Безопасность:
 //  - requireAdmin guard.
 //  - PII маски: email/phone никогда не возвращаются в plain виде.
+//  - Для click-stats: не выгружаем text input values — только element ID /
+//    data-track / button text (≤60 chars, уже обрезано клиентом).
 //
 // Pre-edit analysis:
 //  - Не модифицирую существующие endpoint'ы — только новые routes под
 //    префиксом admin/v304/.
 //  - Использую только READ-only SQL — без INSERT/UPDATE/DELETE.
 //  - Префикс routes admin/v304 — collision не будет (admin-overview регистрирует
-//    под тем же префиксом, но конкретные пути /dashboard-summary и /brain-export
-//    в нём отсутствуют).
+//    под тем же префиксом, но конкретные пути /dashboard-summary, /brain-export,
+//    /click-stats в нём отсутствуют).
+//  - user_journey_events.meta — JSON-строка; json_extract() извлекает поля.
+//    SQLite поддерживает json_extract нативно (jsonl extension включён).
 
 import { Router } from "express";
 import * as fs from "node:fs";
@@ -574,6 +584,256 @@ function buildChartSeries(period: Period, since: string | null): ChartSeries {
   };
 }
 
+// --- Click stats (Eugene 2026-05-17 Босс «Агент Клик») ---
+//
+// Берёт click + page_view + page_exit события из user_journey_events,
+// агрегирует по странице × элементу. Element-key — лучший доступный
+// идентификатор из meta: dataTrack > id > text > tag (см. user-journey.ts).
+//
+// Поля meta для click (из onClick в user-journey.ts):
+//   tag, id, dataTrack, text, pointerType, x, y
+//
+// Берём COALESCE(dataTrack, id, text, tag) — без trim'а (клиент уже обрезает
+// до 60 chars + null'ит пустые). Если все null → 'unknown'.
+
+interface ClickStatRow {
+  page: string;
+  elementKey: string;
+  elementText: string | null;
+  count: number;
+  uniqueUsers: number;
+}
+interface PageStatRow {
+  page: string;
+  totalClicks: number;
+  pageViews: number;
+  avgTimeMs: number;
+  bounceRate: number;
+}
+interface ClickStats {
+  topClicks: ClickStatRow[];
+  byPage: Record<string, PageStatRow>;
+  topElements: ClickStatRow[];
+  totalClicks: number;
+  uniqueClickers: number;
+  period: Period;
+  since: string | null;
+  generatedAt: string;
+}
+
+const clickStatsCache = new Map<Period, CacheEntry>();
+function getCachedClicks(period: Period): ClickStats | null {
+  const e = clickStatsCache.get(period);
+  if (e && e.expiresAt > Date.now()) return e.data as ClickStats;
+  return null;
+}
+function setCachedClicks(period: Period, data: ClickStats): void {
+  clickStatsCache.set(period, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+}
+
+function buildClickStats(period: Period, since: string | null): ClickStats {
+  const fromIso = since || "1970-01-01T00:00:00.000Z";
+
+  // Топ-50 click-элементов по page × element_key.
+  // json_extract возвращает NULL если поле отсутствует — COALESCE даёт fallback.
+  // 'unknown' финальный sink (нет ни одного полезного идентификатора).
+  const topClickRows = allSafe<{
+    page: string;
+    element_key: string;
+    element_text: string | null;
+    c: number;
+    users: number;
+  }>(sql`
+    SELECT
+      page,
+      COALESCE(
+        json_extract(meta, '$.dataTrack'),
+        json_extract(meta, '$.id'),
+        json_extract(meta, '$.text'),
+        json_extract(meta, '$.tag'),
+        'unknown'
+      ) AS element_key,
+      json_extract(meta, '$.text') AS element_text,
+      count(*) AS c,
+      count(DISTINCT session_key) AS users
+    FROM user_journey_events
+    WHERE event_type='click' AND created_at >= ${fromIso}
+    GROUP BY page, element_key
+    ORDER BY c DESC
+    LIMIT 50
+  `);
+
+  // По страницам: total clicks + page_views + bounce.
+  // page_views: COUNT(*) WHERE event_type='page_view'.
+  // bounce: сессии, в которых только 1 page_view + 0 click'ов на этой
+  // странице. Считаем приблизительно: bounce_sessions / page_views.
+  const pageStatsRows = allSafe<{
+    page: string;
+    clicks: number;
+    views: number;
+  }>(sql`
+    SELECT
+      page,
+      SUM(CASE WHEN event_type='click' THEN 1 ELSE 0 END) AS clicks,
+      SUM(CASE WHEN event_type='page_view' THEN 1 ELSE 0 END) AS views
+    FROM user_journey_events
+    WHERE event_type IN ('click','page_view') AND created_at >= ${fromIso}
+    GROUP BY page
+  `);
+
+  // Среднее время на странице — из page_exit events (meta.duration_ms).
+  const pageTimeRows = allSafe<{
+    page: string;
+    avg_ms: number;
+    exits: number;
+  }>(sql`
+    SELECT
+      page,
+      AVG(CAST(json_extract(meta, '$.duration_ms') AS REAL)) AS avg_ms,
+      count(*) AS exits
+    FROM user_journey_events
+    WHERE event_type='page_exit'
+      AND created_at >= ${fromIso}
+      AND json_extract(meta, '$.duration_ms') IS NOT NULL
+    GROUP BY page
+  `);
+
+  // Bounce: сессии где на странице был ровно 1 page_view без click.
+  // Грубое приближение: count(sessions where page_views=1 AND clicks=0) /
+  // total page_view sessions для этой страницы.
+  const bounceRows = allSafe<{
+    page: string;
+    bounced: number;
+    total_sessions: number;
+  }>(sql`
+    SELECT
+      page,
+      SUM(CASE WHEN clicks=0 AND views>=1 THEN 1 ELSE 0 END) AS bounced,
+      count(*) AS total_sessions
+    FROM (
+      SELECT
+        session_key,
+        page,
+        SUM(CASE WHEN event_type='click' THEN 1 ELSE 0 END) AS clicks,
+        SUM(CASE WHEN event_type='page_view' THEN 1 ELSE 0 END) AS views
+      FROM user_journey_events
+      WHERE event_type IN ('click','page_view') AND created_at >= ${fromIso}
+      GROUP BY session_key, page
+    )
+    GROUP BY page
+  `);
+
+  // Сборка byPage map.
+  const byPage: Record<string, PageStatRow> = {};
+  for (const r of pageStatsRows) {
+    byPage[r.page] = {
+      page: r.page,
+      totalClicks: Number(r.clicks) || 0,
+      pageViews: Number(r.views) || 0,
+      avgTimeMs: 0,
+      bounceRate: 0,
+    };
+  }
+  for (const r of pageTimeRows) {
+    if (!byPage[r.page]) {
+      byPage[r.page] = {
+        page: r.page,
+        totalClicks: 0,
+        pageViews: 0,
+        avgTimeMs: 0,
+        bounceRate: 0,
+      };
+    }
+    byPage[r.page].avgTimeMs = Math.round(Number(r.avg_ms) || 0);
+  }
+  for (const r of bounceRows) {
+    if (!byPage[r.page]) continue;
+    const total = Number(r.total_sessions) || 0;
+    if (total > 0) {
+      byPage[r.page].bounceRate = Math.round((Number(r.bounced) / total) * 100) / 100;
+    }
+  }
+
+  // Topclicks (топ-50 по page+element).
+  const topClicks: ClickStatRow[] = topClickRows.map(r => ({
+    page: r.page,
+    elementKey: String(r.element_key || "unknown"),
+    elementText: r.element_text ? String(r.element_text) : null,
+    count: Number(r.c) || 0,
+    uniqueUsers: Number(r.users) || 0,
+  }));
+
+  // Top-20 элементов глобально (без разреза по странице).
+  const topElementRows = allSafe<{
+    element_key: string;
+    element_text: string | null;
+    c: number;
+    users: number;
+  }>(sql`
+    SELECT
+      COALESCE(
+        json_extract(meta, '$.dataTrack'),
+        json_extract(meta, '$.id'),
+        json_extract(meta, '$.text'),
+        json_extract(meta, '$.tag'),
+        'unknown'
+      ) AS element_key,
+      json_extract(meta, '$.text') AS element_text,
+      count(*) AS c,
+      count(DISTINCT session_key) AS users
+    FROM user_journey_events
+    WHERE event_type='click' AND created_at >= ${fromIso}
+    GROUP BY element_key
+    ORDER BY c DESC
+    LIMIT 20
+  `);
+  const topElements: ClickStatRow[] = topElementRows.map(r => ({
+    page: "*",
+    elementKey: String(r.element_key || "unknown"),
+    elementText: r.element_text ? String(r.element_text) : null,
+    count: Number(r.c) || 0,
+    uniqueUsers: Number(r.users) || 0,
+  }));
+
+  const totalClicks = countSafe(
+    sql`SELECT count(*) as c FROM user_journey_events WHERE event_type='click' AND created_at >= ${fromIso}`,
+  );
+  const uniqueClickers = countSafe(
+    sql`SELECT count(DISTINCT session_key) as c FROM user_journey_events WHERE event_type='click' AND created_at >= ${fromIso}`,
+  );
+
+  return {
+    topClicks,
+    byPage,
+    topElements,
+    totalClicks,
+    uniqueClickers,
+    period,
+    since,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+// --- GET /api/admin/v304/click-stats ---
+
+router.get("/click-stats", requireAdmin, (req, res) => {
+  try {
+    const period = parsePeriod(req.query.period);
+    const cached = getCachedClicks(period);
+    if (cached) {
+      return res.json({ data: { ...cached, fromCache: true }, error: null });
+    }
+    const since = periodToSince(period);
+    const payload = buildClickStats(period, since);
+    setCachedClicks(period, payload);
+    res.json({ data: { ...payload, fromCache: false }, error: null });
+  } catch (err) {
+    res
+      .status(500)
+      .json({ data: null, error: err instanceof Error ? err.message : "internal" });
+  }
+});
+
 // --- GET /api/admin/v304/dashboard-summary ---
 
 router.get("/dashboard-summary", requireAdmin, (req, res) => {
@@ -799,7 +1059,7 @@ const masterDashboardModule: Module = {
   publishes: [],
   onLoad: async (ctx) => {
     ctx.logger.info(
-      "master-dashboard online — GET /api/admin/v304/dashboard-summary, /brain-export (cache 60s)",
+      "master-dashboard online — GET /api/admin/v304/dashboard-summary, /brain-export, /click-stats (cache 60s)",
     );
   },
   healthCheck: () => ({ status: "ok" }),
