@@ -5,7 +5,7 @@
 // ответе возвращается auditId, по которому можно откатить через
 // POST /api/admin/v304/audit/:id/restore. Это и видно на вкладке Audit.
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, lazy, Suspense } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -28,6 +28,10 @@ import { Progress } from "@/components/ui/progress";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell } from "recharts";
 import MasterDashboardTab from "@/pages/admin/master-dashboard-tab";
 import { MusaVoiceFab } from "@/components/musa-voice-fab";
+
+// Lazy-load SecondBrain3D — three.js + 3d-force-graph весят ~500KB,
+// не должны попадать в main bundle.
+const SecondBrain3D = lazy(() => import("@/components/second-brain-3d"));
 
 type Overview = {
   timestamp: string;
@@ -211,6 +215,7 @@ export default function AdminV304Page() {
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="mb-4 flex flex-wrap">
           <TabsTrigger value="master-dashboard">🧠 Сводка</TabsTrigger>
+          <TabsTrigger value="brain-3d">🧠 Второй мозг</TabsTrigger>
           <TabsTrigger value="overview">Обзор</TabsTrigger>
           <TabsTrigger value="friend">👤 Муза</TabsTrigger>
           <TabsTrigger value="bot-stats">🤖 Бот</TabsTrigger>
@@ -227,6 +232,20 @@ export default function AdminV304Page() {
           <TabsTrigger value="journey">🗺 Путь</TabsTrigger>
         </TabsList>
         <TabsContent value="master-dashboard"><MasterDashboardTab /></TabsContent>
+        <TabsContent value="brain-3d">
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center h-[70vh] bg-[#0a0a17] rounded-2xl">
+                <div className="text-center">
+                  <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-purple-500 mb-4"></div>
+                  <p className="text-sm font-sans text-muted-foreground">Загружаем 3D-движок...</p>
+                </div>
+              </div>
+            }
+          >
+            <SecondBrain3D />
+          </Suspense>
+        </TabsContent>
         <TabsContent value="overview"><OverviewTab toast={toast} /></TabsContent>
         <TabsContent value="friend">
           <div className="space-y-6">
