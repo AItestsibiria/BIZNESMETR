@@ -407,6 +407,148 @@ export function CoverDetailsModal({
           )}
         </div>
 
+        {/* Eugene 2026-05-17 — controls bar (play/pause/skip/seek/volume/repeat).
+            Glass-card под обложкой. Touch-targets ≥44px, full-width on mobile. */}
+        {(onPlayPause || onSeek || onVolumeChange || onRepeatToggle) && (
+          <div
+            className="w-full glass-card rounded-2xl border border-purple-500/20 p-4 sm:p-5 shadow-[0_0_32px_rgba(124,58,237,0.18)]"
+            onClick={(e) => e.stopPropagation()}
+            data-testid="cover-details-controls-bar"
+          >
+            {/* Seek bar — full width, фирменный purple→cyan gradient.
+                Видна только если есть onSeek и duration. */}
+            {onSeek && typeof duration === "number" && duration > 0 && (
+              <div className="w-full mb-3">
+                <div
+                  className="relative w-full h-5 flex items-center cursor-pointer group"
+                  onClick={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+                    onSeek(pct * duration);
+                  }}
+                  data-testid="cover-details-seek-bar"
+                >
+                  <div className="absolute inset-x-0 h-1.5 rounded-full bg-white/10 pointer-events-none" />
+                  <div
+                    className="absolute left-0 h-1.5 rounded-full bg-gradient-to-r from-purple-500 via-fuchsia-500 to-cyan-400 pointer-events-none transition-all"
+                    style={{ width: `${duration > 0 ? Math.min(((currentTime || 0) / duration) * 100, 100) : 0}%` }}
+                  />
+                  <div
+                    className="absolute w-3.5 h-3.5 group-hover:w-4 group-hover:h-4 rounded-full bg-white shadow-lg ring-2 ring-purple-500/40 pointer-events-none transition-all"
+                    style={{
+                      left: `calc(${duration > 0 ? Math.min(((currentTime || 0) / duration) * 100, 100) : 0}% - 7px)`,
+                    }}
+                  />
+                  <input
+                    type="range"
+                    min={0}
+                    max={duration}
+                    step={0.1}
+                    value={Math.min(currentTime || 0, duration)}
+                    onChange={(e) => onSeek(parseFloat(e.target.value))}
+                    aria-label="Перемотка"
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    data-testid="cover-details-seek-input"
+                  />
+                </div>
+                <div className="flex justify-between mt-1.5 px-0.5">
+                  <span className="text-[11px] font-mono text-white/60 tabular-nums">{formatTime(currentTime || 0)}</span>
+                  <span className="text-[11px] font-mono text-white/60 tabular-nums">{formatTime(duration)}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Controls row — center group (skip/play/skip) + side group (repeat/volume) */}
+            <div className="flex items-center gap-3 sm:gap-4">
+              {/* Repeat — leftmost (secondary control) */}
+              {onRepeatToggle && (
+                <button
+                  type="button"
+                  onClick={onRepeatToggle}
+                  aria-label="Режим повтора"
+                  title={
+                    repeatMode === "off" ? "Повтор выключен"
+                      : repeatMode === "one" ? "Повтор одного трека"
+                        : "Повтор всех треков"
+                  }
+                  className={`w-11 h-11 rounded-full flex items-center justify-center transition-all shrink-0 ${
+                    repeatMode && repeatMode !== "off"
+                      ? "bg-gradient-to-br from-purple-500/40 to-cyan-500/30 border border-purple-400/50 text-white shadow-[0_0_16px_rgba(124,58,237,0.35)]"
+                      : "bg-white/5 border border-white/10 text-white/40 hover:bg-white/10 hover:text-white/70"
+                  }`}
+                  data-testid="cover-details-repeat"
+                >
+                  {repeatMode === "one" ? <Repeat1 className="w-5 h-5" /> : <Repeat className="w-5 h-5" />}
+                </button>
+              )}
+
+              {/* Центральная группа: skip prev / play-pause / skip next */}
+              <div className="flex-1 flex items-center justify-center gap-3 sm:gap-4">
+                {onPrev && (
+                  <button
+                    type="button"
+                    onClick={onPrev}
+                    aria-label="Предыдущий трек"
+                    className="w-12 h-12 rounded-full bg-white/5 hover:bg-white/15 active:scale-95 transition-all flex items-center justify-center border border-white/10 shrink-0"
+                    data-testid="cover-details-skip-prev"
+                  >
+                    <SkipBack className="w-5 h-5 text-white" />
+                  </button>
+                )}
+
+                {onPlayPause && (
+                  <button
+                    type="button"
+                    onClick={onPlayPause}
+                    aria-label={isPlaying ? "Пауза" : "Воспроизвести"}
+                    className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500 via-fuchsia-500 to-blue-500 hover:from-purple-400 hover:via-fuchsia-400 hover:to-blue-400 active:scale-95 transition-all flex items-center justify-center shadow-[0_0_32px_rgba(124,58,237,0.5)] border border-white/20 shrink-0"
+                    data-testid="cover-details-play-pause"
+                  >
+                    {isPlaying
+                      ? <Pause className="w-7 h-7 text-white" />
+                      : <Play className="w-7 h-7 text-white ml-0.5" />
+                    }
+                  </button>
+                )}
+
+                {onNext && (
+                  <button
+                    type="button"
+                    onClick={onNext}
+                    aria-label="Следующий трек"
+                    className="w-12 h-12 rounded-full bg-white/5 hover:bg-white/15 active:scale-95 transition-all flex items-center justify-center border border-white/10 shrink-0"
+                    data-testid="cover-details-skip-next"
+                  >
+                    <SkipForward className="w-5 h-5 text-white" />
+                  </button>
+                )}
+              </div>
+
+              {/* Volume — rightmost. Reuse существующего VolumeSlider компонента. */}
+              {onVolumeChange && typeof volume === "number" && (
+                <div className="hidden sm:flex items-center w-40 lg:w-48 shrink-0">
+                  <VolumeSlider
+                    volume={volume}
+                    onVolumeChange={onVolumeChange}
+                    showPercent={false}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Mobile-only volume row (под основным rows of controls) */}
+            {onVolumeChange && typeof volume === "number" && (
+              <div className="sm:hidden mt-3 pt-3 border-t border-white/5">
+                <VolumeSlider
+                  volume={volume}
+                  onVolumeChange={onVolumeChange}
+                  showPercent={false}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="w-full text-center px-2 pb-4" onClick={(e) => e.stopPropagation()}>
           <p className="text-3xl sm:text-4xl font-display font-bold gradient-text leading-tight">{title}</p>
           {track.authorName && (
@@ -425,7 +567,9 @@ export function CoverDetailsModal({
           )}
           <p className="text-xs text-white/40 mt-5 italic font-sans">
             {(onNext || onPrev)
-              ? "Свайп ← → или стрелки клавиатуры. Кликните вне обложки, чтобы закрыть"
+              ? (onPlayPause
+                  ? "Свайп ← → или стрелки. Управляйте плеером ниже. Кликните вне обложки/контролов, чтобы закрыть"
+                  : "Свайп ← → или стрелки клавиатуры. Кликните вне обложки, чтобы закрыть")
               : "Кликните в любую точку, чтобы закрыть"}
           </p>
         </div>
