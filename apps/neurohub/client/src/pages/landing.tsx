@@ -1437,6 +1437,22 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             createdAt: currentTrack.createdAt,
             styleInfo: currentTrack.styleInfo,
           } : null}
+          // Eugene 2026-05-17 — full plyer controls внутри модалки.
+          // Audio element остаётся в landing — не remount.
+          isPlaying={isPlayingState}
+          onPlayPause={() => currentTrack && togglePlay(currentTrack)}
+          currentTime={currentTime}
+          duration={trackDuration}
+          onSeek={(s) => {
+            if (audioRef.current) {
+              audioRef.current.currentTime = s;
+              setCurrentTime(s);
+            }
+          }}
+          volume={volume}
+          onVolumeChange={setVolume}
+          repeatMode={repeatMode}
+          onRepeatToggle={() => setRepeatMode(m => m === "off" ? "all" : m === "all" ? "one" : "off")}
         />
 
         {/* Expanded cover rendered inline after selected track (see renderExpandedCover below) */}

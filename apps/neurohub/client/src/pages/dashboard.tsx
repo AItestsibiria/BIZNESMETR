@@ -1883,6 +1883,22 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
           createdAt: current.createdAt,
           styleInfo: null,
         } : null}
+        // Eugene 2026-05-17 — full player controls внутри модалки.
+        // isPlaying derived: audio экземпляр в parent — не remount.
+        isPlaying={!!(audioRef.current && !audioRef.current.paused && playingId === current?.id)}
+        onPlayPause={() => current && togglePlay(current)}
+        currentTime={currentTime}
+        duration={trackDuration}
+        onSeek={(s) => {
+          if (audioRef.current) {
+            audioRef.current.currentTime = s;
+            setCurrentTime(s);
+          }
+        }}
+        volume={volume}
+        onVolumeChange={setVolume}
+        repeatMode={repeatMode}
+        onRepeatToggle={() => setRepeatMode(m => m === "off" ? "all" : m === "all" ? "one" : "off")}
       />
     </div>
   );
