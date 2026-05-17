@@ -5,7 +5,7 @@ import { PUBLIC_URL } from "./lib/publicUrl";
 import { detectsYars, recordYarsMention } from "./lib/yarsDetect";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
-import { registerSchema, loginSchema, users, payments, generations, transactions, promoCodes, visitors, genActivity, songDrafts, botLearnings, landingNews, chatbotSessions, chatbotMessages, adminDelegates, userActionFailures, agentHandoffs } from "@shared/schema";
+import { registerSchema, loginSchema, users, payments, generations, transactions, promoCodes, visitors, genActivity, songDrafts, botLearnings, landingNews, chatbotSessions, chatbotMessages, adminDelegates, userActionFailures, agentHandoffs, userJourneyEvents } from "@shared/schema";
 import express from "express";
 import { eq, desc, sql, and, isNotNull, inArray } from "drizzle-orm";
 import nodemailer from "nodemailer";
@@ -1648,6 +1648,103 @@ export async function registerRoutes(
       res.json({ ok: true });
     } catch {
       res.json({ ok: true }); // не блокируем фронт
+    }
+  });
+
+  // ==================== USER JOURNEY (Eugene 2026-05-17 Босс) ====================
+  // POST /api/journey/batch — батч событий клиентского трекера (page_view,
+  // click, scroll_percent, idle_30s, form_focus, form_abandon, leave).
+  // Public endpoint (auth не требуется — гости трекаются для конверсий).
+  //
+  // Rate-limit: 1 batch / 5 сек per sessionKey (защита от flooding).
+  // Validation: max 50 events / batch, type whitelisted, page max 200 chars,
+  // meta serialized JSON max 2KB. Sensitive pages (/admin/*) НЕ пишем.
+  //
+  // userId извлекается из Bearer token если присутствует (anon → null).
+  const JOURNEY_EVENT_TYPES = new Set([
+    "page_view", "click", "scroll_percent",
+    "idle_30s", "form_focus", "form_abandon", "leave",
+  ]);
+  // Per-sessionKey throttle: следим за последним временем batch'а.
+  const journeyBatchAt = new Map<string, number>();
+  setInterval(() => {
+    const cutoff = Date.now() - 60_000;
+    for (const [k, t] of journeyBatchAt) if (t < cutoff) journeyBatchAt.delete(k);
+  }, 300_000);
+
+  app.post("/api/journey/batch", (req: Request, res: Response) => {
+    try {
+      const body = req.body || {};
+      const sessionKey = String(body.sessionKey || "").trim().slice(0, 64);
+      const events = Array.isArray(body.events) ? body.events : [];
+      if (!sessionKey || sessionKey.length < 8) {
+        res.status(400).json({ ok: false, error: "sessionKey required" });
+        return;
+      }
+      if (events.length === 0) {
+        res.json({ ok: true, inserted: 0 });
+        return;
+      }
+      if (events.length > 50) {
+        res.status(400).json({ ok: false, error: "max 50 events / batch" });
+        return;
+      }
+      // Throttle per sessionKey: 1 batch / 5 сек.
+      const now = Date.now();
+      const lastAt = journeyBatchAt.get(sessionKey) || 0;
+      if (now - lastAt < 5_000) {
+        res.status(429).json({ ok: false, error: "rate-limit: 1 batch / 5s" });
+        return;
+      }
+      journeyBatchAt.set(sessionKey, now);
+
+      // userId из Bearer (опционально).
+      let userId: number | null = null;
+      try {
+        const token = getTokenFromRequest(req);
+        if (token && tokenStore.has(token)) userId = tokenStore.get(token) || null;
+      } catch {}
+
+      // Normalize + filter.
+      const rows: { sessionKey: string; userId: number | null; eventType: string; page: string; meta: string | null; createdAt: string; }[] = [];
+      for (const ev of events) {
+        if (!ev || typeof ev !== "object") continue;
+        const type = String(ev.type || "").trim();
+        if (!JOURNEY_EVENT_TYPES.has(type)) continue;
+        let page = String(ev.page || "/").trim().slice(0, 200);
+        // Не пишем sensitive pages (admin-зона). Privacy + шум фильтрация.
+        if (page.startsWith("/admin")) continue;
+        let metaStr: string | null = null;
+        if (ev.meta && typeof ev.meta === "object") {
+          try {
+            const s = JSON.stringify(ev.meta);
+            metaStr = s.length > 2000 ? s.slice(0, 2000) : s;
+          } catch {}
+        }
+        // ts — client-side ts из event'а (для упорядочения timeline точнее
+        // чем server insert order). Fallback на now.
+        let createdAt: string;
+        try {
+          const ts = Number(ev.ts);
+          createdAt = Number.isFinite(ts) && ts > 0
+            ? new Date(ts).toISOString()
+            : new Date().toISOString();
+        } catch {
+          createdAt = new Date().toISOString();
+        }
+        rows.push({ sessionKey, userId, eventType: type, page, meta: metaStr, createdAt });
+      }
+      if (rows.length === 0) {
+        res.json({ ok: true, inserted: 0 });
+        return;
+      }
+      // Batch insert через drizzle.
+      db.insert(userJourneyEvents).values(rows).run();
+      res.json({ ok: true, inserted: rows.length });
+    } catch (e) {
+      // Логируем, но не ломаем фронт.
+      console.error("[JOURNEY-BATCH] error:", e);
+      res.json({ ok: true, inserted: 0 });
     }
   });
 
