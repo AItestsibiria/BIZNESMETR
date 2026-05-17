@@ -47,6 +47,7 @@ import {
   estimateTtsCostKopecks,
   type YandexVoice,
 } from "../../lib/yandexTts";
+import { lastSnapshotForBrainExport } from "../funnels/module";
 
 const router = Router();
 
@@ -1106,6 +1107,19 @@ router.get("/brain-export", requireAdmin, (_req, res) => {
       // slice. Не блокируем brain-export.
     }
 
+    // Funnels — последний snapshot всех воронок (Eugene 2026-05-17 Босс).
+    // Чтобы Второй мозг видел текущее проседание конверсии и знал куда копать.
+    // Берём last snapshot per funnel_id (cron save'ит дневной snapshot в 03:00 MSK).
+    let funnelsSlice: ReturnType<typeof lastSnapshotForBrainExport> = [];
+    try {
+      funnelsSlice = lastSnapshotForBrainExport();
+    } catch (e) {
+      console.warn(
+        "[brain-export] funnels slice failed:",
+        e instanceof Error ? e.message : e,
+      );
+    }
+
     res.json({
       data: {
         generatedAt: new Date().toISOString(),
@@ -1114,6 +1128,7 @@ router.get("/brain-export", requireAdmin, (_req, res) => {
         nodes,
         edges,
         clickStats: clickStatsSlice,
+        funnels: funnelsSlice,
         summary: {
           totals: {
             nodes: nodes.length,
@@ -1123,6 +1138,7 @@ router.get("/brain-export", requireAdmin, (_req, res) => {
             providers: providerNodes.length,
             clicks: clickStatsSlice.totalClicks,
             uniqueClickers: clickStatsSlice.uniqueClickers,
+            funnels: funnelsSlice.length,
           },
           health: {
             green: nodes.filter(n => n.status === "green").length,
@@ -1130,6 +1146,9 @@ router.get("/brain-export", requireAdmin, (_req, res) => {
             red: nodes.filter(n => n.status === "red").length,
             unknown: nodes.filter(n => n.status === "unknown").length,
           },
+          worstFunnel: funnelsSlice
+            .filter(f => f.totalConversion !== null)
+            .sort((a, b) => (a.totalConversion ?? 1) - (b.totalConversion ?? 1))[0] || null,
         },
       },
       error: null,
