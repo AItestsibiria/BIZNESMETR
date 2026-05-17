@@ -817,11 +817,36 @@ export async function registerRoutes(
     // Фильтр периода — единая логика через periodBoundaries (cut-off 20:00 МСК).
     // Eugene 2026-05-17 Босс «единая логика period boundaries во всех endpoints».
     const period = String(req.query.period || "all");
+    // Eugene 2026-05-17 Босс: per-domain фильтр (muzaai.ru / muziai.ru /
+    // podaripesnu.ru / other). Безопасно — domain валидируется через whitelist.
+    const domainRaw = typeof req.query.domain === "string" ? req.query.domain.trim().toLowerCase() : "";
+    let domainSql = ""; // фрагмент типа `host = 'muzaai.ru'` без WHERE/AND.
+    if (domainRaw && domainRaw !== "all") {
+      if (domainRaw === "other") {
+        const list = KNOWN_DOMAINS.map(d => `'${d}'`).join(",");
+        domainSql = `(host IS NULL OR host NOT IN (${list}))`;
+      } else if ((KNOWN_DOMAINS as readonly string[]).includes(domainRaw)) {
+        domainSql = `host = '${domainRaw}'`;
+      }
+    }
+
     let dateFilter = "";
     if (period && period !== "all") {
       const r = getPeriodRange(period);
       dateFilter = `WHERE last_visit >= '${r.fromIso}' AND last_visit < '${r.toIso}'`;
     }
+    // Объединяем dateFilter + domainSql в один WHERE-фрагмент.
+    let combinedWhere = dateFilter;
+    if (domainSql) {
+      combinedWhere = combinedWhere
+        ? `${combinedWhere} AND ${domainSql}`
+        : `WHERE ${domainSql}`;
+    }
+    // Для запросов с дополнительным условием (AND country IS NOT NULL и т.п.) —
+    // решаем нужен ли отдельный prefix.
+    const wherePrefix = combinedWhere ? combinedWhere : "WHERE 1=1";
+    const _unused_dateFilter = dateFilter; // legacy compat, см. инлайн ниже
+    void _unused_dateFilter;
 
     const raw = db.$client;
     // Быстрые сводки (для верхних карточек)
@@ -831,9 +856,9 @@ export async function registerRoutes(
     const todayC = raw.prepare("SELECT COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors WHERE date(last_visit) = ?").get(today) as any;
     const weekC = raw.prepare("SELECT COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors WHERE last_visit >= ?").get(week) as any;
 
-    // Сводки с учётом фильтра периода — выводим в диалоге
-    const periodTotal = raw.prepare(`SELECT COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors ${dateFilter}`).get() as any;
-    const periodVisits = raw.prepare(`SELECT COALESCE(SUM(visits), 0) as c FROM visitors ${dateFilter}`).get() as any;
+    // Сводки с учётом фильтра периода + домена.
+    const periodTotal = raw.prepare(`SELECT COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors ${combinedWhere}`).get() as any;
+    const periodVisits = raw.prepare(`SELECT COALESCE(SUM(visits), 0) as c FROM visitors ${combinedWhere}`).get() as any;
 
     // Страны: GROUP BY country_code объединяет «Russia» и «Россия» в одну
     // запись (Eugene 2026-05-08: «страны объедини, по английски пиши»).
@@ -847,7 +872,7 @@ export async function registerRoutes(
         COUNT(DISTINCT COALESCE(fingerprint, ip)) as visitors,
         COALESCE(SUM(visits), 0) as visits
       FROM visitors
-      ${dateFilter ? dateFilter + " AND" : "WHERE"} country IS NOT NULL AND country != ''
+      ${wherePrefix} AND country IS NOT NULL AND country != ''
       GROUP BY country_code
       ORDER BY visitors DESC LIMIT 30
     `).all();
@@ -862,7 +887,7 @@ export async function registerRoutes(
         COUNT(DISTINCT COALESCE(fingerprint, ip)) as visitors,
         COALESCE(SUM(visits), 0) as visits
       FROM visitors
-      ${dateFilter ? dateFilter + " AND" : "WHERE"} city IS NOT NULL AND city != ''
+      ${wherePrefix} AND city IS NOT NULL AND city != ''
       GROUP BY city, country_code
       ORDER BY visitors DESC LIMIT 50
     `).all();
@@ -878,7 +903,7 @@ export async function registerRoutes(
         COALESCE(SUM(visits), 0) as visits,
         MAX(last_visit) as lastVisit
       FROM visitors
-      ${dateFilter ? dateFilter + " AND" : "WHERE"} ip IS NOT NULL AND ip != ''
+      ${wherePrefix} AND ip IS NOT NULL AND ip != ''
       GROUP BY ip ORDER BY visits DESC LIMIT 200
     `).all();
 
@@ -890,6 +915,7 @@ export async function registerRoutes(
       today: todayC?.c || 0,
       week: weekC?.c || 0,
       period,
+      domain: domainSql ? domainRaw : null,
       periodTotal: periodTotal?.c || 0,
       periodVisits: periodVisits?.c || 0,
       byCountry,
