@@ -4,18 +4,23 @@
 // Содержит:
 // 1) Light-status indicators (карточки по группам) — LLM, Generation, Auth,
 //    Payments, Bots, DB, Disk. Auto-refresh каждые 30 сек.
-// 2) Date-range picker (Сегодня / 7 дней / 30 дней / За всё время)
+//    Click на карточку → expand panel с деталями (drill-down).
+// 2) Period pills (🟪 Вчера / 🟦 Сегодня / 🟩 Неделя / 🟨 Месяц / 📅 Другой период).
+//    Click → instant refetch. 📅 раскрывает date-range picker (from/to).
 // 3) Статистика по периоду — prosects, downloads, regs, gens, pays, visits.
+//    Click на метрику → expand panel (by-day breakdown, top elements, etc).
 // 4) Дизайнерские диаграммы Recharts с hover combined overlay.
 //
 // Источник данных:
-//   GET /api/admin/v304/dashboard-summary?period=today|7d|30d|all
+//   GET /api/admin/v304/dashboard-summary?period=yesterday|today|7d|30d|all|custom&from=ISO&to=ISO
+//   GET /api/admin/v304/dashboard-detail/:metric?period=... (drill-down)
 //
 // Стиль: glass-card + фирменные purple/cyan/amber/emerald gradient на dark bg.
-// Mobile-friendly: 1col mobile, 2-3col desktop.
+// Mobile-friendly: 1col mobile, 2-3col desktop, pills wrap, expanded panel full-width.
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { AnimatePresence, motion } from "framer-motion";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { registerAudio } from "@/lib/audio-bus";
@@ -35,7 +40,7 @@ import {
   Legend,
 } from "recharts";
 
-type Period = "today" | "7d" | "30d" | "all";
+type Period = "yesterday" | "today" | "7d" | "30d" | "all" | "custom";
 
 // ===== Funnels (Eugene 2026-05-17 Босс «воронки конверсии») ===============
 //
@@ -161,11 +166,90 @@ function fetcher<T>(url: string): Promise<T> {
 }
 
 const PERIOD_LABELS: Record<Period, string> = {
+  yesterday: "Вчера",
   today: "Сегодня",
-  "7d": "7 дней",
-  "30d": "30 дней",
+  "7d": "Неделя",
+  "30d": "Месяц",
   all: "За всё время",
+  custom: "Другой период",
 };
+
+const PERIOD_PILLS: Array<{
+  id: Period;
+  label: string;
+  icon: string;
+  active: string;  // tailwind gradient when active
+  inactive: string;
+  glow: string;
+}> = [
+  {
+    id: "yesterday",
+    label: "Вчера",
+    icon: "🟪",
+    active:
+      "bg-gradient-to-br from-purple-500/40 via-fuchsia-500/30 to-purple-600/40 border-purple-400/60 text-white",
+    inactive:
+      "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/[0.08] hover:border-purple-400/30",
+    glow: "shadow-[0_0_24px_rgba(124,58,237,0.45)]",
+  },
+  {
+    id: "today",
+    label: "Сегодня",
+    icon: "🟦",
+    active:
+      "bg-gradient-to-br from-cyan-500/40 via-blue-500/30 to-cyan-600/40 border-cyan-400/60 text-white",
+    inactive:
+      "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/[0.08] hover:border-cyan-400/30",
+    glow: "shadow-[0_0_24px_rgba(0,212,255,0.45)]",
+  },
+  {
+    id: "7d",
+    label: "Неделя",
+    icon: "🟩",
+    active:
+      "bg-gradient-to-br from-emerald-500/40 via-green-500/30 to-emerald-600/40 border-emerald-400/60 text-white",
+    inactive:
+      "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/[0.08] hover:border-emerald-400/30",
+    glow: "shadow-[0_0_24px_rgba(57,255,20,0.4)]",
+  },
+  {
+    id: "30d",
+    label: "Месяц",
+    icon: "🟨",
+    active:
+      "bg-gradient-to-br from-amber-500/40 via-yellow-500/30 to-amber-600/40 border-amber-400/60 text-white",
+    inactive:
+      "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/[0.08] hover:border-amber-400/30",
+    glow: "shadow-[0_0_24px_rgba(251,191,36,0.45)]",
+  },
+  {
+    id: "custom",
+    label: "Другой период",
+    icon: "📅",
+    active:
+      "bg-gradient-to-br from-pink-500/40 via-fuchsia-500/30 to-purple-500/40 border-pink-400/60 text-white",
+    inactive:
+      "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/[0.08] hover:border-pink-400/30",
+    glow: "shadow-[0_0_24px_rgba(255,0,110,0.4)]",
+  },
+];
+
+// "YYYY-MM-DD" → ISO для query-string. Берём начало дня MSK для from, конец для to.
+function dateToIso(dateStr: string, endOfDay = false): string | null {
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null;
+  // MSK = UTC+3. Начало дня MSK == 21:00 UTC предыдущего дня.
+  // Чтобы не путаться: интерпретируем yyyy-mm-dd как локальный MSK день.
+  const [y, m, d] = dateStr.split("-").map(n => parseInt(n, 10));
+  // 00:00 MSK = UTC-3 → 21:00 предыдущего дня UTC, но Date.UTC проще:
+  // строим UTC момент = yyyy-mm-dd 00:00 minus 3h (т.е. 21:00 предыдущего UTC дня).
+  // Для endOfDay используем next day 00:00 MSK = yyyy-mm-(d+1) 00:00 MSK.
+  const base = new Date(Date.UTC(y, m - 1, d, 0, 0, 0));
+  base.setUTCHours(base.getUTCHours() - 3); // → 21:00 предыдущего UTC дня
+  if (endOfDay) {
+    base.setUTCHours(base.getUTCHours() + 24); // следующий день 00:00 MSK
+  }
+  return base.toISOString();
+}
 
 // ---- цветовая палитра — единый источник для всех графиков ----
 const COLORS = {
@@ -217,34 +301,95 @@ function StatusLamp({ card }: { card: StatusCard }) {
 }
 
 // ============================================================
-// Date-range picker
+// Period pills (Eugene 2026-05-17 Босс): большие фирменные кнопки
+// 🟪 Вчера / 🟦 Сегодня / 🟩 Неделя / 🟨 Месяц / 📅 Другой период.
+// Click = instant refetch. Custom → раскрывает date-range picker.
 // ============================================================
 function PeriodSelector({
   period,
   onChange,
+  customFrom,
+  customTo,
+  onCustomChange,
 }: {
   period: Period;
   onChange: (p: Period) => void;
+  customFrom: string;
+  customTo: string;
+  onCustomChange: (from: string, to: string) => void;
 }) {
-  const buttons: Array<{ key: Period; label: string }> = [
-    { key: "today", label: "Сегодня" },
-    { key: "7d", label: "7 дней" },
-    { key: "30d", label: "30 дней" },
-    { key: "all", label: "За всё время" },
-  ];
   return (
-    <div className="flex flex-wrap gap-2">
-      {buttons.map((b) => (
-        <Button
-          key={b.key}
-          variant={period === b.key ? "default" : "outline"}
-          size="sm"
-          onClick={() => onChange(b.key)}
-          data-testid={`period-${b.key}`}
-        >
-          {b.label}
-        </Button>
-      ))}
+    <div className="flex flex-col gap-2 w-full sm:w-auto">
+      <div className="flex flex-wrap gap-2">
+        {PERIOD_PILLS.map(p => {
+          const isActive = period === p.id;
+          return (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => onChange(p.id)}
+              data-testid={`period-${p.id}`}
+              className={`group relative inline-flex items-center gap-1.5 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full border text-xs sm:text-sm font-sans font-medium transition-all ${
+                isActive ? `${p.active} ${p.glow}` : p.inactive
+              }`}
+            >
+              <span className="text-base sm:text-lg leading-none">{p.icon}</span>
+              <span>{p.label}</span>
+              {isActive && (
+                <span
+                  aria-hidden
+                  className="absolute inset-0 rounded-full ring-1 ring-white/20 pointer-events-none"
+                />
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      <AnimatePresence initial={false}>
+        {period === "custom" && (
+          <motion.div
+            key="custom-range"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.22, ease: "easeOut" }}
+            className="overflow-hidden"
+          >
+            <div className="flex flex-wrap items-end gap-2 pt-1 px-1">
+              <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+                с
+                <input
+                  type="date"
+                  value={customFrom}
+                  onChange={(e) => onCustomChange(e.target.value, customTo)}
+                  data-testid="period-custom-from"
+                  className="bg-black/40 text-white text-xs px-2 py-1.5 rounded-lg border border-pink-400/30 hover:border-pink-400/60 focus:border-pink-400 focus:outline-none transition-colors"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
+                по
+                <input
+                  type="date"
+                  value={customTo}
+                  onChange={(e) => onCustomChange(customFrom, e.target.value)}
+                  data-testid="period-custom-to"
+                  className="bg-black/40 text-white text-xs px-2 py-1.5 rounded-lg border border-pink-400/30 hover:border-pink-400/60 focus:border-pink-400 focus:outline-none transition-colors"
+                />
+              </label>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => onChange("all")}
+                data-testid="period-custom-clear"
+                className="h-[34px]"
+              >
+                Сбросить
+              </Button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -1355,19 +1500,77 @@ function MusaBriefing({ period }: { period: Period }) {
 // ============================================================
 // MAIN TAB
 // ============================================================
+function buildDashboardUrl(
+  base: string,
+  period: Period,
+  customFrom: string,
+  customTo: string,
+): string {
+  const params = new URLSearchParams({ period });
+  if (period === "custom") {
+    const fromIso = dateToIso(customFrom);
+    const toIso = dateToIso(customTo, true);
+    if (fromIso) params.set("from", fromIso);
+    if (toIso) params.set("to", toIso);
+  }
+  return `${base}?${params.toString()}`;
+}
+
 export default function MasterDashboardTab() {
   const [period, setPeriod] = useState<Period>("7d");
+  // Custom range — input value (YYYY-MM-DD). По умолчанию пусто; превращается
+  // в ISO только когда оба поля заполнены и period === 'custom'.
+  const [customFrom, setCustomFrom] = useState<string>("");
+  const [customTo, setCustomTo] = useState<string>("");
+
+  // Дефолтные значения для date-pickers при первом открытии custom
+  const handlePeriodChange = useCallback(
+    (next: Period) => {
+      setPeriod(next);
+      if (next === "custom" && !customFrom && !customTo) {
+        const today = new Date();
+        const weekAgo = new Date(today.getTime() - 7 * 24 * 3600 * 1000);
+        const fmt = (d: Date) =>
+          `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(
+            d.getUTCDate(),
+          ).padStart(2, "0")}`;
+        setCustomFrom(fmt(weekAgo));
+        setCustomTo(fmt(today));
+      }
+    },
+    [customFrom, customTo],
+  );
+
+  // Custom enabled только когда оба поля заполнены — иначе шлём period=custom
+  // без from/to и backend пускает в "all".
+  const customReady =
+    period !== "custom" ||
+    (Boolean(customFrom) && Boolean(customTo) && customFrom <= customTo);
+
+  const summaryUrl = buildDashboardUrl(
+    "/api/admin/v304/dashboard-summary",
+    period,
+    customFrom,
+    customTo,
+  );
+  const clicksUrl = buildDashboardUrl(
+    "/api/admin/v304/click-stats",
+    period,
+    customFrom,
+    customTo,
+  );
+
   const { data, isLoading, refetch } = useQuery<DashboardSummary>({
-    queryKey: [`/api/admin/v304/dashboard-summary?period=${period}`],
-    queryFn: () =>
-      fetcher<DashboardSummary>(`/api/admin/v304/dashboard-summary?period=${period}`),
+    queryKey: [summaryUrl],
+    queryFn: () => fetcher<DashboardSummary>(summaryUrl),
     refetchInterval: 30_000,
+    enabled: customReady,
   });
   const { data: clickStats, isLoading: clicksLoading } = useQuery<ClickStats>({
-    queryKey: [`/api/admin/v304/click-stats?period=${period}`],
-    queryFn: () =>
-      fetcher<ClickStats>(`/api/admin/v304/click-stats?period=${period}`),
+    queryKey: [clicksUrl],
+    queryFn: () => fetcher<ClickStats>(clicksUrl),
     refetchInterval: 60_000,
+    enabled: customReady,
   });
 
   if (isLoading && !data) {
@@ -1411,8 +1614,17 @@ export default function MasterDashboardTab() {
             обновление каждые 30 сек {data.fromCache && "· из кэша"}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <PeriodSelector period={period} onChange={setPeriod} />
+        <div className="flex flex-wrap items-end gap-3">
+          <PeriodSelector
+            period={period}
+            onChange={handlePeriodChange}
+            customFrom={customFrom}
+            customTo={customTo}
+            onCustomChange={(f, t) => {
+              setCustomFrom(f);
+              setCustomTo(t);
+            }}
+          />
           <Button
             variant="outline"
             size="sm"
