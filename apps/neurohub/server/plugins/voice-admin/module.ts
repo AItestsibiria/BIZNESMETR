@@ -38,10 +38,12 @@
 import { Router } from "express";
 import multer from "multer";
 import { sql } from "drizzle-orm";
+import fs from "node:fs";
+import path from "node:path";
 import { db } from "../../storage";
 import { requireAdmin } from "../../core/adminAuth";
 import { transcribeRussianAudio } from "../../lib/transcribe";
-import { synthesizeYandexTts } from "../../lib/yandexTts";
+import { synthesizeYandexTts, type YandexVoice } from "../../lib/yandexTts";
 import { MUZA_TOOLS, executeTool } from "../../lib/muzaTools";
 import { buildPersonaSystem } from "../../lib/consultantPersona";
 import {
@@ -49,7 +51,35 @@ import {
   getCachedClickStats,
   getCachedBrainExport,
 } from "../master-dashboard/module";
+import { getChannelsStatusSummary } from "../bot-channels-health/module";
 import type { Module } from "../../core";
+
+// === Voice picker (Eugene 2026-05-17 Босс): валидация voice + emotion из
+// request body. Безопасные defaults (alena / neutral) — back-compat для старых
+// клиентов которые не присылают voice. Гард на enum значения чтобы не пропустить
+// мусор в Yandex API.
+const ALLOWED_VOICES: ReadonlySet<YandexVoice> = new Set<YandexVoice>([
+  "alena",
+  "jane",
+  "oksana",
+  "omazh",
+  "zahar",
+  "ermil",
+  "filipp",
+  "madirus",
+]);
+const ALLOWED_EMOTIONS: ReadonlySet<"neutral" | "good" | "evil"> = new Set<
+  "neutral" | "good" | "evil"
+>(["neutral", "good", "evil"]);
+
+function normalizeVoice(raw: unknown): YandexVoice {
+  const v = String(raw || "").toLowerCase().trim() as YandexVoice;
+  return ALLOWED_VOICES.has(v) ? v : "alena";
+}
+function normalizeEmotion(raw: unknown): "neutral" | "good" | "evil" {
+  const e = String(raw || "").toLowerCase().trim() as "neutral" | "good" | "evil";
+  return ALLOWED_EMOTIONS.has(e) ? e : "neutral";
+}
 
 // === Dashboard context injection (Eugene 2026-05-17) ===
 //
@@ -63,7 +93,98 @@ import type { Module } from "../../core";
 // LLM-call видит свежие данные с небольшим запозданием, и мы не дёргаем БД
 // каждый voice-command.
 
-function buildDashboardContext(): string {
+// === Live context cache (Eugene 2026-05-17 Босс «Муза знает текущую
+// статистику дашборда — отвечает реальными цифрами, не фантазирует»).
+// Кэшируем весь сформированный block 60 сек — это TTL aligned с dashboard
+// cache, не дёргаем БД на каждый voice command. Buildup занимает ~10-30 мс
+// (несколько prepared statements + read of KB excerpt).
+const LIVE_CONTEXT_CACHE_TTL_MS = 60 * 1000;
+let liveContextCache: { text: string; expiresAt: number } | null = null;
+
+// === KB excerpt — first 2000 chars из docs/strategy/KNOWLEDGE-BASE-BOT.md.
+// Читается один раз на старте process и потом из памяти. Если файла нет —
+// возвращаем пустую строку (graceful degradation).
+let kbExcerptCache: string | null = null;
+function readKbExcerpt(): string {
+  if (kbExcerptCache !== null) return kbExcerptCache;
+  try {
+    // Resolve относительно cwd процесса — pm2 запускает из /var/www/neurohub
+    // где docs/ доступны. На dev — относительно repo root.
+    const candidates = [
+      path.resolve(process.cwd(), "docs/strategy/KNOWLEDGE-BASE-BOT.md"),
+      path.resolve(process.cwd(), "../../docs/strategy/KNOWLEDGE-BASE-BOT.md"),
+      path.resolve(__dirname, "../../../../docs/strategy/KNOWLEDGE-BASE-BOT.md"),
+    ];
+    for (const p of candidates) {
+      if (fs.existsSync(p)) {
+        const raw = fs.readFileSync(p, "utf8");
+        kbExcerptCache = raw.slice(0, 2000);
+        return kbExcerptCache;
+      }
+    }
+  } catch (e: any) {
+    console.warn("[ADMIN-VOICE] readKbExcerpt failed:", e?.message || e);
+  }
+  kbExcerptCache = "";
+  return "";
+}
+
+// === Open incidents + recent failures (sync, prepared statements). ===
+// Топ-5 incidents (status='open') sort by last_seen_at DESC. Топ-5 user-action
+// failures за последний час, group_key + count + message.
+function getOpenIncidentsLines(): string[] {
+  try {
+    const sqlite: any = (db as any).$client;
+    const rows = sqlite
+      .prepare(
+        `SELECT id, kind, severity, title, occurrences, last_seen_at
+         FROM incidents
+         WHERE status = 'open'
+         ORDER BY last_seen_at DESC
+         LIMIT 5`,
+      )
+      .all();
+    if (!rows || rows.length === 0) return ["  (нет открытых инцидентов)"];
+    return rows.map((r: any) => {
+      const sev = String(r.severity || "").toLowerCase();
+      const dot = sev === "critical" ? "🔴" : sev === "warning" ? "🟡" : "⚪";
+      const title = String(r.title || r.kind || "").slice(0, 80);
+      return `  ${dot} #${r.id} ${title} (${r.occurrences}× · last ${String(r.last_seen_at || "").slice(0, 16)})`;
+    });
+  } catch {
+    return ["  (incidents query failed)"];
+  }
+}
+
+function getRecentFailuresLines(): string[] {
+  try {
+    const sqlite: any = (db as any).$client;
+    const rows = sqlite
+      .prepare(
+        `SELECT group_key, action, channel, error_code, COUNT(*) AS cnt,
+                MAX(error_message) AS last_msg, MAX(created_at) AS last_at
+         FROM user_action_failures
+         WHERE created_at > datetime('now', '-1 hour')
+         GROUP BY group_key
+         ORDER BY cnt DESC
+         LIMIT 5`,
+      )
+      .all();
+    if (!rows || rows.length === 0) return ["  (нет свежих сбоев за последний час)"];
+    return rows.map((r: any) => {
+      const msg = String(r.last_msg || "").slice(0, 60);
+      return `  - ${r.channel}/${r.action} [${r.error_code || "?"}] ×${r.cnt}: ${msg}`;
+    });
+  } catch {
+    return ["  (failures query failed)"];
+  }
+}
+
+async function buildDashboardContext(): Promise<string> {
+  // Cache hit — return immediately (TTL 60s)
+  if (liveContextCache && liveContextCache.expiresAt > Date.now()) {
+    return liveContextCache.text;
+  }
   try {
     const dashboard = getCachedDashboardSummary("today");
     const clickStats = getCachedClickStats("today");
@@ -72,21 +193,35 @@ function buildDashboardContext(): string {
     const m = dashboard.metrics;
     const sumRub = Math.round(m.payments.sumKopecks / 100);
     const statusLines = (dashboard.statusCards || [])
-      .map((s) => `- ${s.emoji} ${s.label}: ${s.status.toUpperCase()} (${s.metric})`)
+      .map((s: any) => `- ${s.emoji} ${s.label}: ${s.status.toUpperCase()} (${s.metric})`)
       .join("\n");
-    const allOk = (dashboard.statusCards || []).every((s) => s.status === "green");
-    const redCount = (dashboard.statusCards || []).filter((s) => s.status === "red").length;
-    const yellowCount = (dashboard.statusCards || []).filter((s) => s.status === "yellow").length;
+    const allOk = (dashboard.statusCards || []).every((s: any) => s.status === "green");
+    const redCount = (dashboard.statusCards || []).filter((s: any) => s.status === "red").length;
+    const yellowCount = (dashboard.statusCards || []).filter((s: any) => s.status === "yellow").length;
 
     const topClicks = (clickStats.topElements || [])
       .slice(0, 5)
       .map(
-        (c, i) =>
+        (c: any, i: number) =>
           `  ${i + 1}. ${c.elementKey}${c.elementText ? ` («${String(c.elementText).slice(0, 40)}»)` : ""}: ${c.count} кликов, ${c.uniqueUsers} юзеров`,
       )
       .join("\n");
 
-    return [
+    const incidents = getOpenIncidentsLines();
+    const failures = getRecentFailuresLines();
+
+    let channelsBlock = "  (channels status unavailable)";
+    try {
+      // Channel summary — best-effort. Если упало (LLM probe timeout) — не
+      // валим весь context.
+      channelsBlock = await getChannelsStatusSummary();
+    } catch (e: any) {
+      console.warn("[ADMIN-VOICE] channels summary failed:", e?.message || e);
+    }
+
+    const kbExcerpt = readKbExcerpt();
+
+    const lines = [
       "[ADMIN DASHBOARD CONTEXT — текущие фактические данные за сегодня]",
       "",
       `Status: ${allOk ? "🟢 все системы OK" : `⚠️ ${redCount} red, ${yellowCount} yellow`}`,
@@ -106,6 +241,15 @@ function buildDashboardContext(): string {
       topClicks || "  (нет данных за сегодня)",
       `Всего кликов сегодня: ${clickStats.totalClicks} (уник юзеров: ${clickStats.uniqueClickers})`,
       "",
+      "Открытые инциденты (топ-5):",
+      ...incidents,
+      "",
+      "Свежие сбои юзеров (последний час, топ-5):",
+      ...failures,
+      "",
+      "Каналы (web / Telegram / Max + LLM движок):",
+      channelsBlock,
+      "",
       "Brain (системная карта):",
       `- Узлов: ${brain.nodesCount}, связей: ${brain.edgesCount}`,
       `- Здоровых плагинов: ${brain.green}, degraded: ${brain.yellow}, упавших: ${brain.red}`,
@@ -113,13 +257,21 @@ function buildDashboardContext(): string {
         ? `- Топ плагины: ${brain.topPlugins.slice(0, 8).join(", ")}`
         : "",
       "",
+      kbExcerpt
+        ? "Knowledge base (excerpt — первые 2000 chars из KNOWLEDGE-BASE-BOT.md):\n" + kbExcerpt
+        : "",
+      "",
       `[Snapshot: ${dashboard.generatedAt}; кэш 60 сек]`,
       "",
       "ПРАВИЛО: используй эти цифры в ответе. НЕ выдумывай метрики — они актуальные.",
       "Если Босс просит число которого здесь НЕТ — скажи это явно или вызови tool get_metrics.",
-    ]
-      .filter((s) => s !== "")
-      .join("\n");
+      "ОБЩАЙСЯ как опытный коллега. Не задавай встречных вопросов «что вы хотите» — у тебя",
+      "весь контекст. Используй цифры. Без markdown заголовков, без буллетов.",
+      "Кратко (1-3 предложения для голосового ответа).",
+    ];
+    const text = lines.filter((s) => s !== "").join("\n");
+    liveContextCache = { text, expiresAt: Date.now() + LIVE_CONTEXT_CACHE_TTL_MS };
+    return text;
   } catch (e: any) {
     console.warn("[ADMIN-VOICE] buildDashboardContext failed:", e?.message || e);
     return "[ADMIN DASHBOARD CONTEXT: не удалось собрать snapshot — используй tools get_metrics для актуальных данных]";
@@ -253,7 +405,7 @@ async function callAdminVoiceLLM(opts: {
 
   // Свежий dashboard snapshot (cached 60 сек). Inject как отдельный
   // system-block — модель видит фактические цифры до начала reasoning'а.
-  const dashboardContext = buildDashboardContext();
+  const dashboardContext = await buildDashboardContext();
 
   const systemBlocks: any[] = [
     { type: "text", text: stable, cache_control: { type: "ephemeral", ttl: "1h" } },
@@ -432,6 +584,11 @@ router.post(
     }
 
     // 3) Optional TTS
+    // Voice picker (Eugene 2026-05-17): voice + emotion из body (multipart text
+    // fields), back-compat default alena/neutral. Гард через normalizeVoice /
+    // normalizeEmotion — мусор в БД не попадает.
+    const ttsVoice = normalizeVoice(req.body?.voice);
+    const ttsEmotion = normalizeEmotion(req.body?.emotion);
     let audioBase64: string | undefined;
     let audioContentType: string | undefined;
     const wantTts = String(req.query.tts || "").trim() === "1";
@@ -439,7 +596,8 @@ router.post(
       try {
         const tts = await synthesizeYandexTts({
           text: llmResult.responseText.slice(0, 4500),
-          voice: "alena",
+          voice: ttsVoice,
+          emotion: ttsEmotion,
           format: "mp3",
         });
         if (tts.ok && tts.audio) {
@@ -593,6 +751,10 @@ router.post("/voice-command-text", requireAdmin, async (req: any, res) => {
     return res.status(500).json({ data: null, error: `LLM error: ${String(e?.message || e).slice(0, 120)}` });
   }
 
+  // Voice picker (Eugene 2026-05-17): voice + emotion из JSON body, гард через
+  // normalize* (back-compat default alena/neutral).
+  const ttsVoiceText = normalizeVoice(req.body?.voice);
+  const ttsEmotionText = normalizeEmotion(req.body?.emotion);
   let audioBase64: string | undefined;
   let audioContentType: string | undefined;
   const wantTts = String(req.query.tts || "").trim() === "1";
@@ -600,7 +762,8 @@ router.post("/voice-command-text", requireAdmin, async (req: any, res) => {
     try {
       const tts = await synthesizeYandexTts({
         text: llmResult.responseText.slice(0, 4500),
-        voice: "alena",
+        voice: ttsVoiceText,
+        emotion: ttsEmotionText,
         format: "mp3",
       });
       if (tts.ok && tts.audio) {

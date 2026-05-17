@@ -13,7 +13,19 @@
 
 import { Buffer } from "node:buffer";
 
-export type YandexVoice = "alena" | "jane" | "oksana" | "filipp" | "ermil" | "omazh" | "zahar";
+// Eugene 2026-05-17 Босс «8 голосов voice picker»: расширен список с 7 до 8 —
+// добавлен `madirus` (мужской премиум-голос с низким pitch). Эмоции neutral /
+// good / evil поддерживаются только женскими голосами (alena, jane, oksana,
+// omazh) — мужские принимают параметр но Yandex API его игнорирует.
+export type YandexVoice =
+  | "alena"
+  | "jane"
+  | "oksana"
+  | "omazh"
+  | "zahar"
+  | "ermil"
+  | "filipp"
+  | "madirus";
 
 export interface TtsOptions {
   text: string;

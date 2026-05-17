@@ -23,6 +23,45 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { registerAudio } from "@/lib/audio-bus";
 
+// === Voice picker (Eugene 2026-05-17 Босс «8 голосов Yandex SpeechKit как из
+// фантастики»). Каталог 8 голосов с RU именами + полом + кратким описанием +
+// поддержкой эмоций. Для женских голосов (alena/jane/oksana/omazh) Yandex
+// принимает emotion neutral/good/evil — для мужских игнорирует.
+type VoiceId = "alena" | "jane" | "oksana" | "omazh" | "zahar" | "ermil" | "filipp" | "madirus";
+type EmotionId = "neutral" | "good" | "evil";
+
+interface VoiceDef {
+  id: VoiceId;
+  name: string;          // RU display name
+  emoji: string;         // одна emoji per voice
+  gender: "f" | "m";     // ♀ / ♂
+  desc: string;          // 2-3 слова описания тембра
+  supportsEmotion: boolean;
+}
+
+const VOICE_CATALOG: ReadonlyArray<VoiceDef> = [
+  { id: "alena",   name: "Алёна",   emoji: "🌸", gender: "f", desc: "женский тёплый",       supportsEmotion: true  },
+  { id: "jane",    name: "Джейн",   emoji: "✨", gender: "f", desc: "женский нейтральный",  supportsEmotion: true  },
+  { id: "oksana",  name: "Оксана",  emoji: "💎", gender: "f", desc: "женский эмоциональный", supportsEmotion: true  },
+  { id: "omazh",   name: "Омаж",    emoji: "🎀", gender: "f", desc: "женский медленный",    supportsEmotion: true  },
+  { id: "zahar",   name: "Захар",   emoji: "🛡", gender: "m", desc: "мужской глубокий",     supportsEmotion: false },
+  { id: "ermil",   name: "Эрмиль",  emoji: "⚡", gender: "m", desc: "мужской позитивный",   supportsEmotion: false },
+  { id: "filipp",  name: "Филипп",  emoji: "🌊", gender: "m", desc: "мужской спокойный",    supportsEmotion: false },
+  { id: "madirus", name: "Мадирус", emoji: "🔮", gender: "m", desc: "мужской премиум",      supportsEmotion: false },
+];
+
+const VALID_VOICES = new Set<string>(VOICE_CATALOG.map(v => v.id));
+const VALID_EMOTIONS: ReadonlySet<string> = new Set(["neutral", "good", "evil"]);
+
+function normalizeStoredVoice(raw: string | null | undefined): VoiceId {
+  const v = String(raw || "").toLowerCase();
+  return VALID_VOICES.has(v) ? (v as VoiceId) : "alena";
+}
+function normalizeStoredEmotion(raw: string | null | undefined): EmotionId {
+  const e = String(raw || "").toLowerCase();
+  return VALID_EMOTIONS.has(e) ? (e as EmotionId) : "neutral";
+}
+
 type VoiceAction = {
   tool: string;
   input: unknown;
@@ -113,6 +152,38 @@ export function MusaVoiceFab() {
     if (typeof window === "undefined") return true;
     return window.localStorage.getItem("voice-command-eager-focus") !== "0";
   });
+  // Voice picker state (Eugene 2026-05-17 Босс): persist в localStorage.
+  // Default alena/neutral — back-compat для пользователей без сохранённого
+  // выбора.
+  const [voice, setVoice] = useState<VoiceId>(() =>
+    normalizeStoredVoice(
+      typeof window === "undefined" ? null : window.localStorage.getItem("voice-command-voice"),
+    ),
+  );
+  const [emotion, setEmotion] = useState<EmotionId>(() =>
+    normalizeStoredEmotion(
+      typeof window === "undefined" ? null : window.localStorage.getItem("voice-command-emotion"),
+    ),
+  );
+  const [voicePickerOpen, setVoicePickerOpen] = useState(false);
+  // Live refs для async-handlers — actual values без замыкания (как dialogActiveRef).
+  const voiceRef = useRef<VoiceId>(voice);
+  const emotionRef = useRef<EmotionId>(emotion);
+  useEffect(() => { voiceRef.current = voice; }, [voice]);
+  useEffect(() => { emotionRef.current = emotion; }, [emotion]);
+
+  const handleVoiceChange = useCallback((newVoice: VoiceId, newEmotion?: EmotionId) => {
+    setVoice(newVoice);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("voice-command-voice", newVoice);
+    }
+    if (newEmotion) {
+      setEmotion(newEmotion);
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("voice-command-emotion", newEmotion);
+      }
+    }
+  }, []);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -275,6 +346,19 @@ export function MusaVoiceFab() {
               }),
             );
           }
+          // (4) Voice picker — marker [VOICE_CHANGED:<voice>:<emotion>]
+          //     LLM сменила голос через change_voice tool → sync localStorage +
+          //     state, чтобы следующий TTS request шёл с новым голосом.
+          const vm = String(a.result || "").match(/\[VOICE_CHANGED:([a-z_]+):([a-z_]+)\]/);
+          if (vm) {
+            const [, vVoice, vEmotion] = vm;
+            if (VALID_VOICES.has(vVoice)) {
+              handleVoiceChange(
+                vVoice as VoiceId,
+                VALID_EMOTIONS.has(vEmotion) ? (vEmotion as EmotionId) : undefined,
+              );
+            }
+          }
         }
       } catch {/* ignore */}
 
@@ -355,6 +439,11 @@ export function MusaVoiceFab() {
         if (opts?.previousResponseTruncatedAt && opts.previousResponseTruncatedAt > 0) {
           body.previousResponseTruncatedAt = opts.previousResponseTruncatedAt;
         }
+        // Voice picker (Eugene 2026-05-17): передаём текущий voice + emotion
+        // чтобы Yandex TTS озвучил ответ выбранным голосом. Ref'ы чтобы
+        // получить актуальное значение без замыкания.
+        body.voice = voiceRef.current;
+        body.emotion = emotionRef.current;
         const r = await fetch(url, {
           method: "POST",
           credentials: "include",
@@ -392,6 +481,11 @@ export function MusaVoiceFab() {
       try {
         const fd = new FormData();
         fd.append("audio", blob, "voice.webm");
+        // Voice picker (Eugene 2026-05-17): передаём voice + emotion как
+        // multipart text-fields — server normalizeVoice/normalizeEmotion
+        // принимает их из req.body вместе с файлом.
+        fd.append("voice", voiceRef.current);
+        fd.append("emotion", emotionRef.current);
         const url = `/api/admin/v304/voice-command${autoTts ? "?tts=1" : ""}`;
         const r = await fetch(url, {
           method: "POST",
@@ -443,6 +537,17 @@ export function MusaVoiceFab() {
                   detail: { action, payload: payload || null },
                 }),
               );
+            }
+            // Voice picker marker [VOICE_CHANGED:<voice>:<emotion>] — sync state
+            const vm = String(a.result || "").match(/\[VOICE_CHANGED:([a-z_]+):([a-z_]+)\]/);
+            if (vm) {
+              const [, vVoice, vEmotion] = vm;
+              if (VALID_VOICES.has(vVoice)) {
+                handleVoiceChange(
+                  vVoice as VoiceId,
+                  VALID_EMOTIONS.has(vEmotion) ? (vEmotion as EmotionId) : undefined,
+                );
+              }
             }
           }
         } catch {
@@ -1002,6 +1107,70 @@ export function MusaVoiceFab() {
           ? "⌛"
           : "🎤";
 
+  // === Voice picker helpers ===
+  const currentVoiceDef = VOICE_CATALOG.find((v) => v.id === voice) || VOICE_CATALOG[0];
+
+  const previewVoice = useCallback(
+    async (vId: VoiceId, ePreview?: EmotionId) => {
+      // Превью через тот же /voice-command-text endpoint — отправляем фиксированную
+      // фразу как transcript + voice + emotion. Сервер сделает LLM-вызов с короткой
+      // фразой и вернёт TTS audio. Это reuse-working-solutions (нет отдельного
+      // /preview endpoint'а — переиспользуем существующий путь).
+      // Кладём в state так чтобы playback пошёл через handleVoiceResult.
+      const previewText = `Привет, я Муза. Говорю голосом ${
+        VOICE_CATALOG.find((c) => c.id === vId)?.name || vId
+      }.`;
+      setState("thinking");
+      try {
+        const url = `/api/admin/v304/voice-command-text?tts=1`;
+        const r = await fetch(url, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            transcript: previewText,
+            voice: vId,
+            emotion: ePreview || emotionRef.current,
+            // dialogMode=false: одиночное превью, не запускает continuous loop
+          }),
+        });
+        if (!r.ok) {
+          const tx = await r.text().catch(() => "");
+          throw new Error(`${r.status}: ${tx.slice(0, 120)}`);
+        }
+        const j = await r.json();
+        // Не вызываем handleVoiceResult чтобы НЕ перезаписать main result panel
+        // и НЕ дёрнуть dialog auto-resume. Только проигрываем audio локально.
+        const data: VoiceCommandResult = j.data;
+        if (data.audioBase64 && data.audioContentType) {
+          const audioBlob = base64ToBlob(data.audioBase64, data.audioContentType);
+          if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
+          const audioUrl = URL.createObjectURL(audioBlob);
+          blobUrlRef.current = audioUrl;
+          const audio = new Audio(audioUrl);
+          registerAudio(audio);
+          audioRef.current = audio;
+          audio.onended = () => {
+            setState("idle");
+            if (blobUrlRef.current) {
+              URL.revokeObjectURL(blobUrlRef.current);
+              blobUrlRef.current = null;
+            }
+          };
+          audio.onerror = () => setState("idle");
+          setState("playing");
+          await audio.play().catch(() => setState("idle"));
+        } else {
+          setState("idle");
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        setState("idle");
+      }
+    },
+    [],
+  );
+
   return (
     <>
       {/* Inline keyframes для idle-pulse (нежная вспышка раз в 4 сек) */}
@@ -1096,6 +1265,159 @@ export function MusaVoiceFab() {
                 )}
                 <span className="relative z-10">{fabIcon}</span>
               </button>
+            </div>
+
+            {/* Voice picker (Eugene 2026-05-17 Босс «8 голосов Yandex, можно
+                менять кликом и по команде»). Toggle-кнопка показывает текущий
+                голос + при клике раскрывает grid 2×4 (на mobile 1 столбец).
+                Каждый item — emoji + RU name + бейдж пола + описание + ▶ preview.
+                Active голос подсвечен brand glow.  */}
+            <div className="mt-3" data-testid="musa-voice-picker">
+              <button
+                type="button"
+                onClick={() => setVoicePickerOpen((v) => !v)}
+                data-testid="musa-voice-picker-toggle"
+                className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-purple-500/30 bg-white/5 hover:bg-gradient-to-r hover:from-purple-500/20 hover:to-cyan-500/20 transition-colors text-left"
+                aria-expanded={voicePickerOpen}
+                aria-controls="musa-voice-picker-panel"
+              >
+                <span className="flex items-center gap-2 min-w-0">
+                  <span className="text-xl">{currentVoiceDef.emoji}</span>
+                  <span className="flex flex-col min-w-0">
+                    <span className="text-[10px] uppercase tracking-wider text-cyan-300">
+                      Голос
+                    </span>
+                    <span className="font-sans font-bold text-sm text-white truncate">
+                      {currentVoiceDef.name}{" "}
+                      <span className="text-muted-foreground font-normal">
+                        {currentVoiceDef.gender === "f" ? "♀" : "♂"}
+                      </span>
+                      {currentVoiceDef.supportsEmotion && emotion !== "neutral" && (
+                        <span className="ml-1 text-amber-300 text-[11px]">
+                          ({emotion === "good" ? "позитивно" : "строго"})
+                        </span>
+                      )}
+                    </span>
+                  </span>
+                </span>
+                <span className="text-muted-foreground text-sm">
+                  {voicePickerOpen ? "▼" : "▶"}
+                </span>
+              </button>
+
+              {voicePickerOpen && (
+                <div
+                  id="musa-voice-picker-panel"
+                  className="mt-2 rounded-xl border border-purple-500/20 bg-black/30 p-2"
+                  data-testid="musa-voice-picker-grid"
+                >
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {VOICE_CATALOG.map((v) => {
+                      const isActive = v.id === voice;
+                      return (
+                        <div
+                          key={v.id}
+                          className={`relative rounded-lg border p-2 transition-all ${
+                            isActive
+                              ? "border-purple-400/70 bg-gradient-to-br from-purple-500/20 via-fuchsia-500/15 to-cyan-500/20 shadow-[0_0_16px_rgba(124,58,237,0.4)]"
+                              : "border-white/10 bg-white/[0.03] hover:border-purple-400/30 hover:bg-white/5"
+                          }`}
+                          data-testid={`musa-voice-item-${v.id}`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => handleVoiceChange(v.id)}
+                            className="w-full text-left"
+                            aria-pressed={isActive}
+                            aria-label={`Выбрать голос ${v.name}`}
+                          >
+                            <div className="flex items-start gap-2">
+                              <span className="text-2xl leading-none mt-0.5">{v.emoji}</span>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                  <span
+                                    className={`font-sans font-bold text-sm truncate ${
+                                      isActive
+                                        ? "bg-gradient-to-r from-purple-200 via-fuchsia-200 to-cyan-200 bg-clip-text text-transparent"
+                                        : "text-white"
+                                    }`}
+                                  >
+                                    {v.name}
+                                  </span>
+                                  <span
+                                    className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                                      v.gender === "f"
+                                        ? "bg-pink-500/20 text-pink-300"
+                                        : "bg-blue-500/20 text-blue-300"
+                                    }`}
+                                  >
+                                    {v.gender === "f" ? "♀" : "♂"}
+                                  </span>
+                                </div>
+                                <div className="text-[11px] text-muted-foreground truncate">
+                                  {v.desc}
+                                </div>
+                              </div>
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              previewVoice(v.id);
+                            }}
+                            disabled={state === "uploading" || state === "thinking"}
+                            data-testid={`musa-voice-preview-${v.id}`}
+                            className="absolute top-1.5 right-1.5 w-7 h-7 rounded-full bg-purple-500/20 hover:bg-purple-500/40 border border-purple-400/40 flex items-center justify-center text-xs text-purple-200 transition-colors disabled:opacity-40 disabled:cursor-wait"
+                            aria-label={`Прослушать ${v.name}`}
+                            title={`Прослушать ${v.name}`}
+                          >
+                            ▶
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Emotion selector — только для женских голосов с support */}
+                  {currentVoiceDef.supportsEmotion && (
+                    <div
+                      className="mt-3 pt-2 border-t border-white/10"
+                      data-testid="musa-voice-emotion-row"
+                    >
+                      <div className="text-[10px] uppercase tracking-wider text-cyan-300 mb-1.5">
+                        Эмоция
+                      </div>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {(["neutral", "good", "evil"] as const).map((em) => {
+                          const labels: Record<EmotionId, string> = {
+                            neutral: "ровно",
+                            good: "позитивно",
+                            evil: "строго",
+                          };
+                          const isActiveEm = emotion === em;
+                          return (
+                            <button
+                              key={em}
+                              type="button"
+                              onClick={() => handleVoiceChange(voice, em)}
+                              data-testid={`musa-voice-emotion-${em}`}
+                              className={`text-xs py-1 rounded-md transition-all ${
+                                isActiveEm
+                                  ? "bg-gradient-to-r from-amber-400/40 to-fuchsia-500/40 border border-amber-400/60 text-white shadow-[0_0_12px_rgba(251,191,36,0.3)]"
+                                  : "bg-white/5 border border-white/10 text-white/70 hover:bg-white/10"
+                              }`}
+                              aria-pressed={isActiveEm}
+                            >
+                              {labels[em]}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Dialog mode: start / stop кнопка + live transcript banner */}
