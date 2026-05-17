@@ -553,6 +553,76 @@ if (isDup(update.update_id)) return;
 
 Применяется к: всем news-карточкам в `landing.tsx`. Не применяется к: hero CTA (он не «новость»), пилюли вне новостей.
 
+### Brand-style consistency rule (Eugene 2026-05-17)
+
+**Любая новая UI-страница / модалка / компонент должны использовать фирменный стиль MuzaAi (Cyber Violet · Electric Blue · Neon Green · Hot Magenta · Amber Glow · Deep Space).** Это распространяется на свайп-режим CoverDetailsModal, формы login/register, admin-панель, landing hero, dashboard и всё что увидит юзер.
+
+Палитра (6 фирменных цветов, из Figma design system + `index.css`):
+
+| Назначение | Hex | Tailwind |
+|---|---|---|
+| 🟣 Cyber Violet — primary AI / агенты | `#7C3AED` | `purple-600` |
+| 🔵 Electric Blue — data / playlist | `#00D4FF` | `cyan-400` |
+| 🟢 Neon Green — auth / social | `#39FF14` | `green-400` |
+| 🟣 Hot Magenta — external channels | `#FF006E` | `fuchsia-500` / `pink-500` |
+| 🟡 Amber Glow — infra / admin | `#FBBF24` | `amber-400` |
+| ⚫ Deep Space — фон | `#0A0A17` | `bg-[#0a0a17]` |
+
+Brand gradient (primary): `from-purple-500 via-fuchsia-500 to-blue-500` (или с amber для admin-акцентов). Используется на CTA, hero spans, иконках-логотипах, активных стрелках.
+
+Шрифты (три уровня, оба загружены в `index.css`):
+
+- `font-sans` (Inter) — основной текст, body, paragraphs, captions
+- `font-display` (Space Grotesk + tracking) — hero h1, page titles, cosmic-акценты, модальные titles
+- `font-mono` (JetBrains Mono) — цифры, IDs, даты
+
+CSS utilities (определены в `apps/neurohub/client/src/index.css`):
+
+- `.glass-card` — glassmorphism background для cards (rgba(18,18,22,0.72) + backdrop-blur)
+- `.gradient-text` — purple→blue gradient text-clip (для titles)
+- `.gradient-text-reverse` — обратный direction
+- `.font-display` / `.font-display-spread` — hi-tech акценты
+- `.btn-cosmic` — magic shimmer-gradient button (см. также Reuse-working-solutions rule — единая первичная CTA-кнопка)
+- `.card-cosmic` — карточка с gradient border
+- `.hero-gradient` — background для auth-страниц
+- `.input-glow` — focus glow для input
+
+Когда что использовать:
+
+1. **Page titles / hero h1** → `font-display font-bold gradient-text` (text-3xl и выше). Пример: landing hero, login/register h1, admin Admin · v304, CoverDetailsModal title.
+2. **Section headings (h2/h3)** → `font-sans font-bold text-white` (см. News-card style rule — обычный font-sans, не font-display).
+3. **Body text / descriptions** → `font-sans` + `text-muted-foreground` или `text-white/60-80`.
+4. **Numbers / IDs / timestamps** → `font-mono` (см. CoverDetailsModal date).
+5. **Cards / containers** → `.glass-card` или `bg-gradient-to-br from-[#1a0f2e] via-[#0a0a17] to-[#0f1830]` с `border-purple-500/20`.
+6. **Primary CTA** → `.btn-cosmic` (один magic CTA на page) или `bg-gradient-to-r from-purple-500 via-fuchsia-500 to-blue-500` + `shadow-[0_0_24px_rgba(124,58,237,0.4)]`.
+7. **Secondary buttons** → `bg-white/5 border border-purple-400/20 hover:bg-gradient-to-br hover:from-purple-500/60 ...` (hover glow).
+8. **Backdrop / modal overlay** → `bg-gradient-to-br from-[#0a0a17]/95 via-[#1a0f2e]/95 to-[#0a0a17]/95` + `backdrop-blur-xl`.
+9. **Active state glow** → `shadow-[0_0_32px_rgba(124,58,237,0.5)]` (purple), `shadow-[0_0_24px_rgba(0,212,255,0.4)]` (cyan), `shadow-[0_0_24px_rgba(251,191,36,0.4)]` (amber).
+
+Что НЕ делать (антипаттерны):
+
+- ❌ Произвольные hex-цвета вне палитры (`#abcdef`, `slate-700`, `gray-300`-like для бренд-элементов). Tailwind grayscale (`white/X`, `black/X`) — OK для нейтральных.
+- ❌ `font-mono` для long-form text (читается плохо).
+- ❌ `font-display` на body paragraphs (он для акцентов, не для абзацев).
+- ❌ Solid `bg-black` на cards — теряет glassmorphism. Используй `.glass-card`.
+- ❌ Hardcoded `font-family` inline — всегда через Tailwind utility (`font-sans` / `font-display` / `font-mono`).
+- ❌ Border без opacity / brand color (`border-gray-500`) — используй `border-purple-500/20`, `border-white/10`.
+
+Audit-сценарий перед коммитом UI-фичи:
+
+1. Открыть свою новую страницу/компонент рядом со страницей-эталоном (CoverDetailsModal, landing hero, login-phone).
+2. Проверить: h1 → font-display + gradient-text? Cards → glass-card / brand bg? CTA → btn-cosmic или brand gradient + glow? Цифры → font-mono?
+3. Если какой-то элемент outside брэнда — заменить на ближайший фирменный эквивалент.
+4. НЕ переписывать рабочие страницы целиком — только точечные правки outside-brand элементов.
+
+Применяется к: всем новым UI-фичам (страницы, модалки, виджеты, кнопки, формы). Не применяется к: уже стабильным страницам в production, которые работают и проверены (правки только при появлении явных outside-brand элементов).
+
+Эталоны для копирования стиля:
+- `apps/neurohub/client/src/components/cover-details-modal.tsx` — модалка (gradient backdrop, font-display title, brand arrows)
+- `apps/neurohub/client/src/pages/login-phone.tsx` / `register-phone.tsx` — auth-форма (логотип-кнопка, h1 font-display, gradient-border card)
+- `apps/neurohub/client/src/pages/landing.tsx` hero (h1 с gradient span + font-display)
+- `apps/neurohub/client/src/index.css` — все brand utilities (`.glass-card`, `.btn-cosmic`, `.gradient-text`, и т.д.)
+
 ### Triumph-tag rule (Eugene 2026-05-10)
 
 **Когда Eugene говорит «Триумф» / «Победа» / «Сохрани редакцию» с ракетами 🚀 — создаю git tag формата `triumph-DDMMYY` на текущем HEAD с описанием что вошло.**
