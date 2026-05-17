@@ -227,13 +227,30 @@ export function MusaVoiceFab() {
       return;
     }
     streamRef.current = stream;
+    // Eugene 2026-05-17: iOS Safari не поддерживает audio/webm — пишет
+    // audio/mp4. Добавили chain fallback. Backend (transcribe.ts) принимает
+    // оба через ffmpeg.
     let recorder: MediaRecorder;
+    let pickedMime = "";
     try {
-      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : "audio/webm";
-      recorder = new MediaRecorder(stream, { mimeType: mime });
-    } catch {
+      const candidates = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/mp4",
+        "audio/mp4;codecs=mp4a.40.2",
+        "audio/aac",
+      ];
+      pickedMime = candidates.find(m => {
+        try { return MediaRecorder.isTypeSupported(m); } catch { return false; }
+      }) || "";
+      recorder = pickedMime
+        ? new MediaRecorder(stream, { mimeType: pickedMime })
+        : new MediaRecorder(stream);
+      // eslint-disable-next-line no-console
+      console.log("[voice-fab] mimeType:", pickedMime || "default", "/ recorder.state:", recorder.state);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error("[voice-fab] MediaRecorder ctor failed:", e);
       recorder = new MediaRecorder(stream);
     }
     mediaRecorderRef.current = recorder;
@@ -243,7 +260,13 @@ export function MusaVoiceFab() {
     };
     recorder.onstop = async () => {
       cleanupStream();
-      const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+      // Eugene 2026-05-17: blob.type должен совпадать с реально использованным
+      // mimeType (Safari = audio/mp4, Chrome = audio/webm). Иначе backend
+      // ffmpeg попробует распарсить mp4 как webm и упадёт.
+      const blobMime = pickedMime || recorder.mimeType || "audio/webm";
+      const blob = new Blob(chunksRef.current, { type: blobMime });
+      // eslint-disable-next-line no-console
+      console.log("[voice-fab] blob size:", blob.size, "mime:", blobMime);
       chunksRef.current = [];
       // Eugene 2026-05-17: снизил threshold с 500 → 200 байт (≈0.3 сек),
       // 1 сек был слишком строгим — короткие команды «доложи» / «открой»
