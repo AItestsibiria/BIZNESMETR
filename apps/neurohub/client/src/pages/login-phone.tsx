@@ -61,8 +61,11 @@ export default function LoginPhonePage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 pt-16 hero-gradient">
-      <div className="w-full max-w-sm">
+    <div className="min-h-screen flex items-center justify-center px-4 pt-16 hero-gradient cyber-grid relative">
+      {/* Eugene 2026-05-17 — hi-tech акцент: holographic shimmer overlay
+          (subtle 12-сек 3-color, pointer-events-none) + cyber-grid фон. */}
+      <div className="absolute inset-0 holographic pointer-events-none" aria-hidden="true" />
+      <div className="w-full max-w-sm relative z-10">
         <div className="text-center mb-8">
           <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-500 via-fuchsia-500 to-blue-500 flex items-center justify-center mx-auto mb-4 shadow-[0_0_32px_rgba(124,58,237,0.4)]">
             <Music className="w-7 h-7 text-white" />

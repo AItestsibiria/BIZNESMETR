@@ -2123,8 +2123,10 @@ export default function LandingPage() {
         <StarfieldCanvas />
       </div>
 
-      {/* Hero Section */}
-      <section className="relative z-[1] pt-32 pb-20 px-4 overflow-hidden hero-gradient" style={{ minHeight: "100vh" }}>
+      {/* Hero Section.
+          Eugene 2026-05-17 — добавлен scan-line класс: animated 2px cyan
+          scan-полоса сверху вниз раз в 4 сек, hi-tech акцент поверх hero. */}
+      <section className="relative z-[1] pt-32 pb-20 px-4 overflow-hidden hero-gradient scan-line" style={{ minHeight: "100vh" }}>
 
         {/* Decorative equalizer elements */}
         <div className="absolute top-20 left-10 opacity-20 hidden lg:block z-[1]">
@@ -2148,8 +2150,10 @@ export default function LandingPage() {
 
           {/* Eugene 2026-05-15 Босс «Музу в топ рейтинга». H1 содержит
               «Муза» + «MuzaAi» — критичный SEO-сигнал для Яндекс/Google. */}
+          {/* Eugene 2026-05-17 — neon-text акценты на "Muza" + "Ai" spans
+              (text-shadow glow currentColor поверх gradient clip — hi-tech). */}
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-display font-bold mb-6 leading-tight tracking-tight" data-testid="text-hero-title">
-            <span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent">Muza</span><span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">Ai</span>
+            <span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent neon-text">Muza</span><span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent neon-text">Ai</span>
             <span className="text-foreground"> · Муза</span>
             <br />
             <span className="text-foreground">создай песню с ИИ за минуту</span>
