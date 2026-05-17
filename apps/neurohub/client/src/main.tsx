@@ -4,6 +4,7 @@ import "./index.css";
 import { initPixels, trackPageView } from "./lib/pixels";
 import { captureLeadTouch } from "./lib/tracking";
 import { installAudioBus } from "./lib/audio-bus";
+import { installUserJourney } from "./lib/user-journey";
 
 if (!window.location.hash) {
   window.location.hash = "#/";
@@ -25,5 +26,11 @@ captureLeadTouch().catch(() => undefined);
 // Eugene 2026-05-12 (Босс): только ОДНА песня одновременно на сайте.
 // Глобальный listener pause'ит остальные audio при play любого.
 installAudioBus();
+
+// Eugene 2026-05-17 (Босс): карта пути юзера — page_view/click/scroll/
+// idle/form_focus/form_abandon/leave. Buffer + batch /api/journey/batch
+// каждые 5 сек. Используется (1) admin-аналитикой и (2) smart-триггерами
+// Музы (slow-thinking, form-abandon → подсказка появляется).
+installUserJourney();
 
 createRoot(document.getElementById("root")!).render(<App />);
