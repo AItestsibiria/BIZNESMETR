@@ -153,16 +153,32 @@ export function MusaVoiceFab() {
       loadHistory();
       try {
         for (const a of data.actions || []) {
-          if (a.tool !== "focus_brain_node") continue;
-          const inp = a.input as { name?: string } | undefined;
-          const fromInput = inp?.name?.trim();
-          const fromResult = (() => {
-            const m = String(a.result || "").match(/\[FOCUS_BRAIN_NODE:([^\]]+)\]/);
-            return m ? m[1].trim() : null;
-          })();
-          const name = fromInput || fromResult;
-          if (name) {
-            window.dispatchEvent(new CustomEvent("brain-focus-node", { detail: { name } }));
+          // (1) focus_brain_node — admin 3D view (existing pattern)
+          if (a.tool === "focus_brain_node") {
+            const inp = a.input as { name?: string } | undefined;
+            const fromInput = inp?.name?.trim();
+            const fromResult = (() => {
+              const m = String(a.result || "").match(/\[FOCUS_BRAIN_NODE:([^\]]+)\]/);
+              return m ? m[1].trim() : null;
+            })();
+            const name = fromInput || fromResult;
+            if (name) {
+              window.dispatchEvent(new CustomEvent("brain-focus-node", { detail: { name } }));
+            }
+            continue;
+          }
+          // (2) Player actions (Eugene 2026-05-17 Босс) — marker
+          // [PLAYER_ACTION:type:payload] в result строке. Frontend
+          // парсит и эмитит CustomEvent 'muza-player-action' который
+          // слушают landing.tsx / dashboard.tsx → existing player methods.
+          const pm = String(a.result || "").match(/\[PLAYER_ACTION:([a-z_]+)(?::([^\]]+))?\]/);
+          if (pm) {
+            const [, action, payload] = pm;
+            window.dispatchEvent(
+              new CustomEvent("muza-player-action", {
+                detail: { action, payload: payload || null },
+              }),
+            );
           }
         }
       } catch {/* ignore */}
@@ -245,23 +261,34 @@ export function MusaVoiceFab() {
         const data: VoiceCommandResult = j.data;
         setResult(data);
         loadHistory();
-        // focus_brain_node integration (Eugene 2026-05-17 Босс): если LLM
-        // вызвала tool focus_brain_node, парсим имя узла и эмитим
-        // CustomEvent — SecondBrain3D компонент его ловит и подъезжает
-        // камерой. Marker: [FOCUS_BRAIN_NODE:<name>] в result строке.
+        // focus_brain_node + player actions integration (Eugene 2026-05-17 Босс):
+        // одна петля парсит оба типа marker'ов:
+        //   - [FOCUS_BRAIN_NODE:<name>] → 'brain-focus-node' CustomEvent
+        //   - [PLAYER_ACTION:<type>:<payload>] → 'muza-player-action' CustomEvent
         try {
           for (const a of data.actions || []) {
-            if (a.tool !== "focus_brain_node") continue;
-            const inp = a.input as { name?: string } | undefined;
-            const fromInput = inp?.name?.trim();
-            const fromResult = (() => {
-              const m = String(a.result || "").match(/\[FOCUS_BRAIN_NODE:([^\]]+)\]/);
-              return m ? m[1].trim() : null;
-            })();
-            const name = fromInput || fromResult;
-            if (name) {
+            if (a.tool === "focus_brain_node") {
+              const inp = a.input as { name?: string } | undefined;
+              const fromInput = inp?.name?.trim();
+              const fromResult = (() => {
+                const m = String(a.result || "").match(/\[FOCUS_BRAIN_NODE:([^\]]+)\]/);
+                return m ? m[1].trim() : null;
+              })();
+              const name = fromInput || fromResult;
+              if (name) {
+                window.dispatchEvent(
+                  new CustomEvent("brain-focus-node", { detail: { name } }),
+                );
+              }
+              continue;
+            }
+            const pm = String(a.result || "").match(/\[PLAYER_ACTION:([a-z_]+)(?::([^\]]+))?\]/);
+            if (pm) {
+              const [, action, payload] = pm;
               window.dispatchEvent(
-                new CustomEvent("brain-focus-node", { detail: { name } }),
+                new CustomEvent("muza-player-action", {
+                  detail: { action, payload: payload || null },
+                }),
               );
             }
           }
