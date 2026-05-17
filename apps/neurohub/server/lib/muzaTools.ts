@@ -5,12 +5,12 @@
 // Каждый tool: name + description + input_schema (JSON-schema) + handler.
 
 import { db, storage } from "../storage";
-import { users, generations, transactions, songDrafts, agentHandoffs } from "@shared/schema";
-import { eq, and, desc, sql, isNotNull } from "drizzle-orm";
+import { users, generations, transactions, songDrafts, agentHandoffs, payments, incidents } from "@shared/schema";
+import { eq, and, desc, sql, isNotNull, or, like } from "drizzle-orm";
 import { PUBLIC_URL } from "./publicUrl";
 import * as fs from "node:fs";
 import * as crypto from "node:crypto";
-import { kbPath } from "./consultantPersona";
+import { kbPath, loadKB } from "./consultantPersona";
 
 export type ToolDef = {
   name: string;
@@ -28,6 +28,11 @@ export type ToolContext = {
   // нужны sessionId/channel — чтобы Telegram-alert вёл админа в нужный диалог.
   sessionId?: string | null;
   channel?: string | null;
+  // Eugene 2026-05-17 Босс «голос Музе в admin panel».
+  // Передаём роль исполнителя tool'а — admin-only tools пропускаются только
+  // при role === 'admin' (см. requireAdminCtx ниже). Для обычных каналов
+  // (web/telegram/max) role остаётся undefined → admin-tools будут отказаны.
+  role?: string | null;
 };
 
 export type ToolHandler = (input: any, context: ToolContext) => Promise<string>;
@@ -174,6 +179,99 @@ export const MUZA_TOOLS: ToolDef[] = [
         comment: { type: "string", description: "Краткое описание ситуации для оператора (опц.)" },
       },
       required: ["reason"],
+    },
+  },
+
+  // === ADMIN-ONLY tools (Eugene 2026-05-17 Босс «голос Музе в admin panel»).
+  // Проверка role === 'admin' в handler — non-admin вызов вернёт error.
+  // Канал admin-voice (server/plugins/voice-admin) прокидывает role в ToolContext.
+  {
+    name: "get_metrics",
+    description: "[ADMIN-ONLY] Dashboard-метрики проекта за период. period: today | 7d | 30d. Возвращает короткую сводку: регистрации, генерации (done/error), платежи (₽), прослушивания, посетители.",
+    input_schema: {
+      type: "object",
+      properties: { period: { type: "string", enum: ["today", "7d", "30d"], description: "Период выборки (default 7d)" } },
+      required: [],
+    },
+  },
+  {
+    name: "get_failed_users",
+    description: "[ADMIN-ONLY] Юзеры с failed actions за N дней (login/register/generate/payment fail). Группировка по action+error_code. Возвращает top-20 групп с count и uniqUsers.",
+    input_schema: {
+      type: "object",
+      properties: { days: { type: "number", description: "Количество дней (default 7)" } },
+      required: [],
+    },
+  },
+  {
+    name: "reload_kb",
+    description: "[ADMIN-ONLY] Перезагрузить knowledge base (KNOWLEDGE-BASE-BOT.md) без рестарта pm2. Используй если KB обновили — бот сразу подхватит новый текст.",
+    input_schema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "send_telegram_alert",
+    description: "[ADMIN-ONLY] Отправить custom message админу в Telegram через бота. text — что отправить (≤ 1000 chars). Используется когда Муза хочет о чём-то напомнить Боссу позже.",
+    input_schema: {
+      type: "object",
+      properties: { text: { type: "string", description: "Текст сообщения (≤1000 chars)" } },
+      required: ["text"],
+    },
+  },
+  {
+    name: "change_registration_status",
+    description: "[ADMIN-ONLY] Открыть или закрыть регистрацию (управляет process.env.REGISTRATION_DISABLED в runtime). status='open' → регистрация открыта, status='closed' → закрыта. Эффект только в текущем процессе — для постоянного эффекта нужен .env + pm2 restart.",
+    input_schema: {
+      type: "object",
+      properties: { status: { type: "string", enum: ["open", "closed"] } },
+      required: ["status"],
+    },
+  },
+  {
+    name: "query_users",
+    description: "[ADMIN-ONLY] Поиск юзеров по phone / email / name (substring). Возвращает top-10 матчей. Email маскируется, phone маскируется.",
+    input_schema: {
+      type: "object",
+      properties: { query: { type: "string", description: "Substring 2+ chars" } },
+      required: ["query"],
+    },
+  },
+  {
+    name: "get_recent_payments",
+    description: "[ADMIN-ONLY] Последние N платежей (status + amount + время + invId). По умолчанию 10. По умолчанию все статусы — paid/pending/failed.",
+    input_schema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "Количество (1-50, default 10)" },
+        status: { type: "string", enum: ["paid", "pending", "failed", "any"], description: "Фильтр по статусу (default any)" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "pause_bot",
+    description: "[ADMIN-ONLY] Временно приостановить обработку webhooks Telegram-бота (флаг в runtime). resume=false → bot не отвечает (но webhook отвечает 200 чтобы Telegram не retry'ал). resume=true → возобновить. Эффект только в текущем процессе.",
+    input_schema: {
+      type: "object",
+      properties: { resume: { type: "boolean", description: "false=pause, true=resume" } },
+      required: ["resume"],
+    },
+  },
+  {
+    name: "kick_session",
+    description: "[ADMIN-ONLY] Invalidate (удалить) все session-токены конкретного юзера — выкинет его из всех устройств. userId обязателен.",
+    input_schema: {
+      type: "object",
+      properties: { userId: { type: "number", description: "ID юзера" } },
+      required: ["userId"],
+    },
+  },
+  {
+    name: "get_recent_incidents",
+    description: "[ADMIN-ONLY] Последние N инцидентов из incidents (open + auto-resolved). По умолчанию 10. Группа: severity, title, kind, occurrences.",
+    input_schema: {
+      type: "object",
+      properties: { limit: { type: "number", description: "Количество (1-50, default 10)" } },
+      required: [],
     },
   },
 ];
@@ -636,7 +734,268 @@ const HANDLERS: Record<string, ToolHandler> = {
       return `Ошибка создания handoff: ${e.message}`;
     }
   },
+
+  // === ADMIN-ONLY handlers (Eugene 2026-05-17) ===
+  // Каждый начинается с isAdminCtx(ctx). Non-admin → access denied.
+
+  async get_metrics({ period }, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
+    try {
+      const p = ["today", "7d", "30d"].includes(String(period)) ? String(period) : "7d";
+      const now = Date.now();
+      let since: string;
+      if (p === "today") {
+        const d = new Date(now);
+        d.setUTCHours(0, 0, 0, 0);
+        d.setUTCHours(d.getUTCHours() - 3); // MSK midnight
+        since = d.toISOString();
+      } else if (p === "30d") {
+        since = new Date(now - 30 * 24 * 3600 * 1000).toISOString();
+      } else {
+        since = new Date(now - 7 * 24 * 3600 * 1000).toISOString();
+      }
+      const sqlite: any = (db as any).$client;
+      const c = (q: string, ...args: any[]) => {
+        try {
+          const r = sqlite.prepare(q).get(...args);
+          return Number((r as any)?.c || 0);
+        } catch { return 0; }
+      };
+      const sum = (q: string, ...args: any[]) => {
+        try {
+          const r = sqlite.prepare(q).get(...args);
+          return Number((r as any)?.s || 0);
+        } catch { return 0; }
+      };
+      const regs = c(`SELECT count(*) as c FROM users WHERE created_at >= ?`, since);
+      const gensDone = c(`SELECT count(*) as c FROM generations WHERE type='music' AND status='done' AND deleted_at IS NULL AND created_at >= ?`, since);
+      const gensError = c(`SELECT count(*) as c FROM generations WHERE type='music' AND status='error' AND deleted_at IS NULL AND created_at >= ?`, since);
+      const plays = c(`SELECT count(*) as c FROM gen_activity WHERE action='play' AND created_at >= ?`, since);
+      const paySum = sum(`SELECT COALESCE(SUM(amount),0) as s FROM payments WHERE status='paid' AND created_at >= ?`, since);
+      const payCount = c(`SELECT count(*) as c FROM payments WHERE status='paid' AND created_at >= ?`, since);
+      const visitors = c(`SELECT count(DISTINCT fingerprint) as c FROM visitors WHERE created_at >= ?`, since);
+      return [
+        `Метрики (${p}):`,
+        `· Регистрации: ${regs}`,
+        `· Генерации music: ${gensDone} done / ${gensError} error`,
+        `· Прослушивания: ${plays}`,
+        `· Платежи: ${payCount} (${Math.round(paySum / 100).toLocaleString("ru-RU")} ₽)`,
+        `· Уник. посетители: ${visitors}`,
+      ].join("\n");
+    } catch (e: any) {
+      return `Ошибка get_metrics: ${e.message}`;
+    }
+  },
+
+  async get_failed_users({ days }, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
+    try {
+      const d = Math.max(1, Math.min(90, Number(days) || 7));
+      const since = new Date(Date.now() - d * 24 * 3600 * 1000).toISOString();
+      const sqlite: any = (db as any).$client;
+      const rows = sqlite.prepare(`
+        SELECT group_key, action, error_code, count(*) as cnt, count(DISTINCT user_id) as uniq, MAX(created_at) as lastAt, MAX(error_message) as lastMsg
+        FROM user_action_failures
+        WHERE created_at >= ?
+        GROUP BY group_key
+        ORDER BY cnt DESC
+        LIMIT 20
+      `).all(since);
+      if (!rows || rows.length === 0) return `Failed actions за ${d} дн.: пусто.`;
+      const lines = rows.map((r: any, i: number) =>
+        `${i + 1}. ${r.action || "?"}::${r.error_code || "?"} — ${r.cnt}× (${r.uniq} уник.), ${(r.lastMsg || "").slice(0, 60)}`,
+      );
+      return `Failed actions за ${d} дн. (top-${rows.length}):\n${lines.join("\n")}`;
+    } catch (e: any) {
+      return `Ошибка get_failed_users: ${e.message}`;
+    }
+  },
+
+  async reload_kb(_input, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
+    try {
+      const text = loadKB(true);
+      const p = kbPath();
+      if (!text) return `KB не найден (path=${p || "—"}). Файл docs/strategy/KNOWLEDGE-BASE-BOT.md отсутствует.`;
+      return `KB перезагружен: ${text.length} символов (${p}).`;
+    } catch (e: any) {
+      return `Ошибка reload_kb: ${e.message}`;
+    }
+  },
+
+  async send_telegram_alert({ text }, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
+    try {
+      const t = String(text || "").trim().slice(0, 1000);
+      if (!t) return "Пустой text — нечего отправлять.";
+      const tgToken = process.env.TELEGRAM_BOT_TOKEN;
+      const adminId = process.env.ADMIN_TELEGRAM_ID;
+      if (!tgToken || !adminId) {
+        return "TELEGRAM_BOT_TOKEN или ADMIN_TELEGRAM_ID не настроены — alert невозможен.";
+      }
+      const r = await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: adminId,
+          text: `🔔 [Муза-voice] ${t}`,
+          disable_web_page_preview: true,
+        }),
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (!r.ok) {
+        const errText = await r.text().catch(() => "");
+        return `Telegram вернул ${r.status}: ${errText.slice(0, 120)}`;
+      }
+      return `Alert отправлен в Telegram (${t.length} chars).`;
+    } catch (e: any) {
+      return `Ошибка send_telegram_alert: ${e.message}`;
+    }
+  },
+
+  async change_registration_status({ status }, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
+    try {
+      const s = String(status || "").toLowerCase();
+      if (s !== "open" && s !== "closed") return "status должен быть 'open' или 'closed'.";
+      process.env.REGISTRATION_DISABLED = s === "closed" ? "1" : "0";
+      return `Регистрация: ${s === "closed" ? "ЗАКРЫТА" : "ОТКРЫТА"} (runtime-flag). Для постоянного эффекта — правка .env + pm2 restart.`;
+    } catch (e: any) {
+      return `Ошибка change_registration_status: ${e.message}`;
+    }
+  },
+
+  async query_users({ query }, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
+    try {
+      const q = String(query || "").trim();
+      if (q.length < 2) return "Запрос должен быть минимум 2 символа.";
+      const pattern = `%${q.toLowerCase()}%`;
+      const sqlite: any = (db as any).$client;
+      const rows = sqlite.prepare(`
+        SELECT id, name, email, phone, role, balance, bonus_tracks as bt, created_at
+        FROM users
+        WHERE lower(COALESCE(email,'')) LIKE ?
+           OR lower(COALESCE(name,'')) LIKE ?
+           OR COALESCE(phone,'') LIKE ?
+        ORDER BY id DESC
+        LIMIT 10
+      `).all(pattern, pattern, `%${q}%`);
+      if (!rows || rows.length === 0) return `По «${q}» юзеров не нашлось.`;
+      const lines = rows.map((u: any) =>
+        `#${u.id} ${u.name || "—"} · ${maskEmailStr(u.email)} · ${maskPhoneStr(u.phone)} · role=${u.role || "user"} · ₽${Math.floor((u.balance || 0) / 100)} · бонус ${u.bt || 0}`,
+      );
+      return `Найдено ${rows.length}:\n${lines.join("\n")}`;
+    } catch (e: any) {
+      return `Ошибка query_users: ${e.message}`;
+    }
+  },
+
+  async get_recent_payments({ limit, status }, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
+    try {
+      const lim = Math.max(1, Math.min(50, Number(limit) || 10));
+      const st = String(status || "any").toLowerCase();
+      const sqlite: any = (db as any).$client;
+      let rows: any[] = [];
+      if (st === "paid" || st === "pending" || st === "failed") {
+        rows = sqlite.prepare(`SELECT id, user_id, inv_id, amount, status, description, created_at FROM payments WHERE status=? ORDER BY id DESC LIMIT ?`).all(st, lim);
+      } else {
+        rows = sqlite.prepare(`SELECT id, user_id, inv_id, amount, status, description, created_at FROM payments ORDER BY id DESC LIMIT ?`).all(lim);
+      }
+      if (!rows || rows.length === 0) return `Платежей не найдено.`;
+      const lines = rows.map((p: any) => {
+        const rub = (Number(p.amount || 0) / 100).toFixed(2);
+        const when = String(p.created_at || "").slice(0, 16);
+        return `#${p.id} u${p.user_id} inv${p.inv_id} · ${rub} ₽ · ${p.status} · ${when} · ${(p.description || "").slice(0, 40)}`;
+      });
+      return `Платежи (${rows.length}):\n${lines.join("\n")}`;
+    } catch (e: any) {
+      return `Ошибка get_recent_payments: ${e.message}`;
+    }
+  },
+
+  async pause_bot({ resume }, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
+    try {
+      const goResume = Boolean(resume);
+      runtimeBotPaused = !goResume;
+      return runtimeBotPaused
+        ? "Bot ПАУЗА: webhooks возвращают 200, но не отвечают. Возобновить — pause_bot({resume:true})."
+        : "Bot ВОЗОБНОВЛЁН: отвечает в штатном режиме.";
+    } catch (e: any) {
+      return `Ошибка pause_bot: ${e.message}`;
+    }
+  },
+
+  async kick_session({ userId: targetUserId }, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
+    try {
+      const uid = Number(targetUserId);
+      if (!Number.isFinite(uid) || uid <= 0) return "Невалидный userId.";
+      const sqlite: any = (db as any).$client;
+      const before = sqlite.prepare(`SELECT count(*) as c FROM sessions WHERE user_id=?`).get(uid);
+      const cnt = Number((before as any)?.c || 0);
+      if (cnt === 0) return `У юзера #${uid} нет активных сессий — kick не нужен.`;
+      sqlite.prepare(`DELETE FROM sessions WHERE user_id=?`).run(uid);
+      return `Удалил ${cnt} сессий юзера #${uid} — на всех устройствах потребуется повторный вход.`;
+    } catch (e: any) {
+      return `Ошибка kick_session: ${e.message}`;
+    }
+  },
+
+  async get_recent_incidents({ limit }, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
+    try {
+      const lim = Math.max(1, Math.min(50, Number(limit) || 10));
+      const sqlite: any = (db as any).$client;
+      const rows = sqlite.prepare(`
+        SELECT id, kind, severity, title, status, occurrences, last_seen_at
+        FROM incidents
+        ORDER BY last_seen_at DESC
+        LIMIT ?
+      `).all(lim);
+      if (!rows || rows.length === 0) return "Инцидентов нет — система чистая.";
+      const lines = rows.map((i: any) => {
+        const when = String(i.last_seen_at || "").slice(0, 16);
+        return `#${i.id} [${i.severity}] ${i.status} · ${i.kind} × ${i.occurrences} · ${when} · ${String(i.title || "").slice(0, 60)}`;
+      });
+      return `Инциденты (${rows.length}):\n${lines.join("\n")}`;
+    } catch (e: any) {
+      return `Ошибка get_recent_incidents: ${e.message}`;
+    }
+  },
 };
+
+// === Admin tools runtime state (Eugene 2026-05-17) ===
+// Простой in-memory state для пары runtime-флагов которые Муза может крутить
+// через admin-voice. Эффект только в текущем процессе — это by design (для
+// постоянного — Босс правит .env и pm2 restart).
+
+let runtimeBotPaused = false;
+
+export function isBotPausedRuntime(): boolean {
+  return runtimeBotPaused;
+}
+
+function isAdminCtx(ctx: ToolContext): boolean {
+  const role = String(ctx?.role || "").toLowerCase();
+  return role === "admin" || role === "super_admin";
+}
+
+function maskEmailStr(email: string | null | undefined): string {
+  const s = String(email || "");
+  const at = s.indexOf("@");
+  if (at <= 0) return s ? `${s.slice(0, 3)}***` : "—";
+  return `${s.slice(0, Math.min(3, at))}***${s.slice(at)}`;
+}
+
+function maskPhoneStr(phone: string | null | undefined): string {
+  const s = String(phone || "").replace(/\s+/g, "");
+  if (!s) return "—";
+  if (s.length < 6) return `${s.slice(0, 2)}***`;
+  return `${s.slice(0, 3)}***${s.slice(-3)}`;
+}
 
 // === Helpers (Eugene 2026-05-16) ===
 
