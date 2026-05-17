@@ -47,7 +47,6 @@ import {
   estimateTtsCostKopecks,
   type YandexVoice,
 } from "../../lib/yandexTts";
-import { lastSnapshotForBrainExport } from "../funnels/module";
 
 const router = Router();
 
@@ -81,48 +80,117 @@ const VALID_TTS_VOICES: YandexVoice[] = [
 ];
 
 // --- Период ---
+//
+// Period pills (Eugene 2026-05-17 Босс):
+//   yesterday — 00:00 MSK предыдущего дня до 23:59 MSK предыдущего дня
+//   today     — с 00:00 MSK текущего дня (без until)
+//   7d        — последние 7 дней
+//   30d       — последние 30 дней
+//   all       — без bounds
+//   custom    — задаётся параметрами from/to (ISO UTC)
 
-type Period = "today" | "7d" | "30d" | "all";
+type Period = "yesterday" | "today" | "7d" | "30d" | "all" | "custom";
 
-function periodToSince(p: Period): string | null {
+interface PeriodBounds {
+  since: string | null;
+  until: string | null;
+}
+
+function periodToBounds(
+  p: Period,
+  customFrom?: string,
+  customTo?: string,
+): PeriodBounds {
   const now = Date.now();
   switch (p) {
+    case "yesterday": {
+      // С 00:00 MSK предыдущего дня до 00:00 MSK сегодняшнего (exclusive).
+      const todayMidnightMsk = new Date(now);
+      todayMidnightMsk.setUTCHours(0, 0, 0, 0);
+      todayMidnightMsk.setUTCHours(todayMidnightMsk.getUTCHours() - 3);
+      const yesterdayMidnightMsk = new Date(
+        todayMidnightMsk.getTime() - 24 * 3600 * 1000,
+      );
+      return {
+        since: yesterdayMidnightMsk.toISOString(),
+        until: todayMidnightMsk.toISOString(),
+      };
+    }
     case "today": {
       // С полуночи MSK (UTC+3) для удобства Босса — но в SQLite храним ISO UTC.
       const d = new Date(now);
       d.setUTCHours(0, 0, 0, 0);
       // Сдвиг назад на 3 часа = полночь MSK выраженная в UTC.
       d.setUTCHours(d.getUTCHours() - 3);
-      return d.toISOString();
+      return { since: d.toISOString(), until: null };
     }
     case "7d":
-      return new Date(now - 7 * 24 * 3600 * 1000).toISOString();
+      return {
+        since: new Date(now - 7 * 24 * 3600 * 1000).toISOString(),
+        until: null,
+      };
     case "30d":
-      return new Date(now - 30 * 24 * 3600 * 1000).toISOString();
+      return {
+        since: new Date(now - 30 * 24 * 3600 * 1000).toISOString(),
+        until: null,
+      };
     case "all":
-      return null;
+      return { since: null, until: null };
+    case "custom": {
+      const since = customFrom && isValidIso(customFrom) ? customFrom : null;
+      const until = customTo && isValidIso(customTo) ? customTo : null;
+      return { since, until };
+    }
   }
+}
+
+function isValidIso(s: string): boolean {
+  if (typeof s !== "string" || s.length < 8 || s.length > 40) return false;
+  const t = Date.parse(s);
+  return Number.isFinite(t);
+}
+
+// Back-compat для существующих call-site'ов (brain-export).
+function periodToSince(p: Period): string | null {
+  return periodToBounds(p).since;
 }
 
 function parsePeriod(raw: unknown): Period {
   const s = String(raw || "").toLowerCase();
-  if (s === "today" || s === "7d" || s === "30d" || s === "all") return s;
+  if (
+    s === "yesterday" ||
+    s === "today" ||
+    s === "7d" ||
+    s === "30d" ||
+    s === "all" ||
+    s === "custom"
+  ) {
+    return s;
+  }
   return "7d";
 }
 
 // --- Кэш на 60 секунд ---
 
 type CacheEntry = { data: any; expiresAt: number };
-const summaryCache = new Map<Period, CacheEntry>();
+// Ключ кэша — period или 'custom:from:to' для произвольных промежутков.
+const summaryCache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 60_000;
 
-function getCached(period: Period): any | null {
-  const e = summaryCache.get(period);
+function cacheKey(period: Period, bounds: PeriodBounds): string {
+  if (period === "custom") {
+    return `custom:${bounds.since || "_"}|${bounds.until || "_"}`;
+  }
+  return period;
+}
+
+function getCached(key: string): any | null {
+  const e = summaryCache.get(key);
   if (e && e.expiresAt > Date.now()) return e.data;
   return null;
 }
-function setCached(period: Period, data: any): void {
-  summaryCache.set(period, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+function setCached(key: string, data: any): void {
+  summaryCache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
 }
 
 // --- Безопасные read-only метрики ---
@@ -339,6 +407,37 @@ function buildStatusCards(): GroupStatus[] {
   ];
 }
 
+// --- Хелперы для SQL-условий с (since, until) bounds ---
+
+function normalizeBounds(b: PeriodBounds | string | null): PeriodBounds {
+  if (b && typeof b === "object" && !Array.isArray(b)) {
+    return {
+      since: typeof b.since === "string" ? b.since : null,
+      until: typeof b.until === "string" ? b.until : null,
+    };
+  }
+  // Старые call-site'ы передавали since строкой или null.
+  return { since: typeof b === "string" ? b : null, until: null };
+}
+
+function buildRangeCondition(
+  column: string,
+  since: string | null,
+  until: string | null,
+): any {
+  // Возвращает фрагмент типа `created_at >= X AND created_at < Y` или `1=1`.
+  if (since && until) {
+    return sql`${sql.raw(column)} >= ${since} AND ${sql.raw(column)} < ${until}`;
+  }
+  if (since) {
+    return sql`${sql.raw(column)} >= ${since}`;
+  }
+  if (until) {
+    return sql`${sql.raw(column)} < ${until}`;
+  }
+  return sql`1=1`;
+}
+
 // --- Метрики за период ---
 
 interface PeriodMetrics {
@@ -354,10 +453,10 @@ interface PeriodMetrics {
   visitors: { unique: number; total: number };
 }
 
-function buildPeriodMetrics(since: string | null): PeriodMetrics {
-  const sinceCondition = since
-    ? sql`created_at >= ${since}`
-    : sql`1=1`;
+function buildPeriodMetrics(bounds: PeriodBounds | string | null): PeriodMetrics {
+  // Back-compat: старые call-site'ы передавали только since.
+  const { since, until } = normalizeBounds(bounds);
+  const sinceCondition = buildRangeCondition("created_at", since, until);
 
   // Plays / play_rejected — оба из gen_activity.
   const plays = countSafe(
@@ -479,39 +578,40 @@ interface ChartSeries {
   };
 }
 
-function buildTimeline(period: Period, since: string | null): ChartSeries["timeline"] {
+function buildTimeline(period: Period, bounds: PeriodBounds): ChartSeries["timeline"] {
   // Bucket по дню. Для today — bucket по часам, иначе по дням.
   // Для краткости: всегда bucket по дням (today = только 1 точка).
-  const fromIso = since || "1970-01-01T00:00:00.000Z";
+  const { since, until } = bounds;
+  const cond = buildRangeCondition("created_at", since, until);
   type Row = { date: string; c: number };
   const playsRows = allSafe<Row>(
     sql`SELECT substr(created_at,1,10) as date, count(*) as c
         FROM gen_activity
-        WHERE action='play' AND created_at >= ${fromIso}
+        WHERE action='play' AND ${cond}
         GROUP BY date ORDER BY date`,
   );
   const regsRows = allSafe<Row>(
     sql`SELECT substr(created_at,1,10) as date, count(*) as c
         FROM users
-        WHERE created_at >= ${fromIso}
+        WHERE ${cond}
         GROUP BY date ORDER BY date`,
   );
   const gensRows = allSafe<Row>(
     sql`SELECT substr(created_at,1,10) as date, count(*) as c
         FROM generations
-        WHERE created_at >= ${fromIso} AND deleted_at IS NULL
+        WHERE ${cond} AND deleted_at IS NULL
         GROUP BY date ORDER BY date`,
   );
   const paysRows = allSafe<Row>(
     sql`SELECT substr(created_at,1,10) as date, count(*) as c
         FROM payments
-        WHERE status='paid' AND created_at >= ${fromIso}
+        WHERE status='paid' AND ${cond}
         GROUP BY date ORDER BY date`,
   );
   const visRows = allSafe<Row>(
     sql`SELECT substr(created_at,1,10) as date, count(DISTINCT fingerprint) as c
         FROM visitors
-        WHERE created_at >= ${fromIso}
+        WHERE ${cond}
         GROUP BY date ORDER BY date`,
   );
 
@@ -532,8 +632,9 @@ function buildTimeline(period: Period, since: string | null): ChartSeries["timel
   }));
 }
 
-function buildRegistrationChannels(since: string | null): ChartSeries["registrationChannels"] {
-  const condition = since ? sql`created_at >= ${since}` : sql`1=1`;
+function buildRegistrationChannels(bounds: PeriodBounds): ChartSeries["registrationChannels"] {
+  const { since, until } = bounds;
+  const condition = buildRangeCondition("created_at", since, until);
   const rows = allSafe<{ channel: string; c: number }>(
     sql`SELECT
           CASE
@@ -549,8 +650,9 @@ function buildRegistrationChannels(since: string | null): ChartSeries["registrat
   return rows.map(r => ({ name: r.channel, value: r.c }));
 }
 
-function buildTopTracks(since: string | null): ChartSeries["topTracks"] {
-  const condition = since ? sql`ga.created_at >= ${since}` : sql`1=1`;
+function buildTopTracks(bounds: PeriodBounds): ChartSeries["topTracks"] {
+  const { since, until } = bounds;
+  const condition = buildRangeCondition("ga.created_at", since, until);
   const rows = allSafe<{ id: number; title: string | null; c: number }>(
     sql`SELECT g.id as id, COALESCE(g.display_title, g.prompt) as title, count(ga.id) as c
         FROM gen_activity ga
@@ -567,10 +669,11 @@ function buildTopTracks(since: string | null): ChartSeries["topTracks"] {
   }));
 }
 
-function buildHeatmap(since: string | null): ChartSeries["heatmap"] {
+function buildHeatmap(bounds: PeriodBounds): ChartSeries["heatmap"] {
   // SQLite: strftime('%w', x) = день недели 0..6 (вс=0)
   //         strftime('%H', x) = час 0..23
-  const condition = since ? sql`created_at >= ${since}` : sql`1=1`;
+  const { since, until } = bounds;
+  const condition = buildRangeCondition("created_at", since, until);
   const rows = allSafe<{ day: string; hour: string; c: number }>(
     sql`SELECT strftime('%w', created_at) as day,
                strftime('%H', created_at) as hour,
@@ -586,8 +689,9 @@ function buildHeatmap(since: string | null): ChartSeries["heatmap"] {
   }));
 }
 
-function buildFlow(since: string | null): ChartSeries["flow"] {
-  const condition = since ? sql`u.created_at >= ${since}` : sql`1=1`;
+function buildFlow(bounds: PeriodBounds): ChartSeries["flow"] {
+  const { since, until } = bounds;
+  const condition = buildRangeCondition("u.created_at", since, until);
   const registrations = countSafe(
     sql`SELECT count(*) as c FROM users u WHERE ${condition}`,
   );
@@ -612,13 +716,14 @@ function buildFlow(since: string | null): ChartSeries["flow"] {
   return { registrations, firstTrack, secondTrack };
 }
 
-function buildChartSeries(period: Period, since: string | null): ChartSeries {
+function buildChartSeries(period: Period, bounds: PeriodBounds | string | null): ChartSeries {
+  const b = normalizeBounds(bounds);
   return {
-    timeline: buildTimeline(period, since),
-    registrationChannels: buildRegistrationChannels(since),
-    topTracks: buildTopTracks(since),
-    heatmap: buildHeatmap(since),
-    flow: buildFlow(since),
+    timeline: buildTimeline(period, b),
+    registrationChannels: buildRegistrationChannels(b),
+    topTracks: buildTopTracks(b),
+    heatmap: buildHeatmap(b),
+    flow: buildFlow(b),
   };
 }
 
@@ -659,18 +764,23 @@ interface ClickStats {
   generatedAt: string;
 }
 
-const clickStatsCache = new Map<Period, CacheEntry>();
-function getCachedClicks(period: Period): ClickStats | null {
-  const e = clickStatsCache.get(period);
+const clickStatsCache = new Map<string, CacheEntry>();
+function getCachedClicks(key: string): ClickStats | null {
+  const e = clickStatsCache.get(key);
   if (e && e.expiresAt > Date.now()) return e.data as ClickStats;
   return null;
 }
-function setCachedClicks(period: Period, data: ClickStats): void {
-  clickStatsCache.set(period, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+function setCachedClicks(key: string, data: ClickStats): void {
+  clickStatsCache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
 }
 
-function buildClickStats(period: Period, since: string | null): ClickStats {
+function buildClickStats(period: Period, bounds: PeriodBounds): ClickStats {
+  const { since, until } = bounds;
   const fromIso = since || "1970-01-01T00:00:00.000Z";
+  // Когда задан upper bound — условие включает until; иначе только нижнее.
+  const inRange = until
+    ? sql`created_at >= ${fromIso} AND created_at < ${until}`
+    : sql`created_at >= ${fromIso}`;
 
   // Топ-50 click-элементов по page × element_key.
   // json_extract возвращает NULL если поле отсутствует — COALESCE даёт fallback.
@@ -695,7 +805,7 @@ function buildClickStats(period: Period, since: string | null): ClickStats {
       count(*) AS c,
       count(DISTINCT session_key) AS users
     FROM user_journey_events
-    WHERE event_type='click' AND created_at >= ${fromIso}
+    WHERE event_type='click' AND ${inRange}
     GROUP BY page, element_key
     ORDER BY c DESC
     LIMIT 50
@@ -715,7 +825,7 @@ function buildClickStats(period: Period, since: string | null): ClickStats {
       SUM(CASE WHEN event_type='click' THEN 1 ELSE 0 END) AS clicks,
       SUM(CASE WHEN event_type='page_view' THEN 1 ELSE 0 END) AS views
     FROM user_journey_events
-    WHERE event_type IN ('click','page_view') AND created_at >= ${fromIso}
+    WHERE event_type IN ('click','page_view') AND ${inRange}
     GROUP BY page
   `);
 
@@ -731,7 +841,7 @@ function buildClickStats(period: Period, since: string | null): ClickStats {
       count(*) AS exits
     FROM user_journey_events
     WHERE event_type='page_exit'
-      AND created_at >= ${fromIso}
+      AND ${inRange}
       AND json_extract(meta, '$.duration_ms') IS NOT NULL
     GROUP BY page
   `);
@@ -755,7 +865,7 @@ function buildClickStats(period: Period, since: string | null): ClickStats {
         SUM(CASE WHEN event_type='click' THEN 1 ELSE 0 END) AS clicks,
         SUM(CASE WHEN event_type='page_view' THEN 1 ELSE 0 END) AS views
       FROM user_journey_events
-      WHERE event_type IN ('click','page_view') AND created_at >= ${fromIso}
+      WHERE event_type IN ('click','page_view') AND ${inRange}
       GROUP BY session_key, page
     )
     GROUP BY page
@@ -820,7 +930,7 @@ function buildClickStats(period: Period, since: string | null): ClickStats {
       count(*) AS c,
       count(DISTINCT session_key) AS users
     FROM user_journey_events
-    WHERE event_type='click' AND created_at >= ${fromIso}
+    WHERE event_type='click' AND ${inRange}
     GROUP BY element_key
     ORDER BY c DESC
     LIMIT 20
@@ -834,10 +944,10 @@ function buildClickStats(period: Period, since: string | null): ClickStats {
   }));
 
   const totalClicks = countSafe(
-    sql`SELECT count(*) as c FROM user_journey_events WHERE event_type='click' AND created_at >= ${fromIso}`,
+    sql`SELECT count(*) as c FROM user_journey_events WHERE event_type='click' AND ${inRange}`,
   );
   const uniqueClickers = countSafe(
-    sql`SELECT count(DISTINCT session_key) as c FROM user_journey_events WHERE event_type='click' AND created_at >= ${fromIso}`,
+    sql`SELECT count(DISTINCT session_key) as c FROM user_journey_events WHERE event_type='click' AND ${inRange}`,
   );
 
   return {
@@ -857,13 +967,18 @@ function buildClickStats(period: Period, since: string | null): ClickStats {
 router.get("/click-stats", requireAdmin, (req, res) => {
   try {
     const period = parsePeriod(req.query.period);
-    const cached = getCachedClicks(period);
+    const bounds = periodToBounds(
+      period,
+      typeof req.query.from === "string" ? req.query.from : undefined,
+      typeof req.query.to === "string" ? req.query.to : undefined,
+    );
+    const key = cacheKey(period, bounds);
+    const cached = getCachedClicks(key);
     if (cached) {
       return res.json({ data: { ...cached, fromCache: true }, error: null });
     }
-    const since = periodToSince(period);
-    const payload = buildClickStats(period, since);
-    setCachedClicks(period, payload);
+    const payload = buildClickStats(period, bounds);
+    setCachedClicks(key, payload);
     res.json({ data: { ...payload, fromCache: false }, error: null });
   } catch (err) {
     res
@@ -877,21 +992,27 @@ router.get("/click-stats", requireAdmin, (req, res) => {
 router.get("/dashboard-summary", requireAdmin, (req, res) => {
   try {
     const period = parsePeriod(req.query.period);
-    const cached = getCached(period);
+    const bounds = periodToBounds(
+      period,
+      typeof req.query.from === "string" ? req.query.from : undefined,
+      typeof req.query.to === "string" ? req.query.to : undefined,
+    );
+    const key = cacheKey(period, bounds);
+    const cached = getCached(key);
     if (cached) {
       return res.json({ data: { ...cached, fromCache: true }, error: null });
     }
-    const since = periodToSince(period);
     const payload = {
       period,
-      since,
+      since: bounds.since,
+      until: bounds.until,
       generatedAt: new Date().toISOString(),
       cacheExpiresAt: new Date(Date.now() + CACHE_TTL_MS).toISOString(),
       statusCards: buildStatusCards(),
-      metrics: buildPeriodMetrics(since),
-      charts: buildChartSeries(period, since),
+      metrics: buildPeriodMetrics(bounds),
+      charts: buildChartSeries(period, bounds),
     };
-    setCached(period, payload);
+    setCached(key, payload);
     res.json({ data: { ...payload, fromCache: false }, error: null });
   } catch (err) {
     res
@@ -1078,7 +1199,7 @@ router.get("/brain-export", requireAdmin, (_req, res) => {
     try {
       let cs = getCachedClicks("30d");
       if (!cs) {
-        cs = buildClickStats("30d", since30);
+        cs = buildClickStats("30d", periodToBounds("30d"));
         setCachedClicks("30d", cs);
       }
       clickStatsSlice = {
@@ -1107,19 +1228,6 @@ router.get("/brain-export", requireAdmin, (_req, res) => {
       // slice. Не блокируем brain-export.
     }
 
-    // Funnels — последний snapshot всех воронок (Eugene 2026-05-17 Босс).
-    // Чтобы Второй мозг видел текущее проседание конверсии и знал куда копать.
-    // Берём last snapshot per funnel_id (cron save'ит дневной snapshot в 03:00 MSK).
-    let funnelsSlice: ReturnType<typeof lastSnapshotForBrainExport> = [];
-    try {
-      funnelsSlice = lastSnapshotForBrainExport();
-    } catch (e) {
-      console.warn(
-        "[brain-export] funnels slice failed:",
-        e instanceof Error ? e.message : e,
-      );
-    }
-
     res.json({
       data: {
         generatedAt: new Date().toISOString(),
@@ -1128,7 +1236,6 @@ router.get("/brain-export", requireAdmin, (_req, res) => {
         nodes,
         edges,
         clickStats: clickStatsSlice,
-        funnels: funnelsSlice,
         summary: {
           totals: {
             nodes: nodes.length,
@@ -1138,7 +1245,6 @@ router.get("/brain-export", requireAdmin, (_req, res) => {
             providers: providerNodes.length,
             clicks: clickStatsSlice.totalClicks,
             uniqueClickers: clickStatsSlice.uniqueClickers,
-            funnels: funnelsSlice.length,
           },
           health: {
             green: nodes.filter(n => n.status === "green").length,
@@ -1146,9 +1252,6 @@ router.get("/brain-export", requireAdmin, (_req, res) => {
             red: nodes.filter(n => n.status === "red").length,
             unknown: nodes.filter(n => n.status === "unknown").length,
           },
-          worstFunnel: funnelsSlice
-            .filter(f => f.totalConversion !== null)
-            .sort((a, b) => (a.totalConversion ?? 1) - (b.totalConversion ?? 1))[0] || null,
         },
       },
       error: null,
@@ -1172,19 +1275,25 @@ router.get("/brain-export", requireAdmin, (_req, res) => {
 router.get("/briefing-text", requireAdmin, (req, res) => {
   try {
     const period = parsePeriod(req.query.period);
-    let snapshot: any = getCached(period);
+    const bounds = periodToBounds(
+      period,
+      typeof req.query.from === "string" ? req.query.from : undefined,
+      typeof req.query.to === "string" ? req.query.to : undefined,
+    );
+    const key = cacheKey(period, bounds);
+    let snapshot: any = getCached(key);
     if (!snapshot) {
-      const since = periodToSince(period);
       snapshot = {
         period,
-        since,
+        since: bounds.since,
+        until: bounds.until,
         generatedAt: new Date().toISOString(),
         cacheExpiresAt: new Date(Date.now() + CACHE_TTL_MS).toISOString(),
         statusCards: buildStatusCards(),
-        metrics: buildPeriodMetrics(since),
-        charts: buildChartSeries(period, since),
+        metrics: buildPeriodMetrics(bounds),
+        charts: buildChartSeries(period, bounds),
       };
-      setCached(period, snapshot);
+      setCached(key, snapshot);
     }
     const text = buildAdminBriefing({
       period,
@@ -1300,115 +1409,502 @@ router.post("/tts", requireAdmin, async (req, res) => {
   }
 });
 
-// === Public helpers (для других плагинов, например voice-admin) ===
+// --- GET /api/admin/v304/dashboard-detail/:metric ---
 //
-// Эти функции переиспользуются voice-admin плагином чтобы инжектировать
-// актуальный контекст dashboard в LLM-вызов «Сказать Музе» (Eugene 2026-05-17).
-// Reuse-working-solutions rule: один источник истины, без дубликации SQL.
+// Drill-down детали по конкретной метрике или status-индикатору. Backend для
+// expandable panels в admin master-dashboard tab (Eugene 2026-05-17).
 //
-// Возвращают cached snapshot если он свежий (TTL 60 сек), иначе пересчитывают.
-// Никогда не throw'ят — на любую ошибку возвращают пустой/нейтральный объект.
+// Поддерживаемые metric:
+//   Status:
+//     llm           — детали по каждому LLM-каналу (наличие ключа)
+//     generation    — success/fail rate за 24ч + типичные ошибки
+//     auth          — registrations breakdown by channel + failed attempts
+//     payments      — last invoices (24ч / period) + статусы
+//     bots          — webhook last received + last error per channel
+//     db            — PRAGMA integrity + size + table sizes
+//     disk          — db_size + auto-backups + free space estimate
+//   Period metrics:
+//     plays         — by day + top tracks + by hour heatmap-snapshot
+//     registrations — breakdown by channel + new vs existing
+//     generations   — success/fail by type + avg duration
+//     payments-period — последние платежи периода с amount/status
+//     visitors      — top countries / cities / device
 
-export function getCachedDashboardSummary(period: Period = "today"): {
-  period: Period;
-  statusCards: GroupStatus[];
-  metrics: PeriodMetrics;
-  generatedAt: string;
-} {
+router.get("/dashboard-detail/:metric", requireAdmin, (req, res) => {
   try {
-    let snap: any = getCached(period);
-    if (!snap) {
-      const since = periodToSince(period);
-      snap = {
-        period,
-        since,
-        generatedAt: new Date().toISOString(),
-        cacheExpiresAt: new Date(Date.now() + CACHE_TTL_MS).toISOString(),
-        statusCards: buildStatusCards(),
-        metrics: buildPeriodMetrics(since),
-        charts: buildChartSeries(period, since),
-      };
-      setCached(period, snap);
-    }
-    return {
-      period: snap.period,
-      statusCards: snap.statusCards,
-      metrics: snap.metrics,
-      generatedAt: snap.generatedAt,
-    };
-  } catch {
-    return {
+    const metric = String(req.params.metric || "").toLowerCase();
+    const period = parsePeriod(req.query.period);
+    const bounds = periodToBounds(
       period,
-      statusCards: [],
-      metrics: {
-        plays: { total: 0, unique: 0, rejected: 0 },
-        downloads: { count: 0 },
-        registrations: { total: 0, byChannel: [] },
-        generations: {
-          music: { done: 0, error: 0, processing: 0 },
-          lyrics: { done: 0, error: 0 },
-          cover: { done: 0, error: 0 },
-        },
-        payments: { count: 0, sumKopecks: 0 },
-        visitors: { unique: 0, total: 0 },
-      },
-      generatedAt: new Date().toISOString(),
-    };
-  }
-}
-
-export function getCachedClickStats(period: Period = "today"): ClickStats {
-  try {
-    let cs = getCachedClicks(period);
-    if (!cs) {
-      const since = periodToSince(period);
-      cs = buildClickStats(period, since);
-      setCachedClicks(period, cs);
-    }
-    return cs;
-  } catch {
-    return {
-      topClicks: [],
-      byPage: {},
-      topElements: [],
-      totalClicks: 0,
-      uniqueClickers: 0,
-      period,
-      since: null,
-      generatedAt: new Date().toISOString(),
-    };
-  }
-}
-
-// Brain-export snapshot (минимальный slice для context injection).
-// Не дёргает heavy полный builder — берёт plugins + nodes/edges totals.
-export function getCachedBrainExport(): {
-  nodesCount: number;
-  edgesCount: number;
-  green: number;
-  yellow: number;
-  red: number;
-  topPlugins: string[];
-} {
-  try {
-    const plugins = allSafe<{ name: string; status: string }>(
-      sql`SELECT name, status FROM plugins_registry ORDER BY name`,
+      typeof req.query.from === "string" ? req.query.from : undefined,
+      typeof req.query.to === "string" ? req.query.to : undefined,
     );
-    const active = plugins.filter((p) => p.status === "active").length;
-    const failed = plugins.filter((p) => p.status === "failed").length;
-    const degraded = plugins.length - active - failed;
-    // approx edges: plugins reading DB (1 each) + provider→plugin wirings (10 hardcoded)
-    return {
-      nodesCount: plugins.length + 5 /* channels */ + 6 /* providers */ + 2 /* core */ + 4 /* metrics */,
-      edgesCount: plugins.length + 5 + 10 + 4,
-      green: active,
-      yellow: degraded,
-      red: failed,
-      topPlugins: plugins.slice(0, 10).map((p) => p.name),
-    };
-  } catch {
-    return { nodesCount: 0, edgesCount: 0, green: 0, yellow: 0, red: 0, topPlugins: [] };
+    const detail = buildDashboardDetail(metric, period, bounds);
+    if (!detail) {
+      return res
+        .status(404)
+        .json({ data: null, error: `unknown metric: ${metric}` });
+    }
+    return res.json({
+      data: { metric, period, since: bounds.since, until: bounds.until, ...detail },
+      error: null,
+    });
+  } catch (err) {
+    return res
+      .status(500)
+      .json({ data: null, error: err instanceof Error ? err.message : "internal" });
   }
+});
+
+function buildDashboardDetail(
+  metric: string,
+  period: Period,
+  bounds: PeriodBounds,
+): Record<string, unknown> | null {
+  switch (metric) {
+    case "llm":
+      return detailLLM();
+    case "generation":
+      return detailGeneration();
+    case "auth":
+      return detailAuth(bounds);
+    case "payments":
+      return detailPaymentsStatus();
+    case "bots":
+      return detailBots();
+    case "db":
+      return detailDb();
+    case "disk":
+      return detailDisk();
+    case "plays":
+      return detailPlays(bounds);
+    case "registrations":
+      return detailRegistrations(bounds);
+    case "generations":
+      return detailGenerationsPeriod(bounds);
+    case "payments-period":
+      return detailPaymentsPeriod(bounds);
+    case "visitors":
+      return detailVisitors(bounds);
+    default:
+      return null;
+  }
+}
+
+// --- helpers для buildDashboardDetail ---
+
+function fmtKey(present: boolean): { status: "ok" | "missing"; label: string } {
+  return present
+    ? { status: "ok", label: "настроен" }
+    : { status: "missing", label: "не настроен" };
+}
+
+function detailLLM(): Record<string, unknown> {
+  const channels = [
+    { id: "anthropic", label: "Anthropic Claude", ...fmtKey(!!process.env.ANTHROPIC_API_KEY) },
+    { id: "timeweb", label: "TimeWeb Gateway", ...fmtKey(!!process.env.TIMEWEB_GATEWAY_KEY) },
+    { id: "openai", label: "OpenAI", ...fmtKey(!!process.env.OPENAI_API_KEY) },
+    { id: "gptunnel", label: "GPTunnel (Suno+LLM)", ...fmtKey(!!process.env.GPTUNNEL_API_KEY) },
+  ];
+  return {
+    channels,
+    summary: {
+      configured: channels.filter(c => c.status === "ok").length,
+      total: channels.length,
+    },
+  };
+}
+
+function detailGeneration(): Record<string, unknown> {
+  const since24h = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  const done = countSafe(
+    sql`SELECT count(*) as c FROM generations WHERE type='music' AND status='done' AND deleted_at IS NULL AND created_at >= ${since24h}`,
+  );
+  const error = countSafe(
+    sql`SELECT count(*) as c FROM generations WHERE type='music' AND status='error' AND deleted_at IS NULL AND created_at >= ${since24h}`,
+  );
+  const processing = countSafe(
+    sql`SELECT count(*) as c FROM generations WHERE type='music' AND status='processing' AND deleted_at IS NULL AND created_at >= ${since24h}`,
+  );
+  // Топ-5 типичных ошибок за 24ч
+  const reasons = allSafe<{ reason: string; c: number }>(
+    sql`SELECT COALESCE(error_reason, 'unknown') as reason, count(*) as c
+        FROM generations
+        WHERE type='music' AND status='error' AND deleted_at IS NULL AND created_at >= ${since24h}
+        GROUP BY reason
+        ORDER BY c DESC
+        LIMIT 5`,
+  );
+  const total = done + error;
+  return {
+    last24h: {
+      done,
+      error,
+      processing,
+      total,
+      successRate: total > 0 ? Math.round((done / total) * 100) : 100,
+    },
+    topErrors: reasons.map(r => ({ reason: r.reason, count: r.c })),
+  };
+}
+
+function detailAuth(bounds: PeriodBounds): Record<string, unknown> {
+  const cond = buildRangeCondition("created_at", bounds.since, bounds.until);
+  const byChannel = allSafe<{ channel: string; c: number }>(
+    sql`SELECT
+          CASE
+            WHEN telegram_id IS NOT NULL AND telegram_id != '' THEN 'telegram'
+            WHEN phone_verified=1 THEN 'phone'
+            ELSE 'email'
+          END as channel,
+          count(*) as c
+        FROM users
+        WHERE ${cond}
+        GROUP BY channel`,
+  );
+  // Failed attempts из user_action_failures (если таблица существует)
+  const failedAuth = allSafe<{ action: string; error_code: string | null; c: number }>(
+    sql`SELECT action, error_code, count(*) as c
+        FROM user_action_failures
+        WHERE action LIKE 'auth%' AND ${cond}
+        GROUP BY action, error_code
+        ORDER BY c DESC
+        LIMIT 10`,
+  );
+  return {
+    byChannel: byChannel.map(r => ({ channel: r.channel, count: r.c })),
+    failedAttempts: failedAuth.map(r => ({
+      action: r.action,
+      errorCode: r.error_code || "unknown",
+      count: r.c,
+    })),
+    providers: {
+      sms: !!process.env.SMSRU_API_ID,
+      email: !!process.env.GMAIL_APP_PASSWORD || !!process.env.SMTP_PASS,
+      telegram: !!process.env.TELEGRAM_BOT_TOKEN,
+    },
+  };
+}
+
+function detailPaymentsStatus(): Record<string, unknown> {
+  const since24h = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  const recent = allSafe<{
+    inv_id: number;
+    amount: number;
+    status: string;
+    description: string | null;
+    created_at: string;
+  }>(
+    sql`SELECT inv_id, amount, status, description, created_at
+        FROM payments
+        WHERE created_at >= ${since24h}
+        ORDER BY created_at DESC
+        LIMIT 20`,
+  );
+  const summary = allSafe<{ status: string; c: number; s: number }>(
+    sql`SELECT status, count(*) as c, COALESCE(SUM(amount),0) as s
+        FROM payments
+        WHERE created_at >= ${since24h}
+        GROUP BY status`,
+  );
+  return {
+    since24h: {
+      summary: summary.map(r => ({
+        status: r.status,
+        count: r.c,
+        sumKopecks: r.s,
+      })),
+      recent: recent.map(r => ({
+        invId: r.inv_id,
+        amountKopecks: r.amount,
+        status: r.status,
+        description: r.description,
+        createdAt: r.created_at,
+      })),
+    },
+    configured: {
+      login: !!process.env.ROBOKASSA_LOGIN,
+      password1: !!process.env.ROBO_PASSWORD_1,
+      password2: !!process.env.ROBO_PASSWORD_2,
+    },
+  };
+}
+
+function detailBots(): Record<string, unknown> {
+  const since24h = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  const tgSessions = countSafe(
+    sql`SELECT count(*) as c FROM chatbot_sessions WHERE channel='telegram' AND last_message_at >= ${since24h}`,
+  );
+  const maxSessions = countSafe(
+    sql`SELECT count(*) as c FROM chatbot_sessions WHERE channel='max' AND last_message_at >= ${since24h}`,
+  );
+  // Последние ошибки чат-каналов из user_action_failures
+  const failures = allSafe<{ channel: string; action: string; error_code: string | null; c: number; last_at: string }>(
+    sql`SELECT channel, action, error_code, count(*) as c, MAX(created_at) as last_at
+        FROM user_action_failures
+        WHERE channel IN ('telegram','max','vk','email') AND created_at >= ${since24h}
+        GROUP BY channel, action, error_code
+        ORDER BY c DESC
+        LIMIT 15`,
+  );
+  return {
+    channels: [
+      { id: "telegram", configured: !!process.env.TELEGRAM_BOT_TOKEN, sessions24h: tgSessions },
+      { id: "max", configured: !!process.env.MAX_BOT_TOKEN, sessions24h: maxSessions },
+      { id: "vk", configured: !!process.env.VK_ACCESS_TOKEN, sessions24h: 0 },
+    ],
+    failures24h: failures.map(r => ({
+      channel: r.channel,
+      action: r.action,
+      errorCode: r.error_code || "unknown",
+      count: r.c,
+      lastAt: r.last_at,
+    })),
+  };
+}
+
+function detailDb(): Record<string, unknown> {
+  let integrity = "unknown";
+  try {
+    const row = db.get<{ integrity_check: string }>(sql`PRAGMA integrity_check`);
+    integrity = (row as any)?.integrity_check || (row as any)?.ic || "unknown";
+  } catch (e) {
+    integrity = `error: ${e instanceof Error ? e.message : String(e)}`;
+  }
+  // Размер БД
+  let dbSize = 0;
+  try {
+    dbSize = fs.statSync(process.env.DATABASE_FILE || "data.db").size;
+  } catch {}
+  // Размеры топ-15 таблиц по количеству строк (без раскрытия PII).
+  const tables = allSafe<{ name: string }>(
+    sql`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`,
+  );
+  const tableStats: Array<{ name: string; rows: number }> = [];
+  for (const t of tables) {
+    const n = String(t.name);
+    // Sanity-check имени (только идентификаторы)
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(n)) continue;
+    try {
+      const r = db.get<{ c: number }>(sql.raw(`SELECT count(*) as c FROM ${n}`));
+      tableStats.push({ name: n, rows: r?.c ?? 0 });
+    } catch {
+      // ignore
+    }
+  }
+  tableStats.sort((a, b) => b.rows - a.rows);
+  return {
+    integrity,
+    dbSizeBytes: dbSize,
+    dbSizeMb: Math.round(dbSize / 1024 / 1024),
+    tables: tableStats.slice(0, 15),
+    tablesTotal: tableStats.length,
+  };
+}
+
+function detailDisk(): Record<string, unknown> {
+  let dbSize = 0;
+  let backups: Array<{ name: string; size: number; mtime: string }> = [];
+  try {
+    dbSize = fs.statSync(process.env.DATABASE_FILE || "data.db").size;
+  } catch {}
+  // Попытка прочитать /var/backups/neurohub-auto (clone-VPS); read-only — без error
+  const backupDir = process.env.BACKUP_DIR || "/var/backups/neurohub-auto";
+  try {
+    if (fs.existsSync(backupDir)) {
+      const items = fs.readdirSync(backupDir);
+      backups = items
+        .map(name => {
+          try {
+            const st = fs.statSync(`${backupDir}/${name}`);
+            return {
+              name,
+              size: st.size,
+              mtime: st.mtime.toISOString(),
+            };
+          } catch {
+            return null;
+          }
+        })
+        .filter((x): x is { name: string; size: number; mtime: string } => x !== null)
+        .sort((a, b) => (a.mtime < b.mtime ? 1 : -1))
+        .slice(0, 10);
+    }
+  } catch {
+    // backup dir может не существовать на dev
+  }
+  return {
+    dbSizeBytes: dbSize,
+    dbSizeMb: Math.round(dbSize / 1024 / 1024),
+    backupDir,
+    backups,
+    backupsCount: backups.length,
+  };
+}
+
+function detailPlays(bounds: PeriodBounds): Record<string, unknown> {
+  const cond = buildRangeCondition("created_at", bounds.since, bounds.until);
+  const byDay = allSafe<{ d: string; c: number }>(
+    sql`SELECT substr(created_at,1,10) as d, count(*) as c
+        FROM gen_activity
+        WHERE action='play' AND ${cond}
+        GROUP BY d ORDER BY d`,
+  );
+  const byHour = allSafe<{ h: string; c: number }>(
+    sql`SELECT strftime('%H', created_at) as h, count(*) as c
+        FROM gen_activity
+        WHERE action='play' AND ${cond}
+        GROUP BY h ORDER BY h`,
+  );
+  const topTracks = buildTopTracks(bounds);
+  const rejected = allSafe<{ action: string; c: number }>(
+    sql`SELECT action, count(*) as c
+        FROM gen_activity
+        WHERE action LIKE 'play_rejected%' AND ${cond}
+        GROUP BY action
+        ORDER BY c DESC
+        LIMIT 10`,
+  );
+  return {
+    byDay: byDay.map(r => ({ date: r.d, count: r.c })),
+    byHour: byHour.map(r => ({ hour: parseInt(r.h, 10) || 0, count: r.c })),
+    topTracks,
+    rejected: rejected.map(r => ({ reason: r.action.replace("play_rejected:", ""), count: r.c })),
+  };
+}
+
+function detailRegistrations(bounds: PeriodBounds): Record<string, unknown> {
+  const cond = buildRangeCondition("created_at", bounds.since, bounds.until);
+  const byChannel = buildRegistrationChannels(bounds);
+  const byDay = allSafe<{ d: string; c: number }>(
+    sql`SELECT substr(created_at,1,10) as d, count(*) as c
+        FROM users
+        WHERE ${cond}
+        GROUP BY d ORDER BY d`,
+  );
+  const total = countSafe(sql`SELECT count(*) as c FROM users WHERE ${cond}`);
+  const verified = countSafe(
+    sql`SELECT count(*) as c FROM users WHERE phone_verified=1 AND ${cond}`,
+  );
+  return {
+    total,
+    verified,
+    byChannel,
+    byDay: byDay.map(r => ({ date: r.d, count: r.c })),
+  };
+}
+
+function detailGenerationsPeriod(bounds: PeriodBounds): Record<string, unknown> {
+  const cond = buildRangeCondition("created_at", bounds.since, bounds.until);
+  const byType = allSafe<{ type: string; status: string; c: number }>(
+    sql`SELECT type, status, count(*) as c
+        FROM generations
+        WHERE deleted_at IS NULL AND ${cond}
+        GROUP BY type, status`,
+  );
+  // Avg duration (для типа music у которого есть updated_at - created_at)
+  const avgDur = allSafe<{ type: string; avg_sec: number }>(
+    sql`SELECT type, AVG((julianday(updated_at) - julianday(created_at)) * 86400.0) as avg_sec
+        FROM generations
+        WHERE status='done' AND deleted_at IS NULL AND ${cond}
+        GROUP BY type`,
+  );
+  return {
+    byType: byType.map(r => ({ type: r.type, status: r.status, count: r.c })),
+    avgDuration: avgDur.map(r => ({
+      type: r.type,
+      avgSeconds: Math.round(Number(r.avg_sec) || 0),
+    })),
+  };
+}
+
+function detailPaymentsPeriod(bounds: PeriodBounds): Record<string, unknown> {
+  const cond = buildRangeCondition("created_at", bounds.since, bounds.until);
+  const recent = allSafe<{
+    inv_id: number;
+    user_id: number;
+    amount: number;
+    status: string;
+    description: string | null;
+    created_at: string;
+  }>(
+    sql`SELECT inv_id, user_id, amount, status, description, created_at
+        FROM payments
+        WHERE ${cond}
+        ORDER BY created_at DESC
+        LIMIT 30`,
+  );
+  const byStatus = allSafe<{ status: string; c: number; s: number }>(
+    sql`SELECT status, count(*) as c, COALESCE(SUM(amount),0) as s
+        FROM payments
+        WHERE ${cond}
+        GROUP BY status`,
+  );
+  return {
+    byStatus: byStatus.map(r => ({
+      status: r.status,
+      count: r.c,
+      sumKopecks: r.s,
+      sumRub: Math.round(r.s / 100),
+    })),
+    recent: recent.map(r => ({
+      invId: r.inv_id,
+      userId: r.user_id,
+      amountKopecks: r.amount,
+      amountRub: Math.round(r.amount / 100),
+      status: r.status,
+      description: r.description,
+      createdAt: r.created_at,
+    })),
+  };
+}
+
+function detailVisitors(bounds: PeriodBounds): Record<string, unknown> {
+  const cond = buildRangeCondition("created_at", bounds.since, bounds.until);
+  const byCountry = allSafe<{ country: string; c: number }>(
+    sql`SELECT COALESCE(country, '—') as country, count(DISTINCT fingerprint) as c
+        FROM visitors
+        WHERE ${cond}
+        GROUP BY country
+        ORDER BY c DESC
+        LIMIT 15`,
+  );
+  const byCity = allSafe<{ city: string; c: number }>(
+    sql`SELECT COALESCE(city, '—') as city, count(DISTINCT fingerprint) as c
+        FROM visitors
+        WHERE ${cond}
+        GROUP BY city
+        ORDER BY c DESC
+        LIMIT 15`,
+  );
+  const byDevice = allSafe<{ device: string; c: number }>(
+    sql`SELECT COALESCE(device, '—') as device, count(DISTINCT fingerprint) as c
+        FROM visitors
+        WHERE ${cond}
+        GROUP BY device
+        ORDER BY c DESC
+        LIMIT 10`,
+  );
+  const byBrowser = allSafe<{ browser: string; c: number }>(
+    sql`SELECT COALESCE(browser, '—') as browser, count(DISTINCT fingerprint) as c
+        FROM visitors
+        WHERE ${cond}
+        GROUP BY browser
+        ORDER BY c DESC
+        LIMIT 10`,
+  );
+  const unique = countSafe(
+    sql`SELECT count(DISTINCT fingerprint) as c FROM visitors WHERE ${cond}`,
+  );
+  const total = countSafe(sql`SELECT count(*) as c FROM visitors WHERE ${cond}`);
+  return {
+    unique,
+    total,
+    byCountry: byCountry.map(r => ({ name: r.country, count: r.c })),
+    byCity: byCity.map(r => ({ name: r.city, count: r.c })),
+    byDevice: byDevice.map(r => ({ name: r.device, count: r.c })),
+    byBrowser: byBrowser.map(r => ({ name: r.browser, count: r.c })),
+  };
 }
 
 const masterDashboardModule: Module = {
@@ -1420,7 +1916,7 @@ const masterDashboardModule: Module = {
   publishes: [],
   onLoad: async (ctx) => {
     ctx.logger.info(
-      "master-dashboard online — GET /api/admin/v304/dashboard-summary, /brain-export, /click-stats, /briefing-text, POST /tts (cache 60s)",
+      "master-dashboard online — GET /api/admin/v304/dashboard-summary (period=yesterday|today|7d|30d|all|custom + from/to), /dashboard-detail/:metric, /brain-export, /click-stats, /briefing-text, POST /tts (cache 60s)",
     );
   },
   healthCheck: () => ({ status: "ok" }),
