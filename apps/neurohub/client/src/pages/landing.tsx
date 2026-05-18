@@ -1306,7 +1306,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                     title="Поделиться"
                     aria-label="Поделиться"
                     onClick={async () => {
-                      const url = `https://muziai.ru/#/track/${currentTrack.id}`;
+                      // Eugene 2026-05-18 Босс «при шаринге трека preview в TG/iMessage
+                      // показывает MuzaAi logo вместо обложки трека». ROOT CAUSE:
+                      // /#/track/N — hash route, crawlers (TelegramBot, facebookexternalhit)
+                      // получают SPA index.html без OG meta tags. Fix — использовать
+                      // /share/N (SSR endpoint с per-track <meta property="og:image">).
+                      const url = `https://muziai.ru/share/${currentTrack.id}`;
                       const title = currentTrack.displayTitle || currentTrack.prompt?.slice(0, 60) || 'MuzaAi';
                       if (navigator.share) {
                         try {

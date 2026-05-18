@@ -8480,7 +8480,33 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   });
 
   // ==================== OG SHARE PAGE ====================
-  // Server-rendered page with Open Graph meta for social sharing
+  // Server-rendered page with Open Graph meta for social sharing.
+  //
+  // Eugene 2026-05-18 Босс «при шаринге трека preview показывает MuzaAi logo
+  // вместо реальной обложки трека». Этот endpoint — единственный источник
+  // правильного OG preview. Клиентский код (landing/dashboard/track) ОБЯЗАН
+  // делиться ссылкой /share/:id, не /#/track/:id (последний — pure SPA
+  // hash route, crawlers получают index.html без per-track meta).
+  //
+  // Crawler detection (TelegramBot, facebookexternalhit, twitterbot, whatsapp,
+  // vkshare, slackbot, discordbot, linkedinbot): не делаем JS-redirect,
+  // отдаём только HTML с meta-tags. Обычный браузер: redirect на SPA play page.
+  //
+  // OG title теперь — `<displayTitle> · <authorName>` (не generic
+  // «Послушай на MuzaAi.ru») — preview в TG показывает реальное название.
+  function isSocialCrawler(ua: string): boolean {
+    const u = (ua || "").toLowerCase();
+    return /telegrambot|telegram\/|facebookexternalhit|twitterbot|whatsapp|vkshare|slackbot|discordbot|linkedinbot|pinterest|skypeuripreview|googlebot|yandexbot/i.test(u);
+  }
+
+  function escapeAttr(s: string): string {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
   app.get("/share/:id", (req: Request, res: Response) => {
     const gen = db.select().from(generations).where(eq(generations.id, parseInt(req.params.id))).get();
     if (!gen || gen.status !== "done") {
@@ -8493,35 +8519,49 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const imageUrl = `${PUBLIC_URL}/api/cover/${gen.id}.jpg?wm=1`;
     const audioUrl = gen.type === "music" ? `${PUBLIC_URL}/api/stream/${gen.id}` : "";
     const pageUrl = `${PUBLIC_URL}/#/play/${gen.id}`;
+    const shareUrl = `${PUBLIC_URL}/share/${gen.id}`;
+    const ogTitle = `${title} · ${authorName}`;
+    const ogDesc = `Слушай ${title} на MuzaAi.ru — автор: ${authorName}`;
+    const ua = String(req.headers["user-agent"] || "");
+    const isCrawler = isSocialCrawler(ua);
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
+    // Crawlers не должны кэшировать longterm — обложка/название может меняться
+    res.setHeader("Cache-Control", "public, max-age=300, s-maxage=300");
     res.send(`<!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${title} — ${authorName} | MuzaAi</title>
-  <meta property="og:title" content="Послушай на MuzaAi.ru" />
-  <meta property="og:description" content="${title.replace(/"/g, '&quot;')} — Автор: ${authorName}" />
-  <meta property="og:image" content="${imageUrl}" />
+  <title>${escapeAttr(ogTitle)} | MuzaAi</title>
+  <meta property="og:title" content="${escapeAttr(ogTitle)}" />
+  <meta property="og:description" content="${escapeAttr(ogDesc)}" />
+  <meta property="og:image" content="${escapeAttr(imageUrl)}" />
+  <meta property="og:image:secure_url" content="${escapeAttr(imageUrl)}" />
+  <meta property="og:image:type" content="image/jpeg" />
   <meta property="og:image:width" content="512" />
   <meta property="og:image:height" content="512" />
-  <meta property="og:url" content="${pageUrl}" />
+  <meta property="og:image:alt" content="${escapeAttr(`Обложка трека ${title}`)}" />
+  <meta property="og:url" content="${escapeAttr(shareUrl)}" />
   <meta property="og:type" content="music.song" />
   <meta property="og:site_name" content="MuzaAi" />
-  ${audioUrl ? `<meta property="og:audio" content="${audioUrl}" />` : ""}
+  <meta property="og:locale" content="ru_RU" />
+  <meta property="music:musician" content="${escapeAttr(authorName)}" />
+  ${audioUrl ? `<meta property="og:audio" content="${escapeAttr(audioUrl)}" />\n  <meta property="og:audio:type" content="audio/mpeg" />` : ""}
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="${title.replace(/"/g, '&quot;')}" />
-  <meta name="twitter:description" content="Автор: ${authorName}" />
-  <meta name="twitter:image" content="${imageUrl}" />
-  <script>window.location.replace("${pageUrl}");</script>
+  <meta name="twitter:title" content="${escapeAttr(ogTitle)}" />
+  <meta name="twitter:description" content="${escapeAttr(ogDesc)}" />
+  <meta name="twitter:image" content="${escapeAttr(imageUrl)}" />
+  <meta name="description" content="${escapeAttr(ogDesc)}" />
+  <link rel="canonical" href="${escapeAttr(shareUrl)}" />
+  ${isCrawler ? "" : `<script>window.location.replace("${pageUrl}");</script>`}
 </head>
 <body style="font-family:-apple-system,sans-serif;background:#09090b;color:#e0e0e0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0">
   <div style="text-align:center;padding:32px">
-    <img src="${imageUrl}" style="width:200px;height:200px;border-radius:16px;object-fit:cover;margin-bottom:16px" />
-    <p style="font-size:18px;font-weight:bold">${title}</p>
-    <p style="color:#888">${authorName}</p>
-    <a href="${pageUrl}" style="color:#8b5cf6;margin-top:16px;display:inline-block">Открыть в MuzaAi</a>
+    <img src="${escapeAttr(imageUrl)}" alt="${escapeAttr(`Обложка ${title}`)}" style="width:200px;height:200px;border-radius:16px;object-fit:cover;margin-bottom:16px" />
+    <p style="font-size:18px;font-weight:bold">${escapeAttr(title)}</p>
+    <p style="color:#888">${escapeAttr(authorName)}</p>
+    <a href="${escapeAttr(pageUrl)}" style="color:#8b5cf6;margin-top:16px;display:inline-block">Открыть в MuzaAi</a>
   </div>
 </body>
 </html>`);
