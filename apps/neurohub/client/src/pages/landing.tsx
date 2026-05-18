@@ -9,7 +9,7 @@ import { ExpandToggleButton } from "@/components/expand-toggle-button";
 import { CoverDetailsModal } from "@/components/cover-details-modal";
 import { VolumeSlider } from "@/components/volume-slider";
 import { muteBgMusic, unmuteBgMusic } from "@/components/background-music";
-import { setLockScreenTrack, setLockScreenPlaybackState } from "@/lib/lockscreen";
+import { setupMediaSessionForTrack, setLockScreenPlaybackState, setLockScreenPosition } from "@/lib/lockscreen";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -788,34 +788,13 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     audio.addEventListener("pause", () => setIsPlayingState(false));
     audio.addEventListener("ended", () => setIsPlayingState(false));
 
-    // Eugene 2026-05-18 Босс «LS не показывает обложки» — 7-я итерация.
-    // КРИТИЧНО SYNC: iOS читает navigator.mediaSession.metadata в момент
-    // audio.play() resolve (≈ 100-300ms). Если ещё null → берёт fallback
-    // (document.title + apple-touch-icon → раньше был фиолет. waveform).
-    // setLockScreenTrack async — устанавливает metadata ПОСЛЕ play(), iOS
-    // уже прочитал null. Inline sync setter решает проблему окончательно.
-    const msTitleSync = track.displayTitle || track.prompt?.slice(0, 60) || 'MuzaAi';
-    const msArtistSync = track.authorName ? `MuzaAi · ${track.authorName}` : 'MuzaAi';
+    // Eugene 2026-05-18 8-я итерация. ROOT-CAUSE-2: metadata должна
+    // быть применена СИНХРОННО в одном tick с audio.play() — никаких
+    // async вызовов между ними. setupMediaSessionForTrack делает
+    // sync apply + параллельный prewarm artwork (не блокирует gesture).
+    const msTitle = track.displayTitle || track.prompt?.slice(0, 60) || 'MuzaAi';
+    const msArtist = track.authorName ? `MuzaAi · ${track.authorName}` : 'MuzaAi';
     const coverBust = (track as any).coverGenId || track.id;
-    if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
-      try {
-        const origin = window.location.origin;
-        navigator.mediaSession.metadata = new MediaMetadata({
-          title: msTitleSync,
-          artist: msArtistSync,
-          album: 'MuzaAi',
-          artwork: [
-            { src: `${origin}/api/cover/${track.id}.jpg?size=96&v=${coverBust}`, sizes: '96x96', type: 'image/jpeg' },
-            { src: `${origin}/api/cover/${track.id}.jpg?size=192&v=${coverBust}`, sizes: '192x192', type: 'image/jpeg' },
-            { src: `${origin}/api/cover/${track.id}.jpg?size=256&v=${coverBust}`, sizes: '256x256', type: 'image/jpeg' },
-            { src: `${origin}/api/cover/${track.id}.jpg?size=384&v=${coverBust}`, sizes: '384x384', type: 'image/jpeg' },
-            { src: `${origin}/api/cover/${track.id}.jpg?size=512&v=${coverBust}`, sizes: '512x512', type: 'image/jpeg' },
-          ],
-        });
-      } catch (e) {
-        try { console.warn("[LS-sync] MediaMetadata failed:", e); } catch {}
-      }
-    }
     const lsHandlers = {
       play: () => {
         audioRef.current?.play().catch(() => {});
@@ -845,15 +824,24 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         if (audioRef.current) audioRef.current.currentTime = t;
       },
     };
-    // Eugene 2026-05-18 Босс «найди решение которое работало — iT3, зафиксируй,
-    // больше не трогай». Возврат к single-call паттерну из triumph-muza-150526
-    // (fd62d39). setLockScreenTrack async, до play() — НЕ блокирует play(),
-    // но iOS успевает применить metadata через prewarm + double-write.
 
-    // iOS gesture budget — play() сразу после new Audio.
+    // SYNC setup MediaSession ДО audio.play() — внутри user-gesture стэка.
+    // Никаких await перед этой строкой и до audio.play() ниже!
+    setupMediaSessionForTrack(
+      { id: track.id, title: msTitle, artist: msArtist, album: 'MuzaAi' },
+      lsHandlers,
+      { coverBust, prewarm: true }
+    );
+
+    // iOS gesture budget — play() сразу после setupMediaSessionForTrack.
     const playPromise = audio.play();
     playPromise
-      .then(() => { setLockScreenPlaybackState('playing'); setIsPlayingState(true); })
+      .then(() => {
+        // playbackState='playing' ОБЯЗАТЕЛЬНО после успешного play() —
+        // иначе iOS считает session paused и не показывает scrubber.
+        setLockScreenPlaybackState('playing');
+        setIsPlayingState(true);
+      })
       .catch((err) => {
         console.warn("[PLAYER] audio.play() rejected (мобильный?):", err?.name, err?.message);
         setIsPlayingState(false);
@@ -934,16 +922,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     });
 
 
-    // Lock-screen metadata — async refresh (prewarm 512px + double-write).
-    // Sync-вариант уже установил metadata ДО play() — это supplemental проход
-    // для устранения iOS first-write drop и подгрузки артуорка в HTTP cache.
-    setLockScreenTrack(
-      { id: track.id, title: msTitleSync, artist: msArtistSync, album: 'MuzaAi' },
-      lsHandlers,
-      (track as any).coverGenId || track.id
-    ).catch((err) => {
-      console.warn("[PLAYER] setLockScreenTrack failed:", err);
-    });
+    // MediaSession уже настроена через setupMediaSessionForTrack SYNC выше —
+    // duplicate async вызов не нужен (раньше был double-write workaround
+    // для iOS first-write drop, который уже не воспроизводится с DOM-attached
+    // audio + sync apply pattern).
     setPlayingId(track.id);
     muteBgMusic();
 
@@ -968,10 +950,19 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       }
     }, 5000);
 
-    // Update current time
+    // Update current time + lock-screen scrubber position.
+    // setLockScreenPosition обязателен для iOS чтобы scrubber на lock-screen
+    // работал (двигался + был draggable). Без него — застывает в начале.
+    // Throttle 500ms — iOS docs рекомендуют не чаще раза в полсекунды.
+    let lastPosUpdate = 0;
     timerRef.current = window.setInterval(() => {
       if (audio && !audio.paused) {
         setCurrentTime(audio.currentTime);
+        const now = Date.now();
+        if (now - lastPosUpdate >= 500 && isFinite(audio.duration) && audio.duration > 0) {
+          lastPosUpdate = now;
+          setLockScreenPosition(audio.duration, audio.currentTime, audio.playbackRate || 1);
+        }
       }
     }, 250);
   };
