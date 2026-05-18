@@ -568,6 +568,62 @@ export const MUZA_TOOLS: ToolDef[] = [
       required: [],
     },
   },
+
+  // Eugene 2026-05-18 Босс «operator-команды (Ярс) через Музу-чат».
+  // Когда Ярс (по hash-auth) пишет Музе команду — она передаёт её в очередь
+  // operator_command_queue через POST /api/admin/v304/operator-commands/incoming.
+  // Backend сам проверяет hash через isAuthorizedOperator() — Муза просто
+  // прокидывает senderIdentifier (это userId+email+phone хеш либо иной
+  // signed identifier из ctx — формируется в caller'е). Результат: queued,
+  // safe, category. Никогда не выполняет напрямую — только в очередь.
+  {
+    name: "submit_operator_command",
+    description: "Передать команду Ярса (оператора) в очередь operator_command_queue для модерации админом. Используй ТОЛЬКО когда понимаешь что юзер — авторизованный оператор (Ярс) и просит сделать админ-действие (создать новость, изменить контент, и т.д.). НЕ для обычных юзеров — для них используй log_suggestion. senderIdentifier — строка идентификации оператора (передаётся backend'у который проверит hash). text — команда оператора как есть.",
+    input_schema: {
+      type: "object",
+      properties: {
+        senderIdentifier: { type: "string", description: "Идентификатор оператора (Ярс) — backend проверит hash через isAuthorizedOperator" },
+        text: { type: "string", description: "Текст команды от оператора (как он её сформулировал)" },
+      },
+      required: ["senderIdentifier", "text"],
+    },
+  },
+
+  // Eugene 2026-05-18 Босс «фидбек и идеи юзеров». Когда юзер выражает
+  // предложение / идею для улучшения сервиса — Муза логирует через
+  // POST /api/feedback/suggestion. Помогает накапливать клиентский фидбек
+  // без обязательной регистрации (anonymous_session или userId).
+  {
+    name: "log_suggestion",
+    description: "Залогируй предложение/идею юзера для улучшения сервиса (фичи, баги, цены, UI, persona, прочее). Используй когда юзер выразил мысль типа «было бы круто если...», «не хватает...», «можно ли добавить...», «непонятно как...», жалобу на UI/цену/работу бота. text — суть предложения (1-3 предложения). category — необязательно, если ясно. sentiment — необязательно, твоя оценка тона (-1..+1).",
+    input_schema: {
+      type: "object",
+      properties: {
+        text: { type: "string", description: "Суть предложения юзера (1-3 предложения)" },
+        category: { type: "string", enum: ["feature", "bug", "pricing", "ui", "persona", "other"], description: "Категория (необязательно)" },
+        sentiment: { type: "number", description: "Тон от -1 (негатив) до +1 (позитив)" },
+      },
+      required: ["text"],
+    },
+  },
+
+  // Eugene 2026-05-18 Босс «NPS — оценка Музы/сервиса от юзера».
+  // Когда юзер выставил оценку (числом 1-10 или эмоционально «топ»/«норм»/
+  // «средне»/«плохо») — Муза вызывает tool. Маппинг эмоций → score:
+  // топ/огонь/класс = 9-10, нормально = 7-8, средне = 5-6, не очень = 1-4.
+  // Score 0 — «отказался оценивать но завершил диалог», тоже валидно.
+  {
+    name: "log_nps",
+    description: "Залогируй оценку юзером Музы/сервиса. Используй когда юзер оценил (числом 0-10 или эмоциями типа «топ», «класс», «норм», «средне», «плохо», «не очень»). Маппинг: топ/огонь/класс = 9-10, нормально/норм = 7-8, средне/так себе = 5-6, не очень/плохо = 1-4. score — обязательно (0-10). comment — необязательно, если юзер пояснил.",
+    input_schema: {
+      type: "object",
+      properties: {
+        score: { type: "number", description: "Оценка от 0 до 10" },
+        comment: { type: "string", description: "Комментарий юзера (необязательно)" },
+      },
+      required: ["score"],
+    },
+  },
 ];
 
 // === Email 2FA wrapper helper (Eugene 2026-05-17 Босс) ===
@@ -1991,6 +2047,119 @@ const HANDLERS: Record<string, ToolHandler> = {
       return lines.join("\n");
     } catch (e: any) {
       return `Ошибка query_users_stats: ${e?.message || e}`;
+    }
+  },
+
+  // Eugene 2026-05-18 Босс «Operator-команды (Ярс)». Прямой вызов backend
+  // плагина operator-commands — проверка hash auth + classifier + insert
+  // в operator_command_queue. Возвращает {queued, safe, category}.
+  // Sync, никогда не throw'ит — feedback в очередь не должен ломать чат.
+  async submit_operator_command(input, ctx) {
+    try {
+      const senderIdentifier = String(input?.senderIdentifier || "").trim().slice(0, 200);
+      const text = String(input?.text || "").trim().slice(0, 2000);
+      if (!senderIdentifier || !text) return "Нужны senderIdentifier и text.";
+
+      // Lazy-require — operatorAuth + raw insert (то же что делает endpoint
+      // /api/admin/v304/operator-commands/incoming, но без HTTP-hop'a — мы
+      // на server-side и в той же sqlite-БД).
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { isAuthorizedOperator, hashSenderIdentifier, classifyOperatorCommand } = require("./operatorAuth") as typeof import("./operatorAuth");
+
+      if (!isAuthorizedOperator(senderIdentifier)) {
+        return "Команда отклонена: оператор не авторизован (hash mismatch).";
+      }
+
+      const cls = classifyOperatorCommand(text);
+      const now = Date.now();
+      const TTL_HOURS = 24;
+      const expiresAt = now + TTL_HOURS * 3600 * 1000;
+      const senderHash = hashSenderIdentifier(senderIdentifier);
+      const chatSessionId = ctx?.sessionId ? String(ctx.sessionId).slice(0, 200) : null;
+
+      const result: any = db.run(sql`
+        INSERT INTO operator_command_queue
+          (sender_identifier_hash, command_text, category, safe, status,
+           source_chat_session, created_at, expires_at)
+        VALUES
+          (${senderHash}, ${text}, ${cls.category}, ${cls.safe ? 1 : 0},
+           'pending', ${chatSessionId}, ${now}, ${expiresAt})
+      `);
+
+      const id = Number(result?.lastInsertRowid ?? 0);
+      return `Команда #${id} в очереди. Категория: ${cls.category}. Safe: ${cls.safe ? "да" : "нет — требует confirm админа"}. Босс проверит в Admin → 🎙 Команды Ярса.`;
+    } catch (e: any) {
+      console.error("[TOOL submit_operator_command]", e);
+      return `Ошибка submit_operator_command: ${e?.message || e}`;
+    }
+  },
+
+  // Eugene 2026-05-18 Босс «фидбек юзеров — log_suggestion». Direct insert
+  // в client_suggestions (то же что POST /api/feedback/suggestion). Sync,
+  // не throw'ит. naiveSentiment / clusterKeyFor вычисляем inline (или
+  // принимаем из input.sentiment).
+  async log_suggestion(input, ctx) {
+    try {
+      const text = String(input?.text || "").trim().slice(0, 2000);
+      if (!text) return "Нужен text — суть предложения.";
+      const category = String(input?.category || "").trim();
+      const validCategories = ["feature", "bug", "pricing", "ui", "persona", "other"];
+      const cat = validCategories.includes(category) ? category : null;
+      const sentiment = typeof input?.sentiment === "number" ? Math.max(-1, Math.min(1, input.sentiment)) : null;
+
+      // Простой cluster key — первые 6 слов нормализованных.
+      const cluster = text.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, "").trim().split(/\s+/).slice(0, 6).join(" ").slice(0, 80) || "misc";
+
+      const userId = ctx?.userId ?? null;
+      const sessionId = ctx?.sessionId ? String(ctx.sessionId).slice(0, 200) : null;
+      const now = Date.now();
+
+      const result: any = db.run(sql`
+        INSERT INTO client_suggestions
+          (user_id, anonymous_session, category, text, sentiment_score, source,
+           chat_session_id, cluster_key, created_at)
+        VALUES
+          (${userId}, ${userId ? null : sessionId},
+           ${cat}, ${text}, ${sentiment}, ${"musa_tool"},
+           ${sessionId}, ${cluster}, ${now})
+      `);
+
+      const id = Number(result?.lastInsertRowid ?? 0);
+      return `Предложение #${id} залогировано${cat ? ` (категория: ${cat})` : ""}. Спасибо за фидбек!`;
+    } catch (e: any) {
+      console.error("[TOOL log_suggestion]", e);
+      return `Ошибка log_suggestion: ${e?.message || e}`;
+    }
+  },
+
+  // Eugene 2026-05-18 Босс «NPS». Direct insert в nps_log (то же что
+  // POST /api/feedback/nps). Score 0..10 обязателен; comment опционален.
+  // Sync, не throw'ит.
+  async log_nps(input, ctx) {
+    try {
+      const scoreRaw = Number(input?.score);
+      if (!Number.isFinite(scoreRaw)) return "Нужен score (0-10).";
+      const score = Math.max(0, Math.min(10, Math.round(scoreRaw)));
+      const comment = input?.comment ? String(input.comment).trim().slice(0, 2000) : null;
+
+      const userId = ctx?.userId ?? null;
+      const sessionId = ctx?.sessionId ? String(ctx.sessionId).slice(0, 200) : null;
+      const now = Date.now();
+
+      const result: any = db.run(sql`
+        INSERT INTO nps_log
+          (user_id, anonymous_session, score, comment, chat_session_id, created_at, source)
+        VALUES
+          (${userId}, ${userId ? null : sessionId},
+           ${score}, ${comment}, ${sessionId}, ${now}, ${"musa_closing"})
+      `);
+
+      const id = Number(result?.lastInsertRowid ?? 0);
+      const tone = score >= 9 ? "промоутер" : score >= 7 ? "пассив" : "детрактор";
+      return `NPS #${id}: ${score}/10 (${tone}). Спасибо за оценку!`;
+    } catch (e: any) {
+      console.error("[TOOL log_nps]", e);
+      return `Ошибка log_nps: ${e?.message || e}`;
     }
   },
 };
