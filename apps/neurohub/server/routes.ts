@@ -874,7 +874,7 @@ export async function registerRoutes(
   // Admin: visitor statistics
   app.get("/api/admin/visitors", authMiddleware, (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);
-    if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
+    if (!isAdminUser(user)) { res.status(403).end(); return; }
     const page = parseInt(req.query.page as string) || 1;
     const limit = 50;
     const offset = (page - 1) * limit;
@@ -887,7 +887,7 @@ export async function registerRoutes(
   // Admin: visitor stats summary
   app.get("/api/admin/visitor-stats", authMiddleware, (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);
-    if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
+    if (!isAdminUser(user)) { res.status(403).end(); return; }
     res.setHeader("Cache-Control", "no-store");
 
     // Фильтр периода — единая логика через periodBoundaries (cut-off 20:00 МСК).
@@ -6395,7 +6395,7 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
   app.post("/api/admin/block/:userId", authMiddleware, (req: Request, res: Response) => {
     const adminId = (req as any).userId;
     const admin = storage.getUser(adminId);
-    if (!admin || admin.email !== "egnovoselov@gmail.com") {
+    if (!isAdminUser(admin)) {
       res.status(403).json({ message: "Доступ запрещён" });
       return;
     }
@@ -6414,7 +6414,7 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
   app.get("/api/admin/user/:userId/generations", authMiddleware, (req: Request, res: Response) => {
     const adminId = (req as any).userId;
     const admin = storage.getUser(adminId);
-    if (!admin || admin.email !== "egnovoselov@gmail.com") {
+    if (!isAdminUser(admin)) {
       res.status(403).json({ message: "Доступ запрещён" });
       return;
     }
@@ -6428,7 +6428,7 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
   app.get("/api/admin/stats", authMiddleware, (req: Request, res: Response) => {
     const userId = (req as any).userId;
     const user = storage.getUser(userId);
-    if (!user || user.email !== "egnovoselov@gmail.com") {
+    if (!isAdminUser(user)) {
       res.status(403).json({ message: "Доступ запрещён" });
       return;
     }
@@ -6496,8 +6496,8 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
   app.get("/api/generations", authMiddleware, (req: Request, res: Response) => {
     const userId = (req as any).userId;
     const user = storage.getUser(userId);
-    // Only egnovoselov@gmail.com can see all generations
-    if (user?.email === "egnovoselov@gmail.com" && req.query.all === "true") {
+    // Only admin can see all generations (was hardcoded egnovoselov@gmail.com — now isAdminUser)
+    if (isAdminUser(user) && req.query.all === "true") {
       const allGens = db.select().from(generations).where(sql`${generations.deletedAt} IS NULL`).orderBy(desc(generations.id)).limit(200).all();
       const allUsers = db.select().from(users).all();
       const userMap = new Map(allUsers.map(u => [u.id, u.name]));
@@ -6963,7 +6963,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       return;
     }
     // Author-only: ремикс разрешён только владельцу трека или админу
-    const isAdmin = user.email === "egnovoselov@gmail.com";
+    const isAdmin = isAdminUser(user);
     if (source.userId !== userId && !isAdmin) {
       res.status(403).json({ message: "Можно ремиксовать только свои треки" });
       return;
@@ -7083,7 +7083,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       return;
     }
     // Author-only: продление разрешено только владельцу или админу
-    const isAdmin = user.email === "egnovoselov@gmail.com";
+    const isAdmin = isAdminUser(user);
     if (source.userId !== userId && !isAdmin) {
       res.status(403).json({ message: "Можно продлевать только свои треки" });
       return;
@@ -7683,7 +7683,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         return;
       }
       const user = storage.getUser(userId);
-      const isAdmin = user?.email === "egnovoselov@gmail.com";
+      const isAdmin = isAdminUser(user);
       const gen = db.select().from(generations).where(eq(generations.id, genId)).get();
       if (!gen) { res.status(404).json({ message: "Не найдено" }); return; }
       if (!isAdmin && gen.userId !== userId) { res.status(403).json({ message: "Нет доступа" }); return; }
@@ -7709,7 +7709,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const genId = parseInt(req.params.id);
     const { isPublic } = req.body;
     const user = storage.getUser(userId);
-    const isAdmin = user?.email === "egnovoselov@gmail.com";
+    const isAdmin = isAdminUser(user);
 
     const gen = db.select().from(generations).where(eq(generations.id, genId)).get();
     if (!gen) { res.status(404).json({ message: "Не найдено" }); return; }
@@ -7759,7 +7759,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   // Admin: get pending publication requests
   app.get("/api/admin/pending-publications", authMiddleware, (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);
-    if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
+    if (!isAdminUser(user)) { res.status(403).end(); return; }
     const raw = db.$client;
     const rows = raw.prepare(`SELECT g.id, g.display_title, g.prompt, g.type, g.author_name, g.created_at, g.published_at, g.user_id,
       u.name as user_name, u.email as user_email
@@ -7772,7 +7772,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   // Admin: approve, reject, or send feedback
   app.post("/api/admin/moderate/:id", authMiddleware, async (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);
-    if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
+    if (!isAdminUser(user)) { res.status(403).end(); return; }
     const genId = parseInt(req.params.id);
     const { action, message } = req.body; // 'approve', 'reject', or 'feedback'
 
@@ -7853,7 +7853,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   // Publish all covers at once (admin only)
   app.post("/api/admin/publish-all-covers", authMiddleware, (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);
-    if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).json({ message: "Только админ" }); return; }
+    if (!isAdminUser(user)) { res.status(403).json({ message: "Только админ" }); return; }
     // Eugene 2026-05-17: bulk publish — все ставятся в isPublic=1 + publishedAt=NOW
     // только для тех у кого publishedAt ещё NULL (первая публикация).
     const nowIso = new Date().toISOString();
@@ -7867,7 +7867,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   // Set priority for a cover (7 days, admin only)
   app.post("/api/generations/:id/priority", authMiddleware, (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);
-    if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).json({ message: "Только админ" }); return; }
+    if (!isAdminUser(user)) { res.status(403).json({ message: "Только админ" }); return; }
     const genId = parseInt(req.params.id);
     const days = req.body.days || 7;
     const until = new Date(Date.now() + days * 24 * 3600 * 1000).toISOString();
@@ -7937,7 +7937,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   // Admin: generation activity stats
   app.get("/api/admin/gen-stats", authMiddleware, (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);
-    if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
+    if (!isAdminUser(user)) { res.status(403).end(); return; }
     // Eugene 2026-05-17 Босс: единая логика period boundaries (cut-off 20:00 МСК).
     const period = (req.query.period as string) || 'all';
     const raw = db.$client;
@@ -7970,7 +7970,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   // Top-20 downloads (admin)
   app.get("/api/admin/top-downloads", authMiddleware, (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);
-    if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
+    if (!isAdminUser(user)) { res.status(403).end(); return; }
     // Eugene 2026-05-17 Босс: единая логика period boundaries (cut-off 20:00 МСК).
     const period = (req.query.period as string) || 'all';
     const raw = db.$client;
@@ -7993,7 +7993,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   // Per-generation activity detail
   app.get("/api/admin/gen-stats/:id", authMiddleware, (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);
-    if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
+    if (!isAdminUser(user)) { res.status(403).end(); return; }
     const genId = parseInt(req.params.id);
     const raw = db.$client;
     const byAction = raw.prepare("SELECT action, COUNT(*) as c FROM gen_activity WHERE gen_id = ? GROUP BY action").all(genId);
@@ -8004,7 +8004,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   // Geo-activity для админа: фильтр today/week/month/all + список IP с городами.
   app.get("/api/admin/gen-activity-geo/:id", authMiddleware, async (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);
-    if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
+    if (!isAdminUser(user)) { res.status(403).end(); return; }
     res.setHeader("Cache-Control", "no-store");
     const genId = parseInt(req.params.id);
     // Eugene 2026-05-17 Босс: единая логика period boundaries (cut-off 20:00 МСК).
@@ -8077,7 +8077,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const gen = db.select().from(generations).where(eq(generations.id, genId)).get();
     const user = storage.getUser(userId);
     if (!user) { res.status(401).json({ message: "Не авторизован" }); return; }
-    const isAdmin = user.email === "egnovoselov@gmail.com";
+    const isAdmin = isAdminUser(user);
     if (!gen || (!isAdmin && gen.userId !== userId)) {
       res.status(404).json({ message: "Не найдено" });
       return;
@@ -8275,7 +8275,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       return;
     }
     const user = storage.getUser(userId);
-    const isAdmin = !!user && user.email === "egnovoselov@gmail.com";
+    const isAdmin = isAdminUser(user);
     if (gen.userId !== userId && !isAdmin) {
       res.status(403).json({ ok: false, message: "Нет доступа" });
       return;
@@ -8300,7 +8300,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       return;
     }
     const user = storage.getUser(userId);
-    const isAdmin = !!user && user.email === "egnovoselov@gmail.com";
+    const isAdmin = isAdminUser(user);
     if (gen.userId !== userId && !isAdmin) {
       res.status(403).json({ ok: false, message: "Нет доступа" });
       return;
@@ -8494,7 +8494,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   app.post("/api/admin/import-uploads", authMiddleware, async (req: Request, res: Response) => {
     const userId = (req as any).userId;
     const user = storage.getUser(userId);
-    if (!user || user.email !== "egnovoselov@gmail.com") {
+    if (!isAdminUser(user)) {
       res.status(403).json({ message: "Доступ запрещён" });
       return;
     }
