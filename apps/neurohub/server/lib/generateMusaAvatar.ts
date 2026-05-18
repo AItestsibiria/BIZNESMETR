@@ -349,15 +349,13 @@ export async function generateMusaAvatar3D(
     ? customPrompt.trim()
     : DEFAULT_MUSA_PROMPT;
 
-  // 1. Попробовать GPTunnel (если он поддерживает image-gen для этого ключа)
-  const { buffer: gptBuffer, attempts: gptAttempts, modelTried } = await tryGptunnelImage(
-    promptUsed, refImageUrl ?? null,
-  );
+  // 1. GPTunnel — docs.gptunnel.ru НЕ имеет /v1/images/generations endpoint.
+  // Пропускаем (Eugene 2026-05-19 docs-research). Только OpenAI DALL-E 3.
+  let buffer: Buffer | null = null;
+  const modelTried: string[] = [];
+  const allAttempts: any[] = [];
 
-  let buffer = gptBuffer;
-  let allAttempts = [...gptAttempts];
-
-  // 2. Если GPTunnel не дал — fallback на OpenAI DALL-E 3 напрямую
+  // 2. OpenAI DALL-E 3 — единственный рабочий провайдер
   if (!buffer) {
     const openai = await tryOpenAIImage(promptUsed);
     allAttempts.push(openai.attempt);
@@ -368,12 +366,15 @@ export async function generateMusaAvatar3D(
   }
 
   if (!buffer) {
+    const hasOpenAiKey = !!process.env.OPENAI_API_KEY;
     return {
       ok: false,
       promptUsed,
       modelTried,
       durationMs: Date.now() - startedAt,
-      error: "Image generation failed: GPTunnel + OpenAI fallback both failed",
+      error: hasOpenAiKey
+        ? "Image generation failed: OpenAI вернул ошибку"
+        : "Image generation временно недоступен: не настроен OPENAI_API_KEY",
       errorDetails: allAttempts,
     };
   }

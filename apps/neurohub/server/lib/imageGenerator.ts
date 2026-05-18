@@ -339,15 +339,18 @@ export async function generateImage(opts: GenerateImageOptions): Promise<Generat
     };
   }
 
-  // 1) GPTunnel
-  const g = await tryGptunnel(promptUsed, size, opts.refImageUrl ?? null);
-  let buffer = g.buffer;
-  let provider: string | null = g.modelUsed ? "gptunnel" : null;
-  let model: string | null = g.modelUsed ? g.modelUsed.replace(/^gptunnel\//, "") : null;
-  const allAttempts: ImageGenAttempt[] = [...g.attempts];
-  const modelTried: string[] = [...g.modelTried];
+  // 1) GPTunnel — docs.gptunnel.ru НЕ имеет /v1/images/generations endpoint
+  // (только /media/create Suno + chat + transcriptions). Пропускаем сразу,
+  // чтобы не тратить 12 attempts на «Not allowed to POST».
+  // Eugene 2026-05-19 docs-research подтвердил отсутствие endpoint'а.
+  const g = { buffer: null, modelUsed: null, attempts: [] as ImageGenAttempt[], modelTried: [] as string[] };
+  let buffer = g.buffer as Buffer | null;
+  let provider: string | null = null;
+  let model: string | null = null;
+  const allAttempts: ImageGenAttempt[] = [];
+  const modelTried: string[] = [];
 
-  // 2) Fallback OpenAI
+  // 2) OpenAI DALL-E 3 — единственный рабочий провайдер сейчас.
   if (!buffer) {
     const o = await tryOpenAI(promptUsed, size);
     allAttempts.push(o.attempt);
@@ -360,13 +363,16 @@ export async function generateImage(opts: GenerateImageOptions): Promise<Generat
   }
 
   if (!buffer) {
+    const hasOpenAiKey = !!process.env.OPENAI_API_KEY;
     return {
       ok: false,
       promptUsed,
       modelTried,
       durationMs: Date.now() - startedAt,
       attempts: allAttempts,
-      error: "Image generation failed: GPTunnel + OpenAI fallback both failed",
+      error: hasOpenAiKey
+        ? "Image generation failed: OpenAI вернул ошибку (см. attempts)"
+        : "Image generation временно недоступен: не настроен OPENAI_API_KEY на сервере",
     };
   }
 
