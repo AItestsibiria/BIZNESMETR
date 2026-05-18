@@ -38,6 +38,14 @@ import type { Module } from "../../core";
 // сначала users.role='admin', fallback на ADMIN_EMAIL CSV.
 import { requireAdmin, ADMIN_EMAILS } from "../../core/adminAuth";
 
+// Eugene 2026-05-18: 3D-аватар Музы через GPTunnel image-gen.
+import {
+  generateMusaAvatar3D,
+  approveMusaAvatar,
+  describeCurrentMusaAvatar,
+  DEFAULT_MUSA_PROMPT,
+} from "../../lib/generateMusaAvatar";
+
 // Backup-before-edit. Возвращает auditId — путь восстановления.
 // Eugene 2026-05-07: каждая редакция админки фиксируется здесь.
 function recordEdit(
@@ -1436,6 +1444,114 @@ async function pollProcessingGenerations(): Promise<{ scanned: number; done: num
 
   return { scanned: rows.length, done, failed };
 }
+
+// ============================================================
+// Musa 3D-аватар — Eugene 2026-05-18 Босс «дожать девушку с обложки
+// трека Муза, 3D, почти настоящая». GPTunnel image-gen.
+// ============================================================
+// GET  /api/admin/v304/musa-avatar/state    — текущий аватар + URL'ы
+// POST /api/admin/v304/musa-avatar/generate — генерация 3D через GPTunnel
+// POST /api/admin/v304/musa-avatar/approve  — копирует hi-res в consultant-avatar.png
+//                                              (telegram/max боты автоматически
+//                                              подхватят через mtime cache-bust)
+
+router.get("/musa-avatar/state", requireAdmin, async (_req, res) => {
+  try {
+    const state = await describeCurrentMusaAvatar();
+    res.json({ data: { ...state, defaultPrompt: DEFAULT_MUSA_PROMPT }, error: null });
+  } catch (err) {
+    res.status(500).json({
+      data: null,
+      error: err instanceof Error ? err.message : "Failed to describe musa avatar state",
+    });
+  }
+});
+
+const MusaGenerateSchema = z.object({
+  prompt: z.string().min(12).max(2000).optional(),
+  useRefTrack: z.number().int().positive().optional(),
+});
+
+router.post("/musa-avatar/generate", requireAdmin, async (req, res) => {
+  try {
+    const parsed = MusaGenerateSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({
+        data: null,
+        error: "Невалидный body: " + parsed.error.issues.map((i) => i.message).join("; "),
+      });
+    }
+    const { prompt, useRefTrack } = parsed.data;
+
+    let refImageUrl: string | null = null;
+    if (useRefTrack) {
+      // Берём cover-обложку трека (generations.type='cover' с sourceGenId=useRefTrack),
+      // либо resultUrl самого трека если у него type='cover'. Это используем
+      // как референс в image-to-image (если модель поддерживает).
+      try {
+        const row = db
+          .select({ id: generations.id, type: generations.type, resultUrl: generations.resultUrl, coverGenId: generations.coverGenId })
+          .from(generations)
+          .where(eq(generations.id, useRefTrack))
+          .get();
+        if (row?.coverGenId) {
+          const cover = db
+            .select({ resultUrl: generations.resultUrl })
+            .from(generations)
+            .where(eq(generations.id, row.coverGenId))
+            .get();
+          if (cover?.resultUrl) refImageUrl = cover.resultUrl;
+        } else if (row?.type === "cover" && row.resultUrl) {
+          refImageUrl = row.resultUrl;
+        }
+      } catch {
+        // best-effort
+      }
+    }
+
+    const result = await generateMusaAvatar3D(prompt, refImageUrl);
+    if (!result.ok) {
+      return res.status(502).json({
+        data: { promptUsed: result.promptUsed, modelTried: result.modelTried, attempts: result.errorDetails, durationMs: result.durationMs },
+        error: result.error ?? "GPTunnel image generation failed",
+      });
+    }
+    res.json({
+      data: {
+        promptUsed: result.promptUsed,
+        modelTried: result.modelTried,
+        durationMs: result.durationMs,
+        publicUrls: result.publicUrls,
+        previewUrl: result.publicUrls?.png1024,
+        refUsed: refImageUrl,
+      },
+      error: null,
+    });
+  } catch (err) {
+    res.status(500).json({
+      data: null,
+      error: err instanceof Error ? err.message : "Failed to generate musa avatar",
+    });
+  }
+});
+
+router.post("/musa-avatar/approve", requireAdmin, async (_req, res) => {
+  try {
+    const result = await approveMusaAvatar();
+    if (!result.ok) {
+      return res.status(400).json({ data: null, error: result.error ?? "Approve failed" });
+    }
+    res.json({
+      data: { ok: true, copiedTo: result.copiedTo, hint: "Telegram/Max боты подхватят свежий URL через cache-bust по mtime" },
+      error: null,
+    });
+  } catch (err) {
+    res.status(500).json({
+      data: null,
+      error: err instanceof Error ? err.message : "Failed to approve musa avatar",
+    });
+  }
+});
 
 // GET /api/admin/v304/client-errors — последние 100 React/JS-ошибок,
 // прилетевших на /api/_client-error от ErrorBoundary в браузере.
