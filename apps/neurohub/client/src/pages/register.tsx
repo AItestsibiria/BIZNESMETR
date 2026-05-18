@@ -1,23 +1,79 @@
 import { useState, useEffect } from "react";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
+import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Music, Loader2, Gift, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
+// Eugene 2026-05-18 Босс «Муза сохраняет тексты — UI часть».
+// После успешной регистрации/входа делаем claim из 3 источников:
+//   1. query param ?recovery=<6-digit code> (из email-ссылки) — POST /api/lyrics/claim.
+//   2. флаг ?recovery_lyrics=1 + sessionStorage._pendingLyrics (из inline-card
+//      в чате Музы — юзер нажал «Зарегистрироваться» с уже надиктованным текстом).
+//   3. ничего → skip.
+async function tryClaimSavedLyrics(toast: ReturnType<typeof useToast>["toast"]): Promise<string | null> {
+  try {
+    const hash = window.location.hash || "";
+    const qIdx = hash.indexOf("?");
+    const qs = qIdx !== -1 ? new URLSearchParams(hash.slice(qIdx)) : new URLSearchParams();
+    const recoveryCode = qs.get("recovery");
+    if (recoveryCode && /^\d{6}$/.test(recoveryCode)) {
+      try {
+        const r = await apiRequest("POST", "/api/lyrics/claim", { code: recoveryCode });
+        const j = await r.json();
+        if (r.ok && j?.data) {
+          toast({ title: `Восстановили текст «${j.data.title}» в твоём кабинете 🎵` });
+          return "claimed";
+        }
+      } catch {}
+    }
+    if (qs.get("recovery_lyrics") === "1") {
+      try {
+        const raw = sessionStorage.getItem("_pendingLyrics");
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (p && p.title && p.text) {
+            const r = await apiRequest("POST", "/api/lyrics/save", {
+              title: p.title,
+              text: p.text,
+              source: "musa_chat_register",
+            });
+            if (r.ok) {
+              toast({ title: `Сохранили «${p.title}» в твой кабинет 🎵` });
+              sessionStorage.removeItem("_pendingLyrics");
+              return "saved";
+            }
+          }
+        }
+      } catch {}
+    }
+  } catch {}
+  return null;
+}
+
 export default function RegisterPage() {
   const { register, verifyRegister, login, user } = useAuth();
   const [verifyStep, setVerifyStep] = useState(false);
   const [verifyCode, setVerifyCode] = useState("");
   const [, navigate] = useLocation();
-
-  // Navigate to dashboard when user logs in
-  useEffect(() => {
-    if (user) navigate("/dashboard");
-  }, [user, navigate]);
   const { toast } = useToast();
+
+  // Navigate to dashboard when user logs in.
+  // Eugene 2026-05-18 Босс «Муза сохраняет тексты»: перед navigate делаем
+  // claim сохранённого текста (recovery=CODE из email или _pendingLyrics
+  // из sessionStorage). Если получилось — переходим прямо на /dashboard,
+  // юзер видит свой текст в новом разделе «📝 Тексты».
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      await tryClaimSavedLyrics(toast);
+      navigate("/dashboard");
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

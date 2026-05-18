@@ -16,10 +16,54 @@
 import { useEffect, useState } from "react";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
+import { apiRequest } from "@/lib/queryClient";
 import { Music, Phone, Mail, Send } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import PhoneOtpForm from "@/components/phone-otp-form";
 import { CyberSpinner } from "@/components/cyber-spinner";
+
+// Eugene 2026-05-18 Босс «Муза сохраняет тексты — UI часть».
+// После phone-регистрации делаем claim текстов которые юзер мог надиктовать
+// Музе в анонимной сессии: ?recovery=<6-digit> либо ?recovery_lyrics=1 +
+// sessionStorage._pendingLyrics. См. одноимённую функцию в register.tsx.
+async function tryClaimSavedLyricsPhone(toast: ReturnType<typeof useToast>["toast"]): Promise<void> {
+  try {
+    const hash = window.location.hash || "";
+    const qIdx = hash.indexOf("?");
+    const qs = qIdx !== -1 ? new URLSearchParams(hash.slice(qIdx)) : new URLSearchParams();
+    const recoveryCode = qs.get("recovery");
+    if (recoveryCode && /^\d{6}$/.test(recoveryCode)) {
+      try {
+        const r = await apiRequest("POST", "/api/lyrics/claim", { code: recoveryCode });
+        const j = await r.json();
+        if (r.ok && j?.data) {
+          toast({ title: `Восстановили текст «${j.data.title}» в твоём кабинете 🎵` });
+          return;
+        }
+      } catch {}
+    }
+    if (qs.get("recovery_lyrics") === "1") {
+      try {
+        const raw = sessionStorage.getItem("_pendingLyrics");
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (p && p.title && p.text) {
+            const r = await apiRequest("POST", "/api/lyrics/save", {
+              title: p.title,
+              text: p.text,
+              source: "musa_chat_register",
+            });
+            if (r.ok) {
+              toast({ title: `Сохранили «${p.title}» в твой кабинет 🎵` });
+              sessionStorage.removeItem("_pendingLyrics");
+              return;
+            }
+          }
+        }
+      } catch {}
+    }
+  } catch {}
+}
 
 export default function RegisterPhonePage() {
   const { user, isLoading, loginByToken } = useAuth();
@@ -33,8 +77,14 @@ export default function RegisterPhonePage() {
   const [greeting, setGreeting] = useState<{ name: string; maskedPhone: string } | null>(null);
 
   useEffect(() => {
-    if (user) navigate("/dashboard");
-  }, [user, navigate]);
+    if (!user) return;
+    // Eugene 2026-05-18: claim сохранённых текстов до перехода.
+    (async () => {
+      await tryClaimSavedLyricsPhone(toast);
+      navigate("/dashboard");
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   // Eugene 2026-05-15 Босс «при повторном входе не надо звонить» — loader
   // вместо формы пока isLoading или user уже есть.
@@ -202,6 +252,9 @@ export default function RegisterPhonePage() {
                 title: wasReturning ? "С возвращением!" : "Добро пожаловать!",
                 description: `Аккаунт ${u?.name || phone}`,
               });
+              // Eugene 2026-05-18: claim сохранённых текстов (recovery=CODE
+              // или sessionStorage._pendingLyrics) перед navigate.
+              await tryClaimSavedLyricsPhone(toast);
               navigate("/dashboard");
             }}
           />
