@@ -20,6 +20,7 @@
 
 import type React from "react";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useFeatureEnabled } from "@/lib/featureToggles";
 
 const SEEN_KEY = "_walkingMusa_seen_at";
 const SEEN_TTL_MS = 24 * 60 * 60_000; // 24ч между повторами
@@ -73,13 +74,20 @@ function markSeenNow(): void {
 }
 
 export function WalkingMusa() {
+  // Eugene 2026-05-19 — единый реестр featureToggles из /lib/featureToggles.
+  // Если юзер отключил «walking-musa» через Settings — компонент не активен.
+  const featureEnabled = useFeatureEnabled("walking-musa");
+  const autoTourEnabled = useFeatureEnabled("auto-play-tour");
   const [active, setActive] = useState(false);
   const [stopIdx, setStopIdx] = useState(0);
   const [stops, setStops] = useState<Stop[]>(STOPS_DESKTOP);
-  // Eugene 2026-05-19 — disabled state (localStorage + кнопка ✕ на bubble)
+  // Eugene 2026-05-19 — disabled state (localStorage + кнопка ✕ на bubble).
+  // Дублируется с featureToggles ради backward-compat (старый флаг хранится).
   const [disabled, setDisabled] = useState<boolean>(() => {
     try { return localStorage.getItem(DISABLED_KEY) === "1"; } catch { return false; }
   });
+  // Глобальный switch: featureToggles ИЛИ старый локальный флаг.
+  const fullyDisabled = !featureEnabled || disabled;
   const chatOpenRef = useRef(false);
   const tourTimerRef = useRef<number | null>(null);
   const startTimerRef = useRef<number | null>(null);
@@ -199,7 +207,7 @@ export function WalkingMusa() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (prefersReducedMotion()) return;
-    if (disabled) return;
+    if (fullyDisabled) return;
     // Throttle 200ms — не дёргаем state на каждом px
     const onMove = (e: MouseEvent) => {
       const now = Date.now();
@@ -253,7 +261,8 @@ export function WalkingMusa() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (prefersReducedMotion()) return;
-    if (disabled) return;
+    if (fullyDisabled) return;
+    if (!autoTourEnabled) return;
     if (window.location.hash.startsWith("#/admin")) return;
     const last = getLastSeenAt();
     if (last && Date.now() - last < SEEN_TTL_MS) return;
@@ -302,7 +311,7 @@ export function WalkingMusa() {
 
   // Eugene 2026-05-19: если юзер отключил — рендерим только маленькую кнопку
   // «👁 Помощница» в bottom-left чтобы можно было включить обратно.
-  if (disabled) {
+  if (fullyDisabled) {
     return (
       <button
         onClick={() => {
