@@ -2892,6 +2892,18 @@ export async function registerRoutes(
         }
       }
 
+      // Eugene 2026-05-18 Босс «администратору выдаёт всю информацию» —
+      // если authUser = admin/super_admin, role пробрасывается в LLM core,
+      // там filterToolsForRole откроет admin-tools и buildPersonaSystem
+      // снимет «зоны открытости» для контента.
+      let muzaRole: string | null = null;
+      if (authUserId) {
+        try {
+          const authedUser = storage.getUser(authUserId);
+          const roleLower = String((authedUser as any)?.role || "").toLowerCase();
+          if (roleLower === "admin" || roleLower === "super_admin") muzaRole = roleLower;
+        } catch {}
+      }
       let reply = await callUnifiedMuzaLLM({
         sessionId: session.id,
         userId: authUserId,
@@ -2900,6 +2912,7 @@ export async function registerRoutes(
         history: llmHistory,
         dynamicContext: systemDynamic,
         maxTokens: 400,
+        role: muzaRole,
       });
       let usedFallback = false;
       if (!reply) {

@@ -301,7 +301,12 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
 
   // 1. System prompt — единый для всех каналов.
   //    Stable часть кэшируется (ephemeral TTL 1h), dynamic — отдельным блоком.
-  const stable = buildPersonaSystem(opts.sessionId);
+  // Eugene 2026-05-18 Босс «администратору — всю информацию, клиенту — только
+  // продажи/кабинет/генерация». isAdmin вычисляем по opts.role и пробрасываем
+  // в buildPersonaSystem — он меняет «зоны открытости» в system prompt.
+  const r = String(opts.role || "").toLowerCase();
+  const isAdmin = r === "admin" || r === "super_admin";
+  const stable = buildPersonaSystem(opts.sessionId, "consultant", isAdmin);
   const systemBlocks: any[] = [
     { type: "text", text: stable, cache_control: { type: "ephemeral", ttl: "1h" } },
   ];
