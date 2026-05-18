@@ -11,6 +11,9 @@ import LoginPhonePage from "./pages/login-phone";
 import RegisterPage from "./pages/register";
 import RegisterPhonePage from "./pages/register-phone";
 import PrivacyPage from "./pages/privacy";
+import OfertaPage from "./pages/oferta";
+import RefundPage from "./pages/refund";
+import ContactsPage from "./pages/contacts";
 import LyricsPage from "./pages/lyrics";
 import MusicPage from "./pages/music";
 import CoversPage from "./pages/covers";
@@ -63,7 +66,10 @@ function AppContent() {
           <Route path="/register/:ref" component={RegisterPage} />
           <Route path="/r/:ref" component={RegisterPage} />
           <Route path="/privacy" component={PrivacyPage} />
-          <Route path="/terms" component={PrivacyPage} />
+          <Route path="/terms" component={OfertaPage} />
+          <Route path="/oferta" component={OfertaPage} />
+          <Route path="/refund" component={RefundPage} />
+          <Route path="/contacts" component={ContactsPage} />
           <Route path="/lyrics" component={LyricsPage} />
           <Route path="/music" component={MusicPage} />
           <Route path="/covers" component={CoversPage} />

@@ -2551,25 +2551,10 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="relative z-[1] border-t border-white/[0.06] py-8 px-4">
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-purple-600 via-violet-500 to-blue-500 flex items-center justify-center">
-              <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none">
-                <path d="M3 12c1.5-3 3-5 4.5-3s2 4 3.5 2 2.5-5 4-3 2 4 3.5 2 2.5-4 3.5-2" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
-              </svg>
-            </div>
-            <span className="text-sm font-bold tracking-tight"><span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent">Muza</span><span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">Ai</span></span>
-          </div>
-          <div className="flex flex-col sm:flex-row items-center gap-2">
-            <p className="text-xs text-muted-foreground">
-              © 2026 MuzaAi. Создавай музыку с искусственным интеллектом.
-            </p>
-            <a href="#" onClick={openMail} className="text-xs text-muted-foreground/50 hover:text-purple-300 transition-colors">Поддержка</a>
-          </div>
-        </div>
-      </footer>
+      {/* Footer — содержит юр.реквизиты (требование Robokassa: ИНН/ОГРН,
+          контакты, ссылки на оферту/политику/возврат). Данные подгружаются
+          из /api/legal/config — обновляются через ENV без релиза. */}
+      <LandingFooter onMail={openMail} />
 
       {/* Eugene 2026-05-16 Босс: модалка с пояснением «1 трек в подарок*».
           Открывается из hero-badge. Mobile-first: max-w-sm + overflow-y-auto
@@ -2704,5 +2689,92 @@ export default function LandingPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// Eugene 2026-05-18 Robokassa правила сайта: footer обязан содержать
+// ИНН/ОГРН + контакты + ссылки на оферту, политику, возврат, контакты.
+// Реквизиты подгружаются из /api/legal/config (server/lib/legalConfig.ts).
+interface LegalFooterData {
+  entityName?: string;
+  inn?: string;
+  ogrn?: string;
+  phone?: string;
+  email?: string;
+  domain?: string;
+}
+
+function LandingFooter({ onMail }: { onMail: (e: any) => void }) {
+  const [legal, setLegal] = useState<LegalFooterData | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/legal/config")
+      .then((r) => r.json())
+      .then((data) => { if (!cancelled) setLegal(data); })
+      .catch(() => { /* silent — footer без реквизитов лучше чем sentry-spam */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  const hasInn = legal?.inn && !legal.inn.includes("🔴");
+  const hasOgrn = legal?.ogrn && !legal.ogrn.includes("🔴");
+  const hasPhone = legal?.phone && !legal.phone.includes("🔴");
+
+  return (
+    <footer className="relative z-[1] border-t border-white/[0.06] py-8 px-4">
+      <div className="max-w-6xl mx-auto space-y-5">
+        {/* Top row — лого + основные ссылки */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-purple-600 via-violet-500 to-blue-500 flex items-center justify-center">
+              <svg viewBox="0 0 24 24" className="w-3.5 h-3.5" fill="none">
+                <path d="M3 12c1.5-3 3-5 4.5-3s2 4 3.5 2 2.5-5 4-3 2 4 3.5 2 2.5-4 3.5-2" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
+              </svg>
+            </div>
+            <span className="text-sm font-bold tracking-tight">
+              <span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent">Muza</span>
+              <span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">Ai</span>
+            </span>
+          </div>
+          <nav className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs">
+            <a href="#/oferta" className="text-muted-foreground hover:text-purple-300 transition-colors">Оферта</a>
+            <a href="#/privacy" className="text-muted-foreground hover:text-purple-300 transition-colors">Политика конф.</a>
+            <a href="#/refund" className="text-muted-foreground hover:text-purple-300 transition-colors">Возврат</a>
+            <a href="#/contacts" className="text-muted-foreground hover:text-purple-300 transition-colors">Контакты</a>
+            <a href="#" onClick={onMail} className="text-muted-foreground hover:text-purple-300 transition-colors">Поддержка</a>
+          </nav>
+        </div>
+
+        {/* Legal row — ИНН/ОГРН/email/телефон (Robokassa требует видимость
+            в подвале сайта). Если ENV не заполнен — показываем только
+            email/copyright, не плодим placeholder-маркеры пользователю. */}
+        <div className="border-t border-white/[0.04] pt-4 flex flex-col items-center gap-2 text-[11px] text-muted-foreground font-mono">
+          {legal?.entityName && !legal.entityName.includes("🔴") && (
+            <p className="text-center">{legal.entityName}</p>
+          )}
+          <p className="text-center flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+            {hasInn && <span>ИНН: <span className="text-white/80">{legal!.inn}</span></span>}
+            {hasOgrn && <span>ОГРН: <span className="text-white/80">{legal!.ogrn}</span></span>}
+            {hasPhone && (
+              <span>
+                Тел.:{" "}
+                <a href={`tel:${legal!.phone}`} className="text-white/80 hover:text-purple-300">
+                  {legal!.phone}
+                </a>
+              </span>
+            )}
+            <span>
+              Email:{" "}
+              <a href={`mailto:${legal?.email || "hello@muzaai.ru"}`} className="text-white/80 hover:text-purple-300">
+                {legal?.email || "hello@muzaai.ru"}
+              </a>
+            </span>
+          </p>
+          <p className="text-center text-muted-foreground/60 mt-1">
+            © 2026 MuzaAi. Создавай музыку с искусственным интеллектом. Оплата через{" "}
+            <span className="text-white/70">Робокасса</span> (карты Visa/MC/МИР, СБП).
+          </p>
+        </div>
+      </div>
+    </footer>
   );
 }
