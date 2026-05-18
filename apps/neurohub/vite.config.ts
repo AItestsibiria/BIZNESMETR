@@ -12,7 +12,11 @@ export default defineConfig({
     },
   },
   root: path.resolve(import.meta.dirname, "client"),
-  base: "./",
+  // Eugene 2026-05-19 backend-audit ROOT CAUSE /admin crash:
+  // base: "./" → браузер на /admin резолвит ./assets/x.js в /admin/assets/x.js
+  // → 404 → SPA fallback отдаёт index.html → MIME text/html → ES module fail.
+  // base: "/" — абсолютные пути от корня, всегда работают независимо от pathname.
+  base: "/",
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
