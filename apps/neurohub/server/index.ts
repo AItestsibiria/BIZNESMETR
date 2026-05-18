@@ -91,6 +91,7 @@ import imageGenModule from "./plugins/image-gen/module";
 import vpsSyncModule from "./plugins/vps-sync/module";
 
 import operatorCommandsModule from "./plugins/operator-commands/module";
+import yarsWebhookBridgeModule from "./plugins/yars-webhook-bridge/module";
 import feedbackAggregatorModule from "./plugins/feedback-aggregator/module";
 import escalationQueueModule from "./plugins/escalation-queue/module";
 import playsAuditModule from "./plugins/plays-audit/module";
@@ -483,6 +484,7 @@ app.post("/api/_client-error", express.json(), (req, res) => {
 
     { name: "vps-sync", module: vpsSyncModule },
     { name: "operator-commands", module: operatorCommandsModule },
+    { name: "yars-webhook-bridge", module: yarsWebhookBridgeModule },
     { name: "feedback-aggregator", module: feedbackAggregatorModule },
     { name: "escalation-queue", module: escalationQueueModule },
 
