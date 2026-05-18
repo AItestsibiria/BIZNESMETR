@@ -272,6 +272,17 @@ export function CoverDetailsModal({
         <X className="w-5 h-5 text-white" />
       </button>
 
+      {/* Eugene 2026-05-18 Босс «в раскрытой найди место справа внизу» —
+          S в нижнем правом углу backdrop как «индикатор» что юзер в swipe-режиме.
+          Click не делает ничего (визуальный bookmark), либо закрывает.
+          Стиль тот же — neon-glow без gradient pill. */}
+      <div
+        className="absolute bottom-4 right-4 w-12 h-12 flex items-center justify-center pointer-events-none z-10"
+        aria-hidden="true"
+      >
+        <span className="font-display font-bold italic text-3xl tracking-wider text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.95)] drop-shadow-[0_0_20px_rgba(217,70,239,0.85)]">S</span>
+      </div>
+
       {/* Info-popover (показывается при click на ⓘ) — glass-card, dark, fade-in */}
       {showInfo && (
         <div

@@ -1392,7 +1392,18 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
 
         {/* Big player — full-width, visible details */}
         {currentTrack && (
-          <div className="glass-card rounded-2xl p-5 mb-6 border border-white/[0.06]">
+          <div className="glass-card rounded-2xl p-5 mb-6 border border-white/[0.06] relative">
+            {/* Eugene 2026-05-18 Босс «S справа в нижнем углу основного плеера» —
+                absolute bottom-right. Без gradient pill, только буква с neon-glow. */}
+            <button
+              className="absolute bottom-3 right-3 w-10 h-10 flex items-center justify-center hover:scale-110 active:scale-95 transition-all z-10"
+              title="Свайп-режим — листай ← → большие обложки"
+              aria-label="Свайп-режим"
+              onClick={() => setDetailsOpen(true)}
+              data-testid="btn-cover-s-bottom-right"
+            >
+              <span className="font-display font-bold italic text-2xl tracking-wider text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.95)] drop-shadow-[0_0_16px_rgba(217,70,239,0.85)]">S</span>
+            </button>
             {/* Eugene 2026-05-16: expand работает только на desktop (md+).
                 На mobile — всегда compact row-layout (как было до introducing
                 expand button). Кнопка ExpandToggleButton также скрыта на
@@ -1555,18 +1566,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   >
                     <Share2 className="w-3.5 h-3.5 text-muted-foreground" />
                   </button>
-                  {/* Eugene 2026-05-18 Босс «S не нравится на обложке, найди
-                      место на панели». S теперь в строке actions рядом с
-                      Download/Share — единая action-bar. */}
-                  <button
-                    className="w-8 h-8 rounded-full flex items-center justify-center hover:scale-110 active:scale-95 transition-all"
-                    title="Свайп-режим — листай ← → большие обложки"
-                    aria-label="Свайп-режим"
-                    onClick={() => setDetailsOpen(true)}
-                    data-testid="btn-cover-s-panel"
-                  >
-                    <span className="font-display font-bold italic text-base tracking-wider text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.95)] drop-shadow-[0_0_12px_rgba(217,70,239,0.85)]">S</span>
-                  </button>
+                  {/* Eugene 2026-05-18 Босс «S в правый нижний угол» —
+                      перенесена на absolute bottom-3 right-3 main player card. */}
                 </div>
                 {/* Создай в том же стиле */}
                 {currentTrack.styleInfo && (
