@@ -798,7 +798,16 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     const coverBust = (track as any).coverGenId || track.id;
     const lsHandlers = {
       play: () => {
-        audioRef.current?.play().catch(() => {});
+        // Eugene 2026-05-18 Босс «прерывается через секунду» — root cause:
+        // mediaSession 'play' handler срабатывал через ~200ms после
+        // audio.play() в playTrack → второй audio.play() race condition
+        // → браузер прерывал первый. NO-OP здесь: audio.play() уже был
+        // вызван выше (line ~851). Handler только обновляет UI state.
+        const a = audioRef.current;
+        if (a && a.paused) {
+          // Только если audio действительно paused (resume после pause кнопки)
+          a.play().catch(() => {});
+        }
         muteBgMusic();
         setLockScreenPlaybackState('playing');
       },

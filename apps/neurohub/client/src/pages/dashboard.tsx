@@ -1294,7 +1294,14 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
     const lsTitle = gen.displayTitle || gen.prompt?.slice(0, 60) || 'MuzaAi';
     const lsArtist = gen.authorName ? `MuzaAi · ${gen.authorName}` : 'MuzaAi';
     const lsHandlers = {
-      play: () => { audioRef.current?.play(); muteBgMusic(); setLockScreenPlaybackState('playing'); },
+      play: () => {
+        // Eugene 2026-05-18 audit: NO-OP if уже играет (audio.play() в playTrack
+        // выше уже стартовал). Resume только если paused. Иначе double-play race.
+        const a = audioRef.current;
+        if (a && a.paused) a.play().catch(() => {});
+        muteBgMusic();
+        setLockScreenPlaybackState('playing');
+      },
       pause: () => { audioRef.current?.pause(); unmuteBgMusic(); setLockScreenPlaybackState('paused'); },
       previoustrack: () => {
         const idx = musicTracks.findIndex(t => t.id === gen.id);
