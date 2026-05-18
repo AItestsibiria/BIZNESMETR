@@ -18,12 +18,17 @@
 //   • Persistent-audio-only rule НЕ задеваем — компонент без audio, чистый
 //     визуал + speech bubble.
 
+import type React from "react";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 
 const SEEN_KEY = "_walkingMusa_seen_at";
 const SEEN_TTL_MS = 24 * 60 * 60_000; // 24ч между повторами
 const FIRST_DELAY_MS = 30_000;        // первая прогулка — через 30 сек на странице
 const STOP_DURATION_MS = 5_500;       // сколько Муза стоит на каждой остановке
+// Eugene 2026-05-18 Босс «draggable Муза» — пользователь может схватить её и
+// тащить куда угодно. localStorage сохраняет последнюю позицию (px).
+const DRAG_POS_KEY = "walking-musa-position";
+const MUSA_SIZE_PX = 48; // ширина/высота аватарки (см. ниже)
 
 type Stop = {
   // Позиция в viewport — % от ширины/высоты экрана.
@@ -71,6 +76,99 @@ export function WalkingMusa() {
   const chatOpenRef = useRef(false);
   const tourTimerRef = useRef<number | null>(null);
   const startTimerRef = useRef<number | null>(null);
+  // Eugene 2026-05-18 Босс «draggable Муза»:
+  //   • При pointerdown на body — начинаем drag; auto-tour паузится.
+  //   • При pointermove — обновляем position (px) через translate.
+  //   • При pointerup — сохраняем позицию в localStorage.
+  //   • Кнопка «↺ Авто» в bubble — снова запускает auto-tour
+  //     (стирает custom-position, тур начинается со stop 0).
+  const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(() => {
+    try {
+      const raw = localStorage.getItem(DRAG_POS_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { x?: number; y?: number };
+      if (typeof parsed?.x === "number" && typeof parsed?.y === "number") {
+        return { x: parsed.x, y: parsed.y };
+      }
+      return null;
+    } catch { return null; }
+  });
+  const [autoTourPaused, setAutoTourPaused] = useState<boolean>(() => {
+    // Если есть сохранённая позиция — auto-tour сразу paused.
+    try { return !!localStorage.getItem(DRAG_POS_KEY); } catch { return false; }
+  });
+  const [dragging, setDragging] = useState(false);
+  const dragStartRef = useRef<{ pointerX: number; pointerY: number; posX: number; posY: number } | null>(null);
+
+  // Clamp position в пределы viewport (с учётом размера аватарки).
+  function clampToViewport(x: number, y: number): { x: number; y: number } {
+    const maxX = Math.max(0, window.innerWidth - MUSA_SIZE_PX - 8);
+    const maxY = Math.max(0, window.innerHeight - MUSA_SIZE_PX - 8);
+    return { x: Math.min(Math.max(0, x), maxX), y: Math.min(Math.max(0, y), maxY) };
+  }
+
+  // Restart auto-tour (called from bubble «↺ Авто» button)
+  function restartAutoTour() {
+    try { localStorage.removeItem(DRAG_POS_KEY); } catch {}
+    setDragPos(null);
+    setAutoTourPaused(false);
+    setStopIdx(0);
+    setActive(true);
+  }
+
+  // pointerdown на body аватарки
+  function handlePointerDown(e: React.PointerEvent<HTMLDivElement>) {
+    e.stopPropagation();
+    // Захватываем pointer чтобы получать move/up даже когда курсор уходит
+    // за границы аватарки. Согласно W3C Pointer Events spec — setPointerCapture
+    // гарантирует delivery последующих pointer events на этот элемент.
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch {}
+    setDragging(true);
+    setAutoTourPaused(true);
+    // pause auto-tour
+    if (tourTimerRef.current) {
+      window.clearTimeout(tourTimerRef.current);
+      tourTimerRef.current = null;
+    }
+    // Вычисляем стартовую позицию (px) — либо из dragPos, либо из текущей
+    // stop координаты (% → px). Это становится «posX/Y» в dragStartRef.
+    let posX: number;
+    let posY: number;
+    if (dragPos) {
+      posX = dragPos.x;
+      posY = dragPos.y;
+    } else {
+      const cur = stops[stopIdx];
+      if (cur) {
+        posX = (cur.x / 100) * window.innerWidth - MUSA_SIZE_PX / 2;
+        posY = (cur.y / 100) * window.innerHeight - MUSA_SIZE_PX / 2;
+      } else {
+        posX = window.innerWidth - MUSA_SIZE_PX - 16;
+        posY = window.innerHeight - MUSA_SIZE_PX - 16;
+      }
+    }
+    dragStartRef.current = { pointerX: e.clientX, pointerY: e.clientY, posX, posY };
+  }
+
+  function handlePointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    const start = dragStartRef.current;
+    if (!start || !dragging) return;
+    const dx = e.clientX - start.pointerX;
+    const dy = e.clientY - start.pointerY;
+    const clamped = clampToViewport(start.posX + dx, start.posY + dy);
+    setDragPos(clamped);
+  }
+
+  function handlePointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    if (!dragging) return;
+    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
+    setDragging(false);
+    dragStartRef.current = null;
+    // Сохраняем итоговую позицию в localStorage
+    if (dragPos) {
+      try { localStorage.setItem(DRAG_POS_KEY, JSON.stringify(dragPos)); } catch {}
+    }
+  }
 
   // Mobile detection (single check at mount + resize listener).
   useEffect(() => {
@@ -123,8 +221,11 @@ export function WalkingMusa() {
   }, []);
 
   // Прогресс по остановкам — каждые STOP_DURATION_MS переключаемся.
+  // Eugene 2026-05-18 — если auto-tour paused (юзер drag'нул) — не двигаем
+  // stopIdx; Муза остаётся в drag-позиции пока юзер не нажмёт «↺ Авто».
   useEffect(() => {
     if (!active) return;
+    if (autoTourPaused) return;
     if (stopIdx >= stops.length) {
       // Тур завершён — прячемся
       setActive(false);
@@ -137,48 +238,88 @@ export function WalkingMusa() {
     return () => {
       if (tourTimerRef.current) window.clearTimeout(tourTimerRef.current);
     };
-  }, [active, stopIdx, stops.length]);
+  }, [active, stopIdx, stops.length, autoTourPaused]);
+
+  // Eugene 2026-05-18 — если у юзера в localStorage есть сохранённая позиция,
+  // активируем Музу сразу (она «осталась там где её бросили» при возврате
+  // на страницу) без 30-сек задержки и без 24ч ограничения.
+  useEffect(() => {
+    if (dragPos && !active && autoTourPaused) {
+      setActive(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (!active) return null;
   const current = stops[stopIdx];
-  if (!current) return null;
+  if (!current && !dragPos) return null;
 
   // Позиционируем bubble так чтобы он не «убегал» за край экрана:
   // если Муза в правой половине — bubble слева от неё, и наоборот.
-  const bubbleSide: "left" | "right" = current.x > 50 ? "left" : "right";
+  // При drag-position — сравниваем по pixel-координате с centerX viewport.
+  const isRightHalf = dragPos
+    ? dragPos.x + MUSA_SIZE_PX / 2 > window.innerWidth / 2
+    : (current?.x ?? 50) > 50;
+  const bubbleSide: "left" | "right" = isRightHalf ? "left" : "right";
   const bubblePos: CSSProperties = bubbleSide === "left"
     ? { right: "calc(100% + 12px)" }
     : { left: "calc(100% + 12px)" };
 
-  return (
-    <div
-      aria-live="polite"
-      aria-atomic="true"
-      style={{
+  // Eugene 2026-05-18 — стиль позиции зависит от mode:
+  //   • drag-mode (dragPos !== null) → fixed по px, без transition (instant follow),
+  //     transform: none (px-positioning без centering offset).
+  //   • auto-tour → как раньше: % + translate(-50%) + 1200ms ease-out.
+  const positionStyle: CSSProperties = dragPos
+    ? {
         position: "fixed",
-        left: `${current.x}%`,
-        top: `${current.y}%`,
+        left: `${dragPos.x}px`,
+        top: `${dragPos.y}px`,
+        transform: "translate(0, 0)",
+        transition: dragging ? "none" : "left 200ms ease-out, top 200ms ease-out",
+        zIndex: 9998,
+        // pointerEvents: auto — body тащим, bubble отдельно auto.
+        pointerEvents: "auto",
+      }
+    : {
+        position: "fixed",
+        left: `${current!.x}%`,
+        top: `${current!.y}%`,
         transform: "translate(-50%, -50%)",
-        // Согласно W3C CSS Transitions Module Level 1 §2 — transition
-        // ease-out для естественного «приземления». 1200ms даёт ощущение
-        // живого движения, не дёрганого.
         transition: "left 1200ms ease-out, top 1200ms ease-out",
-        zIndex: 9998, // ниже FloatingConsultant (9999), выше остального UI
-        pointerEvents: "none", // walking tour не блокирует клики
-      }}
-    >
-      {/* Аватар Музы */}
+        zIndex: 9998,
+        // Eugene 2026-05-18 — родитель должен пропускать клики мимо аватарки и
+        // bubble; дочерние с pointerEvents: auto обрабатывают grab сами.
+        pointerEvents: "none",
+      };
+
+  return (
+    <div aria-live="polite" aria-atomic="true" style={positionStyle}>
+      {/* Аватар Музы — draggable (Eugene 2026-05-18 Босс).
+          pointerdown/move/up на этом блоке. setPointerCapture в handler
+          даёт глобальный pointerup даже если курсор покинул аватарку. */}
       <div
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
         style={{
-          width: 48,
-          height: 48,
+          width: MUSA_SIZE_PX,
+          height: MUSA_SIZE_PX,
           borderRadius: "9999px",
           background: "radial-gradient(circle at 30% 30%, rgba(168,85,247,0.45), rgba(34,211,238,0.25))",
           boxShadow: "0 0 24px rgba(124,58,237,0.45), 0 0 48px rgba(0,212,255,0.2)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          animation: "walkingMusaBounce 2.4s ease-in-out infinite",
+          animation: dragging ? "none" : "walkingMusaBounce 2.4s ease-in-out infinite",
+          cursor: dragging ? "grabbing" : "grab",
+          // touch-action: none — отключаем default touch scroll/zoom во время
+          // drag (W3C Pointer Events Level 2 §6 для smooth pointer tracking).
+          touchAction: "none",
+          // в drag-режиме body всегда clickable; в auto-tour — pointerEvents
+          // на родителе none, но конкретно аватарку делаем auto чтобы dragger
+          // ловил pointerdown.
+          pointerEvents: "auto",
         }}
       >
         {/* Eugene 2026-05-18: 3D-аватар через consultant-avatar.png
@@ -191,7 +332,9 @@ export function WalkingMusa() {
           onError={(e) => { (e.target as HTMLImageElement).src = "/consultant-avatar.svg"; }}
         />
       </div>
-      {/* Speech bubble — рядом с Музой, не перекрывает */}
+      {/* Speech bubble — рядом с Музой, не перекрывает.
+          В drag-mode (без auto-tour) — короткий бабл с подсказкой и кнопкой
+          «↺ Авто» (restart tour). В обычном режиме — текст текущей остановки. */}
       <div
         style={{
           position: "absolute",
@@ -210,7 +353,7 @@ export function WalkingMusa() {
           fontFamily: "Inter, system-ui, sans-serif",
           boxShadow: "0 8px 24px rgba(0,0,0,0.35), 0 0 20px rgba(124,58,237,0.2)",
           backdropFilter: "blur(8px)",
-          animation: "walkingMusaBubble 380ms ease-out backwards",
+          animation: dragging ? "none" : "walkingMusaBubble 380ms ease-out backwards",
           pointerEvents: "auto",
         }}
       >
@@ -237,7 +380,34 @@ export function WalkingMusa() {
         >
           ×
         </button>
-        <div style={{ paddingRight: 14 }}>{current.bubble}</div>
+        <div style={{ paddingRight: 14 }}>
+          {autoTourPaused
+            ? "Перетаскивайте меня куда удобно 🎀"
+            : (current?.bubble ?? "")}
+        </div>
+        {/* Restart auto-tour — только если paused (юзер уже dragnул) */}
+        {autoTourPaused && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              restartAutoTour();
+            }}
+            aria-label="Запустить тур заново"
+            style={{
+              marginTop: 8,
+              padding: "4px 8px",
+              borderRadius: 8,
+              background: "rgba(168,85,247,0.18)",
+              border: "1px solid rgba(168,85,247,0.4)",
+              color: "rgba(255,255,255,0.9)",
+              fontSize: 11,
+              cursor: "pointer",
+            }}
+          >
+            ↺ Авто
+          </button>
+        )}
       </div>
       {/* CSS keyframes — inline через <style> чтобы не плодить css-файлы */}
       <style>{`
