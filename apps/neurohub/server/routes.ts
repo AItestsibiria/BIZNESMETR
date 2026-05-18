@@ -49,6 +49,7 @@ import { upsertUserProfile, linkProfileToUser, getProfileByUserId, getProfileByV
 import { extractHost, KNOWN_DOMAINS, hostToBucket } from "./lib/extractHost";
 import { embedTrackId3, findSiblingCover } from "./lib/id3Writer";
 import { alertPromoEntry, checkExpiredPromo } from "./lib/promoAlert";
+import { buildBotExclusionSql, isBotUserAgent } from "./lib/botUa";
 
 const AUTHORS_DIR = process.env.AUTHORS_DIR || path.join(process.cwd(), "authors");
 
@@ -919,6 +920,17 @@ export async function registerRoutes(
         ? `${combinedWhere} AND ${domainSql}`
         : `WHERE ${domainSql}`;
     }
+    // Eugene 2026-05-18 Босс «автофильтр ботов». Bot UA исключаем из ВСЕХ
+    // публичных сводок. Записи в БД остаются (нужно для аудита/блокировок) —
+    // фильтр только на чтении. По умолчанию включён, можно отключить через
+    // ?includeBots=1 (для admin-аудита тех самых ботов).
+    const includeBots = String(req.query.includeBots || "") === "1";
+    const botExclSql = includeBots ? "" : buildBotExclusionSql("user_agent");
+    if (botExclSql) {
+      combinedWhere = combinedWhere
+        ? `${combinedWhere} AND ${botExclSql}`
+        : `WHERE ${botExclSql}`;
+    }
     // Для запросов с дополнительным условием (AND country IS NOT NULL и т.п.) —
     // решаем нужен ли отдельный prefix.
     const wherePrefix = combinedWhere ? combinedWhere : "WHERE 1=1";
@@ -926,12 +938,13 @@ export async function registerRoutes(
     void _unused_dateFilter;
 
     const raw = db.$client;
-    // Быстрые сводки (для верхних карточек)
+    // Быстрые сводки (для верхних карточек) — bot filter применяется ВЕЗДЕ.
+    const botExtra = botExclSql ? ` AND ${botExclSql}` : "";
     const today = new Date().toISOString().slice(0, 10);
     const week = new Date(Date.now() - 7 * 86400000).toISOString();
-    const total = raw.prepare("SELECT COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors").get() as any;
-    const todayC = raw.prepare("SELECT COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors WHERE date(last_visit) = ?").get(today) as any;
-    const weekC = raw.prepare("SELECT COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors WHERE last_visit >= ?").get(week) as any;
+    const total = raw.prepare(`SELECT COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors WHERE 1=1${botExtra}`).get() as any;
+    const todayC = raw.prepare(`SELECT COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors WHERE date(last_visit) = ?${botExtra}`).get(today) as any;
+    const weekC = raw.prepare(`SELECT COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors WHERE last_visit >= ?${botExtra}`).get(week) as any;
 
     // Сводки с учётом фильтра периода + домена.
     const periodTotal = raw.prepare(`SELECT COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors ${combinedWhere}`).get() as any;
@@ -984,8 +997,8 @@ export async function registerRoutes(
       GROUP BY ip ORDER BY visits DESC LIMIT 200
     `).all();
 
-    const byDevice = raw.prepare("SELECT device, COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors GROUP BY device").all();
-    const byBrowser = raw.prepare("SELECT browser, COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors GROUP BY browser ORDER BY c DESC LIMIT 5").all();
+    const byDevice = raw.prepare(`SELECT device, COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors WHERE 1=1${botExtra} GROUP BY device`).all();
+    const byBrowser = raw.prepare(`SELECT browser, COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors WHERE 1=1${botExtra} GROUP BY browser ORDER BY c DESC LIMIT 5`).all();
 
     res.json({
       total: total?.c || 0,
@@ -993,6 +1006,7 @@ export async function registerRoutes(
       week: weekC?.c || 0,
       period,
       domain: domainSql ? domainRaw : null,
+      botsFiltered: !includeBots,
       periodTotal: periodTotal?.c || 0,
       periodVisits: periodVisits?.c || 0,
       byCountry,
@@ -1864,6 +1878,16 @@ export async function registerRoutes(
         return;
       }
       journeyBatchAt.set(sessionKey, now);
+
+      // Eugene 2026-05-18 Босс «автофильтр ботов»: если UA — bot, не пишем
+      // journey events. У ботов в принципе нет JS, но curl-scraper'ы могут
+      // долбиться. Это снижает шум в click-stats / journey-summary без
+      // нужды JOIN'ить с visitors на чтении.
+      const ua = String(req.headers["user-agent"] || "");
+      if (isBotUserAgent(ua)) {
+        res.json({ ok: true, inserted: 0, skipped: "bot-ua" });
+        return;
+      }
 
       // userId из Bearer (опционально).
       let userId: number | null = null;
@@ -7461,9 +7485,10 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         }
       } catch {}
     }
-    // 3. Bot UA исключить.
-    const ua = String(req.headers["user-agent"] || "").toLowerCase();
-    if (/(bot|crawler|spider|slurp|curl|wget|httpie|python-requests|java-http|axios|fetch|head)\b/.test(ua)) {
+    // 3. Bot UA исключить. Eugene 2026-05-18: единый источник через
+    // lib/botUa.ts (тот же regex что в visitor-stats / journey / click-stats).
+    const ua = String(req.headers["user-agent"] || "");
+    if (isBotUserAgent(ua)) {
       return { count: false, reason: "bot-ua" };
     }
     // 4. Длительность 5+ сек (поле req.body.elapsedSec из плеера). Если не
