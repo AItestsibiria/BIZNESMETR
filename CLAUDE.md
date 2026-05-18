@@ -981,6 +981,45 @@ Cильнее `Working rhythm rule`: лучше потратить 5 минут 
 
 Если расшифровка двусмысленная — указываю обе версии и спрашиваю «правильно?». Если латинский текст — английский (а не транслит), декодирую как английский без комментария.
 
+### Docs-first-always rule (Eugene 2026-05-18, **сильнее Docs-first debugging rule**)
+
+**При начале ЛЮБОЙ работы над чем-то — сначала открываю официальную документацию.** Не только для дебага, но и для новых фич, refactor'ов, интеграций, выбора API. Расширяет старое правило «Docs-first debugging» на всю работу.
+
+Обязательный pre-flight перед написанием кода:
+
+1. **WebFetch официальной документации** провайдера / framework / API:
+   - Apple WebKit (developer.apple.com / webkit.org/blog) — для iOS Safari quirks (MediaSession, audio, lock-screen, IndexedDB, Service Worker)
+   - MDN (developer.mozilla.org) — для Web APIs (любые browser-side)
+   - Vendor docs — Suno, GPTunnel, Yandex, Anthropic, Robokassa, Telegram, SMS.ru
+   - Framework docs — React, Vite, Express, Drizzle, Tailwind, shadcn/ui
+   - W3C / WHATWG specs — для сложных Web Platform вопросов
+
+2. **Цитата в комментарии** к коду — точное предложение из docs + URL. Пример:
+   ```ts
+   // Apple WebKit: MediaSession metadata must be set synchronously in the
+   // user gesture handler that calls audio.play() — async setters are ignored
+   // for NowPlayingInfo snapshot. Source: webkit.org/blog/12937/
+   navigator.mediaSession.metadata = new MediaMetadata({...});
+   ```
+
+3. **Если docs нет / противоречивые / неполные** — ищу:
+   - Top-3 Stack Overflow ответов
+   - GitHub issues в repo инструмента
+   - WebKit / Chromium / Mozilla bug trackers
+   - Цитата + URL в комментарии тоже
+
+4. **«Согласно docs»** в commit message — не «попробуем», а «по официальной документации это правильный путь».
+
+Анти-паттерн который правило закрывает:
+- ❌ «По памяти знаю что MediaSession делается так» → угадал → не работает → серия итераций
+- ❌ «React useEffect должен сделать X» → guessing → race condition
+- ❌ «Suno API возвращает Y» → старая версия API → 400 / 422 ошибки
+- ✅ WebFetch → точное предложение → цитата в коде → коммит работает с первого раза
+
+Сильнее `Reuse-working-solutions rule` в случае конфликта: даже если в проекте есть «рабочее» решение, но в docs указан другой паттерн — переписываю по docs (потому что «рабочее» может быть случайно-рабочим, а docs — guaranteed по контракту).
+
+Применяется к: ЛЮБОЙ задаче где есть внешняя зависимость (API, framework, browser, OS). НЕ применяется к: чисто бизнес-логике без внешних контрактов (валидация бизнес-правил, расчёт цены, состояние workflow).
+
 ### Docs-first debugging rule (Eugene 2026-05-08)
 
 **При возникновении проблем сначала обращаюсь к официальной документации провайдера/инструмента, потом к связкам внутри проекта.** Очерёдность:
