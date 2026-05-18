@@ -7377,6 +7377,15 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       // Clean up reset token
       resetTokens.delete(token);
 
+      // Eugene 2026-05-18 (ACCESS-BYPASS-AUDIT-170526 #4): revoke всех старых
+      // сессий после смены пароля. Защита: если злоумышленник запросил
+      // reset-password legitimate юзера через social engineering, у него
+      // не остаётся валидных сессий, выданных до смены пароля.
+      try {
+        const revoked = tokenStore.revokeAllForUser(userId);
+        console.log(`[RESET-PASSWORD] revoked ${revoked} session(s) for user ${userId}`);
+      } catch {}
+
       // Auto-login
       const authToken = uuidv4();
       tokenStore.set(authToken, userId);
