@@ -1788,8 +1788,23 @@ export default function MasterDashboardTab() {
         </details>
       </div>
 
-      {/* 🌐 Domain selector — глобальный per-domain фильтр */}
-      <DomainSelector domain={domain} onChange={setDomain} />
+      {/* 🌐 Domain selector — спрятан в collapsible «Фильтры» (Eugene
+          2026-05-18 Босс «скрыть за фильтр-меню или в bottom bar»).
+          По умолчанию свёрнут на mobile; на desktop разворачивается одним
+          кликом. Активный домен (если не 'all') показан inline-pill. */}
+      <details className="text-xs" open={domain !== "all"}>
+        <summary className="cursor-pointer text-white/60 hover:text-white/90 select-none px-2 py-1 rounded-lg bg-white/[0.03] border border-white/10 inline-flex items-center gap-1 w-fit">
+          <span>🌐 Фильтр по домену</span>
+          {domain !== "all" && (
+            <span className="ml-1 px-1.5 py-0.5 text-[10px] rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 font-mono">
+              {domain}
+            </span>
+          )}
+        </summary>
+        <div className="mt-2">
+          <DomainSelector domain={domain} onChange={setDomain} />
+        </div>
+      </details>
 
       {/* 🎙 Муза доложит — TTS озвучка */}
       <MusaBriefing period={period} />
