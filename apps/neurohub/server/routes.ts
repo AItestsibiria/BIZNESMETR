@@ -1,6 +1,6 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
-import { storage, db } from "./storage";
+import { storage, db, sqliteDb } from "./storage";
 import { PUBLIC_URL } from "./lib/publicUrl";
 import { detectsYars, recordYarsMention } from "./lib/yarsDetect";
 import bcrypt from "bcryptjs";
@@ -2030,6 +2030,34 @@ export async function registerRoutes(
     return { reply: cleaned, proposed: { mode, style, voice, lyrics, reason } };
   }
 
+  // Eugene 2026-05-18 Босс «Муза сохраняет тексты — если не залогинен, предлагает
+  // регистрацию». Парсим [PROPOSE_REGISTER:reason=X] маркер который propose_registration
+  // tool вставляет в реплику. Фронт по этому payload рендерит inline-карточку
+  // «Войти / Зарегистрироваться / Дать email».
+  type ProposedRegistration = {
+    reason: "save_lyrics" | "save_draft" | "view_my_tracks" | "history";
+  };
+  function extractProposedRegistration(text: string): { reply: string; proposed: ProposedRegistration | null } {
+    const RE = /\[PROPOSE_REGISTER:([^\]\n]{3,200})\]/i;
+    const m = RE.exec(text);
+    if (!m) return { reply: text, proposed: null };
+    const cleaned = text.replace(RE, "").replace(/\n{3,}/g, "\n\n").trim();
+    const payload = m[1];
+    const parts = payload.split("|").map(s => s.trim()).filter(Boolean);
+    const kv: Record<string, string> = {};
+    for (const p of parts) {
+      const eq = p.indexOf("=");
+      if (eq <= 0) continue;
+      const k = p.slice(0, eq).trim().toLowerCase();
+      const v = p.slice(eq + 1).trim();
+      if (k && v) kv[k] = v.slice(0, 100);
+    }
+    const reasonRaw = String(kv.reason || "save_lyrics").toLowerCase();
+    const validReasons = ["save_lyrics", "save_draft", "view_my_tracks", "history"];
+    const reason = (validReasons.includes(reasonRaw) ? reasonRaw : "save_lyrics") as ProposedRegistration["reason"];
+    return { reply: cleaned, proposed: { reason } };
+  }
+
   // Eugene 2026-05-17 Босс «5-летняя девочка fix»: распознаём «юзер просит
   // свои данные» по тексту чтобы fallback не задавал sales-вопросы про повод.
   // Возвращает intent + label для «не дозвонилась» сообщения + retry QR-кнопку.
@@ -2914,6 +2942,23 @@ export async function registerRoutes(
       reply = proposedExtract.reply;
       const proposedGeneration = proposedExtract.proposed;
 
+      // Eugene 2026-05-18 Босс «Муза сохраняет тексты — если не залогинен,
+      // предлагает регистрацию». Парсим [PROPOSE_REGISTER:reason=X] маркер.
+      const registerExtract = extractProposedRegistration(reply);
+      reply = registerExtract.reply;
+      const proposedRegistration = registerExtract.proposed;
+      // Audit-log предложения регистрации — фиксируем что Муза предложила,
+      // independent от того нажмёт ли юзер. Confirmed=0, отдельный confirm
+      // event запишется при клике на inline-карточку (engagement→audit cross-write).
+      if (proposedRegistration) {
+        try {
+          sqliteDb.prepare(`
+            INSERT INTO muza_user_actions (user_id, action_type, params_json, confirmed, chat_session_id, created_at)
+            VALUES (?, 'propose_registration_marker', ?, 0, ?, ?)
+          `).run(authUserId || null, JSON.stringify({ reason: proposedRegistration.reason, channel: "web" }), session.id, Date.now());
+        } catch {}
+      }
+
       const parsed = extractQuickReplies(reply);
       let quickReplies = parsed.quickReplies;
       reply = parsed.reply;
@@ -2981,6 +3026,10 @@ export async function registerRoutes(
         // [PROPOSE_GEN:...] маркер — отдаём фронту payload, по нему рендерится
         // карточка с 3 кнопками (Аудио / Простой / Полная).
         proposedGeneration,
+        // Eugene 2026-05-18 Босс «Муза сохраняет тексты»: если Муза вставила
+        // [PROPOSE_REGISTER:reason=X] — отдаём payload для inline-карточки
+        // «Войти / Зарегистрироваться / Дать email».
+        proposedRegistration,
       });
     } catch (e: any) {
       console.error("[MUZA-CHAT send]", e);
@@ -6757,6 +6806,243 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
       return;
     }
     res.json(storage.getUserGenerations(userId));
+  });
+
+  // ==================== LYRICS DRAFTS (Eugene 2026-05-18 Босс) ====================
+  // Муза сохраняет готовые тексты — auth-юзер → user_lyric_drafts,
+  // анонимный → pending_anonymous_lyrics (email или recovery code, TTL 30 дней).
+
+  // Anonymous-save rate-limit: 5 запросов / час / IP.
+  const anonLyricsSaveByIp = new Map<string, number[]>();
+
+  // POST /api/lyrics/save (auth) — сохранить текст в кабинет.
+  app.post("/api/lyrics/save", authMiddleware, (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).userId;
+      const title = String(req.body?.title || "").trim().slice(0, 120);
+      const text = String(req.body?.text || "").trim().slice(0, 8000);
+      const source = String(req.body?.source || "manual").trim().slice(0, 32);
+      const chatSessionId = req.body?.chatSessionId ? String(req.body.chatSessionId).slice(0, 64) : null;
+      if (!title) { res.status(400).json({ data: null, error: "Название не задано" }); return; }
+      if (!text || text.length < 5) { res.status(400).json({ data: null, error: "Текст слишком короткий" }); return; }
+
+      const now = Date.now();
+      const result = sqliteDb.prepare(`
+        INSERT INTO user_lyric_drafts (user_id, title, text, source, chat_session_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(userId, title, text, source, chatSessionId, now);
+      const draftId = Number(result.lastInsertRowid);
+
+      // Audit-log
+      try {
+        sqliteDb.prepare(`
+          INSERT INTO muza_user_actions (user_id, action_type, params_json, confirmed, confirmed_at, chat_session_id, created_at)
+          VALUES (?, 'save_lyrics', ?, 1, ?, ?, ?)
+        `).run(userId, JSON.stringify({ draftId, title, source }), now, chatSessionId, now);
+      } catch {}
+
+      res.json({ data: { draftId, title }, error: null });
+    } catch (e: any) {
+      console.error("[POST /api/lyrics/save]", e);
+      res.status(500).json({ data: null, error: "Не удалось сохранить" });
+    }
+  });
+
+  // POST /api/lyrics/claim (auth) — claim anonymous text via recovery code.
+  app.post("/api/lyrics/claim", authMiddleware, (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).userId;
+      const code = String(req.body?.code || "").trim();
+      if (!/^\d{6}$/.test(code)) {
+        res.status(400).json({ data: null, error: "Код должен быть 6-значным" });
+        return;
+      }
+      const now = Date.now();
+      const pending = sqliteDb.prepare(`
+        SELECT id, title, text, chat_session_id, expires_at
+        FROM pending_anonymous_lyrics
+        WHERE recovery_code = ? AND claimed_by_user_id IS NULL AND expires_at > ?
+        LIMIT 1
+      `).get(code, now) as any;
+      if (!pending) {
+        res.status(404).json({ data: null, error: "Код не найден, уже использован или просрочен" });
+        return;
+      }
+
+      const ins = sqliteDb.prepare(`
+        INSERT INTO user_lyric_drafts (user_id, title, text, source, chat_session_id, created_at)
+        VALUES (?, ?, ?, 'musa_chat_claim', ?, ?)
+      `).run(userId, pending.title, pending.text, pending.chat_session_id || null, now);
+      const draftId = Number(ins.lastInsertRowid);
+
+      sqliteDb.prepare(`
+        UPDATE pending_anonymous_lyrics SET claimed_by_user_id = ?, claimed_at = ? WHERE id = ?
+      `).run(userId, now, pending.id);
+
+      // Audit-log
+      try {
+        sqliteDb.prepare(`
+          INSERT INTO muza_user_actions (user_id, action_type, params_json, confirmed, confirmed_at, created_at)
+          VALUES (?, 'claim_pending_lyrics', ?, 1, ?, ?)
+        `).run(userId, JSON.stringify({ draftId, pendingId: pending.id, title: pending.title }), now, now);
+      } catch {}
+
+      res.json({ data: { draftId, title: pending.title }, error: null });
+    } catch (e: any) {
+      console.error("[POST /api/lyrics/claim]", e);
+      res.status(500).json({ data: null, error: "Не удалось забрать текст" });
+    }
+  });
+
+  // GET /api/lyrics/drafts (auth) — список сохранённых текстов.
+  app.get("/api/lyrics/drafts", authMiddleware, (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).userId;
+      const rows = sqliteDb.prepare(`
+        SELECT id, title, text, source, created_at AS createdAt, used_in_generation_id AS usedInGenerationId
+        FROM user_lyric_drafts
+        WHERE user_id = ?
+        ORDER BY created_at DESC
+        LIMIT 100
+      `).all(userId) as any[];
+      res.json({ data: rows, error: null });
+    } catch (e: any) {
+      console.error("[GET /api/lyrics/drafts]", e);
+      res.status(500).json({ data: null, error: "Не удалось получить список" });
+    }
+  });
+
+  // DELETE /api/lyrics/drafts/:id (auth, owner check).
+  app.delete("/api/lyrics/drafts/:id", authMiddleware, (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).userId;
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id) || id <= 0) {
+        res.status(400).json({ data: null, error: "Невалидный id" });
+        return;
+      }
+      const row = sqliteDb.prepare(`SELECT user_id FROM user_lyric_drafts WHERE id = ?`).get(id) as any;
+      if (!row) { res.status(404).json({ data: null, error: "Текст не найден" }); return; }
+      if (row.user_id !== userId) { res.status(403).json({ data: null, error: "Доступ только к своим текстам" }); return; }
+
+      sqliteDb.prepare(`DELETE FROM user_lyric_drafts WHERE id = ?`).run(id);
+
+      // Audit-log
+      try {
+        sqliteDb.prepare(`
+          INSERT INTO muza_user_actions (user_id, action_type, params_json, confirmed, confirmed_at, created_at)
+          VALUES (?, 'delete_lyrics_draft', ?, 1, ?, ?)
+        `).run(userId, JSON.stringify({ draftId: id }), Date.now(), Date.now());
+      } catch {}
+
+      res.json({ data: { deleted: id }, error: null });
+    } catch (e: any) {
+      console.error("[DELETE /api/lyrics/drafts/:id]", e);
+      res.status(500).json({ data: null, error: "Не удалось удалить" });
+    }
+  });
+
+  // POST /api/lyrics/anonymous-save (PUBLIC) — anonymous text save with email
+  // or code-only fallback. Rate-limit 5/час/IP.
+  app.post("/api/lyrics/anonymous-save", async (req: Request, res: Response) => {
+    try {
+      const ip = String(req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "").split(",")[0].trim() || "unknown";
+      const now = Date.now();
+      const windowMs = 60 * 60 * 1000;
+      const tsList = (anonLyricsSaveByIp.get(ip) || []).filter((t) => now - t < windowMs);
+      if (tsList.length >= 5) {
+        res.status(429).json({ data: null, error: "rate-limit: 5 сохранений / час" });
+        return;
+      }
+      tsList.push(now);
+      anonLyricsSaveByIp.set(ip, tsList);
+
+      const title = String(req.body?.title || "").trim().slice(0, 120);
+      const text = String(req.body?.text || "").trim().slice(0, 8000);
+      const emailRaw = String(req.body?.email || "").trim().toLowerCase();
+      const chatSessionId = req.body?.chatSessionId ? String(req.body.chatSessionId).slice(0, 64) : null;
+      if (!title) { res.status(400).json({ data: null, error: "Название не задано" }); return; }
+      if (!text || text.length < 5) { res.status(400).json({ data: null, error: "Текст слишком короткий" }); return; }
+      const hasEmail = emailRaw.length > 0;
+      if (hasEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailRaw)) {
+        res.status(400).json({ data: null, error: "Email невалидный" });
+        return;
+      }
+
+      // Generate 6-digit recovery code with up to 5 retries on collision.
+      let code = "";
+      let attempts = 0;
+      while (attempts < 5) {
+        code = String(Math.floor(100000 + Math.random() * 900000));
+        const exists = sqliteDb.prepare(
+          `SELECT 1 FROM pending_anonymous_lyrics WHERE recovery_code = ? AND claimed_by_user_id IS NULL`
+        ).get(code);
+        if (!exists) break;
+        attempts++;
+      }
+
+      const expires = now + 30 * 24 * 60 * 60 * 1000;
+      const result = sqliteDb.prepare(`
+        INSERT INTO pending_anonymous_lyrics (recovery_code, email, title, text, chat_session_id, created_at, expires_at, email_sent)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+      `).run(code, hasEmail ? emailRaw : null, title, text, chatSessionId, now, expires);
+      const pendingId = Number(result.lastInsertRowid);
+
+      // Send email if provided (best-effort).
+      let emailSent = false;
+      if (hasEmail && GMAIL_APP_PASSWORD) {
+        try {
+          const registerLink = `${PUBLIC_URL}/#/register?recovery=${code}`;
+          await mailTransport.sendMail({
+            from: `"MuzaAi" <${CLIENT_EMAIL}>`,
+            replyTo: CLIENT_EMAIL,
+            to: emailRaw,
+            subject: `Твой текст «${title}» — MuzaAi`,
+            text: `Муза сохранила твой текст «${title}».\n\nЧтобы забрать в личный кабинет — зарегистрируйся:\n${registerLink}\n\nКод восстановления: ${code} (введи в Настройках после регистрации).\n\nТекст:\n\n${text}\n\nКод действует 30 дней.\n\n— MuzaAi`,
+            html: `
+              <div style="font-family:-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:32px;background:#09090b;border-radius:16px;border:1px solid #1a1a2e;color:#e2e2e2;">
+                <div style="text-align:center;margin-bottom:24px;">
+                  <span style="font-size:24px;font-weight:700;background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">MuzaAi</span>
+                </div>
+                <h2 style="color:#fff;margin:0 0 16px;">Твой текст «${title.replace(/</g, "&lt;")}»</h2>
+                <p style="font-size:15px;line-height:1.6;">Чтобы забрать его в личный кабинет — заверши регистрацию:</p>
+                <div style="text-align:center;margin:24px 0;">
+                  <a href="${registerLink}" style="display:inline-block;padding:14px 28px;background:linear-gradient(135deg,#8b5cf6,#3b82f6);color:#fff;text-decoration:none;border-radius:12px;font-weight:600;">Завершить регистрацию</a>
+                </div>
+                <p style="font-size:13px;color:#888;text-align:center;margin:16px 0;">Или введи код в Настройках:</p>
+                <div style="text-align:center;margin:8px 0 24px;">
+                  <span style="display:inline-block;font-size:28px;font-weight:700;letter-spacing:8px;color:#fff;background:#1a1a2e;padding:12px 24px;border-radius:8px;">${code}</span>
+                </div>
+                <hr style="border:none;border-top:1px solid #1a1a2e;margin:24px 0;">
+                <pre style="white-space:pre-wrap;font-family:inherit;font-size:14px;color:#bbb;line-height:1.6;">${text.slice(0, 4000).replace(/</g, "&lt;")}</pre>
+                <p style="color:#555;font-size:12px;text-align:center;margin-top:24px;">Код действует 30 дней.</p>
+              </div>
+            `,
+          });
+          emailSent = true;
+          sqliteDb.prepare(`UPDATE pending_anonymous_lyrics SET email_sent = 1 WHERE id = ?`).run(pendingId);
+        } catch (e: any) {
+          console.error("[POST /api/lyrics/anonymous-save] email send failed:", e?.message || e);
+        }
+      }
+
+      // Audit-log
+      try {
+        sqliteDb.prepare(`
+          INSERT INTO muza_user_actions (user_id, action_type, params_json, confirmed, confirmed_at, chat_session_id, created_at)
+          VALUES (NULL, ?, ?, 1, ?, ?, ?)
+        `).run(
+          hasEmail ? "save_lyrics_with_email" : "save_lyrics_code_only",
+          JSON.stringify({ pendingId, title, emailSent, hasEmail }),
+          now, chatSessionId, now,
+        );
+      } catch {}
+
+      res.json({ data: { code, emailSent, expiresAt: expires }, error: null });
+    } catch (e: any) {
+      console.error("[POST /api/lyrics/anonymous-save]", e);
+      res.status(500).json({ data: null, error: "Не удалось сохранить" });
+    }
   });
 
   // ==================== LYRICS ====================
