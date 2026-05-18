@@ -224,11 +224,11 @@ export default function RegisterPage() {
             </div>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="promo" className="text-sm text-muted-foreground">Промокод <span className="text-muted-foreground/50">(если есть — например «Поехали»)</span></Label>
+            <Label htmlFor="promo" className="text-sm text-muted-foreground">Промокод <span className="text-muted-foreground/50">(если есть)</span></Label>
             <Input
               id="promo"
               type="text"
-              placeholder="Поехали"
+              placeholder="Введите промокод"
               value={promo}
               onChange={(e) => setPromo(e.target.value)}
               className="bg-background/50 border-white/10 input-glow"

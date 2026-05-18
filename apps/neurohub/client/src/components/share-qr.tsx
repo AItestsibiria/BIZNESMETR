@@ -193,7 +193,7 @@ export function ShareQRSection() {
           const file = new File([blob], "MuzaAi-QR.png", { type: "image/png" });
           await navigator.share({
             title: "MuzaAi — AI Music",
-            text: "Создавай музыку, тексты и обложки с помощью AI. Дарим 1000 ₽ по промокоду «Поехали»!",
+            text: "Создавай музыку, тексты и обложки с помощью AI на MuzaAi.ru — первый трек бесплатно!",
             url: "https://muziai.ru",
             files: [file],
           });
@@ -204,7 +204,7 @@ export function ShareQRSection() {
       try {
         await navigator.share({
           title: "MuzaAi — AI Music",
-          text: "Создавай музыку, тексты и обложки с помощью AI. Дарим 1000 ₽ по промокоду «Поехали»!",
+          text: "Создавай музыку, тексты и обложки с помощью AI на MuzaAi.ru — первый трек бесплатно!",
           url: "https://muziai.ru",
         });
       } catch {}
