@@ -94,6 +94,7 @@ import operatorCommandsModule from "./plugins/operator-commands/module";
 import yarsWebhookBridgeModule from "./plugins/yars-webhook-bridge/module";
 import feedbackAggregatorModule from "./plugins/feedback-aggregator/module";
 import escalationQueueModule from "./plugins/escalation-queue/module";
+import messageAnalysisModule from "./plugins/message-analysis/module";
 import playsAuditModule from "./plugins/plays-audit/module";
 
 import * as fs from "node:fs";
@@ -487,6 +488,7 @@ app.post("/api/_client-error", express.json(), (req, res) => {
     { name: "yars-webhook-bridge", module: yarsWebhookBridgeModule },
     { name: "feedback-aggregator", module: feedbackAggregatorModule },
     { name: "escalation-queue", module: escalationQueueModule },
+    { name: "message-analysis", module: messageAnalysisModule },
 
   ];
 
