@@ -32,6 +32,7 @@ import SupportTicketsTab from "@/pages/admin/support-tickets-tab";
 import { BlocksTab } from "@/pages/admin/blocks-tab";
 import MusaAvatarTab from "@/pages/admin/musa-avatar-tab";
 import { AuthorsTab } from "@/pages/admin/authors-tab";
+import { SecondBrainTab } from "@/pages/admin/second-brain-tab";
 import { MusaVoiceFab } from "@/components/musa-voice-fab";
 
 // Lazy-load SecondBrain3D — three.js + 3d-force-graph весят ~500KB,
@@ -312,6 +313,7 @@ export default function AdminV304Page() {
         >
           <TabsTrigger value="master-dashboard" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🧠 Сводка</TabsTrigger>
           <TabsTrigger value="brain-3d" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🧠 Второй мозг</TabsTrigger>
+          <TabsTrigger value="brain-analytics" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">📊 Мозг — Аналитика</TabsTrigger>
           <TabsTrigger value="overview" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">Обзор</TabsTrigger>
           <TabsTrigger value="friend" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">👤 Муза</TabsTrigger>
           <TabsTrigger value="musa-avatar" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🎨 Аватар Музы</TabsTrigger>
@@ -348,6 +350,7 @@ export default function AdminV304Page() {
             <SecondBrain3D />
           </Suspense>
         </TabsContent>
+        <TabsContent value="brain-analytics"><SecondBrainTab toast={toast} /></TabsContent>
         <TabsContent value="overview"><OverviewTab toast={toast} /></TabsContent>
         <TabsContent value="friend">
           <div className="space-y-6">
