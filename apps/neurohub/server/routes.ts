@@ -8889,30 +8889,22 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
 
   // GPTunnel balance check — called by cron (08:00 and 18:00 MSK) or manually by admin
   // Sends email alert to ADMIN_ALERT_EMAIL when balance drops below threshold
-  app.get("/api/admin/check-gptunnel-balance", async (req: Request, res: Response) => {
+  //
+  // Eugene 2026-05-18 (ACCESS-BYPASS-AUDIT-170526 #3): добавил requireAdmin
+  // middleware на endpoint. Cron-secret bypass сохранён для legacy cron
+  // (vps cron job вызывает с ?secret=$CRON_SECRET без JWT). Без bypass и
+  // без admin token → 401. Hardcoded fallback "muziai-balance-cron-2026"
+  // удалён ранее (Eugene 2026-05-09 SECURITY).
+  app.get("/api/admin/check-gptunnel-balance", (req: Request, res: Response, next: NextFunction) => {
+    const SECRET = req.query.secret || req.headers["x-cron-secret"];
+    const EXPECTED_SECRET = process.env.CRON_SECRET || "";
+    if (EXPECTED_SECRET && SECRET === EXPECTED_SECRET) {
+      return next(); // cron bypass — env обязателен, иначе требуем admin auth
+    }
+    return requireAdmin(req, res, next);
+  }, async (req: Request, res: Response) => {
     const ADMIN_ALERT_EMAIL = process.env.ADMIN_ALERT_EMAIL || "egnovoselo@gmail.com";
     const THRESHOLD = 750; // ₽
-    const SECRET = req.query.secret || req.headers["x-cron-secret"];
-    // Eugene 2026-05-09 SECURITY: убран hardcoded fallback. Если CRON_SECRET
-    // не задан в .env — endpoint работает только через JWT (admin auth).
-    const EXPECTED_SECRET = process.env.CRON_SECRET || "";
-
-    // Allow either admin auth OR cron secret (so cron can call without login)
-    const authHeader = req.headers.authorization || "";
-    const token = authHeader.replace("Bearer ", "");
-    let isAdmin = false;
-    if (token) {
-      try {
-        const decoded: any = jwt.verify(token, JWT_SECRET);
-        const u = storage.getUser(decoded.id);
-        if (u?.email === "egnovoselov@gmail.com") isAdmin = true;
-      } catch {}
-    }
-    // Eugene 2026-05-09 SECURITY: явная проверка что EXPECTED_SECRET задан.
-    // Если не задан в .env — endpoint работает только через JWT, query.secret игнорируется.
-    if (!isAdmin && (!EXPECTED_SECRET || SECRET !== EXPECTED_SECRET)) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
 
     try {
       // Eugene 2026-05-08 doc-audit: используем gptunnelFetch для unified
