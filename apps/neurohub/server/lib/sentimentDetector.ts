@@ -35,8 +35,15 @@ const POS_WORDS = [
 ];
 
 // Эмодзи: позитивные / негативные.
-const POS_EMOJI_RE = /[👍❤🔥💯😍🥰🎉✨💖]/u;
-const NEG_EMOJI_RE = /[😡😠💩🤬👎😤🤮😭]/u;
+// Без /u flag — TS-target в проекте не позволяет. Поиск через .includes()
+// на каждый emoji (multi-byte safe в JS строках).
+const POS_EMOJI_LIST = ["👍", "❤", "🔥", "💯", "😍", "🥰", "🎉", "✨", "💖"];
+const NEG_EMOJI_LIST = ["😡", "😠", "💩", "🤬", "👎", "😤", "🤮", "😭"];
+
+function hasAnyEmoji(text: string, list: string[]): boolean {
+  for (const e of list) if (text.includes(e)) return true;
+  return false;
+}
 
 function findMatches(text: string, list: string[]): string[] {
   const t = (text || "").toLowerCase();
@@ -67,11 +74,11 @@ export function detectSentiment(text: string): SentimentResult {
     score += 0.25;
     triggers.push(_w);
   }
-  if (POS_EMOJI_RE.test(text)) {
+  if (hasAnyEmoji(text, POS_EMOJI_LIST)) {
     score += 0.4;
     triggers.push("emoji:positive");
   }
-  if (NEG_EMOJI_RE.test(text)) {
+  if (hasAnyEmoji(text, NEG_EMOJI_LIST)) {
     score -= 0.5;
     triggers.push("emoji:negative");
   }

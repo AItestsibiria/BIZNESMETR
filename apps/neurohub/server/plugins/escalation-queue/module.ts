@@ -216,7 +216,7 @@ adminRouter.get("/", (req: Request, res: Response) => {
 // POST /api/admin/v304/escalations/:id/resolve
 adminRouter.post("/:id/resolve", (req: Request, res: Response) => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(String(req.params.id), 10);
     if (!Number.isFinite(id) || id <= 0) {
       res.status(400).json({ data: null, error: "Неверный id" });
       return;
@@ -248,7 +248,7 @@ adminRouter.post("/:id/resolve", (req: Request, res: Response) => {
 // POST /api/admin/v304/escalations/:id/dismiss
 adminRouter.post("/:id/dismiss", (req: Request, res: Response) => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(String(req.params.id), 10);
     if (!Number.isFinite(id) || id <= 0) {
       res.status(400).json({ data: null, error: "Неверный id" });
       return;

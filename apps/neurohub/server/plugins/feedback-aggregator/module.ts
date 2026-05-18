@@ -311,7 +311,7 @@ adminRouter.get("/suggestions", (req: Request, res: Response) => {
 // POST /api/admin/v304/suggestions/:id/review
 adminRouter.post("/suggestions/:id/review", (req: Request, res: Response) => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(String(req.params.id), 10);
     if (!Number.isFinite(id) || id <= 0) {
       res.status(400).json({ data: null, error: "Неверный id" });
       return;

@@ -90,6 +90,10 @@ import supportModule from "./plugins/support/module";
 import imageGenModule from "./plugins/image-gen/module";
 import vpsSyncModule from "./plugins/vps-sync/module";
 
+import operatorCommandsModule from "./plugins/operator-commands/module";
+import feedbackAggregatorModule from "./plugins/feedback-aggregator/module";
+import escalationQueueModule from "./plugins/escalation-queue/module";
+
 import * as fs from "node:fs";
 
 const app = express();
@@ -476,6 +480,9 @@ app.post("/api/_client-error", express.json(), (req, res) => {
     { name: "image-gen", module: imageGenModule },
 
     { name: "vps-sync", module: vpsSyncModule },
+    { name: "operator-commands", module: operatorCommandsModule },
+    { name: "feedback-aggregator", module: feedbackAggregatorModule },
+    { name: "escalation-queue", module: escalationQueueModule },
 
   ];
 
