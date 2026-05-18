@@ -372,6 +372,18 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // coverExpanded — column-layout активного плеера: cover full-width сверху,
   // controls под ним. False = row-layout (current default).
   const [coverExpanded, setCoverExpanded] = useState(false);
+  // Eugene 2026-05-18 Босс «для десктопа добавь возможность менять размер
+  // отображения обложки». 3 уровня: sm (75%) / md (100%) / lg (125%).
+  // Persist в localStorage.
+  const [coverSize, setCoverSize] = useState<"sm" | "md" | "lg">(() => {
+    if (typeof window === "undefined") return "sm";
+    const saved = window.localStorage.getItem("muzaai-cover-size");
+    return saved === "md" || saved === "lg" ? saved : "sm";
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") window.localStorage.setItem("muzaai-cover-size", coverSize);
+  }, [coverSize]);
+  const coverSizeClass = coverSize === "sm" ? "md:scale-75" : coverSize === "lg" ? "md:scale-125" : "md:scale-100";
   const [lyricsOpen, setLyricsOpen] = useState(false);
   const [expandedLyricId, setExpandedLyricId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1392,7 +1404,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   + pulse opacity). Обложка остаётся резкой внутри. */}
               {/* Eugene 2026-05-18 — обёртка cover+S; cover-square даёт фиксированный размер обложки, S-кнопка идёт после и не выпадает за wrapper. */}
               <div className={`relative shrink-0 flex flex-col ${coverExpanded ? "md:w-full" : "w-20 sm:w-24"}`}>
-                <div className={`relative ${coverExpanded ? "md:w-full md:aspect-square" : "w-20 h-20 sm:w-24 sm:h-24"}`}>
+                {/* Eugene 2026-05-18 Босс «обложка -25% базово + desktop resize».
+                    Mobile: w-[60px] (было 80) / sm:w-[72px] (было 96). Desktop:
+                    coverSize state управляет (75/100/125%). */}
+                <div className={`relative ${coverExpanded ? "md:w-full md:aspect-square" : "w-[60px] h-[60px] sm:w-[72px] sm:h-[72px]"} ${!coverExpanded ? coverSizeClass : ""}`}>
                 <div
                   aria-hidden="true"
                   className={`absolute -inset-2 rounded-2xl opacity-70 blur-2xl pointer-events-none cover-aura ${coverExpanded ? "md:-inset-3" : ""}`}
@@ -1412,30 +1427,60 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   <img key={currentTrack.imageUrl} src={currentTrack.imageUrl} alt="" className="w-full h-full object-cover absolute inset-0 animate-in fade-in duration-500" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
                 )}
                 <Music className={`text-white/10 w-8 h-8 ${coverExpanded ? "md:w-24 md:h-24" : ""}`} />
-                {/* Expand toggle — top-right corner cover */}
+                {/* Eugene 2026-05-18 Босс «S убрать цветное поле» — только
+                    красивая буква с neon-glow, без gradient background. */}
+                <button
+                  className="md:hidden absolute top-1 right-1 w-7 h-7 flex items-center justify-center active:scale-95 z-10"
+                  title="Свайп-режим"
+                  aria-label="Свайп-режим"
+                  onClick={(e) => { e.stopPropagation(); setDetailsOpen(true); }}
+                  data-testid="btn-cover-s-corner-mobile"
+                >
+                  <span className="font-display font-bold italic text-lg tracking-wider text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.95)] drop-shadow-[0_0_12px_rgba(217,70,239,0.85)]">S</span>
+                </button>
+                {/* Expand toggle — top-right corner cover (desktop only — на mobile S там) */}
                 <ExpandToggleButton
                   expanded={coverExpanded}
                   onToggle={() => setCoverExpanded(v => !v)}
-                  className="absolute top-2 right-2 z-10"
+                  className="hidden md:flex absolute top-2 right-2 z-10"
                 />
               </div>
               </div>
-              {/* Eugene 2026-05-17 Босс «S под обложку + спиши в размер
-                  плеера». S-кнопка по ширине = размеру обложки (20/24/full
-                  если expanded). Bomb-gradient + pulse glow.
-                  Eugene 2026-05-18: вынесена ниже cover-square wrapper, чтобы
-                  не вываливалась за пределы фиксированной высоты обложки. */}
-              {/* Eugene 2026-05-18 Босс «оставь значок S, убери лишнее, красивый
-                  шрифт». Только буква «S» через font-display + neon-glow. */}
+              {/* Eugene 2026-05-18 Босс «desktop: размер обложки настраиваемый +
+                  S под обложку». S-кнопка только на desktop (md+). На mobile S
+                  уже в углу обложки. */}
+              {/* Desktop S — без цветного поля, только буква с neon-glow */}
               <button
-                className={`mt-2 self-center flex items-center justify-center rounded-full bg-gradient-to-br from-purple-500 via-fuchsia-500 to-cyan-400 hover:from-purple-400 hover:via-fuchsia-400 hover:to-cyan-300 text-white transition-all shadow-[0_0_20px_rgba(217,70,239,0.65)] hover:shadow-[0_0_36px_rgba(217,70,239,0.9)] hover:scale-110 active:scale-95 border border-fuchsia-300/50 animate-details-pulse w-9 h-9 sm:w-10 sm:h-10 ${coverExpanded ? "md:w-12 md:h-12" : ""}`}
+                className={`hidden md:flex mt-2 self-center items-center justify-center transition-all hover:scale-125 active:scale-95 w-9 h-9 ${coverExpanded ? "md:w-12 md:h-12" : ""}`}
                 title="Свайп-режим — листай ← → большие обложки"
                 aria-label="Свайп-режим"
                 onClick={() => setDetailsOpen(true)}
                 data-testid="btn-cover-s-under"
               >
-                <span className="font-display font-bold text-lg sm:text-xl italic tracking-wider drop-shadow-[0_0_8px_rgba(255,255,255,0.95)]">S</span>
+                <span className="font-display font-bold text-2xl italic tracking-wider text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.95)] drop-shadow-[0_0_16px_rgba(217,70,239,0.85)]">S</span>
               </button>
+              {/* Eugene 2026-05-18 Босс «desktop: возможность менять размер
+                  отображения обложки». 3 кнопки S/M/L под S-свайпом, скрыты на
+                  mobile. */}
+              {!coverExpanded && (
+                <div className="hidden md:flex mt-2 gap-1 self-center" data-testid="cover-size-toggle">
+                  {[
+                    { v: "sm", label: "—", size: "75%" },
+                    { v: "md", label: "○", size: "100%" },
+                    { v: "lg", label: "+", size: "125%" },
+                  ].map(opt => (
+                    <button
+                      key={opt.v}
+                      onClick={() => setCoverSize(opt.v as "sm" | "md" | "lg")}
+                      className={`w-6 h-6 rounded-full text-xs font-mono transition-all ${coverSize === opt.v ? "bg-gradient-to-br from-purple-500 to-cyan-400 text-white shadow-[0_0_8px_rgba(217,70,239,0.6)]" : "bg-white/5 text-white/50 hover:bg-white/10"}`}
+                      title={`Обложка ${opt.size}`}
+                      aria-label={`Размер обложки ${opt.size}`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
               </div>
               {/* Info + controls */}
               <div className="flex-1 min-w-0">
