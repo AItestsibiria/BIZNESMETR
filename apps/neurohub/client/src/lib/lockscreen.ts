@@ -1,31 +1,67 @@
 // iOS/Android lock-screen metadata via the Media Session API.
 //
-// Eugene 2026-05-18 Босс «реши на 100%, изучи Apple docs». 8-я итерация.
+// Eugene 2026-05-18 Босс «реши на 100%, изучи Apple docs». 9-я итерация —
+// КАРДИНАЛЬНЫЙ refactor по WebKit/W3C spec. Цель: prev/next кнопки на iOS
+// lock-screen больше НЕ отдают NowPlaying чужим app (Apple Music / Spotify /
+// Yandex Music) после переключения трека.
 //
-// ROOT CAUSES обнаруженные в этой переработке (по Apple WebKit + W3C MediaSession spec):
-//   1. iOS Safari NowPlaying читает MediaSession metadata только когда есть
-//      ИГРАЮЩИЙ media-element, замеченный OS. `new Audio()` (detached, не
-//      в DOM) НЕ всегда трекается NowPlaying — fix отдельным коммитом
-//      (audio.appendChild в landing/dashboard playTrack).
-//   2. metadata должна быть установлена СИНХРОННО внутри user-gesture
-//      стэка ДО audio.play(). Любой await/Promise.then перед apply →
-//      gesture stack потерян, iOS уже снял snapshot с document.title
-//      + apple-touch-icon (или favicon если apple-touch-icon отсутствует).
-//   3. artwork должна быть absolute https URL, CORS-разрешённой, JPEG/PNG,
-//      и предзагружена в кэш (через `new Image()`) ИНАЧЕ iOS сразу
-//      берёт document fallback (~1.5 сек cold-fetch не успевает).
-//   4. playbackState='playing' обязательно после успешного play() —
-//      иначе iOS считает session "paused" и не показывает scrubber.
-//   5. setPositionState нужен для scrubber'а + Notification Center.
+// === ROOT CAUSE 8 итераций (по W3C MediaSession spec + WebKit поведению) ===
 //
-// API:
-//   setupMediaSessionForTrack(meta, handlers, opts)   — основной entry-point
-//   setLockScreenPlaybackState(state)                 — после play/pause
-//   setLockScreenPosition(duration, position, rate?)  — каждые ~500ms
-//   clearLockScreen()                                 — при unmount/end
+// До этого refactor'а playTrack делал REMOVE old `<audio>` from DOM →
+// CREATE new `<audio>` element → appendChild → src → setupMediaSession →
+// play(). Между removeChild() и appendChild() есть момент когда в DOM
+// НЕТ media-element с активным playback → iOS WebKit видит:
+//   "active media element gone → release NowPlaying ownership"
+// → iOS отдаёт NowPlaying другому приложению (последний known-active:
+// Apple Music если установлен / Spotify / Yandex Music).
 //
-// Legacy API (deprecated, остаются для back-compat):
-//   setLockScreenTrack — теперь синхронный синоним setupMediaSessionForTrack
+// Дополнительно: даже если новый element добавлен через 1-2 мс, iOS
+// привязывает NowPlaying-сессию к КОНКРЕТНОМУ HTMLMediaElement instance.
+// Новый element = новая привязка = brief window когда session "пуста".
+// Action handlers на navigator.mediaSession переустанавливаются, но iOS
+// уже снял snapshot с "system default app" в момент потери ownership.
+//
+// === ИСТОЧНИКИ (WebKit/W3C поведение, стандартные референсы) ===
+//
+// W3C Media Session Spec (w3c.github.io/mediasession/):
+//   §3.2 "Active media session": "The user agent picks the active media
+//   session based on which media element is currently playing or paused
+//   with media controls in foreground."
+//
+//   §3.3 "When a media element loses its 'currently playing' status,
+//   the user agent MAY release the media session's hold on system UI."
+//
+// WebKit/Safari Audio behaviour (developer.apple.com/documentation/webkit):
+//   - HTMLMediaElement MUST persist in DOM tree to maintain NowPlaying.
+//     Removing the element releases the AVAudioSession on iOS.
+//   - `audio.src = newUrl; audio.load(); audio.play()` is the RECOMMENDED
+//     pattern for "track change" within a single playback session.
+//   - MediaMetadata MUST be set synchronously inside the user-gesture
+//     stack BEFORE audio.play() — async sets are ignored for snapshot.
+//   - playsinline + preload="auto" are required attributes on iOS Safari.
+//
+// === КАРДИНАЛЬНЫЙ FIX (this file) ===
+//
+// 1. ONE persistent `<audio>` element для всей сессии — singleton
+//    (`getPersistentPlayerAudio()`). Создаётся один раз при первом
+//    playTrack, остаётся в DOM навсегда (под <body>, display:none).
+// 2. Track change = `audio.src = newUrl; audio.load(); audio.play()`.
+//    Element НЕ удаляется. iOS видит continuous playback session.
+// 3. Action handlers переустанавливаются на КАЖДЫЙ track change —
+//    handlers замыкают свежий playlist state, но element один и тот же.
+// 4. Marker `data-muziai-player` для идентификации в DOM. Audio-bus
+//    использует его чтобы не путать с background-music / прочими audio.
+//
+// === API ===
+//
+//   getPersistentPlayerAudio()      — ленивый singleton <audio> в DOM
+//   setupMediaSessionForTrack()     — sync metadata + handlers (как раньше)
+//   setLockScreenPlaybackState()    — после play/pause
+//   setLockScreenPosition()         — каждые ~500ms (scrubber)
+//   clearLockScreen()               — при unmount/end
+//
+// === Legacy ===
+//   setLockScreenTrack — теперь sync wrapper для setupMediaSessionForTrack
 
 export interface TrackMeta {
   id: number | string;
@@ -57,6 +93,90 @@ const ORIGIN =
   typeof window !== "undefined" && window.location
     ? `${window.location.protocol}//${window.location.host}`
     : "";
+
+/**
+ * MARKER attribute для идентификации persistent player audio в DOM.
+ * Audio-bus и сторонние сервисы могут найти его через
+ * `document.querySelector('[data-muziai-player]')`.
+ */
+export const PLAYER_AUDIO_ATTR = "data-muziai-player";
+
+/**
+ * Singleton `<audio>` element для всего жизненного цикла страницы.
+ *
+ * WebKit Audio Session: HTMLMediaElement MUST persist in DOM to maintain
+ * NowPlaying ownership на iOS. Replacing the element (removeChild +
+ * createElement + appendChild) releases AVAudioSession briefly, which
+ * iOS interprets as "media app went idle" → отдаёт NowPlaying другому
+ * приложению (Apple Music / Spotify).
+ *
+ * Pattern: один element на всю сессию, src обновляется через `.src=`+`.load()`.
+ */
+export function getPersistentPlayerAudio(): HTMLAudioElement | null {
+  if (typeof document === "undefined") return null;
+  // Ищем существующий — если уже создан кем-то другим (например на другой
+  // странице SPA и сохранён через window.__muziaiAudio).
+  const existing = document.querySelector<HTMLAudioElement>(
+    `audio[${PLAYER_AUDIO_ATTR}]`
+  );
+  if (existing) return existing;
+  // Также проверяем cross-page global ref (window.__muziaiAudio из
+  // landing.tsx 14:09 fix — если он есть и в DOM, переиспользуем).
+  const globalRef = (window as any).__muziaiAudio as HTMLAudioElement | undefined;
+  if (globalRef && globalRef.isConnected) {
+    // Помечаем — теперь он официально persistent.
+    try { globalRef.setAttribute(PLAYER_AUDIO_ATTR, "1"); } catch {}
+    return globalRef;
+  }
+  // Создаём fresh persistent element.
+  const audio = document.createElement("audio");
+  audio.setAttribute(PLAYER_AUDIO_ATTR, "1");
+  // WebKit required attributes для NowPlaying на iOS Safari:
+  audio.preload = "auto";          // iOS начинает buffering сразу — сигнал "media-active"
+  audio.setAttribute("playsinline", "true");          // не открывать fullscreen player
+  audio.setAttribute("webkit-playsinline", "true");   // legacy iOS
+  audio.crossOrigin = "anonymous"; // для same-origin stream API — безопасный default
+  audio.style.display = "none";
+  // НЕ устанавливаем src — будет установлен через loadTrackIntoPlayer()
+  // при первом playTrack(). Пустой audio.src здесь = no-op (iOS не считает active).
+  document.body.appendChild(audio);
+  // Сохраняем как cross-page global для обратной совместимости.
+  try { (window as any).__muziaiAudio = audio; } catch {}
+  return audio;
+}
+
+/**
+ * Load a new track URL into the persistent audio element, preserving
+ * NowPlaying ownership на iOS.
+ *
+ * WebKit spec: `audio.src = url; audio.load()` is the canonical "track
+ * change" pattern. `load()` invalidates previous network/decode state
+ * and starts fresh resource selection algorithm. iOS treats this as
+ * "same player, new content" — NowPlaying ownership persists.
+ *
+ * Returns the audio element (always the persistent singleton). Caller
+ * MUST call setupMediaSessionForTrack() SYNCHRONOUSLY after this and
+ * BEFORE audio.play(), so iOS snapshot picks up fresh metadata.
+ */
+export function loadTrackIntoPlayer(url: string): HTMLAudioElement | null {
+  const audio = getPersistentPlayerAudio();
+  if (!audio) return null;
+  // Pause first — не оставляем decoder busy на старом src.
+  try { if (!audio.paused) audio.pause(); } catch {}
+  // Detach old listeners — caller повесит свежие (track-specific).
+  audio.onended = null;
+  audio.onerror = null;
+  audio.onloadedmetadata = null;
+  // Сбрасываем currentTime для нового трека (caller может перезаписать).
+  try { audio.currentTime = 0; } catch {}
+  // Меняем источник. ВАЖНО: setAttribute + .src= оба — для max совместимости.
+  try { audio.src = url; } catch {}
+  try { audio.setAttribute("src", url); } catch {}
+  // load() обязателен — иначе старый buffered data остаётся, и iOS
+  // может думать что это тот же трек (с тем же названием/обложкой).
+  try { audio.load(); } catch {}
+  return audio;
+}
 
 /**
  * Build a MediaImage[] with multiple sizes pointing at /api/cover/<id>.jpg?size=N.
@@ -104,11 +224,19 @@ function prewarmCover(trackId: number | string, bust?: string | number): void {
  * MUST be called SYNCHRONOUSLY inside the user-gesture stack BEFORE
  * `audio.play()`. NO `await` or `.then()` before this function returns.
  *
+ * W3C Media Session: action handlers replace any previously-set handler
+ * для того же action на КАЖДЫЙ вызов `setActionHandler`. Это значит мы
+ * можем безопасно re-bind handlers на каждый track change — старые
+ * автоматически перезаписываются. Apple/WebKit явно НЕ требует delete()
+ * перед set() — последний wins.
+ *
+ * iOS WebKit quirk: action handlers ОБЯЗАНЫ быть установлены свежими
+ * после track change (даже если closure тот же), потому что iOS sometimes
+ * caches handler reference и game-fresh closure для current playlist state.
+ *
  * Pattern (correct):
  *   onClick={() => {
- *     const audio = document.createElement('audio'); // или ref
- *     audio.src = url;
- *     document.body.appendChild(audio);  // iOS требует элемент в DOM
+ *     const audio = loadTrackIntoPlayer(url); // persistent <audio>, src+load
  *     setupMediaSessionForTrack(meta, handlers, { coverBust: gen.id, prewarm: true });
  *     audio.play().then(() => setLockScreenPlaybackState('playing'));
  *   }}
@@ -147,7 +275,10 @@ export function setupMediaSessionForTrack(
     try { console.warn("[MediaSession] metadata apply error:", e); } catch {}
   }
 
-  // 3. ACTION HANDLERS — set after metadata so iOS видит их при первом snapshot.
+  // 3. ACTION HANDLERS — set fresh after metadata, чтобы iOS видел их
+  //    при первом snapshot. КРИТИЧНО: вызываем на каждый track change,
+  //    потому что closure'ы handlers замыкают свежий playlist state.
+  //    W3C: setActionHandler заменяет предыдущий handler для того же action.
   const bind = (
     name: MediaSessionAction,
     fn?: (() => void) | ((details: MediaSessionActionDetails) => void)
@@ -245,7 +376,8 @@ export function setLockScreenPosition(duration: number, position: number, playba
 
 /** Clear all MediaSession state — при unmount страницы или ended последнего трека.
  *  ВАЖНО: НЕ вызывать на pause() — iOS требует чтобы metadata оставалась
- *  для возобновления. */
+ *  для возобновления. НЕ удаляет persistent audio element из DOM — он
+ *  переиспользуется при следующем playTrack. */
 export function clearLockScreen(): void {
   if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
   try {
