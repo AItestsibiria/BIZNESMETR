@@ -1730,9 +1730,14 @@ const HANDLERS: Record<string, ToolHandler> = {
           const transport = nodemailer.createTransport({
             service: "gmail",
             auth: { user: gmailUser, pass: gmailPass },
+            // Eugene 2026-05-18 audit: timeout 8s — иначе зависает на медленном SMTP.
+            connectionTimeout: 8000,
+            socketTimeout: 8000,
+            greetingTimeout: 5000,
           });
           const registerLink = `${PUBLIC_URL}/#/register?recovery=${code}`;
-          await transport.sendMail({
+          await Promise.race([
+            transport.sendMail({
             from: `"MuzaAi" <${gmailUser}>`,
             replyTo: gmailUser,
             to: email,
@@ -1757,7 +1762,9 @@ const HANDLERS: Record<string, ToolHandler> = {
                 <p style="color:#555;font-size:12px;text-align:center;margin-top:24px;">Код действует 30 дней.</p>
               </div>
             `,
-          });
+            }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("SMTP timeout 10s")), 10_000)),
+          ]);
           emailSent = true;
           try {
             sqliteDb.prepare(`UPDATE pending_anonymous_lyrics SET email_sent = 1 WHERE id = ?`).run(pendingId);

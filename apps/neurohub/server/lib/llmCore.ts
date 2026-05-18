@@ -505,9 +505,17 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
         }
         return tw.text;
       }
+      // Eugene 2026-05-18 audit: TimeWeb вернул пустой text → залогировать
+      // (раньше было silent return null → админ слепой).
+      console.warn("[MUZA-LLM] TimeWeb returned empty text — endpoint:", tw.endpoint || "?");
+      setLLMKeyStatus("TIMEWEB_GATEWAY_KEY", { lastUsedAt: new Date().toISOString(), lastStatus: "error", lastErrorMsg: "empty response" });
     } catch (e: any) {
       console.warn("[MUZA-LLM] TimeWeb fallback error:", String(e?.message || e));
+      setLLMKeyStatus("TIMEWEB_GATEWAY_KEY", { lastUsedAt: new Date().toISOString(), lastStatus: "error", lastErrorMsg: String(e?.message || e).slice(0, 200) });
     }
+  } else {
+    // Eugene 2026-05-18 audit: TimeWeb ключ пустой → залогировать (раньше silent).
+    console.warn("[MUZA-LLM] TimeWeb fallback skipped: TIMEWEB_GATEWAY_KEY not configured");
   }
   return null;
 }

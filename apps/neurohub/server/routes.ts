@@ -2964,6 +2964,11 @@ export async function registerRoutes(
       const proposedExtract = extractProposedGeneration(reply);
       reply = proposedExtract.reply;
       const proposedGeneration = proposedExtract.proposed;
+      // Eugene 2026-05-18 audit: cleanup второго прохода — если Claude
+      // вставил маркер с опечаткой (двойные пробелы, перевод строки внутри,
+      // искажения), strict regex его пропустит → попадёт в reply.
+      // Forgiving regex ловит [PROPOSE_*:...] любой формы.
+      reply = reply.replace(/\[PROPOSE_GEN:[\s\S]{0,800}?\]/gi, "").replace(/\[PROPOSE_REGISTER:[\s\S]{0,400}?\]/gi, "").trim();
 
       // Eugene 2026-05-18 Босс «Муза сохраняет тексты — если не залогинен,
       // предлагает регистрацию». Парсим [PROPOSE_REGISTER:reason=X] маркер.

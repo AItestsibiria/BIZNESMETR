@@ -243,16 +243,21 @@ function ChatMiniPlayer() {
     } catch {}
     // Eugene 2026-05-18 Босс «в чате плеер не переключает треки» — fallback
     // для страниц без landing/dashboard listener (например /admin, /music,
-    // /track/:id). Если через 500ms audio.src не изменился — fetch плейлист
-    // и переключаем напрямую через persistent audio singleton.
+    // /track/:id). Eugene 2026-05-18 audit: race fix — сначала fetch (может
+    // быть медленным), потом проверка audio.src (listener мог сработать за
+    // время fetch). Это надёжнее фиксированного setTimeout 500ms.
     try {
       const a = audio;
       if (!a || !a.src) return;
       const startSrc = a.src;
-      setTimeout(async () => {
+      (async () => {
         try {
-          if (a.src !== startSrc) return; // listener сработал
+          // Дать time для listener'а на landing/dashboard сначала (250ms)
+          await new Promise(r => setTimeout(r, 250));
+          if (a.src !== startSrc) return; // listener уже сработал
           const r = await fetch('/api/playlist?status=main&sort=date&dir=desc&_=' + Date.now(), { cache: 'no-store' });
+          // Повторно проверить после fetch (listener мог сработать за это время)
+          if (a.src !== startSrc) return;
           const data = await r.json();
           const list = (Array.isArray(data) ? data : []).filter((t: any) => t.type === 'music' && t.audioUrl);
           if (list.length === 0) return;
@@ -264,13 +269,14 @@ function ChatMiniPlayer() {
             ? (safeIdx + 1) % list.length
             : (safeIdx > 0 ? safeIdx - 1 : list.length - 1);
           const target = list[targetIdx];
-          if (target?.audioUrl) {
+          if (target?.audioUrl && a.src === startSrc) {
+            // Final check перед switch — listener мог сработать
             const mod = await import("@/lib/lockscreen");
             mod.loadTrackIntoPlayer(a, target.audioUrl);
             a.play().catch(() => {});
           }
         } catch {}
-      }, 500);
+      })();
     } catch {}
   }, [audio]);
 
