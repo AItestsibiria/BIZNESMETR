@@ -469,6 +469,26 @@ export default function MusicPage() {
   const [tempo, setTempo] = useState(parsedTransfer.tempo);
   const [stylePrompt, setStylePrompt] = useState("");
   const [isDuet, setIsDuet] = useState<boolean>(_transferredVT === "duet");
+  // Eugene 2026-05-18: Suno advanced params (docs-first из kie.ai + sunoapi.org).
+  // Все опциональны — если "" / undefined, server не шлёт в Suno и Suno использует defaults.
+  // Reference: https://docs.kie.ai/suno-api/generate-music
+  const [negativeTags, setNegativeTags] = useState<string>("");        // "Heavy Metal, EDM"
+  const [weirdness, setWeirdness] = useState<number>(0.3);             // creative deviation 0..1 (default 0.3)
+  const [styleWeight, setStyleWeight] = useState<number>(0.5);         // style adherence 0..1 (default 0.5)
+  const [modelVersion, setModelVersion] = useState<string>("");        // "" / "V3_5" / "V4" / "V4_5" / "V5"
+  const [useAdvancedParams, setUseAdvancedParams] = useState<boolean>(false); // флаг «применять advanced»
+  // Per-track overrides когда выбрано N>1 треков — каждый трек может иметь
+  // свои style/voice/bpm. По умолчанию пусто → используются общие настройки.
+  type TrackOverride = { style?: string; voice?: "female" | "male"; isDuet?: boolean; instrumental?: boolean; bpm?: string };
+  const [trackOverrides, setTrackOverrides] = useState<Record<number, TrackOverride>>({});
+  // Cover (+обложка к треку) — Eugene 2026-05-18 «кнопка + обложка аккуратненько».
+  // Параллельная генерация через /api/covers/generate (price 99 ₽).
+  const [coverEnabled, setCoverEnabled] = useState<boolean>(false);
+  const [coverPrompt, setCoverPrompt] = useState<string>("");
+  const [coverStyle, setCoverStyle] = useState<"photo" | "illustration" | "abstract" | "minimal">("illustration");
+  const [coverPalette, setCoverPalette] = useState<string>("");
+  const [coverOpen, setCoverOpen] = useState<boolean>(false); // mini-form раскрытие
+  const COVER_PRICE = 99;
   const [lastPromptText, setLastPromptText] = useState("");
   const [copiedPrompt, setCopiedPrompt] = useState(false);
   const [highlightStyles, setHighlightStyles] = useState(!!transferred?.style);
@@ -696,6 +716,16 @@ export default function MusicPage() {
           if (!instrumental && !isDuet) body.voice = voice;
           body.authorName = authorName.trim();
           body.isPublic = !isPrivate;
+          // Eugene 2026-05-18: Suno advanced params также применимы к audio-mode.
+          if (useAdvancedParams) {
+            if (negativeTags.trim()) body.negativeTags = negativeTags.trim().slice(0, 200);
+            if (Math.abs(weirdness - 0.3) > 0.001) body.weirdness = weirdness;
+            if (Math.abs(styleWeight - 0.5) > 0.001) body.styleWeight = styleWeight;
+            if (modelVersion) body.modelVersion = modelVersion;
+            if (!instrumental && !isDuet) {
+              body.vocalGender = voice === "male" ? "m" : "f";
+            }
+          }
           console.log("[AUDIO-FLOW] step 3/3 generate body:", body);
 
           const res = await apiRequest("POST", "/api/music/generate", body);
@@ -722,6 +752,19 @@ export default function MusicPage() {
         }
       }
       if (lastIdAudio) setLastGenId(lastIdAudio);
+      // Eugene 2026-05-18: «+ обложка» для audio-mode тоже.
+      if (audioTaskIds.length > 0 && coverEnabled && coverPrompt.trim()) {
+        const fullCoverPrompt = [
+          coverPrompt.trim(),
+          coverPalette.trim() ? `colors: ${coverPalette.trim()}` : null,
+        ].filter(Boolean).join(". ");
+        apiRequest("POST", "/api/covers/generate", {
+          prompt: fullCoverPrompt,
+          style: coverStyle,
+        }).then(r => r.json()).then(d => {
+          if (d?.taskId) toast({ title: "Обложка генерируется", description: "Появится в дашборде через 30-60 сек." });
+        }).catch(() => {});
+      }
       if (audioTaskIds.length > 0) {
         // ОСТАЁМСЯ на странице, показываем progress-панель + результат inline
         runPollAndFinalize(audioTaskIds, audioStyles.length);
@@ -777,14 +820,22 @@ export default function MusicPage() {
       const s = stylesToGenerate[i];
       try {
         // Базовый режим — стиль не задаём, нормализатор/Suno решат сами.
+        // Eugene 2026-05-18: per-track overrides — если для трека #i есть свои
+        // настройки, они применяются поверх общих. Пустые поля → общие.
+        const ov = trackOverrides[i] || {};
+        const trackBpm = ov.bpm ?? bpm;
+        const trackVoice = ov.voice ?? voice;
+        const trackIsDuet = ov.isDuet ?? isDuet;
+        const trackInstrumental = ov.instrumental ?? instrumental;
+        const styleForTrack = ov.style ?? s;
         // Расширенный — собираем enriched style.
         let fullStyle = "";
         if (!isBasic) {
-          fullStyle = s;
+          fullStyle = styleForTrack;
           if (tempo) fullStyle += `, ${tempo} tempo`;
-          if (isDuet) fullStyle += `, male and female duet, duet vocals`;
+          if (trackIsDuet) fullStyle += `, male and female duet, duet vocals`;
           if (mood) fullStyle += `, ${mood.toLowerCase()} mood`;
-          if (bpm) fullStyle += `, ${bpm} BPM`;
+          if (trackBpm) fullStyle += `, ${trackBpm} BPM`;
           if (stylePrompt.trim()) fullStyle += `, ${stylePrompt.trim()}`;
         }
 
@@ -798,18 +849,31 @@ export default function MusicPage() {
           body.lyrics = lyrics;
           if (title) body.title = title;
         }
-        body.instrumental = instrumental;
-        body.isDuet = isDuet;
+        body.instrumental = trackInstrumental;
+        body.isDuet = trackIsDuet;
         // Eugene 2026-05-07: всегда отправляем явный voiceType, не только
         // когда не-instrumental + не-duet. Сервер использует normalizeVocalParams
         // как единый источник правды и больше не дефолтит на Female.
-        body.voiceType = instrumental ? "instrumental"
-          : isDuet ? "duet"
-          : voice; // 'male' | 'female'
+        body.voiceType = trackInstrumental ? "instrumental"
+          : trackIsDuet ? "duet"
+          : trackVoice; // 'male' | 'female'
         // legacy 'voice' — оставляем для совместимости с не-обновлённым сервером.
-        if (!instrumental && !isDuet) body.voice = voice;
+        if (!trackInstrumental && !trackIsDuet) body.voice = trackVoice;
         body.authorName = authorName.trim();
         body.isPublic = !isPrivate;
+        // Eugene 2026-05-18: Suno advanced params (опционально). Передаём
+        // только если юзер активировал «Для опытных авторов» И есть значения,
+        // отличные от дефолтов — иначе Suno использует свои defaults.
+        if (useAdvancedParams) {
+          if (negativeTags.trim()) body.negativeTags = negativeTags.trim().slice(0, 200);
+          if (Math.abs(weirdness - 0.3) > 0.001) body.weirdness = weirdness;
+          if (Math.abs(styleWeight - 0.5) > 0.001) body.styleWeight = styleWeight;
+          if (modelVersion) body.modelVersion = modelVersion;
+          // vocalGender — выводим из voice (m/f), если не дуэт/инструментал.
+          if (!trackInstrumental && !trackIsDuet) {
+            body.vocalGender = trackVoice === "male" ? "m" : "f";
+          }
+        }
 
         const res = await apiRequest("POST", "/api/music/generate", body);
         const data = await res.json();
@@ -843,6 +907,26 @@ export default function MusicPage() {
     }
 
     if (lastId) setLastGenId(lastId);
+
+    // Eugene 2026-05-18: «+ обложка» — параллельная генерация. Запускаем
+    // ПОСЛЕ музыки чтобы 402 (баланс) на музыке не блокировал. Не блокирует
+    // основной flow — генерится параллельно в дашборде, юзер видит её там.
+    if (allTaskIds.length > 0 && coverEnabled && coverPrompt.trim()) {
+      const fullCoverPrompt = [
+        coverPrompt.trim(),
+        coverPalette.trim() ? `colors: ${coverPalette.trim()}` : null,
+      ].filter(Boolean).join(". ");
+      apiRequest("POST", "/api/covers/generate", {
+        prompt: fullCoverPrompt,
+        style: coverStyle,
+      }).then(r => r.json()).then(d => {
+        if (d?.taskId) {
+          toast({ title: "Обложка генерируется", description: "Появится в дашборде через 30-60 сек." });
+        }
+      }).catch(() => {
+        toast({ title: "Не удалось запустить обложку", description: "Музыка генерируется — обложку можно создать отдельно в /covers.", variant: "destructive" });
+      });
+    }
 
     if (allTaskIds.length > 0) {
       runPollAndFinalize(allTaskIds, stylesToGenerate.length);
@@ -1755,28 +1839,70 @@ export default function MusicPage() {
                   </div>
                   {selectedStyles.map((sv, idx) => {
                     const s = styles.find(x => x.value === sv);
+                    const ov = trackOverrides[idx] || {};
+                    const trackV = ov.voice ?? voice;
                     return (
-                      <div key={`${idx}-${sv}`} className="flex items-center gap-2 text-xs px-2 py-1.5 rounded bg-white/[0.03]">
-                        <span className="w-6 text-center font-bold text-purple-300 shrink-0">#{idx + 1}</span>
-                        <select
-                          value={sv}
-                          onChange={(e) => {
-                            const newVal = e.target.value;
-                            setSelectedStyles(prev => {
-                              const next = [...prev];
-                              next[idx] = newVal;
-                              if (idx === 0) setStyle(newVal);
-                              return next;
-                            });
-                          }}
-                          className="flex-1 px-2 py-1 rounded bg-background/50 border border-white/10 text-xs"
-                          data-testid={`select-track-style-${idx}`}
-                        >
-                          {styles.map(opt => (
-                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      <div key={`${idx}-${sv}`} className="flex flex-col gap-1.5 text-xs px-2 py-1.5 rounded bg-white/[0.03]">
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 text-center font-bold text-purple-300 shrink-0">#{idx + 1}</span>
+                          <select
+                            value={sv}
+                            onChange={(e) => {
+                              const newVal = e.target.value;
+                              setSelectedStyles(prev => {
+                                const next = [...prev];
+                                next[idx] = newVal;
+                                if (idx === 0) setStyle(newVal);
+                                return next;
+                              });
+                            }}
+                            className="flex-1 px-2 py-1 rounded bg-background/50 border border-white/10 text-xs"
+                            data-testid={`select-track-style-${idx}`}
+                          >
+                            {styles.map(opt => (
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                          </select>
+                          <span className="text-[10px] text-muted-foreground/70 hidden sm:inline truncate max-w-[30%]">{s?.desc}</span>
+                        </div>
+                        {/* Eugene 2026-05-18: per-track voice + bpm override. */}
+                        <div className="flex items-center gap-1.5 pl-8">
+                          {(["female", "male"] as const).map(v => (
+                            <button
+                              key={v}
+                              type="button"
+                              onClick={() => setTrackOverrides(prev => ({ ...prev, [idx]: { ...(prev[idx] || {}), voice: v, instrumental: false, isDuet: false } }))}
+                              className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${trackV === v && !ov.instrumental && !ov.isDuet ? (v === "female" ? "border-purple-500/60 bg-purple-500/15 text-purple-300" : "border-blue-500/60 bg-blue-500/15 text-blue-300") : "border-white/10 bg-white/5 text-muted-foreground hover:text-white"}`}
+                              data-testid={`track-${idx}-voice-${v}`}
+                            >
+                              {v === "female" ? "Жен." : "Муж."}
+                            </button>
                           ))}
-                        </select>
-                        <span className="text-[10px] text-muted-foreground/70 hidden sm:inline truncate max-w-[40%]">{s?.desc}</span>
+                          <button
+                            type="button"
+                            onClick={() => setTrackOverrides(prev => ({ ...prev, [idx]: { ...(prev[idx] || {}), isDuet: true, instrumental: false } }))}
+                            className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${ov.isDuet ? "border-pink-500/60 bg-pink-500/15 text-pink-300" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white"}`}
+                          >
+                            Дуэт
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTrackOverrides(prev => ({ ...prev, [idx]: { ...(prev[idx] || {}), instrumental: true, isDuet: false } }))}
+                            className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${ov.instrumental ? "border-amber-500/60 bg-amber-500/15 text-amber-300" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white"}`}
+                          >
+                            🎻
+                          </button>
+                          <input
+                            type="number"
+                            min={60}
+                            max={200}
+                            placeholder={bpm || "BPM"}
+                            value={ov.bpm ?? ""}
+                            onChange={(e) => setTrackOverrides(prev => ({ ...prev, [idx]: { ...(prev[idx] || {}), bpm: e.target.value } }))}
+                            className="ml-auto w-16 px-1.5 py-0.5 rounded bg-background/40 border border-white/10 text-[10px] font-mono"
+                            data-testid={`track-${idx}-bpm`}
+                          />
+                        </div>
                       </div>
                     );
                   })}
@@ -2024,6 +2150,117 @@ export default function MusicPage() {
                     Дополнительные указания по стилю, звучанию, инструментам. Примеры: deep house with piano, acoustic folk fingerpicking, 80s synthpop with vocoder
                   </p>
                 </div>
+
+                {/* Eugene 2026-05-18: Suno advanced params (docs-first из kie.ai).
+                    Toggle «Применять» — ниже параметры активны только при включенном.
+                    Defaults Suno: weirdness=0.3, styleWeight=0.5. */}
+                <div className="rounded-xl border border-purple-400/15 bg-gradient-to-br from-purple-500/[0.04] to-blue-500/[0.02] p-3 space-y-3">
+                  <label className="flex items-center justify-between gap-3 cursor-pointer">
+                    <span className="text-sm font-medium text-white/90 flex items-center gap-2">
+                      <Settings2 className="w-4 h-4 text-purple-400" />
+                      Параметры Suno (для опытных)
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={useAdvancedParams}
+                      onChange={(e) => setUseAdvancedParams(e.target.checked)}
+                      className="w-4 h-4 accent-purple-500"
+                      data-testid="toggle-suno-advanced"
+                    />
+                  </label>
+                  {useAdvancedParams && (
+                    <div className="space-y-3 pt-2 border-t border-white/[0.06]">
+                      {/* Negative tags */}
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">Что НЕ должно быть <span className="text-white/30">(negative tags)</span></Label>
+                        <Input
+                          placeholder="Heavy Metal, EDM, screamo..."
+                          value={negativeTags}
+                          onChange={(e) => setNegativeTags(e.target.value)}
+                          className="bg-background/50 border-white/10 input-glow text-sm"
+                          maxLength={200}
+                          data-testid="input-negative-tags"
+                        />
+                        <p className="text-[10px] text-muted-foreground/60">
+                          Стили которые Suno должен избегать. Через запятую.
+                        </p>
+                      </div>
+
+                      {/* Weirdness slider */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-xs text-muted-foreground">Странность <span className="text-white/30">(weirdness)</span></Label>
+                          <span className="font-mono text-[10px] text-purple-300">{weirdness.toFixed(2)}</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={1}
+                          step={0.05}
+                          value={weirdness}
+                          onChange={(e) => setWeirdness(parseFloat(e.target.value))}
+                          className="w-full accent-purple-500"
+                          data-testid="slider-weirdness"
+                        />
+                        <p className="text-[10px] text-muted-foreground/60">
+                          Чем выше — тем более необычный результат (default 0.30).
+                        </p>
+                      </div>
+
+                      {/* Style weight slider */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-xs text-muted-foreground">Вес стиля <span className="text-white/30">(styleWeight)</span></Label>
+                          <span className="font-mono text-[10px] text-cyan-300">{styleWeight.toFixed(2)}</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={1}
+                          step={0.05}
+                          value={styleWeight}
+                          onChange={(e) => setStyleWeight(parseFloat(e.target.value))}
+                          className="w-full accent-cyan-500"
+                          data-testid="slider-style-weight"
+                        />
+                        <p className="text-[10px] text-muted-foreground/60">
+                          Насколько строго следовать стилю (default 0.50).
+                        </p>
+                      </div>
+
+                      {/* Model version */}
+                      <div className="space-y-1.5">
+                        <Label className="text-xs text-muted-foreground">Версия модели Suno</Label>
+                        <div className="grid grid-cols-5 gap-1.5">
+                          {[
+                            { v: "", l: "Auto" },
+                            { v: "V3_5", l: "V3.5" },
+                            { v: "V4", l: "V4" },
+                            { v: "V4_5", l: "V4.5" },
+                            { v: "V5", l: "V5" },
+                          ].map(m => (
+                            <button
+                              key={m.v || "auto"}
+                              type="button"
+                              className={`text-[11px] px-2 py-1.5 rounded-md border transition-colors ${
+                                modelVersion === m.v
+                                  ? "border-purple-500/60 bg-purple-500/20 text-purple-300"
+                                  : "border-white/10 bg-white/5 text-muted-foreground hover:text-white"
+                              }`}
+                              onClick={() => setModelVersion(m.v)}
+                              data-testid={`model-${m.v || "auto"}`}
+                            >
+                              {m.l}
+                            </button>
+                          ))}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground/60">
+                          V5 — новейшая, лучше следует тексту. V4.5 — баланс. Auto — пусть Suno решит.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -2054,8 +2291,110 @@ export default function MusicPage() {
                   {instrumental && <span className="text-cyan-300">Инструментал</span>}
                 </p>
               )}
+              {/* Eugene 2026-05-18: Suno advanced params в сводке. */}
+              {useAdvancedParams && (negativeTags.trim() || modelVersion || Math.abs(weirdness - 0.3) > 0.001 || Math.abs(styleWeight - 0.5) > 0.001) && (
+                <p className="text-muted-foreground pt-1 border-t border-white/[0.04] mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                  {modelVersion && <span>Модель: <span className="text-purple-300 font-mono">{modelVersion.replace("_", ".")}</span></span>}
+                  {Math.abs(weirdness - 0.3) > 0.001 && <span>Странность: <span className="text-purple-300 font-mono">{weirdness.toFixed(2)}</span></span>}
+                  {Math.abs(styleWeight - 0.5) > 0.001 && <span>Вес стиля: <span className="text-cyan-300 font-mono">{styleWeight.toFixed(2)}</span></span>}
+                  {negativeTags.trim() && <span>Без: <span className="text-red-300">{negativeTags.trim().slice(0, 40)}</span></span>}
+                </p>
+              )}
+              {coverEnabled && (
+                <p className="text-muted-foreground pt-1 border-t border-white/[0.04] mt-1">
+                  + Обложка: <span className="text-cyan-300">{coverPrompt.trim().slice(0, 60) || "(описание не задано)"}</span> <span className="text-cyan-300 font-mono">+{COVER_PRICE} ₽</span>
+                </p>
+              )}
             </div>
           )}
+
+          {/* Eugene 2026-05-18: «кнопка + обложка аккуратненько». Secondary
+              CTA под основной — раскрывает мини-форму. Параллельная генерация
+              обложки 99 ₽ к основному треку. */}
+          <div className="rounded-xl border border-cyan-400/15 bg-gradient-to-br from-cyan-500/[0.04] to-blue-500/[0.02] overflow-hidden">
+            <button
+              type="button"
+              className="w-full px-4 py-3 flex items-center justify-between text-sm font-medium text-white/85 hover:bg-white/[0.02] transition-colors"
+              onClick={() => { setCoverOpen(!coverOpen); if (!coverOpen) setCoverEnabled(true); }}
+              data-testid="btn-toggle-cover"
+            >
+              <span className="flex items-center gap-2">
+                <span className="text-base">🎨</span>
+                <span>+ обложка</span>
+                {coverEnabled && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 font-mono">+{COVER_PRICE} ₽</span>
+                )}
+              </span>
+              <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${coverOpen ? "rotate-180" : ""}`} />
+            </button>
+            {coverOpen && (
+              <div className="px-4 pb-4 space-y-3 border-t border-white/[0.06] pt-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={coverEnabled}
+                    onChange={(e) => setCoverEnabled(e.target.checked)}
+                    className="w-4 h-4 accent-cyan-500"
+                    data-testid="cover-enabled"
+                  />
+                  <span className="text-sm text-white/90">Создавать обложку вместе с треком (+{COVER_PRICE} ₽)</span>
+                </label>
+                {coverEnabled && (
+                  <>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Описание обложки</Label>
+                      <Textarea
+                        placeholder="Космический закат над морем, неоновые отражения, кинематографичная атмосфера..."
+                        value={coverPrompt}
+                        onChange={(e) => setCoverPrompt(e.target.value)}
+                        rows={3}
+                        className="bg-background/50 border-white/10 input-glow resize-none text-sm"
+                        data-testid="input-cover-prompt"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Стиль</Label>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {[
+                          { v: "photo", l: "Фото" },
+                          { v: "illustration", l: "Иллюстрация" },
+                          { v: "abstract", l: "Абстракция" },
+                          { v: "minimal", l: "Минимализм" },
+                        ].map(s => (
+                          <button
+                            key={s.v}
+                            type="button"
+                            className={`text-[11px] px-2 py-1.5 rounded-md border transition-colors ${
+                              coverStyle === s.v
+                                ? "border-cyan-500/60 bg-cyan-500/20 text-cyan-300"
+                                : "border-white/10 bg-white/5 text-muted-foreground hover:text-white"
+                            }`}
+                            onClick={() => setCoverStyle(s.v as any)}
+                            data-testid={`cover-style-${s.v}`}
+                          >
+                            {s.l}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs text-muted-foreground">Цветовая палитра <span className="text-white/30">(опционально)</span></Label>
+                      <Input
+                        placeholder="фиолетовый, голубой, тёплое золото"
+                        value={coverPalette}
+                        onChange={(e) => setCoverPalette(e.target.value)}
+                        className="bg-background/50 border-white/10 input-glow text-sm"
+                        data-testid="input-cover-palette"
+                      />
+                    </div>
+                    <p className="text-[10px] text-cyan-300/70">
+                      💡 Обложка генерируется параллельно с треком и появится в дашборде.
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* === MAGIC GENERATE BUTTON ===
               Магический звон + вспышка при клике + пульсирующее свечение.
@@ -2118,7 +2457,7 @@ export default function MusicPage() {
               ) : mode === "basic" ? (
                 <>
                   <Sparkles className="w-5 h-5 text-yellow-200 drop-shadow" />
-                  <span className="tracking-wide">{!prompt.trim() ? "Опишите песню" : "✨ Создать песню — 299 ₽"}</span>
+                  <span className="tracking-wide">{!prompt.trim() ? "Опишите песню" : `✨ Создать песню — ${299 + (coverEnabled ? COVER_PRICE : 0)} ₽`}</span>
                 </>
               ) : mode === "audio" ? (
                 <>
@@ -2127,7 +2466,7 @@ export default function MusicPage() {
                   </span>
                   <span className="tracking-wide">{audioUploading ? "Загружаю…"
                     : !audioFile && !audioUploadUrl ? "Запишите голос"
-                    : "🎵 Создать кавер — 299 ₽"}</span>
+                    : `🎵 Создать кавер — ${299 + (coverEnabled ? COVER_PRICE : 0)} ₽`}</span>
                 </>
               ) : (
                 <>
@@ -2135,9 +2474,13 @@ export default function MusicPage() {
                   <span className="tracking-wide">
                     {selectedStyles.length === 0
                       ? "Выберите стиль"
-                      : selectedStyles.length > 1
-                      ? `✨ Создать ${selectedStyles.length} ${selectedStyles.length <= 4 ? "трека" : "треков"} — ${selectedStyles.length * 299} ₽`
-                      : "✨ Создать песню — 299 ₽"}
+                      : (() => {
+                          const trackTotal = selectedStyles.length * 299;
+                          const grandTotal = trackTotal + (coverEnabled ? COVER_PRICE : 0);
+                          return selectedStyles.length > 1
+                            ? `✨ Создать ${selectedStyles.length} ${selectedStyles.length <= 4 ? "трека" : "треков"} — ${grandTotal} ₽`
+                            : `✨ Создать песню — ${grandTotal} ₽`;
+                        })()}
                   </span>
                 </>
               )}
