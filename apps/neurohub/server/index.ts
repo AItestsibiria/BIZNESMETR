@@ -84,6 +84,7 @@ import voiceAdminModule from "./plugins/voice-admin/module";
 
 import funnelsModule from "./plugins/funnels/module";
 import userProfilesModule from "./plugins/user-profiles/module";
+import authorsAdminModule from "./plugins/authors-admin/module";
 
 import supportModule from "./plugins/support/module";
 
@@ -466,6 +467,7 @@ app.post("/api/_client-error", express.json(), (req, res) => {
 
     { name: "funnels", module: funnelsModule },
     { name: "user-profiles", module: userProfilesModule },
+    { name: "authors-admin", module: authorsAdminModule },
 
     { name: "support", module: supportModule },
 
