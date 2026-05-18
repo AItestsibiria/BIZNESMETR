@@ -7521,17 +7521,21 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         }
       }
 
-      // Eugene 2026-05-18: Suno advanced params поверх базового payload.
-      // Reference: kie.ai/sunoapi.org docs. Suno использует defaults если
-      // не передавать. ВНИМАНИЕ: vocalGender НЕ применяется к duet/instrumental
-      // (нормализатор уже выставил voiceType — отдаём подсказку только при m/f).
-      if (cleanNegativeTags) payload.negativeTags = cleanNegativeTags;
-      if (cleanWeirdness !== undefined) payload.weirdnessConstraint = cleanWeirdness;
-      if (cleanStyleWeight !== undefined) payload.styleWeight = cleanStyleWeight;
-      if (cleanVocalGender && !isInstrumental && norm.voiceType !== "duet") {
-        payload.vocalGender = cleanVocalGender;
+      // Eugene 2026-05-18 night-audit hotfix: advanced params 841-857 → массовые
+      // ошибки. Гипотеза: GPTunnel /media/create отказывает на camelCase поля
+      // (negativeTags/weirdnessConstraint/styleWeight/vocalGender/modelVersion).
+      // По умолчанию off — старая стабильная схема. Включить:
+      // SUNO_ADVANCED_PARAMS_ENABLED=1 в .env после verify реальных snake_case
+      // имён через docs.kie.ai/sunoapi.org.
+      if (process.env.SUNO_ADVANCED_PARAMS_ENABLED === "1") {
+        if (cleanNegativeTags) payload.negativeTags = cleanNegativeTags;
+        if (cleanWeirdness !== undefined) payload.weirdnessConstraint = cleanWeirdness;
+        if (cleanStyleWeight !== undefined) payload.styleWeight = cleanStyleWeight;
+        if (cleanVocalGender && !isInstrumental && norm.voiceType !== "duet") {
+          payload.vocalGender = cleanVocalGender;
+        }
+        if (cleanModelVersion) payload.modelVersion = cleanModelVersion;
       }
-      if (cleanModelVersion) payload.modelVersion = cleanModelVersion;
 
       console.log(`[MUSIC] gen #${gen.id} voiceType=${norm.voiceType} mode=${payload.mode || "basic"} prompt=${(payload.prompt || "").length}ch lyrics=${(payload.lyric || "").length}ch tags="${(payload.tags || "").slice(0, 100)}" adv={neg:${!!cleanNegativeTags},w:${cleanWeirdness ?? "-"},sw:${cleanStyleWeight ?? "-"},vg:${cleanVocalGender ?? "-"},mv:${cleanModelVersion ?? "-"}}`);
 
