@@ -1094,6 +1094,30 @@ Reference: `apps/neurohub/client/src/lib/lockscreen.ts` (getPersistentPlayerAudi
 
 Если расшифровка двусмысленная — указываю обе версии и спрашиваю «правильно?». Если латинский текст — английский (а не транслит), декодирую как английский без комментария.
 
+### Critical-nodes docs registry (Eugene 2026-05-19, **усиление Docs-first-always rule**)
+
+**Перед ЛЮБОЙ правкой кода работающего с важными узлами — открыть и сверить актуальные docs провайдера.** Босс «обращаться к документации при использовании важных узлов» — не «прочитал один раз и помнишь», а «открой ПЕРЕД каждой задачей».
+
+Реестр «важных узлов» и обязательных docs:
+
+| Узел | Файл в проекте | Обязательная docs |
+|---|---|---|
+| Suno music gen (через GPTunnel) | `apps/neurohub/server/routes.ts` /api/music/generate | https://docs.kie.ai/suno-api/generate-music + https://docs.sunoapi.org/suno-api/generate-music + https://docs.gptunnel.ru/media-api/suno |
+| GPTunnel /media/create payload | `apps/neurohub/server/routes.ts` gptunnelFetch | **camelCase fields** (`webhookUrl`, `customMode`, `negativeTags`, `vocalGender`, `styleWeight`, `weirdnessConstraint`, `modelVersion`). Response `/media/result` — snake_case (`task_id`, `audio_url`, `image_url`) |
+| GPTunnel /v1/chat/completions | `apps/neurohub/server/lib/llmCore.ts` | OpenAI-compat: https://platform.openai.com/docs/api-reference/chat |
+| Suno webhook callback | `apps/neurohub/server/routes.ts` sunoWebhookHandler | 15-sec response window. Stages: `text`/`first`/`complete` (3 callbacks per gen). 3 fails → retries stop |
+| GPTunnel /v1/audio/transcriptions | `apps/neurohub/server/lib/transcribe.ts` | OpenAI Whisper API |
+| Yandex SpeechKit STT | `apps/neurohub/server/lib/transcribe.ts` | https://yandex.cloud/ru/docs/speechkit/ |
+| Anthropic Claude | `apps/neurohub/server/lib/llmCore.ts` | https://docs.claude.com/en/api/messages |
+| Robokassa init/result | payment endpoints | https://docs.robokassa.ru/ |
+| Telegram Bot API | telegram-bot plugin | https://core.telegram.org/bots/api |
+| MediaSession W3C | `apps/neurohub/client/src/lib/lockscreen.ts` | https://www.w3.org/TR/mediasession/ + webkit.org blog |
+| SMS.ru flashcall | auth-sms plugin | https://sms.ru/api/callcheck |
+
+Правило: при первом обращении к узлу в сессии — WebFetch соответствующий docs URL, цитата в commit-message или комментарии («Согласно docs.kie.ai: camelCase `weirdnessConstraint`…»). Без цитаты push не делаем.
+
+Анти-паттерн который правило закрывает: **commit `9030cc4` + ошибки 841-857** + **dormant webhook** — обе регрессии случились из-за отсутствия сверки с docs. Если бы открыли docs.kie.ai сразу — знали бы что `webhookUrl` это правильное имя (а не `callback_url`).
+
 ### Docs-first-always rule (Eugene 2026-05-18, **сильнее Docs-first debugging rule**)
 
 **При начале ЛЮБОЙ работы над чем-то — сначала открываю официальную документацию.** Не только для дебага, но и для новых фич, refactor'ов, интеграций, выбора API. Расширяет старое правило «Docs-first debugging» на всю работу.

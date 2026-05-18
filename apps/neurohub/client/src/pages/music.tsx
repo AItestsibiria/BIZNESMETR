@@ -540,6 +540,20 @@ export default function MusicPage() {
   // Eugene 2026-05-08: показываем юзеру live-статус, обновляем каждые 10 сек.
   const [activeGens, setActiveGens] = useState<any[]>([]);
 
+  // Eugene 2026-05-19 Босс «при генерации обозначиться — не переходить».
+  // beforeunload warning если юзер пытается закрыть вкладку/обновить с
+  // активной генерацией. Совет — остаться на странице.
+  useEffect(() => {
+    if (activeGens.length === 0) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "Идёт генерация. Если уйти сейчас — трек может прерваться.";
+      return e.returnValue;
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [activeGens.length]);
+
   // Resume polling for any processing generation on page load
   useEffect(() => {
     if (!user) return;
@@ -954,15 +968,22 @@ export default function MusicPage() {
     <div className="min-h-screen pt-20 px-4 pb-12 hero-gradient">
       <div className="max-w-3xl mx-auto">
         {/* Eugene 2026-05-08: «Идёт процесс генерации» live-статус.
-            Берём из activeGens (обновляются каждые 10 сек). */}
+            Берём из activeGens (обновляются каждые 10 сек).
+            Eugene 2026-05-19 Босс «при генерации обозначиться — не переходить
+            и ничего не нажимать. В этом глубина проблемы». Усиленный warning
+            с amber-glow + чёткое объяснение почему. */}
         {activeGens.length > 0 && (
-          <div className="mb-4 rounded-xl border border-purple-500/40 bg-gradient-to-r from-purple-500/15 to-blue-500/15 p-3 flex items-center gap-3 animate-pulse">
-            <div className="w-2.5 h-2.5 rounded-full bg-purple-400 animate-ping shrink-0" />
+          <div className="mb-4 rounded-xl border-2 border-amber-400/50 bg-gradient-to-r from-purple-500/15 via-amber-500/10 to-blue-500/15 p-4 flex items-start gap-3 shadow-[0_0_24px_rgba(251,191,36,0.25)]">
+            <div className="w-3 h-3 rounded-full bg-amber-400 animate-ping shrink-0 mt-1.5" />
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-purple-100">
-                🔄 Идёт процесс генерации: {activeGens.length} {activeGens.length === 1 ? "трек" : "трека"}
+              <p className="text-sm font-bold text-amber-100 mb-1 flex items-center gap-2">
+                🔄 Идёт генерация: {activeGens.length} {activeGens.length === 1 ? "трек" : "трека"}
               </p>
-              <p className="text-xs text-purple-200/80 truncate">
+              <p className="text-xs text-amber-100/90 mb-2 leading-relaxed">
+                <span className="font-semibold text-amber-200">⚠️ Не уходи со страницы и ничего не нажимай.</span>{" "}
+                MuzaAi думает 2-5 минут. Если перейти раньше — может прерваться, придётся ждать восстановления.
+              </p>
+              <p className="text-xs text-purple-200/70 truncate">
                 {activeGens.slice(0, 3).map((g) => g.displayTitle || g.prompt?.slice(0, 40) || `#${g.id}`).join(" · ")}
                 {activeGens.length > 3 && ` · ещё ${activeGens.length - 3}`}
               </p>

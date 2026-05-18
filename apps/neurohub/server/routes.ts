@@ -7555,21 +7555,29 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         }
       }
 
-      // Eugene 2026-05-18 night-audit hotfix: advanced params 841-857 → массовые
-      // ошибки. Гипотеза: GPTunnel /media/create отказывает на camelCase поля
-      // (negativeTags/weirdnessConstraint/styleWeight/vocalGender/modelVersion).
-      // По умолчанию off — старая стабильная схема. Включить:
-      // SUNO_ADVANCED_PARAMS_ENABLED=1 в .env после verify реальных snake_case
-      // имён через docs.kie.ai/sunoapi.org.
-      if (process.env.SUNO_ADVANCED_PARAMS_ENABLED === "1") {
-        if (cleanNegativeTags) payload.negativeTags = cleanNegativeTags;
-        if (cleanWeirdness !== undefined) payload.weirdnessConstraint = cleanWeirdness;
-        if (cleanStyleWeight !== undefined) payload.styleWeight = cleanStyleWeight;
-        if (cleanVocalGender && !isInstrumental && norm.voiceType !== "duet") {
-          payload.vocalGender = cleanVocalGender;
-        }
-        if (cleanModelVersion) payload.modelVersion = cleanModelVersion;
+      // Eugene 2026-05-19 — docs-research 2026-05-19 подтвердил: kie.ai/GPTunnel
+      // /media/create ожидают camelCase (`negativeTags`, `weirdnessConstraint`,
+      // `styleWeight`, `vocalGender`, `modelVersion`, `webhookUrl`). Reference:
+      // docs.kie.ai/suno-api/generate-music + docs.gptunnel.ru/media-api/suno.
+      // Имена правильные → re-enable. Root cause ошибок 841-857 был в другом
+      // (вероятно — leave-page без server-side polling; теперь чиним webhook).
+      if (cleanNegativeTags) payload.negativeTags = cleanNegativeTags;
+      if (cleanWeirdness !== undefined) payload.weirdnessConstraint = cleanWeirdness;
+      if (cleanStyleWeight !== undefined) payload.styleWeight = cleanStyleWeight;
+      if (cleanVocalGender && !isInstrumental && norm.voiceType !== "duet") {
+        payload.vocalGender = cleanVocalGender;
       }
+      if (cleanModelVersion) payload.modelVersion = cleanModelVersion;
+
+      // Webhook callback — устраняет leave-page проблему. Suno postит результат
+      // на /api/suno/webhook когда готов; нам не нужен client-side polling.
+      // Reference: docs.kie.ai/suno-api/generate-music — поле `webhookUrl`
+      // camelCase. Безопасно поставить ВСЕГДА: handler идемпотентен, в случае
+      // unreachable URL — fallback на client polling работает как раньше.
+      try {
+        const wh = buildSunoCallbackUrl(req, gen.id);
+        if (wh) payload.webhookUrl = wh;
+      } catch {}
 
       console.log(`[MUSIC] gen #${gen.id} voiceType=${norm.voiceType} mode=${payload.mode || "basic"} prompt=${(payload.prompt || "").length}ch lyrics=${(payload.lyric || "").length}ch tags="${(payload.tags || "").slice(0, 100)}" adv={neg:${!!cleanNegativeTags},w:${cleanWeirdness ?? "-"},sw:${cleanStyleWeight ?? "-"},vg:${cleanVocalGender ?? "-"},mv:${cleanModelVersion ?? "-"}}`);
 
