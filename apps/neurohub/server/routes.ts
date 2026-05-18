@@ -1986,6 +1986,50 @@ export async function registerRoutes(
     return { reply: cleaned, quickReplies: matches.slice(0, 4) };
   }
 
+  // Eugene 2026-05-18 Босс «чат → окно генерации с 3 кнопками».
+  // Парсим [PROPOSE_GEN:mode=X|style=Y|voice=Z|lyrics=W|reason=R] маркер
+  // который Муза вставляет в конец реплики когда видит «готов(а) делать».
+  // Фронт по этому payload рендерит карточку с выбором режима + pre-fill.
+  type ProposedGeneration = {
+    mode: "audio" | "simple" | "full";
+    style?: string;
+    voice?: "female" | "male" | "duet" | "instrumental";
+    lyrics?: string;
+    reason: string;
+  };
+  function extractProposedGeneration(text: string): { reply: string; proposed: ProposedGeneration | null } {
+    const RE = /\[PROPOSE_GEN:([^\]\n]{3,500})\]/i;
+    const m = RE.exec(text);
+    if (!m) return { reply: text, proposed: null };
+    const cleaned = text.replace(RE, "").replace(/\n{3,}/g, "\n\n").trim();
+    const payload = m[1];
+    // Разбираем k=v|k=v
+    const parts = payload.split("|").map(s => s.trim()).filter(Boolean);
+    const kv: Record<string, string> = {};
+    for (const p of parts) {
+      const eq = p.indexOf("=");
+      if (eq <= 0) continue;
+      const k = p.slice(0, eq).trim().toLowerCase();
+      const v = p.slice(eq + 1).trim();
+      if (k && v) kv[k] = v.slice(0, 300);
+    }
+    const modeRaw = String(kv.mode || "").toLowerCase();
+    const mode: ProposedGeneration["mode"] | null =
+      modeRaw === "audio" || modeRaw === "simple" || modeRaw === "full" ? modeRaw as any : null;
+    if (!mode) return { reply: cleaned, proposed: null };
+    const voiceRaw = String(kv.voice || "").toLowerCase();
+    const voice: ProposedGeneration["voice"] | undefined =
+      voiceRaw === "female" || voiceRaw === "male" || voiceRaw === "duet" || voiceRaw === "instrumental"
+        ? (voiceRaw as any)
+        : undefined;
+    const STYLES = ["pop","rock","lullaby","chanson","hiphop","electronic","folk","acoustic-guitar","orchestral","lounge"];
+    const styleRaw = String(kv.style || "").toLowerCase();
+    const style = STYLES.includes(styleRaw) ? styleRaw : undefined;
+    const lyrics = kv.lyrics ? kv.lyrics.slice(0, 200) : undefined;
+    const reason = (kv.reason || "user_signaled_ready").slice(0, 120);
+    return { reply: cleaned, proposed: { mode, style, voice, lyrics, reason } };
+  }
+
   // Eugene 2026-05-17 Босс «5-летняя девочка fix»: распознаём «юзер просит
   // свои данные» по тексту чтобы fallback не задавал sales-вопросы про повод.
   // Возвращает intent + label для «не дозвонилась» сообщения + retry QR-кнопку.
@@ -2863,6 +2907,13 @@ export async function registerRoutes(
           reply = pool[Math.floor(Math.random() * pool.length)];
         }
       }
+      // Eugene 2026-05-18 Босс «чат → окно генерации с 3 кнопками».
+      // Парсим [PROPOSE_GEN:...] ДО QR — маркеры независимы, но порядок
+      // не критичен. Strip из текста, передаём отдельным полем.
+      const proposedExtract = extractProposedGeneration(reply);
+      reply = proposedExtract.reply;
+      const proposedGeneration = proposedExtract.proposed;
+
       const parsed = extractQuickReplies(reply);
       let quickReplies = parsed.quickReplies;
       reply = parsed.reply;
@@ -2926,6 +2977,10 @@ export async function registerRoutes(
         paired: pairedNow,
         pairedFromChannel: pairedNow ? session.channel : null,
         memo: updatedMemo,
+        // Eugene 2026-05-18 Босс «чат → окно генерации»: если Муза вставила
+        // [PROPOSE_GEN:...] маркер — отдаём фронту payload, по нему рендерится
+        // карточка с 3 кнопками (Аудио / Простой / Полная).
+        proposedGeneration,
       });
     } catch (e: any) {
       console.error("[MUZA-CHAT send]", e);
