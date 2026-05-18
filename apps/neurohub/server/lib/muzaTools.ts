@@ -536,6 +536,38 @@ export const MUZA_TOOLS: ToolDef[] = [
       required: ["reason"],
     },
   },
+
+  // Eugene 2026-05-18 Босс «Муза знает всё, но клиентам — только продажи/ЛК/
+  // генерация». classify_question — utility tool, помогает Музе быстро понять
+  // относится ли вопрос юзера к разрешённой зоне. Доступен ВСЕМ ролям —
+  // это classifier, не доступ к данным.
+  {
+    name: "classify_question",
+    description: "Классифицировать вопрос юзера по зоне открытости. Используй когда сомневаешься «можно отвечать или это про код/internals?». Возвращает category + allowed + redirectTo. Если allowed=false — НЕ выдумывай ответ, передай на support email.",
+    input_schema: {
+      type: "object",
+      properties: {
+        question: { type: "string", description: "Текст вопроса юзера" },
+      },
+      required: ["question"],
+    },
+  },
+
+  // Eugene 2026-05-18 Босс «администратору выдаёт всю информацию» — aggregate
+  // stats юзеров (по ролям / странам / каналам регистрации). НЕ дублирует
+  // query_users (тот по substring) и get_metrics (тот dashboard-сводка).
+  // Тут — group-by с count uniques. ADMIN-ONLY.
+  {
+    name: "query_users_stats",
+    description: "[ADMIN-ONLY] Агрегированная статистика по юзерам — total, по ролям (user/admin/super_admin), по регистрации (phone/email/telegram), по стране (top-10), по статусу (blocked/active). groupBy: 'role'|'channel'|'country'|'status'|'all' (default 'all'). Возвращает короткие counts. Используй когда админ спрашивает «сколько юзеров», «откуда регистрируются», «сколько админов».",
+    input_schema: {
+      type: "object",
+      properties: {
+        groupBy: { type: "string", enum: ["role", "channel", "country", "status", "all"], description: "Группировка (default all)" },
+      },
+      required: [],
+    },
+  },
 ];
 
 // === Email 2FA wrapper helper (Eugene 2026-05-17 Босс) ===
@@ -1840,6 +1872,119 @@ const HANDLERS: Record<string, ToolHandler> = {
       reason: finalReason,
       message: `Вставь в конец реплики маркер [PROPOSE_REGISTER:reason=${finalReason}] — фронт сам отрисует карточку «Войти / Зарегистрироваться / Дать email».`,
     });
+  },
+
+  // Eugene 2026-05-18 Босс «Муза знает всё, но клиентам — только продажи/ЛК/
+  // генерация». classify_question — utility: возвращает category + allowed +
+  // redirectTo. Используется чтобы Муза могла быстро решить «отвечаю или
+  // отправляю на hello@muzaai.ru». Tool безопасен — данные не выгружает,
+  // просто словесная классификация по keywords.
+  async classify_question({ question }, ctx) {
+    const q = String(question || "").toLowerCase().trim();
+    if (!q) return JSON.stringify({ category: "other", allowed: false, redirectTo: "support_email" });
+
+    // Admin role — все темы разрешены (override).
+    if (isAdminCtx(ctx)) {
+      return JSON.stringify({
+        category: "admin",
+        allowed: true,
+        redirectTo: null,
+        note: "Юзер — Босс. Все темы разрешены.",
+      });
+    }
+
+    // Keyword-based classifier. Каждая категория — список характерных слов.
+    const RULES: Array<{ category: string; allowed: boolean; redirectTo: string | null; kw: RegExp }> = [
+      { category: "sales", allowed: true, redirectTo: null,
+        kw: /(цен|стоит|тариф|пакет|акци|промокод|оплат|чек|54-фз|купить|подарочн|подписк|скидк|возврат|реферал)/i },
+      { category: "cabinet", allowed: true, redirectTo: null,
+        kw: /(кабинет|регистрац|восстанов|войти|логин|пароль|телефон|email|почта|профиль|подтвержд|настройк)/i },
+      { category: "generation", allowed: true, redirectTo: null,
+        kw: /(трек|песн|сгенер|создать|обложк|стил|жанр|голос|вокал|extend|cover|кавер|bpm|тональн|инструмент|расшир|простой|аудио|текст песни|лирик|караоке|длительност|воспроизвед|плеер|плейлист)/i },
+      { category: "support", allowed: true, redirectTo: null,
+        kw: /(не работает|ошибк|зависл|висит|пропал|сломал|не могу|потерял|помог|вопрос|связ)/i },
+      // Запрещённые зоны:
+      { category: "technical", allowed: false, redirectTo: "support_email",
+        kw: /(код|архитектур|api|база данн|бд|sql|сервер|деплой|плагин|webhook|gptunnel|suno|anthropic|claude|yandex|robokassa|node|typescript|react|stack|provider|backend|frontend)/i },
+      { category: "business", allowed: false, redirectTo: "support_email",
+        kw: /(выручк|оборот|маржа|наценк|зарплат|сотрудник|нанимат|инвестор|инвестиц|основател|собственник|бизнес-план|стратеги|roadmap|спринт|инфолайн|компани)/i },
+      { category: "other_users", allowed: false, redirectTo: "support_email",
+        kw: /(другие юзер|чужие|кто ещё|сколько юзер|сколько клиент|чужой трек|чужие данные|чьи)/i },
+      { category: "secrets", allowed: false, redirectTo: "support_email",
+        kw: /(токен|ключ.*api|секрет|password|приватн.*ключ|пароль от|env|smtp_pass)/i },
+    ];
+
+    for (const r of RULES) {
+      if (r.kw.test(q)) {
+        return JSON.stringify({
+          category: r.category,
+          allowed: r.allowed,
+          redirectTo: r.redirectTo,
+          note: r.allowed
+            ? "Можно отвечать — это разрешённая зона."
+            : "НЕ выдумывай ответ. Перенаправь на hello@muzaai.ru и мягко переключи на разрешённую тему.",
+        });
+      }
+    }
+    // Не попало ни в одно правило — нейтрально разрешаем (просто общение / приветствия / эмоции).
+    return JSON.stringify({
+      category: "other",
+      allowed: true,
+      redirectTo: null,
+      note: "Нейтральная тема (общение / эмоции). Отвечай тёплым тоном, без выдумывания технических деталей.",
+    });
+  },
+
+  // Eugene 2026-05-18 Босс «администратору выдаёт всю информацию» — aggregate
+  // stats юзеров. ADMIN-ONLY. Не PII — только counts.
+  async query_users_stats({ groupBy }, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
+    const gb = String(groupBy || "all").toLowerCase();
+    try {
+      const lines: string[] = [];
+      if (gb === "all" || gb === "role") {
+        const rows = (db as any).$client.prepare(`
+          SELECT role, COUNT(*) AS cnt FROM users
+          WHERE deleted_at IS NULL OR deleted_at = ''
+          GROUP BY role ORDER BY cnt DESC
+        `).all();
+        lines.push("По ролям:");
+        for (const r of rows) lines.push(`  ${r.role || "user"}: ${fmt(r.cnt)}`);
+      }
+      if (gb === "all" || gb === "channel") {
+        const phoneCount = (db as any).$client.prepare(`SELECT COUNT(*) AS cnt FROM users WHERE phone IS NOT NULL AND phone != ''`).get();
+        const emailCount = (db as any).$client.prepare(`SELECT COUNT(*) AS cnt FROM users WHERE email IS NOT NULL AND email != '' AND (phone IS NULL OR phone = '')`).get();
+        const tgCount = (db as any).$client.prepare(`SELECT COUNT(*) AS cnt FROM users WHERE telegram_id IS NOT NULL AND telegram_id != ''`).get();
+        lines.push("По каналу регистрации:");
+        lines.push(`  phone: ${fmt(phoneCount?.cnt || 0)}`);
+        lines.push(`  только email: ${fmt(emailCount?.cnt || 0)}`);
+        lines.push(`  с telegram_id: ${fmt(tgCount?.cnt || 0)}`);
+      }
+      if (gb === "all" || gb === "country") {
+        const rows = (db as any).$client.prepare(`
+          SELECT COALESCE(NULLIF(country, ''), '—') AS country, COUNT(*) AS cnt
+          FROM users
+          WHERE (deleted_at IS NULL OR deleted_at = '')
+          GROUP BY country ORDER BY cnt DESC LIMIT 10
+        `).all();
+        lines.push("По странам (top-10):");
+        for (const r of rows) lines.push(`  ${r.country}: ${fmt(r.cnt)}`);
+      }
+      if (gb === "all" || gb === "status") {
+        const blocked = (db as any).$client.prepare(`SELECT COUNT(*) AS cnt FROM users WHERE blocked = 1`).get();
+        const active = (db as any).$client.prepare(`SELECT COUNT(*) AS cnt FROM users WHERE (blocked IS NULL OR blocked = 0) AND (deleted_at IS NULL OR deleted_at = '')`).get();
+        const verified = (db as any).$client.prepare(`SELECT COUNT(*) AS cnt FROM users WHERE phone_verified = 1`).get();
+        lines.push("По статусу:");
+        lines.push(`  active: ${fmt(active?.cnt || 0)}`);
+        lines.push(`  blocked: ${fmt(blocked?.cnt || 0)}`);
+        lines.push(`  phone verified: ${fmt(verified?.cnt || 0)}`);
+      }
+      const total = (db as any).$client.prepare(`SELECT COUNT(*) AS cnt FROM users WHERE deleted_at IS NULL OR deleted_at = ''`).get();
+      lines.unshift(`Всего юзеров: ${fmt(total?.cnt || 0)}`);
+      return lines.join("\n");
+    } catch (e: any) {
+      return `Ошибка query_users_stats: ${e?.message || e}`;
+    }
   },
 };
 
