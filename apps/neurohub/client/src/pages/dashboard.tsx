@@ -2423,6 +2423,358 @@ function MyLyricsDraftsSection() {
   );
 }
 
+// Eugene 2026-05-18 Босс «в кабинете автора иконочка Музы под папочкой —
+// открывает историю взаимодействия. Юзер может в любое время зайти и
+// продолжить разговор». Карточка показывает summary (кол-во диалогов /
+// сообщений / последний контакт). По «Открыть» — модалка со списком
+// сессий, по «Продолжить» — переход к floating-consultant с pre-loaded
+// session через CustomEvent `musa-continue-session`.
+//
+// TODO: Eugene 2026-05-18 «диалоговое общение для премиум-аккаунтов» —
+// в premium-mode подгружать full extended memory + proactive-triggers.
+type MusaHistorySession = {
+  sessionId: string;
+  channel: string;
+  personaName: string | null;
+  personaAvatar: string;
+  startedAt: string | null;
+  lastMessageAt: string | null;
+  messagesCount: number;
+  preview: string;
+  topicHint: string | null;
+};
+
+function channelEmoji(ch: string): string {
+  const lc = String(ch || "").toLowerCase();
+  if (lc === "telegram") return "📱";
+  if (lc === "max") return "💬";
+  if (lc === "vk") return "🅥";
+  if (lc === "email") return "✉️";
+  return "🌐";
+}
+
+function channelLabel(ch: string): string {
+  const lc = String(ch || "").toLowerCase();
+  if (lc === "telegram") return "Telegram";
+  if (lc === "max") return "Max";
+  if (lc === "vk") return "VK";
+  if (lc === "email") return "Email";
+  return "Сайт";
+}
+
+function formatRelative(iso: string | null): string {
+  if (!iso) return "—";
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "—";
+  const diff = Date.now() - t;
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return "только что";
+  if (min < 60) return `${min} мин назад`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr} ч назад`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day} дн назад`;
+  try {
+    return new Date(t).toLocaleDateString("ru-RU", { day: "2-digit", month: "short" });
+  } catch { return "—"; }
+}
+
+function MusaHistorySection() {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [viewSessionId, setViewSessionId] = useState<string | null>(null);
+
+  const { data, isLoading, refetch } = useQuery<{ data: { sessions: MusaHistorySession[]; totalMessages: number } }>({
+    queryKey: ["/api/user/musa-history"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/user/musa-history");
+      return r.json();
+    },
+  });
+  const sessions = data?.data?.sessions || [];
+  const totalMessages = data?.data?.totalMessages || 0;
+  const dialogsCount = sessions.length;
+  const lastTs = sessions[0]?.lastMessageAt || null;
+
+  const handleContinue = async (sessionId: string, personaName: string | null) => {
+    try {
+      const r = await apiRequest("POST", `/api/user/musa-history/${encodeURIComponent(sessionId)}/continue`);
+      if (!r.ok) throw new Error("continue failed");
+      const j = await r.json();
+      if (!j?.data) throw new Error("no data");
+      // Сохраняем sessionId в localStorage чтобы floating-consultant
+      // подхватил эту сессию при openChat().
+      try {
+        sessionStorage.setItem("_muzaChatSid", sessionId);
+        localStorage.setItem("_muzaChatSid", sessionId);
+      } catch {}
+      setOpen(false);
+      const name = personaName || j.data.personaName || "Музой";
+      toast({ title: `Продолжаем с ${name} ✨` });
+      // CustomEvent → floating-consultant.tsx подхватит и откроет чат.
+      try {
+        window.dispatchEvent(new CustomEvent("musa-continue-session", { detail: { sessionId } }));
+      } catch {}
+    } catch (e: any) {
+      toast({ title: e?.message || "Не получилось продолжить", variant: "destructive" });
+    }
+  };
+
+  const handleContinueLast = () => {
+    if (sessions.length === 0) {
+      toast({ title: "Пока нет диалогов — начни новый!" });
+      return;
+    }
+    const s = sessions[0];
+    handleContinue(s.sessionId, s.personaName);
+  };
+
+  return (
+    <>
+      {/* Эталон стиля — brand-style consistency rule (glass-card + gradient title + font-mono для цифр) */}
+      <div className="mb-6 glass-card rounded-2xl p-5 border border-purple-500/30 hover:border-purple-500/50 transition-colors">
+        <div className="flex items-start gap-4">
+          {/* Icon: папочка + аватар Музы поверх */}
+          <div className="relative flex-shrink-0">
+            <div className="text-4xl select-none">📁</div>
+            <div
+              className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-gradient-to-br from-purple-500 via-fuchsia-500 to-blue-500 flex items-center justify-center text-base shadow-[0_0_12px_rgba(124,58,237,0.5)] border-2 border-[#0a0a17]"
+              aria-hidden="true"
+            >
+              🎀
+            </div>
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="text-lg font-display font-bold text-white mb-1">
+              💬 <span className="bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">История разговоров с Музой</span>
+            </h3>
+            {isLoading ? (
+              <p className="text-sm font-sans text-muted-foreground">Загружаю историю…</p>
+            ) : dialogsCount === 0 ? (
+              <p className="text-sm font-sans text-muted-foreground">
+                Пока нет сохранённых диалогов. Напиши Музе — она запомнит ✨
+              </p>
+            ) : (
+              <p className="text-sm font-sans text-muted-foreground">
+                <span className="font-mono text-white">{totalMessages}</span>{" "}
+                <span>сообщ. в </span>
+                <span className="font-mono text-white">{dialogsCount}</span>{" "}
+                <span>диалог{dialogsCount === 1 ? "е" : "ах"}</span>
+                {lastTs && (
+                  <>
+                    {" · "}
+                    <span className="text-purple-300">последний</span>{" "}
+                    <span className="font-mono">{formatRelative(lastTs)}</span>
+                  </>
+                )}
+              </p>
+            )}
+            <div className="flex items-center gap-2 mt-3 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setOpen(true)}
+                disabled={dialogsCount === 0}
+                className="text-sm font-medium px-4 py-2 rounded-xl bg-white/5 border border-purple-400/30 text-white hover:bg-gradient-to-br hover:from-purple-500/60 hover:to-fuchsia-500/60 hover:border-purple-300/50 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                data-testid="musa-history-open"
+              >
+                👀 Открыть
+              </button>
+              <button
+                type="button"
+                onClick={handleContinueLast}
+                disabled={dialogsCount === 0}
+                className="text-sm font-medium px-4 py-2 rounded-xl bg-gradient-to-r from-purple-500 via-fuchsia-500 to-cyan-500 text-white shadow-[0_0_16px_rgba(124,58,237,0.4)] hover:shadow-[0_0_24px_rgba(124,58,237,0.6)] transition-shadow disabled:opacity-40 disabled:cursor-not-allowed"
+                data-testid="musa-history-continue-last"
+              >
+                ▶ Продолжить последний
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Modal со списком всех сессий */}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-2xl bg-gradient-to-br from-[#0a0a17]/95 via-[#1a0f2e]/95 to-[#0a0a17]/95 backdrop-blur-xl border border-purple-500/30 max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">
+              💬 Все диалоги с Музой
+            </DialogTitle>
+            <DialogDescription className="text-sm font-sans text-muted-foreground">
+              Cross-channel история: сайт, Telegram, Max. Можно продолжить любой.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2 mt-2">
+            {sessions.length === 0 && (
+              <div className="text-sm font-sans text-muted-foreground py-4 text-center">
+                Пока нет диалогов.
+              </div>
+            )}
+            {sessions.map((s) => (
+              <div
+                key={s.sessionId}
+                className="glass-card rounded-xl p-3 border border-purple-500/20 hover:border-purple-500/40 transition-colors"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="text-2xl select-none flex-shrink-0">{s.personaAvatar}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <span className="text-sm font-sans font-semibold text-white">
+                        {s.personaName || "Муза"}
+                      </span>
+                      <span className="text-[10px] font-sans px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-medium">
+                        {channelEmoji(s.channel)} {channelLabel(s.channel)}
+                      </span>
+                      <span className="text-[10px] font-mono text-muted-foreground">
+                        {s.messagesCount} сообщ.
+                      </span>
+                    </div>
+                    {s.preview && (
+                      <p className="text-xs font-sans text-muted-foreground line-clamp-2 mb-2">
+                        «{s.preview}»
+                      </p>
+                    )}
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <span className="text-[10px] font-mono text-muted-foreground">
+                        {formatRelative(s.lastMessageAt)}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setViewSessionId(s.sessionId)}
+                          className="text-xs px-3 py-1 rounded-lg bg-white/5 border border-white/10 text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+                          data-testid={`musa-history-view-${s.sessionId}`}
+                        >
+                          👁 Просмотреть
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleContinue(s.sessionId, s.personaName)}
+                          className="text-xs px-3 py-1 rounded-lg bg-gradient-to-r from-purple-500/60 to-fuchsia-500/60 text-white border border-purple-400/30 hover:from-purple-500 hover:to-fuchsia-500 transition-all"
+                          data-testid={`musa-history-continue-${s.sessionId}`}
+                        >
+                          ▶ Продолжить
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Read-only view модалка для конкретной сессии */}
+      <MusaHistoryViewModal
+        sessionId={viewSessionId}
+        onClose={() => setViewSessionId(null)}
+        onContinue={(sid, name) => { setViewSessionId(null); handleContinue(sid, name); }}
+      />
+    </>
+  );
+}
+
+type MusaHistoryViewData = {
+  session: {
+    sessionId: string;
+    channel: string;
+    personaName: string | null;
+    personaAvatar: string;
+    startedAt: string | null;
+    lastMessageAt: string | null;
+    topicHint: string | null;
+  };
+  messages: Array<{ id: number; role: "user" | "bot"; text: string; createdAt: string | null }>;
+};
+
+function MusaHistoryViewModal({
+  sessionId,
+  onClose,
+  onContinue,
+}: {
+  sessionId: string | null;
+  onClose: () => void;
+  onContinue: (sid: string, personaName: string | null) => void;
+}) {
+  const enabled = !!sessionId;
+  const { data, isLoading } = useQuery<{ data: MusaHistoryViewData }>({
+    queryKey: ["/api/user/musa-history", sessionId],
+    queryFn: async () => {
+      const r = await apiRequest("GET", `/api/user/musa-history/${encodeURIComponent(sessionId!)}`);
+      return r.json();
+    },
+    enabled,
+  });
+  const sess = data?.data?.session;
+  const msgs = data?.data?.messages || [];
+
+  return (
+    <Dialog open={enabled} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-2xl bg-gradient-to-br from-[#0a0a17]/95 via-[#1a0f2e]/95 to-[#0a0a17]/95 backdrop-blur-xl border border-purple-500/30 max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="text-xl font-display font-bold flex items-center gap-2">
+            <span className="text-2xl">{sess?.personaAvatar || "🎀"}</span>
+            <span className="bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">
+              {sess?.personaName || "Муза"}
+            </span>
+            {sess && (
+              <span className="text-[10px] font-sans px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-medium ml-2">
+                {channelEmoji(sess.channel)} {channelLabel(sess.channel)}
+              </span>
+            )}
+          </DialogTitle>
+          <DialogDescription className="text-sm font-sans text-muted-foreground">
+            Read-only вид. Нажми «Продолжить» чтобы возобновить диалог.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-2 mt-2">
+          {isLoading && <p className="text-sm font-sans text-muted-foreground py-4 text-center">Загружаю…</p>}
+          {!isLoading && msgs.length === 0 && (
+            <p className="text-sm font-sans text-muted-foreground py-4 text-center">Сообщений нет.</p>
+          )}
+          {msgs.map((m) => (
+            <div
+              key={m.id}
+              className={`rounded-xl p-3 border ${
+                m.role === "user"
+                  ? "bg-white/5 border-white/10 ml-auto max-w-[85%]"
+                  : "bg-gradient-to-br from-purple-500/10 via-fuchsia-500/5 to-blue-500/10 border-purple-500/20 mr-auto max-w-[85%]"
+              }`}
+            >
+              <div className="text-[10px] font-mono text-muted-foreground mb-1">
+                {m.role === "user" ? "Ты" : sess?.personaName || "Муза"} · {formatRelative(m.createdAt)}
+              </div>
+              <div className="text-sm font-sans text-white whitespace-pre-wrap break-words">{m.text}</div>
+            </div>
+          ))}
+        </div>
+
+        {sess && (
+          <div className="flex items-center justify-end gap-2 mt-3 pt-3 border-t border-white/10">
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-sm px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-white/80 hover:bg-white/10 hover:text-white transition-colors"
+            >
+              Закрыть
+            </button>
+            <button
+              type="button"
+              onClick={() => onContinue(sess.sessionId, sess.personaName)}
+              className="text-sm font-medium px-4 py-2 rounded-xl bg-gradient-to-r from-purple-500 via-fuchsia-500 to-cyan-500 text-white shadow-[0_0_16px_rgba(124,58,237,0.4)] hover:shadow-[0_0_24px_rgba(124,58,237,0.6)] transition-shadow"
+            >
+              ▶ Продолжить
+            </button>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // Eugene 2026-05-16 Босс «errored треки вниз + предложение удалить через 1/7/15/30 дней».
 // Dropdown открывается над/под кнопкой, options закрепляют scheduled_delete_at
 // через POST /api/generations/:id/schedule-delete. Если уже выставлен —
@@ -2997,6 +3349,11 @@ export default function DashboardPage() {
             </p>
           </DialogContent>
         </Dialog>
+
+        {/* Eugene 2026-05-18 Босс «иконочка Музы под папочкой — открывает
+            историю взаимодействия. Юзер может в любое время зайти и продолжить
+            разговор». Cross-channel история диалогов (web + telegram + max). */}
+        <MusaHistorySection />
 
         {/* My Drafts — сохранённые идеи/тексты, готовые к генерации одним кликом */}
         <MyDraftsSection />
