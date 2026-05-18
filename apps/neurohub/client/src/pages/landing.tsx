@@ -1196,6 +1196,126 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           </div>
         </button>
 
+        {/* Eugene 2026-05-17 Босс «убери новость про регистрацию по телефону» —
+            скрыто пока reverse-flashcall flow не до отшлифован. */}
+
+      </div>
+    </section>
+
+    {/* Contacts */}
+    <section className="relative z-[1] py-4 px-4">
+      <div className="max-w-2xl mx-auto text-center">
+        <p className="text-xs text-muted-foreground/40">
+          Контакты: <a href="#" onClick={openMail} className="hover:text-purple-300 transition-colors">написать нам</a>
+        </p>
+      </div>
+    </section>
+
+    {/* Eugene 2026-05-15 Босс «Музу в топ рейтинга до понедельника» —
+        большая Муза-секция в landing (SEO + visibility). H1/H2 содержит
+        «Муза», «MuzaAi», ключевики. Структурированная для Schema.org. */}
+    <section id="muza-section" className="relative z-[1] py-16 px-4 border-t border-white/[0.04] bg-gradient-to-b from-transparent via-purple-500/[0.03] to-transparent">
+      <div className="max-w-5xl mx-auto">
+        <div className="flex flex-col md:flex-row items-center gap-8">
+          <div className="w-32 h-32 sm:w-40 sm:h-40 shrink-0 rounded-2xl bg-gradient-to-br from-purple-500/30 via-violet-500/25 to-blue-500/25 border-2 border-purple-300/40 flex items-center justify-center shadow-[0_0_48px_rgba(168,85,247,0.3)] relative overflow-hidden">
+            <span className="absolute inset-0 bg-gradient-to-br from-purple-500/20 to-blue-500/20 blur-xl" aria-hidden="true" />
+            <div className="relative z-10 text-7xl">✨</div>
+          </div>
+          <div className="flex-1 text-center md:text-left">
+            <h2 className="text-3xl sm:text-4xl font-bold mb-3 leading-tight">
+              <span className="bg-gradient-to-r from-purple-300 via-violet-200 to-blue-300 bg-clip-text text-transparent">Муза</span>
+              {" "}— твой ИИ-помощник
+            </h2>
+            <p className="text-base sm:text-lg text-muted-foreground mb-4 leading-relaxed max-w-2xl">
+              Виртуальная Муза помогает создать песню, обложку и текст за минуту.
+              Опишите событие — Муза предложит стиль, голос, настроение и сгенерирует трек.
+              Поп, рок, рэп, классика, шансон, инди — все жанры на MuzaAi.
+            </p>
+            <div className="flex flex-wrap items-center gap-2 justify-center md:justify-start">
+              <span className="text-xs px-3 py-1.5 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-200">🎵 Музыка с ИИ</span>
+              <span className="text-xs px-3 py-1.5 rounded-full bg-pink-500/15 border border-pink-500/30 text-pink-200">🎉 Песня в подарок</span>
+              <span className="text-xs px-3 py-1.5 rounded-full bg-cyan-500/15 border border-cyan-500/30 text-cyan-200">📝 Текст и обложка</span>
+              <span className="text-xs px-3 py-1.5 rounded-full bg-amber-400/15 border border-amber-400/40 text-amber-200">🆓 Первый трек бесплатно</span>
+            </div>
+            <div className="mt-5 flex flex-wrap items-center gap-3 justify-center md:justify-start">
+              <button
+                onClick={() => { if (user) navigate("/music"); else navigate("/register-phone"); }}
+                className="btn-cosmic rounded-full px-7 py-3 text-base h-auto"
+              >
+                ♪ Создать с Музой
+              </button>
+              <a
+                href="https://t.me/Muziaipodari_bot"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm px-5 py-3 rounded-full border border-white/15 bg-white/[0.04] text-white/80 hover:bg-white/[0.08] hover:text-white inline-flex items-center gap-2"
+              >
+                📱 Муза в Telegram
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="playlist-section" className="relative z-[1] py-20 px-4 border-t border-white/[0.04]">
+      {/* Eugene 2026-05-15 Босс «больше на 30% по высоте и ширине поля плейлиста».
+          max-w-3xl (768px) → max-w-5xl (1024px) = +33% ширина.
+          Внутри карточек треков высота увеличена через py-padding. */}
+      <div className="max-w-5xl mx-auto">
+        <h2 className="text-2xl font-bold text-center mb-2">
+          <span className="gradient-text">Плейлист сообщества</span>
+        </h2>
+        <p className="text-center text-muted-foreground mb-8 flex items-center justify-center gap-2">Треки, созданные авторами <span className="inline-flex items-center gap-1"><span className="inline-block w-4 h-4 rounded bg-gradient-to-br from-purple-600 via-violet-500 to-blue-500 flex items-center justify-center"><svg viewBox="0 0 24 24" className="w-2.5 h-2.5" fill="none"><path d="M3 12c1.5-3 3-5 4.5-3s2 4 3.5 2 2.5-5 4-3 2 4 3.5 2 2.5-4 3.5-2" stroke="white" strokeWidth="3" strokeLinecap="round" /></svg></span><span className="font-bold tracking-tight"><span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent">Muza</span><span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">Ai</span></span></span></p>
+
+        {/* Big player — full-width, visible details */}
+        {currentTrack && (
+          <div className="glass-card rounded-2xl p-5 mb-6 border border-white/[0.06] relative">
+            {/* Eugene 2026-05-18 Босс «S надо отдельно сливается с Создать» —
+                перенесена в верхний правый угол card, не наезжает на
+                «Создай в том же стиле» CTA внизу. */}
+            <button
+              className="absolute top-3 right-3 w-10 h-10 flex items-center justify-center hover:scale-110 active:scale-95 transition-all z-10"
+              title="Свайп-режим — листай ← → большие обложки"
+              aria-label="Свайп-режим"
+              onClick={() => setDetailsOpen(true)}
+              data-testid="btn-cover-s-top-right"
+            >
+              <span className="font-display font-bold italic text-2xl tracking-wider text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.95)] drop-shadow-[0_0_16px_rgba(217,70,239,0.85)]">S</span>
+            </button>
+            {/* Eugene 2026-05-16: expand работает только на desktop (md+).
+                На mobile — всегда compact row-layout (как было до introducing
+                expand button). Кнопка ExpandToggleButton также скрыта на
+                mobile через `hidden md:flex` в её className. */}
+            <div className={`flex gap-4 items-center ${coverExpanded ? "md:flex-col md:items-stretch" : ""}`}>
+              {/* Eugene 2026-05-17 Босс «бутират свет вокруг обложки в фирменных
+                  цветах пусть переливаются» — обёртка с animated brand aura
+                  (purple→fuchsia→cyan→amber conic gradient + blur + slow spin
+                  + pulse opacity). Обложка остаётся резкой внутри. */}
+              {/* Eugene 2026-05-18 — обёртка cover+S; cover-square даёт фиксированный размер обложки, S-кнопка идёт после и не выпадает за wrapper. */}
+              <div className={`relative shrink-0 flex flex-col ${coverExpanded ? "md:w-full" : "w-20 sm:w-24"}`}>
+                {/* Eugene 2026-05-18 Босс «обложка -25% базово + desktop resize».
+                    Mobile: w-[60px] (было 80) / sm:w-[72px] (было 96). Desktop:
+                    coverSize state управляет (75/100/125%). */}
+                <div className={`relative ${coverExpanded ? "md:w-full md:aspect-square" : "w-[60px] h-[60px] sm:w-[72px] sm:h-[72px]"} ${!coverExpanded ? coverSizeClass : ""}`}>
+                <div
+                  aria-hidden="true"
+                  className={`absolute -inset-2 rounded-2xl opacity-70 blur-2xl pointer-events-none cover-aura ${coverExpanded ? "md:-inset-3" : ""}`}
+                />
+              <div
+                className={`relative bg-gradient-to-br from-purple-500/30 to-blue-500/30 flex items-center justify-center cursor-pointer shadow-lg shadow-purple-500/10 overflow-hidden transition-all duration-300 w-full h-full rounded-xl ${
+                  coverExpanded ? "md:rounded-2xl" : ""
+                }`}
+                onClick={() => setExpandedId(expandedId === currentTrack.id ? null : currentTrack.id)}
+              >
+                {/* Crossfade: old cover fading out */}
+                {prevCoverUrl && coverFading && (
+                  <img src={prevCoverUrl} alt="" className="w-full h-full object-cover absolute inset-0 transition-opacity duration-500 opacity-0" />
+                )}
+                {/* Current cover fading in */}
+                {currentTrack.imageUrl && (
+                  <img key={currentTrack.imageUrl} src={currentTrack.imageUrl} alt="" className="w-full h-full object-cover absolute inset-0 animate-in fade-in duration-500" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                )}
                 <Music className={`text-white/10 w-8 h-8 ${coverExpanded ? "md:w-24 md:h-24" : ""}`} />
                 {/* Eugene 2026-05-18 Босс «S не нравится на обложке» —
                     S убрана с обложки. Теперь S — в actions panel рядом
