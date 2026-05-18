@@ -232,6 +232,94 @@ app.use((req, res, next) => {
   next();
 });
 
+// ===== requireNotBlocked middleware (Eugene 2026-05-18 Босс) =====
+// Anti-abuse / spam защита по таблице blocked_entities (см.
+// lib/blockedEntities.ts). Проверяет IP / userId / country / UA-substring.
+// Whitelist:
+//  - /api/health, /api/example/ping, /api/_status — health checks
+//  - /api/auth/admin-*, /api/auth/login, /api/auth/sms/* — чтобы Босс
+//    мог разблокировать себя если случайно заблочил
+//  - super_admin / admin role — даже если userId попал в blocked_entities,
+//    админа пропускаем (защита от lockout)
+//
+// Country block — async (через ipGeo). Логируем failure в
+// user_action_failures для аналитики «сколько попыток заблокированных»
+// (action='blocked_attempt').
+app.use(async (req, res, next) => {
+  try {
+    // Не блокируем preflight CORS / non-api.
+    if (req.method === "OPTIONS") return next();
+    const p = req.path;
+    if (!p.startsWith("/api")) return next();
+
+    // Whitelist auth/health endpoints — самозащита от lockout админа.
+    if (
+      p === "/api/health" ||
+      p === "/api/example/ping" ||
+      p === "/api/_status" ||
+      p === "/api/status" ||
+      p.startsWith("/api/auth/admin-") ||
+      p === "/api/auth/login" ||
+      p === "/api/auth/register" ||
+      p.startsWith("/api/auth/sms/")
+    ) {
+      return next();
+    }
+
+    // Динамические импорты избегают cycles с storage.ts при cold-start.
+    const { isBlocked } = await import("./lib/blockedEntities");
+    const { logUserActionFailure } = await import("./lib/userActionFailures");
+    const { storage } = await import("./storage");
+    const { tokenStore } = await import("./lib/tokenStore");
+    const { isAdminUser } = await import("./core/adminAuth");
+
+    // Если Bearer-токен валиден — заранее заполняем userId, чтобы isBlocked()
+    // мог проверить user-block. Дальше — пропускаем admin/super_admin.
+    let userId: number | null = null;
+    const authHeader = req.headers.authorization;
+    if (typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
+      const token = authHeader.slice(7);
+      try {
+        if (tokenStore.has(token)) userId = tokenStore.get(token) ?? null;
+      } catch {}
+    }
+    if (userId) (req as any).userId = userId;
+
+    // Whitelist Босса (super_admin / admin) — даже если кто-то добавил его
+    // userId в blocked_entities, middleware его пропускает.
+    if (userId) {
+      try {
+        const u = storage.getUser(userId);
+        if (u && isAdminUser(u as any)) return next();
+      } catch {}
+    }
+
+    const result = await isBlocked(req);
+    if (result.blocked) {
+      try {
+        logUserActionFailure({
+          userId,
+          channel: "web",
+          action: "blocked_attempt",
+          statusCode: 403,
+          errorCode: `blocked:${result.type || "unknown"}`,
+          errorMessage: result.reason || `blocked by ${result.type}`,
+          endpoint: p.slice(0, 200),
+          context: { matchedValue: result.matchedValue, blockId: result.blockId },
+        });
+      } catch {}
+      res.status(403).json({ data: null, error: "Доступ ограничен" });
+      return;
+    }
+    next();
+  } catch (e) {
+    // Никогда не ломаем pipeline из-за middleware-сбоя — anti-abuse hook
+    // должен быть прозрачным fallback'ом.
+    console.warn("[requireNotBlocked] warn:", e);
+    next();
+  }
+});
+
 // v304 boot status — global, populated below.
 // /api/_status работает ВСЕГДА, даже если все 20 плагинов сгорят.
 // Это лазейка для пост-mortem диагностики без ssh.
