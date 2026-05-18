@@ -4,7 +4,7 @@
 //
 // Каждый tool: name + description + input_schema (JSON-schema) + handler.
 
-import { db, storage } from "../storage";
+import { db, storage, sqliteDb } from "../storage";
 import { users, generations, transactions, songDrafts, agentHandoffs, payments, incidents } from "@shared/schema";
 import { eq, and, desc, sql, isNotNull, or, like } from "drizzle-orm";
 import { PUBLIC_URL } from "./publicUrl";
@@ -433,6 +433,63 @@ export const MUZA_TOOLS: ToolDef[] = [
         emotion: { type: "string", enum: ["neutral", "good", "evil"], description: "Опц., default neutral. Только для женских голосов (alena/jane/oksana/omazh)." },
       },
       required: ["voice"],
+    },
+  },
+
+  // === Save-lyrics tools (Eugene 2026-05-18 Босс) ===
+  // Муза сохраняет готовые тексты в личном кабинете — спрашивает название и
+  // сохраняет. Заменяет действия клиента, но он подтверждает.
+  {
+    name: "save_user_lyrics",
+    description: "Сохранить готовый текст песни в кабинет автора. ВСЕГДА сначала получи у юзера название и явное «да». Если userId известен — сохраняет в user_lyric_drafts. Если userId=null (анонимный) — возвращает needsAuth=true → Муза должна предложить login / register / email-save / code-only через propose_registration.",
+    input_schema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Название текста, 1-120 chars (получено от юзера)" },
+        text: { type: "string", description: "Текст песни, 1-8000 chars" },
+      },
+      required: ["title", "text"],
+    },
+  },
+  {
+    name: "save_lyrics_with_email",
+    description: "Сохранить текст для анонимного юзера с email-восстановлением. Создаёт запись в pending_anonymous_lyrics (TTL 30 дней), генерирует 6-значный recovery code, шлёт email со ссылкой на регистрацию. Используй когда юзер не залогинен И дал email.",
+    input_schema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Название текста" },
+        text: { type: "string", description: "Текст песни" },
+        email: { type: "string", description: "Email юзера (валидный формат)" },
+      },
+      required: ["title", "text", "email"],
+    },
+  },
+  {
+    name: "save_lyrics_with_code_only",
+    description: "Сохранить текст для анонимного юзера БЕЗ email — только с 6-значным recovery code. Используй когда юзер не залогинен и не хочет давать email. Возвращает код — Муза должна попросить юзера запомнить его (или скопировать).",
+    input_schema: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Название текста" },
+        text: { type: "string", description: "Текст песни" },
+      },
+      required: ["title", "text"],
+    },
+  },
+  {
+    name: "list_user_lyrics",
+    description: "Получить список сохранённых текстов юзера (user_lyric_drafts). Используй когда юзер спрашивает «мои тексты», «что я сохранял», «покажи черновики текстов». Требует auth — иначе вернёт «не залогинен».",
+    input_schema: { type: "object", properties: {}, required: [] },
+  },
+  {
+    name: "propose_registration",
+    description: "Предложить юзеру регистрацию ИЛИ оставить email для сохранения текста. Используй когда save_user_lyrics вернул needsAuth=true. reason='save_lyrics' — Муза хочет сохранить готовый текст. Возвращает marker [PROPOSE_REGISTER:reason=X] — фронт рендерит inline-карточку «Войди / Зарегистрируйся / Дай email».",
+    input_schema: {
+      type: "object",
+      properties: {
+        reason: { type: "string", enum: ["save_lyrics", "save_draft", "view_my_tracks", "history"], description: "Причина предложения регистрации" },
+      },
+      required: ["reason"],
     },
   },
 ];
@@ -1501,6 +1558,240 @@ const HANDLERS: Record<string, ToolHandler> = {
     } catch (e: any) {
       return `Ошибка закрытия ticket: ${e.message}`;
     }
+  },
+
+  // === Save-lyrics handlers (Eugene 2026-05-18 Босс) ===
+  // Муза сохраняет готовые тексты — auth-юзер → user_lyric_drafts.
+  // Анонимный → pending_anonymous_lyrics (recovery code, опционально email).
+
+  async save_user_lyrics(input, { userId, sessionId, channel }) {
+    const title = String(input?.title || "").trim().slice(0, 120);
+    const text = String(input?.text || "").trim().slice(0, 8000);
+    if (!title) return JSON.stringify({ success: false, error: "Название не задано" });
+    if (!text || text.length < 5) return JSON.stringify({ success: false, error: "Текст слишком короткий" });
+
+    if (!userId) {
+      return JSON.stringify({
+        success: false,
+        needsAuth: true,
+        message: "Чтобы сохранить — войди в кабинет или дай email. Вызови propose_registration(reason='save_lyrics').",
+      });
+    }
+
+    try {
+      const now = Date.now();
+      const result = sqliteDb.prepare(`
+        INSERT INTO user_lyric_drafts (user_id, title, text, source, chat_session_id, created_at)
+        VALUES (?, ?, ?, 'musa_chat', ?, ?)
+      `).run(userId, title, text, sessionId || null, now);
+      const draftId = Number(result.lastInsertRowid);
+
+      // Audit-log подтверждённого действия Музы
+      try {
+        sqliteDb.prepare(`
+          INSERT INTO muza_user_actions (user_id, action_type, params_json, confirmed, confirmed_at, chat_session_id, created_at)
+          VALUES (?, 'save_lyrics', ?, 1, ?, ?, ?)
+        `).run(userId, JSON.stringify({ draftId, title, channel: channel || null }), now, sessionId || null, now);
+      } catch {}
+
+      return JSON.stringify({
+        success: true,
+        draftId,
+        title,
+        message: `Сохранила «${title}» в твой кабинет ✓ Найдёшь в Личном кабинете → Тексты.`,
+      });
+    } catch (e: any) {
+      console.error("[TOOL save_user_lyrics]", e);
+      return JSON.stringify({ success: false, error: `Не удалось сохранить: ${e?.message || e}` });
+    }
+  },
+
+  async save_lyrics_with_email(input, { sessionId, channel }) {
+    const title = String(input?.title || "").trim().slice(0, 120);
+    const text = String(input?.text || "").trim().slice(0, 8000);
+    const email = String(input?.email || "").trim().toLowerCase();
+    if (!title) return JSON.stringify({ success: false, error: "Название не задано" });
+    if (!text || text.length < 5) return JSON.stringify({ success: false, error: "Текст слишком короткий" });
+    // Простая валидация email — основной формат
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return JSON.stringify({ success: false, error: "Email невалидный — проверь формат" });
+    }
+
+    try {
+      // Генерация 6-значного recovery code (уникальность не гарантирована —
+      // SQLite UNIQUE index на recovery_code обеспечит retry в редком конфликте).
+      let code = "";
+      let attempts = 0;
+      while (attempts < 5) {
+        code = String(Math.floor(100000 + Math.random() * 900000));
+        const exists = sqliteDb.prepare(
+          `SELECT 1 FROM pending_anonymous_lyrics WHERE recovery_code = ? AND claimed_by_user_id IS NULL`
+        ).get(code);
+        if (!exists) break;
+        attempts++;
+      }
+
+      const now = Date.now();
+      const expires = now + 30 * 24 * 60 * 60 * 1000; // 30 days
+      const result = sqliteDb.prepare(`
+        INSERT INTO pending_anonymous_lyrics (recovery_code, email, title, text, chat_session_id, created_at, expires_at, email_sent)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+      `).run(code, email, title, text, sessionId || null, now, expires);
+      const pendingId = Number(result.lastInsertRowid);
+
+      // Lazy import nodemailer (по паттерну plugins/notifications)
+      let emailSent = false;
+      try {
+        const nodemailerMod: any = await import("nodemailer");
+        const nodemailer = nodemailerMod.default || nodemailerMod;
+        const gmailUser = process.env.GMAIL_USER || "tissan2021@gmail.com";
+        const gmailPass = process.env.GMAIL_APP_PASSWORD || "";
+        if (gmailPass) {
+          const transport = nodemailer.createTransport({
+            service: "gmail",
+            auth: { user: gmailUser, pass: gmailPass },
+          });
+          const registerLink = `${PUBLIC_URL}/#/register?recovery=${code}`;
+          await transport.sendMail({
+            from: `"MuzaAi" <${gmailUser}>`,
+            replyTo: gmailUser,
+            to: email,
+            subject: `Твой текст «${title}» — MuzaAi`,
+            text: `Привет!\n\nМуза сохранила твой текст «${title}». Чтобы забрать его в личный кабинет — заверши регистрацию по ссылке:\n\n${registerLink}\n\nИли введи код восстановления вручную в Настройках после регистрации:\n\n${code}\n\nТекст:\n\n${text}\n\nКод действует 30 дней.\n\n— MuzaAi`,
+            html: `
+              <div style="font-family:-apple-system,sans-serif;max-width:520px;margin:0 auto;padding:32px;background:#09090b;border-radius:16px;border:1px solid #1a1a2e;color:#e2e2e2;">
+                <div style="text-align:center;margin-bottom:24px;">
+                  <span style="font-size:24px;font-weight:700;background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">MuzaAi</span>
+                </div>
+                <h2 style="color:#fff;margin:0 0 16px;">Твой текст «${title.replace(/</g, "&lt;")}»</h2>
+                <p style="font-size:15px;line-height:1.6;">Муза сохранила твой текст. Чтобы забрать его в личный кабинет — заверши регистрацию:</p>
+                <div style="text-align:center;margin:24px 0;">
+                  <a href="${registerLink}" style="display:inline-block;padding:14px 28px;background:linear-gradient(135deg,#8b5cf6,#3b82f6);color:#fff;text-decoration:none;border-radius:12px;font-weight:600;">Завершить регистрацию</a>
+                </div>
+                <p style="font-size:13px;color:#888;text-align:center;margin:16px 0;">Или введи код в Настройках после регистрации:</p>
+                <div style="text-align:center;margin:8px 0 24px;">
+                  <span style="display:inline-block;font-size:28px;font-weight:700;letter-spacing:8px;color:#fff;background:#1a1a2e;padding:12px 24px;border-radius:8px;">${code}</span>
+                </div>
+                <hr style="border:none;border-top:1px solid #1a1a2e;margin:24px 0;">
+                <pre style="white-space:pre-wrap;font-family:inherit;font-size:14px;color:#bbb;line-height:1.6;">${text.slice(0, 4000).replace(/</g, "&lt;")}</pre>
+                <p style="color:#555;font-size:12px;text-align:center;margin-top:24px;">Код действует 30 дней.</p>
+              </div>
+            `,
+          });
+          emailSent = true;
+          try {
+            sqliteDb.prepare(`UPDATE pending_anonymous_lyrics SET email_sent = 1 WHERE id = ?`).run(pendingId);
+          } catch {}
+        }
+      } catch (e: any) {
+        console.error("[TOOL save_lyrics_with_email] email send failed:", e?.message || e);
+      }
+
+      // Audit-log
+      try {
+        sqliteDb.prepare(`
+          INSERT INTO muza_user_actions (user_id, action_type, params_json, confirmed, confirmed_at, chat_session_id, created_at)
+          VALUES (NULL, 'save_lyrics_with_email', ?, 1, ?, ?, ?)
+        `).run(JSON.stringify({ pendingId, title, emailMasked: maskEmailStr(email), channel: channel || null, emailSent }), Date.now(), sessionId || null, Date.now());
+      } catch {}
+
+      const msg = emailSent
+        ? `Отправила на ${email} 📩 Код для восстановления: ${code} (действует 30 дней). Открой письмо — там ссылка чтобы забрать текст после регистрации.`
+        : `Сохранила текст. Запомни код восстановления: ${code} (действует 30 дней). Email отправлю позже — пока проверь Спам или регистрируйся вручную и введи код в Настройках.`;
+
+      return JSON.stringify({ success: true, code, emailSent, message: msg });
+    } catch (e: any) {
+      console.error("[TOOL save_lyrics_with_email]", e);
+      return JSON.stringify({ success: false, error: `Не удалось сохранить: ${e?.message || e}` });
+    }
+  },
+
+  async save_lyrics_with_code_only(input, { sessionId, channel }) {
+    const title = String(input?.title || "").trim().slice(0, 120);
+    const text = String(input?.text || "").trim().slice(0, 8000);
+    if (!title) return JSON.stringify({ success: false, error: "Название не задано" });
+    if (!text || text.length < 5) return JSON.stringify({ success: false, error: "Текст слишком короткий" });
+
+    try {
+      let code = "";
+      let attempts = 0;
+      while (attempts < 5) {
+        code = String(Math.floor(100000 + Math.random() * 900000));
+        const exists = sqliteDb.prepare(
+          `SELECT 1 FROM pending_anonymous_lyrics WHERE recovery_code = ? AND claimed_by_user_id IS NULL`
+        ).get(code);
+        if (!exists) break;
+        attempts++;
+      }
+
+      const now = Date.now();
+      const expires = now + 30 * 24 * 60 * 60 * 1000;
+      const result = sqliteDb.prepare(`
+        INSERT INTO pending_anonymous_lyrics (recovery_code, email, title, text, chat_session_id, created_at, expires_at, email_sent)
+        VALUES (?, NULL, ?, ?, ?, ?, ?, 0)
+      `).run(code, title, text, sessionId || null, now, expires);
+      const pendingId = Number(result.lastInsertRowid);
+
+      try {
+        sqliteDb.prepare(`
+          INSERT INTO muza_user_actions (user_id, action_type, params_json, confirmed, confirmed_at, chat_session_id, created_at)
+          VALUES (NULL, 'save_lyrics_code_only', ?, 1, ?, ?, ?)
+        `).run(JSON.stringify({ pendingId, title, channel: channel || null }), now, sessionId || null, now);
+      } catch {}
+
+      return JSON.stringify({
+        success: true,
+        code,
+        message: `Запомни код: ${code}. Действует 30 дней. Введи его в Настройках после регистрации — текст вернётся в кабинет.`,
+      });
+    } catch (e: any) {
+      console.error("[TOOL save_lyrics_with_code_only]", e);
+      return JSON.stringify({ success: false, error: `Не удалось сохранить: ${e?.message || e}` });
+    }
+  },
+
+  async list_user_lyrics(_input, { userId }) {
+    if (!userId) return "Юзер не залогинен — список текстов недоступен.";
+    try {
+      const rows = sqliteDb.prepare(`
+        SELECT id, title, text, source, created_at, used_in_generation_id
+        FROM user_lyric_drafts
+        WHERE user_id = ?
+        ORDER BY created_at DESC
+        LIMIT 20
+      `).all(userId) as any[];
+      if (rows.length === 0) return "Сохранённых текстов пока нет.";
+      const lines = rows.slice(0, 5).map((r, i) => {
+        const used = r.used_in_generation_id ? " (использован в треке)" : "";
+        return `${i + 1}. «${r.title}»${used}`;
+      });
+      return `Сохранённых текстов: ${rows.length}. Последние:\n${lines.join("\n")}`;
+    } catch (e: any) {
+      return `Ошибка: ${e.message}`;
+    }
+  },
+
+  async propose_registration(input, { userId, sessionId, channel }) {
+    const reason = String(input?.reason || "save_lyrics").trim();
+    const validReasons = ["save_lyrics", "save_draft", "view_my_tracks", "history"];
+    const finalReason = validReasons.includes(reason) ? reason : "save_lyrics";
+
+    // Audit-log предложения регистрации (не подтверждение — confirmed=0)
+    try {
+      sqliteDb.prepare(`
+        INSERT INTO muza_user_actions (user_id, action_type, params_json, confirmed, chat_session_id, created_at)
+        VALUES (?, 'propose_registration', ?, 0, ?, ?)
+      `).run(userId || null, JSON.stringify({ reason: finalReason, channel: channel || null }), sessionId || null, Date.now());
+    } catch {}
+
+    // Возвращаем маркер — extractor в routes.ts его распарсит и отдаст
+    // proposedRegistration payload фронту.
+    return JSON.stringify({
+      success: true,
+      marker: `[PROPOSE_REGISTER:reason=${finalReason}]`,
+      reason: finalReason,
+      message: `Вставь в конец реплики маркер [PROPOSE_REGISTER:reason=${finalReason}] — фронт сам отрисует карточку «Войти / Зарегистрироваться / Дать email».`,
+    });
   },
 };
 
