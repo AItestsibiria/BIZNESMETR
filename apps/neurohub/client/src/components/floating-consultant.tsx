@@ -73,6 +73,15 @@ const PERSONA_COLOR: Record<string, string> = {
 // Eugene 2026-05-14 Босс: inline-чат с Музой на сайте + cross-channel pair-code.
 // quickReplies — 2-3 кнопки-варианта после bot-message, клик = auto-send.
 type BackupChannel = { id: string; name: string; url: string; hint: string };
+// Eugene 2026-05-18 Босс «чат → окно генерации». payload приходит от
+// /api/muza/chat когда Муза вставила [PROPOSE_GEN:...] маркер.
+type ProposedGeneration = {
+  mode: "audio" | "simple" | "full";
+  style?: string;
+  voice?: "female" | "male" | "duet" | "instrumental";
+  lyrics?: string;
+  reason: string;
+};
 type ChatMessage = {
   role: "user" | "bot";
   text: string;
@@ -80,6 +89,8 @@ type ChatMessage = {
   // Eugene 2026-05-17 Босс «резервные каналы». Если LLM упал, бот ставит
   // backupChannels в последнее сообщение, фронт рендерит баннер под текстом.
   backupChannels?: BackupChannel[];
+  // Eugene 2026-05-18 Босс «чат → окно генерации с 3 кнопками».
+  proposedGeneration?: ProposedGeneration;
 };
 
 // Quick-reply chips — типичные первые сообщения чтобы юзер не залипал
@@ -275,6 +286,53 @@ export function FloatingConsultant() {
     }, 0);
   }, []);
 
+  // Eugene 2026-05-18 Босс «чат → окно генерации». Когда юзер кликает по
+  // одной из 3 кнопок в proposedGeneration-карточке — собираем URL
+  // /#/music?mode=X[&style=Y][&voice=Z][&lyrics=W] и переходим. music.tsx
+  // уже умеет читать эти query params и pre-fill форму (см. transferred
+  // ветку с urlPrompt/urlLyrics/urlTitle/urlStyle/urlVoice).
+  const openGenerationWithMode = useCallback((
+    chosenMode: "audio" | "simple" | "full",
+    pg: ProposedGeneration,
+  ) => {
+    // Маппим внутренний mode на ?mode= параметр music.tsx:
+    //   audio   → audio (Аудио-вход)
+    //   simple  → basic (Простой текст)
+    //   full    → advanced (Расширенный, полный текст + параметры)
+    const musicTabMode =
+      chosenMode === "audio" ? "audio"
+      : chosenMode === "simple" ? "basic"
+      : "advanced";
+    const params = new URLSearchParams();
+    params.set("mode", musicTabMode);
+    // Голос: female/male/duet/instrumental — music.tsx читает воспринимая
+    // эти ключи в transferred.voiceType.
+    if (pg.voice) params.set("voice", pg.voice);
+    // Стиль pop/rock/lullaby/... — music.tsx ставит как initial style.
+    if (pg.style) params.set("style", pg.style);
+    // Lyrics для full-режима (для simple обычно нет, для audio тоже).
+    if (pg.lyrics && chosenMode !== "audio") params.set("lyrics", pg.lyrics);
+    // Engagement event — admin видит сколько раз карточка дала клик.
+    try {
+      let sid = sessionStorage.getItem("_engagementSid");
+      if (!sid) { sid = Math.random().toString(36).slice(2, 14); sessionStorage.setItem("_engagementSid", sid); }
+      fetch("/api/engagement/track", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event: "consultant_action",
+          sessionId: sid,
+          meta: { action: "propose_generation_click", chosen: chosenMode, suggested: pg.mode, reason: pg.reason },
+        }),
+        keepalive: true,
+      }).catch(() => {});
+    } catch {}
+    // Закрываем чат на mobile — юзер уезжает в форму
+    setExpanded(false);
+    setChatOpen(false);
+    window.location.hash = `#/music?${params.toString()}`;
+  }, []);
+
   // Eugene 2026-05-14 Босс «плавно общаться, ответы проявлять в 2 раза
   // медленнее. Ускорять если человек ускоряется». ADAPTIVE timing:
   // - Базовый humanDelay в 2 раза медленнее (плавность).
@@ -338,10 +396,19 @@ export function FloatingConsultant() {
           j.usedFallback && Array.isArray(j.backupChannels) && j.backupChannels.length > 0
             ? j.backupChannels
             : undefined;
+        // Eugene 2026-05-18 Босс «чат → окно генерации». Если Муза вставила
+        // маркер [PROPOSE_GEN:...] — фронт получит payload в j.proposedGeneration
+        // и рендерит inline-карточку с 3 кнопками выбора режима.
+        const proposedGeneration: ProposedGeneration | undefined =
+          j.proposedGeneration && typeof j.proposedGeneration === "object" &&
+          (j.proposedGeneration.mode === "audio" || j.proposedGeneration.mode === "simple" || j.proposedGeneration.mode === "full")
+            ? j.proposedGeneration
+            : undefined;
         setChatMsgs(m => [...m, {
           role: "bot",
           text: j.reply,
           backupChannels,
+          proposedGeneration,
           // quickReplies подадим отдельной перезаписью через ещё одну паузу
         }]);
         setChatSending(false);
@@ -1097,6 +1164,69 @@ export function FloatingConsultant() {
                               {bc.id === "telegram" ? "✈️ " : bc.id === "max" ? "💬 " : "🔌 "}{bc.name}
                             </a>
                           ))}
+                        </div>
+                      </div>
+                    )}
+                    {/* Eugene 2026-05-18 Босс «чат → окно генерации с 3
+                        кнопками». Когда Муза сигналит готовность ([PROPOSE_GEN])
+                        — отрисовываем inline-карточку с выбором режима.
+                        Подсветка предложенного mode purple-glow. Клик —
+                        редирект в /music с pre-fill параметрами. */}
+                    {m.role === "bot" && m.proposedGeneration && (
+                      <div className="w-full max-w-[90%] mt-2 p-3 rounded-2xl glass-card border border-purple-400/30 bg-gradient-to-br from-purple-500/10 via-fuchsia-500/8 to-cyan-500/10 shadow-lg shadow-purple-500/10">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-base">🎵</span>
+                          <span className="text-[12px] font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">
+                            Готовы создать? Я заполню форму
+                          </span>
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          {([
+                            {
+                              key: "audio" as const,
+                              icon: "🎤",
+                              label: "Аудио — голосом",
+                              desc: "Надиктовать, я соберу текст",
+                            },
+                            {
+                              key: "simple" as const,
+                              icon: "✏️",
+                              label: "Простой текст",
+                              desc: "Короткое описание идеи",
+                            },
+                            {
+                              key: "full" as const,
+                              icon: "📜",
+                              label: "Полная песня",
+                              desc: "Свой текст + стиль + голос",
+                            },
+                          ]).map((opt) => {
+                            const isProposed = m.proposedGeneration!.mode === opt.key;
+                            return (
+                              <button
+                                key={opt.key}
+                                type="button"
+                                onClick={() => openGenerationWithMode(opt.key, m.proposedGeneration!)}
+                                className={`flex items-center gap-3 px-3 py-2 rounded-xl text-left transition-all ${
+                                  isProposed
+                                    ? "bg-gradient-to-r from-purple-500/30 via-fuchsia-500/25 to-blue-500/25 border border-purple-400/60 shadow-[0_0_24px_rgba(124,58,237,0.35)] hover:shadow-[0_0_32px_rgba(124,58,237,0.5)]"
+                                    : "bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] hover:border-purple-400/30"
+                                }`}
+                              >
+                                <span className="text-xl shrink-0">{opt.icon}</span>
+                                <div className="flex-1 min-w-0">
+                                  <div className={`text-[12px] font-semibold ${isProposed ? "text-white" : "text-white/85"}`}>
+                                    {opt.label}
+                                    {isProposed && (
+                                      <span className="ml-1.5 text-[10px] font-normal text-purple-200">· рекомендую</span>
+                                    )}
+                                  </div>
+                                  <div className="text-[10px] text-white/55 mt-0.5 truncate">{opt.desc}</div>
+                                </div>
+                                <span className={`text-base shrink-0 ${isProposed ? "text-purple-200" : "text-white/30"}`}>→</span>
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
                     )}
