@@ -28,7 +28,10 @@ const STOP_DURATION_MS = 5_500;       // сколько Муза стоит на
 // Eugene 2026-05-18 Босс «draggable Муза» — пользователь может схватить её и
 // тащить куда угодно. localStorage сохраняет последнюю позицию (px).
 const DRAG_POS_KEY = "walking-musa-position";
-const MUSA_SIZE_PX = 48; // ширина/высота аватарки (см. ниже)
+// Eugene 2026-05-19 Босс «кнопка отключения функции» — флаг полного off.
+// Юзер может отключить — auto-tour, mouse-follow, контекстные подсказки.
+const DISABLED_KEY = "_walkingMusa_disabled";
+const MUSA_SIZE_PX = 48; // ширина/висота аватарки (см. ниже)
 
 type Stop = {
   // Позиция в viewport — % от ширины/высоты экрана.
@@ -73,6 +76,10 @@ export function WalkingMusa() {
   const [active, setActive] = useState(false);
   const [stopIdx, setStopIdx] = useState(0);
   const [stops, setStops] = useState<Stop[]>(STOPS_DESKTOP);
+  // Eugene 2026-05-19 — disabled state (localStorage + кнопка ✕ на bubble)
+  const [disabled, setDisabled] = useState<boolean>(() => {
+    try { return localStorage.getItem(DISABLED_KEY) === "1"; } catch { return false; }
+  });
   const chatOpenRef = useRef(false);
   const tourTimerRef = useRef<number | null>(null);
   const startTimerRef = useRef<number | null>(null);
@@ -192,6 +199,7 @@ export function WalkingMusa() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (prefersReducedMotion()) return;
+    if (disabled) return;
     // Throttle 200ms — не дёргаем state на каждом px
     const onMove = (e: MouseEvent) => {
       const now = Date.now();
@@ -245,6 +253,7 @@ export function WalkingMusa() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (prefersReducedMotion()) return;
+    if (disabled) return;
     if (window.location.hash.startsWith("#/admin")) return;
     const last = getLastSeenAt();
     if (last && Date.now() - last < SEEN_TTL_MS) return;
@@ -290,6 +299,45 @@ export function WalkingMusa() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Eugene 2026-05-19: если юзер отключил — рендерим только маленькую кнопку
+  // «👁 Помощница» в bottom-left чтобы можно было включить обратно.
+  if (disabled) {
+    return (
+      <button
+        onClick={() => {
+          try { localStorage.removeItem(DISABLED_KEY); } catch {}
+          setDisabled(false);
+        }}
+        style={{
+          position: "fixed",
+          bottom: 12,
+          left: 12,
+          zIndex: 9997,
+          padding: "6px 10px",
+          borderRadius: 999,
+          background: "rgba(20,18,40,0.7)",
+          border: "1px solid rgba(168,85,247,0.35)",
+          color: "rgba(255,255,255,0.7)",
+          fontSize: 11,
+          fontFamily: "Inter, system-ui, sans-serif",
+          cursor: "pointer",
+          backdropFilter: "blur(8px)",
+        }}
+        title="Включить помощницу Музу"
+      >
+        👁 Помощница
+      </button>
+    );
+  }
+
+  function disableMusa() {
+    try { localStorage.setItem(DISABLED_KEY, "1"); } catch {}
+    setDisabled(true);
+    setActive(false);
+    setMouseFollow(null);
+    setContextHint(null);
+  }
 
   // Mouse-follow mode (Eugene 2026-05-19 Variant A) — отдельная Муза которая
   // плавно идёт за курсором + показывает контекстную подсказку при hover на
@@ -342,6 +390,7 @@ export function WalkingMusa() {
               minWidth: 180,
               maxWidth: 280,
               padding: "10px 12px",
+              paddingRight: 28,
               borderRadius: 16,
               background: "linear-gradient(135deg, rgba(20,18,40,0.94), rgba(28,16,46,0.9))",
               border: "1px solid rgba(168,85,247,0.5)",
@@ -353,9 +402,32 @@ export function WalkingMusa() {
               backdropFilter: "blur(8px)",
               animation: "walkingMusaBubble 280ms ease-out backwards",
               whiteSpace: "normal",
+              pointerEvents: "auto",
             }}
           >
             {contextHint}
+            <button
+              onClick={(e) => { e.stopPropagation(); disableMusa(); }}
+              title="Отключить помощницу"
+              style={{
+                position: "absolute",
+                top: 4,
+                right: 4,
+                width: 18,
+                height: 18,
+                borderRadius: 999,
+                background: "rgba(0,0,0,0.4)",
+                border: "1px solid rgba(255,255,255,0.15)",
+                color: "rgba(255,255,255,0.6)",
+                fontSize: 11,
+                lineHeight: "16px",
+                padding: 0,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >×</button>
           </div>
         )}
       </div>
@@ -498,28 +570,46 @@ export function WalkingMusa() {
             : (current?.bubble ?? "")}
         </div>
         {/* Restart auto-tour — только если paused (юзер уже dragnул) */}
-        {autoTourPaused && (
+        <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+          {autoTourPaused && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                restartAutoTour();
+              }}
+              aria-label="Запустить тур заново"
+              style={{
+                padding: "4px 8px",
+                borderRadius: 8,
+                background: "rgba(168,85,247,0.18)",
+                border: "1px solid rgba(168,85,247,0.4)",
+                color: "rgba(255,255,255,0.9)",
+                fontSize: 11,
+                cursor: "pointer",
+              }}
+            >
+              ↺ Авто
+            </button>
+          )}
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              restartAutoTour();
-            }}
-            aria-label="Запустить тур заново"
+            onClick={(e) => { e.stopPropagation(); disableMusa(); }}
+            aria-label="Отключить помощницу"
+            title="Отключить — больше не будет показываться"
             style={{
-              marginTop: 8,
               padding: "4px 8px",
               borderRadius: 8,
-              background: "rgba(168,85,247,0.18)",
-              border: "1px solid rgba(168,85,247,0.4)",
-              color: "rgba(255,255,255,0.9)",
+              background: "rgba(0,0,0,0.4)",
+              border: "1px solid rgba(255,255,255,0.15)",
+              color: "rgba(255,255,255,0.6)",
               fontSize: 11,
               cursor: "pointer",
             }}
           >
-            ↺ Авто
+            ✕ Отключить
           </button>
-        )}
+        </div>
       </div>
       {/* CSS keyframes — inline через <style> чтобы не плодить css-файлы */}
       <style>{`
