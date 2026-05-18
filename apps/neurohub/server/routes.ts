@@ -18,7 +18,7 @@ import { isSunoCircuitOpen } from "./plugins/suno-watchdog/module";
 import { requireAdmin, isAdminUser } from "./core/adminAuth";
 import { createNonce as tgCreateNonce, pollNonce as tgPollNonce, consumeNonce as tgConsumeNonce, attachUserToNonce as tgAttachUserToNonce } from "./lib/tgLoginNonces";
 import { logEngagement, getEngagementDaily, getEngagementSummary } from "./lib/engagement";
-import { personaFor } from "./lib/consultantPersona";
+import { personaFor, PERSONAS } from "./lib/consultantPersona";
 import { findSessionByPairCode, looksLikePairCode } from "./lib/webChatPair";
 // MUZA_TOOLS + executeTool теперь вызываются ТОЛЬКО внутри
 // callUnifiedMuzaLLM (lib/llmCore.ts) — Eugene 2026-05-16 «один мозг».
@@ -6960,6 +6960,173 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     } catch (e: any) {
       console.error("[DELETE /api/lyrics/drafts/:id]", e);
       res.status(500).json({ data: null, error: "Не удалось удалить" });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Eugene 2026-05-18 Босс «в кабинете автора иконочка Музы под папочкой —
+  // открывает историю взаимодействия. Юзер может в любое время зайти и
+  // продолжить разговор».
+  //
+  // Группа эндпоинтов /api/user/musa-history* — read-only история диалогов
+  // юзера с Музой (через web/telegram/max) + переключение «продолжить
+  // конкретную сессию» (для floating-consultant).
+  //
+  // TODO: Eugene 2026-05-18 «диалоговое общение для премиум-аккаунтов» —
+  // в premium-mode подгружать full extended memory (см. MUZA-MEMORY-DESIGN-180526.md),
+  // включать proactive-triggers, snapshot после каждого turn для resume точности.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // Helper: persona avatar по name (для UI). Fallback на 🎀.
+  const personaAvatarByName = (name: string | null | undefined): string => {
+    if (!name) return "🎀";
+    const p = PERSONAS.find((x) => x.name === name);
+    return p?.avatar || "🎀";
+  };
+
+  // GET /api/user/musa-history — список всех сессий юзера + summary.
+  // Группирует по chatbot_sessions.id (cross-channel: web + telegram + max).
+  app.get("/api/user/musa-history", authMiddleware, (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).userId as number;
+      const rows = sqliteDb.prepare(`
+        SELECT
+          s.id                  AS sessionId,
+          s.channel             AS channel,
+          s.persona_name        AS personaName,
+          s.started_at          AS startedAt,
+          s.last_message_at     AS lastMessageAt,
+          s.intent              AS intent,
+          (SELECT COUNT(*) FROM chatbot_messages m WHERE m.session_id = s.id) AS messagesCount,
+          (SELECT m.text FROM chatbot_messages m
+            WHERE m.session_id = s.id AND m.role = 'user'
+            ORDER BY m.id ASC LIMIT 1) AS firstUserText
+        FROM chatbot_sessions s
+        WHERE s.user_id = ?
+        ORDER BY COALESCE(s.last_message_at, s.started_at) DESC
+        LIMIT 200
+      `).all(userId) as any[];
+
+      const sessions = rows
+        .filter((r) => Number(r.messagesCount || 0) > 0)
+        .map((r) => {
+          const previewRaw = String(r.firstUserText || "").replace(/\s+/g, " ").trim();
+          return {
+            sessionId: String(r.sessionId),
+            channel: String(r.channel || "web"),
+            personaName: r.personaName || null,
+            personaAvatar: personaAvatarByName(r.personaName),
+            startedAt: r.startedAt || null,
+            lastMessageAt: r.lastMessageAt || null,
+            messagesCount: Number(r.messagesCount || 0),
+            preview: previewRaw.slice(0, 80),
+            topicHint: r.intent || null,
+          };
+        });
+
+      const totalMessages = sessions.reduce((sum, s) => sum + s.messagesCount, 0);
+      res.json({ data: { sessions, totalMessages }, error: null });
+    } catch (e: any) {
+      console.error("[GET /api/user/musa-history]", e);
+      res.status(500).json({ data: null, error: "Не удалось получить историю" });
+    }
+  });
+
+  // GET /api/user/musa-history/:sessionId — read-only вид одной сессии для
+  // просмотра (ownership-check через chatbot_sessions.user_id).
+  app.get("/api/user/musa-history/:sessionId", authMiddleware, (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).userId as number;
+      const sessionId = String(req.params.sessionId || "").trim();
+      if (!sessionId) {
+        res.status(400).json({ data: null, error: "Невалидный sessionId" });
+        return;
+      }
+      const sess = sqliteDb.prepare(`
+        SELECT id, channel, user_id, persona_name, started_at, last_message_at, intent
+        FROM chatbot_sessions WHERE id = ?
+      `).get(sessionId) as any;
+      if (!sess) {
+        res.status(404).json({ data: null, error: "Сессия не найдена" });
+        return;
+      }
+      if (Number(sess.user_id) !== userId) {
+        res.status(403).json({ data: null, error: "Доступ только к своим диалогам" });
+        return;
+      }
+      const messages = sqliteDb.prepare(`
+        SELECT id, role, text, created_at AS createdAt
+        FROM chatbot_messages
+        WHERE session_id = ?
+        ORDER BY id ASC
+        LIMIT 1000
+      `).all(sessionId) as any[];
+      res.json({
+        data: {
+          session: {
+            sessionId: String(sess.id),
+            channel: String(sess.channel || "web"),
+            personaName: sess.persona_name || null,
+            personaAvatar: personaAvatarByName(sess.persona_name),
+            startedAt: sess.started_at || null,
+            lastMessageAt: sess.last_message_at || null,
+            topicHint: sess.intent || null,
+          },
+          messages: messages.map((m) => ({
+            id: Number(m.id),
+            role: m.role === "user" ? "user" : "bot",
+            text: String(m.text || ""),
+            createdAt: m.createdAt || null,
+          })),
+        },
+        error: null,
+      });
+    } catch (e: any) {
+      console.error("[GET /api/user/musa-history/:sessionId]", e);
+      res.status(500).json({ data: null, error: "Не удалось загрузить диалог" });
+    }
+  });
+
+  // POST /api/user/musa-history/:sessionId/continue — пометить сессию как
+  // «текущая» для юзера. Server возвращает sessionId + personaName/avatar;
+  // клиент сам сохраняет в localStorage (_muzaChatSid) и через CustomEvent
+  // открывает floating-consultant с этой сессией.
+  app.post("/api/user/musa-history/:sessionId/continue", authMiddleware, (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).userId as number;
+      const sessionId = String(req.params.sessionId || "").trim();
+      if (!sessionId) {
+        res.status(400).json({ data: null, error: "Невалидный sessionId" });
+        return;
+      }
+      const sess = sqliteDb.prepare(`
+        SELECT id, channel, user_id, persona_name
+        FROM chatbot_sessions WHERE id = ?
+      `).get(sessionId) as any;
+      if (!sess) {
+        res.status(404).json({ data: null, error: "Сессия не найдена" });
+        return;
+      }
+      if (Number(sess.user_id) !== userId) {
+        res.status(403).json({ data: null, error: "Доступ только к своим диалогам" });
+        return;
+      }
+      // Bump last_message_at чтобы сессия всплыла наверх списка.
+      try {
+        sqliteDb.prepare(`UPDATE chatbot_sessions SET last_message_at = CURRENT_TIMESTAMP WHERE id = ?`).run(sessionId);
+      } catch {}
+      res.json({
+        data: {
+          sessionId: String(sess.id),
+          channel: String(sess.channel || "web"),
+          personaName: sess.persona_name || null,
+          personaAvatar: personaAvatarByName(sess.persona_name),
+        },
+        error: null,
+      });
+    } catch (e: any) {
+      console.error("[POST /api/user/musa-history/:sessionId/continue]", e);
+      res.status(500).json({ data: null, error: "Не удалось продолжить диалог" });
     }
   });
 
