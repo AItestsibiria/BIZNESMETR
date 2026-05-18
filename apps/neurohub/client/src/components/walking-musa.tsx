@@ -181,11 +181,14 @@ export function WalkingMusa() {
           animation: "walkingMusaBounce 2.4s ease-in-out infinite",
         }}
       >
+        {/* Eugene 2026-05-18: 3D-аватар через consultant-avatar.png
+            (после approve в админке — hi-res 3D PNG), SVG fallback. */}
         <img
-          src="/consultant-avatar.svg"
+          src="/consultant-avatar.png"
           alt="Муза"
           style={{ width: 38, height: 38, objectFit: "contain", borderRadius: "9999px" }}
           loading="lazy"
+          onError={(e) => { (e.target as HTMLImageElement).src = "/consultant-avatar.svg"; }}
         />
       </div>
       {/* Speech bubble — рядом с Музой, не перекрывает */}

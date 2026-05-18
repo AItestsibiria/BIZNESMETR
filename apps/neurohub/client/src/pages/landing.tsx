@@ -1250,11 +1250,14 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         >
           <div className="flex items-start gap-3">
             <div className="w-14 shrink-0 flex items-start justify-center">
+              {/* Eugene 2026-05-18: 3D-аватар через consultant-avatar.png
+                  (после approve в админке — hi-res 3D PNG), SVG fallback. */}
               <img
-                src="/consultant-avatar.svg"
+                src="/consultant-avatar.png"
                 alt="Муза"
                 className="w-14 h-20 sm:w-14 sm:h-20 object-contain"
                 draggable={false}
+                onError={(e) => { (e.target as HTMLImageElement).src = "/consultant-avatar.svg"; }}
               />
             </div>
             <div className="flex-1 min-w-0">

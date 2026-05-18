@@ -882,11 +882,15 @@ export function FloatingConsultant() {
           aria-label="Муза"
           className="block w-24 h-36 sm:w-28 sm:h-48 active:scale-95 transition-transform opacity-90 hover:opacity-100 consultant-dance"
         >
+          {/* Eugene 2026-05-18: 3D-аватар (musa-3d) с onError fallback на
+              SVG. После approve в админке consultant-avatar.png будет
+              переписан hi-res 3D PNG'ом — Муза везде станет «живой». */}
           <img
-            src="/consultant-avatar.svg"
+            src="/consultant-avatar.png"
             alt="Муза"
             className="w-full h-full object-contain"
             draggable={false}
+            onError={(e) => { (e.target as HTMLImageElement).src = "/consultant-avatar.svg"; }}
           />
         </button>
         {/* Eugene 2026-05-14 Босс «кнопку свернуть по её ногами». Маленькая
@@ -972,7 +976,7 @@ export function FloatingConsultant() {
             >⊕</button>
             {/* Header */}
             <div className="flex items-center gap-2 px-3 py-3 sm:py-2 border-b border-white/[0.06] bg-gradient-to-r from-purple-500/10 to-blue-500/5 shrink-0 relative">
-              <img src="/consultant-avatar.svg" alt="Муза" className="w-9 h-9 sm:w-8 sm:h-8 rounded-full object-contain bg-white/5 shrink-0" />
+              <img src="/consultant-avatar.png" alt="Муза" className="w-9 h-9 sm:w-8 sm:h-8 rounded-full object-contain bg-white/5 shrink-0" onError={(e) => { (e.target as HTMLImageElement).src = "/consultant-avatar.svg"; }} />
               <div className="flex-1 min-w-0">
                 <div className="text-[13px] font-semibold text-white truncate">
                   Муза
@@ -1266,7 +1270,7 @@ export function FloatingConsultant() {
               {chatSending && (
                 <div className="flex justify-start">
                   <div className="px-3 py-2 rounded-2xl bg-white/[0.06] text-white/70 text-[12px] border border-white/[0.08] flex items-center gap-1.5">
-                    <img src="/consultant-avatar.svg" alt="" className="w-5 h-5 rounded-full object-contain bg-white/5" />
+                    <img src="/consultant-avatar.png" alt="" className="w-5 h-5 rounded-full object-contain bg-white/5" onError={(e) => { (e.target as HTMLImageElement).src = "/consultant-avatar.svg"; }} />
                     <span className="inline-block animate-pulse font-medium">Муза…</span>
                   </div>
                 </div>
