@@ -107,6 +107,22 @@ app.use("/uploads", express.static(UPLOADS_DIR, {
 // Доверяем фронтальному прокси (Nginx) — иначе req.ip = 127.0.0.1
 // '1' означает «один хоп выше по цепочке X-Forwarded-For» — это наш Nginx на том же VPS
 app.set("trust proxy", 1);
+
+// Eugene 2026-05-18 Босс «старые QR-коды на muziai.ru должны переходить
+// на muzaai.ru». 301-redirect для legacy домена — независимо от nginx
+// конфига. Печатные QR-коды (визитки, флаеры, билборды), email-ссылки,
+// share-link OG, ID3-tag в старых mp3 — всё продолжает работать.
+// ВНИМАНИЕ: redirect должен идти ДО любых route handlers.
+app.use((req, res, next) => {
+  const host = String(req.headers.host || "").toLowerCase().split(":")[0];
+  if (host === "muziai.ru" || host === "www.muziai.ru" || host === "www.muzaai.ru") {
+    const target = `https://muzaai.ru${req.originalUrl}`;
+    res.setHeader("X-Redirect-Reason", host === "muziai.ru" || host === "www.muziai.ru" ? "legacy-domain-muziai" : "canonical-no-www");
+    return res.redirect(301, target);
+  }
+  next();
+});
+
 const httpServer = createServer(app);
 
 declare module "http" {

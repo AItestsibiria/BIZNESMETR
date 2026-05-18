@@ -59,25 +59,22 @@ export interface LegalConfig {
  * Без этого в footer/оферте/чеке останутся placeholder-значения
  * 🔴ВПИШИ_...🔴, и Robokassa отклонит подключение.
  */
+// Eugene 2026-05-18: реквизиты ЗАО «Инфолайн» (юр.лицо MuzaAi).
+// Полный список банковских реквизитов хранится в docs/robokassa-package/05-contacts.md.
+// В ENV можно переопределить любое поле через LEGAL_*.
 const LEGAL_DEFAULT: LegalConfig = {
-  entityName: "🔴ВПИШИ_ENTITY_NAME🔴",
-  entityFullName: "🔴ВПИШИ_ПОЛНОЕ_ЮР_НАИМЕНОВАНИЕ🔴",
-  inn: "🔴ВПИШИ_ИНН🔴",
-  ogrn: "🔴ВПИШИ_ОГРН🔴",
-  legalAddress: "🔴ВПИШИ_ЮР_АДРЕС🔴",
-  phone: "🔴ВПИШИ_ТЕЛЕФОН🔴",
+  entityName: "ЗАО «Инфолайн»",
+  entityFullName: "Закрытое акционерное общество «Инфолайн»",
+  inn: "7017236261",
+  ogrn: "1097017005601",
+  legalAddress: "634050, г. Томск, пр. Ленина, д. 151/1, корпус 1",
+  phone: "+7 (3822) 50-36-70",
   email: "hello@muzaai.ru",
   domain: "muzaai.ru",
   brand: "MuzaAi",
-  // npd (самозанятый) — самая частая СНО для подобных сервисов; для ИП на
-  // патенте поменяй на "patent", для УСН — "usn_income". Если уверен, что
-  // в кабинете Robokassa только одна СНО — можно поставить null и поле
-  // не пойдёт в Receipt.
-  sno: "npd",
-  // Для самозанятого / большинства IT-услуг — НДС не применяется.
-  // Согласно справке Robokassa «Чеки 54-ФЗ» допустимые значения tax:
-  //   none, vat0, vat10, vat20, vat110 (10/110), vat120 (20/120).
-  defaultTax: "none",
+  // ЗАО — общая система налогообложения (ОСН) с НДС 20% по умолчанию.
+  sno: "osn",
+  defaultTax: "vat20",
 };
 
 function envOr(key: string, fallback: string): string {
