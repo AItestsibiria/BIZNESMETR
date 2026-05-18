@@ -307,7 +307,7 @@ export function CoverDetailsModal({
       {/* Eugene 2026-05-18 Босс «уменьши в свайпе» — compact 60% экрана.
           Было w-[90vw] max-w-[1100px] (слишком огромная на iPad).
           Стало max-w-2xl (~672px) — элегантно, не закрывает фоном весь экран. */}
-      <div className="w-[80vw] max-w-2xl flex flex-col items-center gap-4 px-4 relative">
+      <div className="w-[80vw] max-w-2xl flex flex-col items-center gap-2 px-4 relative">
         {/* Левая стрелка-хинт (показывается если есть onPrev) */}
         {onPrev && (
           <button
@@ -438,11 +438,8 @@ export function CoverDetailsModal({
                   <ChevronRight className="w-9 h-9 text-white drop-shadow-lg" />
                 </div>
               </div>
-              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-black/70 backdrop-blur-md border border-white/20 shadow-2xl">
-                <p className="text-sm text-white font-medium whitespace-nowrap">
-                  <span className="text-lg">👆</span> Свайп для смены трека
-                </p>
-              </div>
+              {/* Eugene 2026-05-18 Босс «убери лишнее» — text-overlay убран,
+                  стрелки сами по себе достаточно понятный hint. */}
             </div>
           )}
         </div>
@@ -590,32 +587,20 @@ export function CoverDetailsModal({
           </div>
         )}
 
-        <div className="w-full text-center px-2 pb-4" onClick={(e) => e.stopPropagation()}>
-          {/* Eugene 2026-05-17 — neon-text accent поверх gradient-text для
-              hi-tech swipe режима (text-shadow glow currentColor). */}
-          <p className="text-3xl sm:text-4xl font-display font-bold gradient-text neon-text leading-tight">{title}</p>
+        <div className="w-full text-center px-2 pb-1" onClick={(e) => e.stopPropagation()}>
+          {/* Eugene 2026-05-17 — neon-text accent поверх gradient-text. */}
+          <p className="text-xl sm:text-2xl font-display font-bold gradient-text neon-text leading-tight">{title}</p>
           {track.authorName && (
-            <p className="text-base sm:text-lg text-purple-300/90 mt-3 font-medium font-sans">{track.authorName}</p>
+            <p className="text-sm text-purple-300/90 mt-1 font-medium font-sans">{track.authorName}</p>
           )}
-          {/* Eugene 2026-05-18 Босс «промт убери» — styleInfo (Промт: жанр · темп · BPM)
-              скрыт в swipe modal. Остаётся в карточках плейлиста landing/dashboard. */}
-          {track.prompt && track.prompt !== title && (
-            <p className="text-sm sm:text-base text-white/60 mt-4 leading-relaxed max-h-40 overflow-y-auto font-sans">
-              {track.prompt.slice(0, 240)}{track.prompt.length > 240 ? "…" : ""}
-            </p>
-          )}
+          {/* Eugene 2026-05-18 Босс «убери Промт» — track.prompt full text тоже
+              скрыт в swipe modal (был рендер «Рок · быстрый · ...» как промт). */}
+          {/* Eugene 2026-05-18 Босс «убери Промт, лишние пробеты, надо в кадр».
+              Дата — компактнее (mt-2 вместо mt-4, без подписи лейбла). Help text
+              убран — функционал интуитивен через стрелки и swipe. */}
           {date && (
-            <p className="text-xs sm:text-sm text-white/40 mt-4 font-mono">
-              <span className="text-white/30 font-sans not-italic">{dateLabel}: </span>{date}
-            </p>
+            <p className="text-xs text-white/40 mt-2 font-mono">{date}</p>
           )}
-          <p className="text-xs text-white/40 mt-5 italic font-sans">
-            {(onNext || onPrev)
-              ? (onPlayPause
-                  ? "Свайп ← → или стрелки. Управляйте плеером ниже. Кликните вне обложки/контролов, чтобы закрыть"
-                  : "Свайп ← → или стрелки клавиатуры. Кликните вне обложки, чтобы закрыть")
-              : "Кликните в любую точку, чтобы закрыть"}
-          </p>
         </div>
       </div>
     </div>
