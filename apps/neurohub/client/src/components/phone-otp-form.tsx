@@ -19,6 +19,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, Phone, MessageSquare, Mail, RefreshCw } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+import { isMobilePhone } from "@/lib/deviceDetect";
+import { PhoneCallInstructions } from "@/components/phone-call-instructions";
 
 export type OtpPurpose = "register" | "login" | "change_phone" | "change_email";
 // Eugene 2026-05-15 Босс «авторизация по звонку на номер».
@@ -502,6 +504,31 @@ export default function PhoneOtpForm({
     const mm = String(Math.floor(expiresInSec / 60)).padStart(2, "0");
     const ss = String(expiresInSec % 60).padStart(2, "0");
     const callHref = callPhone ? `tel:${callPhone.replace(/[^+0-9]/g, "")}` : undefined;
+
+    // Eugene 2026-05-18 Босс «На планшете 8800 показывает но позвонить
+    // нельзя — нужен другой UX». isMobilePhone() → стандартный tel:link
+    // flow. !isMobilePhone() → QR-код + copy-кнопка + «возьмите смартфон».
+    const onMobilePhone = isMobilePhone();
+    if (!onMobilePhone && callPhone) {
+      return (
+        <PhoneCallInstructions
+          dialNumber={callPhone}
+          dialNumberPretty={callPhonePretty || undefined}
+          userPhone={phone}
+          expiresInSec={expiresInSec}
+          expired={callExpired}
+          onRetry={() => { setCallExpired(false); sendOtp(); }}
+          onChangePhone={() => {
+            setStep("phone"); setError(null); setCallHint(null);
+            setCallPhone(null); setCallPhonePretty(null); setCallExpiresAt(null);
+            setCallExpired(false);
+          }}
+          errorText={error}
+          cooldown={cooldown}
+          loading={loading}
+        />
+      );
+    }
     return (
       <div className="space-y-4">
         <p className="text-sm text-center text-muted-foreground">
