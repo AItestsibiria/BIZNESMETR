@@ -6379,7 +6379,12 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
           }
 
           res.setHeader("Content-Type", "image/jpeg");
-          res.setHeader("Cache-Control", "no-cache, must-revalidate");
+          // Eugene 2026-05-18 Босс «опять LS» — был no-cache,must-revalidate →
+          // iOS MediaSession пропускал artwork (revalidate timeout до того
+          // как iOS забрал metadata) → fallback на apple-touch-icon (фиолет.
+          // waveform). Теперь 1 час кэша — iOS успевает забрать artwork и
+          // кэширует его для re-uses. Cache-bust работает через ?v= в URL.
+          res.setHeader("Cache-Control", "public, max-age=3600");
 
           if (needsTransform) {
             try {

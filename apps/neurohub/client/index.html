@@ -65,11 +65,12 @@
     <!-- Eugene 2026-05-17: убраны старые PNG-иконки с lego «MuziAi» — теперь
          только SVG (всегда актуальный бренд). iOS Safari fallback на favicon.svg. -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/favicon.svg" />
-    <!-- Eugene 2026-05-18 Босс «на lock-screen MuzaAi logo вместо обложки трека».
-         Пустой apple-mobile-web-app-title подсказывает iOS использовать
-         MediaSession.metadata.title вместо document.title как fallback при
-         показе media-info на lock-screen / Control Center. -->
+    <!-- Eugene 2026-05-18 Босс «удали эту картинку из проекта правило было».
+         apple-touch-icon УБРАН — это была причина почему iOS lock-screen
+         показывал фиолетовый waveform-логотип MuzaAi как fallback artwork
+         для аудио. Теперь если MediaSession.metadata.artwork не загрузится,
+         iOS возьмёт generic music icon (нейтральный), а НЕ наш логотип.
+         Favicon в browser tab остаётся через rel="icon" (выше). -->
     <meta name="apple-mobile-web-app-title" content="" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <link rel="manifest" href="/manifest.json" />

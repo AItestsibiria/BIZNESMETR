@@ -383,7 +383,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   useEffect(() => {
     if (typeof window !== "undefined") window.localStorage.setItem("muzaai-cover-size", coverSize);
   }, [coverSize]);
-  const coverSizeClass = coverSize === "sm" ? "md:scale-75" : coverSize === "lg" ? "md:scale-125" : "md:scale-100";
+  // Eugene 2026-05-18 Босс «обложку на плеере увеличь в рамках концепции».
+  // Base подняли с 60→88 (mobile) и 72→112 (sm). Desktop коэффициенты тоже
+  // подросли: sm/md/lg → 100/125/150% (раньше 75/100/125).
+  const coverSizeClass = coverSize === "sm" ? "md:scale-100" : coverSize === "lg" ? "md:scale-150" : "md:scale-125";
   const [lyricsOpen, setLyricsOpen] = useState(false);
   const [expandedLyricId, setExpandedLyricId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1304,11 +1307,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   (purple→fuchsia→cyan→amber conic gradient + blur + slow spin
                   + pulse opacity). Обложка остаётся резкой внутри. */}
               {/* Eugene 2026-05-18 — обёртка cover+S; cover-square даёт фиксированный размер обложки, S-кнопка идёт после и не выпадает за wrapper. */}
-              <div className={`relative shrink-0 flex flex-col ${coverExpanded ? "md:w-full" : "w-20 sm:w-24"}`}>
+              <div className={`relative shrink-0 flex flex-col ${coverExpanded ? "md:w-full" : "w-[88px] sm:w-[112px]"}`}>
                 {/* Eugene 2026-05-18 Босс «обложка -25% базово + desktop resize».
                     Mobile: w-[60px] (было 80) / sm:w-[72px] (было 96). Desktop:
                     coverSize state управляет (75/100/125%). */}
-                <div className={`relative ${coverExpanded ? "md:w-full md:aspect-square" : "w-[60px] h-[60px] sm:w-[72px] sm:h-[72px]"} ${!coverExpanded ? coverSizeClass : ""}`}>
+                <div className={`relative ${coverExpanded ? "md:w-full md:aspect-square" : "w-[88px] h-[88px] sm:w-[112px] sm:h-[112px]"} ${!coverExpanded ? coverSizeClass : ""}`}>
                 <div
                   aria-hidden="true"
                   className={`absolute -inset-2 rounded-2xl opacity-70 blur-2xl pointer-events-none cover-aura ${coverExpanded ? "md:-inset-3" : ""}`}
