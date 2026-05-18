@@ -6856,11 +6856,41 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       res.status(503).json({ message: "MuzaAi временно недоступен. Мы уже работаем над проблемой — мы уже работаем над ней. Попробуйте через 5–10 минут." });
       return;
     }
-    const { prompt, style, lyrics, title, instrumental, voice, voiceType, isDuet, authorName, isPublic, category } = req.body;
+    const {
+      prompt, style, lyrics, title, instrumental, voice, voiceType, isDuet,
+      authorName, isPublic, category,
+      // Eugene 2026-05-18: Suno advanced params (Docs-first-always rule).
+      // Reference: https://docs.kie.ai/suno-api/generate-music (kie.ai is the
+      // GPTunnel upstream) + https://docs.sunoapi.org/suno-api/generate-music.
+      // Все опциональны — если не переданы, Suno использует defaults.
+      //   negativeTags  : str — что НЕ должно быть в музыке («Heavy Metal, EDM»). 200ch.
+      //   weirdness     : 0..1 multiple of 0.01 (creative deviation; default 0.3)
+      //   styleWeight   : 0..1 multiple of 0.01 (adherence to style; default 0.5)
+      //   vocalGender   : "m" | "f" — preferred gender (НЕ применяется при duet/instrumental)
+      //   modelVersion  : "V3_5" | "V4" | "V4_5" | "V4_5PLUS" | "V5" (если не передан — GPTunnel сам)
+      negativeTags, weirdness, styleWeight, vocalGender, modelVersion,
+    } = req.body;
     if (!prompt && !lyrics) {
       res.status(400).json({ message: "Опишите желаемый трек или вставьте текст" });
       return;
     }
+    // Server-side guard для advanced params (UI тоже clamp'ит).
+    const clampUnit = (v: any): number | undefined => {
+      if (v === undefined || v === null || v === "") return undefined;
+      const n = typeof v === "number" ? v : parseFloat(String(v));
+      if (!isFinite(n)) return undefined;
+      return Math.round(Math.max(0, Math.min(1, n)) * 100) / 100;
+    };
+    const cleanWeirdness = clampUnit(weirdness);
+    const cleanStyleWeight = clampUnit(styleWeight);
+    const cleanNegativeTags = typeof negativeTags === "string" && negativeTags.trim()
+      ? negativeTags.trim().slice(0, 200)
+      : undefined;
+    const cleanVocalGender = vocalGender === "m" || vocalGender === "f" ? vocalGender : undefined;
+    const ALLOWED_MODELS = new Set(["V3_5", "V4", "V4_5", "V4_5PLUS", "V5"]);
+    const cleanModelVersion = typeof modelVersion === "string" && ALLOWED_MODELS.has(modelVersion)
+      ? modelVersion
+      : undefined;
 
     const charge = checkAndCharge(userId, "music");
     if (!charge.ok) {
@@ -6874,7 +6904,15 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         userId,
         type: "music",
         prompt: prompt || lyrics || "",
-        style: JSON.stringify({ style, title, instrumental, category: category || 'song' }),
+        style: JSON.stringify({
+          style, title, instrumental, category: category || 'song',
+          // Eugene 2026-05-18: сохраняем advanced params для regenerate/audit.
+          ...(cleanNegativeTags ? { negativeTags: cleanNegativeTags } : {}),
+          ...(cleanWeirdness !== undefined ? { weirdness: cleanWeirdness } : {}),
+          ...(cleanStyleWeight !== undefined ? { styleWeight: cleanStyleWeight } : {}),
+          ...(cleanVocalGender ? { vocalGender: cleanVocalGender } : {}),
+          ...(cleanModelVersion ? { modelVersion: cleanModelVersion } : {}),
+        }),
         cost: charge.isFree ? 0 : PRICES.music,
         status: "processing",
         isPublic: isPublic === false ? 0 : 1,
@@ -6935,7 +6973,19 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         }
       }
 
-      console.log(`[MUSIC] gen #${gen.id} voiceType=${norm.voiceType} mode=${payload.mode || "basic"} prompt=${(payload.prompt || "").length}ch lyrics=${(payload.lyric || "").length}ch tags="${(payload.tags || "").slice(0, 100)}"`);
+      // Eugene 2026-05-18: Suno advanced params поверх базового payload.
+      // Reference: kie.ai/sunoapi.org docs. Suno использует defaults если
+      // не передавать. ВНИМАНИЕ: vocalGender НЕ применяется к duet/instrumental
+      // (нормализатор уже выставил voiceType — отдаём подсказку только при m/f).
+      if (cleanNegativeTags) payload.negativeTags = cleanNegativeTags;
+      if (cleanWeirdness !== undefined) payload.weirdnessConstraint = cleanWeirdness;
+      if (cleanStyleWeight !== undefined) payload.styleWeight = cleanStyleWeight;
+      if (cleanVocalGender && !isInstrumental && norm.voiceType !== "duet") {
+        payload.vocalGender = cleanVocalGender;
+      }
+      if (cleanModelVersion) payload.modelVersion = cleanModelVersion;
+
+      console.log(`[MUSIC] gen #${gen.id} voiceType=${norm.voiceType} mode=${payload.mode || "basic"} prompt=${(payload.prompt || "").length}ch lyrics=${(payload.lyric || "").length}ch tags="${(payload.tags || "").slice(0, 100)}" adv={neg:${!!cleanNegativeTags},w:${cleanWeirdness ?? "-"},sw:${cleanStyleWeight ?? "-"},vg:${cleanVocalGender ?? "-"},mv:${cleanModelVersion ?? "-"}}`);
 
       // Eugene 2026-05-08 «название всегда сохраняй»: persist autoTitle в
       // displayTitle (юзер видит в дашборде) И в style.title (для retry).
