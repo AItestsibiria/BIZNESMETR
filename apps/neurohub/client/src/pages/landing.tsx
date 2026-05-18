@@ -1926,9 +1926,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/70 to-transparent px-5 pb-5 pt-24 z-30">
                           <p className="text-white font-bold text-base leading-snug">{track.displayTitle || track.prompt?.slice(0, 80)}</p>
                           <p className="text-white/80 text-sm font-medium mt-1">{track.authorName} <span className="text-white/50">· {eDateStr}</span></p>
-                          {track.styleInfo && (
-                            <p className="text-[11px] text-white/40 mt-1">Промт: {track.styleInfo}</p>
-                          )}
+                          {/* Eugene 2026-05-19 Босс «убери описание промта в границах обложки».
+                              Промт-строка («Промт: Рок · быстрый…») убрана — теперь только
+                              title + author + date в overlay. Кнопка «Создать» ниже остаётся. */}
                           <div className="flex items-center gap-2 mt-2">
                             <span className="text-[10px] text-white/50 tabular-nums">{formatDuration(eActive ? currentTime : 0)}</span>
                             <div className="flex-1 h-1.5 rounded-full bg-white/10 overflow-hidden cursor-pointer" onClick={(e) => { if (!audioRef.current || !trackDuration) return; const rect = e.currentTarget.getBoundingClientRect(); const pct = (e.clientX - rect.left) / rect.width; audioRef.current.currentTime = pct * trackDuration; setCurrentTime(pct * trackDuration); }}>
