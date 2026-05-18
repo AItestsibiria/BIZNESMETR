@@ -16,6 +16,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { PUBLIC_URL } from "./publicUrl";
+import { loadProjectKnowledge } from "./musaKnowledgeLoader";
 
 export type Psychotype = "warm" | "energetic" | "analytical" | "calm";
 export type AgeTier = "adult" | "teen" | "kid";
@@ -930,6 +931,8 @@ classify_question({question}) — он подскажет категорию и 
 ═══ KB ═══
 ${kb}
 ═══ KB END ═══
+
+${loadProjectKnowledge()}
 
 Финал: говори живо, веди к подарочному треку и творчеству. Если не знаешь — «уточню и вернусь», не выдумывай.`;
 }
