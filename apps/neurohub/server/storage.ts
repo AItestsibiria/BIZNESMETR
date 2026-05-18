@@ -915,6 +915,33 @@ try {
   } catch (e) {
     console.error("[MIGRATION] landing_news failed:", e);
   }
+
+  // Eugene 2026-05-18 Босс «ручная блокировка по IP / userId / country по
+  // жалобе». Таблица для anti-abuse / spam защиты — админ блокирует по
+  // конкретному значению (ip/user/country/ua_substring) с опциональным TTL.
+  // Записи в БД остаются после soft-unblock (active=0) для аудита.
+  try {
+    sqlite.exec(`CREATE TABLE IF NOT EXISTS blocked_entities (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      type TEXT NOT NULL CHECK (type IN ('ip', 'user', 'country', 'ua_substring')),
+      value TEXT NOT NULL,
+      reason TEXT,
+      blocked_by INTEGER,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER,
+      active INTEGER NOT NULL DEFAULT 1
+    )`);
+    // Уникальный индекс на (type, value) только для активных записей —
+    // history blocks остаются, но активный одновременно может быть один.
+    sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS blocked_entities_active_uniq
+      ON blocked_entities(type, value) WHERE active = 1`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS blocked_entities_active_idx
+      ON blocked_entities(active, expires_at)`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS blocked_entities_type_idx
+      ON blocked_entities(type, created_at DESC)`);
+  } catch (e) {
+    console.error("[MIGRATION] blocked_entities failed:", e);
+  }
 } catch (e) {
   console.error("[MIGRATION] Error:", e);
 }
