@@ -1380,7 +1380,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   цветах пусть переливаются» — обёртка с animated brand aura
                   (purple→fuchsia→cyan→amber conic gradient + blur + slow spin
                   + pulse opacity). Обложка остаётся резкой внутри. */}
-              <div className={`relative shrink-0 ${coverExpanded ? "md:w-full md:aspect-square" : "w-20 h-20 sm:w-24 sm:h-24"}`}>
+              {/* Eugene 2026-05-18 — обёртка cover+S; cover-square даёт фиксированный размер обложки, S-кнопка идёт после и не выпадает за wrapper. */}
+              <div className={`relative shrink-0 flex flex-col ${coverExpanded ? "md:w-full" : "w-20 sm:w-24"}`}>
+                <div className={`relative ${coverExpanded ? "md:w-full md:aspect-square" : "w-20 h-20 sm:w-24 sm:h-24"}`}>
                 <div
                   aria-hidden="true"
                   className={`absolute -inset-2 rounded-2xl opacity-70 blur-2xl pointer-events-none cover-aura ${coverExpanded ? "md:-inset-3" : ""}`}
@@ -1407,11 +1409,14 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   className="absolute top-2 right-2 z-10"
                 />
               </div>
+              </div>
               {/* Eugene 2026-05-17 Босс «S под обложку + спиши в размер
                   плеера». S-кнопка по ширине = размеру обложки (20/24/full
-                  если expanded). Bomb-gradient + pulse glow. */}
+                  если expanded). Bomb-gradient + pulse glow.
+                  Eugene 2026-05-18: вынесена ниже cover-square wrapper, чтобы
+                  не вываливалась за пределы фиксированной высоты обложки. */}
               <button
-                className={`mt-2 mx-auto flex items-center justify-center rounded-full bg-gradient-to-br from-purple-500 via-fuchsia-500 to-cyan-400 hover:from-purple-400 hover:via-fuchsia-400 hover:to-cyan-300 text-white font-display font-bold transition-all shadow-[0_0_20px_rgba(217,70,239,0.65)] hover:shadow-[0_0_36px_rgba(217,70,239,0.9)] hover:scale-105 active:scale-95 border border-fuchsia-300/50 animate-details-pulse h-7 w-20 sm:w-24 text-sm ${coverExpanded ? "md:w-full md:h-9 md:text-base" : ""}`}
+                className={`mt-2 self-center flex items-center justify-center rounded-full bg-gradient-to-br from-purple-500 via-fuchsia-500 to-cyan-400 hover:from-purple-400 hover:via-fuchsia-400 hover:to-cyan-300 text-white font-display font-bold transition-all shadow-[0_0_20px_rgba(217,70,239,0.65)] hover:shadow-[0_0_36px_rgba(217,70,239,0.9)] hover:scale-105 active:scale-95 border border-fuchsia-300/50 animate-details-pulse h-7 w-20 sm:w-24 text-sm ${coverExpanded ? "md:w-full md:h-9 md:text-base" : ""}`}
                 title="Свайп-режим — листай ← → большие обложки"
                 aria-label="Свайп-режим"
                 onClick={() => setDetailsOpen(true)}
@@ -1443,8 +1448,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   </div>
                   <span className="text-xs text-muted-foreground tabular-nums w-9 text-right">{formatDuration(trackDuration)}</span>
                 </div>
-                {/* Control buttons — увеличены до 48px touch-target (Eugene 12:18) */}
-                <div className="flex items-center gap-4 mt-3">
+                {/* Control buttons — Eugene 2026-05-18 Босс «кнопки вываливаются + громкость длинная» — flex-wrap + компактные icon-only + volume убран (остался в expanded modal + cover-details). */}
+                <div className="flex flex-wrap items-center gap-2 mt-3">
                   <button onClick={skipPrev} aria-label="Предыдущий трек" className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/15 active:bg-white/20 transition-colors border border-white/10">
                     <SkipBack className="w-6 h-6 text-white/80" />
                   </button>
@@ -1468,18 +1473,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   >
                     <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12a7 7 0 1 0-3 5.7" /><polyline points="14 17 16 17.7 16.7 15.7" /><text x="12" y="15" textAnchor="middle" fontSize="9" fontWeight="700" stroke="none" fill="currentColor">1</text></svg>
                   </button>
-                  {/* Eugene 2026-05-17 Босс «стильный ползунок громкости в плеере» — после Repeat */}
-                  <VolumeSlider
-                    volume={volume}
-                    onVolumeChange={setVolume}
-                    className="w-[110px] sm:w-[140px]"
-                  />
-                  {/* Eugene 2026-05-17 — S-кнопка перенесена ПОД обложку
-                      (см. btn-cover-s-under выше). Здесь убрана чтобы не
-                      дублировать. */}
+                  {/* Eugene 2026-05-18 — VolumeSlider убран с main плеера (вываливался + длинный).
+                      Громкость остаётся доступной в CoverDetailsModal (свайп-режим) + в expanded мини-плеере. */}
                   <button
-                    className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors"
+                    className="w-8 h-8 rounded-full bg-white/5 border border-purple-400/15 hover:border-purple-400/40 hover:bg-white/10 flex items-center justify-center transition-colors"
                     title="Скачать"
+                    aria-label="Скачать"
                     onClick={() => {
                       const a = document.createElement('a');
                       a.href = `/api/download/${currentTrack.id}`;
@@ -1489,11 +1488,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                       document.body.removeChild(a);
                     }}
                   >
-                    <Download className="w-4 h-4 text-muted-foreground" />
+                    <Download className="w-3.5 h-3.5 text-muted-foreground" />
                   </button>
                   <button
-                    className="w-9 h-9 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors"
+                    className="w-8 h-8 rounded-full bg-white/5 border border-purple-400/15 hover:border-purple-400/40 hover:bg-white/10 flex items-center justify-center transition-colors"
                     title="Поделиться"
+                    aria-label="Поделиться"
                     onClick={async () => {
                       const url = `https://muziai.ru/#/track/${currentTrack.id}`;
                       const title = currentTrack.displayTitle || currentTrack.prompt?.slice(0, 60) || 'MuzaAi';
@@ -1512,7 +1512,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                       toast({ title: "Ссылка скопирована" });
                     }}
                   >
-                    <Share2 className="w-4 h-4 text-muted-foreground" />
+                    <Share2 className="w-3.5 h-3.5 text-muted-foreground" />
                   </button>
                 </div>
                 {/* Создай в том же стиле */}
