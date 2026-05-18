@@ -93,6 +93,7 @@ import vpsSyncModule from "./plugins/vps-sync/module";
 import operatorCommandsModule from "./plugins/operator-commands/module";
 import feedbackAggregatorModule from "./plugins/feedback-aggregator/module";
 import escalationQueueModule from "./plugins/escalation-queue/module";
+import playsAuditModule from "./plugins/plays-audit/module";
 
 import * as fs from "node:fs";
 
@@ -478,6 +479,7 @@ app.post("/api/_client-error", express.json(), (req, res) => {
     { name: "support", module: supportModule },
 
     { name: "image-gen", module: imageGenModule },
+    { name: "plays-audit", module: playsAuditModule },
 
     { name: "vps-sync", module: vpsSyncModule },
     { name: "operator-commands", module: operatorCommandsModule },
