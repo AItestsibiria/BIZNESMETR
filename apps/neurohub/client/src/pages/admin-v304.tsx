@@ -29,6 +29,7 @@ import { Progress } from "@/components/ui/progress";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell } from "recharts";
 import MasterDashboardTab from "@/pages/admin/master-dashboard-tab";
 import SupportTicketsTab from "@/pages/admin/support-tickets-tab";
+import { BlocksTab } from "@/pages/admin/blocks-tab";
 import { MusaVoiceFab } from "@/components/musa-voice-fab";
 
 // Lazy-load SecondBrain3D — three.js + 3d-force-graph весят ~500KB,
@@ -306,6 +307,7 @@ export default function AdminV304Page() {
           <TabsTrigger value="support">🆘 Обращения</TabsTrigger>
           <TabsTrigger value="journey">🗺 Путь</TabsTrigger>
           <TabsTrigger value="user-profiles">👤 Профили</TabsTrigger>
+          <TabsTrigger value="blocks">🚫 Блокировки</TabsTrigger>
         </TabsList>
         <TabsContent value="master-dashboard"><MasterDashboardTab /></TabsContent>
         <TabsContent value="brain-3d">
@@ -348,6 +350,7 @@ export default function AdminV304Page() {
         <TabsContent value="support"><SupportTicketsTab toast={toast} /></TabsContent>
         <TabsContent value="journey"><JourneyTab toast={toast} /></TabsContent>
         <TabsContent value="user-profiles"><UserProfilesTab toast={toast} /></TabsContent>
+        <TabsContent value="blocks"><BlocksTab toast={toast} /></TabsContent>
       </Tabs>
 
       {/* 🎤 FAB «Сказать Музе» — доступна со всех admin-вкладок (Eugene 2026-05-17). */}
