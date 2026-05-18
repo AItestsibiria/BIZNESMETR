@@ -431,6 +431,61 @@ export function FloatingConsultant() {
   const [drawerSnap, setDrawerSnap] = useState<"br" | "bl" | "tr" | "tl" | "center">("br");
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
 
+  // Eugene 2026-05-18 Босс «звук сообщения в чате» — toggle 🔔/🔕 в header.
+  // Минимальная реализация через Web Audio API oscillator (не нагружает
+  // сеть, не зависит от mp3-файлов). Beep 800Hz × 100ms для нового сообщения
+  // от Музы; 2-нотный chime (600→800Hz × 200ms) при первом open чата.
+  // Persistent-audio-only rule: эти one-shot beeps не претендуют на
+  // MediaSession (как TTS Музы и admin-preview audio), поэтому AudioContext
+  // создаётся локально и не нарушает persistent player ownership.
+  const SOUND_KEY = "muza-chat-sound";
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
+    try { return localStorage.getItem(SOUND_KEY) === "1"; } catch { return false; }
+  });
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const prevChatMsgsLenRef = useRef(0);
+  const chatOpenSoundPlayedRef = useRef(false);
+
+  function getAudioCtx(): AudioContext | null {
+    try {
+      if (!audioCtxRef.current) {
+        const Ctor = (window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext);
+        if (!Ctor) return null;
+        audioCtxRef.current = new Ctor();
+      }
+      return audioCtxRef.current;
+    } catch { return null; }
+  }
+
+  function playBeep(freq: number, durationSec: number, startOffsetSec = 0) {
+    const ctx = getAudioCtx();
+    if (!ctx) return;
+    try {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      const t0 = ctx.currentTime + startOffsetSec;
+      gain.gain.setValueAtTime(0.08, t0);
+      gain.gain.exponentialRampToValueAtTime(0.0008, t0 + durationSec);
+      osc.start(t0);
+      osc.stop(t0 + durationSec);
+    } catch { /* ignore */ }
+  }
+
+  function playMessageBeep() { playBeep(800, 0.12); }
+  function playChatOpenChime() {
+    playBeep(600, 0.14, 0);
+    playBeep(800, 0.18, 0.12);
+  }
+
+  // Persist toggle to localStorage
+  useEffect(() => {
+    try { localStorage.setItem(SOUND_KEY, soundEnabled ? "1" : "0"); } catch {}
+  }, [soundEnabled]);
+
   // Eugene 2026-05-18 Босс «диагональная стрелка resize, гибко без фиксированных
   // размеров, ~50% screen. Mobile — не нужно». Custom resize пользователем,
   // сохраняется в localStorage (TTL 30 дней). null → responsive default.
@@ -570,6 +625,34 @@ export function FloatingConsultant() {
       chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
     }
   }, [chatMsgs.length]);
+
+  // Eugene 2026-05-18 Босс «звук сообщения» — beep при новом bot-сообщении
+  // если soundEnabled и chat открыт. Сравниваем длину с предыдущей, чтобы
+  // beep'ом не было на каждый mount/initial-load.
+  useEffect(() => {
+    const prevLen = prevChatMsgsLenRef.current;
+    const curLen = chatMsgs.length;
+    if (soundEnabled && chatOpen && curLen > prevLen && curLen > 0) {
+      const last = chatMsgs[curLen - 1];
+      if (last && last.role === "bot") {
+        playMessageBeep();
+      }
+    }
+    prevChatMsgsLenRef.current = curLen;
+    // playMessageBeep — stable function (closure over refs); soundEnabled
+    // intentionally в deps чтобы при toggle beep сразу заработал/перестал.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatMsgs, soundEnabled, chatOpen]);
+
+  // Chime при первом open чата (один раз за session).
+  useEffect(() => {
+    if (chatOpen && soundEnabled && !chatOpenSoundPlayedRef.current) {
+      chatOpenSoundPlayedRef.current = true;
+      playChatOpenChime();
+    }
+    if (!chatOpen) chatOpenSoundPlayedRef.current = false;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatOpen, soundEnabled]);
 
   const initChatSession = useCallback(async () => {
     try {
@@ -1653,6 +1736,31 @@ export function FloatingConsultant() {
                   className="w-9 h-9 sm:w-7 sm:h-7 rounded-full hover:bg-white/[0.08] text-green-400 hover:text-green-300 text-lg font-bold flex items-center justify-center shrink-0"
                 >➜</button>
               )}
+              {/* Eugene 2026-05-18 Босс «звук сообщения в чате» — toggle 🔔/🔕.
+                  Persist через localStorage. При первом включении нужен user-gesture
+                  для AudioContext resume (W3C Autoplay Policy) — клик на toggle и
+                  является этим gesture. */}
+              <button
+                type="button"
+                onClick={() => {
+                  setSoundEnabled((v) => {
+                    const next = !v;
+                    // resume() при включении (user gesture требуется браузером)
+                    if (next) {
+                      const ctx = getAudioCtx();
+                      if (ctx && ctx.state === "suspended") {
+                        try { ctx.resume(); } catch {}
+                      }
+                    }
+                    return next;
+                  });
+                }}
+                aria-label={soundEnabled ? "Отключить звук сообщений" : "Включить звук сообщений"}
+                title={soundEnabled ? "Звук включён — отключить" : "Звук выключен — включить"}
+                className={`w-9 h-9 sm:w-7 sm:h-7 rounded-full hover:bg-white/[0.08] text-sm flex items-center justify-center shrink-0 transition-transform ${
+                  soundEnabled ? "text-fuchsia-300 hover:text-fuchsia-200 rotate-0" : "text-white/40 hover:text-white/70 -rotate-12"
+                }`}
+              >{soundEnabled ? "🔔" : "🔕"}</button>
               <button
                 type="button"
                 onClick={() => { setChatOpen(false); setShareMenuOpen(false); }}
