@@ -3,7 +3,7 @@ import { useRoute, Link } from "wouter";
 import { Play, Pause, Download, Share2, Sparkles, ArrowLeft, Music } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
-  setLockScreenTrack,
+  setupMediaSessionForTrack,
   setLockScreenPlaybackState,
   setLockScreenPosition,
   clearLockScreen,
@@ -109,9 +109,8 @@ export default function TrackPage() {
       setPlaying(false);
       setLockScreenPlaybackState("paused");
     } else {
-      // Eugene 2026-05-18 Босс «lockscreen logo вместо обложки» — SYNC metadata
-      // ДО play(), чтобы iOS не дёрнул document.title fallback. Async refresh
-      // (prewarm 512px) вдогонку — параллельно с уже стартующим play().
+      // Eugene 2026-05-18 8-я итерация: setupMediaSessionForTrack SYNC ДО
+      // play() — внутри user-gesture стэка. Single-call, без duplicate.
       const lsMeta = {
         id: track.id,
         title: track.prompt || "MuzaAi",
@@ -123,15 +122,12 @@ export default function TrackPage() {
         pause: () => { audioRef.current?.pause(); setPlaying(false); setLockScreenPlaybackState("paused"); },
         seekto: (t: number) => { if (audioRef.current) audioRef.current.currentTime = t; },
       };
-      // Eugene 2026-05-18 Босс «iT3 решение» — async single-call паттерн.
-      setLockScreenTrack(lsMeta, lsHandlers, track.createdAt).catch(() => {});
+      setupMediaSessionForTrack(lsMeta, lsHandlers, { coverBust: track.createdAt, prewarm: true });
       try {
         await audioRef.current.play();
         setPlaying(true);
         setLockScreenPlaybackState("playing");
       } catch {}
-      // Async refresh — prewarm + double-write для iOS first-write drop.
-      setLockScreenTrack(lsMeta, lsHandlers, track.createdAt).catch(() => {});
       // log activity
       fetch(`/api/gen-activity/${track?.id}/play`, { method: "POST" }).catch(() => {});
     }

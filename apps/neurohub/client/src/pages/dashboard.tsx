@@ -26,7 +26,7 @@ import { KaraokeLyrics } from "@/components/karaoke-lyrics";
 import { ExpandToggleButton } from "@/components/expand-toggle-button";
 import { CoverDetailsModal } from "@/components/cover-details-modal";
 import { VolumeSlider } from "@/components/volume-slider";
-import { setLockScreenTrack, setLockScreenPlaybackState } from "@/lib/lockscreen";
+import { setupMediaSessionForTrack, setLockScreenPlaybackState, setLockScreenPosition } from "@/lib/lockscreen";
 import { muteBgMusic, unmuteBgMusic } from "@/components/background-music";
 import { SupportModal } from "@/components/support-modal";
 
@@ -1299,31 +1299,12 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
       unmuteBgMusic();
     };
 
-    // Eugene 2026-05-18 Босс «LS не показывает обложки» — 7-я итерация.
-    // КРИТИЧНО SYNC: navigator.mediaSession.metadata УСТАНОВИТЬ inline ДО
-    // audio.play(). iOS читает metadata при play() resolve — если ещё null,
-    // берёт document.title + apple-touch-icon как fallback.
+    // Eugene 2026-05-18 8-я итерация. ROOT-CAUSE-2: metadata должна быть
+    // применена СИНХРОННО в одном tick с audio.play() — никаких async
+    // вызовов между ними. setupMediaSessionForTrack делает sync apply +
+    // параллельный prewarm artwork (не блокирует gesture).
     const lsTitle = gen.displayTitle || gen.prompt?.slice(0, 60) || 'MuzaAi';
     const lsArtist = gen.authorName ? `MuzaAi · ${gen.authorName}` : 'MuzaAi';
-    if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
-      try {
-        const origin = window.location.origin;
-        navigator.mediaSession.metadata = new MediaMetadata({
-          title: lsTitle,
-          artist: lsArtist,
-          album: 'MuzaAi',
-          artwork: [
-            { src: `${origin}/api/cover/${gen.id}.jpg?size=96&v=${gen.id}`, sizes: '96x96', type: 'image/jpeg' },
-            { src: `${origin}/api/cover/${gen.id}.jpg?size=192&v=${gen.id}`, sizes: '192x192', type: 'image/jpeg' },
-            { src: `${origin}/api/cover/${gen.id}.jpg?size=256&v=${gen.id}`, sizes: '256x256', type: 'image/jpeg' },
-            { src: `${origin}/api/cover/${gen.id}.jpg?size=384&v=${gen.id}`, sizes: '384x384', type: 'image/jpeg' },
-            { src: `${origin}/api/cover/${gen.id}.jpg?size=512&v=${gen.id}`, sizes: '512x512', type: 'image/jpeg' },
-          ],
-        });
-      } catch (e) {
-        try { console.warn("[LS-sync] MediaMetadata failed:", e); } catch {}
-      }
-    }
     const lsHandlers = {
       play: () => { audioRef.current?.play(); muteBgMusic(); setLockScreenPlaybackState('playing'); },
       pause: () => { audioRef.current?.pause(); unmuteBgMusic(); setLockScreenPlaybackState('paused'); },
@@ -1339,15 +1320,17 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
       },
       seekto: (time: number) => { if (audioRef.current) audioRef.current.currentTime = time; },
     };
-    // Eugene 2026-05-18 Босс «iT3 решение, зафиксируй» — async setLockScreenTrack
-    // (single-call паттерн из triumph-muza-150526). Sync-вариант убран.
-    setLockScreenTrack(
+
+    // SYNC setup MediaSession ДО audio.play() — внутри user-gesture стэка.
+    setupMediaSessionForTrack(
       { id: gen.id, title: lsTitle, artist: lsArtist, album: 'MuzaAi' },
       lsHandlers,
-      gen.id,
-    ).catch((err) => { console.warn("[PLAYER] setLockScreenTrack failed:", err); });
+      { coverBust: gen.id, prewarm: true }
+    );
 
-    audio.play().catch(() => {});
+    audio.play()
+      .then(() => setLockScreenPlaybackState('playing'))
+      .catch(() => {});
     setPlayingId(gen.id);
     muteBgMusic();
     if (expandedIdRef.current !== null) setExpandedId(gen.id);
@@ -1365,17 +1348,22 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
         }).catch(() => {});
       }
     }, 5000);
+    // Timer-tick: UI currentTime + lock-screen scrubber position (throttled 500ms).
+    // setLockScreenPosition обязателен — без него iOS scrubber застывает.
+    let lastPosUpdate = 0;
     timerRef.current = window.setInterval(() => {
-      if (audio && !audio.paused) setCurrentTime(audio.currentTime);
+      if (audio && !audio.paused) {
+        setCurrentTime(audio.currentTime);
+        const now = Date.now();
+        if (now - lastPosUpdate >= 500 && isFinite(audio.duration) && audio.duration > 0) {
+          lastPosUpdate = now;
+          setLockScreenPosition(audio.duration, audio.currentTime, audio.playbackRate || 1);
+        }
+      }
     }, 250);
 
-    // MediaSession lockscreen — async refresh поверх sync-варианта выше
-    // (prewarm 512px + double-write для iOS first-write drop).
-    setLockScreenTrack(
-      { id: gen.id, title: lsTitle, artist: lsArtist, album: 'MuzaAi' },
-      lsHandlers,
-      gen.id, // cache-bust per track
-    ).catch(() => {});
+    // MediaSession уже настроена через setupMediaSessionForTrack SYNC выше —
+    // duplicate async вызов удалён (не нужен с DOM-attached audio).
   };
 
   const togglePlay = (gen: Generation) => {
