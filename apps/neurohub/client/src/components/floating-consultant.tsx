@@ -241,7 +241,38 @@ function ChatMiniPlayer() {
         detail: { action, payload: null },
       }));
     } catch {}
-  }, []);
+    // Eugene 2026-05-18 Босс «в чате плеер не переключает треки» — fallback
+    // для страниц без landing/dashboard listener (например /admin, /music,
+    // /track/:id). Если через 500ms audio.src не изменился — fetch плейлист
+    // и переключаем напрямую через persistent audio singleton.
+    try {
+      const a = audio;
+      if (!a || !a.src) return;
+      const startSrc = a.src;
+      setTimeout(async () => {
+        try {
+          if (a.src !== startSrc) return; // listener сработал
+          const r = await fetch('/api/playlist?status=main&sort=date&dir=desc&_=' + Date.now(), { cache: 'no-store' });
+          const data = await r.json();
+          const list = (Array.isArray(data) ? data : []).filter((t: any) => t.type === 'music' && t.audioUrl);
+          if (list.length === 0) return;
+          const idx = list.findIndex((t: any) =>
+            startSrc.includes(t.audioUrl) || startSrc.endsWith(`/api/stream/${t.id}`)
+          );
+          const safeIdx = idx < 0 ? 0 : idx;
+          const targetIdx = action === "next"
+            ? (safeIdx + 1) % list.length
+            : (safeIdx > 0 ? safeIdx - 1 : list.length - 1);
+          const target = list[targetIdx];
+          if (target?.audioUrl) {
+            const mod = await import("@/lib/lockscreen");
+            mod.loadTrackIntoPlayer(a, target.audioUrl);
+            a.play().catch(() => {});
+          }
+        } catch {}
+      }, 500);
+    } catch {}
+  }, [audio]);
 
   const onSeek = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!audio || !duration) return;

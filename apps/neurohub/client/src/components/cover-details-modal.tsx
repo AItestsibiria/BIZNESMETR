@@ -324,7 +324,7 @@ export function CoverDetailsModal({
       {/* Eugene 2026-05-18 Босс «уменьши в свайпе» — compact 60% экрана.
           Было w-[90vw] max-w-[1100px] (слишком огромная на iPad).
           Стало max-w-2xl (~672px) — элегантно, не закрывает фоном весь экран. */}
-      <div className="w-[80vw] max-w-2xl flex flex-col items-center gap-2 px-4 relative">
+      <div className="w-[80vw] max-w-2xl md:max-w-lg lg:max-w-xl flex flex-col items-center gap-2 px-4 relative">
         {/* Левая стрелка-хинт (показывается если есть onPrev) */}
         {onPrev && (
           <button
