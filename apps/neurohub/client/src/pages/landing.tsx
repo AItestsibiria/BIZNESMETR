@@ -9,7 +9,7 @@ import { ExpandToggleButton } from "@/components/expand-toggle-button";
 import { CoverDetailsModal } from "@/components/cover-details-modal";
 import { VolumeSlider } from "@/components/volume-slider";
 import { muteBgMusic, unmuteBgMusic } from "@/components/background-music";
-import { setLockScreenTrack, setLockScreenPlaybackState } from "@/lib/lockscreen";
+import { setLockScreenTrack, setLockScreenTrackSync, setLockScreenPlaybackState } from "@/lib/lockscreen";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -729,7 +729,47 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     audio.addEventListener("pause", () => setIsPlayingState(false));
     audio.addEventListener("ended", () => setIsPlayingState(false));
 
-    // iOS gesture budget — play() сразу после new Audio.
+    // Eugene 2026-05-18 Босс «lock-screen logo вместо обложки».
+    // КРИТИЧНО: setLockScreenTrackSync ДО audio.play(), чтобы iOS прочитал
+    // metadata при play() resolve, а не упал на document.title fallback.
+    const msTitleSync = track.displayTitle || track.prompt?.slice(0, 60) || 'MuzaAi';
+    const msArtistSync = track.authorName ? `MuzaAi · ${track.authorName}` : 'MuzaAi';
+    const lsHandlers = {
+      play: () => {
+        audioRef.current?.play().catch(() => {});
+        muteBgMusic();
+        setLockScreenPlaybackState('playing');
+      },
+      pause: () => {
+        audioRef.current?.pause();
+        unmuteBgMusic();
+        setLockScreenPlaybackState('paused');
+      },
+      previoustrack: () => {
+        const fl = filteredMusicRef.current;
+        const mt = fl && fl.length > 0 ? fl : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+        const cur = playingTrackRef.current;
+        const idx = cur ? mt.findIndex(t => t.id === cur.id) : 0;
+        if (mt[idx > 0 ? idx - 1 : mt.length - 1]) playTrack(mt[idx > 0 ? idx - 1 : mt.length - 1]);
+      },
+      nexttrack: () => {
+        const fl = filteredMusicRef.current;
+        const mt = fl && fl.length > 0 ? fl : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+        const cur = playingTrackRef.current;
+        const idx = cur ? mt.findIndex(t => t.id === cur.id) : -1;
+        if (mt[(idx + 1) % mt.length]) playTrack(mt[(idx + 1) % mt.length]);
+      },
+      seekto: (t: number) => {
+        if (audioRef.current) audioRef.current.currentTime = t;
+      },
+    };
+    setLockScreenTrackSync(
+      { id: track.id, title: msTitleSync, artist: msArtistSync, album: 'MuzaAi' },
+      lsHandlers,
+      (track as any).coverGenId || track.id,
+    );
+
+    // iOS gesture budget — play() сразу после new Audio + sync metadata.
     const playPromise = audio.play();
     playPromise
       .then(() => { setLockScreenPlaybackState('playing'); setIsPlayingState(true); })
@@ -813,42 +853,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     });
 
 
-    // Lock-screen metadata — async, параллельно с уже стартовавшим play().
-    // audio.play() уже вызван выше — самым первым после new Audio().
-    const msTitle = track.displayTitle || track.prompt?.slice(0, 60) || 'MuzaAi';
-    const msArtist = track.authorName ? `MuzaAi · ${track.authorName}` : 'MuzaAi';
-
+    // Lock-screen metadata — async refresh (prewarm 512px + double-write).
+    // Sync-вариант уже установил metadata ДО play() — это supplemental проход
+    // для устранения iOS first-write drop и подгрузки артуорка в HTTP cache.
     setLockScreenTrack(
-      { id: track.id, title: msTitle, artist: msArtist, album: 'MuzaAi' },
-      {
-        play: () => {
-          audioRef.current?.play().catch(() => {});
-          muteBgMusic();
-          setLockScreenPlaybackState('playing');
-        },
-        pause: () => {
-          audioRef.current?.pause();
-          unmuteBgMusic();
-          setLockScreenPlaybackState('paused');
-        },
-        previoustrack: () => {
-          const fl = filteredMusicRef.current;
-          const mt = fl && fl.length > 0 ? fl : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
-          const cur = playingTrackRef.current;
-          const idx = cur ? mt.findIndex(t => t.id === cur.id) : 0;
-          if (mt[idx > 0 ? idx - 1 : mt.length - 1]) playTrack(mt[idx > 0 ? idx - 1 : mt.length - 1]);
-        },
-        nexttrack: () => {
-          const fl = filteredMusicRef.current;
-          const mt = fl && fl.length > 0 ? fl : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
-          const cur = playingTrackRef.current;
-          const idx = cur ? mt.findIndex(t => t.id === cur.id) : -1;
-          if (mt[(idx + 1) % mt.length]) playTrack(mt[(idx + 1) % mt.length]);
-        },
-        seekto: (t: number) => {
-          if (audioRef.current) audioRef.current.currentTime = t;
-        },
-      },
+      { id: track.id, title: msTitleSync, artist: msArtistSync, album: 'MuzaAi' },
+      lsHandlers,
       (track as any).coverGenId || track.id
     ).catch((err) => {
       console.warn("[PLAYER] setLockScreenTrack failed:", err);
