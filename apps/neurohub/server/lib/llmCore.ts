@@ -380,10 +380,10 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
       // Tool-use loop: stop_reason="tool_use" → выполнить tools и зациклиться.
       if (j?.stop_reason === "tool_use" && Array.isArray(j.content)) {
         // Eugene 2026-05-18 Босс «TOP-5 ревизии»: tool-loop dedupe.
-        // Если LLM зовёт один и тот же tool >2 раз подряд (обычно
-        // признак залипания / неправильного интерпретирования результата)
-        // — принудительно ломаем loop и возвращаем то что есть.
-        // Защищает от token-burn и infinite-loop пытания.
+        // Eugene 2026-05-19 Musa-diag ROOT CAUSE: при forceBreak обязательно
+        // дозаполняем tool_result для ВСЕХ tool_use блоков — иначе Anthropic
+        // вернёт 400 «tool_result required for each tool_use» на следующем
+        // запросе → каскад на все 3 ключа → fallback → юзер видит «не работает».
         const toolCallCounts = new Map<string, number>();
         let forceBreak = false;
         messages.push({ role: "assistant", content: j.content });
@@ -393,9 +393,15 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
             const cnt = (toolCallCounts.get(block.name) || 0) + 1;
             toolCallCounts.set(block.name, cnt);
             if (cnt > 2) {
-              console.warn(`[LLM-LOOP] Tool '${block.name}' called ${cnt}x — forcing break`);
+              console.warn(`[LLM-LOOP] Tool '${block.name}' called ${cnt}x — stub + break`);
               forceBreak = true;
-              break;
+              // STUB tool_result чтобы Anthropic API контракт держался
+              toolResults.push({
+                type: "tool_result",
+                tool_use_id: block.id,
+                content: "Tool call limit reached. Continue without calling this tool again — finalize the response for the user.",
+              });
+              continue;
             }
             const result = await executeTool(block.name, block.input, {
               userId: opts.userId,
@@ -442,9 +448,15 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
                 const cnt = (toolCallCounts.get(block.name) || 0) + 1;
                 toolCallCounts.set(block.name, cnt);
                 if (cnt > 2) {
-                  console.warn(`[LLM-LOOP] Tool '${block.name}' called ${cnt}x — forcing break`);
+                  console.warn(`[LLM-LOOP] Tool '${block.name}' called ${cnt}x — stub + break`);
                   innerForceBreak = true;
-                  break;
+                  // STUB tool_result — обязателен (см. outer-loop fix)
+                  tr.push({
+                    type: "tool_result",
+                    tool_use_id: block.id,
+                    content: "Tool call limit reached. Finalize the response for the user.",
+                  });
+                  continue;
                 }
                 const result = await executeTool(block.name, block.input, {
                   userId: opts.userId,
@@ -457,8 +469,17 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
               }
             }
             messages.push({ role: "user", content: tr });
-            if (innerForceBreak) break;
+            if (innerForceBreak) {
+              // Сделать ОДИН финальный вызов чтобы Claude засуммировал
+              // (без break — иначе вернём undefined через line 466).
+              continue;
+            }
             continue;
+          }
+          // stop_reason !== "end_turn" and !== "tool_use" — extract text если есть
+          const fallbackText = (j2?.content || []).find((b: any) => b.type === "text")?.text;
+          if (typeof fallbackText === "string" && fallbackText.length > 0) {
+            return fallbackText.slice(0, 2000);
           }
           break;
         }
@@ -506,7 +527,10 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
         history: history.slice(-15),
         userText: safeUserText,
         maxTokens,
-        model: process.env.TIMEWEB_GATEWAY_MODEL || "openai/gpt-4o-mini",
+        // Eugene 2026-05-19 Musa-diag: TimeWeb gateway основан на Anthropic-
+        // compatible API. Дефолт должен быть anthropic-моделью (claude-haiku),
+        // не openai/gpt-4o-mini (gateway может не понимать openai-namespace).
+        model: process.env.TIMEWEB_GATEWAY_MODEL || "anthropic/claude-haiku-4-5",
       });
       if (tw.usage) {
         // OpenAI-формат: prompt_tokens / completion_tokens
