@@ -200,6 +200,124 @@ export function FloatingConsultant() {
   const [drawerSnap, setDrawerSnap] = useState<"br" | "bl" | "tr" | "tl" | "center">("br");
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
 
+  // Eugene 2026-05-18 Босс «диагональная стрелка resize, гибко без фиксированных
+  // размеров, ~50% screen. Mobile — не нужно». Custom resize пользователем,
+  // сохраняется в localStorage (TTL 30 дней). null → responsive default.
+  // На mobile (max-width 640px) — resize отключён, размеры контролит CSS.
+  const CHAT_SIZE_KEY = "muza-chat-size";
+  const CHAT_SIZE_TTL_MS = 30 * 24 * 3_600_000;
+  const [chatSize, setChatSize] = useState<{ w: number; h: number } | null>(null);
+  const [isResizing, setIsResizing] = useState(false);
+  // visible snap-target during resize (для glow на handle при близости к 30/50/70%)
+  const [resizeSnapTarget, setResizeSnapTarget] = useState<number | null>(null);
+  const resizeStartRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
+  // mobile detector — recheck on resize так как iPad может крутиться
+  const [isMobile, setIsMobile] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try { return window.matchMedia("(max-width: 640px)").matches; } catch { return false; }
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mql = window.matchMedia("(max-width: 640px)");
+    const onChange = () => setIsMobile(mql.matches);
+    try { mql.addEventListener("change", onChange); } catch { mql.addListener(onChange); }
+    return () => {
+      try { mql.removeEventListener("change", onChange); } catch { mql.removeListener(onChange); }
+    };
+  }, []);
+  // Hydrate from localStorage on first chat open. TTL 30 дней — устаревший
+  // снапшот считаем дефолтом (юзер давно не пользовался).
+  useEffect(() => {
+    if (!chatOpen || chatSize !== null || isMobile) return;
+    try {
+      const raw = localStorage.getItem(CHAT_SIZE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { w?: number; h?: number; ts?: number };
+      if (!parsed?.w || !parsed?.h) return;
+      if (parsed.ts && Date.now() - parsed.ts > CHAT_SIZE_TTL_MS) {
+        try { localStorage.removeItem(CHAT_SIZE_KEY); } catch {}
+        return;
+      }
+      // Clamp по текущему viewport (если экран стал меньше с прошлой сессии)
+      const maxW = Math.floor(window.innerWidth * 0.9);
+      const maxH = Math.floor(window.innerHeight * 0.85);
+      setChatSize({
+        w: Math.min(Math.max(320, parsed.w), maxW),
+        h: Math.min(Math.max(400, parsed.h), maxH),
+      });
+    } catch {}
+  }, [chatOpen, chatSize, isMobile]);
+
+  // Resize pointer handlers — drag from верхне-левого угла chat panel.
+  // delta = startPos - currentPos (resize к верхне-левому → drag влево/вверх увеличивает).
+  // Snap zones 30% / 50% / 70% (магнит ±20px по ширине).
+  const handleResizeMove = useCallback((e: PointerEvent) => {
+    const start = resizeStartRef.current;
+    if (!start) return;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const minW = 320, minH = 400;
+    const maxW = Math.floor(vw * 0.9);
+    const maxH = Math.floor(vh * 0.85);
+    let newW = start.w + (start.x - e.clientX);
+    let newH = start.h + (start.y - e.clientY);
+    // Snap по ширине — близость к 30/50/70% viewport.
+    const targets = [0.3, 0.5, 0.7];
+    let snappedTarget: number | null = null;
+    for (const t of targets) {
+      const target = vw * t;
+      if (Math.abs(newW - target) < 20) {
+        newW = target;
+        snappedTarget = t;
+        break;
+      }
+    }
+    newW = Math.max(minW, Math.min(maxW, newW));
+    newH = Math.max(minH, Math.min(maxH, newH));
+    setChatSize({ w: Math.round(newW), h: Math.round(newH) });
+    setResizeSnapTarget(snappedTarget);
+  }, []);
+  const handleResizeEnd = useCallback((e: PointerEvent) => {
+    setIsResizing(false);
+    setResizeSnapTarget(null);
+    resizeStartRef.current = null;
+    try { (e.target as Element)?.releasePointerCapture?.(e.pointerId); } catch {}
+    window.removeEventListener("pointermove", handleResizeMove);
+    window.removeEventListener("pointerup", handleResizeEnd);
+    window.removeEventListener("pointercancel", handleResizeEnd);
+    // Persist
+    try {
+      // setChatSize is async but the latest value is in state; read fresh from DOM via
+      // setChatSize wrapper inside move. Здесь читаем актуальное значение через
+      // setChatSize(prev => prev) trick.
+      setChatSize((prev) => {
+        if (prev) {
+          try {
+            localStorage.setItem(CHAT_SIZE_KEY, JSON.stringify({ w: prev.w, h: prev.h, ts: Date.now() }));
+          } catch {}
+        }
+        return prev;
+      });
+    } catch {}
+  }, [handleResizeMove]);
+  const handleResizeStart = useCallback((e: React.PointerEvent) => {
+    if (isMobile) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    // Если ещё нет custom size — стартуем с фактических габаритов panel.
+    // Для desktop default ~50% × 60%, для iPad ~70% × 70%.
+    const baseW = chatSize?.w ?? (vw >= 1024 ? Math.floor(vw * 0.5) : Math.floor(vw * 0.7));
+    const baseH = chatSize?.h ?? (vw >= 1024 ? Math.floor(vh * 0.6) : Math.floor(vh * 0.7));
+    resizeStartRef.current = { x: e.clientX, y: e.clientY, w: baseW, h: baseH };
+    setIsResizing(true);
+    try { (e.target as Element).setPointerCapture?.(e.pointerId); } catch {}
+    window.addEventListener("pointermove", handleResizeMove);
+    window.addEventListener("pointerup", handleResizeEnd);
+    window.addEventListener("pointercancel", handleResizeEnd);
+  }, [chatSize, isMobile, handleResizeMove, handleResizeEnd]);
+
   // Eugene 2026-05-17 Босс: smart-триггер Музы по journey-событиям.
   // Когда юзер «долго думает» (idle 30 сек, form_abandon, scroll и не клик'нул
   // CTA на лендинге) — Муза появляется со speech-bubble подсказкой,
@@ -1134,7 +1252,13 @@ export function FloatingConsultant() {
             className="absolute inset-0 pointer-events-none"
           />
           <div
-            className={`absolute w-[92vw] max-w-[420px] sm:w-[380px] flex flex-col bg-background/[0.18] backdrop-blur-md border-2 rounded-2xl border-purple-400/40 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in fade-in duration-300 sm:!h-[460px] transition-all ${
+            className={`absolute flex flex-col bg-background/[0.18] backdrop-blur-md border-2 rounded-2xl border-purple-400/40 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in fade-in duration-300 ${
+              isResizing ? "" : "transition-all"
+            } ${
+              // Mobile (sm:hidden break) — фиксированные responsive ширины как раньше.
+              // Desktop/iPad без chatSize — тоже CSS-default; с chatSize — inline width/height.
+              isMobile || !chatSize ? "w-[92vw] max-w-[420px] sm:w-[380px] sm:!h-[460px]" : ""
+            } ${
               drawerSnap === "br" ? "right-0 bottom-0 sm:bottom-4 sm:right-4" :
               drawerSnap === "bl" ? "left-0 bottom-0 sm:bottom-4 sm:left-4" :
               drawerSnap === "tr" ? "right-0 top-20 sm:top-20 sm:right-4" :
@@ -1142,10 +1266,35 @@ export function FloatingConsultant() {
               "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
             }`}
             style={{
-              height: "min(60vh, calc(100vh - 96px - env(safe-area-inset-bottom, 0px)))",
+              // На mobile или без кастомного chatSize — старая высота через CSS clamp.
+              // С chatSize (desktop/iPad) — inline width/height (приоритет над w-/sm:w-/sm:h-).
+              ...(!isMobile && chatSize
+                ? { width: `${chatSize.w}px`, height: `${chatSize.h}px` }
+                : { height: "min(60vh, calc(100vh - 96px - env(safe-area-inset-bottom, 0px)))" }),
               marginBottom: drawerSnap === "br" || drawerSnap === "bl" ? "env(safe-area-inset-bottom, 0px)" : undefined,
             }}
           >
+            {/* Eugene 2026-05-18 Босс: диагональная стрелка resize в верхне-левом
+                углу. Drag от угла → размер chat panel меняется (рост влево/вверх).
+                Snap-зоны 30% / 50% / 70% viewport width — магнит ±20px,
+                индикатор-glow на handle при close-to-snap. Mobile — скрыт. */}
+            {!isMobile && (
+              <div
+                onPointerDown={handleResizeStart}
+                className={`absolute top-0 left-0 w-7 h-7 z-30 flex items-center justify-center select-none cursor-nwse-resize transition-all ${
+                  isResizing
+                    ? resizeSnapTarget !== null
+                      ? "text-fuchsia-300 drop-shadow-[0_0_8px_rgba(232,121,249,0.85)]"
+                      : "text-purple-300"
+                    : "text-white/40 hover:text-fuchsia-300"
+                }`}
+                title={`Перетащи чтобы изменить размер${resizeSnapTarget !== null ? ` · ${Math.round(resizeSnapTarget * 100)}%` : ""}`}
+                aria-label="Resize handle"
+                role="separator"
+              >
+                <span className="text-[13px] font-bold leading-none rotate-[-45deg]">⇕</span>
+              </div>
+            )}
             {/* Eugene 2026-05-14 Босс «нажатие на левую часть по вертикали
                 перемещать. Углы возвращают в центр». Drag-handle на левой
                 полосе drawer. Touch + drag → определяем направление и snap. */}
