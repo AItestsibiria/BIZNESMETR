@@ -256,6 +256,27 @@ ssh root@72.56.1.149 'sed -i "/^ИМЯ_КЛЮЧА=/d" /var/www/neurohub/.env \
 
 В остальных случаях движение по плану — настройка по умолчанию.
 
+### Clone-first-test rule (Eugene 2026-05-18, опциональный pre-flight)
+
+**Для рискованных коммитов** (schema migrations, payment endpoints, deploy scripts, большие refactor'ы) — сначала push в feature branch → дождаться auto-deploy на clone (`https://clone.muziai.ru/`) → проверить → потом дать timer'у подтянуть на prod (или вручную через ssh).
+
+**Workflow + варианты команд:** см. `docs/strategy/CLONE-FIRST-DEPLOY.md`.
+
+**Когда применяется (🟡):**
+- Schema migrations (ALTER/CREATE)
+- Изменения payment endpoints (Robokassa)
+- Правки deploy/auto-deploy*.sh
+- Большой refactor с риском регрессии
+- Новый плагин с непроверенным runtime
+
+**Когда НЕ нужно (🟢):**
+- UI правки (компоненты, стили)
+- Контент-правки (KB, persona, docs)
+- Bug-fixes с чётким root cause
+- Tests/docs без user-visible изменений
+
+Этот rule **не отменяет** `Prod-auto-deploy + versioned backup rule` — он добавляет опциональный pre-flight шаг. По умолчанию — оба VPS пуллят раз в минуту из одной ветки, естественный 30-сек stagger между clone и prod даёт окно «проверить и revert при регрессии». Для жёсткого gap'а — Вариант 2 в CLONE-FIRST-DEPLOY.md (pause prod timer).
+
 ### User-action-failure registry rule (Eugene 2026-05-15)
 
 **Любое неудачное действие пользователя регистрируется в `user_action_failures`.** Применяется ко ВСЕМ каналам — web, telegram, max, email, vk, любые будущие подключаемые. Применяется к старым endpoint'ам (обратно) и к каждой новой фиче (всегда).
