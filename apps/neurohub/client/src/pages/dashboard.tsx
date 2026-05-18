@@ -2225,6 +2225,204 @@ function MyDraftsSection() {
   );
 }
 
+// Eugene 2026-05-18 Босс «Муза сохраняет тексты — UI часть».
+// «📝 Тексты» — тексты, которые юзер просил Музу сохранить через чат
+// (анонимный или авторизованный). Источник /api/lyrics/drafts. Отдельно
+// от MyDraftsSection — тот про идеи будущих треков (song_drafts), а этот
+// про готовые тексты (user_lyric_drafts).
+type LyricDraft = {
+  id: number;
+  title: string;
+  text: string;
+  source: string | null;
+  createdAt: number | null;
+  usedInGenerationId: number | null;
+};
+
+function MyLyricsDraftsSection() {
+  const { toast } = useToast();
+  const [, navigate] = useLocation();
+  const [expanded, setExpanded] = useState(true);
+  const [openIds, setOpenIds] = useState<Record<number, boolean>>({});
+  const [claimCode, setClaimCode] = useState("");
+  const [claimBusy, setClaimBusy] = useState(false);
+  const [showClaim, setShowClaim] = useState(false);
+
+  const { data, isLoading, refetch } = useQuery<{ data: LyricDraft[] }>({
+    queryKey: ["/api/lyrics/drafts"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/lyrics/drafts");
+      return r.json();
+    },
+  });
+  const drafts = data?.data || [];
+
+  const remove = async (id: number, title: string) => {
+    if (!confirm(`Удалить «${title}»?`)) return;
+    try {
+      const r = await apiRequest("DELETE", `/api/lyrics/drafts/${id}`);
+      if (!r.ok) throw new Error("delete failed");
+      toast({ title: "✓ Удалено" });
+      refetch();
+    } catch {
+      toast({ title: "Ошибка удаления", variant: "destructive" });
+    }
+  };
+
+  const generateFromLyrics = (d: LyricDraft) => {
+    const params = new URLSearchParams();
+    params.set("mode", "advanced");
+    params.set("lyrics", d.text);
+    if (d.title) params.set("title", d.title);
+    window.location.hash = `#/music?${params.toString()}`;
+  };
+
+  const claim = async () => {
+    const code = claimCode.trim();
+    if (!/^\d{6}$/.test(code)) {
+      toast({ title: "Код должен быть из 6 цифр", variant: "destructive" });
+      return;
+    }
+    setClaimBusy(true);
+    try {
+      const r = await apiRequest("POST", "/api/lyrics/claim", { code });
+      const j = await r.json();
+      if (!r.ok || !j?.data) throw new Error(j?.error || "Ошибка");
+      toast({ title: `Восстановила «${j.data.title}» в кабинет 🎵` });
+      setClaimCode("");
+      setShowClaim(false);
+      refetch();
+    } catch (e: any) {
+      toast({ title: e?.message || "Не получилось", variant: "destructive" });
+    } finally {
+      setClaimBusy(false);
+    }
+  };
+
+  return (
+    <div className="mb-6 rounded-2xl border border-purple-500/[0.10] bg-gradient-to-br from-purple-500/[0.05] via-fuchsia-500/[0.03] to-cyan-500/[0.04]">
+      <button
+        type="button"
+        className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-white hover:bg-white/[0.02] transition-colors rounded-2xl"
+        onClick={() => setExpanded((e) => !e)}
+        data-testid="toggle-lyrics-drafts"
+      >
+        <span className="flex items-center gap-2">
+          📝 <span>Тексты <span className="text-muted-foreground font-normal">({drafts.length})</span></span>
+        </span>
+        <span className={`text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`}>▾</span>
+      </button>
+      {expanded && (
+        <div className="px-4 pb-4 space-y-3 border-t border-white/[0.04] pt-3">
+          {isLoading && <p className="text-xs text-muted-foreground">Загружаю…</p>}
+          {!isLoading && drafts.length === 0 && (
+            <div className="text-xs text-muted-foreground py-2">
+              Тексты, которые ты сохранишь через чат с Музой, появятся здесь.
+            </div>
+          )}
+          {drafts.map((d) => {
+            const isOpen = !!openIds[d.id];
+            const previewLen = 200;
+            const truncated = d.text.length > previewLen;
+            const visibleText = isOpen || !truncated ? d.text : d.text.slice(0, previewLen) + "…";
+            return (
+              <div key={d.id} className="rounded-xl border border-white/[0.06] bg-background/40 p-3" data-testid={`lyric-draft-${d.id}`}>
+                <div className="flex items-start justify-between gap-2 mb-1.5">
+                  <p className="font-medium text-sm text-white truncate flex-1">{d.title || "Без названия"}</p>
+                  <span className="text-[10px] font-mono text-muted-foreground/60 whitespace-nowrap">
+                    {d.createdAt ? new Date(d.createdAt).toLocaleDateString("ru-RU") : ""}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground whitespace-pre-wrap mb-2 leading-relaxed">{visibleText}</p>
+                {truncated && (
+                  <button
+                    onClick={() => setOpenIds((p) => ({ ...p, [d.id]: !p[d.id] }))}
+                    className="text-[11px] text-purple-300 hover:text-purple-200 mb-2"
+                  >
+                    {isOpen ? "Свернуть" : "Развернуть"}
+                  </button>
+                )}
+                {d.source && (
+                  <div className="text-[10px] text-muted-foreground/70 mb-2">
+                    Источник: <span className="text-purple-300/80">{
+                      d.source === "musa_chat" ? "Чат с Музой"
+                        : d.source === "musa_chat_claim" ? "Восстановление по коду"
+                          : d.source === "manual" ? "Ручное сохранение"
+                            : d.source
+                    }</span>
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => generateFromLyrics(d)}
+                    className="text-xs px-3 py-1.5 rounded-lg btn-cosmic font-semibold text-white"
+                    data-testid={`btn-generate-from-lyrics-${d.id}`}
+                  >
+                    🎵 Создать трек
+                  </button>
+                  <button
+                    onClick={() => {
+                      try { navigator.clipboard?.writeText(d.text); toast({ title: "Скопировано" }); } catch {}
+                    }}
+                    className="text-xs px-3 py-1.5 rounded-lg border border-white/10 bg-white/5 text-muted-foreground hover:text-white transition-colors"
+                  >
+                    📋 Копировать
+                  </button>
+                  <button
+                    onClick={() => remove(d.id, d.title)}
+                    className="text-xs px-3 py-1.5 rounded-lg border border-rose-500/20 bg-rose-500/5 text-rose-400/70 hover:text-rose-300 transition-colors"
+                    data-testid={`btn-delete-lyric-${d.id}`}
+                  >
+                    🗑 Удалить
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+          <div className="pt-2 border-t border-white/[0.04]">
+            {!showClaim ? (
+              <button
+                onClick={() => setShowClaim(true)}
+                className="text-[11px] text-purple-300 hover:text-purple-200 transition-colors"
+                data-testid="btn-show-claim"
+              >
+                🔑 У меня есть recovery-код
+              </button>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={claimCode}
+                  onChange={(e) => setClaimCode(e.target.value.replace(/\D/g, ""))}
+                  placeholder="6 цифр"
+                  className="flex-1 min-w-[120px] bg-white/[0.07] text-sm font-mono tracking-[0.25em] text-white placeholder:text-white/40 px-3 py-2 rounded-lg border border-purple-400/25 focus:border-purple-400/60 focus:outline-none"
+                  data-testid="input-claim-code"
+                />
+                <button
+                  onClick={claim}
+                  disabled={claimBusy || claimCode.length !== 6}
+                  className="text-xs px-3 py-2 rounded-lg bg-gradient-to-r from-purple-500 via-fuchsia-500 to-blue-500 text-white font-semibold disabled:opacity-40 shadow-[0_0_12px_rgba(124,58,237,0.3)]"
+                  data-testid="btn-claim"
+                >
+                  {claimBusy ? "…" : "Восстановить"}
+                </button>
+                <button
+                  onClick={() => { setShowClaim(false); setClaimCode(""); }}
+                  className="text-xs text-muted-foreground hover:text-white transition-colors px-1"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Eugene 2026-05-16 Босс «errored треки вниз + предложение удалить через 1/7/15/30 дней».
 // Dropdown открывается над/под кнопкой, options закрепляют scheduled_delete_at
 // через POST /api/generations/:id/schedule-delete. Если уже выставлен —
@@ -2802,6 +3000,12 @@ export default function DashboardPage() {
 
         {/* My Drafts — сохранённые идеи/тексты, готовые к генерации одним кликом */}
         <MyDraftsSection />
+
+        {/* Eugene 2026-05-18 Босс «Муза сохраняет тексты». Раздел показывает
+            готовые тексты из user_lyric_drafts (что Муза сохранила за юзера в
+            чате, или recovery-claim из анонимной сессии). Можно сразу создать
+            трек по сохранённому тексту, или ввести recovery-код. */}
+        <MyLyricsDraftsSection />
 
         {/* My Playlist — always uses own generations, not affected by deleted/all filters */}
         <MyPlaylistWrapper />
