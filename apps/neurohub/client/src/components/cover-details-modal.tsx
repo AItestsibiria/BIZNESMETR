@@ -527,9 +527,54 @@ export function CoverDetailsModal({
               </div>
             )}
 
-            {/* Controls row — center group (skip/play/skip) + side group (repeat/volume) */}
-            <div className="flex items-center gap-3 sm:gap-4">
-              {/* Repeat — leftmost (secondary control) */}
+            {/* Controls row — порядок матчит главный плеер landing.tsx:
+                ⏮ ▶/⏸ ⏭ 🔁 🔊 (S как visual marker через absolute bottom-right
+                кнопку выше — она уже там).
+                Eugene 2026-05-18 Босс «S-кнопки порядок плеера». */}
+            <div className="flex items-center justify-center gap-3 sm:gap-4">
+              {/* ⏮ Skip back */}
+              {onPrev && (
+                <button
+                  type="button"
+                  onClick={onPrev}
+                  aria-label="Предыдущий трек"
+                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/5 hover:bg-white/15 hover:scale-105 active:scale-95 transition-all flex items-center justify-center border border-white/10 shrink-0"
+                  data-testid="cover-details-skip-prev"
+                >
+                  <SkipBack className="w-5 h-5 text-white" />
+                </button>
+              )}
+
+              {/* ▶/⏸ Play-pause (centerpiece — крупнее) */}
+              {onPlayPause && (
+                <button
+                  type="button"
+                  onClick={onPlayPause}
+                  aria-label={isPlaying ? "Пауза" : "Воспроизвести"}
+                  className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-br from-purple-500 via-fuchsia-500 to-blue-500 hover:from-purple-400 hover:via-fuchsia-400 hover:to-blue-400 hover:scale-105 active:scale-95 transition-all flex items-center justify-center shadow-[0_0_32px_rgba(124,58,237,0.5)] border border-white/20 shrink-0"
+                  data-testid="cover-details-play-pause"
+                >
+                  {isPlaying
+                    ? <Pause className="w-7 h-7 text-white" />
+                    : <Play className="w-7 h-7 text-white ml-0.5" />
+                  }
+                </button>
+              )}
+
+              {/* ⏭ Skip forward */}
+              {onNext && (
+                <button
+                  type="button"
+                  onClick={onNext}
+                  aria-label="Следующий трек"
+                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/5 hover:bg-white/15 hover:scale-105 active:scale-95 transition-all flex items-center justify-center border border-white/10 shrink-0"
+                  data-testid="cover-details-skip-next"
+                >
+                  <SkipForward className="w-5 h-5 text-white" />
+                </button>
+              )}
+
+              {/* 🔁 Repeat — справа от skip-forward (как в landing) */}
               {onRepeatToggle && (
                 <button
                   type="button"
@@ -540,7 +585,7 @@ export function CoverDetailsModal({
                       : repeatMode === "one" ? "Повтор одного трека"
                         : "Повтор всех треков"
                   }
-                  className={`w-11 h-11 rounded-full flex items-center justify-center transition-all shrink-0 ${
+                  className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-all shrink-0 ${
                     repeatMode && repeatMode !== "off"
                       ? "bg-gradient-to-br from-purple-500/40 to-cyan-500/30 border border-purple-400/50 text-white shadow-[0_0_16px_rgba(124,58,237,0.35)]"
                       : "bg-white/5 border border-white/10 text-white/40 hover:bg-white/10 hover:text-white/70"
@@ -551,51 +596,9 @@ export function CoverDetailsModal({
                 </button>
               )}
 
-              {/* Центральная группа: skip prev / play-pause / skip next */}
-              <div className="flex-1 flex items-center justify-center gap-3 sm:gap-4">
-                {onPrev && (
-                  <button
-                    type="button"
-                    onClick={onPrev}
-                    aria-label="Предыдущий трек"
-                    className="w-12 h-12 rounded-full bg-white/5 hover:bg-white/15 active:scale-95 transition-all flex items-center justify-center border border-white/10 shrink-0"
-                    data-testid="cover-details-skip-prev"
-                  >
-                    <SkipBack className="w-5 h-5 text-white" />
-                  </button>
-                )}
-
-                {onPlayPause && (
-                  <button
-                    type="button"
-                    onClick={onPlayPause}
-                    aria-label={isPlaying ? "Пауза" : "Воспроизвести"}
-                    className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500 via-fuchsia-500 to-blue-500 hover:from-purple-400 hover:via-fuchsia-400 hover:to-blue-400 active:scale-95 transition-all flex items-center justify-center shadow-[0_0_32px_rgba(124,58,237,0.5)] border border-white/20 shrink-0"
-                    data-testid="cover-details-play-pause"
-                  >
-                    {isPlaying
-                      ? <Pause className="w-7 h-7 text-white" />
-                      : <Play className="w-7 h-7 text-white ml-0.5" />
-                    }
-                  </button>
-                )}
-
-                {onNext && (
-                  <button
-                    type="button"
-                    onClick={onNext}
-                    aria-label="Следующий трек"
-                    className="w-12 h-12 rounded-full bg-white/5 hover:bg-white/15 active:scale-95 transition-all flex items-center justify-center border border-white/10 shrink-0"
-                    data-testid="cover-details-skip-next"
-                  >
-                    <SkipForward className="w-5 h-5 text-white" />
-                  </button>
-                )}
-              </div>
-
-              {/* Volume — rightmost. Reuse существующего VolumeSlider компонента. */}
+              {/* 🔊 Volume — самый правый desktop control */}
               {onVolumeChange && typeof volume === "number" && (
-                <div className="hidden sm:flex items-center w-40 lg:w-48 shrink-0">
+                <div className="hidden sm:flex items-center w-32 lg:w-40 shrink-0 ml-1">
                   <VolumeSlider
                     volume={volume}
                     onVolumeChange={onVolumeChange}
