@@ -48,7 +48,7 @@ import { getIpGeo } from "./lib/ipGeo";
 import { upsertUserProfile, linkProfileToUser, getProfileByUserId, getProfileByVisitorId } from "./lib/userProfilesStore";
 import { extractHost, KNOWN_DOMAINS, hostToBucket } from "./lib/extractHost";
 import { embedTrackId3, findSiblingCover } from "./lib/id3Writer";
-import { alertPromoEntry } from "./lib/promoAlert";
+import { alertPromoEntry, checkExpiredPromo } from "./lib/promoAlert";
 
 const AUTHORS_DIR = process.env.AUTHORS_DIR || path.join(process.cwd(), "authors");
 
@@ -4308,6 +4308,14 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     const usedList = (user.usedPromo || "").split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
     if (usedList.includes(code.trim().toLowerCase())) {
       res.status(400).json({ message: "Вы уже использовали этот промокод" });
+      return;
+    }
+
+    // Eugene 2026-05-18 Босс «промокод "Поехали" действовал месяц с 12 апреля 2026 —
+    // отвечай юзеру именно так, не "не найден"». Проверка ДО запроса в БД.
+    const expiredInfo = checkExpiredPromo(code.trim());
+    if (expiredInfo) {
+      res.status(400).json({ message: expiredInfo.message, expired: true, period: expiredInfo.period });
       return;
     }
 

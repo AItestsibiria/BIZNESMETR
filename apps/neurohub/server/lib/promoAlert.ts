@@ -18,6 +18,40 @@ const ADMIN_EMAIL = "egnovoselov@gmail.com";
 const ALERT_TTL_MS = 10 * 60 * 1000;
 const lastAlertMap = new Map<string, number>();
 
+// Eugene 2026-05-18 Босс: реестр «исторических» промокодов, которые
+// больше не активны, но юзеры могут вспомнить из старых соцпостов.
+// Возвращаем дружелюбное сообщение с пояснением вместо «не найден».
+export interface ExpiredPromoInfo {
+  /** Case-insensitive match — нормализуем при сравнении. */
+  code: string;
+  /** Период когда промокод действовал — для пояснения юзеру. */
+  period: string;
+  /** Финальное сообщение которое показываем юзеру. */
+  message: string;
+}
+
+export const EXPIRED_PROMOS: ExpiredPromoInfo[] = [
+  {
+    code: "поехали",
+    period: "месяц с 12 апреля 2026",
+    message:
+      "Промокод «Поехали» действовал месяц с 12 апреля 2026. Сейчас не активен. Если хочешь подарок — следи за новостями на главной странице 🎁",
+  },
+];
+
+/**
+ * Проверка: введённый промокод — это известный исторический (expired) промокод?
+ * Возвращает info-объект если да, null если нет.
+ */
+export function checkExpiredPromo(raw: string): ExpiredPromoInfo | null {
+  const norm = String(raw || "").trim().toLowerCase();
+  if (!norm) return null;
+  for (const p of EXPIRED_PROMOS) {
+    if (p.code.toLowerCase() === norm) return p;
+  }
+  return null;
+}
+
 function pruneOldAlerts(now: number): void {
   if (lastAlertMap.size < 500) return;
   for (const [k, v] of lastAlertMap) {
