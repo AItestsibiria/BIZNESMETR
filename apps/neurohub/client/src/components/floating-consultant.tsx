@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { playMuzaChime, playMuzaTick, playMuzaSparkle } from "../lib/muza-sounds";
 import { onJourneyEvent } from "../lib/user-journey";
+import { getPersistentPlayerAudio } from "../lib/lockscreen";
 import { SupportModal } from "./support-modal";
 
 // Eugene 2026-05-14 Босс: «после 1 dismiss через 1 мин, если ещё раз — 1 час».
@@ -151,6 +152,190 @@ function ensureClientSessionId(): string {
   } catch {
     return Math.random().toString(36).slice(2, 14);
   }
+}
+
+// Eugene 2026-05-18 Босс «мини-плеер в чат — управление треком прямо из чата».
+// Использует existing persistent <audio> singleton (Persistent-audio-only rule
+// в CLAUDE.md). Источник track-меты — window.__muziaiTrack, которую landing.tsx
+// устанавливает в playTrack() (см. landing.tsx:866). Контролы prev/next эмитят
+// CustomEvent 'muza-player-action' — landing.tsx уже слушает (см. landing.tsx:1075).
+// Не нарушает single-audio rule (audio-bus продолжает работать) и
+// persistent-audio-only rule (мы НЕ создаём new Audio — только читаем singleton).
+type MiniPlayerTrack = {
+  id?: number | string;
+  title?: string;
+  authorName?: string;
+  imageUrl?: string;
+  displayTitle?: string;
+  prompt?: string;
+};
+
+function ChatMiniPlayer() {
+  const [audio, setAudio] = useState<HTMLAudioElement | null>(null);
+  const [track, setTrack] = useState<MiniPlayerTrack | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try { return localStorage.getItem("muza-chat-mini-player-collapsed") === "1"; } catch { return false; }
+  });
+
+  // Attach к persistent <audio> singleton. Polling каждые 500мс для подхвата
+  // случая когда audio создаётся ПОСЛЕ открытия чата (юзер запускает трек
+  // когда мини-плеер уже отрендерен).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const tryAttach = () => {
+      const a = getPersistentPlayerAudio();
+      const t = ((window as any).__muziaiTrack || null) as MiniPlayerTrack | null;
+      if (a) {
+        setAudio(a);
+        setPlaying(!a.paused);
+        setCurrentTime(a.currentTime || 0);
+        setDuration(a.duration || 0);
+      }
+      if (t) setTrack(t);
+    };
+    tryAttach();
+    const iv = window.setInterval(tryAttach, 1000);
+    return () => window.clearInterval(iv);
+  }, []);
+
+  // Subscribe к audio events (play/pause/timeupdate/loadedmetadata).
+  useEffect(() => {
+    if (!audio) return;
+    const onPlay = () => setPlaying(true);
+    const onPause = () => setPlaying(false);
+    const onTime = () => setCurrentTime(audio.currentTime || 0);
+    const onMeta = () => setDuration(audio.duration || 0);
+    audio.addEventListener("play", onPlay);
+    audio.addEventListener("pause", onPause);
+    audio.addEventListener("timeupdate", onTime);
+    audio.addEventListener("loadedmetadata", onMeta);
+    audio.addEventListener("durationchange", onMeta);
+    return () => {
+      audio.removeEventListener("play", onPlay);
+      audio.removeEventListener("pause", onPause);
+      audio.removeEventListener("timeupdate", onTime);
+      audio.removeEventListener("loadedmetadata", onMeta);
+      audio.removeEventListener("durationchange", onMeta);
+    };
+  }, [audio]);
+
+  const togglePlay = useCallback(() => {
+    if (!audio) return;
+    try {
+      if (audio.paused) audio.play().catch(() => {});
+      else audio.pause();
+    } catch {}
+  }, [audio]);
+
+  const dispatchAction = useCallback((action: "prev" | "next") => {
+    try {
+      window.dispatchEvent(new CustomEvent("muza-player-action", {
+        detail: { action, payload: null },
+      }));
+    } catch {}
+  }, []);
+
+  const onSeek = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!audio || !duration) return;
+    try {
+      const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+      audio.currentTime = ratio * duration;
+      setCurrentTime(audio.currentTime);
+    } catch {}
+  }, [audio, duration]);
+
+  const toggleCollapse = useCallback(() => {
+    setCollapsed((c) => {
+      const next = !c;
+      try { localStorage.setItem("muza-chat-mini-player-collapsed", next ? "1" : "0"); } catch {}
+      return next;
+    });
+  }, []);
+
+  if (!track) return null;
+  const title = track.displayTitle || track.title || track.prompt?.slice(0, 60) || "Без названия";
+  const author = track.authorName || "";
+  const cover = track.imageUrl;
+  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+
+  // Collapsed mode — маленький badge «▶ Сейчас играет».
+  if (collapsed) {
+    return (
+      <button
+        type="button"
+        onClick={toggleCollapse}
+        className="flex items-center gap-2 px-3 py-1.5 border-t border-white/[0.06] bg-background/40 shrink-0 hover:bg-white/[0.04] transition-colors text-left w-full"
+        title="Развернуть мини-плеер"
+        aria-label="Развернуть мини-плеер"
+      >
+        <span className={`text-[12px] ${playing ? "text-fuchsia-300" : "text-white/60"}`}>
+          {playing ? "▶" : "⏸"}
+        </span>
+        <span className="text-[11px] text-white/70 truncate flex-1">
+          {playing ? "Сейчас играет: " : "Пауза: "}{title}
+        </span>
+        <span className="text-[10px] text-white/40 shrink-0">▾</span>
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-2 border-t border-white/[0.06] bg-background/40 shrink-0" role="region" aria-label="Мини-плеер">
+      {cover ? (
+        <img src={cover} alt="" className="w-9 h-9 rounded-md object-cover shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+      ) : (
+        <div className="w-9 h-9 rounded-md bg-gradient-to-br from-purple-500/30 to-blue-500/20 shrink-0 flex items-center justify-center text-[14px]">🎵</div>
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="text-[11px] text-white/85 truncate font-medium">{title}</div>
+        {author && <div className="text-[9px] text-white/40 truncate">{author}</div>}
+        <div
+          className="h-1 bg-white/10 rounded-full mt-1 cursor-pointer hover:bg-white/15 transition-colors"
+          onClick={onSeek}
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={duration || 100}
+          aria-valuenow={currentTime}
+          title={duration ? `${Math.floor(currentTime)} / ${Math.floor(duration)} сек` : undefined}
+        >
+          <div className="h-full bg-gradient-to-r from-fuchsia-400/70 to-purple-400/70 rounded-full transition-all" style={{ width: `${progress}%` }} />
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={() => dispatchAction("prev")}
+        className="w-7 h-7 rounded-full hover:bg-white/[0.08] text-white/70 hover:text-white text-[12px] flex items-center justify-center shrink-0"
+        title="Предыдущий"
+        aria-label="Предыдущий трек"
+      >⏮</button>
+      <button
+        type="button"
+        onClick={togglePlay}
+        className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500/30 to-blue-500/20 hover:from-purple-500/50 hover:to-blue-500/40 border border-purple-400/30 text-white text-[12px] flex items-center justify-center shrink-0"
+        title={playing ? "Пауза" : "Воспроизведение"}
+        aria-label={playing ? "Пауза" : "Воспроизведение"}
+      >{playing ? "⏸" : "▶"}</button>
+      <button
+        type="button"
+        onClick={() => dispatchAction("next")}
+        className="w-7 h-7 rounded-full hover:bg-white/[0.08] text-white/70 hover:text-white text-[12px] flex items-center justify-center shrink-0"
+        title="Следующий"
+        aria-label="Следующий трек"
+      >⏭</button>
+      <button
+        type="button"
+        onClick={toggleCollapse}
+        className="w-6 h-6 rounded hover:bg-white/[0.06] text-white/40 hover:text-white/70 text-[10px] flex items-center justify-center shrink-0"
+        title="Свернуть мини-плеер"
+        aria-label="Свернуть мини-плеер"
+      >▴</button>
+    </div>
+  );
 }
 
 export function FloatingConsultant() {
@@ -1831,6 +2016,12 @@ export function FloatingConsultant() {
                 💡 Есть код из Telegram/Max? Введи его — подтяну наш разговор оттуда.
               </div>
             )}
+            {/* Eugene 2026-05-18 Босс «мини-плеер в чат — управление треком прямо
+                из чата». Sticky между messages-area и input-area. Использует
+                persistent <audio> singleton (Persistent-audio-only rule) и
+                window.__muziaiTrack как источник track-меты. Контролы prev/next
+                эмитят 'muza-player-action' — landing.tsx уже слушает. */}
+            <ChatMiniPlayer />
             {/* Input — Eugene 2026-05-14 Босс «увеличение окно и шрифт ввода
                 сообщение Музе». Шрифт 16px, padding больше, кнопка тоже
                 крупнее — input area стала доминирующей. */}
