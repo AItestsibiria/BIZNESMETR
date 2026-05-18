@@ -135,7 +135,7 @@ export default function TrackPage() {
 
   const handleShare = async () => {
     if (!track) return;
-    const url = `https://muziai.ru/share/${track.id}`;
+    const url = `https://muzaai.ru/share/${track.id}`;
     const title = track.prompt;
     if (navigator.share) {
       try {

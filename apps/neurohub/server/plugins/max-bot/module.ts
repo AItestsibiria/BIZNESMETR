@@ -77,7 +77,7 @@ function getConsultantPhotoVersion(): string {
 
 async function sendConsultantPhoto(chatId: string, caption: string) {
   try {
-    const base = process.env.PUBLIC_BASE_URL || "https://muziai.ru";
+    const base = process.env.PUBLIC_BASE_URL || "https://muzaai.ru";
     const photoUrl = `${base}/consultant-avatar.png?v=${getConsultantPhotoVersion()}`;
     await maxApi(`/messages?chat_id=${encodeURIComponent(chatId)}`, {
       text: caption,
