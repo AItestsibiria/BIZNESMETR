@@ -26,7 +26,7 @@ import { KaraokeLyrics } from "@/components/karaoke-lyrics";
 import { ExpandToggleButton } from "@/components/expand-toggle-button";
 import { CoverDetailsModal } from "@/components/cover-details-modal";
 import { VolumeSlider } from "@/components/volume-slider";
-import { setLockScreenTrack, setLockScreenTrackSync, setLockScreenPlaybackState } from "@/lib/lockscreen";
+import { setLockScreenTrack, setLockScreenPlaybackState } from "@/lib/lockscreen";
 import { muteBgMusic, unmuteBgMusic } from "@/components/background-music";
 import { SupportModal } from "@/components/support-modal";
 
@@ -1297,11 +1297,13 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
       },
       seekto: (time: number) => { if (audioRef.current) audioRef.current.currentTime = time; },
     };
-    setLockScreenTrackSync(
+    // Eugene 2026-05-18 Босс «iT3 решение, зафиксируй» — async setLockScreenTrack
+    // (single-call паттерн из triumph-muza-150526). Sync-вариант убран.
+    setLockScreenTrack(
       { id: gen.id, title: lsTitle, artist: lsArtist, album: 'MuzaAi' },
       lsHandlers,
       gen.id,
-    );
+    ).catch((err) => { console.warn("[PLAYER] setLockScreenTrack failed:", err); });
 
     audio.play().catch(() => {});
     setPlayingId(gen.id);

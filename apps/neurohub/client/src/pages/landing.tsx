@@ -9,7 +9,7 @@ import { ExpandToggleButton } from "@/components/expand-toggle-button";
 import { CoverDetailsModal } from "@/components/cover-details-modal";
 import { VolumeSlider } from "@/components/volume-slider";
 import { muteBgMusic, unmuteBgMusic } from "@/components/background-music";
-import { setLockScreenTrack, setLockScreenTrackSync, setLockScreenPlaybackState } from "@/lib/lockscreen";
+import { setLockScreenTrack, setLockScreenPlaybackState } from "@/lib/lockscreen";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -787,13 +787,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         if (audioRef.current) audioRef.current.currentTime = t;
       },
     };
-    setLockScreenTrackSync(
-      { id: track.id, title: msTitleSync, artist: msArtistSync, album: 'MuzaAi' },
-      lsHandlers,
-      (track as any).coverGenId || track.id,
-    );
+    // Eugene 2026-05-18 Босс «найди решение которое работало — iT3, зафиксируй,
+    // больше не трогай». Возврат к single-call паттерну из triumph-muza-150526
+    // (fd62d39). setLockScreenTrack async, до play() — НЕ блокирует play(),
+    // но iOS успевает применить metadata через prewarm + double-write.
 
-    // iOS gesture budget — play() сразу после new Audio + sync metadata.
+    // iOS gesture budget — play() сразу после new Audio.
     const playPromise = audio.play();
     playPromise
       .then(() => { setLockScreenPlaybackState('playing'); setIsPlayingState(true); })

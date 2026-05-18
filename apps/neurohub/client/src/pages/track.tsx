@@ -4,7 +4,6 @@ import { Play, Pause, Download, Share2, Sparkles, ArrowLeft, Music } from "lucid
 import { Button } from "@/components/ui/button";
 import {
   setLockScreenTrack,
-  setLockScreenTrackSync,
   setLockScreenPlaybackState,
   setLockScreenPosition,
   clearLockScreen,
@@ -124,7 +123,8 @@ export default function TrackPage() {
         pause: () => { audioRef.current?.pause(); setPlaying(false); setLockScreenPlaybackState("paused"); },
         seekto: (t: number) => { if (audioRef.current) audioRef.current.currentTime = t; },
       };
-      setLockScreenTrackSync(lsMeta, lsHandlers, track.createdAt);
+      // Eugene 2026-05-18 Босс «iT3 решение» — async single-call паттерн.
+      setLockScreenTrack(lsMeta, lsHandlers, track.createdAt).catch(() => {});
       try {
         await audioRef.current.play();
         setPlaying(true);
