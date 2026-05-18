@@ -1427,17 +1427,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   <img key={currentTrack.imageUrl} src={currentTrack.imageUrl} alt="" className="w-full h-full object-cover absolute inset-0 animate-in fade-in duration-500" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
                 )}
                 <Music className={`text-white/10 w-8 h-8 ${coverExpanded ? "md:w-24 md:h-24" : ""}`} />
-                {/* Eugene 2026-05-18 Босс «S убрать цветное поле» — только
-                    красивая буква с neon-glow, без gradient background. */}
-                <button
-                  className="md:hidden absolute top-1 right-1 w-7 h-7 flex items-center justify-center active:scale-95 z-10"
-                  title="Свайп-режим"
-                  aria-label="Свайп-режим"
-                  onClick={(e) => { e.stopPropagation(); setDetailsOpen(true); }}
-                  data-testid="btn-cover-s-corner-mobile"
-                >
-                  <span className="font-display font-bold italic text-lg tracking-wider text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.95)] drop-shadow-[0_0_12px_rgba(217,70,239,0.85)]">S</span>
-                </button>
+                {/* Eugene 2026-05-18 Босс «S не нравится на обложке» —
+                    S убрана с обложки. Теперь S — в actions panel рядом
+                    с Download/Share. */}
                 {/* Expand toggle — top-right corner cover (desktop only — на mobile S там) */}
                 <ExpandToggleButton
                   expanded={coverExpanded}
@@ -1449,16 +1441,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               {/* Eugene 2026-05-18 Босс «desktop: размер обложки настраиваемый +
                   S под обложку». S-кнопка только на desktop (md+). На mobile S
                   уже в углу обложки. */}
-              {/* Desktop S — без цветного поля, только буква с neon-glow */}
-              <button
-                className={`hidden md:flex mt-2 self-center items-center justify-center transition-all hover:scale-125 active:scale-95 w-9 h-9 ${coverExpanded ? "md:w-12 md:h-12" : ""}`}
-                title="Свайп-режим — листай ← → большие обложки"
-                aria-label="Свайп-режим"
-                onClick={() => setDetailsOpen(true)}
-                data-testid="btn-cover-s-under"
-              >
-                <span className="font-display font-bold text-2xl italic tracking-wider text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.95)] drop-shadow-[0_0_16px_rgba(217,70,239,0.85)]">S</span>
-              </button>
+              {/* Eugene 2026-05-18 Босс — S под обложкой больше не нужна,
+                  перенесена в actions panel рядом с Download/Share. */}
               {/* Eugene 2026-05-18 Босс «desktop: возможность менять размер
                   отображения обложки». 3 кнопки S/M/L под S-свайпом, скрыты на
                   mobile. */}
@@ -1570,6 +1554,18 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                     }}
                   >
                     <Share2 className="w-3.5 h-3.5 text-muted-foreground" />
+                  </button>
+                  {/* Eugene 2026-05-18 Босс «S не нравится на обложке, найди
+                      место на панели». S теперь в строке actions рядом с
+                      Download/Share — единая action-bar. */}
+                  <button
+                    className="w-8 h-8 rounded-full flex items-center justify-center hover:scale-110 active:scale-95 transition-all"
+                    title="Свайп-режим — листай ← → большие обложки"
+                    aria-label="Свайп-режим"
+                    onClick={() => setDetailsOpen(true)}
+                    data-testid="btn-cover-s-panel"
+                  >
+                    <span className="font-display font-bold italic text-base tracking-wider text-white drop-shadow-[0_0_6px_rgba(255,255,255,0.95)] drop-shadow-[0_0_12px_rgba(217,70,239,0.85)]">S</span>
                   </button>
                 </div>
                 {/* Создай в том же стиле */}
@@ -1933,18 +1929,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" /><span className="text-[10px] text-white/80">playing</span>
                             </div>
                           )}
-                          {/* Eugene 2026-05-18 Босс «И тут нет S» — S-кнопка в
-                              правом верхнем углу expanded view (под playing
-                              badge если есть). Открывает swipe-modal. */}
-                          <button
-                            className={`absolute right-3 flex items-center justify-center active:scale-95 z-30 w-9 h-9 ${ePlaying ? "top-12" : "top-3"}`}
-                            title="Свайп-режим — листай ← → большие обложки"
-                            aria-label="Свайп-режим"
-                            onClick={(e) => { e.stopPropagation(); setDetailsOpen(true); }}
-                            data-testid="btn-cover-s-expanded"
-                          >
-                            <span className="font-display font-bold italic text-2xl tracking-wider text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.95)] drop-shadow-[0_0_16px_rgba(217,70,239,0.85)]">S</span>
-                          </button>
+                          {/* Eugene 2026-05-18 Босс «S не на обложке» —
+                              expanded view тоже без S на cover. Доступ к
+                              swipe-modal через main player S в actions panel. */}
                         </div>
                         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/70 to-transparent px-5 pb-5 pt-24 z-30">
                           <p className="text-white font-bold text-base leading-snug">{track.displayTitle || track.prompt?.slice(0, 80)}</p>
