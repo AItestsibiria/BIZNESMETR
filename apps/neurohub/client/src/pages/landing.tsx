@@ -1719,9 +1719,17 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   } ${isActive ? "bg-purple-500/[0.08]" : ""}`}
                   data-track-card
                 >
-                  {/* Cover thumbnail — click to expand */}
+                  {/* Cover thumbnail — click to expand.
+                      Eugene 2026-05-18 Босс: треки с custom-cover (автор сам
+                      сгенерировал обложку, не Suno-default) подсвечиваем
+                      subtle ring purple-fuchsia на 30% яркости — заметно,
+                      но не вырывается из плеера. */}
                   <div
-                    className={`w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-gradient-to-br ${typeBg} relative group flex items-center justify-center cursor-pointer`}
+                    className={`w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-gradient-to-br ${typeBg} relative group flex items-center justify-center cursor-pointer ${
+                      (track as any).hasCustomCover
+                        ? "ring-1 ring-fuchsia-400/30 shadow-[0_0_10px_rgba(217,70,239,0.3)]"
+                        : ""
+                    }`}
                     onClick={(e) => { e.stopPropagation(); if (isExpanded) { setExpandedId(null); } else { setExpandedId(track.id); togglePlay(track); setTimeout(() => (e.currentTarget as HTMLElement)?.closest("[data-track-card]")?.scrollIntoView({ behavior: "smooth", block: "center" }), 100); } }}
                   >
                     {track.imageUrl && (

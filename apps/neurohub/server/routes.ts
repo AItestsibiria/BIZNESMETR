@@ -7835,6 +7835,11 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
           category: t.category || 'song',
           audioUrl,
           imageUrl,
+          // Eugene 2026-05-18 Босс «обложки которые пользователи сами
+          // сгенерировали — подсветить в плейлисте на 30% яркости».
+          // coverGenId !== null → автор привязал свою сгенерированную
+          // обложку (не дефолтную от Suno). Frontend рисует subtle ring.
+          hasCustomCover: !!t.coverGenId,
           authorName: t.authorName || "",
           createdAt: t.createdAt,
           publishedAt: (t as any).publishedAt || null,
