@@ -2951,7 +2951,17 @@ export default function DashboardPage() {
                           </div>
                         ) : gen.status === "done" && gen.type === "music" ? (
                           <div className="relative shrink-0">
-                            <img src={`/api/cover/${(gen as any).coverGenId || gen.id}.jpg?v=${gen.id}`} alt="" loading="lazy" className="w-10 h-10 rounded-lg object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                            <img
+                              src={`/api/cover/${(gen as any).coverGenId || gen.id}.jpg?v=${gen.id}`}
+                              alt=""
+                              loading="lazy"
+                              className={`w-10 h-10 rounded-lg object-cover ${
+                                (gen as any).coverGenId
+                                  ? "ring-1 ring-fuchsia-400/30 shadow-[0_0_8px_rgba(217,70,239,0.3)]"
+                                  : ""
+                              }`}
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                            />
                             <span
                               className={`absolute -bottom-1 -right-1 text-[8px] px-1 py-0.5 rounded-full text-white border ${
                                 (gen as any).coverGenId

@@ -51,6 +51,9 @@ import { VolumeSlider } from "./volume-slider";
 export interface CoverDetailsTrack {
   id: number | string;
   imageUrl?: string;
+  // Eugene 2026-05-18 Босс «подсветка обложки во всех режимах».
+  hasCustomCover?: boolean;
+  coverGenId?: number | null;
   displayTitle?: string | null;
   prompt?: string | null;
   authorName?: string | null;
@@ -393,7 +396,11 @@ export function CoverDetailsModal({
                   src={track.imageUrl}
                   alt={title}
                   draggable={false}
-                  className="w-full h-full object-cover pointer-events-none"
+                  className={`w-full h-full object-cover pointer-events-none ${
+                    (track.hasCustomCover || track.coverGenId)
+                      ? "ring-4 ring-fuchsia-400/30 shadow-[0_0_40px_rgba(217,70,239,0.3)]"
+                      : ""
+                  }`}
                   onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                 />
               ) : (

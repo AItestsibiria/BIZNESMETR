@@ -807,18 +807,28 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         setLockScreenPlaybackState('paused');
       },
       previoustrack: () => {
-        const fl = filteredMusicRef.current;
-        const mt = fl && fl.length > 0 ? fl : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+        // Eugene 2026-05-18 Босс «при переключении появляются чужие треки».
+        // mt должен быть из FULL списка (tracksRef), не filtered — иначе
+        // iOS видит mismatch и пускает NowPlaying от другого app
+        // (Apple Music / Spotify / Yandex). Filter применяется только в UI.
+        const mt = tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+        if (mt.length === 0) return;
         const cur = playingTrackRef.current;
-        const idx = cur ? mt.findIndex(t => t.id === cur.id) : 0;
-        if (mt[idx > 0 ? idx - 1 : mt.length - 1]) playTrack(mt[idx > 0 ? idx - 1 : mt.length - 1]);
+        const curIdx = cur ? mt.findIndex(t => t.id === cur.id) : -1;
+        // Guard idx=-1 (текущий не найден в полном списке — corrupt state) → start from 0
+        const safeIdx = curIdx < 0 ? 0 : curIdx;
+        const prev = mt[safeIdx > 0 ? safeIdx - 1 : mt.length - 1];
+        if (prev) playTrack(prev);
       },
       nexttrack: () => {
-        const fl = filteredMusicRef.current;
-        const mt = fl && fl.length > 0 ? fl : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+        // То же что в previoustrack — full tracksRef, safe idx guard.
+        const mt = tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+        if (mt.length === 0) return;
         const cur = playingTrackRef.current;
-        const idx = cur ? mt.findIndex(t => t.id === cur.id) : -1;
-        if (mt[(idx + 1) % mt.length]) playTrack(mt[(idx + 1) % mt.length]);
+        const curIdx = cur ? mt.findIndex(t => t.id === cur.id) : -1;
+        const safeIdx = curIdx < 0 ? 0 : curIdx;
+        const next = mt[(safeIdx + 1) % mt.length];
+        if (next) playTrack(next);
       },
       seekto: (t: number) => {
         if (audioRef.current) audioRef.current.currentTime = t;
@@ -1366,8 +1376,13 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               <div
                 className={`relative bg-gradient-to-br from-purple-500/30 to-blue-500/30 flex items-center justify-center cursor-pointer shadow-lg shadow-purple-500/10 overflow-hidden transition-all duration-300 w-full h-full rounded-xl ${
                   coverExpanded ? "md:rounded-2xl" : ""
+                } ${
+                  (currentTrack as any).hasCustomCover
+                    ? "ring-2 ring-fuchsia-400/30 shadow-[0_0_16px_rgba(217,70,239,0.3)]"
+                    : ""
                 }`}
                 onClick={() => setExpandedId(expandedId === currentTrack.id ? null : currentTrack.id)}
+                title={(currentTrack as any).hasCustomCover ? "Обложка создана автором" : undefined}
               >
                 {/* Crossfade: old cover fading out */}
                 {prevCoverUrl && coverFading && (
@@ -1543,6 +1558,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           track={currentTrack ? {
             id: currentTrack.id,
             imageUrl: currentTrack.imageUrl,
+            hasCustomCover: (currentTrack as any).hasCustomCover,
             displayTitle: currentTrack.displayTitle,
             prompt: currentTrack.prompt,
             authorName: currentTrack.authorName,
