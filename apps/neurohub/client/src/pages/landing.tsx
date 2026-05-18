@@ -579,6 +579,18 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     };
   }, [playingId, tracks]);
 
+  // Eugene 2026-05-18 Босс «реши lock-screen на 100%». Guard на orphan playingId:
+  // если playingId восстановлен из localStorage (или установлен programmatically),
+  // но трек НЕ найден в tracks после загрузки — сбрасываем. Иначе плеер-блок
+  // не рендерится (currentTrack=undefined) → playTrack никогда не вызывается →
+  // setLockScreenTrackSync не выставляет metadata → iOS показывает MuzaAi logo.
+  useEffect(() => {
+    if (!playingId || !tracks.length) return;
+    if (!tracks.find(t => t.id === playingId)) {
+      setPlayingId(null);
+    }
+  }, [playingId, tracks]);
+
   useEffect(() => {
     fetch(`/api/playlist?status=${playlistKind}&sort=${sortMode}&dir=${sortDir}&_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).then(data => {
       setTracks(data);
