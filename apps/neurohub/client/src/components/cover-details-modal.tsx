@@ -304,7 +304,10 @@ export function CoverDetailsModal({
         </div>
       )}
 
-      <div className="w-[90vw] max-w-[900px] sm:max-w-[1100px] flex flex-col items-center gap-5 px-4 relative">
+      {/* Eugene 2026-05-18 Босс «уменьши в свайпе» — compact 60% экрана.
+          Было w-[90vw] max-w-[1100px] (слишком огромная на iPad).
+          Стало max-w-2xl (~672px) — элегантно, не закрывает фоном весь экран. */}
+      <div className="w-[80vw] max-w-2xl flex flex-col items-center gap-4 px-4 relative">
         {/* Левая стрелка-хинт (показывается если есть onPrev) */}
         {onPrev && (
           <button
@@ -594,9 +597,8 @@ export function CoverDetailsModal({
           {track.authorName && (
             <p className="text-base sm:text-lg text-purple-300/90 mt-3 font-medium font-sans">{track.authorName}</p>
           )}
-          {track.styleInfo && (
-            <p className="text-sm sm:text-base text-cyan-200/70 mt-2 font-sans">{track.styleInfo}</p>
-          )}
+          {/* Eugene 2026-05-18 Босс «промт убери» — styleInfo (Промт: жанр · темп · BPM)
+              скрыт в swipe modal. Остаётся в карточках плейлиста landing/dashboard. */}
           {track.prompt && track.prompt !== title && (
             <p className="text-sm sm:text-base text-white/60 mt-4 leading-relaxed max-h-40 overflow-y-auto font-sans">
               {track.prompt.slice(0, 240)}{track.prompt.length > 240 ? "…" : ""}
