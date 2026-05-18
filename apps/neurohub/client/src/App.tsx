@@ -29,6 +29,7 @@ import BackgroundMusic from "./components/background-music";
 import { ErrorBoundary } from "./components/error-boundary";
 import { PlayerProvider } from "./lib/player-agent";
 import { FloatingConsultant } from "./components/floating-consultant";
+import { WalkingMusa } from "./components/walking-musa";
 
 // Wrapper для рендера каждой страницы внутри ErrorBoundary с именем —
 // чтобы вместо чёрного экрана при runtime-ошибке показать стек.
@@ -88,6 +89,7 @@ function AppContent() {
       <Toaster />
       <BackgroundMusic />
       <FloatingConsultant />
+      <WalkingMusa />
     </div>
   );
 }

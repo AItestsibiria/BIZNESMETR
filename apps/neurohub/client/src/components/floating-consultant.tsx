@@ -152,6 +152,14 @@ export function FloatingConsultant() {
   const timerRef = useRef<number | null>(null);
   // === Inline chat (Eugene 2026-05-14 Босс) ===
   const [chatOpen, setChatOpen] = useState(false);
+  // Eugene 2026-05-18 Босс «Муза ходит по сайту». Шлём событие в окно когда
+  // chat-pane открыт/закрыт — WalkingMusa компонент слушает и не запускает
+  // тур пока пользователь в чате. Простой event-bus через window CustomEvent
+  // (без зависимостей).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(new CustomEvent(chatOpen ? "musa-chat-open" : "musa-chat-close"));
+  }, [chatOpen]);
   const [chatMsgs, setChatMsgs] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatSending, setChatSending] = useState(false);
