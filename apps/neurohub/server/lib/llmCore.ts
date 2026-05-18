@@ -379,10 +379,24 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
       }
       // Tool-use loop: stop_reason="tool_use" → выполнить tools и зациклиться.
       if (j?.stop_reason === "tool_use" && Array.isArray(j.content)) {
+        // Eugene 2026-05-18 Босс «TOP-5 ревизии»: tool-loop dedupe.
+        // Если LLM зовёт один и тот же tool >2 раз подряд (обычно
+        // признак залипания / неправильного интерпретирования результата)
+        // — принудительно ломаем loop и возвращаем то что есть.
+        // Защищает от token-burn и infinite-loop пытания.
+        const toolCallCounts = new Map<string, number>();
+        let forceBreak = false;
         messages.push({ role: "assistant", content: j.content });
         const toolResults: any[] = [];
         for (const block of j.content) {
           if (block.type === "tool_use") {
+            const cnt = (toolCallCounts.get(block.name) || 0) + 1;
+            toolCallCounts.set(block.name, cnt);
+            if (cnt > 2) {
+              console.warn(`[LLM-LOOP] Tool '${block.name}' called ${cnt}x — forcing break`);
+              forceBreak = true;
+              break;
+            }
             const result = await executeTool(block.name, block.input, {
               userId: opts.userId,
               sessionId: opts.sessionId,
@@ -395,7 +409,7 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
         }
         messages.push({ role: "user", content: toolResults });
         let loopIter = 0;
-        while (loopIter < 4) {
+        while (!forceBreak && loopIter < 4) {
           loopIter++;
           const r2 = await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
@@ -422,8 +436,16 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
           if (j2?.stop_reason === "tool_use" && Array.isArray(j2.content)) {
             messages.push({ role: "assistant", content: j2.content });
             const tr: any[] = [];
+            let innerForceBreak = false;
             for (const block of j2.content) {
               if (block.type === "tool_use") {
+                const cnt = (toolCallCounts.get(block.name) || 0) + 1;
+                toolCallCounts.set(block.name, cnt);
+                if (cnt > 2) {
+                  console.warn(`[LLM-LOOP] Tool '${block.name}' called ${cnt}x — forcing break`);
+                  innerForceBreak = true;
+                  break;
+                }
                 const result = await executeTool(block.name, block.input, {
                   userId: opts.userId,
                   sessionId: opts.sessionId,
@@ -435,6 +457,7 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
               }
             }
             messages.push({ role: "user", content: tr });
+            if (innerForceBreak) break;
             continue;
           }
           break;
