@@ -50,6 +50,14 @@ import { extractHost, KNOWN_DOMAINS, hostToBucket } from "./lib/extractHost";
 import { embedTrackId3, findSiblingCover } from "./lib/id3Writer";
 import { alertPromoEntry, checkExpiredPromo } from "./lib/promoAlert";
 import { buildBotExclusionSql, isBotUserAgent } from "./lib/botUa";
+import {
+  blockEntity,
+  unblockEntity,
+  listBlocked,
+  suspiciousCandidates,
+  type BlockType,
+} from "./lib/blockedEntities";
+import { z } from "zod";
 
 const AUTHORS_DIR = process.env.AUTHORS_DIR || path.join(process.cwd(), "authors");
 
@@ -3425,6 +3433,112 @@ export async function registerRoutes(
       res.json({ ok: true, total: rows.length, hotCount, threshold24h: 50, candidates });
     } catch (e: any) {
       res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  // ==================== BLOCKED ENTITIES — admin endpoints ====================
+  // Eugene 2026-05-18 Босс «ручная блокировка по IP / userId / country / UA».
+  //
+  // GET    /api/admin/v304/blocks?type=&active=&limit=&offset=
+  // POST   /api/admin/v304/blocks  body: { type, value, reason?, expiresInDays? }
+  // DELETE /api/admin/v304/blocks/:id  — soft-unblock (active=0, audit-log)
+  // GET    /api/admin/v304/blocks/suspicious  — топ-N кандидатов на блок
+
+  const BlockCreateSchema = z.object({
+    type: z.enum(["ip", "user", "country", "ua_substring"]),
+    value: z.string().min(1).max(200),
+    reason: z.string().max(500).optional().nullable(),
+    expiresInDays: z.number().int().min(1).max(365).optional().nullable(),
+  });
+
+  app.get("/api/admin/v304/blocks", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const typeRaw = String(req.query.type || "").trim();
+      const allowedTypes: BlockType[] = ["ip", "user", "country", "ua_substring"];
+      const type = (allowedTypes as string[]).includes(typeRaw) ? (typeRaw as BlockType) : undefined;
+      const activeRaw = String(req.query.active || "").trim().toLowerCase();
+      const active = activeRaw === "1" || activeRaw === "true"
+        ? true
+        : activeRaw === "0" || activeRaw === "false"
+        ? false
+        : undefined;
+      const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 200));
+      const offset = Math.max(0, Number(req.query.offset) || 0);
+      const rows = listBlocked({ type, active, limit, offset });
+      res.json({ data: { total: rows.length, blocks: rows }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e) });
+    }
+  });
+
+  app.post("/api/admin/v304/blocks", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const parsed = BlockCreateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ data: null, error: parsed.error.errors[0]?.message || "Validation error" });
+        return;
+      }
+      const { type, value, reason, expiresInDays } = parsed.data;
+      const expiresAt = expiresInDays ? Date.now() + expiresInDays * 24 * 60 * 60 * 1000 : null;
+      const blockedBy = (req as any).userId ?? null;
+      const result = blockEntity({ type, value: String(value).trim(), reason: reason ?? null, blockedBy, expiresAt });
+
+      recordAuditEntry({
+        req,
+        action: result.alreadyActive ? "update" : "create",
+        entity: "blocked_entity",
+        entityKey: `${type}:${value}`,
+        before: result.alreadyActive ? { active: 1 } : null,
+        after: { id: result.id, type, value, reason: reason ?? null, expiresAt, blockedBy },
+      });
+      res.json({ data: { id: result.id, alreadyActive: !!result.alreadyActive, type, value, expiresAt }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e) });
+    }
+  });
+
+  app.delete("/api/admin/v304/blocks/:id", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        res.status(400).json({ data: null, error: "Invalid id" });
+        return;
+      }
+      const r = unblockEntity(id);
+      if (!r.ok) {
+        res.status(404).json({ data: null, error: "Not found" });
+        return;
+      }
+      recordAuditEntry({
+        req,
+        action: "update",
+        entity: "blocked_entity",
+        entityKey: String(id),
+        before: r.before ? { active: r.before.active, type: r.before.type, value: r.before.value } : null,
+        after: { active: 0 },
+      });
+      res.json({ data: { id, unblocked: true }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e) });
+    }
+  });
+
+  app.get("/api/admin/v304/blocks/suspicious", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const hoursRaw = Number(req.query.hours);
+      const hours = Number.isFinite(hoursRaw) && hoursRaw > 0 ? Math.min(168, hoursRaw) : 24;
+      const sinceMs = hours * 60 * 60 * 1000;
+      const candidates = suspiciousCandidates(sinceMs);
+      res.json({
+        data: {
+          windowHours: hours,
+          total: candidates.length,
+          candidates,
+        },
+        error: null,
+      });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e) });
     }
   });
 
