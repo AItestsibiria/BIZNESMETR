@@ -46,6 +46,50 @@ export type ToolHandler = (input: any, context: ToolContext) => Promise<string>;
 
 const fmt = (n: number) => n.toLocaleString("ru-RU");
 
+// Eugene 2026-05-18 Босс «Муза сохраняет тексты — UI часть». Когда
+// save_user_lyrics вернул needsAuth=true (анонимный юзер), запоминаем
+// title/text по sessionId — чтобы следующий шаг (propose_registration или
+// inline-карточка email-save на фронте) мог их использовать без передачи
+// через LLM-маркер.
+// TTL 30 мин, max 200 записей (защита от memory-leak).
+type PendingLyrics = { title: string; text: string; createdAt: number };
+const PENDING_LYRICS_TTL_MS = 30 * 60 * 1000;
+const PENDING_LYRICS_MAX = 200;
+const pendingLyricsBySession = new Map<string, PendingLyrics>();
+
+function gcPendingLyrics() {
+  const now = Date.now();
+  const stale: string[] = [];
+  pendingLyricsBySession.forEach((pl, sid) => {
+    if (now - pl.createdAt > PENDING_LYRICS_TTL_MS) stale.push(sid);
+  });
+  stale.forEach((sid) => pendingLyricsBySession.delete(sid));
+  // Hard cap
+  if (pendingLyricsBySession.size > PENDING_LYRICS_MAX) {
+    const sorted = Array.from(pendingLyricsBySession.entries()).sort((a, b) => a[1].createdAt - b[1].createdAt);
+    const toDrop = sorted.slice(0, pendingLyricsBySession.size - PENDING_LYRICS_MAX);
+    toDrop.forEach(([sid]) => pendingLyricsBySession.delete(sid));
+  }
+}
+
+export function getPendingLyricsForSession(sessionId: string | null | undefined): PendingLyrics | null {
+  if (!sessionId) return null;
+  gcPendingLyrics();
+  const pl = pendingLyricsBySession.get(sessionId);
+  if (!pl) return null;
+  if (Date.now() - pl.createdAt > PENDING_LYRICS_TTL_MS) {
+    pendingLyricsBySession.delete(sessionId);
+    return null;
+  }
+  return pl;
+}
+
+function setPendingLyricsForSession(sessionId: string | null | undefined, title: string, text: string) {
+  if (!sessionId) return;
+  pendingLyricsBySession.set(sessionId, { title, text, createdAt: Date.now() });
+  gcPendingLyrics();
+}
+
 // === TOOL DEFINITIONS (passed to Claude) ===
 
 export const MUZA_TOOLS: ToolDef[] = [
@@ -1571,6 +1615,10 @@ const HANDLERS: Record<string, ToolHandler> = {
     if (!text || text.length < 5) return JSON.stringify({ success: false, error: "Текст слишком короткий" });
 
     if (!userId) {
+      // Eugene 2026-05-18 Босс «Муза сохраняет тексты — UI часть».
+      // Запоминаем title/text по sessionId — следующий шаг (propose_registration
+      // или inline-карточка email-save) использует их без LLM-передачи.
+      setPendingLyricsForSession(sessionId, title, text);
       return JSON.stringify({
         success: false,
         needsAuth: true,

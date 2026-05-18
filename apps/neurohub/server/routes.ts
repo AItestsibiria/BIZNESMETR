@@ -23,6 +23,7 @@ import { findSessionByPairCode, looksLikePairCode } from "./lib/webChatPair";
 // MUZA_TOOLS + executeTool теперь вызываются ТОЛЬКО внутри
 // callUnifiedMuzaLLM (lib/llmCore.ts) — Eugene 2026-05-16 «один мозг».
 import { loadHistoryForLLM, loadHistoryForUser } from "./lib/chatHistory";
+import { getPendingLyricsForSession } from "./lib/muzaTools";
 import {
   callUnifiedMuzaLLM,
   listAnthropicKeys as listAnthropicKeysCore,
@@ -2036,6 +2037,15 @@ export async function registerRoutes(
   // «Войти / Зарегистрироваться / Дать email».
   type ProposedRegistration = {
     reason: "save_lyrics" | "save_draft" | "view_my_tracks" | "history";
+    // Eugene 2026-05-18 Босс «Муза сохраняет тексты — UI часть».
+    // Если save_user_lyrics ранее в этой сессии вернул needsAuth — title/text
+    // оседают в pendingLyricsBySession (muzaTools.ts) и попадают сюда,
+    // чтобы inline-карточка «Войти / Регистрация / Email» могла отправить
+    // их в /api/lyrics/anonymous-save без повторного ввода юзером.
+    lyricsTitle?: string;
+    lyricsText?: string;
+    // Подсказка для UI (опционально) — что показать перед кнопками.
+    message?: string;
   };
   function extractProposedRegistration(text: string): { reply: string; proposed: ProposedRegistration | null } {
     const RE = /\[PROPOSE_REGISTER:([^\]\n]{3,200})\]/i;
@@ -2947,6 +2957,17 @@ export async function registerRoutes(
       const registerExtract = extractProposedRegistration(reply);
       reply = registerExtract.reply;
       const proposedRegistration = registerExtract.proposed;
+      // Eugene 2026-05-18 Босс «Муза сохраняет тексты — UI часть».
+      // Если ранее save_user_lyrics вернул needsAuth=true — pending lyrics
+      // (title+text) лежат в сессионном map'е. Добавляем в payload чтобы
+      // фронт мог сразу отправить в /api/lyrics/anonymous-save без повторов.
+      if (proposedRegistration && proposedRegistration.reason === "save_lyrics") {
+        const pending = getPendingLyricsForSession(session.id);
+        if (pending) {
+          proposedRegistration.lyricsTitle = pending.title;
+          proposedRegistration.lyricsText = pending.text;
+        }
+      }
       // Audit-log предложения регистрации — фиксируем что Муза предложила,
       // independent от того нажмёт ли юзер. Confirmed=0, отдельный confirm
       // event запишется при клике на inline-карточку (engagement→audit cross-write).

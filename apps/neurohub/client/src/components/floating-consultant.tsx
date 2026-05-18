@@ -82,6 +82,16 @@ type ProposedGeneration = {
   lyrics?: string;
   reason: string;
 };
+// Eugene 2026-05-18 Босс «Муза сохраняет тексты — если не залогинен, предлагает
+// регистрацию». Бэкенд парсит [PROPOSE_REGISTER:reason=X] из реплики Музы
+// и кладёт payload сюда. Если save_user_lyrics ранее вернул needsAuth — title/
+// text идут вместе с reason (сессионный pending).
+type ProposedRegistration = {
+  reason: "save_lyrics" | "save_draft" | "view_my_tracks" | "history";
+  lyricsTitle?: string;
+  lyricsText?: string;
+  message?: string;
+};
 type ChatMessage = {
   role: "user" | "bot";
   text: string;
@@ -91,6 +101,9 @@ type ChatMessage = {
   backupChannels?: BackupChannel[];
   // Eugene 2026-05-18 Босс «чат → окно генерации с 3 кнопками».
   proposedGeneration?: ProposedGeneration;
+  // Eugene 2026-05-18 Босс «inline-карточка регистрации» — Войти / Регистрация /
+  // Дать email. Возникает когда Муза предложила сохранить текст анонимному юзеру.
+  proposedRegistration?: ProposedRegistration;
 };
 
 // Quick-reply chips — типичные первые сообщения чтобы юзер не залипал
@@ -341,6 +354,121 @@ export function FloatingConsultant() {
     window.location.hash = `#/music?${params.toString()}`;
   }, []);
 
+  // Eugene 2026-05-18 Босс «inline-карточка регистрации».
+  // State для UI inline-card: ключ = индекс сообщения в chatMsgs (stable пока
+  // не reset чата). Хранит режим (idle | email-input | sent), email-черновик и
+  // успешный код восстановления (показывается с кнопкой «Скопировать»).
+  type RegCardState = {
+    mode: "idle" | "email" | "sending" | "sent";
+    email: string;
+    code?: string;
+    emailSent?: boolean;
+    error?: string;
+  };
+  const [regCards, setRegCards] = useState<Record<number, RegCardState>>({});
+  const updateRegCard = useCallback((idx: number, patch: Partial<RegCardState>) => {
+    setRegCards(prev => ({ ...prev, [idx]: { ...(prev[idx] || { mode: "idle", email: "" }), ...patch } }));
+  }, []);
+  // Engagement-tracker для кликов по inline-карточке регистрации.
+  // chosen: 'login' | 'register' | 'email_open' | 'email_send' | 'copy_code'.
+  const trackRegClick = useCallback((chosen: string, meta?: Record<string, any>) => {
+    try {
+      let sid = sessionStorage.getItem("_engagementSid");
+      if (!sid) { sid = Math.random().toString(36).slice(2, 14); sessionStorage.setItem("_engagementSid", sid); }
+      fetch("/api/engagement/track", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event: "consultant_action",
+          sessionId: sid,
+          meta: { action: "propose_registration_click", chosen, ...(meta || {}) },
+        }),
+        keepalive: true,
+      }).catch(() => {});
+    } catch {}
+  }, []);
+
+  // Eugene 2026-05-18 Босс «после клика — переход в /login или /register».
+  // Если в localStorage есть прошлый email — подсветка опции «Войти».
+  const lastLoginEmail = useCallback((): string | null => {
+    try {
+      return localStorage.getItem("_lastLoginEmail") || null;
+    } catch { return null; }
+  }, []);
+
+  const openRegistrationAction = useCallback((
+    chosen: "login" | "register",
+    pr: ProposedRegistration,
+  ) => {
+    trackRegClick(chosen, { reason: pr.reason });
+    // Если есть pending lyrics — сохраняем в sessionStorage для recovery после
+    // регистрации (через `/register?recovery_lyrics=1` страница может прочитать).
+    if (pr.lyricsTitle && pr.lyricsText) {
+      try {
+        sessionStorage.setItem("_pendingLyrics", JSON.stringify({
+          title: pr.lyricsTitle,
+          text: pr.lyricsText,
+          savedAt: Date.now(),
+        }));
+      } catch {}
+    }
+    setExpanded(false);
+    setChatOpen(false);
+    if (chosen === "login") {
+      window.location.hash = "#/login";
+    } else {
+      // recovery_lyrics=1 — флаг что после регистрации надо auto-claim текст
+      // из sessionStorage._pendingLyrics через /api/lyrics/save.
+      window.location.hash = "#/register?recovery_lyrics=1";
+    }
+  }, [trackRegClick]);
+
+  const sendAnonymousLyricsSave = useCallback(async (
+    idx: number,
+    pr: ProposedRegistration,
+    email: string,
+  ) => {
+    const title = (pr.lyricsTitle || "").trim() || "Текст от Музы";
+    const text = (pr.lyricsText || "").trim();
+    // Если text не пришёл с сервера — не можем сохранить. Это редкий случай
+    // (TTL pending lyrics истёк или save_user_lyrics не вызывался).
+    if (!text || text.length < 5) {
+      updateRegCard(idx, {
+        mode: "idle",
+        error: "Текст не найден в сессии — попроси Музу прислать его ещё раз",
+      });
+      return;
+    }
+    updateRegCard(idx, { mode: "sending", error: undefined });
+    trackRegClick("email_send", { reason: pr.reason });
+    try {
+      const sid = ensureClientSessionId();
+      const r = await fetch("/api/lyrics/anonymous-save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, text, email, chatSessionId: sid }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j?.data) {
+        const errMsg = j?.error || `Ошибка ${r.status}`;
+        updateRegCard(idx, { mode: "email", error: errMsg });
+        return;
+      }
+      try { localStorage.setItem("_lastLoginEmail", email); } catch {}
+      updateRegCard(idx, {
+        mode: "sent",
+        code: String(j.data.code || ""),
+        emailSent: !!j.data.emailSent,
+        error: undefined,
+      });
+    } catch (e: any) {
+      updateRegCard(idx, {
+        mode: "email",
+        error: e?.message?.includes("Failed to fetch") ? "Сеть подвисла, попробуй ещё раз" : "Не удалось отправить",
+      });
+    }
+  }, [trackRegClick, updateRegCard]);
+
   // Eugene 2026-05-14 Босс «плавно общаться, ответы проявлять в 2 раза
   // медленнее. Ускорять если человек ускоряется». ADAPTIVE timing:
   // - Базовый humanDelay в 2 раза медленнее (плавность).
@@ -412,11 +540,33 @@ export function FloatingConsultant() {
           (j.proposedGeneration.mode === "audio" || j.proposedGeneration.mode === "simple" || j.proposedGeneration.mode === "full")
             ? j.proposedGeneration
             : undefined;
+        // Eugene 2026-05-18 Босс «Муза сохраняет тексты». Если Муза вставила
+        // [PROPOSE_REGISTER:reason=X] — фронт получит payload в j.proposedRegistration
+        // и рендерит inline-карточку «Войти / Регистрация / Email».
+        const validRegReasons = ["save_lyrics", "save_draft", "view_my_tracks", "history"];
+        const proposedRegistration: ProposedRegistration | undefined =
+          j.proposedRegistration && typeof j.proposedRegistration === "object" &&
+          typeof j.proposedRegistration.reason === "string" &&
+          validRegReasons.includes(j.proposedRegistration.reason)
+            ? {
+                reason: j.proposedRegistration.reason,
+                lyricsTitle: typeof j.proposedRegistration.lyricsTitle === "string"
+                  ? j.proposedRegistration.lyricsTitle.slice(0, 200)
+                  : undefined,
+                lyricsText: typeof j.proposedRegistration.lyricsText === "string"
+                  ? j.proposedRegistration.lyricsText.slice(0, 8000)
+                  : undefined,
+                message: typeof j.proposedRegistration.message === "string"
+                  ? j.proposedRegistration.message.slice(0, 500)
+                  : undefined,
+              }
+            : undefined;
         setChatMsgs(m => [...m, {
           role: "bot",
           text: j.reply,
           backupChannels,
           proposedGeneration,
+          proposedRegistration,
           // quickReplies подадим отдельной перезаписью через ещё одну паузу
         }]);
         setChatSending(false);
@@ -1132,6 +1282,10 @@ export function FloatingConsultant() {
                 // в последнем сообщении». QR — только на последнем bot-msg.
                 const isLastBot = i === arr.length - 1 && m.role === "bot";
                 const showQR = isLastBot && m.quickReplies && m.quickReplies.length > 0;
+                // Eugene 2026-05-18 Босс «inline-карточка регистрации».
+                // Стабильный идентификатор сообщения для regCards state —
+                // позиция в полном массиве chatMsgs (не в slice).
+                const fullIdx = chatMsgs.length - arr.length + i;
                 return (
                   <div key={i} className={`flex flex-col gap-1 ${m.role === "user" ? "items-end" : "items-start"}`}>
                     {/* Eugene 2026-05-14 Босс «исключаем в чате остальные имена.
@@ -1242,6 +1396,163 @@ export function FloatingConsultant() {
                         </div>
                       </div>
                     )}
+                    {/* Eugene 2026-05-18 Босс «Муза сохраняет тексты — UI часть».
+                        Inline-карточка «Войти / Зарегистрироваться / Дать email»
+                        появляется когда Муза вставила [PROPOSE_REGISTER] маркер
+                        (см. extractProposedRegistration в routes.ts). Подсветка
+                        опции «Войти» если в localStorage есть прошлый email. */}
+                    {m.role === "bot" && m.proposedRegistration && (() => {
+                      const pr = m.proposedRegistration!;
+                      const rc = regCards[fullIdx] || { mode: "idle" as const, email: "" };
+                      const hasLastLogin = !!lastLoginEmail();
+                      const titleSafe = (pr.lyricsTitle || "Текст от Музы").slice(0, 80);
+                      return (
+                        <div className="w-full max-w-[90%] mt-2 p-3 rounded-2xl glass-card border border-purple-400/30 bg-gradient-to-br from-purple-500/10 via-fuchsia-500/8 to-cyan-500/10 shadow-lg shadow-purple-500/10">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="text-base">🎵</span>
+                            <span className="text-[12px] font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">
+                              Чтобы сохранить «{titleSafe}» — выбери:
+                            </span>
+                          </div>
+                          {rc.mode !== "email" && rc.mode !== "sent" && (
+                            <div className="flex flex-col gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => openRegistrationAction("login", pr)}
+                                className={`flex items-center gap-3 px-3 py-2 rounded-xl text-left transition-all ${
+                                  hasLastLogin
+                                    ? "bg-gradient-to-r from-purple-500/30 via-fuchsia-500/25 to-blue-500/25 border border-purple-400/60 shadow-[0_0_24px_rgba(124,58,237,0.35)] hover:shadow-[0_0_32px_rgba(124,58,237,0.5)]"
+                                    : "bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] hover:border-purple-400/30"
+                                }`}
+                              >
+                                <span className="text-xl shrink-0">✏️</span>
+                                <div className="flex-1 min-w-0">
+                                  <div className={`text-[12px] font-semibold ${hasLastLogin ? "text-white" : "text-white/85"}`}>
+                                    Войти
+                                    {hasLastLogin && (
+                                      <span className="ml-1.5 text-[10px] font-normal text-purple-200">· твой email есть</span>
+                                    )}
+                                  </div>
+                                  <div className="text-[10px] text-white/55 mt-0.5 truncate">У меня уже есть кабинет</div>
+                                </div>
+                                <span className={`text-base shrink-0 ${hasLastLogin ? "text-purple-200" : "text-white/30"}`}>→</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openRegistrationAction("register", pr)}
+                                className="flex items-center gap-3 px-3 py-2 rounded-xl text-left transition-all bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] hover:border-fuchsia-400/30"
+                              >
+                                <span className="text-xl shrink-0">💜</span>
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-[12px] font-semibold text-white/85">Зарегистрироваться</div>
+                                  <div className="text-[10px] text-white/55 mt-0.5 truncate">Сохраню в твой кабинет — бесплатно</div>
+                                </div>
+                                <span className="text-base shrink-0 text-white/30">→</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  trackRegClick("email_open", { reason: pr.reason });
+                                  updateRegCard(fullIdx, { mode: "email", email: lastLoginEmail() || "", error: undefined });
+                                }}
+                                className="flex items-center gap-3 px-3 py-2 rounded-xl text-left transition-all bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] hover:border-cyan-400/30"
+                              >
+                                <span className="text-xl shrink-0">📧</span>
+                                <div className="flex-1 min-w-0">
+                                  <div className="text-[12px] font-semibold text-white/85">Дать email</div>
+                                  <div className="text-[10px] text-white/55 mt-0.5 truncate">Отправлю текст и код для восстановления</div>
+                                </div>
+                                <span className="text-base shrink-0 text-white/30">→</span>
+                              </button>
+                            </div>
+                          )}
+                          {rc.mode === "email" && (
+                            <form
+                              onSubmit={(ev) => {
+                                ev.preventDefault();
+                                const email = rc.email.trim();
+                                if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                                  updateRegCard(fullIdx, { error: "Email невалидный — проверь формат" });
+                                  return;
+                                }
+                                sendAnonymousLyricsSave(fullIdx, pr, email);
+                              }}
+                              className="flex flex-col gap-2"
+                            >
+                              <label className="text-[11px] text-white/70">На какой email отправить?</label>
+                              <input
+                                type="email"
+                                inputMode="email"
+                                autoComplete="email"
+                                value={rc.email}
+                                onChange={(e) => updateRegCard(fullIdx, { email: e.target.value, error: undefined })}
+                                placeholder="you@example.com"
+                                className="bg-white/[0.07] text-[14px] text-white placeholder:text-white/40 px-3 py-2 rounded-lg border border-purple-400/25 focus:border-purple-400/60 focus:outline-none"
+                                autoFocus
+                                disabled={false}
+                              />
+                              {rc.error && (
+                                <div className="text-[11px] text-rose-300">{rc.error}</div>
+                              )}
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => updateRegCard(fullIdx, { mode: "idle", error: undefined })}
+                                  className="text-[12px] px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.08] text-white/70 hover:text-white"
+                                >
+                                  ← Назад
+                                </button>
+                                <button
+                                  type="submit"
+                                  className="flex-1 text-[12px] font-semibold px-3 py-1.5 rounded-lg bg-gradient-to-r from-purple-500 via-fuchsia-500 to-blue-500 text-white shadow-[0_0_16px_rgba(124,58,237,0.4)] hover:shadow-[0_0_24px_rgba(124,58,237,0.6)] transition-shadow"
+                                >
+                                  Отправить
+                                </button>
+                              </div>
+                            </form>
+                          )}
+                          {rc.mode === "sending" && (
+                            <div className="text-[12px] text-purple-200 px-2 py-1.5">Отправляю…</div>
+                          )}
+                          {rc.mode === "sent" && (
+                            <div className="flex flex-col gap-1.5">
+                              <div className="text-[12px] text-emerald-300 font-medium">
+                                {rc.emailSent ? "✓ Отправила на email" : "✓ Сохранила"}
+                              </div>
+                              <div className="text-[11px] text-white/70">
+                                {rc.emailSent
+                                  ? "Письмо со ссылкой регистрации уже у тебя. Код для восстановления:"
+                                  : "Запомни код — он понадобится после регистрации (действует 30 дней):"}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[18px] font-mono font-bold tracking-[0.25em] text-white px-3 py-1.5 rounded-lg bg-white/[0.06] border border-purple-400/30">
+                                  {rc.code}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    try {
+                                      navigator.clipboard?.writeText(rc.code || "");
+                                      trackRegClick("copy_code");
+                                    } catch {}
+                                  }}
+                                  className="text-[11px] px-2.5 py-1 rounded-lg bg-white/[0.06] border border-white/[0.08] text-white/80 hover:text-white"
+                                >
+                                  📋 Копировать
+                                </button>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => openRegistrationAction("register", pr)}
+                                className="text-[12px] font-semibold mt-1 px-3 py-1.5 rounded-lg bg-gradient-to-r from-purple-500/25 to-cyan-500/25 hover:from-purple-500/45 hover:to-cyan-500/45 border border-purple-400/40 text-white"
+                              >
+                                💜 Завершить регистрацию сейчас
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                     {/* Eugene 2026-05-14 Босс: QR-кнопки кликабельны на ЛЮБОМ
                         bot-msg (повторное нажатие меняет выбор для дальнейшего). */}
                     {showQR && (
