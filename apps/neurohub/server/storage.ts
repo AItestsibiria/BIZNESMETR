@@ -942,6 +942,74 @@ try {
   } catch (e) {
     console.error("[MIGRATION] blocked_entities failed:", e);
   }
+
+  // Eugene 2026-05-18 Босс «Муза сохраняет готовые тексты в личном кабинете —
+  // спрашивает название и сохраняет. Заменяет действия клиента, он подтверждает.
+  // Не авторизован → предлагает регистрацию → сохраняет. Отказался → email.
+  // Без email → код для последующего восстановления».
+  //
+  // 3 таблицы:
+  //   - user_lyric_drafts        — сохранённые тексты юзеров (auth)
+  //   - pending_anonymous_lyrics — анонимные с recovery code или email (30 days TTL)
+  //   - muza_user_actions        — аудит подтверждённых действий Музы
+  try {
+    sqlite.exec(`CREATE TABLE IF NOT EXISTS user_lyric_drafts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      text TEXT NOT NULL,
+      source TEXT DEFAULT 'musa_chat',
+      chat_session_id TEXT,
+      created_at INTEGER NOT NULL,
+      used_in_generation_id INTEGER
+    )`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_lyric_drafts_user
+      ON user_lyric_drafts(user_id, created_at DESC)`);
+  } catch (e) {
+    console.error("[MIGRATION] user_lyric_drafts failed:", e);
+  }
+
+  try {
+    sqlite.exec(`CREATE TABLE IF NOT EXISTS pending_anonymous_lyrics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      recovery_code TEXT UNIQUE,
+      email TEXT,
+      title TEXT NOT NULL,
+      text TEXT NOT NULL,
+      chat_session_id TEXT,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      claimed_by_user_id INTEGER,
+      claimed_at INTEGER,
+      email_sent INTEGER DEFAULT 0
+    )`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_pending_lyrics_recovery
+      ON pending_anonymous_lyrics(recovery_code)`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_pending_lyrics_email
+      ON pending_anonymous_lyrics(email)`);
+  } catch (e) {
+    console.error("[MIGRATION] pending_anonymous_lyrics failed:", e);
+  }
+
+  try {
+    sqlite.exec(`CREATE TABLE IF NOT EXISTS muza_user_actions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      anonymous_session TEXT,
+      action_type TEXT NOT NULL,
+      params_json TEXT,
+      confirmed INTEGER DEFAULT 0,
+      confirmed_at INTEGER,
+      chat_session_id TEXT,
+      created_at INTEGER NOT NULL
+    )`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_muza_actions_user
+      ON muza_user_actions(user_id, created_at DESC)`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_muza_actions_type
+      ON muza_user_actions(action_type, created_at DESC)`);
+  } catch (e) {
+    console.error("[MIGRATION] muza_user_actions failed:", e);
+  }
 } catch (e) {
   console.error("[MIGRATION] Error:", e);
 }
