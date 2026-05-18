@@ -1154,6 +1154,39 @@ GH Actions workflow `deploy-prod.yml` остаётся как **резерв** (
 
 Этим правилом отменяется (предыдущее) Clone-deprecated rule в части «GH UI как primary канал» — теперь primary = systemd timer pull from GitHub. Push в `claude/add-claude-documentation-OW5V7` достаточно.
 
+### Clone-first-mirror rule (Eugene 2026-05-18, **отменяет Clone-deprecated rule**)
+
+**Босс: «На Clone тестируем. Clone должен быть копией prod 100% — включая генерации и ключи. Потом тест на clone — если ок, на prod через GH».**
+
+Полное workflow:
+
+1. **Sync prod → clone** (одноразово или по запросу) — см. `docs/strategy/CLONE-SYNC-FROM-PROD-180526.md`:
+   - `data.db` (SQLite .backup snapshot)
+   - `authors/` (mp3 + обложки)
+   - `.env` (ключи API — все, чтобы 100% копия)
+2. **Push в feature branch** (`claude/add-claude-documentation-OW5V7`) → systemd timer на clone подхватывает за ~60 сек
+3. **Тест на clone** (https://clone.muziai.ru) — Босс проверяет
+4. **Если OK** → manual deploy на prod через GH Actions workflow_dispatch (`deploy-prod.yml`)
+5. **Если не OK** → откат через `git reset --hard <SHA>` на clone (или восстановление backup)
+
+Версии перед каждой большой правкой — **git tag** (по Triumph-tag rule + новые tags `mind-DDMMYY`, `release-DDMMYY`).
+
+**Что синхронизируется prod → clone (100%):**
+- БД (treki, юзеры, платежи, сессии, муза-actions)
+- authors/ файлы
+- .env (с warning про реальные платежи через test treki)
+
+**Что НЕ синхронизируется (разное у каждого VPS):**
+- nginx конфиги (разные домены)
+- pm2 ecosystem (разные процессы)
+- systemd auto-deploy timer (разные ветки)
+- логи `/var/log/*`
+
+**Отменяет** `Clone-deprecated + GH-only deploy rule (2026-05-15)` в части использования clone — теперь clone снова primary staging.
+
+**Применяется к:** всем feature пушам с 18 мая 2026 (вечер).
+**Не применяется к:** критическим hotfix'ам где Босс явно сказал «сразу на prod».
+
 ### Clone-deprecated + GH-only deploy rule (Eugene 2026-05-15, **сильнее всех предыдущих deploy-правил**)
 
 **Clone (`clone.muziai.ru`) больше не используется как промежуточный environment.** Auto-deploy на clone продолжает работать (cron на VPS 72.56.1.149 берёт коммиты из ветки `claude/add-claude-documentation-OW5V7`), но его результаты — не predeploy-проверка для prod. Все изменения идут сразу в production muziai.ru.
