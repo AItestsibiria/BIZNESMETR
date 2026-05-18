@@ -1675,6 +1675,23 @@ export default function MasterDashboardTab() {
       window.dispatchEvent(new CustomEvent("admin-period-change", { detail: p }));
     }
   };
+  // Eugene 2026-05-18 Босс «период нижней строкой» — GlobalPeriodSelector
+  // переехал в floating sticky-bottom bar в admin-v304. Слушаем event'ы
+  // оттуда, чтобы period sync'нулся на dashboard когда меняешь снизу.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onChange = (e: any) => {
+      const next = e?.detail;
+      if (typeof next !== "string") return;
+      if (next === "today" || next === "yesterday" || next === "7d" ||
+          next === "30d" || next === "365d" || next === "all" ||
+          next.startsWith("month-") || next === "custom") {
+        setPeriodState(next as Period);
+      }
+    };
+    window.addEventListener("admin-period-change", onChange);
+    return () => window.removeEventListener("admin-period-change", onChange);
+  }, []);
   // Eugene 2026-05-17 Босс «per-domain трекинг».
   // 'all' = без фильтра, не передаём ?domain= в URL чтобы не дробить кэш.
   const [domain, setDomain] = useState<DomainBucket>("all");
@@ -1722,36 +1739,53 @@ export default function MasterDashboardTab() {
 
   return (
     <div className="space-y-6 cyber-grid -m-2 p-2 sm:-m-4 sm:p-4 rounded-2xl">
-      {/* Header — period selector + actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-bold text-white">
-            🧠 Сводка — главная аналитическая dashboard
-          </h2>
-          <p className="text-xs text-muted-foreground mt-1">
-            Точка сбора всей статистики проекта · фундамент Второго мозга ·
-            обновление каждые 30 сек {data.fromCache && "· из кэша"}
-          </p>
+      {/* Header — компактный (Eugene 2026-05-18 Босс «наведи порядок сверху»).
+          PeriodSelector переехал в floating sticky-bottom bar в admin-v304.
+          DomainSelector + month-picker остаются здесь (compact, под title).
+          Активный период подсвечен chip-ом справа от h2 для контекста. */}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-start gap-2 justify-between">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-base sm:text-lg font-sans font-bold text-white truncate">
+              🧠 Сводка
+              <span className="ml-2 align-middle text-[10px] sm:text-xs font-mono uppercase tracking-wider text-purple-300 bg-purple-500/15 border border-purple-500/30 rounded-full px-2 py-0.5">
+                {PERIOD_LABELS[period]}
+              </span>
+            </h2>
+            <p className="text-[10px] sm:text-xs text-muted-foreground mt-1 hidden sm:block">
+              Точка сбора всей статистики проекта · обновление 30 сек {data.fromCache && "· из кэша"}
+            </p>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetch()}
+              data-testid="refresh-dashboard"
+              className="h-8 px-2 text-xs"
+            >
+              🔄
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={copyJson}
+              data-testid="copy-dashboard-json"
+              className="h-8 px-2 text-xs"
+            >
+              📋
+            </Button>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <PeriodSelector period={period} onChange={setPeriod} />
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => refetch()}
-            data-testid="refresh-dashboard"
-          >
-            🔄 Обновить
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={copyJson}
-            data-testid="copy-dashboard-json"
-          >
-            📋 Копировать JSON
-          </Button>
-        </div>
+        {/* Month-picker / custom period (вторичный селектор — primary в bottom bar) */}
+        <details className="text-xs">
+          <summary className="cursor-pointer text-white/60 hover:text-white/90 select-none px-2 py-1 rounded-lg bg-white/[0.03] border border-white/10 inline-flex items-center gap-1 w-fit">
+            <span>📅 Больше периодов / месяцы</span>
+          </summary>
+          <div className="mt-2">
+            <PeriodSelector period={period} onChange={setPeriod} />
+          </div>
+        </details>
       </div>
 
       {/* 🌐 Domain selector — глобальный per-domain фильтр */}
