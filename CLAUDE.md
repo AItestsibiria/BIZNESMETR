@@ -954,6 +954,51 @@ Cильнее `Working rhythm rule`: лучше потратить 5 минут 
 - `btn-cosmic` (index.css) — magic shimmer-gradient CSS class. Используется на landing CTA + magic-кнопке /music.
 - `pollProcessingGenerations()` + bonus 2-й трек (admin-overview/module.ts).
 - `getPeriodRange()` (server/lib/periodBoundaries.ts) — единая логика period boundaries (cut-off 20:00 МСК). Используется во всех аналитических endpoints (master-dashboard, funnels, visitor-stats, gen-stats, top-downloads, gen-activity-geo). См. Period-20-MSK rule.
+- **`getPersistentPlayerAudio()` + `loadTrackIntoPlayer(url)`** (client/src/lib/lockscreen.ts) — ЕДИНСТВЕННЫЙ pattern audio в проекте после 9-й итерации LS (commit `8d047e1`). См. Persistent-audio-only rule ниже.
+
+### Persistent-audio-only rule (Eugene 2026-05-18, **навсегда зафиксировано**)
+
+**Босс «перемещение стало лучше, запомни правило использовать только это решение, не снять, во всём проекте».** После 9 итераций lock-screen наконец работает — root cause найден по W3C MediaSession §3.3 и зафиксирован persistent singleton pattern.
+
+**Единственный разрешённый pattern audio:**
+
+```ts
+import { getPersistentPlayerAudio, loadTrackIntoPlayer } from "@/lib/lockscreen";
+
+// Получить (или создать один раз) <audio data-muziai-player> в DOM
+const audio = getPersistentPlayerAudio();
+
+// Сменить трек — НЕ создавать new, НЕ remove из DOM
+loadTrackIntoPlayer(audio, newTrackUrl);
+audio.play();
+```
+
+**Что КАТЕГОРИЧЕСКИ запрещено** (любая правка нарушающая правило — баг до того как написать):
+
+- ❌ `new Audio(url)` для треков плейлиста / dashboard / track-page
+- ❌ `document.body.appendChild(audio)` после `removeChild()` — создаёт DOM gap
+- ❌ Multiple `<audio>` elements для playlist tracks одновременно в DOM
+- ❌ `audioRef.current = new Audio()` в playTrack — теряем persistent ownership
+- ❌ Удаление audio из DOM при unmount компонента (audio persists across SPA navigation)
+
+**Что РАЗРЕШЕНО** (исключения, не нарушают правило):
+
+- ✅ `new Audio(ttsUrl)` для one-shot TTS уведомлений в `musa-voice-fab.tsx` — НЕ player audio, не претендует на MediaSession
+- ✅ Audio preview в админке (`/admin/v304/*` page) — НЕ player audio, локальный preview
+- ✅ Background-music elements (3-5 коротких файлов lobby music) — отдельный audio-bus channel
+
+**Root cause согласно W3C MediaSession §3.3:**
+> "When a media element loses its 'currently playing' status, the user agent MAY release the media session's hold on system UI."
+
+iOS WebKit реализует это агрессивно: при `removeChild → createElement → appendChild` есть микро-gap когда в DOM нет media-element → ownership передаётся последнему known-active app (Apple Music / Spotify / Yandex Music из системного кэша) → юзер видит чужой трек на lock-screen.
+
+**Persistent `<audio>` живёт на всю SPA-сессию.** Track change = `audio.src = url; audio.load()`. iOS никогда не теряет MediaSession ownership.
+
+**Применяется к:** ВСЕМ страницам с playback — landing.tsx, dashboard.tsx, track.tsx, music.tsx, любым будущим. Если кто-то когда-то решит «улучшить» — этот rule выше любого «улучшения».
+
+**Не применяется к:** TTS one-shot (Муза голос), preview audio в админке (короткий, без MediaSession claim).
+
+Reference: `apps/neurohub/client/src/lib/lockscreen.ts` (getPersistentPlayerAudio, loadTrackIntoPlayer). Commit `8d047e1` зафиксирован как точка «больше не трогать».
 
 ### Numbered options rule (Eugene 2026-05-07)
 
