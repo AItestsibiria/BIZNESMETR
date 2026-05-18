@@ -2617,11 +2617,17 @@ function MusaHistorySection() {
                 className="glass-card rounded-xl p-3 border border-purple-500/20 hover:border-purple-500/40 transition-colors"
               >
                 <div className="flex items-start gap-3">
-                  <div className="text-2xl select-none flex-shrink-0">{s.personaAvatar}</div>
+                  {/* Eugene 2026-05-18 Босс «выводим только аватар Музы — имена персон скрыты». */}
+                  <img
+                    src="/consultant-avatar.png"
+                    alt="Муза"
+                    className="w-8 h-8 rounded-full object-contain bg-white/5 flex-shrink-0"
+                    onError={(e) => { (e.target as HTMLImageElement).src = "/consultant-avatar.svg"; }}
+                  />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <span className="text-sm font-sans font-semibold text-white">
-                        {s.personaName || "Муза"}
+                        Муза
                       </span>
                       <span className="text-[10px] font-sans px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-medium">
                         {channelEmoji(s.channel)} {channelLabel(s.channel)}
@@ -2715,9 +2721,15 @@ function MusaHistoryViewModal({
       <DialogContent className="max-w-2xl bg-gradient-to-br from-[#0a0a17]/95 via-[#1a0f2e]/95 to-[#0a0a17]/95 backdrop-blur-xl border border-purple-500/30 max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-xl font-display font-bold flex items-center gap-2">
-            <span className="text-2xl">{sess?.personaAvatar || "🎀"}</span>
+            {/* Eugene 2026-05-18 Босс «только аватар Музы — без имени персоны». */}
+            <img
+              src="/consultant-avatar.png"
+              alt="Муза"
+              className="w-8 h-8 rounded-full object-contain bg-white/5"
+              onError={(e) => { (e.target as HTMLImageElement).src = "/consultant-avatar.svg"; }}
+            />
             <span className="bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">
-              {sess?.personaName || "Муза"}
+              Муза
             </span>
             {sess && (
               <span className="text-[10px] font-sans px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-medium ml-2">
@@ -2745,7 +2757,8 @@ function MusaHistoryViewModal({
               }`}
             >
               <div className="text-[10px] font-mono text-muted-foreground mb-1">
-                {m.role === "user" ? "Ты" : sess?.personaName || "Муза"} · {formatRelative(m.createdAt)}
+                {/* Eugene 2026-05-18 Босс «в чате только Муза, имена персон скрыты». */}
+                {m.role === "user" ? "Ты" : "Муза"} · {formatRelative(m.createdAt)}
               </div>
               <div className="text-sm font-sans text-white whitespace-pre-wrap break-words">{m.text}</div>
             </div>

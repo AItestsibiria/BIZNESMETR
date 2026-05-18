@@ -397,8 +397,9 @@ async function reEngageInactiveUsers(): Promise<void> {
         const j: any = await r.json();
         const text = String(j?.content?.[0]?.text || "").trim();
         if (!text) continue;
-        const footer = `\n\n— ${persona.name} · MuzaAi`;
-        const full = `${persona.avatar} ${text}${footer}`;
+        // Eugene 2026-05-18 Босс «выводим только Музу — имена персон скрыты от юзера».
+        const footer = `\n\n— Муза · MuzaAi`;
+        const full = `🎵 ${text}${footer}`;
         await sendMessage(c.external_id, full);
         db.update(chatbotSessions).set({ lastReengagedAt: new Date().toISOString() }).where(eq(chatbotSessions.id, c.id)).run();
         saveMessage(c.id, "bot", `[re-engage] ${full}`);
@@ -743,7 +744,9 @@ router.post("/webhook", async (req, res) => {
     if (quick) {
       const cleanQuick = quick.replace(/\s*[—\-–]+\s*(Муза|Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*(MuzaAi|MuzaAi))?\s*\.?\s*$/i, "").trimEnd();
       const footer = `\n\n— Муза · MuzaAi`;
-      const replyWithAvatar = `${p0.avatar} ${cleanQuick}${footer}`;
+      // Eugene 2026-05-18 Босс «в чате выводим только аватар Музы — имена персон скрыты».
+      // p0.avatar (emoji персоны) больше не префиксим — единый 🎵.
+      const replyWithAvatar = `🎵 ${cleanQuick}${footer}`;
       bypassDebounce(`tg:${chatId}`);
       await sendConsultantPhoto(chatId, replyWithAvatar);
       saveMessage(sessionId, "bot", replyWithAvatar);
@@ -891,7 +894,9 @@ async function processIncomingText(chatId: string, fromId: string, sessionId: st
       }
     } catch (e) { bootRefs?.logger.warn?.("[telegram-bot] pair-code offer skipped", { error: String(e) }); }
 
-    const replyWithAvatar = `${p.avatar} ${cleanReply}${pairInvite}${footer}`;
+    // Eugene 2026-05-18 Босс «в чате выводим только аватар Музы — имена персон скрыты».
+    // p.avatar (emoji персоны) больше не префиксим — единый 🎵.
+    const replyWithAvatar = `🎵 ${cleanReply}${pairInvite}${footer}`;
     await sendMessage(chatId, replyWithAvatar);
     saveMessage(sessionId, "bot", replyWithAvatar);
     bootRefs?.eventBus?.emit?.("chatbot.reply_sent", { channel: "telegram", sessionId, chatId }, "telegram-bot");

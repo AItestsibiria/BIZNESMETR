@@ -198,7 +198,9 @@ router.post("/webhook", async (req, res) => {
     const p = personaFor(fromId);
     const { sessionId, userId: authUserId } = findOrCreateMaxSession(chatId, fromId);
     if (text === "/start") {
-      const hello = `${p.avatar} Привет! Я — Муза. Помогу подобрать песню под событие — для какого случая думаете?`;
+      // Eugene 2026-05-18 Босс «в чате выводим только аватар Музы — имена персон скрыты».
+      void p; // персона определяет тон в LLM prompt'е, но не отображается юзеру
+      const hello = `🎵 Привет! Я — Муза. Помогу подобрать песню под событие — для какого случая думаете?`;
       saveMaxMessage(sessionId, "user", text);
       await sendConsultantPhoto(chatId, hello);
       saveMaxMessage(sessionId, "bot", hello);
@@ -219,7 +221,8 @@ router.post("/webhook", async (req, res) => {
     const reply = await generateReply(sessionId, fromId, text, authUserId);
     const cleanReply = reply.replace(/\s*[—\-–]+\s*(Муза|Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*(MuzaAi|MuzaAi))?\s*\.?\s*$/i, "").trimEnd();
     const footer = `\n\n— Муза · MuzaAi`;
-    const replyWithAvatar = `${p.avatar} ${cleanReply}${footer}`;
+    // Eugene 2026-05-18 Босс «в чате выводим только аватар Музы — имена персон скрыты».
+    const replyWithAvatar = `🎵 ${cleanReply}${footer}`;
     // Eugene 2026-05-12 (Босс «100%»): sendPhoto только на /start.
     // На остальных reply'ях текст с emoji-аватаром + footer.
     await sendMessage(chatId, replyWithAvatar);

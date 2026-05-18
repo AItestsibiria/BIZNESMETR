@@ -52,7 +52,11 @@ const CLICK_REACTIONS = [
 ];
 
 // Eugene 2026-05-14 Босс «вверху ответа Музы напиши её имя в цвет образа».
-// Mapping имени персоны на цвет — психотип определяет тон.
+// Eugene 2026-05-18 Босс «в чате выводим только аватар Музы — другие имена это
+// характеры (внутренняя стратегия Музы), не показываем юзеру». chatPersona-state
+// удалён, в UI везде «Муза» + единый /consultant-avatar.png. Сами psychotype/tone
+// продолжают применяться в server-side system prompt (см. consultantPersona.ts).
+// Mapping имени персоны на цвет — психотип определяет тон. (legacy)
 // warm = pink (тёплые), energetic = amber (искра), analytical = cyan (точно),
 // calm = emerald (спокойствие). Применяется как text-color в name-bage.
 const PERSONA_COLOR: Record<string, string> = {
@@ -365,7 +369,12 @@ export function FloatingConsultant() {
   // кнопку с возможностью их появления». Default false — пустой чат без
   // подсказок. Юзер нажимает «💡 Подсказки» — появляются 4-5 chips.
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [chatPersona, setChatPersona] = useState<{ name: string; avatar: string } | null>(null);
+  // Eugene 2026-05-18 Босс «в чате только аватар Музы». chatPersona не отображается
+  // в UI (имя/avatar персоны = внутренняя стратегия), но state сохраняем для совместимости
+  // с историческими сессиями — никакой setter'ный код в UI его не читает.
+  const [chatPersona, _setChatPersona] = useState<{ name: string; avatar: string } | null>(null);
+  void chatPersona;
+  const setChatPersona = _setChatPersona;
   const [chatPaired, setChatPaired] = useState<{ channel: string } | null>(null);
   // Eugene 2026-05-14 Босс «таблица с автором характеристик над чатом».
   // Хранит memory extracted backend'ом (имя/повод/кому/стиль/голос/настроение).
