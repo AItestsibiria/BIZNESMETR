@@ -156,8 +156,11 @@ function ApiHealthLamp({ onJump }: { onJump: () => void }) {
 }
 
 // Eugene 2026-05-17 Босс «по умолчанию параметры везде сегодня + кнопка выбора».
-// Глобальный period-selector в header админки. Состояние в localStorage
-// синхронизируется через CustomEvent 'admin-period-change' с master-dashboard.
+// Глобальный period-selector. Состояние в localStorage синхронизируется через
+// CustomEvent 'admin-period-change' с master-dashboard.
+// Eugene 2026-05-18 Босс «наведи порядок сверху + период нижней строкой» —
+// переехал из header в floating sticky-bottom bar (mobile-first, blur backdrop).
+// Brand-style: glass-card + cyan/violet gradient на active + scrollable single-row.
 function GlobalPeriodSelector() {
   const PERIODS: Array<{ id: string; label: string }> = [
     { id: "today", label: "Сегодня" },
@@ -187,21 +190,31 @@ function GlobalPeriodSelector() {
     }
   };
   return (
-    <div className="mb-4 flex flex-wrap items-center gap-2 glass-card rounded-2xl p-3 border border-purple-500/20">
-      <span className="text-xs text-muted-foreground font-mono mr-1">📅 Период:</span>
-      {PERIODS.map(p => (
-        <button
-          key={p.id}
-          onClick={() => pick(p.id)}
-          className={
-            period === p.id
-              ? "px-3 py-1.5 text-sm rounded-full bg-gradient-to-r from-purple-500 via-fuchsia-500 to-cyan-400 text-white font-medium shadow-[0_0_16px_rgba(217,70,239,0.5)] border border-fuchsia-300/50"
-              : "px-3 py-1.5 text-sm rounded-full bg-white/5 text-white/70 hover:bg-white/10 hover:text-white transition-colors border border-white/10"
-          }
-        >
-          {p.label}
-        </button>
-      ))}
+    <div
+      className="fixed inset-x-0 bottom-0 z-40 px-2 sm:px-4 pb-2 sm:pb-3 pointer-events-none"
+      data-testid="global-period-bar"
+    >
+      <div className="pointer-events-auto mx-auto max-w-5xl glass-card rounded-2xl p-2 sm:p-3 border border-purple-500/30 bg-[#0a0a17]/90 backdrop-blur-xl shadow-[0_-4px_24px_rgba(124,58,237,0.25)]">
+        <div className="flex items-center gap-2 overflow-x-auto scrollbar-thin flex-nowrap">
+          <span className="text-[10px] sm:text-xs text-muted-foreground font-mono shrink-0 select-none">
+            📅 Период:
+          </span>
+          {PERIODS.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => pick(p.id)}
+              data-testid={`global-period-${p.id}`}
+              className={
+                period === p.id
+                  ? "shrink-0 px-3 py-1.5 text-xs sm:text-sm rounded-full bg-gradient-to-r from-purple-500 via-fuchsia-500 to-cyan-400 text-white font-medium shadow-[0_0_16px_rgba(217,70,239,0.55)] border border-fuchsia-300/50"
+                  : "shrink-0 px-3 py-1.5 text-xs sm:text-sm rounded-full bg-white/5 text-white/70 hover:bg-white/10 hover:text-white transition-colors border border-white/10"
+              }
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -247,9 +260,9 @@ export default function AdminV304Page() {
   }
 
   return (
-    <div className="container mx-auto p-4 sm:p-6 max-w-7xl">
-      <div className="flex items-center gap-3 mb-6">
-        <h1 className="text-2xl sm:text-3xl font-display font-bold gradient-text">Admin · v304</h1>
+    <div className="container mx-auto p-4 sm:p-6 max-w-7xl pb-28 sm:pb-32">
+      <div className="flex items-center gap-3 mb-4 sm:mb-6">
+        <h1 className="text-xl sm:text-3xl font-display font-bold gradient-text">Admin · v304</h1>
         <ApiHealthLamp onJump={() => setTab("api-health")} />
         <div className="ml-auto">
           <AdminSearch
@@ -287,27 +300,34 @@ export default function AdminV304Page() {
       <GlobalPeriodSelector />
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="mb-4 flex flex-wrap">
-          <TabsTrigger value="master-dashboard">🧠 Сводка</TabsTrigger>
-          <TabsTrigger value="brain-3d">🧠 Второй мозг</TabsTrigger>
-          <TabsTrigger value="overview">Обзор</TabsTrigger>
-          <TabsTrigger value="friend">👤 Муза</TabsTrigger>
-          <TabsTrigger value="bot-stats">🤖 Бот</TabsTrigger>
-          <TabsTrigger value="ai-keys">🤖 Ключи AI</TabsTrigger>
-          <TabsTrigger value="api-health">🔑 API ключи</TabsTrigger>
-          <TabsTrigger value="bot-channels">🔌 Каналы</TabsTrigger>
-          <TabsTrigger value="delegates">🤝 Заместители</TabsTrigger>
-          <TabsTrigger value="secrets">🔑 Секреты</TabsTrigger>
-          <TabsTrigger value="templates">Шаблоны</TabsTrigger>
-          <TabsTrigger value="flags">Feature flags</TabsTrigger>
-          <TabsTrigger value="leads">Лиды</TabsTrigger>
-          <TabsTrigger value="audit">Audit log</TabsTrigger>
-          <TabsTrigger value="failures">⚠️ Проблемы</TabsTrigger>
-          <TabsTrigger value="dialogs">💬 Диалоги</TabsTrigger>
-          <TabsTrigger value="support">🆘 Обращения</TabsTrigger>
-          <TabsTrigger value="journey">🗺 Путь</TabsTrigger>
-          <TabsTrigger value="user-profiles">👤 Профили</TabsTrigger>
-          <TabsTrigger value="blocks">🚫 Блокировки</TabsTrigger>
+        {/* Eugene 2026-05-18 Босс «наведи порядок сверху + период нижней строкой»
+            (mobile админка показывалась криво: tabs наезжали на контент).
+            Brand-style: glass-card backdrop + sticky-top, mobile single-row
+            scroll (overflow-x-auto + flex-nowrap), desktop wrap. Активный
+            TabsTrigger подсвечен brand-gradient. */}
+        <TabsList
+          className="mb-4 sticky top-0 z-30 -mx-2 sm:mx-0 px-2 sm:px-3 py-2 h-auto flex flex-nowrap sm:flex-wrap gap-1 overflow-x-auto sm:overflow-visible justify-start glass-card border border-purple-500/20 rounded-2xl bg-[#0a0a17]/85 backdrop-blur-xl scrollbar-thin shadow-[0_4px_24px_rgba(124,58,237,0.18)]"
+        >
+          <TabsTrigger value="master-dashboard" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🧠 Сводка</TabsTrigger>
+          <TabsTrigger value="brain-3d" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🧠 Второй мозг</TabsTrigger>
+          <TabsTrigger value="overview" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">Обзор</TabsTrigger>
+          <TabsTrigger value="friend" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">👤 Муза</TabsTrigger>
+          <TabsTrigger value="bot-stats" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🤖 Бот</TabsTrigger>
+          <TabsTrigger value="ai-keys" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🤖 Ключи AI</TabsTrigger>
+          <TabsTrigger value="api-health" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🔑 API ключи</TabsTrigger>
+          <TabsTrigger value="bot-channels" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🔌 Каналы</TabsTrigger>
+          <TabsTrigger value="delegates" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🤝 Заместители</TabsTrigger>
+          <TabsTrigger value="secrets" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🔑 Секреты</TabsTrigger>
+          <TabsTrigger value="templates" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">Шаблоны</TabsTrigger>
+          <TabsTrigger value="flags" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">Feature flags</TabsTrigger>
+          <TabsTrigger value="leads" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">Лиды</TabsTrigger>
+          <TabsTrigger value="audit" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">Audit log</TabsTrigger>
+          <TabsTrigger value="failures" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">⚠️ Проблемы</TabsTrigger>
+          <TabsTrigger value="dialogs" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">💬 Диалоги</TabsTrigger>
+          <TabsTrigger value="support" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🆘 Обращения</TabsTrigger>
+          <TabsTrigger value="journey" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🗺 Путь</TabsTrigger>
+          <TabsTrigger value="user-profiles" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">👤 Профили</TabsTrigger>
+          <TabsTrigger value="blocks" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🚫 Блокировки</TabsTrigger>
         </TabsList>
         <TabsContent value="master-dashboard"><MasterDashboardTab /></TabsContent>
         <TabsContent value="brain-3d">
