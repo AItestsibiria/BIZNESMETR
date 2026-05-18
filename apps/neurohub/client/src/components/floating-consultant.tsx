@@ -144,6 +144,10 @@ export function FloatingConsultant() {
   const [chatMsgs, setChatMsgs] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatSending, setChatSending] = useState(false);
+  // Eugene 2026-05-18 Босс «убери облака с подсказками, но оставь в чате
+  // кнопку с возможностью их появления». Default false — пустой чат без
+  // подсказок. Юзер нажимает «💡 Подсказки» — появляются 4-5 chips.
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const [chatPersona, setChatPersona] = useState<{ name: string; avatar: string } | null>(null);
   const [chatPaired, setChatPaired] = useState<{ channel: string } | null>(null);
   // Eugene 2026-05-14 Босс «таблица с автором характеристик над чатом».
@@ -582,22 +586,21 @@ export function FloatingConsultant() {
         {/* Eugene 2026-05-14 Босс «нажатие на облако заводит в чат».
             Облако кликабельно — открывает чат напрямую.
             Eugene 2026-05-17 Босс: при smart-триггере (idle/form_abandon)
-            текст облака меняется на контекстную подсказку. */}
-        {!expanded && !reaction && !chatOpen && (
+            текст облака меняется на контекстную подсказку.
+            Eugene 2026-05-18 Босс «убери облака с подсказками по умолчанию».
+            Default-облако удалено — показываем только контекстные smart-bubbles
+            (idle 30 сек / form abandon / etc). */}
+        {!expanded && !reaction && !chatOpen && smartBubbleText && (
           <button
             type="button"
             onClick={openChat}
-            className={`absolute bottom-full right-0 mb-2 px-4 py-2.5 backdrop-blur-md border text-[12px] font-medium text-white text-center leading-tight max-w-[180px] animate-in fade-in slide-in-from-bottom-2 duration-300 shadow-lg hover:scale-105 transition-all cursor-pointer ${
-              smartBubbleText
-                ? "bg-gradient-to-br from-pink-500/40 to-purple-500/30 border-pink-300/50 shadow-pink-500/30 hover:from-pink-500/60 hover:to-purple-500/45"
-                : "bg-gradient-to-br from-purple-500/30 to-blue-500/25 border-purple-300/40 shadow-purple-500/20 hover:from-purple-500/50 hover:to-blue-500/40"
-            }`}
+            className="absolute bottom-full right-0 mb-2 px-4 py-2.5 backdrop-blur-md border text-[12px] font-medium text-white text-center leading-tight max-w-[180px] animate-in fade-in slide-in-from-bottom-2 duration-300 shadow-lg hover:scale-105 transition-all cursor-pointer bg-gradient-to-br from-pink-500/40 to-purple-500/30 border-pink-300/50 shadow-pink-500/30 hover:from-pink-500/60 hover:to-purple-500/45"
             style={{
               borderRadius: "55% 45% 45% 50% / 60% 50% 60% 40%",
             }}
             aria-label="Открыть чат с Музой"
           >
-            {smartBubbleText ? smartBubbleText : <>Заходи в чат —<br />креативить ✨</>}
+            {smartBubbleText}
           </button>
         )}
 
@@ -1131,15 +1134,26 @@ export function FloatingConsultant() {
                 </div>
               )}
             </div>
-            {/* Quick-reply chips — Eugene 2026-05-14: только пока юзер ещё не писал
-                (или после приветствия Музы — 1 сообщение). Помогают разогнать диалог. */}
-            {chatMsgs.length <= 2 && chatMsgs.filter(m => m.role === "user").length === 0 && (
-              <div className="px-3 py-2 border-t border-white/[0.04] shrink-0 bg-white/[0.015]">
-                <div className="text-[10px] text-white/40 mb-1.5">Можно начать так:</div>
+            {/* Quick-reply chips — Eugene 2026-05-18 Босс «убери облака с
+                подсказками по умолчанию, оставь кнопку для появления».
+                Показываются ТОЛЬКО по клику на «💡 Подсказки» в input area. */}
+            {showSuggestions && chatMsgs.filter(m => m.role === "user").length === 0 && (
+              <div className="px-3 py-2 border-t border-white/[0.04] shrink-0 bg-white/[0.015] animate-in fade-in slide-in-from-bottom-2 duration-200">
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="text-[10px] text-white/40">Можно начать так:</div>
+                  <button
+                    type="button"
+                    onClick={() => setShowSuggestions(false)}
+                    className="text-[10px] text-white/40 hover:text-white/70 px-1"
+                    aria-label="Скрыть подсказки"
+                  >
+                    ×
+                  </button>
+                </div>
                 <div className="flex flex-wrap gap-1.5">
                   {CHAT_SUGGESTIONS.map((s) => (
                     <button key={s} type="button"
-                            onClick={() => setChatInput(s)}
+                            onClick={() => { setChatInput(s); setShowSuggestions(false); }}
                             className="text-[11px] px-2.5 py-1 rounded-full bg-white/[0.06] hover:bg-white/[0.12] text-white/80 border border-white/[0.10]">
                       {s}
                     </button>
@@ -1160,6 +1174,24 @@ export function FloatingConsultant() {
               onSubmit={(e) => { e.preventDefault(); sendChat(); }}
               className="flex items-center gap-2 px-3 py-3 border-t border-white/[0.06] shrink-0 bg-background/60"
             >
+              {/* Eugene 2026-05-18 Босс «оставь в чате кнопку с возможностью
+                  появления подсказок». Toggle для quick-reply chips —
+                  показываются только если юзер сам нажал. */}
+              {chatMsgs.filter(m => m.role === "user").length === 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowSuggestions(s => !s)}
+                  className={`shrink-0 w-10 h-10 rounded-xl flex items-center justify-center transition-all border ${
+                    showSuggestions
+                      ? "bg-purple-500/20 border-purple-400/40 text-purple-200"
+                      : "bg-white/[0.04] border-white/[0.08] text-white/50 hover:bg-white/[0.08] hover:text-white/80"
+                  }`}
+                  aria-label="Подсказки"
+                  title="Подсказки для начала диалога"
+                >
+                  💡
+                </button>
+              )}
               <input
                 type="text"
                 value={chatInput}
