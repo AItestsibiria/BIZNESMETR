@@ -12,6 +12,12 @@
 // Eugene 2026-05-14 Босс ОТКАТ: версия с pauseAllExcept() + удалённым
 // emptied cleanup создавала каскад pause-событий и блокировала Stop
 // в основном плеере. Возвращаемся к листенер-only варианту.
+//
+// Eugene 2026-05-18 9-я итерация LS: persistent player audio (с маркером
+// data-muziai-player) — это singleton который ВСЕГДА должен быть тем,
+// что играет когда юзер слушает трек. audio-bus НЕ должен paus'ить его
+// в ответ на воспроизведение чего-то другого (background-music и т.п.) —
+// только наоборот: всё прочее паузится в пользу persistent player.
 
 const tracked = new Set<HTMLAudioElement>();
 let installed = false;
