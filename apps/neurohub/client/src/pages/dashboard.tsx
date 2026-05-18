@@ -26,7 +26,7 @@ import { KaraokeLyrics } from "@/components/karaoke-lyrics";
 import { ExpandToggleButton } from "@/components/expand-toggle-button";
 import { CoverDetailsModal } from "@/components/cover-details-modal";
 import { VolumeSlider } from "@/components/volume-slider";
-import { setupMediaSessionForTrack, setLockScreenPlaybackState, setLockScreenPosition } from "@/lib/lockscreen";
+import { setupMediaSessionForTrack, setLockScreenPlaybackState, setLockScreenPosition, loadTrackIntoPlayer } from "@/lib/lockscreen";
 import { muteBgMusic, unmuteBgMusic } from "@/components/background-music";
 import { SupportModal } from "@/components/support-modal";
 
@@ -1231,35 +1231,23 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
 
   const playTrack = (gen: Generation) => {
     if (timerRef.current) clearInterval(timerRef.current);
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.onended = null;
-      audioRef.current.onerror = null;
-      audioRef.current.onloadedmetadata = null;
-    }
-    pauseAllExcept(null);
 
-    // Eugene 2026-05-18 КОРЕНЬ 7 итераций lock-screen: iOS Safari NowPlaying
-    // регистрирует ТОЛЬКО media-элементы, реально присутствующие в DOM.
-    // `new Audio()` создаёт detached элемент — iOS НЕ всегда видит его →
-    // MediaSession.metadata игнорируется → fallback на document.title +
-    // apple-touch-icon. Фикс: createElement + appendChild в body.
-    let audio: HTMLAudioElement;
-    if (typeof document !== "undefined") {
-      const prev = audioRef.current as HTMLAudioElement | null;
-      if (prev && prev.parentNode) {
-        try { prev.parentNode.removeChild(prev); } catch {}
-      }
-      audio = document.createElement("audio");
-      audio.preload = "auto";
-      audio.setAttribute("playsinline", "true");
-      audio.setAttribute("webkit-playsinline", "true");
-      audio.style.display = "none";
-      audio.src = `/api/stream/${gen.id}`;
-      document.body.appendChild(audio);
-    } else {
-      audio = new Audio(`/api/stream/${gen.id}`);
+    // Eugene 2026-05-18 9-я итерация — КАРДИНАЛЬНЫЙ fix LS prev/next:
+    // ROOT CAUSE 8 итераций (по W3C MediaSession spec §3.3): playTrack
+    // удалял старый <audio> из DOM ДО создания нового → iOS видел "no
+    // active media element" → release NowPlaying ownership → отдавал её
+    // чужому app (Apple Music / Spotify / Yandex Music) на prev/next кнопках.
+    //
+    // FIX: один persistent <audio data-muziai-player> в DOM на всю сессию.
+    // Track change = audio.src=url + audio.load() (WebKit canonical pattern).
+    // Element НЕ удаляется → iOS видит continuous playback session →
+    // NowPlaying ownership сохраняется.
+    const audio = loadTrackIntoPlayer(`/api/stream/${gen.id}`);
+    if (!audio) {
+      console.warn("[PLAYER] loadTrackIntoPlayer вернул null — SSR?");
+      return;
     }
+    pauseAllExcept(audio);
     registerAudio(audio);
     audio.volume = volumeRef.current;
     audioRef.current = audio;

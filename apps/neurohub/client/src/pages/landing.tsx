@@ -9,7 +9,7 @@ import { ExpandToggleButton } from "@/components/expand-toggle-button";
 import { CoverDetailsModal } from "@/components/cover-details-modal";
 import { VolumeSlider } from "@/components/volume-slider";
 import { muteBgMusic, unmuteBgMusic } from "@/components/background-music";
-import { setupMediaSessionForTrack, setLockScreenPlaybackState, setLockScreenPosition } from "@/lib/lockscreen";
+import { setupMediaSessionForTrack, setLockScreenPlaybackState, setLockScreenPosition, loadTrackIntoPlayer } from "@/lib/lockscreen";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -738,55 +738,56 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
 
   const playTrack = (track: any) => {
     if (timerRef.current) clearInterval(timerRef.current);
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.onended = null;
-      audioRef.current.onerror = null;
-      audioRef.current.onloadedmetadata = null;
-    }
-    // Eugene 2026-05-14 Босс «правило: одновременно ИСКЛЮЧИТЕЛЬНО одна песня».
-    // КАРДИНАЛЬНЫЙ singleton — pause ВСЕ существующие audio (cross-page __muziaiAudio,
-    // tracked non-DOM, document <audio>). Синхронно ДО создания нового audio.
-    pauseAllExcept(null);
 
-    // Eugene 2026-05-18 КОРЕНЬ 7 итераций lock-screen: iOS Safari NowPlaying
-    // регистрирует ТОЛЬКО media-элементы, реально присутствующие в DOM.
-    // `new Audio()` создаёт detached элемент — iOS НЕ всегда видит его в
-    // своём media-tracking → MediaSession.metadata игнорируется → fallback
-    // на document.title + apple-touch-icon (фиолетовый M-логотип).
+    // Eugene 2026-05-14 Босс «правило: одновременно ИСКЛЮЧИТЕЛЬНО одна песня».
+    // pauseAllExcept(audio) после получения persistent audio — pause всё
+    // ОСИМ его (background-music, прочие <audio> на странице).
+    // (см. ниже после getPersistentPlayerAudio).
+
+    // Eugene 2026-05-18 9-я итерация — КАРДИНАЛЬНЫЙ fix LS prev/next:
+    // ROOT CAUSE 8 итераций (по W3C MediaSession spec §3.3): playTrack
+    // удалял старый <audio> из DOM ДО создания нового → iOS видел "no
+    // active media element" → release NowPlaying ownership → отдавал её
+    // чужому app (Apple Music / Spotify / Yandex Music).
     //
-    // Фикс: создаём через document.createElement('audio') и appendChild
-    // в body (display:none). Apple WebKit явно требует элемент в DOM-tree
-    // для surfacing в NowPlaying / lock-screen. preload="auto" заставляет
-    // iOS начать buffering immediately — это второй сигнал «media-active».
-    // playsinline атрибут — обязателен на iOS чтобы не открыть fullscreen
-    // player при первом play (mobile Safari quirk).
+    // FIX: один persistent <audio data-muziai-player> в DOM на всю сессию.
+    // Track change = audio.src=url + audio.load() (WebKit canonical pattern).
+    // Element НЕ удаляется → iOS видит continuous playback session →
+    // NowPlaying ownership сохраняется → prev/next не отдаёт чужому app.
     //
-    // Cleanup: предыдущий attached audio удаляется из DOM до создания
-    // нового — иначе body захламляется орфан-элементами.
-    let audio: HTMLAudioElement;
-    if (typeof document !== "undefined") {
-      // Снимаем старый attached audio из DOM если был
-      const prev = audioRef.current as HTMLAudioElement | null;
-      if (prev && prev.parentNode) {
-        try { prev.parentNode.removeChild(prev); } catch {}
-      }
-      audio = document.createElement("audio");
-      audio.preload = "auto";
-      audio.setAttribute("playsinline", "true");
-      audio.setAttribute("webkit-playsinline", "true");
-      audio.style.display = "none";
-      audio.src = track.audioUrl;
-      document.body.appendChild(audio);
-    } else {
-      audio = new Audio(track.audioUrl);
+    // loadTrackIntoPlayer():
+    //   - возвращает persistent audio (создаёт если ещё нет)
+    //   - pause + detach old listeners + reset currentTime
+    //   - audio.src = url + audio.load()
+    //   - возвращает тот же element что и раньше (если уже был)
+    const audio = loadTrackIntoPlayer(track.audioUrl);
+    if (!audio) {
+      // SSR / нет document — fallback на new Audio (UI без media-controls)
+      console.warn("[PLAYER] loadTrackIntoPlayer вернул null — SSR?");
+      return;
     }
+
+    // Pause всех остальных audio (background-music, прочие treamers) —
+    // оставляем играть только наш persistent player.
+    pauseAllExcept(audio);
+
     audioRef.current = audio;
 
     // Eugene 2026-05-14 Босс: state-listeners для UI synchronization.
-    audio.addEventListener("play", () => setIsPlayingState(true));
-    audio.addEventListener("pause", () => setIsPlayingState(false));
-    audio.addEventListener("ended", () => setIsPlayingState(false));
+    // ВАЖНО: используем addEventListener (НЕ onfoo) чтобы не затереть
+    // listeners от других модулей. Cleanup происходит сам при следующем
+    // loadTrackIntoPlayer (он detach'ит .onfoo, addEventListener listeners
+    // остаются — но они идемпотентны для нашего persistent element).
+    // Дедуп: removeEventListener того же reference перед re-add.
+    const onPlay = () => setIsPlayingState(true);
+    const onPause = () => setIsPlayingState(false);
+    const onEndedUi = () => setIsPlayingState(false);
+    try { audio.removeEventListener("play", onPlay); } catch {}
+    try { audio.removeEventListener("pause", onPause); } catch {}
+    try { audio.removeEventListener("ended", onEndedUi); } catch {}
+    audio.addEventListener("play", onPlay);
+    audio.addEventListener("pause", onPause);
+    audio.addEventListener("ended", onEndedUi);
 
     // Eugene 2026-05-18 8-я итерация. ROOT-CAUSE-2: metadata должна
     // быть применена СИНХРОННО в одном tick с audio.play() — никаких
