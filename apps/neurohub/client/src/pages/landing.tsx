@@ -808,22 +808,25 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         setLockScreenPlaybackState('paused');
       },
       previoustrack: () => {
-        // Eugene 2026-05-18 Босс «при переключении появляются чужие треки».
-        // mt должен быть из FULL списка (tracksRef), не filtered — иначе
-        // iOS видит mismatch и пускает NowPlaying от другого app
-        // (Apple Music / Spotify / Yandex). Filter применяется только в UI.
-        const mt = tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+        // Eugene 2026-05-18 Босс «правила плейлиста». Filter-aware:
+        // если юзер фильтровал — переключается в рамках filtered list.
+        // iOS handoff закрыт persistent audio singleton.
+        const fl = filteredMusicRef.current;
+        const mt = fl && fl.length > 0
+          ? fl
+          : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
         if (mt.length === 0) return;
         const cur = playingTrackRef.current;
         const curIdx = cur ? mt.findIndex(t => t.id === cur.id) : -1;
-        // Guard idx=-1 (текущий не найден в полном списке — corrupt state) → start from 0
         const safeIdx = curIdx < 0 ? 0 : curIdx;
         const prev = mt[safeIdx > 0 ? safeIdx - 1 : mt.length - 1];
         if (prev) playTrack(prev);
       },
       nexttrack: () => {
-        // То же что в previoustrack — full tracksRef, safe idx guard.
-        const mt = tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+        const fl = filteredMusicRef.current;
+        const mt = fl && fl.length > 0
+          ? fl
+          : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
         if (mt.length === 0) return;
         const cur = playingTrackRef.current;
         const curIdx = cur ? mt.findIndex(t => t.id === cur.id) : -1;
@@ -903,12 +906,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       if (timerRef.current) clearInterval(timerRef.current);
       const mode = repeatModeRef.current;
       const cur = playingTrackRef.current;
-      // Eugene 2026-05-18 Босс «не наши треки 100%» на LS — iOS отдаёт
-      // NowPlaying чужим app (Apple Music / Spotify / Yandex) когда наш
-      // audio ends. ФИКС: continuous playback — всегда loop через
-      // плейлист, никогда не останавливаемся. Используем FULL tracksRef
-      // (не filtered) — синхронно с nexttrack handler из commit 27f9050.
-      const musicTracks = tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+      // Eugene 2026-05-18 Босс «правила плейлиста — хаотичный порядок».
+      // Возврат filtered-aware logic: если юзер выбрал категорию/поиск —
+      // next трек ДОЛЖЕН быть из той же подборки (не «весь плейлист»).
+      // iOS NowPlaying-handoff к чужим app закрыт через persistent audio
+      // singleton (commit 8d047e1) — больше не нужен safety hack с full list.
+      const fl = filteredMusicRef.current;
+      const musicTracks = fl && fl.length > 0
+        ? fl
+        : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
       if (musicTracks.length === 0) {
         setPlayingId(null);
         unmuteBgMusic();
@@ -921,9 +927,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       }
       const curIdx = cur ? musicTracks.findIndex(t => t.id === cur.id) : -1;
       const safeIdx = curIdx < 0 ? 0 : curIdx;
-      // mode="all" И mode="off" теперь оба → continuous loop. На последнем
-      // треке возвращаемся к первому. iOS видит непрерывный playback →
-      // не передаёт NowPlaying другим приложениям.
+      // mode="all" И mode="off" — continuous loop в рамках filtered подборки.
       const nextIdx = (safeIdx + 1) % musicTracks.length;
       playTrack(musicTracks[nextIdx]);
     };
