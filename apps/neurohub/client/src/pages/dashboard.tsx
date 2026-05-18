@@ -2465,6 +2465,15 @@ export default function DashboardPage() {
   });
 
   const [showTopup, setShowTopup] = useState(false);
+  // Eugene 2026-05-18 Босс: выбор способа оплаты карта/СБП.
+  // method передаётся на backend → IncCurrLabel в Robokassa URL.
+  // По умолчанию 'card' (большинство пользователей платят картой).
+  // sessionStorage чтобы при возврате диалога сохранялся последний выбор.
+  const [topupMethod, setTopupMethod] = useState<"card" | "sbp">(() => {
+    if (typeof window === "undefined") return "card";
+    const saved = window.sessionStorage.getItem("topup_method");
+    return saved === "sbp" ? "sbp" : "card";
+  });
   const topupAmounts = [
     { value: 99, label: "99 ₽", desc: "1 текст" },
     { value: 300, label: "300 ₽", desc: "3 текста или 1 музыка" },
@@ -2475,9 +2484,13 @@ export default function DashboardPage() {
   const handleTopup = async (amount: number) => {
     setToppingUp(true);
     try {
-      const res = await apiRequest("POST", "/api/payment/create", { amount });
+      // method передаём в body — backend маппит в IncCurrLabel (BANK/SBP)
+      // и формирует Receipt для 54-ФЗ. См. ROBOKASSA-INTEGRATION-PLAN.md §12.
+      const res = await apiRequest("POST", "/api/payment/create", { amount, method: topupMethod });
       const data = await res.json();
       if (data.paymentUrl) {
+        // Запоминаем последний выбор для будущих платежей
+        try { window.sessionStorage.setItem("topup_method", topupMethod); } catch {}
         // Redirect юзера в Robokassa. После оплаты:
         // - Robokassa делает server-to-server POST на /api/payment/result
         //   (signature verified Password2, баланс кредитуется, OK<InvId> в ответ)
@@ -2722,9 +2735,46 @@ export default function DashboardPage() {
         <Dialog open={showTopup} onOpenChange={setShowTopup}>
           <DialogContent className="glass-card border-purple-500/20 max-w-sm">
             <DialogHeader>
-              <DialogTitle className="gradient-text text-lg">Пополнение баланса</DialogTitle>
+              <DialogTitle className="gradient-text text-lg font-display">Пополнение баланса</DialogTitle>
             </DialogHeader>
-            <p className="text-sm text-muted-foreground mb-4">Выберите сумму. Оплата картой через Робокассу.</p>
+
+            {/* Eugene 2026-05-18 Босс: 2 крупные кнопки способа оплаты —
+                карта (Cyber Violet) / СБП (Electric Blue). Активная
+                подсвечена brand-glow, неактивная — нейтральная.
+                Brand-style consistency rule: font-display title,
+                glass-card containers, purple/cyan gradient glow. */}
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              <button
+                type="button"
+                onClick={() => setTopupMethod("card")}
+                className={`rounded-xl p-3 border transition-all text-center ${
+                  topupMethod === "card"
+                    ? "bg-gradient-to-br from-purple-500/30 to-fuchsia-500/20 border-purple-400/60 shadow-[0_0_24px_rgba(124,58,237,0.4)]"
+                    : "bg-white/5 border-white/10 hover:border-purple-400/30"
+                }`}
+                data-testid="topup-method-card"
+              >
+                <div className="text-2xl mb-1">💳</div>
+                <div className="text-xs font-sans font-semibold text-white">Картой</div>
+                <div className="text-[10px] text-muted-foreground">Visa · MC · МИР</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTopupMethod("sbp")}
+                className={`rounded-xl p-3 border transition-all text-center ${
+                  topupMethod === "sbp"
+                    ? "bg-gradient-to-br from-cyan-500/30 to-blue-500/20 border-cyan-400/60 shadow-[0_0_24px_rgba(0,212,255,0.4)]"
+                    : "bg-white/5 border-white/10 hover:border-cyan-400/30"
+                }`}
+                data-testid="topup-method-sbp"
+              >
+                <div className="text-2xl mb-1">📱</div>
+                <div className="text-xs font-sans font-semibold text-white">СБП</div>
+                <div className="text-[10px] text-muted-foreground">QR · перевод</div>
+              </button>
+            </div>
+
+            <p className="text-sm text-muted-foreground mb-3">Выберите сумму:</p>
             <div className="grid grid-cols-2 gap-3">
               {topupAmounts.map((item) => (
                 <button
@@ -2734,12 +2784,19 @@ export default function DashboardPage() {
                   disabled={toppingUp}
                   data-testid={`topup-${item.value}`}
                 >
-                  <p className="text-lg font-bold gradient-text">{item.label}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{item.desc}</p>
+                  <p className="text-lg font-bold gradient-text font-mono">{item.label}</p>
+                  <p className="text-xs text-muted-foreground mt-1 font-sans">{item.desc}</p>
                 </button>
               ))}
             </div>
-            <p className="text-xs text-muted-foreground text-center mt-2">Карты МИР, Visa, MC • СБП • T-Pay</p>
+            <p className="text-xs text-muted-foreground text-center mt-3 font-sans">
+              Оплата через Робокассу · 54-ФЗ чек на email
+            </p>
+            <p className="text-[10px] text-muted-foreground/60 text-center mt-1">
+              Нажимая «Пополнить», вы соглашаетесь с{" "}
+              <a href="#/oferta" className="text-purple-300 hover:text-purple-200 underline">офертой</a>{" "}и{" "}
+              <a href="#/privacy" className="text-purple-300 hover:text-purple-200 underline">политикой</a>
+            </p>
           </DialogContent>
         </Dialog>
 
