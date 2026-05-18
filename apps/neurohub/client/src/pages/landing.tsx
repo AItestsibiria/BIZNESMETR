@@ -1308,17 +1308,18 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         {/* Big player — full-width, visible details */}
         {currentTrack && (
           <div className="glass-card rounded-2xl p-5 mb-6 border border-white/[0.06] relative">
-            {/* Eugene 2026-05-18 Босс «S надо отдельно сливается с Создать» —
-                перенесена в верхний правый угол card, не наезжает на
-                «Создай в том же стиле» CTA внизу. */}
+            {/* Eugene 2026-05-18 Босс «S пропала». После увеличения обложки
+                (scale-150 на desktop lg) S могла перекрываться. Поднял z-50,
+                добавил bg-black/60 + backdrop-blur pill чтобы точно была
+                видна на любом фоне. */}
             <button
-              className="absolute top-3 right-3 w-10 h-10 flex items-center justify-center hover:scale-110 active:scale-95 transition-all z-10"
+              className="absolute top-2 right-2 w-11 h-11 rounded-full bg-black/60 backdrop-blur-sm border border-white/20 hover:border-fuchsia-400/60 hover:bg-black/80 flex items-center justify-center hover:scale-110 active:scale-95 transition-all z-50 shadow-lg shadow-fuchsia-500/30"
               title="Свайп-режим — листай ← → большие обложки"
               aria-label="Свайп-режим"
               onClick={() => setDetailsOpen(true)}
               data-testid="btn-cover-s-top-right"
             >
-              <span className="font-display font-bold italic text-2xl tracking-wider text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.95)] drop-shadow-[0_0_16px_rgba(217,70,239,0.85)]">S</span>
+              <span className="font-display font-bold italic text-xl tracking-wider text-white drop-shadow-[0_0_8px_rgba(217,70,239,0.95)]">S</span>
             </button>
             {/* Eugene 2026-05-16: expand работает только на desktop (md+).
                 На mobile — всегда compact row-layout (как было до introducing
