@@ -1238,7 +1238,29 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
       audioRef.current.onloadedmetadata = null;
     }
     pauseAllExcept(null);
-    const audio = new Audio(`/api/stream/${gen.id}`); registerAudio(audio);
+
+    // Eugene 2026-05-18 КОРЕНЬ 7 итераций lock-screen: iOS Safari NowPlaying
+    // регистрирует ТОЛЬКО media-элементы, реально присутствующие в DOM.
+    // `new Audio()` создаёт detached элемент — iOS НЕ всегда видит его →
+    // MediaSession.metadata игнорируется → fallback на document.title +
+    // apple-touch-icon. Фикс: createElement + appendChild в body.
+    let audio: HTMLAudioElement;
+    if (typeof document !== "undefined") {
+      const prev = audioRef.current as HTMLAudioElement | null;
+      if (prev && prev.parentNode) {
+        try { prev.parentNode.removeChild(prev); } catch {}
+      }
+      audio = document.createElement("audio");
+      audio.preload = "auto";
+      audio.setAttribute("playsinline", "true");
+      audio.setAttribute("webkit-playsinline", "true");
+      audio.style.display = "none";
+      audio.src = `/api/stream/${gen.id}`;
+      document.body.appendChild(audio);
+    } else {
+      audio = new Audio(`/api/stream/${gen.id}`);
+    }
+    registerAudio(audio);
     audio.volume = volumeRef.current;
     audioRef.current = audio;
     playingGenRef.current = gen;
