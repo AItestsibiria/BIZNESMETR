@@ -88,6 +88,7 @@ import authorsAdminModule from "./plugins/authors-admin/module";
 
 import supportModule from "./plugins/support/module";
 import imageGenModule from "./plugins/image-gen/module";
+import vpsSyncModule from "./plugins/vps-sync/module";
 
 import * as fs from "node:fs";
 
@@ -473,6 +474,8 @@ app.post("/api/_client-error", express.json(), (req, res) => {
     { name: "support", module: supportModule },
 
     { name: "image-gen", module: imageGenModule },
+
+    { name: "vps-sync", module: vpsSyncModule },
 
   ];
 
