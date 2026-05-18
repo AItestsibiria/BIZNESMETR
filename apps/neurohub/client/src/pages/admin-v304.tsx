@@ -31,6 +31,7 @@ import MasterDashboardTab from "@/pages/admin/master-dashboard-tab";
 import SupportTicketsTab from "@/pages/admin/support-tickets-tab";
 import { BlocksTab } from "@/pages/admin/blocks-tab";
 import MusaAvatarTab from "@/pages/admin/musa-avatar-tab";
+import { AuthorsTab } from "@/pages/admin/authors-tab";
 import { MusaVoiceFab } from "@/components/musa-voice-fab";
 
 // Lazy-load SecondBrain3D — three.js + 3d-force-graph весят ~500KB,
@@ -328,6 +329,7 @@ export default function AdminV304Page() {
           <TabsTrigger value="dialogs" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">💬 Диалоги</TabsTrigger>
           <TabsTrigger value="support" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🆘 Обращения</TabsTrigger>
           <TabsTrigger value="journey" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🗺 Путь</TabsTrigger>
+          <TabsTrigger value="authors" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">👥 Авторы</TabsTrigger>
           <TabsTrigger value="user-profiles" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">👤 Профили</TabsTrigger>
           <TabsTrigger value="blocks" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🚫 Блокировки</TabsTrigger>
         </TabsList>
@@ -372,6 +374,7 @@ export default function AdminV304Page() {
         <TabsContent value="dialogs"><DialogsTab toast={toast} /></TabsContent>
         <TabsContent value="support"><SupportTicketsTab toast={toast} /></TabsContent>
         <TabsContent value="journey"><JourneyTab toast={toast} /></TabsContent>
+        <TabsContent value="authors"><AuthorsTab toast={toast} /></TabsContent>
         <TabsContent value="user-profiles"><UserProfilesTab toast={toast} /></TabsContent>
         <TabsContent value="blocks"><BlocksTab toast={toast} /></TabsContent>
       </Tabs>
