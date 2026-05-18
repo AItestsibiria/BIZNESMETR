@@ -50,6 +50,8 @@ import { extractHost, KNOWN_DOMAINS, hostToBucket } from "./lib/extractHost";
 import { embedTrackId3, findSiblingCover } from "./lib/id3Writer";
 import { alertPromoEntry, checkExpiredPromo } from "./lib/promoAlert";
 import { buildBotExclusionSql, isBotUserAgent } from "./lib/botUa";
+import { incCurrLabelFor, buildReceipt, receiptToParam, type RoboPaymentMethod } from "./lib/robokassaMethods";
+import { getLegalConfig, isLegalConfigComplete } from "./lib/legalConfig";
 import {
   blockEntity,
   unblockEntity,
@@ -8826,7 +8828,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         return;
       }
 
-      const { amount } = req.body; // amount in rubles (99, 300, 500, 1000)
+      const { amount, method: rawMethod } = req.body; // amount in rubles, method = 'card' | 'sbp' (опционально)
       const sumRubles = Number(amount);
       if (!sumRubles || sumRubles < 10 || sumRubles > 50000) {
         logUserActionFailure({
@@ -8838,6 +8840,13 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         res.status(400).json({ message: "Сумма от 10 до 50 000 ₽" });
         return;
       }
+
+      // Eugene 2026-05-18 «карты + СБП». Принимаем `method` строкой и
+      // валидируем в whitelist (защита от injection произвольных alias'ов
+      // в IncCurrLabel). Неопределённый method → IncCurrLabel не шлём,
+      // юзер выберет на стороне Robokassa (legacy-поведение).
+      let method: RoboPaymentMethod | null = null;
+      if (rawMethod === "card" || rawMethod === "sbp") method = rawMethod;
 
       const creds = getRoboCreds();
       if (!creds.login || !creds.password1) {
@@ -8855,23 +8864,45 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       const description = `Пополнение баланса MuzaAi: ${sumRubles} ₽`;
       const outSum = sumRubles.toFixed(2);
 
+      // 54-ФЗ Receipt — обязательный для услуг с предоплатой (ст. 4.7 ФЗ-54).
+      // Формат и URL-encoding — по справке Robokassa «Фискализация»:
+      // «Значение должно быть URL-encoded перед использованием в строке
+      //  для подсчёта подписи и перед отправкой в форме.»
+      // Источник: docs.robokassa.ru/fiscalization/
+      const receipt = buildReceipt(sumRubles);
+      const receiptParam = receiptToParam(receipt); // = encodeURIComponent(JSON.stringify(receipt))
+
+      // IncCurrLabel — alias способа оплаты для pin'а на форме Robokassa.
+      // Пустая строка = не пиннить (юзер выберет сам).
+      // См. ROBOKASSA-INTEGRATION-PLAN.md §12 + lib/robokassaMethods.ts.
+      const incCurrLabel = incCurrLabelFor(method);
+
       // Save payment to DB (pending). Audit-trail для администратора.
+      // method+IncCurrLabel пишем сразу — для разбора саппорт-кейсов
+      // (Result URL потом перезапишет roboData полным callback'ом).
       db.insert(payments).values({
         userId,
         invId,
         amount: sumRubles * 100, // kopecks
         status: "pending",
         description,
+        roboData: JSON.stringify({ method, incCurrLabel, receipt }),
       }).run();
 
       // Shp_* extras — отсортированы алфавитно, добавляются в подпись и в URL.
       // См. ROBOKASSA-INTEGRATION-PLAN.md §2.
+      //
+      // Init signature WITH Receipt (Robokassa требует Receipt в подпись
+      // между Password1 и Shp_*):
+      //   md5(MerchantLogin:OutSum:InvId:Receipt:Password1[:Shp_*])
+      // Receipt в подписи — это URL-encoded JSON (тот же что в URL).
       const shp = { Shp_userId: String(userId) };
       const shpParts = buildShpSignatureParts(shp);
       const signature = roboSignature([
         creds.login,
         outSum,
         String(invId),
+        receiptParam,
         creds.password1,
         ...shpParts,
       ]);
@@ -8883,14 +8914,20 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         Description: description,
         SignatureValue: signature,
         Email: user.email,
+        // Receipt должен быть URL-encoded JSON, причём URLSearchParams
+        // дополнительно encode'нет '%' символы в нём — это правильное
+        // поведение, итог совпадает с подписью (где encodeURIComponent
+        // тоже был один раз).
+        Receipt: receiptParam,
+        ...(incCurrLabel ? { IncCurrLabel: incCurrLabel } : {}),
         ...shp,
         ...(creds.isTest ? { IsTest: "1" } : {}),
       });
 
       const paymentUrl = `${ROBO_BASE_URL}?${params.toString()}`;
 
-      console.log(`[PAYMENT] Created invoice #${invId} for user ${userId}: ${sumRubles} ₽ (test=${creds.isTest})`);
-      res.json({ paymentUrl, invId });
+      console.log(`[PAYMENT] Created invoice #${invId} for user ${userId}: ${sumRubles} ₽ (test=${creds.isTest}, method=${method || "auto"}, label=${incCurrLabel || "—"})`);
+      res.json({ paymentUrl, invId, method, incCurrLabel: incCurrLabel || null });
     } catch (e: any) {
       console.error("[PAYMENT] Error:", e);
       logUserActionFailure({
@@ -9121,6 +9158,26 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const userId = (req as any).userId;
     const userPayments = db.select().from(payments).where(eq(payments.userId, userId)).orderBy(desc(payments.id)).all();
     res.json(userPayments);
+  });
+
+  // Публичная выдача юр. реквизитов — для footer'а / страниц
+  // оферты/политики/контактов. Возвращает только НЕсекретную инфу
+  // (ИНН/ОГРН — публичные по закону). НЕ возвращает Robokassa-пароли.
+  // Eugene 2026-05-18 Robokassa требует размещения этих данных на сайте.
+  app.get("/api/legal/config", (_req: Request, res: Response) => {
+    const cfg = getLegalConfig();
+    res.json({
+      entityName: cfg.entityName,
+      entityFullName: cfg.entityFullName,
+      inn: cfg.inn,
+      ogrn: cfg.ogrn,
+      legalAddress: cfg.legalAddress,
+      phone: cfg.phone,
+      email: cfg.email,
+      domain: cfg.domain,
+      brand: cfg.brand,
+      complete: isLegalConfigComplete(cfg),
+    });
   });
 
   // GPTunnel balance check — called by cron (08:00 and 18:00 MSK) or manually by admin
