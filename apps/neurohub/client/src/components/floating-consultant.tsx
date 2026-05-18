@@ -1436,6 +1436,32 @@ export function FloatingConsultant() {
           <div
             className="absolute inset-0 pointer-events-none"
           />
+          {/* Eugene 2026-05-18 Босс: snap-indicators во время resize — тонкие
+              вертикальные линии на 30% / 50% / 70% viewport width + бейдж с %
+              у активной snap-зоны. Subtle (purple/fuchsia при активной),
+              появляются только во время drag. */}
+          {!isMobile && isResizing && (
+            <>
+              {[0.3, 0.5, 0.7].map((t) => {
+                const isActive = resizeSnapTarget === t;
+                return (
+                  <div
+                    key={t}
+                    className={`absolute top-0 bottom-0 w-px pointer-events-none transition-all ${
+                      isActive ? "bg-fuchsia-400/60 shadow-[0_0_8px_rgba(232,121,249,0.6)]" : "bg-purple-400/20"
+                    }`}
+                    style={{ left: `${(1 - t) * 100}%` }}
+                  >
+                    {isActive && (
+                      <div className="absolute top-2 -translate-x-1/2 left-0 text-[10px] font-mono px-2 py-0.5 rounded-full bg-fuchsia-500/20 text-fuchsia-200 border border-fuchsia-400/40 whitespace-nowrap">
+                        {Math.round(t * 100)}%
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </>
+          )}
           <div
             className={`absolute flex flex-col bg-background/[0.18] backdrop-blur-md border-2 rounded-2xl border-purple-400/40 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in fade-in duration-300 ${
               isResizing ? "" : "transition-all"
