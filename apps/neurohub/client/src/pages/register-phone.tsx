@@ -16,7 +16,7 @@
 import { useEffect, useState } from "react";
 import { useLocation, Link } from "wouter";
 import { useAuth } from "@/lib/auth";
-import { Music, Phone, Mail } from "lucide-react";
+import { Music, Phone, Mail, Send } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import PhoneOtpForm from "@/components/phone-otp-form";
 import { CyberSpinner } from "@/components/cyber-spinner";
@@ -206,6 +206,27 @@ export default function RegisterPhonePage() {
             }}
           />
           </div>
+          {/* Eugene 2026-05-18 Босс — Telegram как вариант при вводе номера. */}
+          <a
+            href="/telegram-login"
+            className="block gradient-border p-4 rounded-2xl hover:bg-cyan-500/5 transition-colors group"
+            data-testid="link-register-via-telegram"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500/30 to-blue-500/30 flex items-center justify-center">
+                <Send className="w-5 h-5 text-cyan-300" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-white group-hover:text-cyan-200">
+                  Через Telegram
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Если звонок не проходит — регистрация через бота за 5 секунд.
+                </p>
+              </div>
+              <span className="text-cyan-300 text-base">→</span>
+            </div>
+          </a>
           <div className="pt-3 border-t border-white/10 space-y-2">
             <Link href="/login-phone">
               <a className="block text-center text-sm text-muted-foreground hover:text-white">
