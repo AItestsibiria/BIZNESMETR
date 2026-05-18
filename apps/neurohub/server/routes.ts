@@ -406,7 +406,15 @@ function getTokenFromRequest(req: Request): string | undefined {
   if (authHeader?.startsWith("Bearer ")) {
     return authHeader.slice(7);
   }
-  return req.query.token as string | undefined;
+  // Security-audit 2026-05-19 CRITICAL #3: ?token= в query попадает в nginx
+  // logs / browser history / Referer header → утечка через расшаренные ссылки.
+  // Разрешён ТОЛЬКО для stream/download endpoints где <audio src=…> без JS:
+  const path = (req as any).path || "";
+  const allowQueryToken = path.startsWith("/api/stream/") || path.startsWith("/api/download/") || path.startsWith("/api/cover/");
+  if (allowQueryToken) {
+    return req.query.token as string | undefined;
+  }
+  return undefined;
 }
 
 function authMiddleware(req: Request, res: Response, next: NextFunction): void {
@@ -523,14 +531,21 @@ function checkAndCharge(userId: number, serviceType: string): { ok: boolean; isF
 }
 
 function ensureSeedAdmin() {
-  const existing = storage.getUserByEmail("admin@soundai.ru");
+  // Security-audit 2026-05-19 CRITICAL #1: seed admin с предсказуемым паролем
+  // = takeover vector если БД сбросится. Включается ТОЛЬКО если задан
+  // ADMIN_SEED_PASSWORD в env (нет fallback). Чисто для bootstrap нового VPS.
+  const seedPass = process.env.ADMIN_SEED_PASSWORD;
+  const seedEmail = process.env.ADMIN_SEED_EMAIL || "admin@muzaai.ru";
+  if (!seedPass) return;
+  const existing = storage.getUserByEmail(seedEmail);
   if (!existing) {
     const user = storage.createUser({
       name: "Admin",
-      email: "admin@soundai.ru",
-      password: "admin123",
+      email: seedEmail,
+      password: seedPass,
     });
     db.update(users).set({ role: "admin", balance: 100000 }).where(eq(users.id, user.id)).run();
+    console.log(`[BOOT] Seed admin создан: ${seedEmail}`);
   }
 }
 
@@ -818,6 +833,17 @@ export async function registerRoutes(
       const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || req.socket.remoteAddress || 'unknown';
       const ua = req.headers['user-agent'] || '';
       const { fingerprint, pageUrl, sessionId } = req.body;
+
+      // Eugene 2026-05-19 Босс «4575 visits / 44 unique = боты». Bot UA filter
+      // на запись (Counters-audit D.1) + path-фильтр (D.6). Read-side фильтр
+      // уже был, но писали ВСЕХ → перекос.
+      if (isBotUserAgent(String(ua))) {
+        return res.json({ ok: true, skipped: "bot-ua" });
+      }
+      if (typeof pageUrl === "string" && /^https?:\/\/[^/]+\/(api\/|favicon|robots\.txt|healthz|sitemap)/i.test(pageUrl)) {
+        return res.json({ ok: true, skipped: "non-page" });
+      }
+
       const { device, browser, os } = parseUA(ua);
       const geo = await getGeo(ip);
       // Per-domain трекинг (Eugene 2026-05-17 Босс): muzaai.ru / muziai.ru /
@@ -827,6 +853,14 @@ export async function registerRoutes(
       const key = fingerprint || ip;
       const existing = db.select().from(visitors).where(sql`${visitors.fingerprint} = ${key} OR (${visitors.ip} = ${ip} AND ${visitors.fingerprint} IS NULL)`).get();
       if (existing) {
+        // Eugene 2026-05-19 Counters-audit D.3: IP+page dedup, окно 5 мин.
+        // Один юзер refresh'ит SPA route 100 раз → 1 visit, не 100.
+        const lastTs = existing.lastVisit ? new Date(existing.lastVisit).getTime() : 0;
+        const isRecent = lastTs > Date.now() - 5 * 60 * 1000;
+        const samePage = existing.pageUrl === pageUrl;
+        if (isRecent && samePage) {
+          return res.json({ ok: true, deduped: true });
+        }
         // host обновляем только если был NULL — иначе оставляем первый
         // зарегистрированный домен (visitor мог зайти с muzaai.ru, потом
         // переключиться на muziai.ru — но для аналитики важен первоисточник).
@@ -8152,11 +8186,14 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         return;
       }
 
-      const resetCode = String(Math.floor(100000 + Math.random() * 900000));
+      // Security-audit 2026-05-19 CRITICAL #4: Math.random() для reset code —
+      // V8 PRNG, не CSPRNG → можно угадать после нескольких observations.
+      // crypto.randomInt — CSPRNG, не угадывается.
+      const { randomInt } = await import("crypto");
+      const resetCode = String(randomInt(100000, 1000000));
       const expiresAt = Date.now() + 15 * 60 * 1000; // 15 minutes
       resetCodes.set(email.toLowerCase().trim(), { code: resetCode, userId: user.id, expiresAt });
-
-      console.log(`[PASSWORD RESET] Code for ${email}: ${resetCode}`);
+      // НИКОГДА не логируем plain code (security-audit #4).
 
       // Send code via email
       const sent = await sendResetEmail(email.trim(), resetCode);

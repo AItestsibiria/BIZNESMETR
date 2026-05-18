@@ -53,6 +53,8 @@ import {
   type PeriodId,
 } from "../../lib/periodBoundaries";
 import { KNOWN_DOMAINS, type DomainBucket } from "../../lib/extractHost";
+// Counters-audit 2026-05-19 D.2 — фильтр ботов на read-side dashboard.
+import { buildBotExclusionSql } from "../../lib/botUa";
 
 const router = Router();
 
@@ -550,11 +552,14 @@ function buildPeriodMetrics(
 
   // visitors: host напрямую (есть в схеме). Сохраняем существующий фильтр по
   // created_at (back-compat) — last_visit-фильтр идёт в отдельных endpoint'ах.
+  // Counters-audit 2026-05-19 D.2: bot UA filter — иначе цифры расходятся
+  // с visitor-stats (тот фильтрует, master-dashboard — нет).
+  const botExcl = sql.raw(buildBotExclusionSql("user_agent"));
   const visitorsUnique = countSafe(
-    sql`SELECT count(DISTINCT fingerprint) as c FROM visitors WHERE ${sinceCondition} AND ${visitorsHostCond}`,
+    sql`SELECT count(DISTINCT fingerprint) as c FROM visitors WHERE ${sinceCondition} AND ${visitorsHostCond} AND ${botExcl}`,
   );
   const visitorsTotal = countSafe(
-    sql`SELECT count(*) as c FROM visitors WHERE ${sinceCondition} AND ${visitorsHostCond}`,
+    sql`SELECT count(*) as c FROM visitors WHERE ${sinceCondition} AND ${visitorsHostCond} AND ${botExcl}`,
   );
 
   return {
@@ -1921,10 +1926,12 @@ function detailPaymentsPeriod(bounds: PeriodBounds): Record<string, unknown> {
 
 function detailVisitors(bounds: PeriodBounds): Record<string, unknown> {
   const cond = buildRangeCondition("created_at", bounds.since, bounds.until);
+  // Counters-audit 2026-05-19 D.2: bot UA filter.
+  const botExcl = sql.raw(buildBotExclusionSql("user_agent"));
   const byCountry = allSafe<{ country: string; c: number }>(
     sql`SELECT COALESCE(country, '—') as country, count(DISTINCT fingerprint) as c
         FROM visitors
-        WHERE ${cond}
+        WHERE ${cond} AND ${botExcl}
         GROUP BY country
         ORDER BY c DESC
         LIMIT 15`,
@@ -1932,7 +1939,7 @@ function detailVisitors(bounds: PeriodBounds): Record<string, unknown> {
   const byCity = allSafe<{ city: string; c: number }>(
     sql`SELECT COALESCE(city, '—') as city, count(DISTINCT fingerprint) as c
         FROM visitors
-        WHERE ${cond}
+        WHERE ${cond} AND ${botExcl}
         GROUP BY city
         ORDER BY c DESC
         LIMIT 15`,
@@ -1940,7 +1947,7 @@ function detailVisitors(bounds: PeriodBounds): Record<string, unknown> {
   const byDevice = allSafe<{ device: string; c: number }>(
     sql`SELECT COALESCE(device, '—') as device, count(DISTINCT fingerprint) as c
         FROM visitors
-        WHERE ${cond}
+        WHERE ${cond} AND ${botExcl}
         GROUP BY device
         ORDER BY c DESC
         LIMIT 10`,
@@ -1948,15 +1955,15 @@ function detailVisitors(bounds: PeriodBounds): Record<string, unknown> {
   const byBrowser = allSafe<{ browser: string; c: number }>(
     sql`SELECT COALESCE(browser, '—') as browser, count(DISTINCT fingerprint) as c
         FROM visitors
-        WHERE ${cond}
+        WHERE ${cond} AND ${botExcl}
         GROUP BY browser
         ORDER BY c DESC
         LIMIT 10`,
   );
   const unique = countSafe(
-    sql`SELECT count(DISTINCT fingerprint) as c FROM visitors WHERE ${cond}`,
+    sql`SELECT count(DISTINCT fingerprint) as c FROM visitors WHERE ${cond} AND ${botExcl}`,
   );
-  const total = countSafe(sql`SELECT count(*) as c FROM visitors WHERE ${cond}`);
+  const total = countSafe(sql`SELECT count(*) as c FROM visitors WHERE ${cond} AND ${botExcl}`);
   return {
     unique,
     total,

@@ -232,6 +232,31 @@ export function log(message: string, source = "express") {
   console.log(`${formattedTime} [${source}] ${message}`);
 }
 
+// Security-audit 2026-05-19 CRITICAL #2: middleware логировал ПОЛНОЕ body
+// ответа в pm2 logs → Bearer-токены из /api/auth/* утекали в логи.
+// Sanitize: для sensitive paths не пишем body; для остальных обрезаем + redact.
+const SENSITIVE_PATH_PREFIXES = [
+  "/api/auth/",
+  "/api/admin/",
+  "/api/account/",
+  "/api/sessions/",
+  "/api/telegram/auth",
+  "/api/max/auth",
+];
+const TOKEN_REGEX = /"(token|accessToken|refreshToken|sessionToken|bearerToken|password|passphrase|apiKey|api_key|secret|otp|code|hash)"\s*:\s*"[^"]+"/gi;
+
+function sanitizeLogBody(body: any): string {
+  try {
+    const raw = JSON.stringify(body);
+    if (raw.length > 400) {
+      return raw.slice(0, 400).replace(TOKEN_REGEX, '"$1":"[REDACTED]"') + "…";
+    }
+    return raw.replace(TOKEN_REGEX, '"$1":"[REDACTED]"');
+  } catch {
+    return "[unserializable]";
+  }
+}
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -247,10 +272,10 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+      const isSensitive = SENSITIVE_PATH_PREFIXES.some(p => path.startsWith(p));
+      if (capturedJsonResponse && !isSensitive) {
+        logLine += ` :: ${sanitizeLogBody(capturedJsonResponse)}`;
       }
-
       log(logLine);
     }
   });
