@@ -277,6 +277,68 @@ export function FloatingConsultant() {
     await initChatSession();
   }, [initChatSession, chatOpen]);
 
+  // Eugene 2026-05-18 Босс «в кабинете автора иконочка Музы под папочкой —
+  // открывает историю взаимодействия. Юзер может в любое время зайти и
+  // продолжить разговор». Dashboard секция MusaHistorySection шлёт
+  // CustomEvent `musa-continue-session` → этот callback подхватывает
+  // указанный sessionId, грузит full history через REST, set chatMsgs и
+  // openChat(). Если sessionId совпадает с текущим — просто открываем чат.
+  const continueWithSession = useCallback(async (newSessionId: string) => {
+    if (!newSessionId) return;
+    try { playMuzaSparkle(); } catch {}
+    // Сменить локальный sessionId — следующий /api/muza/chat будет в этой сессии.
+    try {
+      sessionStorage.setItem("_muzaChatSid", newSessionId);
+      localStorage.setItem("_muzaChatSid", newSessionId);
+    } catch {}
+    // Сброс UI-state предыдущего разговора.
+    setVisibleCount(40);
+    setChatPaired(null);
+    setChatMemo({});
+    // Загружаем full history конкретной сессии.
+    try {
+      const r = await fetch(`/api/user/musa-history/${encodeURIComponent(newSessionId)}`, {
+        credentials: "include",
+      });
+      const j = await r.json();
+      const data = j?.data;
+      if (data?.messages && Array.isArray(data.messages)) {
+        const msgs: ChatMessage[] = data.messages.map((m: any) => ({
+          role: m.role === "user" ? "user" : "bot",
+          text: String(m.text || ""),
+        }));
+        setChatMsgs(msgs);
+        if (data.session?.personaName) {
+          setChatPersona({
+            name: data.session.personaName,
+            avatar: data.session.personaAvatar || "🎀",
+          });
+        }
+      }
+    } catch {
+      // Не катастрофа — init создаст новую сессию с этим id.
+      setChatMsgs([]);
+    }
+    // Помечаем chatInitialized чтобы openChat не дёргал initChatSession поверх.
+    chatInitialized.current = true;
+    setVisible(true);
+    setExpanded(false);
+    setChatOpen(true);
+    trackEngagement("consultant_action", { action: "continue_session", sessionId: newSessionId });
+  }, []);
+
+  // Слушаем CustomEvent от dashboard MusaHistorySection.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onContinue = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { sessionId?: string } | undefined;
+      const sid = detail?.sessionId;
+      if (sid) continueWithSession(sid);
+    };
+    window.addEventListener("musa-continue-session", onContinue as EventListener);
+    return () => window.removeEventListener("musa-continue-session", onContinue as EventListener);
+  }, [continueWithSession]);
+
   // Eugene 2026-05-14 Босс: кнопка «начать новый разговор» — сбрасывает
   // локальный sessionId, backend создаёт новую session с чистой историей.
   // Полезно когда юзер видит остатки старого диалога (например после
