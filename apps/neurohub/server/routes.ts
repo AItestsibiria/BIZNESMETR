@@ -2838,12 +2838,23 @@ export async function registerRoutes(
           || getOrCreateWebSession(clientSessionId.replace(/^web:/, ""), extractHost(req));
       }
 
-      // Сохраняем user message
-      db.insert(chatbotMessages).values({
+      // Сохраняем user message + logMessageAnalysis (Eugene 2026-05-19 CSAT-аудит:
+      // logMessageAnalysis() был dead code — теперь оживляем message_analysis table)
+      const insertedUserMsg = db.insert(chatbotMessages).values({
         sessionId: session.id,
         role: "user",
         text,
-      }).run();
+      }).returning({ id: chatbotMessages.id }).get();
+      try {
+        const { logMessageAnalysis } = await import("./plugins/message-analysis/module");
+        logMessageAnalysis({
+          messageId: insertedUserMsg?.id ?? null,
+          sessionId: session.id ?? null,
+          userId: tryGetUserId(req) ?? null,
+          channel: "web",
+          text,
+        });
+      } catch {}
 
       // Eugene 2026-05-14 Босс «адаптироваться: если клиент авторизован —
       // знать его историю». Soft-auth, без блокировки.

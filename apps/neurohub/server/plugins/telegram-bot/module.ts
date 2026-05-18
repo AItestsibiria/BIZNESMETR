@@ -581,14 +581,26 @@ function personaForSession(sessionId: string, fallbackKey: string) {
   return personaFor(fallbackKey);
 }
 
-function saveMessage(sessionId: string, role: "user" | "bot", text: string): void {
+function saveMessage(sessionId: string, role: "user" | "bot", text: string, userId?: number | null): void {
   try {
-    db.insert(chatbotMessages).values({
+    const inserted = db.insert(chatbotMessages).values({
       sessionId,
       role,
       text: text.slice(0, 3900),
       createdAt: new Date().toISOString(),
-    }).run();
+    }).returning({ id: chatbotMessages.id }).get();
+    // Eugene 2026-05-19 CSAT-аудит: оживляем message_analysis для TG-канала
+    if (role === "user") {
+      import("../message-analysis/module").then(({ logMessageAnalysis }) => {
+        logMessageAnalysis({
+          messageId: inserted?.id ?? null,
+          sessionId,
+          userId: userId ?? null,
+          channel: "telegram",
+          text,
+        });
+      }).catch(() => {});
+    }
   } catch {}
 }
 

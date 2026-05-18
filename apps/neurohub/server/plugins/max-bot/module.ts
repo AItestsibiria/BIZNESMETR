@@ -138,14 +138,26 @@ function findOrCreateMaxSession(chatId: string, userKey: string): { sessionId: s
   return { sessionId, userId: null };
 }
 
-function saveMaxMessage(sessionId: string, role: "user" | "bot", text: string): void {
+function saveMaxMessage(sessionId: string, role: "user" | "bot", text: string, userId?: number | null): void {
   try {
-    db.insert(chatbotMessages).values({
+    const inserted = db.insert(chatbotMessages).values({
       sessionId,
       role,
       text: text.slice(0, 3900),
       createdAt: new Date().toISOString(),
-    }).run();
+    }).returning({ id: chatbotMessages.id }).get();
+    // Eugene 2026-05-19 CSAT-аудит: оживляем message_analysis для Max-канала
+    if (role === "user") {
+      import("../message-analysis/module").then(({ logMessageAnalysis }) => {
+        logMessageAnalysis({
+          messageId: inserted?.id ?? null,
+          sessionId,
+          userId: userId ?? null,
+          channel: "max",
+          text,
+        });
+      }).catch(() => {});
+    }
   } catch {}
 }
 
