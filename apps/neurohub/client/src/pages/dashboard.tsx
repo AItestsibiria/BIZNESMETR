@@ -26,7 +26,7 @@ import { KaraokeLyrics } from "@/components/karaoke-lyrics";
 import { ExpandToggleButton } from "@/components/expand-toggle-button";
 import { CoverDetailsModal } from "@/components/cover-details-modal";
 import { VolumeSlider } from "@/components/volume-slider";
-import { setLockScreenTrack, setLockScreenPlaybackState } from "@/lib/lockscreen";
+import { setLockScreenTrack, setLockScreenTrackSync, setLockScreenPlaybackState } from "@/lib/lockscreen";
 import { muteBgMusic, unmuteBgMusic } from "@/components/background-music";
 import { SupportModal } from "@/components/support-modal";
 
@@ -1276,6 +1276,33 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
       setPlayingId(null);
       unmuteBgMusic();
     };
+
+    // Eugene 2026-05-18 Босс «lock-screen logo вместо обложки».
+    // КРИТИЧНО: setLockScreenTrackSync ДО audio.play(), чтобы iOS прочитал
+    // metadata при play() resolve. Иначе → document.title fallback.
+    const lsTitle = gen.displayTitle || gen.prompt?.slice(0, 60) || 'MuzaAi';
+    const lsArtist = gen.authorName ? `MuzaAi · ${gen.authorName}` : 'MuzaAi';
+    const lsHandlers = {
+      play: () => { audioRef.current?.play(); muteBgMusic(); setLockScreenPlaybackState('playing'); },
+      pause: () => { audioRef.current?.pause(); unmuteBgMusic(); setLockScreenPlaybackState('paused'); },
+      previoustrack: () => {
+        const idx = musicTracks.findIndex(t => t.id === gen.id);
+        const prev = idx > 0 ? idx - 1 : musicTracks.length - 1;
+        playTrack(musicTracks[prev]);
+      },
+      nexttrack: () => {
+        const idx = musicTracks.findIndex(t => t.id === gen.id);
+        const next = (idx + 1) % musicTracks.length;
+        playTrack(musicTracks[next]);
+      },
+      seekto: (time: number) => { if (audioRef.current) audioRef.current.currentTime = time; },
+    };
+    setLockScreenTrackSync(
+      { id: gen.id, title: lsTitle, artist: lsArtist, album: 'MuzaAi' },
+      lsHandlers,
+      gen.id,
+    );
+
     audio.play().catch(() => {});
     setPlayingId(gen.id);
     muteBgMusic();
@@ -1298,31 +1325,13 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
       if (audio && !audio.paused) setCurrentTime(audio.currentTime);
     }, 250);
 
-    // MediaSession lockscreen via helper (multi-size + pre-warm + iOS retry)
+    // MediaSession lockscreen — async refresh поверх sync-варианта выше
+    // (prewarm 512px + double-write для iOS first-write drop).
     setLockScreenTrack(
-      {
-        id: gen.id,
-        title: gen.displayTitle || gen.prompt?.slice(0, 60) || 'MuzaAi',
-        artist: gen.authorName ? `MuzaAi · ${gen.authorName}` : 'MuzaAi',
-        album: 'MuzaAi',
-      },
-      {
-        play: () => { audioRef.current?.play(); muteBgMusic(); },
-        pause: () => { audioRef.current?.pause(); unmuteBgMusic(); },
-        previoustrack: () => {
-          const idx = musicTracks.findIndex(t => t.id === gen.id);
-          const prev = idx > 0 ? idx - 1 : musicTracks.length - 1;
-          playTrack(musicTracks[prev]);
-        },
-        nexttrack: () => {
-          const idx = musicTracks.findIndex(t => t.id === gen.id);
-          const next = (idx + 1) % musicTracks.length;
-          playTrack(musicTracks[next]);
-        },
-        seekto: (time: number) => { if (audioRef.current) audioRef.current.currentTime = time; },
-      },
-      gen.id // cache-bust per track
-    );
+      { id: gen.id, title: lsTitle, artist: lsArtist, album: 'MuzaAi' },
+      lsHandlers,
+      gen.id, // cache-bust per track
+    ).catch(() => {});
   };
 
   const togglePlay = (gen: Generation) => {
