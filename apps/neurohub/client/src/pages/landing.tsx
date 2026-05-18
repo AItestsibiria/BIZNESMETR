@@ -1425,14 +1425,16 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   если expanded). Bomb-gradient + pulse glow.
                   Eugene 2026-05-18: вынесена ниже cover-square wrapper, чтобы
                   не вываливалась за пределы фиксированной высоты обложки. */}
+              {/* Eugene 2026-05-18 Босс «оставь значок S, убери лишнее, красивый
+                  шрифт». Только буква «S» через font-display + neon-glow. */}
               <button
-                className={`mt-2 self-center flex items-center justify-center rounded-full bg-gradient-to-br from-purple-500 via-fuchsia-500 to-cyan-400 hover:from-purple-400 hover:via-fuchsia-400 hover:to-cyan-300 text-white font-display font-bold transition-all shadow-[0_0_20px_rgba(217,70,239,0.65)] hover:shadow-[0_0_36px_rgba(217,70,239,0.9)] hover:scale-105 active:scale-95 border border-fuchsia-300/50 animate-details-pulse h-7 w-20 sm:w-24 text-sm ${coverExpanded ? "md:w-full md:h-9 md:text-base" : ""}`}
+                className={`mt-2 self-center flex items-center justify-center rounded-full bg-gradient-to-br from-purple-500 via-fuchsia-500 to-cyan-400 hover:from-purple-400 hover:via-fuchsia-400 hover:to-cyan-300 text-white transition-all shadow-[0_0_20px_rgba(217,70,239,0.65)] hover:shadow-[0_0_36px_rgba(217,70,239,0.9)] hover:scale-110 active:scale-95 border border-fuchsia-300/50 animate-details-pulse w-9 h-9 sm:w-10 sm:h-10 ${coverExpanded ? "md:w-12 md:h-12" : ""}`}
                 title="Свайп-режим — листай ← → большие обложки"
                 aria-label="Свайп-режим"
                 onClick={() => setDetailsOpen(true)}
                 data-testid="btn-cover-s-under"
               >
-                <span className="drop-shadow-[0_0_6px_rgba(255,255,255,0.9)]">S · свайп ← →</span>
+                <span className="font-display font-bold text-lg sm:text-xl italic tracking-wider drop-shadow-[0_0_8px_rgba(255,255,255,0.95)]">S</span>
               </button>
               </div>
               {/* Info + controls */}
