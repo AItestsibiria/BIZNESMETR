@@ -902,26 +902,29 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       if (timerRef.current) clearInterval(timerRef.current);
       const mode = repeatModeRef.current;
       const cur = playingTrackRef.current;
-      // Eugene 2026-05-10: учёт user-filter (category+search) в auto-next.
-      const fl = filteredMusicRef.current;
-      const musicTracks = fl && fl.length > 0 ? fl : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+      // Eugene 2026-05-18 Босс «не наши треки 100%» на LS — iOS отдаёт
+      // NowPlaying чужим app (Apple Music / Spotify / Yandex) когда наш
+      // audio ends. ФИКС: continuous playback — всегда loop через
+      // плейлист, никогда не останавливаемся. Используем FULL tracksRef
+      // (не filtered) — синхронно с nexttrack handler из commit 27f9050.
+      const musicTracks = tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+      if (musicTracks.length === 0) {
+        setPlayingId(null);
+        unmuteBgMusic();
+        return;
+      }
       if (mode === "one") {
         audio.currentTime = 0;
         audio.play().catch(() => {});
         return;
       }
-      const idx = cur ? musicTracks.findIndex(t => t.id === cur.id) : -1;
-      if (mode === "all") {
-        const nextIdx = (idx + 1) % musicTracks.length;
-        playTrack(musicTracks[nextIdx]);
-      } else {
-        if (idx < musicTracks.length - 1) {
-          playTrack(musicTracks[idx + 1]);
-        } else {
-          setPlayingId(null);
-          unmuteBgMusic();
-        }
-      }
+      const curIdx = cur ? musicTracks.findIndex(t => t.id === cur.id) : -1;
+      const safeIdx = curIdx < 0 ? 0 : curIdx;
+      // mode="all" И mode="off" теперь оба → continuous loop. На последнем
+      // треке возвращаемся к первому. iOS видит непрерывный playback →
+      // не передаёт NowPlaying другим приложениям.
+      const nextIdx = (safeIdx + 1) % musicTracks.length;
+      playTrack(musicTracks[nextIdx]);
     };
     audio.addEventListener('ended', handleEnded);
     audio.addEventListener('error', () => {
