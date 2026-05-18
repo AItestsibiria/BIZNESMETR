@@ -15,7 +15,7 @@ import fs from "fs";
 import path from "path";
 import { normalizeVocalParams } from "./lib/normalizeVocalParams";
 import { isSunoCircuitOpen } from "./plugins/suno-watchdog/module";
-import { requireAdmin } from "./core/adminAuth";
+import { requireAdmin, isAdminUser } from "./core/adminAuth";
 import { createNonce as tgCreateNonce, pollNonce as tgPollNonce, consumeNonce as tgConsumeNonce, attachUserToNonce as tgAttachUserToNonce } from "./lib/tgLoginNonces";
 import { logEngagement, getEngagementDaily, getEngagementSummary } from "./lib/engagement";
 import { personaFor } from "./lib/consultantPersona";
@@ -4641,9 +4641,18 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
         res.status(404).json({ message: "Файл не найден" });
         return;
       }
-      // Access: download is available for public tracks and own tracks
-      // Note: <a href> downloads can't send Authorization header
-      // Track IDs are not enumerable — protection through non-guessability
+      // Eugene 2026-05-18 IDOR-fix (ACCESS-BYPASS-AUDIT-170526 #1):
+      // приватные треки (isPublic=0) — только владелец/админ.
+      // Bearer/cookie/?token= для случаев, когда юзер вошёл в кабинет.
+      if ((gen.isPublic ?? 0) === 0) {
+        const dlToken = (req.headers.authorization || '').replace('Bearer ', '') || (req.query.token as string) || '';
+        const dlUserId = dlToken ? tokenStore.get(dlToken) : undefined;
+        const dlUser = dlUserId ? storage.getUser(dlUserId) : null;
+        if (!isAdminUser(dlUser) && gen.userId !== dlUserId) {
+          res.status(403).json({ message: "Приватный трек" });
+          return;
+        }
+      }
       logGenActivity(gen.id, 'download', req.ip, extractHost(req));
       // Increment download count in style JSON
       try {
@@ -6282,13 +6291,18 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
         res.status(404).json({ message: "Файл не найден" });
         return;
       }
-      // Access: stream is available for public tracks and own tracks
-      // Note: <audio> tags can't send Authorization header, so we also check cookie/query token
+      // Eugene 2026-05-18 IDOR-fix (ACCESS-BYPASS-AUDIT-170526 #1):
+      // приватные треки (isPublic=0) — только владелец/админ.
+      // Bearer/?token= для <audio> tags которые не шлют Authorization header.
       const stToken = (req.headers.authorization || '').replace('Bearer ', '') || (req.query.token as string) || '';
       const stUserId = stToken ? tokenStore.get(stToken) : undefined;
-      // Stream is accessible if: public OR own track OR admin
-      // For private tracks without auth - still allow (audio player in dashboard needs it)
-      // The real protection is that track IDs are not enumerable
+      if ((gen.isPublic ?? 0) === 0) {
+        const stUser = stUserId ? storage.getUser(stUserId) : null;
+        if (!isAdminUser(stUser) && gen.userId !== stUserId) {
+          res.status(403).json({ message: "Приватный трек" });
+          return;
+        }
+      }
 
       const wantImage = req.query.type === "image";
 
@@ -6341,7 +6355,17 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
         res.status(404).json({ message: "Файл не найден" });
         return;
       }
-      // Access: variant stream available like main stream
+      // Eugene 2026-05-18 IDOR-fix (ACCESS-BYPASS-AUDIT-170526 #1):
+      // приватные треки (isPublic=0) — только владелец/админ.
+      if ((gen.isPublic ?? 0) === 0) {
+        const vToken = (req.headers.authorization || '').replace('Bearer ', '') || (req.query.token as string) || '';
+        const vUserId = vToken ? tokenStore.get(vToken) : undefined;
+        const vUser = vUserId ? storage.getUser(vUserId) : null;
+        if (!isAdminUser(vUser) && gen.userId !== vUserId) {
+          res.status(403).json({ message: "Приватный трек" });
+          return;
+        }
+      }
       const varIdx = parseInt(req.params.idx) || 1;
       let url = "";
       try {
