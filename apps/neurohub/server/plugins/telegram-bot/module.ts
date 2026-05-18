@@ -595,7 +595,31 @@ function saveMessage(sessionId: string, role: "user" | "bot", text: string): voi
 const router = Router();
 
 // Telegram webhook — публичный (без auth). Telegram POSTит сюда updates.
+// Eugene 2026-05-18 (ACCESS-BYPASS-AUDIT-170526 #2): проверка
+// X-Telegram-Bot-Api-Secret-Token. Telegram присылает этот header в каждом
+// запросе если при setWebhook передан secret_token (см. ниже). Защищает от
+// прямого POST на webhook URL — без secret webhook можно спамить fake
+// update'ами в обход Telegram.
+// Backward-compat: если TELEGRAM_WEBHOOK_SECRET не задан — warn, без блока.
 router.post("/webhook", async (req, res) => {
+  const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET || "";
+  if (expectedSecret) {
+    const got = req.headers["x-telegram-bot-api-secret-token"];
+    if (got !== expectedSecret) {
+      bootRefs?.logger.warn?.("[telegram-bot] invalid webhook secret", {
+        ip: (req as any).ip,
+        ua: (req.headers["user-agent"] || "").toString().slice(0, 80),
+      });
+      return res.status(403).json({ data: null, error: "forbidden" });
+    }
+  } else {
+    // Без env — каждый запуск warn раз в час чтобы Босс заметил
+    if (!(global as any).__telegram_webhook_secret_warned ||
+        Date.now() - (global as any).__telegram_webhook_secret_warned > 3600_000) {
+      (global as any).__telegram_webhook_secret_warned = Date.now();
+      bootRefs?.logger.warn?.("[telegram-bot] TELEGRAM_WEBHOOK_SECRET не задан — webhook принимает запросы без secret-token (uncovered prod risk)");
+    }
+  }
   res.status(200).send("ok"); // Сразу отвечаем 200 чтобы Telegram не ретраил
   try {
     const update = req.body || {};
@@ -898,12 +922,18 @@ router.get("/setup-webhook", async (req, res) => {
     return res.status(400).json({ ok: false, error: "url=https://... required" });
   }
   try {
-    const r = await tgApi("setWebhook", {
+    // Eugene 2026-05-18 (ACCESS-BYPASS-AUDIT-170526 #2): передаём secret_token
+    // если задан в env. Telegram будет включать его в X-Telegram-Bot-Api-Secret-Token
+    // header на каждом webhook-запросе → server-side проверка.
+    const setWebhookBody: Record<string, any> = {
       url,
       allowed_updates: ["message", "edited_message", "callback_query"],
       drop_pending_updates: true,
-    });
-    return res.json({ ok: true, telegram: r });
+    };
+    const whSecret = process.env.TELEGRAM_WEBHOOK_SECRET || "";
+    if (whSecret) setWebhookBody.secret_token = whSecret;
+    const r = await tgApi("setWebhook", setWebhookBody);
+    return res.json({ ok: true, telegram: r, secret_set: !!whSecret });
   } catch (e) {
     return res.status(500).json({ ok: false, error: String(e) });
   }
@@ -955,15 +985,22 @@ const telegramBotModule: Module = {
       try {
         const info = await tgApi("getWebhookInfo", {});
         const currentUrl = info?.result?.url || "";
-        if (currentUrl !== target) {
-          await tgApi("setWebhook", {
+        const currentHasSecret = !!info?.result?.has_custom_certificate || !!info?.result?.url; // best-effort
+        const whSecret = process.env.TELEGRAM_WEBHOOK_SECRET || "";
+        // Eugene 2026-05-18 (ACCESS-BYPASS-AUDIT-170526 #2): пере-setWebhook
+        // если URL поменялся ИЛИ secret поменялся (env стал задан).
+        const needsResetup = currentUrl !== target || (whSecret && !info?.result?.url);
+        if (needsResetup) {
+          const body: Record<string, any> = {
             url: target,
             allowed_updates: ["message", "edited_message", "callback_query"],
             drop_pending_updates: false,
-          });
-          ctx.logger.info("[telegram-bot] webhook auto-configured", { from: currentUrl, to: target });
+          };
+          if (whSecret) body.secret_token = whSecret;
+          await tgApi("setWebhook", body);
+          ctx.logger.info("[telegram-bot] webhook auto-configured", { from: currentUrl, to: target, secret: whSecret ? "configured" : "missing" });
         } else {
-          ctx.logger.info("[telegram-bot] webhook already configured", { url: currentUrl });
+          ctx.logger.info("[telegram-bot] webhook already configured", { url: currentUrl, secret: whSecret ? "configured" : "missing" });
         }
       } catch (e) {
         ctx.logger.warn?.("[telegram-bot] webhook auto-setup failed", { error: String(e) });

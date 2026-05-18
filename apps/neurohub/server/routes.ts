@@ -15,7 +15,7 @@ import fs from "fs";
 import path from "path";
 import { normalizeVocalParams } from "./lib/normalizeVocalParams";
 import { isSunoCircuitOpen } from "./plugins/suno-watchdog/module";
-import { requireAdmin } from "./core/adminAuth";
+import { requireAdmin, isAdminUser } from "./core/adminAuth";
 import { createNonce as tgCreateNonce, pollNonce as tgPollNonce, consumeNonce as tgConsumeNonce, attachUserToNonce as tgAttachUserToNonce } from "./lib/tgLoginNonces";
 import { logEngagement, getEngagementDaily, getEngagementSummary } from "./lib/engagement";
 import { personaFor } from "./lib/consultantPersona";
@@ -874,7 +874,7 @@ export async function registerRoutes(
   // Admin: visitor statistics
   app.get("/api/admin/visitors", authMiddleware, (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);
-    if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
+    if (!isAdminUser(user)) { res.status(403).end(); return; }
     const page = parseInt(req.query.page as string) || 1;
     const limit = 50;
     const offset = (page - 1) * limit;
@@ -887,7 +887,7 @@ export async function registerRoutes(
   // Admin: visitor stats summary
   app.get("/api/admin/visitor-stats", authMiddleware, (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);
-    if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
+    if (!isAdminUser(user)) { res.status(403).end(); return; }
     res.setHeader("Cache-Control", "no-store");
 
     // Фильтр периода — единая логика через periodBoundaries (cut-off 20:00 МСК).
@@ -4641,9 +4641,18 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
         res.status(404).json({ message: "Файл не найден" });
         return;
       }
-      // Access: download is available for public tracks and own tracks
-      // Note: <a href> downloads can't send Authorization header
-      // Track IDs are not enumerable — protection through non-guessability
+      // Eugene 2026-05-18 IDOR-fix (ACCESS-BYPASS-AUDIT-170526 #1):
+      // приватные треки (isPublic=0) — только владелец/админ.
+      // Bearer/cookie/?token= для случаев, когда юзер вошёл в кабинет.
+      if ((gen.isPublic ?? 0) === 0) {
+        const dlToken = (req.headers.authorization || '').replace('Bearer ', '') || (req.query.token as string) || '';
+        const dlUserId = dlToken ? tokenStore.get(dlToken) : undefined;
+        const dlUser = dlUserId ? storage.getUser(dlUserId) : null;
+        if (!isAdminUser(dlUser) && gen.userId !== dlUserId) {
+          res.status(403).json({ message: "Приватный трек" });
+          return;
+        }
+      }
       logGenActivity(gen.id, 'download', req.ip, extractHost(req));
       // Increment download count in style JSON
       try {
@@ -6282,13 +6291,18 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
         res.status(404).json({ message: "Файл не найден" });
         return;
       }
-      // Access: stream is available for public tracks and own tracks
-      // Note: <audio> tags can't send Authorization header, so we also check cookie/query token
+      // Eugene 2026-05-18 IDOR-fix (ACCESS-BYPASS-AUDIT-170526 #1):
+      // приватные треки (isPublic=0) — только владелец/админ.
+      // Bearer/?token= для <audio> tags которые не шлют Authorization header.
       const stToken = (req.headers.authorization || '').replace('Bearer ', '') || (req.query.token as string) || '';
       const stUserId = stToken ? tokenStore.get(stToken) : undefined;
-      // Stream is accessible if: public OR own track OR admin
-      // For private tracks without auth - still allow (audio player in dashboard needs it)
-      // The real protection is that track IDs are not enumerable
+      if ((gen.isPublic ?? 0) === 0) {
+        const stUser = stUserId ? storage.getUser(stUserId) : null;
+        if (!isAdminUser(stUser) && gen.userId !== stUserId) {
+          res.status(403).json({ message: "Приватный трек" });
+          return;
+        }
+      }
 
       const wantImage = req.query.type === "image";
 
@@ -6341,7 +6355,17 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
         res.status(404).json({ message: "Файл не найден" });
         return;
       }
-      // Access: variant stream available like main stream
+      // Eugene 2026-05-18 IDOR-fix (ACCESS-BYPASS-AUDIT-170526 #1):
+      // приватные треки (isPublic=0) — только владелец/админ.
+      if ((gen.isPublic ?? 0) === 0) {
+        const vToken = (req.headers.authorization || '').replace('Bearer ', '') || (req.query.token as string) || '';
+        const vUserId = vToken ? tokenStore.get(vToken) : undefined;
+        const vUser = vUserId ? storage.getUser(vUserId) : null;
+        if (!isAdminUser(vUser) && gen.userId !== vUserId) {
+          res.status(403).json({ message: "Приватный трек" });
+          return;
+        }
+      }
       const varIdx = parseInt(req.params.idx) || 1;
       let url = "";
       try {
@@ -6371,7 +6395,7 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
   app.post("/api/admin/block/:userId", authMiddleware, (req: Request, res: Response) => {
     const adminId = (req as any).userId;
     const admin = storage.getUser(adminId);
-    if (!admin || admin.email !== "egnovoselov@gmail.com") {
+    if (!isAdminUser(admin)) {
       res.status(403).json({ message: "Доступ запрещён" });
       return;
     }
@@ -6390,7 +6414,7 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
   app.get("/api/admin/user/:userId/generations", authMiddleware, (req: Request, res: Response) => {
     const adminId = (req as any).userId;
     const admin = storage.getUser(adminId);
-    if (!admin || admin.email !== "egnovoselov@gmail.com") {
+    if (!isAdminUser(admin)) {
       res.status(403).json({ message: "Доступ запрещён" });
       return;
     }
@@ -6404,7 +6428,7 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
   app.get("/api/admin/stats", authMiddleware, (req: Request, res: Response) => {
     const userId = (req as any).userId;
     const user = storage.getUser(userId);
-    if (!user || user.email !== "egnovoselov@gmail.com") {
+    if (!isAdminUser(user)) {
       res.status(403).json({ message: "Доступ запрещён" });
       return;
     }
@@ -6472,8 +6496,8 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
   app.get("/api/generations", authMiddleware, (req: Request, res: Response) => {
     const userId = (req as any).userId;
     const user = storage.getUser(userId);
-    // Only egnovoselov@gmail.com can see all generations
-    if (user?.email === "egnovoselov@gmail.com" && req.query.all === "true") {
+    // Only admin can see all generations (was hardcoded egnovoselov@gmail.com — now isAdminUser)
+    if (isAdminUser(user) && req.query.all === "true") {
       const allGens = db.select().from(generations).where(sql`${generations.deletedAt} IS NULL`).orderBy(desc(generations.id)).limit(200).all();
       const allUsers = db.select().from(users).all();
       const userMap = new Map(allUsers.map(u => [u.id, u.name]));
@@ -6939,7 +6963,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       return;
     }
     // Author-only: ремикс разрешён только владельцу трека или админу
-    const isAdmin = user.email === "egnovoselov@gmail.com";
+    const isAdmin = isAdminUser(user);
     if (source.userId !== userId && !isAdmin) {
       res.status(403).json({ message: "Можно ремиксовать только свои треки" });
       return;
@@ -7059,7 +7083,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       return;
     }
     // Author-only: продление разрешено только владельцу или админу
-    const isAdmin = user.email === "egnovoselov@gmail.com";
+    const isAdmin = isAdminUser(user);
     if (source.userId !== userId && !isAdmin) {
       res.status(403).json({ message: "Можно продлевать только свои треки" });
       return;
@@ -7352,6 +7376,15 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
 
       // Clean up reset token
       resetTokens.delete(token);
+
+      // Eugene 2026-05-18 (ACCESS-BYPASS-AUDIT-170526 #4): revoke всех старых
+      // сессий после смены пароля. Защита: если злоумышленник запросил
+      // reset-password legitimate юзера через social engineering, у него
+      // не остаётся валидных сессий, выданных до смены пароля.
+      try {
+        const revoked = tokenStore.revokeAllForUser(userId);
+        console.log(`[RESET-PASSWORD] revoked ${revoked} session(s) for user ${userId}`);
+      } catch {}
 
       // Auto-login
       const authToken = uuidv4();
@@ -7650,7 +7683,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         return;
       }
       const user = storage.getUser(userId);
-      const isAdmin = user?.email === "egnovoselov@gmail.com";
+      const isAdmin = isAdminUser(user);
       const gen = db.select().from(generations).where(eq(generations.id, genId)).get();
       if (!gen) { res.status(404).json({ message: "Не найдено" }); return; }
       if (!isAdmin && gen.userId !== userId) { res.status(403).json({ message: "Нет доступа" }); return; }
@@ -7676,7 +7709,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const genId = parseInt(req.params.id);
     const { isPublic } = req.body;
     const user = storage.getUser(userId);
-    const isAdmin = user?.email === "egnovoselov@gmail.com";
+    const isAdmin = isAdminUser(user);
 
     const gen = db.select().from(generations).where(eq(generations.id, genId)).get();
     if (!gen) { res.status(404).json({ message: "Не найдено" }); return; }
@@ -7726,7 +7759,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   // Admin: get pending publication requests
   app.get("/api/admin/pending-publications", authMiddleware, (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);
-    if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
+    if (!isAdminUser(user)) { res.status(403).end(); return; }
     const raw = db.$client;
     const rows = raw.prepare(`SELECT g.id, g.display_title, g.prompt, g.type, g.author_name, g.created_at, g.published_at, g.user_id,
       u.name as user_name, u.email as user_email
@@ -7739,7 +7772,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   // Admin: approve, reject, or send feedback
   app.post("/api/admin/moderate/:id", authMiddleware, async (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);
-    if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
+    if (!isAdminUser(user)) { res.status(403).end(); return; }
     const genId = parseInt(req.params.id);
     const { action, message } = req.body; // 'approve', 'reject', or 'feedback'
 
@@ -7820,7 +7853,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   // Publish all covers at once (admin only)
   app.post("/api/admin/publish-all-covers", authMiddleware, (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);
-    if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).json({ message: "Только админ" }); return; }
+    if (!isAdminUser(user)) { res.status(403).json({ message: "Только админ" }); return; }
     // Eugene 2026-05-17: bulk publish — все ставятся в isPublic=1 + publishedAt=NOW
     // только для тех у кого publishedAt ещё NULL (первая публикация).
     const nowIso = new Date().toISOString();
@@ -7834,7 +7867,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   // Set priority for a cover (7 days, admin only)
   app.post("/api/generations/:id/priority", authMiddleware, (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);
-    if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).json({ message: "Только админ" }); return; }
+    if (!isAdminUser(user)) { res.status(403).json({ message: "Только админ" }); return; }
     const genId = parseInt(req.params.id);
     const days = req.body.days || 7;
     const until = new Date(Date.now() + days * 24 * 3600 * 1000).toISOString();
@@ -7904,7 +7937,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   // Admin: generation activity stats
   app.get("/api/admin/gen-stats", authMiddleware, (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);
-    if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
+    if (!isAdminUser(user)) { res.status(403).end(); return; }
     // Eugene 2026-05-17 Босс: единая логика period boundaries (cut-off 20:00 МСК).
     const period = (req.query.period as string) || 'all';
     const raw = db.$client;
@@ -7937,7 +7970,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   // Top-20 downloads (admin)
   app.get("/api/admin/top-downloads", authMiddleware, (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);
-    if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
+    if (!isAdminUser(user)) { res.status(403).end(); return; }
     // Eugene 2026-05-17 Босс: единая логика period boundaries (cut-off 20:00 МСК).
     const period = (req.query.period as string) || 'all';
     const raw = db.$client;
@@ -7960,7 +7993,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   // Per-generation activity detail
   app.get("/api/admin/gen-stats/:id", authMiddleware, (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);
-    if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
+    if (!isAdminUser(user)) { res.status(403).end(); return; }
     const genId = parseInt(req.params.id);
     const raw = db.$client;
     const byAction = raw.prepare("SELECT action, COUNT(*) as c FROM gen_activity WHERE gen_id = ? GROUP BY action").all(genId);
@@ -7971,7 +8004,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   // Geo-activity для админа: фильтр today/week/month/all + список IP с городами.
   app.get("/api/admin/gen-activity-geo/:id", authMiddleware, async (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);
-    if (!user || user.email !== "egnovoselov@gmail.com") { res.status(403).end(); return; }
+    if (!isAdminUser(user)) { res.status(403).end(); return; }
     res.setHeader("Cache-Control", "no-store");
     const genId = parseInt(req.params.id);
     // Eugene 2026-05-17 Босс: единая логика period boundaries (cut-off 20:00 МСК).
@@ -8044,7 +8077,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const gen = db.select().from(generations).where(eq(generations.id, genId)).get();
     const user = storage.getUser(userId);
     if (!user) { res.status(401).json({ message: "Не авторизован" }); return; }
-    const isAdmin = user.email === "egnovoselov@gmail.com";
+    const isAdmin = isAdminUser(user);
     if (!gen || (!isAdmin && gen.userId !== userId)) {
       res.status(404).json({ message: "Не найдено" });
       return;
@@ -8242,7 +8275,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       return;
     }
     const user = storage.getUser(userId);
-    const isAdmin = !!user && user.email === "egnovoselov@gmail.com";
+    const isAdmin = isAdminUser(user);
     if (gen.userId !== userId && !isAdmin) {
       res.status(403).json({ ok: false, message: "Нет доступа" });
       return;
@@ -8267,7 +8300,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       return;
     }
     const user = storage.getUser(userId);
-    const isAdmin = !!user && user.email === "egnovoselov@gmail.com";
+    const isAdmin = isAdminUser(user);
     if (gen.userId !== userId && !isAdmin) {
       res.status(403).json({ ok: false, message: "Нет доступа" });
       return;
@@ -8461,7 +8494,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   app.post("/api/admin/import-uploads", authMiddleware, async (req: Request, res: Response) => {
     const userId = (req as any).userId;
     const user = storage.getUser(userId);
-    if (!user || user.email !== "egnovoselov@gmail.com") {
+    if (!isAdminUser(user)) {
       res.status(403).json({ message: "Доступ запрещён" });
       return;
     }
@@ -8865,30 +8898,22 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
 
   // GPTunnel balance check — called by cron (08:00 and 18:00 MSK) or manually by admin
   // Sends email alert to ADMIN_ALERT_EMAIL when balance drops below threshold
-  app.get("/api/admin/check-gptunnel-balance", async (req: Request, res: Response) => {
+  //
+  // Eugene 2026-05-18 (ACCESS-BYPASS-AUDIT-170526 #3): добавил requireAdmin
+  // middleware на endpoint. Cron-secret bypass сохранён для legacy cron
+  // (vps cron job вызывает с ?secret=$CRON_SECRET без JWT). Без bypass и
+  // без admin token → 401. Hardcoded fallback "muziai-balance-cron-2026"
+  // удалён ранее (Eugene 2026-05-09 SECURITY).
+  app.get("/api/admin/check-gptunnel-balance", (req: Request, res: Response, next: NextFunction) => {
+    const SECRET = req.query.secret || req.headers["x-cron-secret"];
+    const EXPECTED_SECRET = process.env.CRON_SECRET || "";
+    if (EXPECTED_SECRET && SECRET === EXPECTED_SECRET) {
+      return next(); // cron bypass — env обязателен, иначе требуем admin auth
+    }
+    return requireAdmin(req, res, next);
+  }, async (req: Request, res: Response) => {
     const ADMIN_ALERT_EMAIL = process.env.ADMIN_ALERT_EMAIL || "egnovoselo@gmail.com";
     const THRESHOLD = 750; // ₽
-    const SECRET = req.query.secret || req.headers["x-cron-secret"];
-    // Eugene 2026-05-09 SECURITY: убран hardcoded fallback. Если CRON_SECRET
-    // не задан в .env — endpoint работает только через JWT (admin auth).
-    const EXPECTED_SECRET = process.env.CRON_SECRET || "";
-
-    // Allow either admin auth OR cron secret (so cron can call without login)
-    const authHeader = req.headers.authorization || "";
-    const token = authHeader.replace("Bearer ", "");
-    let isAdmin = false;
-    if (token) {
-      try {
-        const decoded: any = jwt.verify(token, JWT_SECRET);
-        const u = storage.getUser(decoded.id);
-        if (u?.email === "egnovoselov@gmail.com") isAdmin = true;
-      } catch {}
-    }
-    // Eugene 2026-05-09 SECURITY: явная проверка что EXPECTED_SECRET задан.
-    // Если не задан в .env — endpoint работает только через JWT, query.secret игнорируется.
-    if (!isAdmin && (!EXPECTED_SECRET || SECRET !== EXPECTED_SECRET)) {
-      return res.status(401).json({ message: "Unauthorized" });
-    }
 
     try {
       // Eugene 2026-05-08 doc-audit: используем gptunnelFetch для unified
