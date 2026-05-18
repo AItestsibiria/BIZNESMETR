@@ -16,6 +16,7 @@ import { Music, Phone, Mail } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import PhoneOtpForm from "@/components/phone-otp-form";
 import { CyberSpinner } from "@/components/cyber-spinner";
+import Admin2FAForm from "@/components/admin-2fa-form";
 
 export default function LoginPhonePage() {
   const { user, isLoading, loginByToken } = useAuth();
@@ -26,6 +27,26 @@ export default function LoginPhonePage() {
   // greeting=null → анонимный шаг. greeting={name, maskedPhone} →
   // нашли author по phone-check (POST /phone-check) → меняем UI.
   const [greeting, setGreeting] = useState<{ name: string; maskedPhone: string } | null>(null);
+
+  // Eugene 2026-05-18 Босс — admin reverse-call: backend возвращает
+  // requireAdminCode=true вместо token. Раньше показывалось «Сессия не выдана»
+  // потому что handler не был подключён.
+  const [admin2FA, setAdmin2FA] = useState<{
+    sessionDraftId: string;
+    emailHint?: string;
+    expiresInSec?: number;
+    warning?: string;
+  } | null>(null);
+
+  const handleAdmin2FAVerified = async (data: { token: string }) => {
+    const u = await loginByToken(data.token, true);
+    if (!u) {
+      toast({ title: "Сессия не подтвердилась", description: "Попробуйте ещё раз.", variant: "destructive" });
+      return;
+    }
+    toast({ title: "✅ Admin-вход выполнен", description: u.name || u.email });
+    navigate("/dashboard");
+  };
 
   useEffect(() => {
     if (user) navigate("/dashboard");
@@ -108,6 +129,18 @@ export default function LoginPhonePage() {
           </div>
         </div>
 
+        {admin2FA ? (
+          <div className="gradient-border p-6 rounded-2xl">
+            <Admin2FAForm
+              sessionDraftId={admin2FA.sessionDraftId}
+              emailHint={admin2FA.emailHint}
+              expiresInSec={admin2FA.expiresInSec}
+              warning={admin2FA.warning}
+              onVerified={handleAdmin2FAVerified}
+              onCancel={() => setAdmin2FA(null)}
+            />
+          </div>
+        ) : (
         <div className="gradient-border p-6 rounded-2xl space-y-4">
           <div className="rounded-xl bg-purple-500/10 border border-purple-400/30 px-3 py-3 text-xs text-purple-100/90 leading-relaxed">
             🛡 Звонок бесплатный для вас. Введите свой номер ниже — мы покажем наш 8800. Позвоните на него с этого телефона и сразу можно сбросить: мы узнаем ваш номер по caller-id и автоматически подтвердим вход. SMS не приходит, коды не нужны.
@@ -125,7 +158,18 @@ export default function LoginPhonePage() {
                 setGreeting(null);
               }
             }}
-            onVerified={async ({ phone, token, newAccount }) => {
+            onVerified={async ({ phone, token, newAccount, requireAdminCode, sessionDraftId, emailHint, expiresInSec, warning }) => {
+              // Eugene 2026-05-18 Босс — admin reverse-call 2FA gate.
+              // Backend при admin-role возвращает requireAdminCode без token →
+              // показываем Admin2FAForm для ввода email-кода.
+              if (requireAdminCode && sessionDraftId) {
+                setAdmin2FA({ sessionDraftId, emailHint, expiresInSec, warning });
+                toast({
+                  title: "🔐 Требуется код из email",
+                  description: `Мы отправили 6-значный код на ${emailHint || "ваш email"}. Введите его ниже.`,
+                });
+                return;
+              }
               // Eugene 2026-05-16: guard на пустой token — backend в очень
               // редких случаях может вернуть verified без token (race).
               // Без guard юзер видел «вы авторизованы» и залипал.
@@ -178,6 +222,7 @@ export default function LoginPhonePage() {
             </Link>
           </div>
         </div>
+        )}
       </div>
     </div>
   );
