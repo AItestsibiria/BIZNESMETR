@@ -48,6 +48,7 @@ import { getIpGeo } from "./lib/ipGeo";
 import { upsertUserProfile, linkProfileToUser, getProfileByUserId, getProfileByVisitorId } from "./lib/userProfilesStore";
 import { extractHost, KNOWN_DOMAINS, hostToBucket } from "./lib/extractHost";
 import { embedTrackId3, findSiblingCover } from "./lib/id3Writer";
+import { alertPromoEntry } from "./lib/promoAlert";
 
 const AUTHORS_DIR = process.env.AUTHORS_DIR || path.join(process.cwd(), "authors");
 
@@ -1177,23 +1178,52 @@ export async function registerRoutes(
       if (promo) {
       const promoCode = db.select().from(promoCodes)
         .where(sql`LOWER(${promoCodes.code}) = LOWER(${promo})`).get();
+      const now = new Date().toISOString();
+      // Eugene 2026-05-18 Босс «при вводе ЛЮБОГО промокода (даже неактивного) —
+      // email/Telegram уведомление Боссу». Считаем статус ДО применения бонуса,
+      // чтобы alert содержал точный verdict.
+      let promoActive = false;
+      let promoReason: string | undefined;
       if (promoCode) {
-        const now = new Date().toISOString();
-        const active = (!promoCode.activeFrom || promoCode.activeFrom <= now) && (!promoCode.activeTo || promoCode.activeTo >= now);
+        const inWindow = (!promoCode.activeFrom || promoCode.activeFrom <= now) && (!promoCode.activeTo || promoCode.activeTo >= now);
         const withinLimit = promoCode.maxUses === 0 || promoCode.usedCount < promoCode.maxUses;
-        if (active && withinLimit) {
-          if (promoCode.bonus > 0) {
-            storage.updateBalance(user.id, promoCode.bonus);
-            storage.createTransaction({ userId: user.id, type: "topup", amount: promoCode.bonus, description: `🎟️ Промокод ${promoCode.code}: +${(promoCode.bonus / 100)} ₽` });
-          }
-          if (promoCode.bonusTracks > 0) {
-            db.update(users).set({ bonusTracks: sql`${users.bonusTracks} + ${promoCode.bonusTracks}` }).where(eq(users.id, user.id)).run();
-            storage.createTransaction({ userId: user.id, type: "topup", amount: 0, description: `🎁 Промокод ${promoCode.code}: +${promoCode.bonusTracks} подарочн. треков` });
-          }
-          db.update(promoCodes).set({ usedCount: promoCode.usedCount + 1 }).where(eq(promoCodes.id, promoCode.id)).run();
-          db.update(users).set({ usedPromo: promoCode.code }).where(eq(users.id, user.id)).run();
-          console.log(`[PROMO] User #${user.id} used promo '${promoCode.code}' +${promoCode.bonus / 100}₽ +${promoCode.bonusTracks}tracks`);
+        promoActive = inWindow && withinLimit;
+        if (!inWindow) promoReason = "вне окна активности (activeFrom/activeTo)";
+        else if (!withinLimit) promoReason = `исчерпан лимит ${promoCode.maxUses} использований`;
+      } else {
+        promoReason = "промокод не найден в БД";
+      }
+      try {
+        alertPromoEntry({
+          email,
+          name: name || null,
+          ip: (req.ip || req.socket.remoteAddress || "unknown").replace(/^::ffff:/, ""),
+          userAgent: String(req.headers["user-agent"] || ""),
+          promoCode: String(promo),
+          promoFound: !!promoCode,
+          promoActive,
+          promoReason,
+          timestamp: now,
+        }, mailTransport, CLIENT_EMAIL);
+      } catch (e) {
+        console.warn("[promo-alert] hook failed:", (e as Error)?.message || e);
+      }
+      if (promoCode && promoActive) {
+        if (promoCode.bonus > 0) {
+          storage.updateBalance(user.id, promoCode.bonus);
+          storage.createTransaction({ userId: user.id, type: "topup", amount: promoCode.bonus, description: `🎟️ Промокод ${promoCode.code}: +${(promoCode.bonus / 100)} ₽` });
         }
+        if (promoCode.bonusTracks > 0) {
+          db.update(users).set({ bonusTracks: sql`${users.bonusTracks} + ${promoCode.bonusTracks}` }).where(eq(users.id, user.id)).run();
+          storage.createTransaction({ userId: user.id, type: "topup", amount: 0, description: `🎁 Промокод ${promoCode.code}: +${promoCode.bonusTracks} подарочн. треков` });
+        }
+        db.update(promoCodes).set({ usedCount: promoCode.usedCount + 1 }).where(eq(promoCodes.id, promoCode.id)).run();
+        db.update(users).set({ usedPromo: promoCode.code }).where(eq(users.id, user.id)).run();
+        console.log(`[PROMO] User #${user.id} used promo '${promoCode.code}' +${promoCode.bonus / 100}₽ +${promoCode.bonusTracks}tracks`);
+      } else if (promoCode) {
+        console.log(`[PROMO] User #${user.id} entered inactive promo '${promoCode.code}' — ${promoReason || "rejected"}`);
+      } else {
+        console.log(`[PROMO] User #${user.id} entered unknown promo '${promo}'`);
       }
       }
 
