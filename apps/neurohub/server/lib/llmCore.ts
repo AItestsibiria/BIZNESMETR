@@ -506,7 +506,7 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
         history: history.slice(-15),
         userText: safeUserText,
         maxTokens,
-        model: process.env.TIMEWEB_GATEWAY_MODEL || "gpt-4o-mini",
+        model: process.env.TIMEWEB_GATEWAY_MODEL || "openai/gpt-4o-mini",
       });
       if (tw.usage) {
         // OpenAI-формат: prompt_tokens / completion_tokens

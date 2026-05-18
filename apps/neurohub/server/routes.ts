@@ -25,10 +25,6 @@ import { findSessionByPairCode, looksLikePairCode } from "./lib/webChatPair";
 // callUnifiedMuzaLLM (lib/llmCore.ts) — Eugene 2026-05-16 «один мозг».
 import { loadHistoryForLLM, loadHistoryForUser } from "./lib/chatHistory";
 import { getPendingLyricsForSession } from "./lib/muzaTools";
-// Eugene 2026-05-18 Босс «detect_negative server-side hook». Запускается
-// на каждое user-сообщение в /api/muza/chat. isCritical + score<-0.5 →
-// auto-escalation в escalation_queue с priority='high' + Telegram-alert.
-import { detectSentiment } from "./lib/sentimentDetector";
 import {
   callUnifiedMuzaLLM,
   listAnthropicKeys as listAnthropicKeysCore,
@@ -2814,29 +2810,6 @@ export async function registerRoutes(
         role: "user",
         text,
       }).run();
-
-      // Eugene 2026-05-18 Босс «Detect-negative server-side hook». Если
-      // юзер пишет резко негативно (critical sentiment + score < -0.5) —
-      // fire-and-forget POST в escalation-queue. Не блокируем ответ Музе.
-      try {
-        const sentiment = detectSentiment(text);
-        if (sentiment.isCritical && sentiment.score < -0.5) {
-          const userIdForLog = (typeof session.userId === "number" ? session.userId : null);
-          fetch(`http://localhost:${process.env.PORT || 3000}/api/escalations/log`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              userId: userIdForLog,
-              sessionId: session.id,
-              chatSessionId: session.id,
-              text: text.slice(0, 500),
-              score: sentiment.score,
-              triggers: sentiment.triggers,
-              priority: "high",
-            }),
-          }).catch(() => {});
-        }
-      } catch {}
 
       // Eugene 2026-05-14 Босс «адаптироваться: если клиент авторизован —
       // знать его историю». Soft-auth, без блокировки.
