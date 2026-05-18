@@ -124,6 +124,111 @@ export function CoverDetailsModal({
   // Info-popover (отдельный от первого hint overlay).
   const [showInfo, setShowInfo] = useState(false);
 
+  // Eugene 2026-05-19 Босс «при нажатии и удерживании обложки — сохранить
+  // с соляными знаками проекта». Long-press 700ms → canvas-watermark «MuzaAi.ru»
+  // + волна → download .jpg.
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressStartRef = useRef<{ x: number; y: number } | null>(null);
+  const imgRefForSave = useRef<HTMLImageElement | null>(null);
+  const [saveToast, setSaveToast] = useState<string | null>(null);
+
+  const saveCoverWithWatermark = async () => {
+    if (!track || !track.imageUrl) return;
+    try {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.src = track.imageUrl;
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("img load failed"));
+      });
+      const canvas = document.createElement("canvas");
+      const W = img.naturalWidth || 1024;
+      const H = img.naturalHeight || 1024;
+      canvas.width = W;
+      canvas.height = H;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0, W, H);
+
+      // Watermark: gradient brand bar bottom-right + «MuzaAi.ru» + waveform glyph
+      const padX = Math.round(W * 0.028);
+      const padY = Math.round(H * 0.028);
+      const fontSize = Math.round(W * 0.038);
+      ctx.font = `bold ${fontSize}px Inter, system-ui, sans-serif`;
+      const text = "MuzaAi.ru";
+      const textW = ctx.measureText(text).width;
+      const boxW = textW + padX * 2.4;
+      const boxH = fontSize * 1.7;
+      const boxX = W - boxW - padX;
+      const boxY = H - boxH - padY;
+
+      // background pill (semi-transparent black)
+      ctx.save();
+      ctx.fillStyle = "rgba(10, 10, 23, 0.55)";
+      const radius = boxH / 2;
+      ctx.beginPath();
+      ctx.moveTo(boxX + radius, boxY);
+      ctx.arcTo(boxX + boxW, boxY, boxX + boxW, boxY + boxH, radius);
+      ctx.arcTo(boxX + boxW, boxY + boxH, boxX, boxY + boxH, radius);
+      ctx.arcTo(boxX, boxY + boxH, boxX, boxY, radius);
+      ctx.arcTo(boxX, boxY, boxX + boxW, boxY, radius);
+      ctx.closePath();
+      ctx.fill();
+
+      // gradient text (purple → cyan brand)
+      const grad = ctx.createLinearGradient(boxX, boxY, boxX + boxW, boxY);
+      grad.addColorStop(0, "#a855f7");
+      grad.addColorStop(0.5, "#d946ef");
+      grad.addColorStop(1, "#22d3ee");
+      ctx.fillStyle = grad;
+      ctx.textBaseline = "middle";
+      ctx.fillText(text, boxX + padX * 1.2, boxY + boxH / 2);
+      ctx.restore();
+
+      const blob: Blob | null = await new Promise(resolve => canvas.toBlob(b => resolve(b), "image/jpeg", 0.92));
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const safeTitle = (track.displayTitle || `cover-${track.id}`).replace(/[^a-zа-я0-9_-]+/gi, "_").slice(0, 40);
+      a.download = `muzaai-${safeTitle}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setSaveToast("Обложка сохранена с водяным знаком MuzaAi");
+      window.setTimeout(() => setSaveToast(null), 2200);
+    } catch (e) {
+      console.warn("[cover save] failed", e);
+      setSaveToast("Не удалось сохранить");
+      window.setTimeout(() => setSaveToast(null), 1500);
+    }
+  };
+
+  const onCoverPointerDown = (e: React.PointerEvent) => {
+    longPressStartRef.current = { x: e.clientX, y: e.clientY };
+    longPressTimerRef.current = window.setTimeout(() => {
+      saveCoverWithWatermark();
+      longPressTimerRef.current = null;
+    }, 650);
+  };
+  const onCoverPointerMove = (e: React.PointerEvent) => {
+    if (!longPressTimerRef.current || !longPressStartRef.current) return;
+    const dx = Math.abs(e.clientX - longPressStartRef.current.x);
+    const dy = Math.abs(e.clientY - longPressStartRef.current.y);
+    if (dx > 10 || dy > 10) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+  const onCoverPointerUp = () => {
+    if (longPressTimerRef.current) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
   // Показываем hint только если localStorage flag отсутствует И есть навигация.
   useEffect(() => {
     if (!open) {
@@ -380,7 +485,7 @@ export function CoverDetailsModal({
             square aspect-ratio + 85vh высота заставлял container выходить
             за viewport (1024×1366 → square 1024 > 70% от 1366). */}
         <div
-          className="relative w-full aspect-square max-h-[70vh] rounded-3xl overflow-hidden bg-gradient-to-br from-[#1a0f2e] via-[#0a0a17] to-[#0f1830] shadow-[0_0_64px_rgba(124,58,237,0.25)] border border-purple-500/20"
+          className="relative w-full aspect-square max-h-[78vh] rounded-3xl overflow-hidden bg-gradient-to-br from-[#1a0f2e] via-[#0a0a17] to-[#0f1830] shadow-[0_0_48px_rgba(124,58,237,0.18)] border border-purple-500/15"
           onClick={(e) => e.stopPropagation()}
         >
           <AnimatePresence mode="wait" initial={false}>
@@ -392,6 +497,10 @@ export function CoverDetailsModal({
               dragMomentum={false}
               onDrag={handleDrag}
               onDragEnd={handleDragEnd}
+              onPointerDown={onCoverPointerDown}
+              onPointerMove={onCoverPointerMove}
+              onPointerUp={onCoverPointerUp}
+              onPointerCancel={onCoverPointerUp}
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.98 }}
@@ -403,6 +512,7 @@ export function CoverDetailsModal({
             >
               {track.imageUrl ? (
                 <img
+                  ref={imgRefForSave}
                   src={track.imageUrl}
                   alt={title}
                   draggable={false}
@@ -480,7 +590,7 @@ export function CoverDetailsModal({
             Glass-card под обложкой. Touch-targets ≥44px, full-width on mobile. */}
         {(onPlayPause || onSeek || onVolumeChange || onRepeatToggle) && (
           <div
-            className="w-full glass-card rounded-2xl border border-purple-500/20 p-4 sm:p-5 shadow-[0_0_32px_rgba(124,58,237,0.18)]"
+            className="w-full rounded-2xl border border-white/8 p-3 sm:p-4 bg-black/25 backdrop-blur-md"
             onClick={(e) => e.stopPropagation()}
             data-testid="cover-details-controls-bar"
           >
@@ -545,18 +655,19 @@ export function CoverDetailsModal({
                 </button>
               )}
 
-              {/* ▶/⏸ Play-pause (centerpiece — крупнее) */}
+              {/* ▶/⏸ Play-pause — приглушённый brand-gradient (Eugene 2026-05-19:
+                  «кнопки яркость приглушить»). Меньше glow, /80 opacity. */}
               {onPlayPause && (
                 <button
                   type="button"
                   onClick={onPlayPause}
                   aria-label={isPlaying ? "Пауза" : "Воспроизвести"}
-                  className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-br from-purple-500 via-fuchsia-500 to-blue-500 hover:from-purple-400 hover:via-fuchsia-400 hover:to-blue-400 hover:scale-105 active:scale-95 transition-all flex items-center justify-center shadow-[0_0_32px_rgba(124,58,237,0.5)] border border-white/20 shrink-0"
+                  className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-br from-purple-500/75 via-fuchsia-500/70 to-blue-500/75 hover:from-purple-400/85 hover:via-fuchsia-400/80 hover:to-blue-400/85 hover:scale-105 active:scale-95 transition-all flex items-center justify-center shadow-[0_0_20px_rgba(124,58,237,0.28)] border border-white/15 shrink-0"
                   data-testid="cover-details-play-pause"
                 >
                   {isPlaying
-                    ? <Pause className="w-7 h-7 text-white" />
-                    : <Play className="w-7 h-7 text-white ml-0.5" />
+                    ? <Pause className="w-7 h-7 text-white/90" />
+                    : <Play className="w-7 h-7 text-white/90 ml-0.5" />
                   }
                 </button>
               )}
@@ -622,20 +733,22 @@ export function CoverDetailsModal({
         )}
 
         <div className="w-full text-center px-2 pb-1" onClick={(e) => e.stopPropagation()}>
-          {/* Eugene 2026-05-17 — neon-text accent поверх gradient-text. */}
-          <p className="text-xl sm:text-2xl font-display font-bold gradient-text neon-text leading-tight">{title}</p>
+          {/* Eugene 2026-05-19 Босс «шрифт более читабельный» — крупнее title,
+              чище контраст автор + дата. */}
+          <p className="text-2xl sm:text-3xl font-display font-bold gradient-text neon-text leading-tight tracking-tight">{title}</p>
           {track.authorName && (
-            <p className="text-sm text-purple-300/90 mt-1 font-medium font-sans">{track.authorName}</p>
+            <p className="text-base text-purple-200 mt-1.5 font-semibold font-sans">{track.authorName}</p>
           )}
-          {/* Eugene 2026-05-18 Босс «убери Промт» — track.prompt full text тоже
-              скрыт в swipe modal (был рендер «Рок · быстрый · ...» как промт). */}
-          {/* Eugene 2026-05-18 Босс «убери Промт, лишние пробеты, надо в кадр».
-              Дата — компактнее (mt-2 вместо mt-4, без подписи лейбла). Help text
-              убран — функционал интуитивен через стрелки и swipe. */}
           {date && (
-            <p className="text-xs text-white/40 mt-2 font-mono">{date}</p>
+            <p className="text-sm text-white/55 mt-1.5 font-mono tabular-nums">{date}</p>
           )}
+          <p className="text-[10px] text-white/30 mt-2 font-sans">Удерживай обложку — сохранить с MuzaAi.ru</p>
         </div>
+        {saveToast && (
+          <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 rounded-full bg-gradient-to-r from-purple-600/90 via-fuchsia-600/90 to-cyan-600/90 text-white text-sm font-medium shadow-[0_0_24px_rgba(124,58,237,0.5)] animate-in fade-in slide-in-from-top-2 duration-300">
+            {saveToast}
+          </div>
+        )}
       </div>
     </div>
   );
