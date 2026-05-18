@@ -24,6 +24,10 @@ import { findSessionByPairCode, looksLikePairCode } from "./lib/webChatPair";
 // callUnifiedMuzaLLM (lib/llmCore.ts) — Eugene 2026-05-16 «один мозг».
 import { loadHistoryForLLM, loadHistoryForUser } from "./lib/chatHistory";
 import { getPendingLyricsForSession } from "./lib/muzaTools";
+// Eugene 2026-05-18 Босс «detect_negative server-side hook». Запускается
+// на каждое user-сообщение в /api/muza/chat. isCritical + score<-0.5 →
+// auto-escalation в escalation_queue с priority='high' + Telegram-alert.
+import { detectSentiment } from "./lib/sentimentDetector";
 import {
   callUnifiedMuzaLLM,
   listAnthropicKeys as listAnthropicKeysCore,
@@ -2813,6 +2817,61 @@ export async function registerRoutes(
       // Eugene 2026-05-14 Босс «адаптироваться: если клиент авторизован —
       // знать его историю». Soft-auth, без блокировки.
       const authUserId = tryGetUserId(req);
+
+      // Eugene 2026-05-18 Босс «detect_negative server-side hook». Lightweight
+      // sentiment check на каждое user-сообщение. Если isCritical=true и
+      // score < -0.5 — auto-эскалация в escalation_queue с priority='high'
+      // (плагин escalation-queue сам шлёт Telegram-alert при high priority).
+      // Sync, никогда не throw'ит — sentiment-failure не должен ломать chat.
+      try {
+        const sentiment = detectSentiment(text);
+        if (sentiment.isCritical && sentiment.score < -0.5) {
+          const now = Date.now();
+          const triggersJson = sentiment.triggers && sentiment.triggers.length
+            ? JSON.stringify(sentiment.triggers).slice(0, 1500)
+            : null;
+          try {
+            (db as any).$client.prepare(
+              `INSERT INTO escalation_queue
+                (user_id, anonymous_session, chat_session_id, message_text,
+                 sentiment_score, triggers, priority, status, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, 'high', 'open', ?)`,
+            ).run(
+              authUserId || null,
+              authUserId ? null : (session.id || null),
+              session.id || null,
+              text.slice(0, 4000),
+              sentiment.score,
+              triggersJson,
+              now,
+            );
+            // Best-effort Telegram alert (тот же rate-limit как у escalation-queue
+            // плагина — там обрабатывается на уровне sendMessage если задан bot
+            // token; здесь делаем inline-вызов чтобы не ждать cron).
+            const tgToken = process.env.TELEGRAM_BOT_TOKEN;
+            const adminId = process.env.ADMIN_TELEGRAM_ID;
+            if (tgToken && adminId) {
+              const snippet = text.slice(0, 250);
+              void fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  chat_id: adminId,
+                  text: `🚨 *Эскалация — high priority (auto-detect)*\n\n«${snippet}»\n\nТриггеры: ${(sentiment.triggers || []).slice(0, 5).join(", ")}\nОткрой Admin → 🚨 Эскалации`,
+                  parse_mode: "Markdown",
+                  disable_web_page_preview: true,
+                }),
+                signal: AbortSignal.timeout(8_000),
+              }).catch(() => {});
+            }
+          } catch (e: any) {
+            console.warn("[muza/chat detect_negative]", e?.message || e);
+          }
+        }
+      } catch {
+        // sentiment failure не должен ломать chat
+      }
+
       if (authUserId && session.userId !== authUserId) {
         try {
           db.update(chatbotSessions).set({ userId: authUserId })
