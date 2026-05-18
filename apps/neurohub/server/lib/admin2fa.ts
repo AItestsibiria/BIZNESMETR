@@ -384,28 +384,43 @@ export async function adminGateBeforeToken(input: AdminGateInput): Promise<Admin
       detail: `Login channel=${input.channel} с нового IP.`,
     });
   }
-  // Email.
-  const mailer = await getOrCreateMailer();
+  // Eugene 2026-05-18: Email primary, Telegram fallback. Если email
+  // отсутствует или SMTP не настроен — шлём код в ADMIN_TELEGRAM_ID.
+  const hasEmail = !!(input.adminEmail && input.adminEmail.includes("@"));
+  const mailer = hasEmail ? await getOrCreateMailer() : null;
   let emailSent = false;
+  let tgSent = false;
   let warning: string | undefined;
-  if (mailer) {
+  if (mailer && hasEmail) {
     const r = await sendAdmin2FAEmail(
       { mailTransport: mailer.transport, fromAddress: mailer.from, fromLabel: "MuzaAi Admin" },
       input.adminEmail,
       { adminName: input.adminName, code: created.code, ip: created.ip, ua: created.ua },
     );
     emailSent = r.ok;
-    if (!r.ok) warning = "Email не отправлен. Свяжись с Eugene.";
-  } else {
-    warning = "SMTP не сконфигурирован. Используй ADMIN_2FA_BYPASS=1 для emergency.";
+    if (!r.ok) warning = "Email не отправлен — пробуем Telegram.";
   }
-  const emailHint = input.adminEmail.replace(/(.{2}).*(@.*)/, "$1***$2");
+  if (!emailSent) {
+    tgSent = sendAdmin2FACodeViaTelegram({
+      code: created.code,
+      adminName: input.adminName,
+      channel: input.channel,
+      ip: created.ip,
+      ua: created.ua,
+    });
+    if (!tgSent && !emailSent) {
+      warning = "Ни email, ни Telegram не доставили код. Используй ADMIN_2FA_BYPASS=1 для emergency.";
+    }
+  }
+  const emailHint = hasEmail
+    ? input.adminEmail.replace(/(.{2}).*(@.*)/, "$1***$2")
+    : (tgSent ? "Telegram" : "—");
   return {
     requireAdminCode: true,
     sessionDraftId: created.sessionDraftId,
     emailHint,
     expiresInSec: 600,
-    warning: emailSent ? undefined : warning,
+    warning: (emailSent || tgSent) ? undefined : warning,
   };
 }
 
@@ -422,6 +437,52 @@ export interface SendAdmin2FAAlertOpts {
 
 const lastAlertAt = new Map<string, number>();
 const ALERT_COOLDOWN_MS = 5 * 60 * 1000;
+
+// Eugene 2026-05-18: Telegram fallback для 2FA-кода. Используется когда
+// email пустой или SMTP не сконфигурирован. Sync return → frontend сразу
+// получает emailHint="Telegram".
+export function sendAdmin2FACodeViaTelegram(opts: {
+  code: string;
+  adminName: string | null;
+  channel: string;
+  ip: string;
+  ua: string;
+}): boolean {
+  try {
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const adminId = process.env.ADMIN_TELEGRAM_ID;
+    if (!token || !adminId) return false;
+    const lines = [
+      "🔐 Admin 2FA — код для входа",
+      "",
+      `Код: <b>${opts.code}</b>`,
+      "",
+      `Login: ${opts.adminName || "admin"}`,
+      `Channel: ${opts.channel}`,
+      `IP: ${opts.ip || "?"}`,
+      `UA: ${(opts.ua || "?").slice(0, 120)}`,
+      `Время: ${new Date().toLocaleString("ru-RU", { timeZone: "Europe/Moscow" })} MSK`,
+      "",
+      "Действителен 10 минут. Если это не вы — игнорируйте.",
+    ];
+    fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: adminId,
+        text: lines.join("\n"),
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+      }),
+    }).catch((e) => {
+      try { console.warn("[admin-2fa-tg-code]", String(e?.message || e)); } catch {}
+    });
+    return true;
+  } catch (e) {
+    try { console.warn("[admin-2fa-tg-code]", String((e as any)?.message || e)); } catch {}
+    return false;
+  }
+}
 
 export function sendAdmin2FAAlert(opts: SendAdmin2FAAlertOpts): void {
   try {
