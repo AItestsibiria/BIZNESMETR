@@ -44,12 +44,23 @@ export function is2FABypassed(): boolean {
   return process.env.ADMIN_2FA_BYPASS === "1";
 }
 
-export function shouldRequireAdmin2FA(role: string | null | undefined, req: Request): boolean {
+export function shouldRequireAdmin2FA(
+  role: string | null | undefined,
+  req: Request,
+  channel?: string,
+): boolean {
   if (!isAdminRole(role)) return false;
   if (is2FABypassed()) return false;
   // Trusted IP skip: админ заходит с офисного / домашнего whitelisted IP →
   // 2FA не нужен. Если ADMIN_TRUSTED_IPS не задан в env — всегда требуем.
   if (isAdminTrustedIp(req)) return false;
+  // Eugene 2026-05-18 Босс «оставь вариант с почтой только для кардинальных
+  // изменений, пока почта не работает». Phone-каналы (call / reverse-call /
+  // SMS-OTP) пропускают 2FA по умолчанию. Включить обратно: env
+  // ADMIN_2FA_PHONE_LOGIN=1. Email/password (login) и destructive ops
+  // (change_password, change_email, delete_account) всегда требуют 2FA.
+  const isPhoneChannel = channel === "phone_call" || channel === "phone_reverse_call" || channel === "phone_sms_otp";
+  if (isPhoneChannel && process.env.ADMIN_2FA_PHONE_LOGIN !== "1") return false;
   return true;
 }
 
@@ -356,7 +367,7 @@ interface AdminGateInput {
 }
 
 export async function adminGateBeforeToken(input: AdminGateInput): Promise<AdminGateResult> {
-  if (!shouldRequireAdmin2FA(input.adminRole, input.req)) {
+  if (!shouldRequireAdmin2FA(input.adminRole, input.req, input.channel)) {
     return { requireAdminCode: false };
   }
   const created = createAdmin2FACode({
