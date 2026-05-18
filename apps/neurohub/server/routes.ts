@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage, db, sqliteDb } from "./storage";
 import { PUBLIC_URL } from "./lib/publicUrl";
 import { detectsYars, recordYarsMention } from "./lib/yarsDetect";
+import { detectSentiment } from "./lib/sentimentDetector";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
 import { registerSchema, loginSchema, users, payments, generations, transactions, promoCodes, visitors, genActivity, songDrafts, botLearnings, landingNews, chatbotSessions, chatbotMessages, adminDelegates, userActionFailures, agentHandoffs, userJourneyEvents } from "@shared/schema";
@@ -2813,6 +2814,29 @@ export async function registerRoutes(
         role: "user",
         text,
       }).run();
+
+      // Eugene 2026-05-18 Босс «Detect-negative server-side hook». Если
+      // юзер пишет резко негативно (critical sentiment + score < -0.5) —
+      // fire-and-forget POST в escalation-queue. Не блокируем ответ Музе.
+      try {
+        const sentiment = detectSentiment(text);
+        if (sentiment.isCritical && sentiment.score < -0.5) {
+          const userIdForLog = (typeof session.userId === "number" ? session.userId : null);
+          fetch(`http://localhost:${process.env.PORT || 3000}/api/escalations/log`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              userId: userIdForLog,
+              sessionId: session.id,
+              chatSessionId: session.id,
+              text: text.slice(0, 500),
+              score: sentiment.score,
+              triggers: sentiment.triggers,
+              priority: "high",
+            }),
+          }).catch(() => {});
+        }
+      } catch {}
 
       // Eugene 2026-05-14 Босс «адаптироваться: если клиент авторизован —
       // знать его историю». Soft-auth, без блокировки.
