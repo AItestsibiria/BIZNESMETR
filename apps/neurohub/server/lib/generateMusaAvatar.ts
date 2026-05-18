@@ -263,6 +263,81 @@ async function tryGptunnelImage(
 }
 
 /**
+ * Прямой fallback на OpenAI DALL-E 3 (если GPTunnel image-gen не поддержан).
+ * Eugene 2026-05-18 Босс: GPTunnel вернул «Not allowed to POST on
+ * /v1/images/generations» по всем моделям — нужен другой провайдер.
+ * OpenAI DALL-E через прямой API с OPENAI_API_KEY из env.
+ *
+ * Согласно docs (https://platform.openai.com/docs/api-reference/images/create):
+ *   POST https://api.openai.com/v1/images/generations
+ *   body: { model: "dall-e-3", prompt, n: 1, size: "1024x1024", quality: "hd" }
+ *   resp: { data: [{ url: "..." }] }
+ */
+async function tryOpenAIImage(prompt: string): Promise<{
+  buffer: Buffer | null;
+  attempt: GptunnelImageAttempt;
+}> {
+  const apiKey = process.env.OPENAI_API_KEY || "";
+  if (!apiKey) {
+    return {
+      buffer: null,
+      attempt: { model: "dall-e-3 (openai)", endpoint: "n/a", ok: false, error: "OPENAI_API_KEY missing" },
+    };
+  }
+  const endpoint = "https://api.openai.com/v1/images/generations";
+  try {
+    const r = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "dall-e-3",
+        prompt: prompt.slice(0, 4000),
+        n: 1,
+        size: "1024x1024",
+        quality: "hd",
+        style: "natural",
+        response_format: "url",
+      }),
+      signal: AbortSignal.timeout(120_000),
+    });
+    const text = await r.text().catch(() => "");
+    let parsed: unknown = null;
+    try { parsed = JSON.parse(text); } catch { /* not JSON */ }
+    const attempt: GptunnelImageAttempt = {
+      model: "dall-e-3 (openai)",
+      endpoint,
+      httpStatus: r.status,
+      ok: r.ok,
+      bodyPreview: text.slice(0, 300),
+    };
+    if (!r.ok) {
+      return { buffer: null, attempt };
+    }
+    const buf = await downloadImageBytes(parsed);
+    if (buf && buf.length > 1024) {
+      return { buffer: buf, attempt };
+    }
+    return {
+      buffer: null,
+      attempt: { ...attempt, ok: false, error: "parsed OK but no image bytes" },
+    };
+  } catch (err) {
+    return {
+      buffer: null,
+      attempt: {
+        model: "dall-e-3 (openai)",
+        endpoint,
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    };
+  }
+}
+
+/**
  * Основная функция — вызывается из admin endpoint.
  */
 export async function generateMusaAvatar3D(
@@ -274,15 +349,32 @@ export async function generateMusaAvatar3D(
     ? customPrompt.trim()
     : DEFAULT_MUSA_PROMPT;
 
-  const { buffer, attempts, modelTried } = await tryGptunnelImage(promptUsed, refImageUrl ?? null);
+  // 1. Попробовать GPTunnel (если он поддерживает image-gen для этого ключа)
+  const { buffer: gptBuffer, attempts: gptAttempts, modelTried } = await tryGptunnelImage(
+    promptUsed, refImageUrl ?? null,
+  );
+
+  let buffer = gptBuffer;
+  let allAttempts = [...gptAttempts];
+
+  // 2. Если GPTunnel не дал — fallback на OpenAI DALL-E 3 напрямую
+  if (!buffer) {
+    const openai = await tryOpenAIImage(promptUsed);
+    allAttempts.push(openai.attempt);
+    if (openai.buffer) {
+      buffer = openai.buffer;
+      modelTried.push("dall-e-3 (openai direct)");
+    }
+  }
+
   if (!buffer) {
     return {
       ok: false,
       promptUsed,
       modelTried,
       durationMs: Date.now() - startedAt,
-      error: "GPTunnel image generation failed across all candidate models",
-      errorDetails: attempts,
+      error: "Image generation failed: GPTunnel + OpenAI fallback both failed",
+      errorDetails: allAttempts,
     };
   }
 
