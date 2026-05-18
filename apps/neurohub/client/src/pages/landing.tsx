@@ -756,11 +756,34 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     audio.addEventListener("pause", () => setIsPlayingState(false));
     audio.addEventListener("ended", () => setIsPlayingState(false));
 
-    // Eugene 2026-05-18 Босс «lock-screen logo вместо обложки».
-    // КРИТИЧНО: setLockScreenTrackSync ДО audio.play(), чтобы iOS прочитал
-    // metadata при play() resolve, а не упал на document.title fallback.
+    // Eugene 2026-05-18 Босс «LS не показывает обложки» — 7-я итерация.
+    // КРИТИЧНО SYNC: iOS читает navigator.mediaSession.metadata в момент
+    // audio.play() resolve (≈ 100-300ms). Если ещё null → берёт fallback
+    // (document.title + apple-touch-icon → раньше был фиолет. waveform).
+    // setLockScreenTrack async — устанавливает metadata ПОСЛЕ play(), iOS
+    // уже прочитал null. Inline sync setter решает проблему окончательно.
     const msTitleSync = track.displayTitle || track.prompt?.slice(0, 60) || 'MuzaAi';
     const msArtistSync = track.authorName ? `MuzaAi · ${track.authorName}` : 'MuzaAi';
+    const coverBust = (track as any).coverGenId || track.id;
+    if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
+      try {
+        const origin = window.location.origin;
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: msTitleSync,
+          artist: msArtistSync,
+          album: 'MuzaAi',
+          artwork: [
+            { src: `${origin}/api/cover/${track.id}.jpg?size=96&v=${coverBust}`, sizes: '96x96', type: 'image/jpeg' },
+            { src: `${origin}/api/cover/${track.id}.jpg?size=192&v=${coverBust}`, sizes: '192x192', type: 'image/jpeg' },
+            { src: `${origin}/api/cover/${track.id}.jpg?size=256&v=${coverBust}`, sizes: '256x256', type: 'image/jpeg' },
+            { src: `${origin}/api/cover/${track.id}.jpg?size=384&v=${coverBust}`, sizes: '384x384', type: 'image/jpeg' },
+            { src: `${origin}/api/cover/${track.id}.jpg?size=512&v=${coverBust}`, sizes: '512x512', type: 'image/jpeg' },
+          ],
+        });
+      } catch (e) {
+        try { console.warn("[LS-sync] MediaMetadata failed:", e); } catch {}
+      }
+    }
     const lsHandlers = {
       play: () => {
         audioRef.current?.play().catch(() => {});

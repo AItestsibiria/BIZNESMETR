@@ -1277,11 +1277,31 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
       unmuteBgMusic();
     };
 
-    // Eugene 2026-05-18 Босс «lock-screen logo вместо обложки».
-    // КРИТИЧНО: setLockScreenTrackSync ДО audio.play(), чтобы iOS прочитал
-    // metadata при play() resolve. Иначе → document.title fallback.
+    // Eugene 2026-05-18 Босс «LS не показывает обложки» — 7-я итерация.
+    // КРИТИЧНО SYNC: navigator.mediaSession.metadata УСТАНОВИТЬ inline ДО
+    // audio.play(). iOS читает metadata при play() resolve — если ещё null,
+    // берёт document.title + apple-touch-icon как fallback.
     const lsTitle = gen.displayTitle || gen.prompt?.slice(0, 60) || 'MuzaAi';
     const lsArtist = gen.authorName ? `MuzaAi · ${gen.authorName}` : 'MuzaAi';
+    if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
+      try {
+        const origin = window.location.origin;
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: lsTitle,
+          artist: lsArtist,
+          album: 'MuzaAi',
+          artwork: [
+            { src: `${origin}/api/cover/${gen.id}.jpg?size=96&v=${gen.id}`, sizes: '96x96', type: 'image/jpeg' },
+            { src: `${origin}/api/cover/${gen.id}.jpg?size=192&v=${gen.id}`, sizes: '192x192', type: 'image/jpeg' },
+            { src: `${origin}/api/cover/${gen.id}.jpg?size=256&v=${gen.id}`, sizes: '256x256', type: 'image/jpeg' },
+            { src: `${origin}/api/cover/${gen.id}.jpg?size=384&v=${gen.id}`, sizes: '384x384', type: 'image/jpeg' },
+            { src: `${origin}/api/cover/${gen.id}.jpg?size=512&v=${gen.id}`, sizes: '512x512', type: 'image/jpeg' },
+          ],
+        });
+      } catch (e) {
+        try { console.warn("[LS-sync] MediaMetadata failed:", e); } catch {}
+      }
+    }
     const lsHandlers = {
       play: () => { audioRef.current?.play(); muteBgMusic(); setLockScreenPlaybackState('playing'); },
       pause: () => { audioRef.current?.pause(); unmuteBgMusic(); setLockScreenPlaybackState('paused'); },
