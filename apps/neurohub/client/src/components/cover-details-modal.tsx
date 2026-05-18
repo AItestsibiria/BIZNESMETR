@@ -323,8 +323,14 @@ export function CoverDetailsModal({
 
       {/* Eugene 2026-05-18 Босс «уменьши в свайпе» — compact 60% экрана.
           Было w-[90vw] max-w-[1100px] (слишком огромная на iPad).
-          Стало max-w-2xl (~672px) — элегантно, не закрывает фоном весь экран. */}
-      <div className="w-[80vw] max-w-2xl md:max-w-lg lg:max-w-xl flex flex-col items-center gap-2 px-4 relative">
+          Стало max-w-2xl (~672px) — элегантно, не закрывает фоном весь экран.
+
+          Eugene 2026-05-18 (iPad Pro overflow fix): на iPad Pro portrait
+          (1024-1366px) и landscape (1366-1700+) обложка square aspect-ratio
+          выходит за viewport. Добавлено max-h-[90vh] overflow-hidden на
+          сам container (и max-h-[70vh] ниже на cover image) — square
+          обложка остаётся в пределах высоты экрана. */}
+      <div className="w-[80vw] max-w-2xl md:max-w-lg lg:max-w-xl max-h-[90vh] overflow-hidden flex flex-col items-center gap-2 px-4 relative">
         {/* Левая стрелка-хинт (показывается если есть onPrev) */}
         {onPrev && (
           <button
@@ -368,9 +374,13 @@ export function CoverDetailsModal({
             aria-hidden="true"
             className="absolute -inset-4 sm:-inset-6 rounded-3xl opacity-80 blur-3xl pointer-events-none cover-aura"
           />
-        {/* Обложка с swipe-жестом */}
+        {/* Обложка с swipe-жестом.
+            Eugene 2026-05-18 (iPad Pro overflow fix): max-h-[70vh] вместо
+            85vh + явный object-contain. На iPad Pro portrait/landscape
+            square aspect-ratio + 85vh высота заставлял container выходить
+            за viewport (1024×1366 → square 1024 > 70% от 1366). */}
         <div
-          className="relative w-full aspect-square max-h-[85vh] rounded-3xl overflow-hidden bg-gradient-to-br from-[#1a0f2e] via-[#0a0a17] to-[#0f1830] shadow-[0_0_64px_rgba(124,58,237,0.25)] border border-purple-500/20"
+          className="relative w-full aspect-square max-h-[70vh] rounded-3xl overflow-hidden bg-gradient-to-br from-[#1a0f2e] via-[#0a0a17] to-[#0f1830] shadow-[0_0_64px_rgba(124,58,237,0.25)] border border-purple-500/20"
           onClick={(e) => e.stopPropagation()}
         >
           <AnimatePresence mode="wait" initial={false}>
