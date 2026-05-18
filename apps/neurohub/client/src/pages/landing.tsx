@@ -1933,6 +1933,18 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" /><span className="text-[10px] text-white/80">playing</span>
                             </div>
                           )}
+                          {/* Eugene 2026-05-18 Босс «И тут нет S» — S-кнопка в
+                              правом верхнем углу expanded view (под playing
+                              badge если есть). Открывает swipe-modal. */}
+                          <button
+                            className={`absolute right-3 flex items-center justify-center active:scale-95 z-30 w-9 h-9 ${ePlaying ? "top-12" : "top-3"}`}
+                            title="Свайп-режим — листай ← → большие обложки"
+                            aria-label="Свайп-режим"
+                            onClick={(e) => { e.stopPropagation(); setDetailsOpen(true); }}
+                            data-testid="btn-cover-s-expanded"
+                          >
+                            <span className="font-display font-bold italic text-2xl tracking-wider text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.95)] drop-shadow-[0_0_16px_rgba(217,70,239,0.85)]">S</span>
+                          </button>
                         </div>
                         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black via-black/70 to-transparent px-5 pb-5 pt-24 z-30">
                           <p className="text-white font-bold text-base leading-snug">{track.displayTitle || track.prompt?.slice(0, 80)}</p>
