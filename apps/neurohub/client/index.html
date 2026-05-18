@@ -71,8 +71,19 @@
          для аудио. Теперь если MediaSession.metadata.artwork не загрузится,
          iOS возьмёт generic music icon (нейтральный), а НЕ наш логотип.
          Favicon в browser tab остаётся через rel="icon" (выше). -->
-    <meta name="apple-mobile-web-app-title" content="" />
+    <!-- Eugene 2026-05-18 8-я итерация LS: apple-mobile-web-app-title="MuzaAi"
+         (НЕ пустой) — это title который iOS показывает рядом с NowPlaying
+         как «app source» в Control Center. Пустой → iOS брал document.title
+         («MuzaAi — Создавай музыку с AI») и обрезал как fallback. Установка
+         "MuzaAi" делает source label чистым. Не влияет на title трека из
+         MediaSession.metadata.title (это разные слоты). -->
+    <meta name="apple-mobile-web-app-title" content="MuzaAi" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <!-- format-detection: отключает iOS auto-formatting телефонных номеров /
+         адресов / email как clickable links — иначе title треков с цифрами
+         (например «Поздравление на 30 лет») может стать tel:link. -->
+    <meta name="format-detection" content="telephone=no,address=no,email=no" />
     <link rel="manifest" href="/manifest.json" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
