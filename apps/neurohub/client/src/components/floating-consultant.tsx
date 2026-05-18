@@ -1509,7 +1509,7 @@ export function FloatingConsultant() {
             </>
           )}
           <div
-            className={`absolute flex flex-col bg-background/[0.18] backdrop-blur-md border-2 rounded-2xl border-purple-400/40 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in fade-in duration-300 ${
+            className={`absolute flex flex-col bg-background/[0.28] backdrop-blur-md border-2 rounded-2xl border-purple-400/40 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in fade-in duration-300 ${
               isResizing ? "" : "transition-all"
             } ${
               // Mobile (sm:hidden break) — фиксированные responsive ширины как раньше.
@@ -1538,18 +1538,18 @@ export function FloatingConsultant() {
             {!isMobile && (
               <div
                 onPointerDown={handleResizeStart}
-                className={`absolute top-0 left-0 w-7 h-7 z-30 flex items-center justify-center select-none cursor-nwse-resize transition-all ${
+                className={`absolute top-0 left-0 w-9 h-9 z-30 flex items-center justify-center select-none cursor-nwse-resize rounded-br-xl transition-all ${
                   isResizing
                     ? resizeSnapTarget !== null
-                      ? "text-fuchsia-300 drop-shadow-[0_0_8px_rgba(232,121,249,0.85)]"
-                      : "text-purple-300"
-                    : "text-white/40 hover:text-fuchsia-300"
+                      ? "text-fuchsia-200 bg-fuchsia-500/20 drop-shadow-[0_0_10px_rgba(232,121,249,0.95)]"
+                      : "text-purple-200 bg-purple-500/15"
+                    : "text-fuchsia-300/80 hover:text-fuchsia-200 hover:bg-purple-500/20 animate-pulse"
                 }`}
-                title={`Перетащи чтобы изменить размер${resizeSnapTarget !== null ? ` · ${Math.round(resizeSnapTarget * 100)}%` : ""}`}
+                title={`Перетащи угол ↖ чтобы изменить размер${resizeSnapTarget !== null ? ` · ${Math.round(resizeSnapTarget * 100)}%` : ""}`}
                 aria-label="Resize handle"
                 role="separator"
               >
-                <span className="text-[13px] font-bold leading-none rotate-[-45deg]">⇕</span>
+                <span className="text-[16px] font-bold leading-none rotate-[-45deg] drop-shadow-[0_0_6px_rgba(232,121,249,0.6)]">⇕</span>
               </div>
             )}
             {/* Eugene 2026-05-14 Босс «нажатие на левую часть по вертикали
