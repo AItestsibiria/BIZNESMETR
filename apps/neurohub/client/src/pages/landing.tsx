@@ -1371,6 +1371,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               aria-label="Свайп-режим"
               onClick={() => setDetailsOpen(true)}
               data-testid="btn-cover-s-top-right"
+              data-musa-hint="📱 Свайп-режим — листай обложки большими карточками, удерживай для сохранения"
             >
               <span className="font-display font-bold italic text-xl tracking-wider text-white drop-shadow-[0_0_8px_rgba(217,70,239,0.95)]">S</span>
             </button>
@@ -2361,6 +2362,7 @@ export default function LandingPage() {
                 else navigate("/register-phone");
               }}
               data-testid="button-hero-cta"
+              data-musa-hint="🎵 Нажми — создадим твою первую песню за 2 минуты"
             >
               <span className="text-xl mr-2">♪</span>
               Создать трек

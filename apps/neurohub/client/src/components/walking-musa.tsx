@@ -181,6 +181,47 @@ export function WalkingMusa() {
     return () => window.removeEventListener("resize", update);
   }, []);
 
+  // Eugene 2026-05-19 Босс «живой персонаж следует за курсором и помогает
+  // в районе указателя» — Quick win вариант A. Mouse-follow с easing +
+  // контекстные подсказки на элементах с data-musa-hint="...".
+  const [mouseFollow, setMouseFollow] = useState<{ x: number; y: number } | null>(null);
+  const [contextHint, setContextHint] = useState<string | null>(null);
+  const mouseFollowTimerRef = useRef<number | null>(null);
+  const lastMouseMoveRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (prefersReducedMotion()) return;
+    // Throttle 200ms — не дёргаем state на каждом px
+    const onMove = (e: MouseEvent) => {
+      const now = Date.now();
+      if (now - lastMouseMoveRef.current < 200) return;
+      lastMouseMoveRef.current = now;
+      if (dragging || active) return; // auto-tour + drag override
+      setMouseFollow({ x: e.clientX, y: e.clientY });
+      // Context hint detection
+      const tgt = e.target as HTMLElement | null;
+      const hintEl = tgt?.closest?.("[data-musa-hint]");
+      if (hintEl) {
+        const hint = hintEl.getAttribute("data-musa-hint");
+        if (hint && hint !== contextHint) setContextHint(hint);
+      } else if (contextHint) {
+        setContextHint(null);
+      }
+      // Auto-hide mouse-follow if idle 3 сек
+      if (mouseFollowTimerRef.current) window.clearTimeout(mouseFollowTimerRef.current);
+      mouseFollowTimerRef.current = window.setTimeout(() => {
+        setMouseFollow(null);
+        setContextHint(null);
+      }, 3500);
+    };
+    window.addEventListener("mousemove", onMove, { passive: true });
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      if (mouseFollowTimerRef.current) window.clearTimeout(mouseFollowTimerRef.current);
+    };
+  }, [active, dragging, contextHint]);
+
   // Listen for FloatingConsultant open/close — пока чат открыт, walking
   // tour не запускается / прерывается. FloatingConsultant диспатчит эти
   // события через window.dispatchEvent(new CustomEvent('musa-chat-open'/
@@ -249,6 +290,77 @@ export function WalkingMusa() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Mouse-follow mode (Eugene 2026-05-19 Variant A) — отдельная Муза которая
+  // плавно идёт за курсором + показывает контекстную подсказку при hover на
+  // элементах с data-musa-hint. Не требует active=true.
+  if (!active && mouseFollow) {
+    // Позиция Музы — 36px вправо-вниз от курсора (не закрывает кликнутую цель)
+    const px = Math.min(window.innerWidth - MUSA_SIZE_PX - 8, mouseFollow.x + 28);
+    const py = Math.min(window.innerHeight - MUSA_SIZE_PX - 8, mouseFollow.y + 28);
+    const onRight = px + 100 > window.innerWidth - 200;
+    return (
+      <div
+        aria-live="polite"
+        style={{
+          position: "fixed",
+          left: `${px}px`,
+          top: `${py}px`,
+          transform: "translate(0, 0)",
+          transition: "left 380ms cubic-bezier(.2,.7,.2,1), top 380ms cubic-bezier(.2,.7,.2,1)",
+          zIndex: 9998,
+          pointerEvents: "none",
+        }}
+      >
+        <div
+          style={{
+            width: MUSA_SIZE_PX,
+            height: MUSA_SIZE_PX,
+            borderRadius: "9999px",
+            background: "radial-gradient(circle at 30% 30%, rgba(168,85,247,0.45), rgba(34,211,238,0.25))",
+            boxShadow: "0 0 24px rgba(124,58,237,0.45), 0 0 48px rgba(0,212,255,0.2)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            animation: "walkingMusaBounce 2.4s ease-in-out infinite",
+          }}
+        >
+          <img
+            src="/consultant-avatar.png"
+            alt="Муза"
+            style={{ width: 38, height: 38, objectFit: "contain", borderRadius: "9999px" }}
+            onError={(e) => { (e.target as HTMLImageElement).src = "/consultant-avatar.svg"; }}
+          />
+        </div>
+        {contextHint && (
+          <div
+            style={{
+              position: "absolute",
+              top: "50%",
+              transform: "translateY(-50%)",
+              [onRight ? "right" : "left"]: "calc(100% + 12px)",
+              minWidth: 180,
+              maxWidth: 280,
+              padding: "10px 12px",
+              borderRadius: 16,
+              background: "linear-gradient(135deg, rgba(20,18,40,0.94), rgba(28,16,46,0.9))",
+              border: "1px solid rgba(168,85,247,0.5)",
+              color: "rgba(255,255,255,0.95)",
+              fontSize: 12,
+              lineHeight: 1.4,
+              fontFamily: "Inter, system-ui, sans-serif",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.4), 0 0 20px rgba(124,58,237,0.3)",
+              backdropFilter: "blur(8px)",
+              animation: "walkingMusaBubble 280ms ease-out backwards",
+              whiteSpace: "normal",
+            }}
+          >
+            {contextHint}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   if (!active) return null;
   const current = stops[stopIdx];

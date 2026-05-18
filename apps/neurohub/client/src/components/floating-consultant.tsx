@@ -1298,7 +1298,7 @@ export function FloatingConsultant() {
 
   return (
     <div
-      className={`fixed z-30 bottom-3 right-3 sm:bottom-4 sm:right-4 transition-opacity duration-500 ${exiting ? "opacity-0 consultant-slide-out" : "opacity-100 consultant-slide-in animate-in fade-in"} ${smartHighlight ? "consultant-attention" : ""}`}
+      className={`fixed z-30 top-3 right-3 sm:top-4 sm:right-4 transition-opacity duration-500 ${exiting ? "opacity-0 consultant-slide-out" : "opacity-100 consultant-slide-in animate-in fade-in"} ${smartHighlight ? "consultant-attention" : ""}`}
       data-testid="floating-consultant"
     >
       <div className="relative">
@@ -1313,7 +1313,7 @@ export function FloatingConsultant() {
           <button
             type="button"
             onClick={openChat}
-            className="absolute bottom-full right-0 mb-2 px-4 py-2.5 backdrop-blur-md border text-[12px] font-medium text-white text-center leading-tight max-w-[180px] animate-in fade-in slide-in-from-bottom-2 duration-300 shadow-lg hover:scale-105 transition-all cursor-pointer bg-gradient-to-br from-pink-500/40 to-purple-500/30 border-pink-300/50 shadow-pink-500/30 hover:from-pink-500/60 hover:to-purple-500/45"
+            className="absolute top-full right-0 mt-2 px-4 py-2.5 backdrop-blur-md border text-[12px] font-medium text-white text-center leading-tight max-w-[180px] animate-in fade-in slide-in-from-top-2 duration-300 shadow-lg hover:scale-105 transition-all cursor-pointer bg-gradient-to-br from-pink-500/40 to-purple-500/30 border-pink-300/50 shadow-pink-500/30 hover:from-pink-500/60 hover:to-purple-500/45"
             style={{
               borderRadius: "55% 45% 45% 50% / 60% 50% 60% 40%",
             }}
@@ -1325,7 +1325,7 @@ export function FloatingConsultant() {
 
         {/* Click reaction bubble — игровая деловая фраза при нажатии */}
         {reaction && (
-          <div className="absolute bottom-full right-0 mb-1.5 px-3 py-1.5 rounded-2xl bg-gradient-to-br from-purple-500/30 to-blue-500/20 backdrop-blur-md border border-purple-400/40 text-[11px] text-white font-medium whitespace-nowrap animate-in fade-in slide-in-from-bottom-2 duration-200 shadow-lg shadow-purple-500/20">
+          <div className="absolute top-full right-0 mt-1.5 px-3 py-1.5 rounded-2xl bg-gradient-to-br from-purple-500/30 to-blue-500/20 backdrop-blur-md border border-purple-400/40 text-[11px] text-white font-medium whitespace-nowrap animate-in fade-in slide-in-from-top-2 duration-200 shadow-lg shadow-purple-500/20">
             {reaction}
           </div>
         )}
@@ -1337,7 +1337,7 @@ export function FloatingConsultant() {
             самом низу парой, Чат как яркое мини-облачко. */}
         {expanded && (
           <div
-            className="absolute bottom-full right-0 mb-3 w-60 sm:w-64 p-2.5 bg-gradient-to-br from-purple-600/85 via-violet-600/80 to-blue-500/75 backdrop-blur-2xl border-2 border-purple-300/40 shadow-2xl shadow-purple-500/50 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-hidden"
+            className="absolute top-full right-0 mt-3 w-60 sm:w-64 p-2.5 bg-gradient-to-br from-purple-600/85 via-violet-600/80 to-blue-500/75 backdrop-blur-2xl border-2 border-purple-300/40 shadow-2xl shadow-purple-500/50 animate-in fade-in slide-in-from-top-2 duration-300 overflow-hidden"
             style={{
               borderRadius: "60% 40% 55% 70% / 50% 65% 45% 60%",
               boxShadow: "0 20px 60px rgba(139, 92, 246, 0.5), 0 0 40px rgba(34, 211, 238, 0.25), inset 0 0 30px rgba(255, 255, 255, 0.05)",
@@ -2167,7 +2167,7 @@ export function FloatingConsultant() {
                 подсказками по умолчанию, оставь кнопку для появления».
                 Показываются ТОЛЬКО по клику на «💡 Подсказки» в input area. */}
             {showSuggestions && chatMsgs.filter(m => m.role === "user").length === 0 && (
-              <div className="px-3 py-2 border-t border-white/[0.04] shrink-0 bg-white/[0.015] animate-in fade-in slide-in-from-bottom-2 duration-200">
+              <div className="px-3 py-2 border-t border-white/[0.04] shrink-0 bg-white/[0.015] animate-in fade-in slide-in-from-top-2 duration-200">
                 <div className="flex items-center justify-between mb-1.5">
                   <div className="text-[10px] text-white/40">Можно начать так:</div>
                   <button
