@@ -15,6 +15,7 @@
 // в очередь автоматически.
 
 import { Router, type Request, type Response } from "express";
+import crypto from "crypto";
 import { z } from "zod";
 import { sql } from "drizzle-orm";
 import { db } from "../../storage";
@@ -24,9 +25,58 @@ import {
   hashSenderIdentifier,
   classifyOperatorCommand,
 } from "../../lib/operatorAuth";
+import { executeYarsCommand } from "../../lib/yarsExecutor";
 import type { Module } from "../../core";
 
 const TTL_HOURS = 24;
+
+// === Auto-apply helpers ===
+
+function isAutoApplyEnabled(): boolean {
+  return (process.env.YARS_AUTO_APPLY || "").trim() === "1";
+}
+
+// Безопасное сравнение токенов через timingSafeEqual (защита от timing-leak).
+function safeTokenCompare(provided: string, expected: string): boolean {
+  if (!provided || !expected) return false;
+  const a = Buffer.from(provided, "utf-8");
+  const b = Buffer.from(expected, "utf-8");
+  if (a.length !== b.length) return false;
+  try {
+    return crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
+// Применить safe-команду через executor, mark queue entry as 'applied'.
+// Возвращает { autoApplied, result }. Если executor отказал — entry
+// остаётся в pending и admin сам нажмёт ✅ Применить.
+async function tryAutoApply(
+  queueId: number,
+  text: string,
+  options?: { ip?: string; chatSessionId?: string | null },
+): Promise<{ autoApplied: boolean; applied: string[]; error?: string }> {
+  try {
+    const result = await executeYarsCommand(text, {
+      ip: options?.ip,
+      sourceChatSession: options?.chatSessionId ?? null,
+    });
+    if (!result.ok) {
+      return { autoApplied: false, applied: [], error: result.error };
+    }
+    const now = Date.now();
+    db.run(sql`
+      UPDATE operator_command_queue
+      SET status = 'applied', applied_at = ${now}
+      WHERE id = ${queueId} AND status = 'pending'
+    `);
+    return { autoApplied: true, applied: result.applied };
+  } catch (e: any) {
+    console.error("[operator-commands tryAutoApply]", e);
+    return { autoApplied: false, applied: [], error: e?.message || "executor failed" };
+  }
+}
 
 // === Zod ===
 
@@ -109,19 +159,130 @@ publicRouter.post("/incoming", async (req: Request, res: Response) => {
         (${senderHash}, ${text}, ${cls.category}, ${cls.safe ? 1 : 0},
          'pending', ${chatSessionId ?? null}, ${now}, ${expiresAt})
     `);
+    const queueId = Number(result?.lastInsertRowid ?? 0);
+
+    // Auto-apply для safe команд при YARS_AUTO_APPLY=1.
+    let autoApplied = false;
+    let appliedActions: string[] = [];
+    let autoApplyError: string | undefined;
+    if (cls.safe && isAutoApplyEnabled() && queueId > 0) {
+      const ar = await tryAutoApply(queueId, text, {
+        ip: (req.ip || "") as string,
+        chatSessionId: chatSessionId ?? null,
+      });
+      autoApplied = ar.autoApplied;
+      appliedActions = ar.applied;
+      autoApplyError = ar.error;
+    }
 
     res.json({
       data: {
         queued: true,
-        id: Number(result?.lastInsertRowid ?? 0),
+        id: queueId,
         safe: cls.safe,
         category: cls.category,
         parsedIntent: cls.parsedIntent ?? null,
+        autoApplied,
+        appliedActions,
+        autoApplyError: autoApplyError ?? null,
       },
       error: null,
     });
   } catch (e: any) {
     console.error("[operator-commands incoming]", e);
+    res.status(500).json({ data: null, error: "Не удалось принять команду" });
+  }
+});
+
+// === Yars webhook router (mounted под /api/yars в onLoad) ===
+//
+// POST /api/yars/webhook — публичный endpoint (auth через X-Yars-Token header).
+// Принимает сообщения от Yars-канала (telegram-bot listener / voice ingest /
+// внешний bridge). Token check защищает от спама и подделок.
+//
+// Body: { from: senderIdentifier, text: string, source?: 'telegram'|'voice'|'web' }
+// Header: X-Yars-Token: <значение из env YARS_WEBHOOK_TOKEN>
+//
+// Internal pipeline: same as /incoming — isAuthorizedOperator(from) →
+// classifyOperatorCommand(text) → INSERT в queue → опц. auto-apply.
+
+const WebhookBodySchema = z.object({
+  from: z.string().trim().min(1).max(200),
+  text: z.string().trim().min(1).max(2000),
+  source: z.enum(["telegram", "voice", "web", "max", "vk"]).optional(),
+  chatSessionId: z.string().trim().max(200).optional().nullable(),
+});
+
+const yarsRouter = Router();
+
+yarsRouter.post("/webhook", async (req: Request, res: Response) => {
+  try {
+    const expectedToken = (process.env.YARS_WEBHOOK_TOKEN || "").trim();
+    if (!expectedToken) {
+      // Защитная позиция: без env-токена endpoint полностью закрыт.
+      res.status(503).json({ data: null, error: "Yars webhook не настроен" });
+      return;
+    }
+    const providedToken = String(req.headers["x-yars-token"] || "").trim();
+    if (!safeTokenCompare(providedToken, expectedToken)) {
+      res.status(403).json({ data: null, error: "Неверный токен" });
+      return;
+    }
+
+    const parsed = WebhookBodySchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      res.status(400).json({ data: null, error: "Некорректные параметры" });
+      return;
+    }
+    const { from, text, source, chatSessionId } = parsed.data;
+
+    if (!isAuthorizedOperator(from)) {
+      res.status(403).json({ data: null, error: "Отправитель не авторизован" });
+      return;
+    }
+
+    const cls = classifyOperatorCommand(text);
+    const now = Date.now();
+    const expiresAt = now + TTL_HOURS * 3600 * 1000;
+    const senderHash = hashSenderIdentifier(from);
+
+    const result: any = db.run(sql`
+      INSERT INTO operator_command_queue
+        (sender_identifier_hash, command_text, category, safe, status,
+         source_chat_session, created_at, expires_at)
+      VALUES
+        (${senderHash}, ${text}, ${cls.category}, ${cls.safe ? 1 : 0},
+         'pending', ${chatSessionId ?? source ?? null}, ${now}, ${expiresAt})
+    `);
+    const queueId = Number(result?.lastInsertRowid ?? 0);
+
+    let autoApplied = false;
+    let appliedActions: string[] = [];
+    let autoApplyError: string | undefined;
+    if (cls.safe && isAutoApplyEnabled() && queueId > 0) {
+      const ar = await tryAutoApply(queueId, text, {
+        ip: (req.ip || "") as string,
+        chatSessionId: chatSessionId ?? source ?? null,
+      });
+      autoApplied = ar.autoApplied;
+      appliedActions = ar.applied;
+      autoApplyError = ar.error;
+    }
+
+    res.json({
+      data: {
+        queued: true,
+        id: queueId,
+        safe: cls.safe,
+        category: cls.category,
+        autoApplied,
+        appliedActions,
+        autoApplyError: autoApplyError ?? null,
+      },
+      error: null,
+    });
+  } catch (e: any) {
+    console.error("[yars webhook]", e);
     res.status(500).json({ data: null, error: "Не удалось принять команду" });
   }
 });
@@ -323,8 +484,12 @@ const operatorCommandsModule: Module = {
     // но через requireAdmin, который нельзя смешивать с public /incoming
     // в одном Router middleware-chain).
     ctx.app.use("/api/admin/v304/operator-commands", adminRouter);
+    // Yars webhook — public под /api/yars (auth через X-Yars-Token header).
+    ctx.app.use("/api/yars", yarsRouter);
+    const autoApply = isAutoApplyEnabled();
+    const webhookConfigured = Boolean((process.env.YARS_WEBHOOK_TOKEN || "").trim());
     ctx.logger.info(
-      "operator-commands online — POST /incoming (hashed auth), GET / + POST /:id/apply|reject (admin)",
+      `operator-commands online — POST /incoming (hashed auth), POST /api/yars/webhook (${webhookConfigured ? "configured" : "no-token"}), admin queue routes mounted. Auto-apply=${autoApply ? "ON" : "OFF"}`,
     );
   },
   healthCheck: () => ({ status: "ok" }),
