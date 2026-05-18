@@ -4,6 +4,7 @@ import { Play, Pause, Download, Share2, Sparkles, ArrowLeft, Music } from "lucid
 import { Button } from "@/components/ui/button";
 import {
   setLockScreenTrack,
+  setLockScreenTrackSync,
   setLockScreenPlaybackState,
   setLockScreenPosition,
   clearLockScreen,
@@ -109,26 +110,28 @@ export default function TrackPage() {
       setPlaying(false);
       setLockScreenPlaybackState("paused");
     } else {
-      // Configure lock screen BEFORE play (iOS requirement)
-      await setLockScreenTrack(
-        {
-          id: track.id,
-          title: track.prompt || "MuzaAi",
-          artist: track.authorName ? `MuzaAi · ${track.authorName}` : "MuzaAi",
-          album: "MuzaAi",
-        },
-        {
-          play: () => { audioRef.current?.play(); setPlaying(true); setLockScreenPlaybackState("playing"); },
-          pause: () => { audioRef.current?.pause(); setPlaying(false); setLockScreenPlaybackState("paused"); },
-          seekto: (t: number) => { if (audioRef.current) audioRef.current.currentTime = t; },
-        },
-        track.createdAt // cache-buster tied to gen record
-      );
+      // Eugene 2026-05-18 Босс «lockscreen logo вместо обложки» — SYNC metadata
+      // ДО play(), чтобы iOS не дёрнул document.title fallback. Async refresh
+      // (prewarm 512px) вдогонку — параллельно с уже стартующим play().
+      const lsMeta = {
+        id: track.id,
+        title: track.prompt || "MuzaAi",
+        artist: track.authorName ? `MuzaAi · ${track.authorName}` : "MuzaAi",
+        album: "MuzaAi",
+      };
+      const lsHandlers = {
+        play: () => { audioRef.current?.play(); setPlaying(true); setLockScreenPlaybackState("playing"); },
+        pause: () => { audioRef.current?.pause(); setPlaying(false); setLockScreenPlaybackState("paused"); },
+        seekto: (t: number) => { if (audioRef.current) audioRef.current.currentTime = t; },
+      };
+      setLockScreenTrackSync(lsMeta, lsHandlers, track.createdAt);
       try {
         await audioRef.current.play();
         setPlaying(true);
         setLockScreenPlaybackState("playing");
       } catch {}
+      // Async refresh — prewarm + double-write для iOS first-write drop.
+      setLockScreenTrack(lsMeta, lsHandlers, track.createdAt).catch(() => {});
       // log activity
       fetch(`/api/gen-activity/${track?.id}/play`, { method: "POST" }).catch(() => {});
     }
