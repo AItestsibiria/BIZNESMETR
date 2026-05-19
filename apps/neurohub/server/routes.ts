@@ -8696,6 +8696,31 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       } else {
         // First time — request moderation
         db.update(generations).set(buildPublishPatch(2)).where(eq(generations.id, genId)).run();
+        // Eugene 2026-05-19 Босс «уведомления админа о новых публикациях
+        // для подтверждения». Telegram alert админу с ссылкой в админ-tab.
+        try {
+          const tok = process.env.TELEGRAM_BOT_TOKEN;
+          const adminId = process.env.ADMIN_TELEGRAM_ID;
+          if (tok && adminId) {
+            const author = storage.getUser(userId);
+            const trackTitle = gen.displayTitle || gen.prompt?.slice(0, 60) || `#${genId}`;
+            const authorName = author?.name || author?.email || `id:${userId}`;
+            const msg = `🆕 Запрос на публикацию\n\n*${trackTitle}*\nАвтор: ${authorName}\n\nОдобрить: https://muzaai.ru/#/admin/v304?tab=pending-publications`;
+            void fetch(`https://api.telegram.org/bot${tok}/sendMessage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: adminId,
+                text: msg,
+                parse_mode: "Markdown",
+                disable_web_page_preview: true,
+              }),
+              signal: AbortSignal.timeout(8_000),
+            }).catch(() => {});
+          }
+        } catch (e) {
+          console.warn("[publish-notif]", (e as any)?.message);
+        }
         res.json({ ok: true, pending: true, message: "Запрос на публикацию отправлен" });
       }
     } else {

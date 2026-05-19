@@ -386,6 +386,19 @@ export function FloatingConsultant() {
   // ВАЖНО: hook вызываем безусловно (React hooks rule), а ранний return
   // делаем после остальных state — иначе порядок hooks меняется между renders.
   const featureEnabled = useFeatureEnabled("floating-consultant");
+  // Eugene 2026-05-19 Босс «не должно быть 2 одновременно». Когда маленькая
+  // Муза-mouse-follow активна — большая FAB прячется.
+  const [mouseFollowActive, setMouseFollowActive] = useState(false);
+  useEffect(() => {
+    const onStart = () => setMouseFollowActive(true);
+    const onEnd = () => setMouseFollowActive(false);
+    window.addEventListener("musa-mouse-follow-start", onStart as EventListener);
+    window.addEventListener("musa-mouse-follow-end", onEnd as EventListener);
+    return () => {
+      window.removeEventListener("musa-mouse-follow-start", onStart as EventListener);
+      window.removeEventListener("musa-mouse-follow-end", onEnd as EventListener);
+    };
+  }, []);
   // Eugene 2026-05-19 Windows-in-viewport rule: draggable FAB с persist
   // позиции. По умолчанию bottom-right; пользователь может оттащить куда хочет.
   const FAB_SIZE = { width: 80, height: 80 };
@@ -1313,6 +1326,8 @@ export function FloatingConsultant() {
 
   if (!visible) return null;
   if (!featureEnabled) return null;
+  // Eugene 2026-05-19 Single-Musa rule: маленькая mouse-follow override'ит большую FAB
+  if (mouseFollowActive && !chatOpen && !expanded) return null;
 
   return (
     <div

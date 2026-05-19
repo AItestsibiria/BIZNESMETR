@@ -351,6 +351,15 @@ export function WalkingMusa() {
   // Mouse-follow mode (Eugene 2026-05-19 Variant A) — отдельная Муза которая
   // плавно идёт за курсором + показывает контекстную подсказку при hover на
   // элементах с data-musa-hint. Не требует active=true.
+  // Eugene 2026-05-19 Босс «не должно быть 2 одновременно» — broadcast эвенты
+  // чтобы floating-consultant скрывалась пока mouse-follow Муза активна.
+  useEffect(() => {
+    if (mouseFollow) {
+      window.dispatchEvent(new CustomEvent("musa-mouse-follow-start"));
+    } else {
+      window.dispatchEvent(new CustomEvent("musa-mouse-follow-end"));
+    }
+  }, [mouseFollow]);
   if (!active && mouseFollow) {
     // Позиция Музы — 36px вправо-вниз от курсора (не закрывает кликнутую цель)
     const px = Math.min(window.innerWidth - MUSA_SIZE_PX - 8, mouseFollow.x + 28);
@@ -370,6 +379,7 @@ export function WalkingMusa() {
         }}
       >
         <div
+          onClick={() => window.dispatchEvent(new CustomEvent("open-consultant"))}
           style={{
             width: MUSA_SIZE_PX,
             height: MUSA_SIZE_PX,
@@ -380,6 +390,8 @@ export function WalkingMusa() {
             alignItems: "center",
             justifyContent: "center",
             animation: "walkingMusaBounce 2.4s ease-in-out infinite",
+            cursor: "pointer",
+            pointerEvents: "auto",
           }}
         >
           <img
@@ -389,6 +401,33 @@ export function WalkingMusa() {
             onError={(e) => { (e.target as HTMLImageElement).src = "/consultant-avatar.svg"; }}
           />
         </div>
+        {/* Eugene 2026-05-19 Босс «подсказка как вызвать музу — в её сообщении».
+            Если context hint не активен — показываем мини-tooltip как открыть чат. */}
+        {!contextHint && (
+          <div
+            style={{
+              position: "absolute",
+              top: "50%",
+              transform: "translateY(-50%)",
+              [onRight ? "right" : "left"]: "calc(100% + 12px)",
+              padding: "6px 10px",
+              borderRadius: 12,
+              background: "rgba(20,18,40,0.85)",
+              border: "1px solid rgba(168,85,247,0.3)",
+              color: "rgba(255,255,255,0.75)",
+              fontSize: 11,
+              lineHeight: 1.3,
+              fontFamily: "Inter, system-ui, sans-serif",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+              backdropFilter: "blur(6px)",
+              whiteSpace: "nowrap",
+              pointerEvents: "none",
+              opacity: 0.7,
+            }}
+          >
+            💬 нажми меня — открою чат
+          </div>
+        )}
         {contextHint && (
           <div
             style={{
