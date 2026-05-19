@@ -476,15 +476,10 @@ export function CoverDetailsModal({
           </button>
         )}
 
-        {/* Eugene 2026-05-17 Босс «бутират свет вокруг обложки в фирменных
-            цветах пусть переливаются». Brand aura wrap — animated conic
-            gradient (purple→fuchsia→cyan→amber) + blur + spin + opacity pulse.
-            Обложка остаётся резкой внутри. */}
+        {/* Eugene 2026-05-19 Босс «Заднюю панель спрячь за обложкой» —
+            cover-aura (animated conic gradient вокруг обложки) удалён.
+            Только сама обложка — никаких glow / aura / brand-bordering. */}
         <div className="relative w-full">
-          <div
-            aria-hidden="true"
-            className="absolute -inset-4 sm:-inset-6 rounded-3xl opacity-80 blur-3xl pointer-events-none cover-aura"
-          />
         {/* Обложка с swipe-жестом.
             Eugene 2026-05-18 (iPad Pro overflow fix): max-h-[70vh] вместо
             85vh + явный object-contain. На iPad Pro portrait/landscape
