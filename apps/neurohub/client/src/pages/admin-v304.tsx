@@ -44,6 +44,7 @@ import SuggestionsTab from "@/pages/admin/suggestions-tab";
 import NpsTab from "@/pages/admin/nps-tab";
 import EscalationsTab from "@/pages/admin/escalations-tab";
 import PlaysAuditTab from "@/pages/admin/plays-audit-tab";
+import { FeatureTogglesAdminTab } from "@/pages/admin/feature-toggles-admin-tab";
 import { MusaVoiceFab } from "@/components/musa-voice-fab";
 
 // Lazy-load SecondBrain3D — three.js + 3d-force-graph весят ~500KB,
@@ -336,6 +337,7 @@ export default function AdminV304Page() {
           <TabsTrigger value="nps" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">💬 NPS</TabsTrigger>
           <TabsTrigger value="escalations" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">😠 Жалобы</TabsTrigger>
           <TabsTrigger value="plays-audit" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">📊 Аудит плеев</TabsTrigger>
+          <TabsTrigger value="feature-toggles" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🎛 UI Toggles</TabsTrigger>
           <TabsTrigger value="bot-stats" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🤖 Бот</TabsTrigger>
           <TabsTrigger value="ai-keys" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🤖 Ключи AI</TabsTrigger>
           <TabsTrigger value="api-health" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🔑 API ключи</TabsTrigger>
@@ -390,6 +392,7 @@ export default function AdminV304Page() {
         <TabsContent value="nps"><NpsTab toast={toast} /></TabsContent>
         <TabsContent value="escalations"><EscalationsTab toast={toast} /></TabsContent>
         <TabsContent value="plays-audit"><PlaysAuditTab toast={toast} /></TabsContent>
+        <TabsContent value="feature-toggles"><FeatureTogglesAdminTab /></TabsContent>
         <TabsContent value="bot-stats"><BotStatsTab toast={toast} /></TabsContent>
         <TabsContent value="ai-keys"><AiKeysTab toast={toast} /></TabsContent>
         <TabsContent value="api-health"><ApiHealthTab toast={toast} /></TabsContent>

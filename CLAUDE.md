@@ -1024,6 +1024,55 @@ Cильнее `Working rhythm rule`: лучше потратить 5 минут 
 - `getPeriodRange()` (server/lib/periodBoundaries.ts) — единая логика period boundaries (cut-off 20:00 МСК). Используется во всех аналитических endpoints (master-dashboard, funnels, visitor-stats, gen-stats, top-downloads, gen-activity-geo). См. Period-20-MSK rule.
 - **`getPersistentPlayerAudio()` + `loadTrackIntoPlayer(url)`** (client/src/lib/lockscreen.ts) — ЕДИНСТВЕННЫЙ pattern audio в проекте после 9-й итерации LS (commit `8d047e1`). См. Persistent-audio-only rule ниже.
 
+### Musa-knowledge-governance rule (Eugene 2026-05-19)
+
+**Муза обновляет знания при каждом изменении функционала проекта. Босс и админы могут спрашивать о любых деталях проекта. Клиенты — только в части СВОИХ песен и СВОИХ оплат.**
+
+Что Муза знает (источники):
+- CLAUDE.md (это правило + все остальные)
+- `docs/strategy/PITFALLS.md` (накопленный опыт ошибок)
+- `docs/strategy/KNOWLEDGE-BASE-BOT.md` (пользовательский KB)
+- Git log последних 50 commits (что недавно менялось)
+- Через `apps/neurohub/server/lib/musaKnowledgeLoader.ts` — на каждый chat-call, mtime cache 60 мин
+
+Когда обновляется знание:
+- При commit любых изменений кода — git log automatically picks up
+- При правке CLAUDE.md / KB-файлов — mtime invalidates cache
+- При деплое — pm2 restart → следующий chat-call перечитывает свежее состояние
+- НЕТ ручного шага — всё через файлы в репо
+
+Governance (кто что может спросить):
+
+**Босс (super_admin / role='admin'):**
+- Любые детали проекта: архитектура, плагины, секреты (только статусы), баланс провайдеров, аналитика, бэкенд, БД, фичи toggle
+- Управление через operator commands (yarsExecutor)
+- Доступ ко всему content из CLAUDE.md/PITFALLS/KB
+
+**Аутентифицированный КЛИЕНТ (role='user'):**
+- ✅ Только о своих треках (по userId): статус генерации, refund, история, скачать
+- ✅ Только о своих оплатах (по userId): сумма, баланс, последняя транзакция, refund history
+- ✅ О публичной информации MuzaAi: цены, режимы, как пользоваться, FAQ
+- ❌ НЕ узнаёт детали реализации (какие плагины, как устроена БД, где Suno, ключи)
+- ❌ НЕ узнаёт о других юзерах (статистика, листинги, чужие треки)
+- ❌ НЕ узнаёт админские инсайды (плеи реально/фильтрованные, конверсия, технические бэкенд-операции)
+
+**Анонимный посетитель:**
+- ✅ Только публичная информация (цены, режимы, FAQ, как зарегистрироваться)
+- ❌ НЕ узнаёт никаких личных данных, никаких внутренностей
+
+Реализация в `consultantPersona.ts`:
+- `muzaRole` определяется в `routes.ts:2982-2989` по auth token (`admin`/`super_admin` или `null`)
+- В system prompt добавляется блок «role=admin → full access» / «role=user → user-zone only» / «no auth → public-zone»
+- LLM tools фильтруются по prefix `[ADMIN-ONLY` — для не-админов скрыты
+- Tools используют `ctx.userId` для row-level filter (только свои треки/платежи)
+
+Применяется к: всем каналам где Муза общается (web-чат /api/muza/chat, Telegram bot, Max bot, future channels). Не применяется к: транзакционным ботам (alerts только админу — там нет диалога).
+
+Audit при code review:
+- При добавлении нового LLM tool — обязательно prefix `[ADMIN-ONLY` если содержит чувствительные данные
+- При расширении KB / persona prompt — проверить что нет утечек админских деталей в public-zone
+- При изменении governance логики — обновить это правило
+
 ### Persistent-audio-only rule (Eugene 2026-05-18, **навсегда зафиксировано**)
 
 **Босс «перемещение стало лучше, запомни правило использовать только это решение, не снять, во всём проекте».** После 9 итераций lock-screen наконец работает — root cause найден по W3C MediaSession §3.3 и зафиксирован persistent singleton pattern.
