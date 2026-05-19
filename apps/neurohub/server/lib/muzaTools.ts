@@ -749,7 +749,7 @@ const HANDLERS: Record<string, ToolHandler> = {
   },
 
   async get_pricing() {
-    return "Текущие цены: песня (music) — 299 ₽, обложка (cover) — 99 ₽, текст (lyrics) — 49 ₽. Подарочный трек: первые 1000 авторов из РФ/СНГ — бесплатно.";
+    return "Текущие цены: песня (music) — 399 ₽, обложка (cover) — 99 ₽, текст (lyrics) — 49 ₽. Подарочный трек: первые 1000 авторов из РФ/СНГ — бесплатно.";
   },
 
   async find_similar_tracks({ query }) {

@@ -292,7 +292,7 @@ const services = [
     icon: Music,
     title: "Музыка + Вокал",
     description: "Полноценная песня с музыкой и голосом на базе MuzaAi — готовый трек за минуты",
-    price: "299 ₽",
+    price: "399 ₽",
     href: "/music",
     gradient: "from-blue-500/20 to-blue-900/20",
     iconBg: "from-blue-500 to-blue-700",

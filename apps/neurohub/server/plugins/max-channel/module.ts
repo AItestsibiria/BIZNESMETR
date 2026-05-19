@@ -107,10 +107,10 @@ function logMsg(sessionId: string, role: "user" | "bot" | "system", text: string
 
 // === Меню шаблонов ===
 const MENU_OPTIONS = [
-  { slug: "birthday", label: "🎂 Поздравление", price: 299 },
-  { slug: "wedding",  label: "💍 Свадебная", price: 299 },
+  { slug: "birthday", label: "🎂 Поздравление", price: 399 },
+  { slug: "wedding",  label: "💍 Свадебная", price: 399 },
   { slug: "corporate-anthem", label: "💼 Корпоратив", price: 999 },
-  { slug: "first-date", label: "💛 Признание", price: 299 },
+  { slug: "first-date", label: "💛 Признание", price: 399 },
 ];
 
 async function showMenu(chatId: string) {

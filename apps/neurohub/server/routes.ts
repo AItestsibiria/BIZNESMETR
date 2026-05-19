@@ -486,12 +486,12 @@ function buildSunoCallbackUrl(req: Request | null, genId: number): string {
 // Price per service type (in kopecks)
 const PRICES: Record<string, number> = {
   lyrics: 9900,   // 99 ₽
-  music: 29900,   // 299 ₽
+  music: 39900,   // 399 ₽ (Eugene 2026-05-19: было 299 → 399)
   cover: 9900,    // 99 ₽
 };
 const PRICE_LABELS: Record<string, string> = {
   lyrics: "99 ₽",
-  music: "299 ₽",
+  music: "399 ₽",
   cover: "99 ₽",
 };
 

@@ -1003,7 +1003,7 @@ export default function MusicPage() {
             <h1 className="text-xl font-bold text-white font-display tracking-wide" data-testid="text-music-title">Музыка + Вокал</h1>
             <p className="text-sm text-muted-foreground">Полноценная песня с помощью MuzaAi</p>
           </div>
-          <span className="ml-auto price-badge" data-testid="badge-price-music">299 ₽</span>
+          <span className="ml-auto price-badge" data-testid="badge-price-music">399 ₽</span>
         </div>
 
         {/* Яркий баннер характеристик при переходе из плеера */}
