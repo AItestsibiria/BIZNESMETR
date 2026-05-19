@@ -203,11 +203,25 @@ export function WalkingMusa() {
   const [contextHint, setContextHint] = useState<string | null>(null);
   const mouseFollowTimerRef = useRef<number | null>(null);
   const lastMouseMoveRef = useRef<number>(0);
+  // Eugene 2026-05-19 «Правило начинает действовать через 1 минуту после
+  // загрузки главной». До этого момента mouse-follow Муза не появляется,
+  // вместо неё работает большой FAB.
+  const [mouseFollowArmed, setMouseFollowArmed] = useState(false);
+  useEffect(() => {
+    const t = window.setTimeout(() => setMouseFollowArmed(true), 60_000);
+    return () => window.clearTimeout(t);
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (prefersReducedMotion()) return;
     if (fullyDisabled) return;
+    // Eugene 2026-05-19 «На смартфоне только большая Муза» — mouse-follow
+    // отключён для viewport <640px (mobile breakpoint, sm: Tailwind).
+    if (window.innerWidth < 640) return;
+    // 1-минутный delay после загрузки — иначе сразу при первом move'е
+    // маленькая появляется и большая FAB прячется, юзер не успевает увидеть.
+    if (!mouseFollowArmed) return;
     // Throttle 200ms — не дёргаем state на каждом px
     const onMove = (e: MouseEvent) => {
       const now = Date.now();
@@ -236,7 +250,7 @@ export function WalkingMusa() {
       window.removeEventListener("mousemove", onMove);
       if (mouseFollowTimerRef.current) window.clearTimeout(mouseFollowTimerRef.current);
     };
-  }, [active, dragging, contextHint]);
+  }, [active, dragging, contextHint, mouseFollowArmed, fullyDisabled]);
 
   // Listen for FloatingConsultant open/close — пока чат открыт, walking
   // tour не запускается / прерывается. FloatingConsultant диспатчит эти
