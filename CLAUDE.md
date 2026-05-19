@@ -1073,6 +1073,26 @@ Audit при code review:
 - При расширении KB / persona prompt — проверить что нет утечек админских деталей в public-zone
 - При изменении governance логики — обновить это правило
 
+### Player-expand-no-restart rule (Eugene 2026-05-19)
+
+**При нажатии на mini-обложку трека в плейлисте — раскрываем большой плеер. Если этот трек уже играет в основном плеере — продолжаем воспроизведение без рестарта. Если другой — раскрываем большую обложку и ЖДЁМ команды пользователя (не запускаем auto-play).**
+
+Зачем: текущее поведение (call togglePlay при expand) приводит к двум проблемам:
+1. Если кликнул на трек который уже играет → передёргиваем audio (потеря timecode, может прервать lock-screen ownership)
+2. Если кликнул чтобы просто ПОСМОТРЕТЬ обложку другого трека → насильно начинаем играть, даже если юзер не хотел
+
+Правильное поведение:
+- `sameTrackPlaying = playingId === track.id` → expand-only, audio не трогаем
+- Иначе → expand-only, юзер сам жмёт `▶` на большой обложке
+- Lock-screen ownership сохраняется (Persistent-audio-only rule)
+- Никаких сюрпризов: «открыл посмотреть → начало играть» больше нет
+
+Реализация в `landing.tsx`:
+- Cover-thumb click (line ~1799) и row-body click (line ~1842)
+- Оба handler'а — `setExpandedId(track.id)` + scrollIntoView, БЕЗ `togglePlay`
+
+Применяется к: всем местам где есть «mini-cover → expand-big-cover» UI (landing.tsx playlist, dashboard.tsx «Мои треки», track.tsx). Не применяется к: явному Play-button клику на mini (там togglePlay обязательно).
+
 ### Windows-in-viewport + draggable rule (Eugene 2026-05-19)
 
 **Любое плавающее окно (modal, floating-FAB, popup, speech-bubble, tooltip, drawer) ВСЕГДА остаётся в рамках viewport. Если оно может быть перемещаемо — пользователь может его таскать пальцем/мышью.**

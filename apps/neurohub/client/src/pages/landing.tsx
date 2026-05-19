@@ -1796,7 +1796,23 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                         ? "ring-1 ring-fuchsia-400/30 shadow-[0_0_10px_rgba(217,70,239,0.3)]"
                         : ""
                     }`}
-                    onClick={(e) => { e.stopPropagation(); if (isExpanded) { setExpandedId(null); } else { setExpandedId(track.id); togglePlay(track); setTimeout(() => (e.currentTarget as HTMLElement)?.closest("[data-track-card]")?.scrollIntoView({ behavior: "smooth", block: "center" }), 100); } }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (isExpanded) { setExpandedId(null); return; }
+                      // Eugene 2026-05-19 Босс «Правило плеера: если трек уже
+                      // играет в основном плеере — продолжаем воспроизведение
+                      // не перезапуская. Если другой — раскрываем обложку и
+                      // ждём команды юзера (не auto-play)».
+                      const sameTrackPlaying = playingId === track.id;
+                      setExpandedId(track.id);
+                      if (sameTrackPlaying) {
+                        // Не трогаем audio — он уже играет/на паузе как был
+                      } else {
+                        // Другой трек — раскрываем, юзер сам жмёт Play
+                        // (togglePlay убран отсюда сознательно).
+                      }
+                      setTimeout(() => (e.currentTarget as HTMLElement)?.closest("[data-track-card]")?.scrollIntoView({ behavior: "smooth", block: "center" }), 100);
+                    }}
                   >
                     {track.imageUrl && (
                       <img
@@ -1823,7 +1839,17 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   {/* Title + Author — click to play */}
                   <div
                     className={`flex-1 min-w-0 ${isMusic ? "cursor-pointer" : ""}`}
-                    onClick={(e) => { if (isMusic) { togglePlay(track); setExpandedId(track.id); setTimeout(() => (e.currentTarget as HTMLElement)?.closest("[data-track-card]")?.scrollIntoView({ behavior: "smooth", block: "center" }), 100); } }}
+                    onClick={(e) => {
+                      if (!isMusic) return;
+                      // Player-rule: тот же трек играет → не перезапускаем,
+                      // другой → раскрываем большую обложку без auto-play.
+                      const sameTrackPlaying = playingId === track.id;
+                      setExpandedId(track.id);
+                      if (!sameTrackPlaying) {
+                        // Не запускаем — юзер сам кликнет Play на большой обложке
+                      }
+                      setTimeout(() => (e.currentTarget as HTMLElement)?.closest("[data-track-card]")?.scrollIntoView({ behavior: "smooth", block: "center" }), 100);
+                    }}
                   >
                     <div className="flex items-center gap-1.5">
                       {typeLabel && (
