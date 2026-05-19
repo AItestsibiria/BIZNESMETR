@@ -1934,6 +1934,25 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                       <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-purple-500/20 animate-in fade-in zoom-in-95 duration-300">
                         <div className="w-full aspect-square bg-gradient-to-br from-purple-900 via-blue-900 to-black relative cursor-pointer" onPointerDown={(e) => { const tgt = e.target as HTMLElement; if (tgt.closest("button, a, [role=button], input, [data-no-collapse]")) return; if (Date.now() - expandedAtRef.current < 350) return; e.preventDefault(); setExpandedId(null); }}>
                           {track.imageUrl && <img key={track.imageUrl} src={track.imageUrl} alt="" className="w-full h-full object-cover absolute inset-0 animate-in fade-in duration-500" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />}
+                          {/* Eugene 2026-05-19 Босс «S на большой обложке тоже,
+                              в том же месте». Top-right pill — Swipe-режим. */}
+                          <button
+                            className="absolute top-2 right-2 w-11 h-11 rounded-full bg-black/60 backdrop-blur-sm border border-white/20 hover:border-fuchsia-400/60 hover:bg-black/80 flex items-center justify-center hover:scale-110 active:scale-95 transition-all z-50 shadow-lg shadow-fuchsia-500/30"
+                            title="Свайп-режим — листай ← → большие обложки"
+                            aria-label="Свайп-режим"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              // Если кликнули S на expanded трек, который НЕ
+                              // currentTrack — делаем его current чтобы swipe-modal
+                              // показывал ИМЕННО его обложку. Без auto-play —
+                              // Player-expand-no-restart rule сохраняется.
+                              if (playingId !== track.id) setPlayingId(track.id);
+                              setDetailsOpen(true);
+                            }}
+                            data-no-collapse
+                          >
+                            <span className="font-display font-bold italic text-xl tracking-wider text-white drop-shadow-[0_0_8px_rgba(217,70,239,0.95)]">S</span>
+                          </button>
                           <div className="absolute inset-0 flex items-center justify-center">
                             <svg viewBox="0 0 24 24" className="w-16 h-16 opacity-10" fill="none">
                               <path d="M3 12c1.5-3 3-5 4.5-3s2 4 3.5 2 2.5-5 4-3 2 4 3.5 2 2.5-4 3.5-2" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
