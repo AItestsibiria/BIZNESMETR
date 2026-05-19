@@ -3,7 +3,12 @@
 // в env, они активируются при сборке Vite. Если ID нет, ym/VK
 // глобалы не существуют, и наши обёртки молча no-op.
 //
+// Eugene 2026-05-19: respect featureToggles — юзер может отключить
+// yandex-metrica / vk-pixel в Settings. Тогда init и track-функции no-op.
+//
 // Spec: docs/strategy/original/05 §2-§3.
+
+import { featureEnabled } from "./featureToggles";
 
 declare global {
   interface Window {
@@ -29,7 +34,7 @@ export function initPixels(): void {
   initialized = true;
 
   // Yandex Метрика
-  if (YM_ID) {
+  if (YM_ID && featureEnabled("yandex-metrica")) {
     const w = window as unknown as { ym: any };
     w.ym = w.ym || function (...args: unknown[]) {
       (w.ym.a = w.ym.a || []).push(args);
@@ -48,7 +53,7 @@ export function initPixels(): void {
   }
 
   // VK Pixel (Retargeting)
-  if (VK_ID) {
+  if (VK_ID && featureEnabled("vk-pixel")) {
     const s = document.createElement("script");
     s.async = true;
     s.src = "https://vk.com/js/api/openapi.js?169";
