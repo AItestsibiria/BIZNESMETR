@@ -441,11 +441,11 @@ export function CoverDetailsModal({
           выходит за viewport. Добавлено max-h-[90vh] overflow-hidden на
           сам container (и max-h-[70vh] ниже на cover image) — square
           обложка остаётся в пределах высоты экрана. */}
-      <div className="w-[94vw] max-w-2xl md:max-w-xl lg:max-w-2xl h-[100vh] overflow-hidden flex flex-col items-center justify-start gap-2 px-2 pt-14 sm:pt-10 pb-3 sm:pb-5 relative">
-        {/* Eugene 2026-05-19 Босс «обложку сдвинуть чтобы полностью видно,
-            немного фона с подсветкой задней, гармонично. Нижний блок
-            скомпонован — не растянут». pt-14 (mobile safe-area под status bar)
-            + pt-10 desktop. justify-start стек сверху без больших gaps. */}
+      <div className="w-[94vw] max-w-2xl md:max-w-xl lg:max-w-2xl max-h-[100vh] flex flex-col items-center justify-center gap-3 px-2 py-4 relative">
+        {/* Eugene 2026-05-19 Босс «как Apple NowPlaying — гармонично без пустого
+            поля внизу». h-fit + justify-center в outer items-center =
+            контент центрируется по viewport, container занимает столько
+            высоты сколько контент требует. Никаких пустых растяжек. */}
         {/* Левая стрелка-хинт (показывается если есть onPrev) */}
         {onPrev && (
           <button
