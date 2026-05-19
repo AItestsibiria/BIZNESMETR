@@ -6660,7 +6660,11 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
               let buf = fs.readFileSync(realPath);
               if (wantWm) buf = await addWatermark(buf);
               if (targetSize > 0 && targetSize <= 512) {
-                buf = await sharp(buf).resize(targetSize, targetSize, { fit: "cover" }).jpeg({ quality: 85 }).toBuffer();
+                // Eugene 2026-05-19 Босс «пропорции соблюди по зонам».
+                // Sharp position: "attention" — entropy-based smart crop,
+                // keeps main subject (face / focal point) centered when
+                // squaring non-square covers for iOS MediaSession.
+                buf = await sharp(buf).resize(targetSize, targetSize, { fit: "cover", position: "attention" }).jpeg({ quality: 85 }).toBuffer();
               }
               return res.send(buf);
             } catch (e) {
