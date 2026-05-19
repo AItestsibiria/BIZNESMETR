@@ -1073,6 +1073,36 @@ Audit при code review:
 - При расширении KB / persona prompt — проверить что нет утечек админских деталей в public-zone
 - При изменении governance логики — обновить это правило
 
+### Windows-in-viewport + draggable rule (Eugene 2026-05-19)
+
+**Любое плавающее окно (modal, floating-FAB, popup, speech-bubble, tooltip, drawer) ВСЕГДА остаётся в рамках viewport. Если оно может быть перемещаемо — пользователь может его таскать пальцем/мышью.**
+
+Зачем: на iPad/iPhone элементы часто выпадают за edge экрана (особенно при rotate / split-view / маленьком safe-area). Юзер не может прочитать / dismiss / drag = плохой UX. Также: пусть юзер позиционирует помощников там где удобно ему.
+
+Реализация:
+- `apps/neurohub/client/src/lib/clampViewport.ts` — единая утилита
+  - `clampToViewport(x, y, w, h, padding=8)` — возвращает безопасные координаты
+  - `readPos(key) / writePos(key, pos)` — persist в localStorage
+  - `useDraggablePosition(storageKey, defaultPos, size)` — hook с polished drag/resize
+- При drag — `setPointerCapture` чтобы pointerup ловился даже если курсор ушёл за element
+- При window resize — auto-clamp обратно в рамки (юзер minimise'ил окно → элемент возвращается)
+- Persist в localStorage под уникальным ключом (по компоненту)
+
+Применяется к:
+- floating-consultant (Муза-FAB) — drag handle активен
+- walking-musa (auto-tour + mouse-follow) — уже draggable
+- Speech bubbles рядом с draggable элементами — авто-side (left/right) в зависимости от позиции parent
+- Любые user-positionable plates (mini-player, sticky toolbar)
+
+НЕ применяется к:
+- Modal-overlay (CoverDetailsModal, FeatureTogglesPanel) — они и так centered + max-h-[88vh] (внутри scroll)
+- Системные tooltip над hover'енным элементом — Tippy/Floating UI справляется
+
+Pre-commit чек:
+- Все floating-elements с fixed/absolute позицией прошли через `clampToViewport()` хотя бы при init и resize
+- Если у элемента есть drag — handle visible (cursor: grab) или явный drag-icon
+- localStorage ключ задан и unique
+
 ### Responsive-tablet-cap rule (Eugene 2026-05-19)
 
 **На tablet (sm: 640-1023px) и desktop (md/lg: 1024+) UI-блоки масштабируются на -20% относительно «нормального» mobile-base. Юзер может вернуть/увеличить через size-toggle (sm/md/lg).**

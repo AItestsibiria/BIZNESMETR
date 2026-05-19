@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { playMuzaChime, playMuzaTick, playMuzaSparkle } from "../lib/muza-sounds";
 import { useFeatureEnabled } from "@/lib/featureToggles";
+import { useDraggablePosition } from "@/lib/clampViewport";
 import { onJourneyEvent } from "../lib/user-journey";
 import { getPersistentPlayerAudio } from "../lib/lockscreen";
 import { SupportModal } from "./support-modal";
@@ -385,6 +386,17 @@ export function FloatingConsultant() {
   // ВАЖНО: hook вызываем безусловно (React hooks rule), а ранний return
   // делаем после остальных state — иначе порядок hooks меняется между renders.
   const featureEnabled = useFeatureEnabled("floating-consultant");
+  // Eugene 2026-05-19 Windows-in-viewport rule: draggable FAB с persist
+  // позиции. По умолчанию bottom-right; пользователь может оттащить куда хочет.
+  const FAB_SIZE = { width: 80, height: 80 };
+  const { pos: fabPos, dragging: fabDragging, onPointerDown: fabPointerDown, onPointerMove: fabPointerMove, onPointerUp: fabPointerUp } = useDraggablePosition(
+    "muza-fab-position",
+    () => ({
+      x: typeof window === "undefined" ? 100 : window.innerWidth - FAB_SIZE.width - 16,
+      y: typeof window === "undefined" ? 100 : window.innerHeight - FAB_SIZE.height - 16,
+    }),
+    FAB_SIZE,
+  );
   const [visible, setVisible] = useState(false);
   const [exiting, setExiting] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -1304,10 +1316,48 @@ export function FloatingConsultant() {
 
   return (
     <div
-      className={`fixed z-30 bottom-3 right-3 sm:bottom-4 sm:right-4 transition-opacity duration-500 ${exiting ? "opacity-0 consultant-slide-out" : "opacity-100 consultant-slide-in animate-in fade-in"} ${smartHighlight ? "consultant-attention" : ""}`}
+      style={{
+        position: "fixed",
+        left: fabPos.x,
+        top: fabPos.y,
+        zIndex: 30,
+      }}
+      className={`transition-opacity duration-500 ${exiting ? "opacity-0 consultant-slide-out" : "opacity-100 consultant-slide-in animate-in fade-in"} ${smartHighlight ? "consultant-attention" : ""}`}
       data-testid="floating-consultant"
     >
       <div className="relative">
+        {/* Eugene 2026-05-19 Drag handle — пользователь может перетащить FAB
+            куда удобно. Маленький grip ⋮⋮ в верхнем углу. */}
+        <button
+          type="button"
+          aria-label="Перетащить помощницу"
+          title="Перетащи помощницу"
+          onPointerDown={fabPointerDown}
+          onPointerMove={fabPointerMove}
+          onPointerUp={fabPointerUp}
+          onPointerCancel={fabPointerUp}
+          style={{
+            position: "absolute",
+            top: -2,
+            left: -10,
+            width: 22,
+            height: 22,
+            borderRadius: "9999px",
+            background: "rgba(20,18,40,0.7)",
+            border: "1px solid rgba(168,85,247,0.4)",
+            color: "rgba(255,255,255,0.65)",
+            fontSize: 12,
+            lineHeight: "18px",
+            cursor: fabDragging ? "grabbing" : "grab",
+            touchAction: "none",
+            zIndex: 50,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            backdropFilter: "blur(6px)",
+          }}
+          data-no-collapse
+        >⋮⋮</button>
         {/* Eugene 2026-05-14 Босс «нажатие на облако заводит в чат».
             Облако кликабельно — открывает чат напрямую.
             Eugene 2026-05-17 Босс: при smart-триггере (idle/form_abandon)
