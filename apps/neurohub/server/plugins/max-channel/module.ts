@@ -195,7 +195,7 @@ router.post("/webhook", async (req, res) => {
       // TODO Sprint 6.2: Whisper + LLM-rewrite + showLyrics(chatId, lyrics, [«Да», «Переделать», «Отменить»])
     } else if (callback === "lyrics:approve" && fsm === "review_lyrics") {
       updateState(session.id, "payment", data, chatId);
-      await sendMessage(chatId, "Оплати 299₽ → нажми кнопку ниже:", [
+      await sendMessage(chatId, "Оплати 399₽ → нажми кнопку ниже:", [
         { text: "💳 Оплатить через Robokassa", payload: "pay:start" },
       ]);
       // TODO Sprint 6.3: создать payment record + return Robokassa URL

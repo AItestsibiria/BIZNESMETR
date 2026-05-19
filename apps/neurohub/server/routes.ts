@@ -1290,15 +1290,15 @@ export async function registerRoutes(
 
       // If registered via referral — both get bonus
       if (referrerId) {
-        const REFERRAL_BONUS = 29900; // 299₽ = 1 music track
+        const REFERRAL_BONUS = 39900; // 399₽ = 1 music track
         storage.updateBalance(user.id, REFERRAL_BONUS);
-        storage.createTransaction({ userId: user.id, type: "topup", amount: REFERRAL_BONUS, description: "🎁 Бонус за реферальную регистрацию: +299 ₽" });
+        storage.createTransaction({ userId: user.id, type: "topup", amount: REFERRAL_BONUS, description: "🎁 Бонус за реферальную регистрацию: +399 ₽" });
 
         // Referrer gets bonus too
         const referrerUser = storage.getUser(referrerId);
         if (referrerUser) {
           storage.updateBalance(referrerId, REFERRAL_BONUS);
-          storage.createTransaction({ userId: referrerId, type: "topup", amount: REFERRAL_BONUS, description: `🎁 Бонус: автор ${name} по вашей ссылке: +299 ₽` });
+          storage.createTransaction({ userId: referrerId, type: "topup", amount: REFERRAL_BONUS, description: `🎁 Бонус: автор ${name} по вашей ссылке: +399 ₽` });
         }
         console.log(`[REFERRAL] User #${user.id} registered via referral from #${referrerId}`);
       }

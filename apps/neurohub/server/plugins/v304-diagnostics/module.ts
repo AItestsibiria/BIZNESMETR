@@ -94,7 +94,7 @@ router.post("/smoke-test", async (_req, res) => {
   );
   await bootRefs.eventBus.emit(
     "payment.succeeded",
-    { smokeId, userId: 0, invId: -1, amount: 29900 },
+    { smokeId, userId: 0, invId: -1, amount: 39900 },
     "v304-diagnostics-smoke",
   );
   await bootRefs.eventBus.emit(

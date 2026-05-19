@@ -1073,6 +1073,61 @@ Audit при code review:
 - При расширении KB / persona prompt — проверить что нет утечек админских деталей в public-zone
 - При изменении governance логики — обновить это правило
 
+### Suno-audio-playback rule (Eugene 2026-05-19, **решение зафиксировано**)
+
+**Воспроизведение Suno-треков (и любых других private audio) в `<audio>` тегах требует 3-уровневой защиты. Cookie-fallback на сервере + use-credentials на клиенте + Range support — обязательны вместе.**
+
+ROOT CAUSE «треки не загружаются, выдаёт ошибку»:
+- `<audio>` теги в браузере **НЕ** отправляют `Authorization: Bearer` headers (только `fetch()` это умеет)
+- `crossOrigin="anonymous"` на `<audio>` **отключает** отправку cookies (для same-origin тоже)
+- iOS Safari без `Accept-Ranges` header не понимает как читать audio для scrubbing
+
+Решение (3 части, все обязательны):
+
+**1. Server — `/api/stream/:id` принимает auth из 3 источников** (priority order):
+```ts
+const cookieToken = (() => {
+  const raw = req.headers.cookie || '';
+  const m = raw.match(/(?:^|;\s*)auth_token=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : '';
+})();
+const stToken =
+  (req.headers.authorization || '').replace('Bearer ', '') ||
+  (req.query.token as string) ||
+  cookieToken || '';
+```
+
+**2. Client — `crossOrigin="use-credentials"` для player audio** (`lib/lockscreen.ts`):
+```ts
+audio.crossOrigin = "use-credentials"; // НЕ "anonymous" — блокирует cookies на Safari
+```
+
+**3. Server — Accept-Ranges + Range request support** в tryServeLocal:
+```ts
+res.setHeader("Accept-Ranges", "bytes");
+const range = res.req.headers.range;
+if (range && /^bytes=\d*-\d*$/.test(range)) {
+  // Status 206 Partial Content + Content-Range header
+  // fs.createReadStream({ start, end }) → pipe
+}
+```
+
+Проверка работы (verify на VPS):
+```
+TOK=$(sqlite3 /var/www/neurohub/data.db "SELECT token FROM sessions ORDER BY last_seen_at DESC LIMIT 1;")
+curl -sI -H "Cookie: auth_token=$TOK" 'localhost:5000/api/stream/<ID>' | head -5
+# Ожидаем: HTTP/1.1 200 OK + Content-Type: audio/mpeg + Accept-Ranges: bytes
+```
+
+Применяется к: `/api/stream/`, `/api/download/`, `/api/cover/`, любым future binary endpoints. **НЕ** применяется к чисто JSON API.
+
+Не использовать никогда:
+- ❌ `crossOrigin="anonymous"` на `<audio>` элементах (рушит cookie auth)
+- ❌ Только Bearer header validation (audio teги не шлют его)
+- ❌ Только Cache-Control max-age без Accept-Ranges (iOS scrub ломается)
+
+Reference: subagent ad6390730 atom-level audit (root cause #3 с 40% — Safari crossOrigin блокирует cookies).
+
 ### Playlist-category-no-mix rule (Eugene 2026-05-19)
 
 **Категории треков (песни / поздравления / инструментальная) — это разделяющие параметры. Они НЕ перемешиваются в плейлисте. Внутри выбранной категории дальше работает сортировка (по дате / рейтингу / случайно / топ за месяц).**

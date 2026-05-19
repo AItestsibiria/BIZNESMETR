@@ -21,7 +21,7 @@ import { normalizeVocalParams } from "../../lib/normalizeVocalParams";
 import { transcribeRussianAudio, verifyAllProviders } from "../../lib/transcribe";
 import type { Module } from "../../core";
 
-const COVER_PRICE_KOPEK = Number(process.env.AUDIO_COVER_PRICE_KOPEK ?? "29900"); // 299₽
+const COVER_PRICE_KOPEK = Number(process.env.AUDIO_COVER_PRICE_KOPEK ?? "39900"); // 399₽
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR || "/var/www/neurohub/uploads";
 const MAX_BYTES = 20 * 1024 * 1024;          // 20 MB
