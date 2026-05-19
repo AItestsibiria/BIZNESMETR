@@ -1073,32 +1073,6 @@ Audit при code review:
 - При расширении KB / persona prompt — проверить что нет утечек админских деталей в public-zone
 - При изменении governance логики — обновить это правило
 
-### Stream-auth-cookie-fallback rule (Eugene 2026-05-19)
-
-**Endpoints отдающие бинарные файлы для `<audio>` / `<img>` тегов ОБЯЗАНЫ принимать auth из cookie ИЛИ `?token=` ИЛИ Bearer.** Браузерные `<audio>` / `<img>` теги НЕ умеют слать `Authorization: Bearer` header — только cookies автоматически и query params в src.
-
-Зачем: в кабинете автора `<audio src="/api/stream/862">` без token → 403 Forbidden → юзер видит «Ошибка» в плеере, при том что файл есть на диске.
-
-Реализация (server-side):
-```ts
-const cookieToken = (() => {
-  const raw = req.headers.cookie || '';
-  const m = raw.match(/(?:^|;\s*)auth_token=([^;]+)/);
-  return m ? decodeURIComponent(m[1]) : '';
-})();
-const stToken =
-  (req.headers.authorization || '').replace('Bearer ', '') ||
-  (req.query.token as string) ||
-  cookieToken ||
-  '';
-```
-
-Применяется к: `/api/stream/:id`, `/api/download/:id`, `/api/cover/:id.jpg`, любым future binary endpoints отдающим private user content.
-
-Не применяется к: чисто JSON API (там Bearer ОК — клиент явно его передаёт).
-
-Auth-cookie должен быть установлен на client login (см. login flow в auth.tsx — уже работает через `setCookie("auth_token", token)`).
-
 ### Playlist-category-no-mix rule (Eugene 2026-05-19)
 
 **Категории треков (песни / поздравления / инструментальная) — это разделяющие параметры. Они НЕ перемешиваются в плейлисте. Внутри выбранной категории дальше работает сортировка (по дате / рейтингу / случайно / топ за месяц).**
