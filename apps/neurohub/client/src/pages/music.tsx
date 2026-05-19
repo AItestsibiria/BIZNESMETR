@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useAuth } from "@/lib/auth";
 import { startBgMusic, stopBgMusic } from "@/components/background-music";
+import { useFeatureEnabled } from "@/lib/featureToggles";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -542,9 +543,11 @@ export default function MusicPage() {
 
   // Eugene 2026-05-19 Босс «при генерации обозначиться — не переходить».
   // beforeunload warning если юзер пытается закрыть вкладку/обновить с
-  // активной генерацией. Совет — остаться на странице.
+  // активной генерацией. Уважает feature-toggle «leave-page-warning».
+  const leaveWarningEnabled = useFeatureEnabled("leave-page-warning");
   useEffect(() => {
     if (activeGens.length === 0) return;
+    if (!leaveWarningEnabled) return;
     const handler = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = "Идёт генерация. Если уйти сейчас — трек может прерваться.";
@@ -552,7 +555,7 @@ export default function MusicPage() {
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [activeGens.length]);
+  }, [activeGens.length, leaveWarningEnabled]);
 
   // Resume polling for any processing generation on page load
   useEffect(() => {

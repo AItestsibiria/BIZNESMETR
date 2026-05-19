@@ -47,6 +47,7 @@ import { useEffect, useRef, useState } from "react";
 import { X, ChevronLeft, ChevronRight, Info, Play, Pause, SkipBack, SkipForward, Repeat, Repeat1 } from "lucide-react";
 import { motion, AnimatePresence, type PanInfo } from "framer-motion";
 import { VolumeSlider } from "./volume-slider";
+import { useFeatureEnabled } from "@/lib/featureToggles";
 
 export interface CoverDetailsTrack {
   id: number | string;
@@ -113,6 +114,8 @@ export function CoverDetailsModal({
   repeatMode,
   onRepeatToggle,
 }: CoverDetailsModalProps) {
+  // Eugene 2026-05-19 — feature-toggle (см. /lib/featureToggles).
+  const coverHighlightEnabled = useFeatureEnabled("cover-highlight");
   // dragDirection: 'left' | 'right' | null — для подсветки визуальных стрелок
   const [dragDirection, setDragDirection] = useState<"left" | "right" | null>(null);
   // didDragRef — флаг что был реальный swipe; используется чтобы
@@ -517,7 +520,7 @@ export function CoverDetailsModal({
                   alt={title}
                   draggable={false}
                   className={`w-full h-full object-cover pointer-events-none ${
-                    (track.hasCustomCover || track.coverGenId)
+                    coverHighlightEnabled && (track.hasCustomCover || track.coverGenId)
                       ? "ring-4 ring-fuchsia-400/30 shadow-[0_0_40px_rgba(217,70,239,0.3)]"
                       : ""
                   }`}

@@ -2,6 +2,11 @@
 // пока идёт генерация трека. Eugene 2026-05-09: вернули из stub.
 // Asset: /audio/bgm.mp3 (космическая лента в стиле Interstellar).
 // Volume низкая (0.25) чтобы не мешать диалогу/уведомлениям.
+//
+// Eugene 2026-05-19: feature-toggle респект — если юзер отключил
+// «background-music» в Settings, startBgMusic() становится no-op.
+
+import { featureEnabled } from "@/lib/featureToggles";
 
 let bgmAudio: HTMLAudioElement | null = null;
 let muted = false;
@@ -16,6 +21,7 @@ function ensure(): HTMLAudioElement {
 }
 
 export function startBgMusic(): void {
+  if (!featureEnabled("background-music")) return;
   try {
     const a = ensure();
     if (muted) return;

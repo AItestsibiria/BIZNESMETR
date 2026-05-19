@@ -4,6 +4,11 @@
 // Eugene 2026-05-14 (v2): «звук одной нотой, мягче, комфортнее».
 // Все sound-функции теперь — 1 тон с длинным attack/decay, тёплая частота,
 // очень тихий volume. Никаких аккордов / трезвучий.
+//
+// Eugene 2026-05-19: feature-toggle респект — если юзер отключил
+// «chat-sounds» в Settings, все play-функции становятся no-op.
+
+import { featureEnabled } from "./featureToggles";
 
 let ctx: AudioContext | null = null;
 let muted = false;
@@ -24,6 +29,7 @@ export function getMuzaSoundsMuted() { return muted; }
 // 1-тон gentle chime — для клика на Музу и появления ответа.
 // G4 (392 Hz) — тёплая средняя частота, не пронзительная.
 export function playMuzaChime(opts?: { volume?: number }): void {
+  if (!featureEnabled("chat-sounds")) return;
   const audio = ensure();
   if (!audio) return;
   try {
@@ -44,6 +50,7 @@ export function playMuzaChime(opts?: { volume?: number }): void {
 
 // 1-тон gentle tick — для send. A4 (440 Hz), коротко.
 export function playMuzaTick(opts?: { volume?: number }): void {
+  if (!featureEnabled("chat-sounds")) return;
   const audio = ensure();
   if (!audio) return;
   try {
@@ -64,6 +71,7 @@ export function playMuzaTick(opts?: { volume?: number }): void {
 
 // 1-тон sparkle — для важных моментов (открытие чата). D5 (587 Hz), мягко.
 export function playMuzaSparkle(opts?: { volume?: number }): void {
+  if (!featureEnabled("chat-sounds")) return;
   const audio = ensure();
   if (!audio) return;
   try {

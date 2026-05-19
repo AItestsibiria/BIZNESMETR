@@ -1,6 +1,7 @@
 import { registerAudio, pauseAllExcept } from "../lib/audio-bus";
 import { useLocation, useRoute } from "wouter";
 import { useAuth } from "@/lib/auth";
+import { useFeatureEnabled } from "@/lib/featureToggles";
 import { PenLine, Music, Image, Sparkles, ArrowRight, Zap, Download, Mic, Play, Pause, SkipForward, SkipBack, ChevronDown, ChevronUp, Share2, Repeat, Repeat1, Maximize } from "lucide-react";
 import { StudioMicEq } from "@/components/studio-mic-eq";
 import { ShareQRSection, TrackShareQR } from "@/components/share-qr";
@@ -390,6 +391,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const [lyricsOpen, setLyricsOpen] = useState(false);
   const [expandedLyricId, setExpandedLyricId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  // Eugene 2026-05-19 — feature-toggle hooks (см. /lib/featureToggles).
+  const coverHighlightEnabled = useFeatureEnabled("cover-highlight");
+  const karaokeFeatureEnabled = useFeatureEnabled("karaoke");
   const [shareTrackId, setShareTrackId] = useState<number | null>(null);
   const [showKaraoke, setShowKaraoke] = useState(false);
   const [lyricsSpeed, setLyricsSpeed] = useState(0);
@@ -1763,7 +1767,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                       но не вырывается из плеера. */}
                   <div
                     className={`w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-gradient-to-br ${typeBg} relative group flex items-center justify-center cursor-pointer ${
-                      (track as any).hasCustomCover
+                      coverHighlightEnabled && (track as any).hasCustomCover
                         ? "ring-1 ring-fuchsia-400/30 shadow-[0_0_10px_rgba(217,70,239,0.3)]"
                         : ""
                     }`}
@@ -1937,7 +1941,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             </div>
                             <span className="text-[10px] text-white/50 tabular-nums">{formatDuration(eActive ? trackDuration : (track.duration || 0))}</span>
                           </div>
-                          {track.lyric && eActive && showKaraoke && (
+                          {karaokeFeatureEnabled && track.lyric && eActive && showKaraoke && (
                             <div className="mt-3 animate-in fade-in duration-300">
                               <KaraokeLyrics lyrics={track.lyric} currentTime={currentTime} duration={trackDuration} isPlaying={!!ePlaying} offsetSec={lyricsSpeed} />
                             </div>
