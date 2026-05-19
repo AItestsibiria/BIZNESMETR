@@ -441,10 +441,11 @@ export function CoverDetailsModal({
           выходит за viewport. Добавлено max-h-[90vh] overflow-hidden на
           сам container (и max-h-[70vh] ниже на cover image) — square
           обложка остаётся в пределах высоты экрана. */}
-      <div className="w-[96vw] max-w-2xl md:max-w-xl lg:max-w-2xl h-[96vh] overflow-hidden flex flex-col items-center justify-start gap-2 px-2 pt-2 pb-3 sm:pb-5 relative">
-        {/* Eugene 2026-05-19 Босс «обложка не влазит, внизу куча места».
-            justify-start (а не between) — стек сверху без пустот. Cover сверху,
-            controls сразу под ней, title в самом низу. */}
+      <div className="w-[94vw] max-w-2xl md:max-w-xl lg:max-w-2xl h-[100vh] overflow-hidden flex flex-col items-center justify-start gap-2 px-2 pt-14 sm:pt-10 pb-3 sm:pb-5 relative">
+        {/* Eugene 2026-05-19 Босс «обложку сдвинуть чтобы полностью видно,
+            немного фона с подсветкой задней, гармонично. Нижний блок
+            скомпонован — не растянут». pt-14 (mobile safe-area под status bar)
+            + pt-10 desktop. justify-start стек сверху без больших gaps. */}
         {/* Левая стрелка-хинт (показывается если есть onPrev) */}
         {onPrev && (
           <button
@@ -489,7 +490,7 @@ export function CoverDetailsModal({
             square aspect-ratio + 85vh высота заставлял container выходить
             за viewport (1024×1366 → square 1024 > 70% от 1366). */}
         <div
-          className="relative w-full aspect-square max-h-[78vh] rounded-3xl overflow-hidden"
+          className="relative w-full aspect-square max-h-[68vh] rounded-3xl overflow-hidden shadow-[0_8px_40px_rgba(124,58,237,0.18)]"
           onClick={(e) => e.stopPropagation()}
         >
           <AnimatePresence mode="wait" initial={false}>
