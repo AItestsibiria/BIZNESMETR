@@ -414,8 +414,18 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
           }
         }
         messages.push({ role: "user", content: toolResults });
+        // Eugene 2026-05-19 Триумф-Музы fix: даже если forceBreak hit на outer,
+        // нужен ОДИН финальный API-call чтобы Claude засуммировал tool results
+        // в текст. Без него выпадаем на line 466 которая берёт content[0].text
+        // (а первый блок — tool_use, не text → undefined → fallback). Меняем
+        // условие чтобы хотя бы 1 итерация final-call случилась.
         let loopIter = 0;
-        while (!forceBreak && loopIter < 4) {
+        const maxLoop = forceBreak ? 1 : 4;
+        // Eugene 2026-05-19 Триумф: трекаем последний j2 чтобы извлечь text
+        // из него если цикл завершился без end_turn (line 493 берёт original j,
+        // содержащий tool_use без text → undefined → fallback).
+        let lastJ2: any = null;
+        while (loopIter < maxLoop) {
           loopIter++;
           const r2 = await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
@@ -430,6 +440,7 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
           });
           if (!r2.ok) break;
           const j2: any = await r2.json();
+          lastJ2 = j2;
           if (j2?.usage) {
             muzaTokenStats.inputTokens += Number(j2.usage.input_tokens || 0) + Number(j2.usage.cache_read_input_tokens || 0);
             muzaTokenStats.outputTokens += Number(j2.usage.output_tokens || 0);
@@ -482,6 +493,15 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
             return fallbackText.slice(0, 2000);
           }
           break;
+        }
+        // Eugene 2026-05-19 Триумф: цикл завершён без return — пробуем text
+        // из последнего ответа Claude (если он есть). Это страховка от
+        // выпадения в hardcoded fallback при tool-loop saturation.
+        if (lastJ2) {
+          const txtBlock = (lastJ2.content || []).find((b: any) => b.type === "text");
+          if (txtBlock?.text && txtBlock.text.length > 0) {
+            return String(txtBlock.text).slice(0, 2000);
+          }
         }
       }
       const c = j?.content?.[0]?.text;
