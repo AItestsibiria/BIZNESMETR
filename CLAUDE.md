@@ -1292,7 +1292,8 @@ Reference: `apps/neurohub/client/src/lib/lockscreen.ts` (getPersistentPlayerAudi
 | Узел | Файл в проекте | Обязательная docs |
 |---|---|---|
 | Suno music gen (через GPTunnel) | `apps/neurohub/server/routes.ts` /api/music/generate | https://docs.kie.ai/suno-api/generate-music + https://docs.sunoapi.org/suno-api/generate-music + https://docs.gptunnel.ru/media-api/suno |
-| GPTunnel /media/create payload | `apps/neurohub/server/routes.ts` gptunnelFetch | **camelCase fields** (`webhookUrl`, `customMode`, `negativeTags`, `vocalGender`, `styleWeight`, `weirdnessConstraint`, `modelVersion`). Response `/media/result` — snake_case (`task_id`, `audio_url`, `image_url`) |
+| GPTunnel /media/create payload | `apps/neurohub/server/routes.ts` gptunnelFetch | **camelCase fields** (`webhookUrl`, `customMode`, `negativeTags`, `vocalGender`, `styleWeight`, `weirdnessConstraint`, `modelVersion`). Response `/media/result` — snake_case (`task_id`, `audio_url`, `image_url`). **Файлы доступны 48 часов** (URL `https://*.yandexcloud.net/exp48h/`) — обязательно backfill в authors/ через `saveGenFiles` или manual `/api/admin/v304/backfill-missing-files` |
+| Suno upstream (kie.ai) | task results | **15 дней retention** на upstream kie.ai (через `/v1/generate/record-info`). GPTunnel cache 48ч короче — после её истечения можно достать через kie.ai task-info |
 | GPTunnel /v1/chat/completions | `apps/neurohub/server/lib/llmCore.ts` | OpenAI-compat: https://platform.openai.com/docs/api-reference/chat |
 | Suno webhook callback | `apps/neurohub/server/routes.ts` sunoWebhookHandler | 15-sec response window. Stages: `text`/`first`/`complete` (3 callbacks per gen). 3 fails → retries stop |
 | GPTunnel /v1/audio/transcriptions | `apps/neurohub/server/lib/transcribe.ts` | OpenAI Whisper API |
