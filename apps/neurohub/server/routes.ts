@@ -7609,11 +7609,17 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       // Webhook callback — устраняет leave-page проблему. Suno postит результат
       // на /api/suno/webhook когда готов; нам не нужен client-side polling.
       // Reference: docs.kie.ai/suno-api/generate-music — поле `webhookUrl`
-      // camelCase. Безопасно поставить ВСЕГДА: handler идемпотентен, в случае
-      // unreachable URL — fallback на client polling работает как раньше.
+      // camelCase. Eugene 2026-05-19 Триумф «Реши на 1000%»: belt-and-braces —
+      // отдаём ТРИ варианта имени поля (webhookUrl/callBackUrl/callback_url),
+      // потому что разные провайдеры/версии GPTunnel/kie.ai используют разные.
+      // Provider игнорирует unknown поля без ошибки.
       try {
         const wh = buildSunoCallbackUrl(req, gen.id);
-        if (wh) payload.webhookUrl = wh;
+        if (wh) {
+          payload.webhookUrl = wh;
+          payload.callBackUrl = wh;
+          payload.callback_url = wh;
+        }
       } catch {}
 
       console.log(`[MUSIC] gen #${gen.id} voiceType=${norm.voiceType} mode=${payload.mode || "basic"} prompt=${(payload.prompt || "").length}ch lyrics=${(payload.lyric || "").length}ch tags="${(payload.tags || "").slice(0, 100)}" adv={neg:${!!cleanNegativeTags},w:${cleanWeirdness ?? "-"},sw:${cleanStyleWeight ?? "-"},vg:${cleanVocalGender ?? "-"},mv:${cleanModelVersion ?? "-"}}`);
@@ -7787,12 +7793,42 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
                   }
                 }
               } else {
-                console.error(`[MUSIC] Gen #${gen.id}: URL returned ${check.status}`);
-                storage.updateGeneration(gen.id, { status: "error", errorReason: "Файл временно не пришёл. Баланс восстановлен — попробуйте ещё раз через минуту." });
-                try {
-                  storage.refundGeneration({ genId: gen.id, userId: gen.userId, cost: gen.cost, type: "music", description: `Возврат: файл недоступен #${gen.id}` });
-                } catch {}
-                data.status = "error";
+                // Eugene 2026-05-19 Босс «Реши на 1000%». ROOT CAUSE 1905:
+                // HEAD на Suno CDN временно 404 → ставили error поверх
+                // done → красная карточка в кабинете при играющем audio.
+                // Guard 1: retry HEAD 3 раза с 2-сек паузой (CDN warmup)
+                let recheckOk = false;
+                for (let i = 0; i < 3 && !recheckOk; i++) {
+                  await new Promise(r => setTimeout(r, 2_000));
+                  try {
+                    const r2 = await fetch(audioUrl, { method: "HEAD", signal: AbortSignal.timeout(8_000) });
+                    const cl2 = Number(r2.headers.get("content-length") || 0);
+                    if (r2.ok && (cl2 === 0 || cl2 >= 100_000)) recheckOk = true;
+                  } catch {}
+                }
+                if (recheckOk) {
+                  storage.updateGeneration(gen.id, { status: "done", resultUrl: audioUrl, resultData: JSON.stringify(data) });
+                  data.status = "done";
+                  data.audioUrl = audioUrl;
+                  saveGenFiles(gen.id).catch(() => {});
+                  console.log(`[MUSIC] Gen #${gen.id}: DONE после retry HEAD`);
+                } else {
+                  // Guard 2: НЕ ставим error если gen уже done (webhook успел)
+                  const freshGen = storage.getGeneration(gen.id);
+                  if (freshGen && freshGen.status === "processing") {
+                    console.error(`[MUSIC] Gen #${gen.id}: URL returned ${check.status} (3 retries failed)`);
+                    storage.updateGeneration(gen.id, { status: "error", errorReason: "Файл временно не пришёл. Баланс восстановлен — попробуйте ещё раз через минуту." });
+                    try {
+                      storage.refundGeneration({ genId: gen.id, userId: gen.userId, cost: gen.cost, type: "music", description: `Возврат: файл недоступен #${gen.id}` });
+                    } catch {}
+                    data.status = "error";
+                  } else {
+                    // Gen уже done (webhook успел) — оставляем как есть
+                    console.log(`[MUSIC] Gen #${gen.id}: HEAD failed но gen.status=${freshGen?.status}, оставляем`);
+                    data.status = freshGen?.status || "done";
+                    data.audioUrl = freshGen?.resultUrl || audioUrl;
+                  }
+                }
               }
             } catch {
               // Network error checking URL — still save, URL might work for client

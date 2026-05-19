@@ -1162,15 +1162,35 @@ export function cleanupScheduledDeletes(): { swept: number } {
 //
 // Не трогает свежие processing (< 60 мин) — у них шанс что Suno вернёт.
 // Полный pollProcessingGenerations с Suno вызовом остаётся manual (платно).
-export function cleanupStaleProcessing(): { ancient: number; brokenNoTask: number } {
+export function cleanupStaleProcessing(): { ancient: number; brokenNoTask: number; healed: number } {
   const ancientCutoff = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
   const nullTaskCutoff = new Date(Date.now() - 5 * 60_000).toISOString();
-  let ancient = 0, brokenNoTask = 0;
+  let ancient = 0, brokenNoTask = 0, healed = 0;
+  // Eugene 2026-05-19 Босс «Реши на 1000%». PARADOX-HEAL — найти треки
+  // status='error' но с result_url IS NOT NULL (audio есть!). Это случай
+  // когда webhook не дошёл, client polling прекратился, 24h cleanup
+  // пометил error, НО Suno реально вернул трек. Восстанавливаем status='done'.
   try {
+    const rHeal = db.run(sql`UPDATE generations
+      SET status='done', error_reason=NULL
+      WHERE status='error'
+        AND result_url IS NOT NULL
+        AND result_url != ''
+        AND created_at > datetime('now', '-7 day')`);
+    healed = rHeal.changes ?? 0;
+    if (healed > 0) console.log(`\x1b[32m[CLEANUP-HEAL]\x1b[0m восстановлено paradox-tracks: ${healed}`);
+  } catch (e) {
+    console.error("[CLEANUP-HEAL] failed:", e);
+  }
+  try {
+    // Eugene 2026-05-19: cleanup guard — НЕ ставить error если result_url
+    // IS NOT NULL (трек на самом деле готов, просто status застрял).
     const r1 = db.run(sql`UPDATE generations
       SET status='error',
           error_reason='MuzaAi: задача провайдера зависла. Баланс восстановлен, можно попробовать снова.'
-      WHERE status='processing' AND created_at < ${ancientCutoff}`);
+      WHERE status='processing'
+        AND (result_url IS NULL OR result_url = '')
+        AND created_at < ${ancientCutoff}`);
     ancient = r1.changes ?? 0;
   } catch (e) {
     console.error("[CLEANUP-STALE] ancient failed:", e);
@@ -1181,6 +1201,7 @@ export function cleanupStaleProcessing(): { ancient: number; brokenNoTask: numbe
           error_reason='MuzaAi: не удалось отправить задачу провайдеру. Попробуйте ещё раз.'
       WHERE status='processing'
         AND (task_id IS NULL OR task_id = '')
+        AND (result_url IS NULL OR result_url = '')
         AND created_at < ${nullTaskCutoff}`);
     brokenNoTask = r2.changes ?? 0;
   } catch (e) {
@@ -1189,7 +1210,7 @@ export function cleanupStaleProcessing(): { ancient: number; brokenNoTask: numbe
   if (ancient > 0 || brokenNoTask > 0) {
     console.log(`\x1b[33m[CLEANUP-STALE]\x1b[0m ancient=${ancient}, brokenNoTask=${brokenNoTask}`);
   }
-  return { ancient, brokenNoTask };
+  return { ancient, brokenNoTask, healed };
 }
 
 // pollProcessingGenerations — каждую минуту скан 'processing' и
@@ -1850,6 +1871,26 @@ router.post("/cleanup-stale", requireAdmin, (_req, res) => {
   try {
     const result = cleanupStaleProcessing();
     res.json({ data: result, error: null });
+  } catch (err) {
+    res.status(500).json({ data: null, error: err instanceof Error ? err.message : "internal" });
+  }
+});
+
+// Eugene 2026-05-19 Босс «Дата 1905 — есть проблемы, в личном выдает ошибка».
+// Manual heal — найти все треки status='error' с result_url IS NOT NULL
+// и восстановить в status='done' (audio файл уже есть, error был ложный).
+router.post("/heal-paradox-tracks", requireAdmin, (req, res) => {
+  try {
+    const days = Math.min(30, parseInt(String(req.query.days || "7")) || 7);
+    const r = db.run(sql`UPDATE generations
+      SET status='done', error_reason=NULL
+      WHERE status='error'
+        AND result_url IS NOT NULL
+        AND result_url != ''
+        AND created_at > datetime('now', '-' || ${days} || ' day')`);
+    const healed = r.changes ?? 0;
+    console.log(`\x1b[32m[HEAL-PARADOX]\x1b[0m manual heal: ${healed} tracks (days=${days})`);
+    res.json({ data: { healed, daysWindow: days }, error: null });
   } catch (err) {
     res.status(500).json({ data: null, error: err instanceof Error ? err.message : "internal" });
   }
