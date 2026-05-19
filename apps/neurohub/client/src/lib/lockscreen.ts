@@ -135,7 +135,11 @@ export function getPersistentPlayerAudio(): HTMLAudioElement | null {
   audio.preload = "auto";          // iOS начинает buffering сразу — сигнал "media-active"
   audio.setAttribute("playsinline", "true");          // не открывать fullscreen player
   audio.setAttribute("webkit-playsinline", "true");   // legacy iOS
-  audio.crossOrigin = "anonymous"; // для same-origin stream API — безопасный default
+  // Eugene 2026-05-19 ROOT CAUSE 862/1905: crossOrigin="anonymous" блокировал
+  // отправку cookies в Safari → cookie auth_token не доходил → 403 на
+  // /api/stream/:id → audio show «Ошибка». "use-credentials" разрешает
+  // cookies для same-origin. Не использовать "anonymous" — рушит auth.
+  audio.crossOrigin = "use-credentials";
   audio.style.display = "none";
   // НЕ устанавливаем src — будет установлен через loadTrackIntoPlayer()
   // при первом playTrack(). Пустой audio.src здесь = no-op (iOS не считает active).

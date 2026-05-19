@@ -5063,17 +5063,33 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     const ctMap: Record<string, string> = { ".mp3": "audio/mpeg", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".txt": "text/plain; charset=utf-8" };
     const ct = ctMap[ext] || "application/octet-stream";
     const stat = fs.statSync(localFile);
+    // Eugene 2026-05-19 Триумф 1905: iOS Safari требует Accept-Ranges + Range
+    // support для audio scrubbing (perevotka). Без него <audio> может
+    // показать «Ошибка» даже на корректный 200 OK с полным файлом.
+    res.setHeader("Accept-Ranges", "bytes");
     res.setHeader("Content-Type", ct);
-    res.setHeader("Content-Length", stat.size);
     res.setHeader("Cache-Control", "public, max-age=86400");
     if (asDownload) {
-      // Use RFC 5987 encoding for non-ASCII filenames
       const asciiName = asDownload.replace(/[^\x20-\x7E]/g, "_");
-      const utf8Name = encodeURIComponent(asDownload).replace(/%20/g, " ");
       res.setHeader("Content-Disposition", `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(asDownload)}`);
     }
-    const stream = fs.createReadStream(localFile);
-    stream.pipe(res);
+    // Range request support (iOS Safari/audio scrubbing)
+    const range = res.req.headers.range;
+    if (range && /^bytes=\d*-\d*$/.test(range)) {
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0]) || 0;
+      const end = parts[1] ? parseInt(parts[1]) : stat.size - 1;
+      const chunkSize = end - start + 1;
+      res.status(206);
+      res.setHeader("Content-Range", `bytes ${start}-${end}/${stat.size}`);
+      res.setHeader("Content-Length", chunkSize);
+      const stream = fs.createReadStream(localFile, { start, end });
+      stream.pipe(res);
+    } else {
+      res.setHeader("Content-Length", stat.size);
+      const stream = fs.createReadStream(localFile);
+      stream.pipe(res);
+    }
     return true;
   }
 
