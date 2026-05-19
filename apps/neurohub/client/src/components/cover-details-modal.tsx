@@ -343,7 +343,7 @@ export function CoverDetailsModal({
       aria-modal="true"
       aria-label="Детали обложки"
       onClick={handleBackdropClick}
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-gradient-to-br from-[#0a0a17]/95 via-[#1a0f2e]/95 to-[#0a0a17]/95 backdrop-blur-xl animate-in fade-in duration-200 cursor-zoom-out"
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-[#08081a]/96 backdrop-blur-2xl animate-in fade-in duration-200 cursor-zoom-out"
       data-testid="cover-details-modal"
     >
       {/* Eugene 2026-05-17 — hi-tech holographic overlay поверх backdrop
@@ -397,7 +397,7 @@ export function CoverDetailsModal({
         className="absolute bottom-4 right-4 w-14 h-14 rounded-full bg-black/40 backdrop-blur-sm border border-white/20 hover:border-fuchsia-400/60 hover:bg-black/60 flex items-center justify-center transition-all hover:scale-110 active:scale-95 z-50"
         data-testid="cover-details-s-bottom-right"
       >
-        <span className="font-display font-bold italic text-3xl tracking-wider text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.95)] drop-shadow-[0_0_20px_rgba(217,70,239,0.9)]">S</span>
+        <span className="font-display font-black text-3xl tracking-tight text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.7)]">S</span>
       </button>
 
       {/* Info-popover (показывается при click на ⓘ) — glass-card, dark, fade-in */}
@@ -441,7 +441,10 @@ export function CoverDetailsModal({
           выходит за viewport. Добавлено max-h-[90vh] overflow-hidden на
           сам container (и max-h-[70vh] ниже на cover image) — square
           обложка остаётся в пределах высоты экрана. */}
-      <div className="w-[80vw] max-w-2xl md:max-w-lg lg:max-w-xl max-h-[90vh] overflow-hidden flex flex-col items-center gap-2 px-4 relative">
+      <div className="w-[96vw] max-w-2xl md:max-w-xl lg:max-w-2xl h-[96vh] overflow-hidden flex flex-col items-center justify-between gap-2 px-2 pb-4 sm:pb-6 relative">
+        {/* Eugene 2026-05-19 Босс «пропорции на S — больше места, меньше фона.
+            Controls вниз — палец не достаёт». 96vw/96vh + justify-between =
+            обложка вверху, controls внизу, фон тёмный минимальный по краям. */}
         {/* Левая стрелка-хинт (показывается если есть onPrev) */}
         {onPrev && (
           <button

@@ -1383,7 +1383,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               data-testid="btn-cover-s-top-right"
               data-musa-hint="📱 Свайп-режим — листай обложки большими карточками, удерживай для сохранения"
             >
-              <span className="font-display font-bold italic text-xl tracking-wider text-white drop-shadow-[0_0_8px_rgba(217,70,239,0.95)]">S</span>
+              <span className="font-display font-black text-xl tracking-tight text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">S</span>
             </button>
             {/* Eugene 2026-05-16: expand работает только на desktop (md+).
                 На mobile — всегда compact row-layout (как было до introducing
@@ -1929,7 +1929,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             }}
                             data-no-collapse
                           >
-                            <span className="font-display font-bold italic text-xl tracking-wider text-white drop-shadow-[0_0_8px_rgba(217,70,239,0.95)]">S</span>
+                            <span className="font-display font-black text-xl tracking-tight text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]">S</span>
                           </button>
                           <div className="absolute inset-0 flex items-center justify-center">
                             <svg viewBox="0 0 24 24" className="w-16 h-16 opacity-10" fill="none">
