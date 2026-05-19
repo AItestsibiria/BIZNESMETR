@@ -6747,7 +6747,15 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
       // Eugene 2026-05-18 IDOR-fix (ACCESS-BYPASS-AUDIT-170526 #1):
       // приватные треки (isPublic=0) — только владелец/админ.
       // Bearer/?token= для <audio> tags которые не шлют Authorization header.
-      const stToken = (req.headers.authorization || '').replace('Bearer ', '') || (req.query.token as string) || '';
+      // Eugene 2026-05-19 (Триумф 1905): добавлен cookie auth_token fallback —
+      // браузер автоматически шлёт cookie на same-origin requests, <audio> и
+      // <img> работают без явного ?token= в URL.
+      const cookieToken = (() => {
+        const raw = req.headers.cookie || '';
+        const m = raw.match(/(?:^|;\s*)auth_token=([^;]+)/);
+        return m ? decodeURIComponent(m[1]) : '';
+      })();
+      const stToken = (req.headers.authorization || '').replace('Bearer ', '') || (req.query.token as string) || cookieToken || '';
       const stUserId = stToken ? tokenStore.get(stToken) : undefined;
       if ((gen.isPublic ?? 0) === 0) {
         const stUser = stUserId ? storage.getUser(stUserId) : null;
