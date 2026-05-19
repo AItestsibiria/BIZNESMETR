@@ -441,10 +441,10 @@ export function CoverDetailsModal({
           выходит за viewport. Добавлено max-h-[90vh] overflow-hidden на
           сам container (и max-h-[70vh] ниже на cover image) — square
           обложка остаётся в пределах высоты экрана. */}
-      <div className="w-[96vw] max-w-2xl md:max-w-xl lg:max-w-2xl h-[96vh] overflow-hidden flex flex-col items-center justify-between gap-2 px-2 pb-4 sm:pb-6 relative">
-        {/* Eugene 2026-05-19 Босс «пропорции на S — больше места, меньше фона.
-            Controls вниз — палец не достаёт». 96vw/96vh + justify-between =
-            обложка вверху, controls внизу, фон тёмный минимальный по краям. */}
+      <div className="w-[96vw] max-w-2xl md:max-w-xl lg:max-w-2xl h-[96vh] overflow-hidden flex flex-col items-center justify-start gap-2 px-2 pt-2 pb-3 sm:pb-5 relative">
+        {/* Eugene 2026-05-19 Босс «обложка не влазит, внизу куча места».
+            justify-start (а не between) — стек сверху без пустот. Cover сверху,
+            controls сразу под ней, title в самом низу. */}
         {/* Левая стрелка-хинт (показывается если есть onPrev) */}
         {onPrev && (
           <button
@@ -764,14 +764,13 @@ export function CoverDetailsModal({
         <div className="w-full text-center px-2 pb-1" onClick={(e) => e.stopPropagation()}>
           {/* Eugene 2026-05-19 Босс «шрифт более читабельный» — крупнее title,
               чище контраст автор + дата. */}
-          <p className="text-2xl sm:text-3xl font-display font-bold gradient-text neon-text leading-tight tracking-tight">{title}</p>
+          <p className="text-lg sm:text-xl font-display font-bold gradient-text neon-text leading-tight tracking-tight">{title}</p>
           {track.authorName && (
-            <p className="text-base text-purple-200 mt-1.5 font-semibold font-sans">{track.authorName}</p>
+            <p className="text-sm text-purple-200 mt-0.5 font-semibold font-sans">{track.authorName}</p>
           )}
           {date && (
-            <p className="text-sm text-white/55 mt-1.5 font-mono tabular-nums">{date}</p>
+            <p className="text-xs text-white/50 mt-0.5 font-mono tabular-nums">{date}</p>
           )}
-          <p className="text-[10px] text-white/30 mt-2 font-sans">Удерживай обложку — сохранить с MuzaAi.ru</p>
         </div>
         {saveToast && (
           <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[60] px-4 py-2 rounded-full bg-gradient-to-r from-purple-600/90 via-fuchsia-600/90 to-cyan-600/90 text-white text-sm font-medium shadow-[0_0_24px_rgba(124,58,237,0.5)] animate-in fade-in slide-in-from-top-2 duration-300">
