@@ -2278,11 +2278,19 @@ function splitMarkdownSections(text: string): { section: string; text: string }[
 export async function executeTool(name: string, input: any, context: ToolContext): Promise<string> {
   const handler = HANDLERS[name];
   if (!handler) return `Tool "${name}" not found.`;
+  // Eugene 2026-05-19 Триумф-Музы C5: 8-сек timeout per tool. Иначе медленный
+  // tool (геолокация, БД-агрегат) блокирует chat-pipeline и юзер видит spinner
+  // 20+ сек → abort'ит вкладку.
   try {
-    return await handler(input || {}, context);
+    return await Promise.race<string>([
+      handler(input || {}, context),
+      new Promise<string>((_, reject) =>
+        setTimeout(() => reject(new Error(`tool timeout 8s: ${name}`)), 8_000),
+      ),
+    ]);
   } catch (e: any) {
-    console.error(`[TOOL ${name}]`, e);
-    return `Ошибка вызова tool: ${e.message}`;
+    console.error(`[TOOL ${name}]`, e?.message || e);
+    return `Tool "${name}" вернул ошибку. Продолжай без него и ответь юзеру тем что знаешь.`;
   }
 }
 

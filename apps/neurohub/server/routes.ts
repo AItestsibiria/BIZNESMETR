@@ -3102,6 +3102,27 @@ export async function registerRoutes(
       const parsed = extractQuickReplies(reply);
       let quickReplies = parsed.quickReplies;
       reply = parsed.reply;
+
+      // Eugene 2026-05-19 Триумф-Музы C3: empty-reply guard. Если после
+      // strip всех маркеров reply пустой (Claude вернул только PROPOSE_GEN
+      // или QR без основного текста) — заменяем на admin-aware fallback,
+      // чтобы юзер не увидел пустоту.
+      if (!reply || reply.trim().length < 3) {
+        const adminLike = muzaRole === "admin" || muzaRole === "super_admin";
+        const adminFallbacks = [
+          "Готова. Какой узел проверить? Health-check ключей, метрики, диагностика?",
+          "Слушаю. Что нужно — статус API, баланс, последние инциденты, поиск юзера?",
+          "Тут. Команды: метрики / поиск / реджекты / health. Что показать?",
+        ];
+        const userFallbacks = [
+          "Я слушаю тебя — расскажи к какому событию или настроению подбираем песню?",
+          "Привет 🎵 Поделись идеей — день рождения, признание, поздравление?",
+          "На связи. Чем помочь — создать песню, посмотреть мои примеры или вопрос?",
+        ];
+        const pool = adminLike ? adminFallbacks : userFallbacks;
+        reply = pool[Math.floor(Math.random() * pool.length)];
+        usedFallback = true;
+      }
       // Eugene 2026-05-14 Босс «реши кардинально». Если Claude забыл [QR:]
       // маркеры — дать дефолтные кнопки чтобы юзер всегда мог продолжить.
       if (quickReplies.length === 0) {

@@ -327,10 +327,14 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
   const safeUserText = `<user_message>${cleaned}</user_message>`;
 
   // 4. Messages для Claude. history.slice(-15) — последние 15 reply'ев.
-  const messages: any[] = [
+  // Eugene 2026-05-19 Триумф-Музы C2: original snapshot для key cascade.
+  // Каждая попытка ключа работает на свежей deep-копии — tool_use артефакты
+  // от провального ключа не утекают на следующий.
+  const originalMessages: any[] = [
     ...history.slice(-15).map(h => ({ role: h.role, content: h.content })),
     { role: "user", content: safeUserText },
   ];
+  let messages: any[] = JSON.parse(JSON.stringify(originalMessages));
 
   const model = opts.model || "claude-haiku-4-5-20251001";
   const maxTokens = opts.maxTokens || 400;
@@ -351,6 +355,8 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
 
   for (let i = 0; i < attempts.length; i++) {
     const { name, key } = attempts[i];
+    // C2: восстановить чистый snapshot перед каждым ключом
+    messages = JSON.parse(JSON.stringify(originalMessages));
     try {
       const r = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
@@ -504,8 +510,12 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
           }
         }
       }
-      const c = j?.content?.[0]?.text;
-      if (typeof c === "string" && c.length > 0) {
+      // Eugene 2026-05-19 Триумф-Музы C1: ищем text-блок В ЛЮБОМ месте content,
+      // не только content[0]. Когда stop_reason='tool_use' — content[0] это
+      // tool_use (не text), но Claude может приложить text-блок рядом.
+      const textBlock = (j?.content || []).find((b: any) => b?.type === "text");
+      const c = typeof textBlock?.text === "string" ? textBlock.text : "";
+      if (c && c.length > 0) {
         if (prevFailed && i > 0) {
           notifyAdminKeySwitch({
             at: new Date().toISOString(),

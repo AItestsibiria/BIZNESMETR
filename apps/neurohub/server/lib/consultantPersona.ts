@@ -231,6 +231,19 @@ export function buildPersonaSystem(
 ): string {
   const p = personaFor(userKey);
   const kb = loadKB() || "[KB недоступна — отвечай по сути, спроси детали]";
+  // Eugene 2026-05-19 Триумф-Музы C4: graceful guard на loadProjectKnowledge.
+  // execSync(git) на VPS без .git может throw → ломает весь prompt.
+  let projectKnowledge = "";
+  try {
+    projectKnowledge = loadProjectKnowledge() || "";
+  } catch (e) {
+    console.warn("[persona] loadProjectKnowledge failed:", (e as any)?.message);
+  }
+  // Hard cap 60KB на projectKnowledge (KB+persona+core = ~20-30KB).
+  // Anthropic input limit мягкий, но cached blocks отдельный.
+  if (projectKnowledge.length > 60_000) {
+    projectKnowledge = projectKnowledge.slice(0, 60_000) + "\n\n[... truncated to 60KB ...]";
+  }
 
   return `Ты — Муза, центральный персонаж проекта MuzaAi (muzaai.ru), друг автора.
 
@@ -973,7 +986,7 @@ classify_question({question}) — он подскажет категорию и 
 ${kb}
 ═══ KB END ═══
 
-${loadProjectKnowledge()}
+${projectKnowledge}
 
 Финал: говори живо, веди к подарочному треку и творчеству. Если не знаешь — «уточню и вернусь», не выдумывай.`;
 }
