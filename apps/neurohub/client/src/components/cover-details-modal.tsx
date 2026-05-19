@@ -370,7 +370,7 @@ export function CoverDetailsModal({
         className="absolute top-4 right-16 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-sm flex items-center justify-center transition-colors border border-white/15 z-10"
         data-testid="cover-details-info"
       >
-        <Info className="w-5 h-5 text-white" />
+        <Info className="w-5 h-5 text-white/80" />
       </button>
 
       <button
@@ -380,7 +380,7 @@ export function CoverDetailsModal({
         className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-sm flex items-center justify-center transition-colors border border-white/15 z-10"
         data-testid="cover-details-close"
       >
-        <X className="w-5 h-5 text-white" />
+        <X className="w-5 h-5 text-white/80" />
       </button>
 
       {/* Eugene 2026-05-18 Босс «не вижу S в раскрытой обложке» — кликабельная
@@ -612,11 +612,11 @@ export function CoverDetailsModal({
                 >
                   <div className="absolute inset-x-0 h-1.5 rounded-full bg-white/10 pointer-events-none" />
                   <div
-                    className="absolute left-0 h-1.5 rounded-full bg-gradient-to-r from-purple-500 via-fuchsia-500 to-cyan-400 pointer-events-none transition-all"
+                    className="absolute left-0 h-1.5 rounded-full bg-gradient-to-r from-purple-500/70 via-fuchsia-500/65 to-cyan-400/70 pointer-events-none transition-all"
                     style={{ width: `${duration > 0 ? Math.min(((currentTime || 0) / duration) * 100, 100) : 0}%` }}
                   />
                   <div
-                    className="absolute w-3.5 h-3.5 group-hover:w-4 group-hover:h-4 rounded-full bg-white shadow-lg ring-2 ring-purple-500/40 pointer-events-none transition-all"
+                    className="absolute w-3.5 h-3.5 group-hover:w-4 group-hover:h-4 rounded-full bg-white/85 shadow-md ring-1 ring-purple-500/25 pointer-events-none transition-all"
                     style={{
                       left: `calc(${duration > 0 ? Math.min(((currentTime || 0) / duration) * 100, 100) : 0}% - 7px)`,
                     }}
@@ -651,10 +651,10 @@ export function CoverDetailsModal({
                   type="button"
                   onClick={onPrev}
                   aria-label="Предыдущий трек"
-                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/5 hover:bg-white/15 hover:scale-105 active:scale-95 transition-all flex items-center justify-center border border-white/10 shrink-0"
+                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/[0.04] hover:bg-white/10 hover:scale-105 active:scale-95 transition-all flex items-center justify-center border border-white/8 shrink-0"
                   data-testid="cover-details-skip-prev"
                 >
-                  <SkipBack className="w-5 h-5 text-white" />
+                  <SkipBack className="w-5 h-5 text-white/80" />
                 </button>
               )}
 
@@ -665,7 +665,7 @@ export function CoverDetailsModal({
                   type="button"
                   onClick={onPlayPause}
                   aria-label={isPlaying ? "Пауза" : "Воспроизвести"}
-                  className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-br from-purple-500/75 via-fuchsia-500/70 to-blue-500/75 hover:from-purple-400/85 hover:via-fuchsia-400/80 hover:to-blue-400/85 hover:scale-105 active:scale-95 transition-all flex items-center justify-center shadow-[0_0_20px_rgba(124,58,237,0.28)] border border-white/15 shrink-0"
+                  className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-gradient-to-br from-purple-500/55 via-fuchsia-500/50 to-blue-500/55 hover:from-purple-400/70 hover:via-fuchsia-400/65 hover:to-blue-400/70 hover:scale-105 active:scale-95 transition-all flex items-center justify-center shadow-[0_0_12px_rgba(124,58,237,0.18)] border border-white/10 shrink-0"
                   data-testid="cover-details-play-pause"
                 >
                   {isPlaying
@@ -681,10 +681,10 @@ export function CoverDetailsModal({
                   type="button"
                   onClick={onNext}
                   aria-label="Следующий трек"
-                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/5 hover:bg-white/15 hover:scale-105 active:scale-95 transition-all flex items-center justify-center border border-white/10 shrink-0"
+                  className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/[0.04] hover:bg-white/10 hover:scale-105 active:scale-95 transition-all flex items-center justify-center border border-white/8 shrink-0"
                   data-testid="cover-details-skip-next"
                 >
-                  <SkipForward className="w-5 h-5 text-white" />
+                  <SkipForward className="w-5 h-5 text-white/80" />
                 </button>
               )}
 
@@ -701,7 +701,7 @@ export function CoverDetailsModal({
                   }
                   className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-all shrink-0 ${
                     repeatMode && repeatMode !== "off"
-                      ? "bg-gradient-to-br from-purple-500/40 to-cyan-500/30 border border-purple-400/50 text-white shadow-[0_0_16px_rgba(124,58,237,0.35)]"
+                      ? "bg-gradient-to-br from-purple-500/25 to-cyan-500/20 border border-purple-400/30 text-white/85 shadow-[0_0_10px_rgba(124,58,237,0.18)]"
                       : "bg-white/5 border border-white/10 text-white/40 hover:bg-white/10 hover:text-white/70"
                   }`}
                   data-testid="cover-details-repeat"
