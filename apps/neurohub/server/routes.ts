@@ -1,6 +1,7 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage, db, sqliteDb } from "./storage";
+import { getTodayDefaultSort, getRotationConfig, setRotationCycle } from "./lib/playlistSortRotation";
 import { PUBLIC_URL } from "./lib/publicUrl";
 import { detectsYars, recordYarsMention } from "./lib/yarsDetect";
 import { detectSentiment } from "./lib/sentimentDetector";
@@ -8404,6 +8405,32 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   });
 
   // Get public generations for the playlist — all types, sorted by rotation score
+  // Eugene 2026-05-19 «Поставь правило по умолчанию: по дате → рейтинг →
+  // случайно (через день). Цикл повторяется. Админ может менять порядок».
+  // Сегодняшний default sort — frontend читает на первый загрузке если у
+  // юзера нет своего выбора в localStorage.
+  app.get("/api/playlist/sort-default", (_req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json(getTodayDefaultSort());
+  });
+  app.get("/api/admin/v304/playlist-sort-rotation", requireAdmin, (_req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ ...getRotationConfig(), today: getTodayDefaultSort() });
+  });
+  app.post("/api/admin/v304/playlist-sort-rotation", requireAdmin, (req: Request, res: Response) => {
+    const cycle = (req.body?.cycle as string[]) || [];
+    if (!Array.isArray(cycle)) {
+      res.status(400).json({ error: "cycle must be an array" });
+      return;
+    }
+    const result = setRotationCycle(cycle);
+    if (!result.ok) {
+      res.status(400).json(result);
+      return;
+    }
+    res.json({ ok: true, ...getTodayDefaultSort() });
+  });
+
   app.get("/api/playlist", (req: Request, res: Response) => {
     // Always fresh — playlist reflects renames, cover changes, plays, etc.
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");

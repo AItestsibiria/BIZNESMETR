@@ -460,8 +460,26 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   });
   const [sortMode, setSortMode] = useState<"rating" | "date" | "random" | "top_month">(() => {
     try { const s = localStorage.getItem(`pl_v2:${user?.id || "guest"}:sortMode`); if (s === "rating" || s === "date" || s === "random" || s === "top_month") return s; } catch {}
-    return "rating";
+    return "date"; // Initial — server default подгружается ниже useEffect'ом
   });
+  // Eugene 2026-05-19 Босс «правило по умолчанию: по дате → рейтинг → случайно
+  // (цикл по дням, админ меняет порядок)». При первой загрузке если у юзера
+  // нет своего выбора в localStorage — спрашиваем server какой сегодня default.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(`pl_v2:${user?.id || "guest"}:sortMode`);
+      if (saved) return; // у юзера уже свой выбор — не перебиваем
+    } catch {}
+    fetch("/api/playlist/sort-default", { cache: "no-store" })
+      .then(r => r.json())
+      .then((j) => {
+        if (j?.mode && ["date", "rating", "random", "top_month"].includes(j.mode)) {
+          setSortMode(j.mode);
+        }
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [sortDir, setSortDir] = useState<"asc" | "desc">(() => {
     try { const s = localStorage.getItem(`pl_v2:${user?.id || "guest"}:sortDir`); if (s === "asc" || s === "desc") return s; } catch {}
     return "asc";
