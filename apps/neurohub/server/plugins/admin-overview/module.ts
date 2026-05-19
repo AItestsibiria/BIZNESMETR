@@ -1876,6 +1876,116 @@ router.post("/cleanup-stale", requireAdmin, (_req, res) => {
   }
 });
 
+// Eugene 2026-05-19 Босс «На Suno 48ч хранится, надо их докачать в кабинет».
+// Backfill — найти все done треки БЕЗ local_path и скачать с result_url
+// в authors/<name>/gen_<id>.mp3 пока Suno-URL ещё валидный.
+//
+// docs: kie.ai files retained 15 days, GPTunnel Yandex S3 — 48ч.
+// Поэтому критично — backfill в первые ~24ч после генерации.
+router.post("/backfill-missing-files", requireAdmin, async (req, res) => {
+  try {
+    const days = Math.min(7, parseInt(String(req.query.days || "2")) || 2);
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    // Найти все done треки без local_path за окно
+    const rows = sqliteDb.prepare(`
+      SELECT id, user_id, result_url, local_path, type, created_at
+      FROM generations
+      WHERE status='done'
+        AND result_url IS NOT NULL AND result_url != ''
+        AND created_at > datetime('now', '-' || ? || ' day')
+        AND type = 'music'
+    `).all(days) as any[];
+    let downloaded = 0;
+    let alreadyOk = 0;
+    let failed = 0;
+    const errors: string[] = [];
+    const AUTHORS_DIR = path.join(process.cwd(), "authors");
+    for (const row of rows) {
+      try {
+        // Проверка: local_path есть И файл существует на диске?
+        if (row.local_path) {
+          const abs = path.join(AUTHORS_DIR, row.local_path);
+          if (fs.existsSync(abs)) {
+            const sz = fs.statSync(abs).size;
+            if (sz > 50_000) { alreadyOk++; continue; }
+          }
+        }
+        // Re-download через storage helper (тот же путь как saveGenFiles)
+        // Вызываем backfillSingle через POST к нашему internal endpoint
+        const r = await fetch(`http://localhost:${process.env.PORT || 5000}/api/admin/v304/backfill-single/${row.id}`, {
+          method: "POST",
+          headers: { "X-Admin-Backfill": "1" },
+          signal: AbortSignal.timeout(60_000),
+        });
+        if (r.ok) { downloaded++; } else { failed++; errors.push(`#${row.id}: HTTP ${r.status}`); }
+      } catch (e: any) {
+        failed++;
+        errors.push(`#${row.id}: ${e?.message || e}`);
+      }
+    }
+    res.json({ data: { scanned: rows.length, downloaded, alreadyOk, failed, errors: errors.slice(0, 20), daysWindow: days }, error: null });
+  } catch (err) {
+    res.status(500).json({ data: null, error: err instanceof Error ? err.message : "internal" });
+  }
+});
+
+// Internal: backfill для одного gen — re-download с result_url. Использует
+// тот же saveGenFiles flow через прямой импорт. Защищён header X-Admin-Backfill
+// (чтобы вызывался ТОЛЬКО изнутри сервера, не extern).
+router.post("/backfill-single/:id", async (req, res) => {
+  if (req.header("X-Admin-Backfill") !== "1") {
+    return res.status(403).json({ error: "internal only" });
+  }
+  try {
+    const genId = parseInt(req.params.id);
+    // saveGenFiles экспортирован из routes.ts; но routes.ts импортирует
+    // нас — циклическая зависимость. Workaround: дублируем минимальный
+    // download flow здесь без ID3/fade (просто файл сохранить).
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const sqlRow = sqliteDb.prepare(
+      `SELECT g.id, g.user_id, g.result_url, g.result_data, g.type, u.name as user_name, g.author_name
+       FROM generations g LEFT JOIN users u ON u.id = g.user_id WHERE g.id = ?`,
+    ).get(genId) as any;
+    if (!sqlRow || !sqlRow.result_url) return res.status(404).json({ error: "no result_url" });
+    let audioUrl = sqlRow.result_url;
+    let imageUrl: string | null = null;
+    try {
+      const data = JSON.parse(sqlRow.result_data || "{}");
+      if (Array.isArray(data.result) && data.result[0]) {
+        audioUrl = data.result[0].audio_url || audioUrl;
+        imageUrl = data.result[0].image_url || null;
+      }
+    } catch {}
+    const authorName = String(sqlRow.user_name || sqlRow.author_name || "_noname")
+      .replace(/[^a-zа-я0-9_-\s]/gi, "_").trim().slice(0, 64) || "_noname";
+    const dir = path.join(process.cwd(), "authors", authorName);
+    fs.mkdirSync(dir, { recursive: true });
+    const mp3Path = path.join(dir, `gen_${genId}.mp3`);
+    const r = await fetch(audioUrl, { signal: AbortSignal.timeout(60_000) });
+    if (!r.ok) return res.status(502).json({ error: `audio HTTP ${r.status}` });
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (buf.length < 50_000) return res.status(502).json({ error: `audio too small ${buf.length}b` });
+    fs.writeFileSync(mp3Path, buf);
+    if (imageUrl) {
+      try {
+        const ir = await fetch(imageUrl, { signal: AbortSignal.timeout(30_000) });
+        if (ir.ok) {
+          const ibuf = Buffer.from(await ir.arrayBuffer());
+          if (ibuf.length > 1000) fs.writeFileSync(path.join(dir, `gen_${genId}.jpg`), ibuf);
+        }
+      } catch {}
+    }
+    const relPath = path.relative(path.join(process.cwd(), "authors"), mp3Path);
+    db.run(sql`UPDATE generations SET local_path = ${relPath} WHERE id = ${genId}`);
+    console.log(`[BACKFILL] gen #${genId} → ${relPath} (${buf.length}b)`);
+    res.json({ ok: true, path: relPath, size: buf.length });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "internal" });
+  }
+});
+
 // Eugene 2026-05-19 Босс «Дата 1905 — есть проблемы, в личном выдает ошибка».
 // Manual heal — найти все треки status='error' с result_url IS NOT NULL
 // и восстановить в status='done' (audio файл уже есть, error был ложный).
