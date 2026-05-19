@@ -368,6 +368,13 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // прямое свойство, React не re-render. Делаем State + listeners на play/pause events.
   const [isPlayingState, setIsPlayingState] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  // Eugene 2026-05-19 Босс «при случайном нажатии закрывается — добавь паузу».
+  // Anti-accidental-collapse: 350ms cooldown после открытия expanded card.
+  // Pointer-down → если прошло <350ms → ignore (anti-double-tap, anti-flicker).
+  const expandedAtRef = useRef<number>(0);
+  useEffect(() => {
+    if (expandedId !== null) expandedAtRef.current = Date.now();
+  }, [expandedId]);
   const expandedIdRef = useRef<number | null>(null);
   // Eugene 2026-05-16 Босс «кнопка раскрыть (expand) на плееры везде».
   // coverExpanded — column-layout активного плеера: cover full-width сверху,
@@ -384,10 +391,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   useEffect(() => {
     if (typeof window !== "undefined") window.localStorage.setItem("muzaai-cover-size", coverSize);
   }, [coverSize]);
-  // Eugene 2026-05-18 Босс «обложку на плеере увеличь в рамках концепции».
-  // Base подняли с 60→88 (mobile) и 72→112 (sm). Desktop коэффициенты тоже
-  // подросли: sm/md/lg → 100/125/150% (раньше 75/100/125).
-  const coverSizeClass = coverSize === "sm" ? "md:scale-100" : coverSize === "lg" ? "md:scale-150" : "md:scale-125";
+  // Eugene 2026-05-19 Босс «впиши на планшете, уменьши размер на 20% планшет
+  // десктоп, пусть гибко можно менять». Scale на 20% меньше: sm=80, md=100, lg=125.
+  // Mobile w-[88px] не трогаем (там и так компактно).
+  const coverSizeClass = coverSize === "sm" ? "md:scale-[0.8]" : coverSize === "lg" ? "md:scale-125" : "md:scale-100";
   const [lyricsOpen, setLyricsOpen] = useState(false);
   const [expandedLyricId, setExpandedLyricId] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1389,11 +1396,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   (purple→fuchsia→cyan→amber conic gradient + blur + slow spin
                   + pulse opacity). Обложка остаётся резкой внутри. */}
               {/* Eugene 2026-05-18 — обёртка cover+S; cover-square даёт фиксированный размер обложки, S-кнопка идёт после и не выпадает за wrapper. */}
-              <div className={`relative shrink-0 flex flex-col ${coverExpanded ? "md:w-full" : "w-[88px] sm:w-[112px]"}`}>
+              <div className={`relative shrink-0 flex flex-col ${coverExpanded ? "md:w-full" : "w-[88px] sm:w-[90px]"}`}>
                 {/* Eugene 2026-05-18 Босс «обложка -25% базово + desktop resize».
                     Mobile: w-[60px] (было 80) / sm:w-[72px] (было 96). Desktop:
                     coverSize state управляет (75/100/125%). */}
-                <div className={`relative ${coverExpanded ? "md:w-full md:aspect-square" : "w-[88px] h-[88px] sm:w-[112px] sm:h-[112px]"} ${!coverExpanded ? coverSizeClass : ""}`}>
+                <div className={`relative ${coverExpanded ? "md:w-full md:aspect-square" : "w-[88px] h-[88px] sm:w-[90px] sm:h-[90px]"} ${!coverExpanded ? coverSizeClass : ""}`}>
                 <div
                   aria-hidden="true"
                   className={`absolute -inset-2 rounded-2xl opacity-70 blur-2xl pointer-events-none cover-aura ${coverExpanded ? "md:-inset-3" : ""}`}
@@ -1881,7 +1888,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   return (
                     <div className="px-2 pb-2 pt-1">
                       <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-purple-500/20 animate-in fade-in zoom-in-95 duration-300">
-                        <div className="w-full aspect-square bg-gradient-to-br from-purple-900 via-blue-900 to-black relative cursor-pointer" onPointerDown={(e) => { const tgt = e.target as HTMLElement; if (tgt.closest("button, a, [role=button], input, [data-no-collapse]")) return; e.preventDefault(); setExpandedId(null); }}>
+                        <div className="w-full aspect-square bg-gradient-to-br from-purple-900 via-blue-900 to-black relative cursor-pointer" onPointerDown={(e) => { const tgt = e.target as HTMLElement; if (tgt.closest("button, a, [role=button], input, [data-no-collapse]")) return; if (Date.now() - expandedAtRef.current < 350) return; e.preventDefault(); setExpandedId(null); }}>
                           {track.imageUrl && <img key={track.imageUrl} src={track.imageUrl} alt="" className="w-full h-full object-cover absolute inset-0 animate-in fade-in duration-500" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />}
                           <div className="absolute inset-0 flex items-center justify-center">
                             <svg viewBox="0 0 24 24" className="w-16 h-16 opacity-10" fill="none">

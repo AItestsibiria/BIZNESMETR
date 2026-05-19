@@ -1073,6 +1073,46 @@ Audit при code review:
 - При расширении KB / persona prompt — проверить что нет утечек админских деталей в public-zone
 - При изменении governance логики — обновить это правило
 
+### Responsive-tablet-cap rule (Eugene 2026-05-19)
+
+**На tablet (sm: 640-1023px) и desktop (md/lg: 1024+) UI-блоки масштабируются на -20% относительно «нормального» mobile-base. Юзер может вернуть/увеличить через size-toggle (sm/md/lg).**
+
+Зачем: на iPad 1024×1366 «нормальный» mobile-сайт выглядит слишком крупно — обложка плеера занимает 30% экрана, кнопки большие, всё пустое. Tablet — это не «большой телефон», там воспринимается как desktop. Уменьшение на 20% даёт ощущение десктопного приложения, не «увеличенного телефона».
+
+Реализация:
+- Tailwind `sm:` (≥640px) — НЕ копирует mobile-base, а уменьшает: `w-[88px] mobile → sm:w-[90px]` (≈20% меньше w-112)
+- Desktop scale (через coverSize state «sm/md/lg»): default `md:scale-[0.8]` (sm), `md:scale-100` (md), `md:scale-125` (lg)
+- localStorage `muzaai-cover-size` persists per-user
+- ExpandToggleButton — для пользователей которым нужен крупный режим
+
+Применяется к: всем элементам которые в mobile-base крупнее 64px (обложки, аватарки, hero buttons). Не применяется к: иконкам (24-32px), текстам, system-controls.
+
+Пример (landing.tsx playing-track card):
+- Mobile: `w-[88px]` — компактно для телефона
+- Tablet (sm): `sm:w-[90px]` — то же, не растягиваем как раньше до 112
+- Desktop scale (coverSize=sm): `md:scale-[0.8]` — ещё на 20% меньше
+- Desktop scale (coverSize=md): `md:scale-100` — base
+- Desktop scale (coverSize=lg): `md:scale-125` — для тех кому надо крупно
+
+### Accidental-tap-protection rule (Eugene 2026-05-19)
+
+**Если элемент развёртывается/раскрывается по клику — добавляем 350ms cooldown перед обработкой первого «свернуть»-клика. Защищает от случайных тапов, флика, отскока пальца после `tap-open`.**
+
+Реализация:
+```tsx
+const expandedAtRef = useRef<number>(0);
+useEffect(() => {
+  if (expandedId !== null) expandedAtRef.current = Date.now();
+}, [expandedId]);
+
+// В onPointerDown / onClick для collapse:
+if (Date.now() - expandedAtRef.current < 350) return;
+```
+
+Применяется к: всем expand-blocks (cover modals, expanded track cards, accordion-секциям, swipe-modals). Не применяется к: явным крестикам ✕ / кнопкам «Закрыть» — там нужен мгновенный отклик.
+
+Срок 350ms подобран эмпирически (типовой intervals между touch-events на iOS Safari ~ 100-250ms, double-tap ≤500ms). 300ms тоже OK; >500ms ощущается как «глючит».
+
 ### Persistent-audio-only rule (Eugene 2026-05-18, **навсегда зафиксировано**)
 
 **Босс «перемещение стало лучше, запомни правило использовать только это решение, не снять, во всём проекте».** После 9 итераций lock-screen наконец работает — root cause найден по W3C MediaSession §3.3 и зафиксирован persistent singleton pattern.
