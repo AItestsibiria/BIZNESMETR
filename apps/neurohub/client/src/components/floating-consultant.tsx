@@ -1408,7 +1408,7 @@ export function FloatingConsultant() {
             самом низу парой, Чат как яркое мини-облачко. */}
         {expanded && (
           <div
-            className="absolute bottom-full right-0 mb-3 w-60 sm:w-64 p-2.5 bg-gradient-to-br from-purple-600/35 via-violet-600/30 to-blue-500/30 backdrop-blur-2xl border border-purple-300/20 shadow-xl shadow-purple-500/20 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-hidden"
+            className="absolute bottom-full right-0 mb-3 w-60 sm:w-64 p-2.5 bg-gradient-to-br from-violet-400/20 via-fuchsia-300/15 to-sky-400/15 backdrop-blur-2xl border border-white/15 shadow-lg shadow-purple-400/15 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-hidden"
             style={{
               borderRadius: "60% 40% 55% 70% / 50% 65% 45% 60%",
               boxShadow: "0 20px 60px rgba(139, 92, 246, 0.5), 0 0 40px rgba(34, 211, 238, 0.25), inset 0 0 30px rgba(255, 255, 255, 0.05)",

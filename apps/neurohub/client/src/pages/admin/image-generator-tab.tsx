@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react";
 import { apiRequest } from "@/lib/queryClient";
 
-type ImagePreset = "avatar" | "cover" | "banner" | "logo" | "product" | "custom";
+type ImagePreset = "photo" | "avatar" | "cover" | "banner" | "logo" | "product" | "custom";
 type ImageSize = "1024x1024" | "1792x1024" | "1024x1792";
 
 interface GeneratedImage {
@@ -41,6 +41,13 @@ interface GenerateResult {
 }
 
 const PRESET_TEMPLATES: Record<ImagePreset, { label: string; emoji: string; prompt: string; tip: string }> = {
+  photo: {
+    label: "Фотореализм",
+    emoji: "📷",
+    prompt:
+      "Photorealistic high-resolution image, natural lighting, DSLR camera quality, sharp focus, realistic textures, cinematic depth of field, 4K detail",
+    tip: "Универсальное фотореалистичное изображение. Дефолт — natural photo style.",
+  },
   avatar: {
     label: "Аватар",
     emoji: "👤",
@@ -95,7 +102,9 @@ export function ImageGeneratorTab({ toast }: { toast: any }) {
     toast({ title: msg, variant: kind === "error" ? "destructive" : "default" });
   }
 
-  const [preset, setPreset] = useState<ImagePreset>("custom");
+  // Eugene 2026-05-19 Босс «Правило генерации обложки по умолчанию режим
+  // фотореализм + скролл выбор».
+  const [preset, setPreset] = useState<ImagePreset>("photo");
   const [prompt, setPrompt] = useState("");
   const [refTrackId, setRefTrackId] = useState("");
   const [size, setSize] = useState<ImageSize>("1024x1024");
@@ -222,22 +231,22 @@ export function ImageGeneratorTab({ toast }: { toast: any }) {
         </p>
       </div>
 
-      {/* Preset picker */}
+      {/* Preset picker — horizontal scroll (Eugene 2026-05-19 «скролл выбор») */}
       <div className="glass-card rounded-2xl p-4 border border-purple-500/20">
         <h3 className="text-sm font-sans font-bold text-white mb-3">Категория</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+        <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1 snap-x snap-mandatory" style={{ scrollbarWidth: "thin" }}>
           {(Object.keys(PRESET_TEMPLATES) as ImagePreset[]).map((p) => (
             <button
               key={p}
               onClick={() => applyPreset(p)}
-              className={`px-3 py-3 rounded-xl text-sm font-sans transition-all ${
+              className={`shrink-0 w-24 sm:w-28 snap-start px-3 py-3 rounded-xl text-sm font-sans transition-all ${
                 preset === p
                   ? "bg-gradient-to-br from-purple-500/40 to-cyan-500/30 border border-purple-400/60 text-white shadow-[0_0_24px_rgba(124,58,237,0.4)]"
                   : "bg-white/5 border border-white/10 text-muted-foreground hover:bg-white/10 hover:text-white"
               }`}
             >
               <div className="text-2xl mb-1">{PRESET_TEMPLATES[p].emoji}</div>
-              <div className="text-xs font-medium">{PRESET_TEMPLATES[p].label}</div>
+              <div className="text-xs font-medium whitespace-nowrap">{PRESET_TEMPLATES[p].label}</div>
             </button>
           ))}
         </div>
