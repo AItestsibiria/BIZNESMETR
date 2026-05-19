@@ -1073,6 +1073,27 @@ Audit при code review:
 - При расширении KB / persona prompt — проверить что нет утечек админских деталей в public-zone
 - При изменении governance логики — обновить это правило
 
+### Playlist-strict-selection rule (Eugene 2026-05-19)
+
+**Воспроизведение плейлиста идёт СТРОГО по выбранным параметрам сессии — какой плейлист выбран, тот и играет. Никаких sneaky fallback'ов на полный список треков.**
+
+Параметры сессии (накапливаются user input'ом + persist в localStorage):
+- `playlistKind` (main / new authors)
+- `categoryFilter` (all / song / greeting / instrumental)
+- `searchQuery` (free-text)
+- `sortMode` (date / rating / random / top_month) + `sortDir`
+
+Все они складываются в `filteredMusic` (computed) → `filteredMusicRef.current` (synced).
+
+Реализация (landing.tsx):
+- `handleEnded`, `skipPrev/skipNext`, `expandPrev/expandNext`, `previoustrack/nexttrack` (MediaSession), voice-action `resume/prev/next` — ВСЕ используют `filteredMusicRef.current || []`
+- Если filtered пуст → останавливаемся (`setPlayingId(null)`)
+- НЕ применяем fallback на `tracksRef.current` (full unfiltered) — это и был баг «играет трек не из той категории»
+
+Антипаттерн который правило закрывает: код `const list = fl && fl.length > 0 ? fl : tracksRef.current.filter(...)` — теряет контекст когда юзер сужает фильтр. Был ранее заявлен как «iOS safety», но Persistent-audio-only rule (commit 8d047e1) полностью закрыл lock-screen handoff — fallback больше не нужен.
+
+Применяется к: landing.tsx плейлист, dashboard.tsx «Мои треки», track.tsx, и любым будущим audio-listing страницам. Не применяется к: явному playTrack(specificTrack) — там пользователь сам указал id.
+
 ### Player-expand-no-restart rule (Eugene 2026-05-19)
 
 **При нажатии на mini-обложку трека в плейлисте — раскрываем большой плеер. Если этот трек уже играет в основном плеере — продолжаем воспроизведение без рестарта. Если другой — раскрываем большую обложку и ЖДЁМ команды пользователя (не запускаем auto-play).**

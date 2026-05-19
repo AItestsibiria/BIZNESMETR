@@ -846,13 +846,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         setLockScreenPlaybackState('paused');
       },
       previoustrack: () => {
-        // Eugene 2026-05-18 Босс «правила плейлиста». Filter-aware:
-        // если юзер фильтровал — переключается в рамках filtered list.
-        // iOS handoff закрыт persistent audio singleton.
-        const fl = filteredMusicRef.current;
-        const mt = fl && fl.length > 0
-          ? fl
-          : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+        // Eugene 2026-05-19 «Playlist-strict-selection rule»: ТОЛЬКО filtered.
+        const mt = filteredMusicRef.current || [];
         if (mt.length === 0) return;
         const cur = playingTrackRef.current;
         const curIdx = cur ? mt.findIndex(t => t.id === cur.id) : -1;
@@ -861,10 +856,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         if (prev) playTrack(prev);
       },
       nexttrack: () => {
-        const fl = filteredMusicRef.current;
-        const mt = fl && fl.length > 0
-          ? fl
-          : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+        // Eugene 2026-05-19 «Playlist-strict-selection rule»: ТОЛЬКО filtered.
+        const mt = filteredMusicRef.current || [];
         if (mt.length === 0) return;
         const cur = playingTrackRef.current;
         const curIdx = cur ? mt.findIndex(t => t.id === cur.id) : -1;
@@ -944,15 +937,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       if (timerRef.current) clearInterval(timerRef.current);
       const mode = repeatModeRef.current;
       const cur = playingTrackRef.current;
-      // Eugene 2026-05-18 Босс «правила плейлиста — хаотичный порядок».
-      // Возврат filtered-aware logic: если юзер выбрал категорию/поиск —
-      // next трек ДОЛЖЕН быть из той же подборки (не «весь плейлист»).
-      // iOS NowPlaying-handoff к чужим app закрыт через persistent audio
-      // singleton (commit 8d047e1) — больше не нужен safety hack с full list.
-      const fl = filteredMusicRef.current;
-      const musicTracks = fl && fl.length > 0
-        ? fl
-        : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+      // Eugene 2026-05-19 «Playlist-strict-selection rule»: ТОЛЬКО filtered
+      // подборка юзера. Никакого fallback на полный tracksRef — это
+      // создавало sneaky playback треков ВНЕ выбранной категории/поиска.
+      // Если filtered пуст → останавливаемся (юзер сам разберётся).
+      const musicTracks = filteredMusicRef.current || [];
       if (musicTracks.length === 0) {
         setPlayingId(null);
         unmuteBgMusic();
@@ -1076,9 +1065,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   };
 
   const skipNext = () => {
-    // Eugene 2026-05-10: учёт user-filter (как auto-next).
-    const fl = filteredMusicRef.current;
-    const musicTracks = fl && fl.length > 0 ? fl : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+    // Eugene 2026-05-19 «Playlist-strict-selection rule»: ТОЛЬКО filtered.
+    const musicTracks = filteredMusicRef.current || [];
     if (musicTracks.length === 0) return;
     const idx = musicTracks.findIndex(t => t.id === playingId);
     const nextIdx = idx >= 0 ? (idx + 1) % musicTracks.length : 0;
@@ -1130,10 +1118,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             break;
           }
           case "resume": {
-            // Если есть current — togglePlay. Иначе берём первый из плейлиста.
-            const list = filteredMusicRef.current && filteredMusicRef.current.length > 0
-              ? filteredMusicRef.current
-              : tracksRef.current.filter((t: any) => t.type === "music" && t.audioUrl);
+            // Eugene 2026-05-19 «Playlist-strict-selection rule»: ТОЛЬКО filtered.
+            const list = filteredMusicRef.current || [];
             if (list.length === 0) return;
             const current = list.find((t: any) => t.id === playingIdRef.current) || list[0];
             if (current) A.togglePlay(current);
@@ -1151,12 +1137,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             break;
           }
           case "prev": {
-            // skipPrev определён ниже после early-return, дублируем минимум
-            // через те же refs (тот же алгоритм что в skipPrev).
-            const fl = filteredMusicRef.current;
-            const list = fl && fl.length > 0
-              ? fl
-              : tracksRef.current.filter((t: any) => t.type === "music" && t.audioUrl);
+            // Eugene 2026-05-19 Playlist-strict-selection rule.
+            const list = filteredMusicRef.current || [];
             if (list.length === 0) return;
             const idx = list.findIndex((t: any) => t.id === playingIdRef.current);
             const prev = idx > 0 ? idx - 1 : list.length - 1;
@@ -1234,9 +1216,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const paginatedMusic = filteredMusic.slice((safePage - 1) * TRACKS_PER_PAGE, safePage * TRACKS_PER_PAGE);
 
   const skipPrev = () => {
-    // Eugene 2026-05-10: учёт user-filter (как auto-next).
-    const fl = filteredMusicRef.current;
-    const list = fl && fl.length > 0 ? fl : tracksRef.current.filter(t => t.type === "music" && t.audioUrl);
+    // Eugene 2026-05-19 «Playlist-strict-selection rule»: ТОЛЬКО filtered.
+    const list = filteredMusicRef.current || [];
     if (list.length === 0) return;
     const idx = list.findIndex(t => t.id === playingId);
     const prev = idx > 0 ? idx - 1 : list.length - 1;
@@ -1248,9 +1229,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // отражению» → используем filteredMusicRef (как skipPrev/skipNext/handleEnded),
   // чтобы стрелки в развёрнутом плеере не уводили за пределы выбранной
   // категории/поиска.
+  // Eugene 2026-05-19 «Playlist-strict-selection rule»: expandPrev/Next тоже
+  // только filtered подборка. Никакого fallback на musicTracks (full).
   const expandPrev = () => {
-    const fl = filteredMusicRef.current;
-    const list = fl && fl.length > 0 ? fl : musicTracks;
+    const list = filteredMusicRef.current || [];
     if (list.length === 0) return;
     const idx = list.findIndex(t => t.id === expandedId);
     if (idx < 0) return;
@@ -1260,8 +1242,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     playTrack(prevTrack);
   };
   const expandNext = () => {
-    const fl = filteredMusicRef.current;
-    const list = fl && fl.length > 0 ? fl : musicTracks;
+    const list = filteredMusicRef.current || [];
     if (list.length === 0) return;
     const idx = list.findIndex(t => t.id === expandedId);
     if (idx < 0) return;
