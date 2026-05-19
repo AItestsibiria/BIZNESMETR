@@ -1407,10 +1407,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               <div
                 className={`relative bg-gradient-to-br from-purple-500/30 to-blue-500/30 flex items-center justify-center cursor-pointer shadow-lg shadow-purple-500/10 overflow-hidden transition-all duration-300 w-full h-full rounded-xl ${
                   coverExpanded ? "md:rounded-2xl" : ""
-                } ${
-                  (currentTrack as any).hasCustomCover
-                    ? "ring-2 ring-fuchsia-400/30 shadow-[0_0_16px_rgba(217,70,239,0.3)]"
-                    : ""
                 }`}
                 onClick={() => setExpandedId(expandedId === currentTrack.id ? null : currentTrack.id)}
                 title={(currentTrack as any).hasCustomCover ? "Обложка создана автором" : undefined}
@@ -1614,6 +1610,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           onVolumeChange={setVolume}
           repeatMode={repeatMode}
           onRepeatToggle={() => setRepeatMode(m => m === "off" ? "all" : m === "all" ? "one" : "off")}
+          onSetRepeatMode={(m) => setRepeatMode(m)}
         />
 
         {/* Expanded cover rendered inline after selected track (see renderExpandedCover below) */}

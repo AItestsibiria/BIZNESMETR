@@ -83,6 +83,8 @@ interface CoverDetailsModalProps {
   onVolumeChange?: (v: number) => void;
   repeatMode?: "off" | "one" | "all";
   onRepeatToggle?: () => void;
+  /** Eugene 2026-05-19: прямой setter для 2 отдельных кнопок Repeat-all / Repeat-1 */
+  onSetRepeatMode?: (mode: "off" | "one" | "all") => void;
 }
 
 // Утилита mm:ss форматтер для seek-bar timestamps.
@@ -113,6 +115,7 @@ export function CoverDetailsModal({
   onVolumeChange,
   repeatMode,
   onRepeatToggle,
+  onSetRepeatMode,
 }: CoverDetailsModalProps) {
   // Eugene 2026-05-19 — feature-toggle (см. /lib/featureToggles).
   const coverHighlightEnabled = useFeatureEnabled("cover-highlight");
@@ -488,7 +491,7 @@ export function CoverDetailsModal({
             square aspect-ratio + 85vh высота заставлял container выходить
             за viewport (1024×1366 → square 1024 > 70% от 1366). */}
         <div
-          className="relative w-full aspect-square max-h-[78vh] rounded-3xl overflow-hidden bg-gradient-to-br from-[#1a0f2e] via-[#0a0a17] to-[#0f1830] shadow-[0_0_48px_rgba(124,58,237,0.18)] border border-purple-500/15"
+          className="relative w-full aspect-square max-h-[78vh] rounded-3xl overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
           <AnimatePresence mode="wait" initial={false}>
@@ -519,11 +522,7 @@ export function CoverDetailsModal({
                   src={track.imageUrl}
                   alt={title}
                   draggable={false}
-                  className={`w-full h-full object-cover pointer-events-none ${
-                    coverHighlightEnabled && (track.hasCustomCover || track.coverGenId)
-                      ? "ring-4 ring-fuchsia-400/30 shadow-[0_0_40px_rgba(217,70,239,0.3)]"
-                      : ""
-                  }`}
+                  className="w-full h-full object-cover pointer-events-none"
                   onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                 />
               ) : (
@@ -689,25 +688,54 @@ export function CoverDetailsModal({
               )}
 
               {/* 🔁 Repeat — справа от skip-forward (как в landing) */}
-              {onRepeatToggle && (
-                <button
-                  type="button"
-                  onClick={onRepeatToggle}
-                  aria-label="Режим повтора"
-                  title={
-                    repeatMode === "off" ? "Повтор выключен"
-                      : repeatMode === "one" ? "Повтор одного трека"
-                        : "Повтор всех треков"
-                  }
-                  className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-all shrink-0 ${
-                    repeatMode && repeatMode !== "off"
-                      ? "bg-gradient-to-br from-purple-500/25 to-cyan-500/20 border border-purple-400/30 text-white/85 shadow-[0_0_10px_rgba(124,58,237,0.18)]"
-                      : "bg-white/5 border border-white/10 text-white/40 hover:bg-white/10 hover:text-white/70"
-                  }`}
-                  data-testid="cover-details-repeat"
-                >
-                  {repeatMode === "one" ? <Repeat1 className="w-5 h-5" /> : <Repeat className="w-5 h-5" />}
-                </button>
+              {/* Eugene 2026-05-19 Босс «Добавь 1 в плеер» — 2 отдельные
+                  кнопки Repeat-all и Repeat-1. Если parent передал setter
+                  onSetRepeatMode — используем прямое управление; иначе
+                  fallback на cycling onRepeatToggle. */}
+              {(onRepeatToggle || onSetRepeatMode) && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onSetRepeatMode) {
+                        onSetRepeatMode(repeatMode === "all" ? "off" : "all");
+                      } else if (onRepeatToggle) {
+                        onRepeatToggle();
+                      }
+                    }}
+                    aria-label="Повтор всех треков"
+                    title="Повтор всех треков"
+                    className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-all shrink-0 ${
+                      repeatMode === "all"
+                        ? "bg-gradient-to-br from-emerald-500/25 to-cyan-500/20 border border-emerald-400/30 text-emerald-200 shadow-[0_0_10px_rgba(16,185,129,0.18)]"
+                        : "bg-white/5 border border-white/10 text-white/40 hover:bg-white/10 hover:text-white/70"
+                    }`}
+                    data-testid="cover-details-repeat-all"
+                  >
+                    <Repeat className="w-5 h-5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onSetRepeatMode) {
+                        onSetRepeatMode(repeatMode === "one" ? "off" : "one");
+                      } else if (onRepeatToggle) {
+                        // Fallback: cycle 1-2 раз чтобы попасть в "one"
+                        onRepeatToggle();
+                      }
+                    }}
+                    aria-label="Закольцевать один трек"
+                    title="Закольцевать один трек"
+                    className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center hover:scale-105 active:scale-95 transition-all shrink-0 ${
+                      repeatMode === "one"
+                        ? "bg-gradient-to-br from-purple-500/25 to-blue-500/20 border border-purple-400/30 text-purple-200 shadow-[0_0_10px_rgba(124,58,237,0.18)]"
+                        : "bg-white/5 border border-white/10 text-white/40 hover:bg-white/10 hover:text-white/70"
+                    }`}
+                    data-testid="cover-details-repeat-one"
+                  >
+                    <Repeat1 className="w-5 h-5" />
+                  </button>
+                </>
               )}
 
               {/* 🔊 Volume — самый правый desktop control */}
