@@ -271,18 +271,33 @@ Workflow когда Босс приносит Ярс-команду в этот 
 - 🔴 `secret_change` — ротация ключей (всегда через прямой SSH, не через Ярс)
 - 🔴 `prod_deploy` — deploy на prod (всегда явное «да» Босса)
 
-Технические детали (как Ярс-сообщения попадают в этот chat):
-- На текущей стадии — Босс копирует/пересылает Ярс-сообщения в этот chat вручную
-- Будущее: webhook от prod при категории требующей confirm → forward в этот chat через интеграцию (TG MCP / email subscription / GitHub issue auto-create)
-- При webhook реализации — `admin_chat_messages` пометить флагом `pending_claude_review=true` и `claude_review_session_id` чтобы видеть в админке какие команды отправлены мне
+Технические детали — auto-pull pipeline (Eugene 2026-05-20 «ты автоматически получаешь из базы чат-бота сообщения, анализируешь где есть слово Ярс и действуешь»):
 
-Реализация в БД (для будущей wire-через-webhook):
-- ALTER TABLE `admin_chat_messages`:
-  - `pending_claude_review INTEGER DEFAULT 0` (0/1)
-  - `claude_review_decision TEXT` (`approved` | `rejected` | `clarification_requested` | `auto_applied`)
-  - `claude_review_at INTEGER`
-  - `claude_review_commit_sha TEXT` (если applied — какой SHA)
-- Admin endpoint `GET /api/admin/v304/yars-pending-review` — список pending для отчёта Боссу
+**Pipeline:**
+1. **Detection на prod**: при insert в `chatbot_messages` (любой канал — web/TG/Max/admin-voice) — если автор role IN ('admin','super_admin') И text содержит case-insensitive «ярс» / «yars» / «оператор» → пометить запись `is_yars_command=1` + auto-categorize
+2. **БД ALTER** `chatbot_messages`:
+   - `is_yars_command INTEGER DEFAULT 0` — флаг auto-detection
+   - `yars_category TEXT` — auto-categorized (`code_change` / `db_migration` / `ui_text` / `news_post` / `kb_update` / ...)
+   - `yars_risk_level TEXT` — `low` / `medium` / `high` (low → auto-apply без меня, high → ждёт мой review)
+   - `claude_review_decision TEXT` — `pending` / `applied` / `rejected` / `auto_applied`
+   - `claude_review_at INTEGER`
+   - `claude_review_commit_sha TEXT`
+   - Индекс `idx_chatbot_yars` на (`is_yars_command`, `claude_review_decision`) для быстрого pull'a
+3. **Pull endpoint** `GET /api/admin/v304/yars-queue?since=<iso>&limit=20` — возвращает все Ярс-команды с `claude_review_decision IS NULL`. Returns: `[{id, userId, channel, text, yars_category, yars_risk_level, createdAt}]`. Auth — admin Bearer
+4. **Update endpoint** `POST /api/admin/v304/yars-queue/:msgId/mark-decision` — body `{decision: "applied"|"rejected"|"auto_applied", commitSha?, notes?}` — обновляет статус после обработки
+5. **Claude pull at session start**: при начале каждой session я делаю `curl https://muzaai.ru/api/admin/v304/yars-queue` с admin Bearer token. Если есть pending → обрабатываю каждое по Yars-admin-confirmation workflow. После apply (или auto-apply / reject) — POST mark-decision со SHA
+6. **Внутри-сессии refresh** (опционально): если сессия длинная — раз в N минут перечитываю queue. Triggered Bash-командой по запросу Босса («проверь Ярс»).
+
+**Admin Bearer token для Claude:**
+- Босс создаёт **scoped token** с разрешениями: GET /api/admin/v304/yars-queue + POST /api/admin/v304/yars-queue/.../mark-decision. Никаких других прав
+- Token живёт на стороне prod в `users.api_tokens` (или подобной таблице) с scope='yars-claude-readonly'
+- В моих secrets — храню как env `CLAUDE_YARS_TOKEN` (получаю через initial prompt из VPS) или Босс передаёт мне в начале сессии. **Никогда не commit'у в репо**
+
+**UI индикаторы для Босса (admin/v304):**
+- В вкладке 💬 Диалоги — сообщения с `is_yars_command=1` помечены значком 🚨
+- Decision status: ⏳ pending / ✅ applied (SHA hyperlink) / ❌ rejected / 🟢 auto_applied
+- Filter «только Ярс-команды» в чате
+- Tab «🚨 Ярс-очередь» — отдельный list pending + recently processed (последние 50)
 
 Применяется к: всем Музa-каналам где Босс может писать operator-команды (web, TG, Max). НЕ применяется к: чистым диалогам без operator-action (просто разговор Музы с авторами).
 
