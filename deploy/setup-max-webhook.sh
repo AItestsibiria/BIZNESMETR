@@ -7,11 +7,8 @@ set +e
 ENV_FILE=/var/www/neurohub/.env
 API_BASE="https://botapi.max.ru"
 WEBHOOK_URL="https://muzaai.ru/api/max-bot/webhook"
-BOT_USERNAME="id7017236261_bot"
-BOT_USER_ID="243205198"
-# Deep-link (для UI кнопки «Открыть бота») — корректный username c _1_
-# по подтверждению Босса 2026-05-20. Max API getMe возвращает username
-# без _1_, но реальный link открывающий бота в приложении — с _1_.
+BOT_USERNAME="id7017236261_1_bot"
+BOT_USER_ID="291072934"
 BOT_DEEP_LINK="https://max.ru/id7017236261_1_bot"
 
 if [ ! -f "$ENV_FILE" ]; then
