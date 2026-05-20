@@ -111,13 +111,19 @@ async function maxApi(p: string, body: any, method: "POST" | "GET" = "POST", opt
 
 // Eugene 2026-05-20: Max API POST /messages принимает chat_id ДЛЯ ГРУПП и
 // user_id ДЛЯ ЛИЧНЫХ ДИАЛОГОВ (chat_type='dialog'). Сохраняем mapping
-// chat_id → {fromId, chatType} при поступлении update, чтобы sendMessage
-// мог выбрать правильный параметр для исходящего сообщения.
-const chatContextMap = new Map<string, { fromId: string; chatType: string; updatedAt: number }>();
+// chat_id → {fromId, chatType, lastMid} при поступлении update, чтобы
+// sendMessage мог выбрать правильный параметр И reply-to mid для bypass
+// 'dialog.suspended' (Max требует reply-link для не-верифицированных ботов).
+const chatContextMap = new Map<string, {
+  fromId: string;
+  chatType: string;
+  lastMid: string;
+  updatedAt: number;
+}>();
 
-function rememberMaxChatContext(chatId: string, fromId: string, chatType: string): void {
+function rememberMaxChatContext(chatId: string, fromId: string, chatType: string, mid: string): void {
   if (!chatId) return;
-  chatContextMap.set(chatId, { fromId, chatType, updatedAt: Date.now() });
+  chatContextMap.set(chatId, { fromId, chatType, lastMid: mid || "", updatedAt: Date.now() });
   // GC: удаляем entries старше 24ч если накопилось > 1000
   if (chatContextMap.size > 1000) {
     const cutoff = Date.now() - 24 * 60 * 60 * 1000;
@@ -127,33 +133,58 @@ function rememberMaxChatContext(chatId: string, fromId: string, chatType: string
   }
 }
 
-function buildSendMessageQuery(chatId: string): string {
-  const ctx = chatContextMap.get(chatId);
-  // Для dialog (личный 1-на-1) — отправка по user_id юзера. Для всех остальных
-  // (chat, group, channel) — по chat_id.
-  if (ctx && ctx.chatType === "dialog" && ctx.fromId) {
-    return `user_id=${encodeURIComponent(ctx.fromId)}`;
-  }
-  return `chat_id=${encodeURIComponent(chatId)}`;
-}
-
 async function sendMessage(chatId: string, text: string, attachments?: any[]): Promise<void> {
-  const body: any = { text };
-  if (attachments && attachments.length) body.attachments = attachments;
-  const query = buildSendMessageQuery(chatId);
-  try {
-    await maxApi(`/messages?${query}`, body);
-  } catch (e: any) {
-    const msg = String(e?.message || e);
-    bootRefs?.logger.warn?.("[max-bot] sendMessage primary failed", { chatId, query, error: msg });
-    // Fallback на legacy URL (platform-api.max.ru) — некоторые установки
-    // ещё используют старый endpoint.
+  const ctx = chatContextMap.get(chatId);
+  const isDialog = ctx?.chatType === "dialog";
+  const baseBody: any = { text };
+  if (attachments && attachments.length) baseBody.attachments = attachments;
+
+  // Если есть mid от incoming — формируем reply-link. Max ожидает это для
+  // ответа на конкретное сообщение в активном dialog.
+  const bodyWithLink: any = ctx?.lastMid
+    ? { ...baseBody, link: { type: "reply", mid: ctx.lastMid } }
+    : baseBody;
+
+  // Стратегия попыток (учитывая Max'ные ошибки `chat.not.found` для chat_id
+  // и `dialog.suspended` для user_id):
+  // 1. dialog: user_id + reply-link → если 403 пробуем chat_id + reply-link
+  // 2. group: chat_id + reply-link → если 404 пробуем user_id + reply-link
+  // 3. fallback без link
+  const dialogQuery = ctx?.fromId ? `user_id=${encodeURIComponent(ctx.fromId)}` : "";
+  const chatQuery = `chat_id=${encodeURIComponent(chatId)}`;
+
+  const attempts: { label: string; query: string; body: any }[] = isDialog
+    ? [
+        ...(dialogQuery ? [{ label: "dialog-user_id+reply", query: dialogQuery, body: bodyWithLink }] : []),
+        { label: "dialog-chat_id+reply", query: chatQuery, body: bodyWithLink },
+        ...(dialogQuery ? [{ label: "dialog-user_id-noLink", query: dialogQuery, body: baseBody }] : []),
+        { label: "dialog-chat_id-noLink", query: chatQuery, body: baseBody },
+      ]
+    : [
+        { label: "chat-chat_id+reply", query: chatQuery, body: bodyWithLink },
+        ...(dialogQuery ? [{ label: "chat-user_id+reply", query: dialogQuery, body: bodyWithLink }] : []),
+        { label: "chat-chat_id-noLink", query: chatQuery, body: baseBody },
+      ];
+
+  let lastError = "";
+  for (const att of attempts) {
     try {
-      await maxApi(`/messages?${query}`, body, "POST", { useLegacy: true });
-    } catch (e2: any) {
-      bootRefs?.logger.warn?.("[max-bot] sendMessage legacy also failed", { chatId, query, error: String(e2?.message || e2) });
-      notifyAdminMaxDowntime("sendMessage failed (primary + legacy)");
+      await maxApi(`/messages?${att.query}`, att.body);
+      bootRefs?.logger.info?.("[max-bot] sendMessage ok", { chatId, attempt: att.label });
+      return;
+    } catch (e: any) {
+      lastError = String(e?.message || e);
+      bootRefs?.logger.warn?.("[max-bot] sendMessage attempt failed", { chatId, attempt: att.label, error: lastError.slice(0, 200) });
     }
+  }
+
+  // Все варианты упали — fallback на legacy URL с базовым chat_id+text
+  try {
+    await maxApi(`/messages?${chatQuery}`, baseBody, "POST", { useLegacy: true });
+    bootRefs?.logger.info?.("[max-bot] sendMessage ok via legacy", { chatId });
+  } catch (e2: any) {
+    bootRefs?.logger.warn?.("[max-bot] sendMessage all attempts failed", { chatId, error: String(e2?.message || e2).slice(0, 200), prev: lastError.slice(0, 200) });
+    notifyAdminMaxDowntime("sendMessage failed (all attempts)");
   }
 }
 
@@ -654,8 +685,9 @@ router.post("/webhook", async (req, res) => {
     });
 
     // Запоминаем mapping для исходящих сообщений (sendMessage выбирает
-    // user_id vs chat_id на основе chat_type).
-    rememberMaxChatContext(chatId, fromId, chatType);
+    // user_id vs chat_id на основе chat_type и reply-link через mid).
+    const incomingMid = String(msg?.body?.mid ?? msg?.message_id ?? msg?.id ?? "");
+    rememberMaxChatContext(chatId, fromId, chatType, incomingMid);
 
     if (!chatId) {
       bootRefs?.logger.warn?.("[max-bot DEBUG] missing chatId — return", { keys: Object.keys(u || {}).slice(0, 5) });
