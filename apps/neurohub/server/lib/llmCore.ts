@@ -261,6 +261,79 @@ export async function callTimeWebGateway(opts: {
   return { text: null, usage: null, endpoint: null };
 }
 
+/**
+ * Eugene 2026-05-20 Босс «после ТМВ подключим DeepSeek».
+ * DeepSeek API — OpenAI-compatible endpoint https://api.deepseek.com/v1/chat/completions.
+ * Дефолтная модель — deepseek-chat (V3.x). Reasoner модель (deepseek-reasoner)
+ * для сложных задач — переопределить через DEEPSEEK_MODEL env.
+ * БЕЗ tools (Anthropic-tool-use оставлен на Anthropic-шаге).
+ */
+export async function callDeepSeek(opts: {
+  systemPrompt: string;
+  history: Array<{ role: "user" | "assistant"; content: string }>;
+  userText: string;
+  maxTokens: number;
+  model?: string;
+}): Promise<{ text: string | null; usage: any }> {
+  const key = process.env.DEEPSEEK_API_KEY;
+  if (!key) return { text: null, usage: null };
+
+  const messages: any[] = [
+    { role: "system", content: opts.systemPrompt },
+    ...opts.history.slice(-15).map(h => ({ role: h.role, content: h.content })),
+    { role: "user", content: opts.userText },
+  ];
+  const url = process.env.DEEPSEEK_API_URL || "https://api.deepseek.com/v1/chat/completions";
+  const model = opts.model || process.env.DEEPSEEK_MODEL || "deepseek-chat";
+
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        max_tokens: Math.min(opts.maxTokens, 4000),
+        temperature: 0.7,
+        stream: false,
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    llmKeyStatus.set("DEEPSEEK_API_KEY", {
+      lastUsedAt: new Date().toISOString(),
+      lastStatus: r.status,
+    });
+    if (!r.ok) {
+      const errText = await r.text().catch(() => "");
+      llmKeyStatus.set("DEEPSEEK_API_KEY", {
+        lastUsedAt: new Date().toISOString(),
+        lastStatus: r.status,
+        lastErrorMsg: errText.slice(0, 200),
+      });
+      console.warn(`[DEEPSEEK] non-ok ${r.status}: ${errText.slice(0, 200)}`);
+      return { text: null, usage: null };
+    }
+    const j: any = await r.json();
+    const text = j?.choices?.[0]?.message?.content;
+    return {
+      text: typeof text === "string" ? text.slice(0, 2000) : null,
+      usage: j?.usage || null,
+    };
+  } catch (e: any) {
+    const msg = e?.name === "AbortError" ? "timeout" : String(e?.message || e).slice(0, 200);
+    llmKeyStatus.set("DEEPSEEK_API_KEY", {
+      lastUsedAt: new Date().toISOString(),
+      lastStatus: e?.name === "AbortError" ? "timeout" : "error",
+      lastErrorMsg: msg,
+    });
+    console.warn(`[DEEPSEEK] error: ${msg}`);
+    return { text: null, usage: null };
+  }
+}
+
 // === Telegram-alert при смене ключа (опц.) ===
 
 async function notifyAdminKeySwitch(ev: KeySwitchEvent): Promise<void> {
@@ -297,16 +370,16 @@ async function notifyAdminKeySwitch(ev: KeySwitchEvent): Promise<void> {
  * если все провайдеры упали. Никаких hardcoded fallback-строк —
  * выбор fallback'а делает caller (web /muza/chat / TG webhook / Max webhook).
  *
- * Eugene 2026-05-20 Босс: PRIMARY = TimeWeb Gateway, FALLBACK = Anthropic (3-key chain),
- * последний резерв = GPTunnel/gpt-4o-mini.
- * Раньше было наоборот (Anthropic primary, TimeWeb fallback).
+ * Eugene 2026-05-20 Босс: PRIMARY = TimeWeb Gateway, потом DeepSeek,
+ * потом Anthropic (3-key chain), последний резерв = GPTunnel/gpt-4o-mini.
  *
  * Порядок попыток:
  *   1. TimeWeb Gateway (OpenAI-compat, без tools) — primary
- *   2. Anthropic 3-key chain (с MUZA_TOOLS + tool-use loop) — fallback
- *   3. GPTunnel/gpt-4o-mini — последний резерв
+ *   2. DeepSeek (OpenAI-compat, без tools) — fallback 1
+ *   3. Anthropic 3-key chain (с MUZA_TOOLS + tool-use loop) — fallback 2
+ *   4. GPTunnel/gpt-4o-mini — последний резерв
  *
- * Tool-use loop работает ТОЛЬКО на Anthropic-шаге. TimeWeb и GPTunnel
+ * Tool-use loop работает ТОЛЬКО на Anthropic-шаге. TimeWeb, DeepSeek, GPTunnel
  * возвращают чистый text без tool-calling.
  */
 export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string | null> {
@@ -406,10 +479,53 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
       prevFailed = { name: "TIMEWEB_GATEWAY_KEY", status: "error", reason: msg.slice(0, 200) };
     }
   } else {
-    console.warn("[MUZA-LLM] TimeWeb (primary) skipped: TIMEWEB_GATEWAY_KEY not configured — пробуем Anthropic");
+    console.warn("[MUZA-LLM] TimeWeb (primary) skipped: TIMEWEB_GATEWAY_KEY not configured — пробуем DeepSeek");
   }
 
-  // === [FALLBACK 1] Anthropic 3-key chain (с MUZA_TOOLS + tool-use loop) ===
+  // === [FALLBACK 1] DeepSeek (Eugene 2026-05-20 Босс «после ТМВ подключим DeepSeek») ===
+  // OpenAI-compatible endpoint api.deepseek.com/v1/chat/completions, БЕЗ tools.
+  // Дефолт — deepseek-chat (V3.x). Если упало → Anthropic 3-key chain.
+  if (process.env.DEEPSEEK_API_KEY) {
+    try {
+      const sysText = systemBlocks.map(b => (typeof b === "string" ? b : (b?.text || ""))).join("\n\n");
+      const ds = await callDeepSeek({
+        systemPrompt: sysText,
+        history: history.slice(-15),
+        userText: safeUserText,
+        maxTokens,
+      });
+      if (ds.usage) {
+        muzaTokenStats.inputTokens += Number(ds.usage.prompt_tokens || 0);
+        muzaTokenStats.outputTokens += Number(ds.usage.completion_tokens || 0);
+        muzaTokenStats.callsCount += 1;
+      }
+      if (ds.text && ds.text.length > 0) {
+        if (prevFailed) {
+          notifyAdminKeySwitch({
+            at: new Date().toISOString(),
+            provider: "TimeWeb → DeepSeek",
+            from: prevFailed.name,
+            fromStatus: prevFailed.status,
+            to: "DEEPSEEK_API_KEY",
+            reason: prevFailed.reason || "primary upstream failed",
+          }).catch(() => {});
+        }
+        return ds.text;
+      }
+      console.warn("[MUZA-LLM] DeepSeek returned empty text — fallback to Anthropic");
+      setLLMKeyStatus("DEEPSEEK_API_KEY", { lastUsedAt: new Date().toISOString(), lastStatus: "error", lastErrorMsg: "empty response" });
+      prevFailed = { name: "DEEPSEEK_API_KEY", status: "empty-response", reason: "DeepSeek returned empty text" };
+    } catch (e: any) {
+      const msg = String(e?.message || e);
+      console.warn("[MUZA-LLM] DeepSeek error — fallback to Anthropic:", msg);
+      setLLMKeyStatus("DEEPSEEK_API_KEY", { lastUsedAt: new Date().toISOString(), lastStatus: "error", lastErrorMsg: msg.slice(0, 200) });
+      prevFailed = { name: "DEEPSEEK_API_KEY", status: "error", reason: msg.slice(0, 200) };
+    }
+  } else {
+    console.warn("[MUZA-LLM] DeepSeek skipped: DEEPSEEK_API_KEY not configured — пробуем Anthropic");
+  }
+
+  // === [FALLBACK 2] Anthropic 3-key chain (с MUZA_TOOLS + tool-use loop) ===
   // Eugene 2026-05-20: было primary, теперь fallback. Если Anthropic-ключей нет —
   // пропустим этот блок и провалимся на GPTunnel fallback.
   for (let i = 0; i < attempts.length; i++) {
@@ -610,7 +726,7 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
   // TimeWeb primary. Здесь он уже отработал. Если дошли сюда — TimeWeb упал
   // и Anthropic 3-key chain тоже не вернул text → пробуем последний резерв.
 
-  // === [FALLBACK 2] GPTunnel/gpt-4o-mini — последний резерв.
+  // === [FALLBACK 3] GPTunnel/gpt-4o-mini — последний резерв.
   // Срабатывает только если TimeWeb упал И ВСЕ Anthropic-ключи упали.
   // GPTunnel ключ уже есть для Suno-генерации, OpenAI-compatible /v1/chat/completions.
   // БЕЗ tools — clean text.

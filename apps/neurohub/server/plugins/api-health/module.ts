@@ -88,6 +88,24 @@ async function checkTimeWebGateway(): Promise<{ status: "ok" | "fail"; error?: s
   }
 }
 
+async function checkDeepSeek(): Promise<{ status: "ok" | "fail"; error?: string }> {
+  const key = process.env.DEEPSEEK_API_KEY;
+  if (!key) return { status: "fail", error: "DEEPSEEK_API_KEY не задан" };
+  try {
+    const { callDeepSeek } = await import("../../lib/llmCore");
+    const r = await callDeepSeek({
+      systemPrompt: "Ты тестовый эхо-бот.",
+      history: [],
+      userText: "ping",
+      maxTokens: 5,
+    });
+    if (r.text && r.text.length > 0) return { status: "ok" };
+    return { status: "fail", error: "пустой ответ" };
+  } catch (e: any) {
+    return { status: "fail", error: String(e?.message || e).slice(0, 150) };
+  }
+}
+
 async function checkGptunnel(): Promise<{ status: "ok" | "fail"; error?: string }> {
   const key = process.env.GPTUNNEL_API_KEY;
   if (!key) return { status: "fail", error: "GPTUNNEL_API_KEY не задан" };
@@ -193,9 +211,10 @@ const KEY_DEFS: KeyDef[] = [
   // === LLM-цепочка (порядок = priority) ===
   // Eugene 2026-05-20 Босс: PRIMARY = TimeWeb Gateway, FALLBACK = Anthropic 3-key chain.
   { name: "TIMEWEB_GATEWAY_KEY", category: "🤖 LLM (primary)", purpose: "TimeWeb Gateway (OpenAI-compat) — primary провайдер Музы", kind: "live-check", check: checkTimeWebGateway },
-  { name: "ANTHROPIC_API_KEY", category: "🤖 LLM (fallback)", purpose: "Anthropic Claude — fallback после TimeWeb", kind: "live-check", check: () => checkAnthropicByEnv("ANTHROPIC_API_KEY") },
-  { name: "ANTHROPIC_API_KEY_BACKUP", category: "🤖 LLM (fallback)", purpose: "Резерв Claude #2", kind: "live-check", check: () => checkAnthropicByEnv("ANTHROPIC_API_KEY_BACKUP") },
-  { name: "ANTHROPIC_API_KEY_BOT", category: "🤖 LLM (fallback)", purpose: "Резерв Claude #3", kind: "live-check", check: () => checkAnthropicByEnv("ANTHROPIC_API_KEY_BOT") },
+  { name: "DEEPSEEK_API_KEY", category: "🤖 LLM (fallback 1)", purpose: "DeepSeek (OpenAI-compat) — fallback после TimeWeb", kind: "live-check", check: checkDeepSeek },
+  { name: "ANTHROPIC_API_KEY", category: "🤖 LLM (fallback 2)", purpose: "Anthropic Claude — fallback после DeepSeek", kind: "live-check", check: () => checkAnthropicByEnv("ANTHROPIC_API_KEY") },
+  { name: "ANTHROPIC_API_KEY_BACKUP", category: "🤖 LLM (fallback 2)", purpose: "Резерв Claude #2", kind: "live-check", check: () => checkAnthropicByEnv("ANTHROPIC_API_KEY_BACKUP") },
+  { name: "ANTHROPIC_API_KEY_BOT", category: "🤖 LLM (fallback 2)", purpose: "Резерв Claude #3", kind: "live-check", check: () => checkAnthropicByEnv("ANTHROPIC_API_KEY_BOT") },
 
   // === Музыка + STT ===
   { name: "GPTUNNEL_API_KEY", category: "🎵 Музыка", purpose: "Suno генерация через GPTunnel", kind: "live-check", check: checkGptunnel },
@@ -276,7 +295,7 @@ async function runCheck(def: KeyDef): Promise<HealthRecord> {
     const status = result.status;
     writeHealthRecord(def.name, { status, error: result.error, durationMs });
     // Обновим llmKeyStatus для совместимости с существующим UI «Ключи AI»
-    if (def.name.startsWith("ANTHROPIC_API_KEY") || def.name === "TIMEWEB_GATEWAY_KEY") {
+    if (def.name.startsWith("ANTHROPIC_API_KEY") || def.name === "TIMEWEB_GATEWAY_KEY" || def.name === "DEEPSEEK_API_KEY") {
       setLLMKeyStatus(def.name, {
         lastUsedAt: new Date().toISOString(),
         lastStatus: status === "ok" ? 200 : "error",
