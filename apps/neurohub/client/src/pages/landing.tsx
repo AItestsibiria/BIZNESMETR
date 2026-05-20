@@ -1836,20 +1836,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                     }`}
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (isExpanded) { setExpandedId(null); return; }
-                      // Eugene 2026-05-19 Босс «Правило плеера: если трек уже
-                      // играет в основном плеере — продолжаем воспроизведение
-                      // не перезапуская. Если другой — раскрываем обложку и
-                      // ждём команды юзера (не auto-play)».
-                      const sameTrackPlaying = playingId === track.id;
-                      setExpandedId(track.id);
-                      if (sameTrackPlaying) {
-                        // Не трогаем audio — он уже играет/на паузе как был
-                      } else {
-                        // Другой трек — раскрываем, юзер сам жмёт Play
-                        // (togglePlay убран отсюда сознательно).
-                      }
-                      setTimeout(() => (e.currentTarget as HTMLElement)?.closest("[data-track-card]")?.scrollIntoView({ behavior: "smooth", block: "center" }), 100);
+                      // Eugene 2026-05-21 Босс: маленькая обложка → ПУСКАЕТ воспроизведение
+                      // (не раскрытие). Раскрытие — на click по строке (title/author ниже).
+                      // Если тот же трек уже играет — togglePlay (pause/resume).
+                      if (!isMusic) return;
+                      togglePlay(track);
                     }}
                   >
                     {track.imageUrl && (
@@ -1874,18 +1865,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                     )}
                   </div>
 
-                  {/* Title + Author — click to play */}
+                  {/* Title + Author — click to EXPAND cover (Eugene 2026-05-21 Босс:
+                      строка раскрывает обложку, маленькая обложка играет) */}
                   <div
                     className={`flex-1 min-w-0 ${isMusic ? "cursor-pointer" : ""}`}
                     onClick={(e) => {
                       if (!isMusic) return;
-                      // Player-rule: тот же трек играет → не перезапускаем,
-                      // другой → раскрываем большую обложку без auto-play.
-                      const sameTrackPlaying = playingId === track.id;
+                      // Toggle expand: повторный клик по строке = свернуть
+                      if (isExpanded) { setExpandedId(null); return; }
                       setExpandedId(track.id);
-                      if (!sameTrackPlaying) {
-                        // Не запускаем — юзер сам кликнет Play на большой обложке
-                      }
                       setTimeout(() => (e.currentTarget as HTMLElement)?.closest("[data-track-card]")?.scrollIntoView({ behavior: "smooth", block: "center" }), 100);
                     }}
                   >
@@ -1970,7 +1958,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   return (
                     <div className="px-2 pb-2 pt-1">
                       <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-purple-500/20 animate-in fade-in zoom-in-95 duration-300">
-                        <div className="w-full aspect-square bg-gradient-to-br from-purple-900 via-blue-900 to-black relative cursor-pointer" onPointerDown={(e) => { const tgt = e.target as HTMLElement; if (tgt.closest("button, a, [role=button], input, [data-no-collapse]")) return; if (Date.now() - expandedAtRef.current < 350) return; e.preventDefault(); setExpandedId(null); }}>
+                        <div className="w-full aspect-square bg-gradient-to-br from-purple-900 via-blue-900 to-black relative cursor-pointer" onPointerDown={(e) => { const tgt = e.target as HTMLElement; if (tgt.closest("button, a, [role=button], input, [data-no-collapse]")) return; /* Eugene 2026-05-21 Босс: 500ms cooldown (iOS double-tap standard, anti случайных касаний). */ if (Date.now() - expandedAtRef.current < 500) return; e.preventDefault(); setExpandedId(null); }}>
                           {track.imageUrl && <img key={track.imageUrl} src={track.imageUrl} alt="" className="w-full h-full object-cover absolute inset-0 animate-in fade-in duration-500" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />}
                           {/* Eugene 2026-05-19 Босс «S на большой обложке тоже,
                               в том же месте». Top-right pill — Swipe-режим. */}

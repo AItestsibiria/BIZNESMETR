@@ -1538,7 +1538,31 @@ Reference: subagent ad6390730 atom-level audit (root cause #3 с 40% — Safari 
 
 Применяется к: landing.tsx плейлист, dashboard.tsx «Мои треки», track.tsx, и любым будущим audio-listing страницам. Не применяется к: явному playTrack(specificTrack) — там пользователь сам указал id.
 
-### Player-expand-no-restart rule (Eugene 2026-05-19)
+### Player-tap-actions rule (Eugene 2026-05-21, **перекрывает Player-expand-no-restart rule**)
+
+**В плейлисте на главной два action'а разделены: маленькая обложка → ПУСКАЕТ воспроизведение, строка трека (title + author) → РАСКРЫВАЕТ обложку (inline под строкой).**
+
+Конкретика:
+- **Mini-cover click** (40×40 px квадратик слева) → `togglePlay(track)`:
+  - Если этот трек уже играет → pause (или resume если на паузе)
+  - Если другой → playTrack (start playback, switch player)
+  - НЕ раскрывает большую обложку
+- **Row click** (title + author, flex-1 справа от cover) → `setExpandedId(track.id)`:
+  - Раскрывает inline обложку под строкой текущего трека (между current row и next row)
+  - Повторный клик по той же строке → collapse
+  - НЕ запускает playback
+  - Скролл до раскрытого через `scrollIntoView({block:'center'})` через 100ms
+- **Раскрытая обложка** — inline в DOM (не модально):
+  - Mobile: aspect-square cover между row N и row N+1
+  - Desktop: то же самое — между current row и next row (вверху списка следующего)
+  - Внутри обложки — controls (play/pause/skip/lyrics/share)
+- **Тап по самой раскрытой обложке** (вне controls) → collapse, но с **500ms cooldown** (см. Accidental-tap-protection rule ниже).
+
+Применяется к: landing.tsx playlist UI (mini-cover handler line ~1837, row handler line ~1871). НЕ применяется к: large-player FAB controls (отдельные explicit buttons), CoverDetailsModal swipe-mode (там свои handlers).
+
+**Этот rule перекрывает старый `Player-expand-no-restart rule (2026-05-19)`** — там cover делал expand. Босс новой формулировкой инвертировал: cover = play, row = expand. Старая логика сохранена в Git history.
+
+### Player-expand-no-restart rule (Eugene 2026-05-19, **DEPRECATED — см. Player-tap-actions rule**)
 
 **При нажатии на mini-обложку трека в плейлисте — раскрываем большой плеер. Если этот трек уже играет в основном плеере — продолжаем воспроизведение без рестарта. Если другой — раскрываем большую обложку и ЖДЁМ команды пользователя (не запускаем auto-play).**
 
@@ -1611,7 +1635,9 @@ Pre-commit чек:
 
 ### Accidental-tap-protection rule (Eugene 2026-05-19)
 
-**Если элемент развёртывается/раскрывается по клику — добавляем 350ms cooldown перед обработкой первого «свернуть»-клика. Защищает от случайных тапов, флика, отскока пальца после `tap-open`.**
+**Если элемент развёртывается/раскрывается по клику — добавляем 500ms cooldown перед обработкой первого «свернуть»-клика. Защищает от случайных тапов, флика, отскока пальца после `tap-open`.**
+
+Eugene 2026-05-21 Босс: «увеличь задержку случайного нажатия, лучшие настройки для таких случаев». 500ms — стандарт iOS double-tap detection (между двумя тапами максимум 500ms), значит палец отскочил и попал ещё раз — это не намерение свернуть, это случайный второй тап.
 
 Реализация:
 ```tsx
@@ -1621,12 +1647,12 @@ useEffect(() => {
 }, [expandedId]);
 
 // В onPointerDown / onClick для collapse:
-if (Date.now() - expandedAtRef.current < 350) return;
+if (Date.now() - expandedAtRef.current < 500) return;
 ```
 
 Применяется к: всем expand-blocks (cover modals, expanded track cards, accordion-секциям, swipe-modals). Не применяется к: явным крестикам ✕ / кнопкам «Закрыть» — там нужен мгновенный отклик.
 
-Срок 350ms подобран эмпирически (типовой intervals между touch-events на iOS Safari ~ 100-250ms, double-tap ≤500ms). 300ms тоже OK; >500ms ощущается как «глючит».
+Раньше было 350ms (Eugene 2026-05-19), но Босс попадал случайно — увеличено до 500ms по iOS Apple HIG (Human Interface Guidelines) double-tap threshold.
 
 ### Admin-Muza-message base + auto-apply rule (Eugene 2026-05-20)
 
