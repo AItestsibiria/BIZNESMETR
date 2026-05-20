@@ -429,7 +429,7 @@ export function FloatingConsultant() {
   // Pinch (2 пальца раздвигаются ≥50px) → expand. Drag (1 палец/курсор
   // от FAB на ≥60px) → expand. Возврат жеста — collapse. Click тоже работает.
   const pinchStartDistRef = useRef<number | null>(null);
-  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const expandDragStartRef = useRef<{ x: number; y: number } | null>(null);
   const dragExpandedRef = useRef(false);
   const [reaction, setReaction] = useState<string | null>(null);
   const reactionIdxRef = useRef(0);
@@ -1656,25 +1656,25 @@ export function FloatingConsultant() {
           onPointerDown={(e) => {
             // Eugene 2026-05-20: drag-to-expand для mouse/pen/touch (1 палец).
             if (e.isPrimary) {
-              dragStartRef.current = { x: e.clientX, y: e.clientY };
+              expandDragStartRef.current = { x: e.clientX, y: e.clientY };
               dragExpandedRef.current = false;
             }
           }}
           onPointerMove={(e) => {
-            if (!dragStartRef.current) return;
-            const dx = dragStartRef.current.x - e.clientX;
-            const dy = dragStartRef.current.y - e.clientY;
+            if (!expandDragStartRef.current) return;
+            const dx = expandDragStartRef.current.x - e.clientX;
+            const dy = expandDragStartRef.current.y - e.clientY;
             const dist = Math.sqrt(dx * dx + dy * dy);
             if (dist > 60 && !expanded) {
               try { playMuzaChime(); } catch {}
               setExpanded(true);
               trackEngagement("consultant_open", { via: "drag" });
               dragExpandedRef.current = true;
-              dragStartRef.current = null;
+              expandDragStartRef.current = null;
             }
           }}
-          onPointerUp={() => { dragStartRef.current = null; }}
-          onPointerCancel={() => { dragStartRef.current = null; }}
+          onPointerUp={() => { expandDragStartRef.current = null; }}
+          onPointerCancel={() => { expandDragStartRef.current = null; }}
           onTouchStart={(e) => {
             // Eugene 2026-05-20: pinch-to-expand на mobile (2 пальца).
             // При появлении 2-го пальца — отменяем drag, остаётся только pinch.
@@ -1682,7 +1682,7 @@ export function FloatingConsultant() {
               const dx = e.touches[0].clientX - e.touches[1].clientX;
               const dy = e.touches[0].clientY - e.touches[1].clientY;
               pinchStartDistRef.current = Math.sqrt(dx * dx + dy * dy);
-              dragStartRef.current = null;
+              expandDragStartRef.current = null;
             }
           }}
           onTouchMove={(e) => {
