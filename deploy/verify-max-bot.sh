@@ -151,6 +151,42 @@ else
   VERDICT_YELLOW=1
 fi
 
+# 7. Bot moderation status — анализируем последние sendMessage attempts
+echo ""
+echo "[7] Bot moderation/send status (последние 5 минут):"
+RECENT_LOGS=$(pm2 logs neurohub --nostream --lines 300 2>&1 | grep -iE 'max-bot.*(sendMessage|attempt)' || true)
+HAS_OK=$(printf '%s\n' "$RECENT_LOGS" | grep -ciE 'sendMessage ok' | head -1)
+HAS_SUSPENDED=$(printf '%s\n' "$RECENT_LOGS" | grep -ciE 'dialog.suspended' | head -1)
+HAS_NOT_FOUND=$(printf '%s\n' "$RECENT_LOGS" | grep -ciE 'chat.not.found' | head -1)
+HAS_INCOMING=$(pm2 logs neurohub --nostream --lines 300 2>&1 | grep -c 'max-bot DEBUG.*webhook IN' | head -1)
+[ -z "$HAS_OK" ] && HAS_OK=0
+[ -z "$HAS_SUSPENDED" ] && HAS_SUSPENDED=0
+[ -z "$HAS_NOT_FOUND" ] && HAS_NOT_FOUND=0
+[ -z "$HAS_INCOMING" ] && HAS_INCOMING=0
+
+echo "  Incoming webhook events: $HAS_INCOMING"
+echo "  sendMessage ok:          $HAS_OK"
+echo "  dialog.suspended errors: $HAS_SUSPENDED"
+echo "  chat.not.found errors:   $HAS_NOT_FOUND"
+echo ""
+if [ "$HAS_OK" -gt 0 ]; then
+  green "  🟢 Бот РАБОТАЕТ — есть успешные отправки"
+elif [ "$HAS_SUSPENDED" -gt 0 ]; then
+  yellow "  🟡 Бот на МОДЕРАЦИИ — Max возвращает 'dialog.suspended'"
+  yellow "      Жди до 48 рабочих часов после publish в @MasterBot."
+  yellow "      Также может потребоваться верификация юр.лица РФ (с авг 2025)."
+  VERDICT_YELLOW=1
+elif [ "$HAS_NOT_FOUND" -gt 0 ]; then
+  yellow "  🟡 chat.not.found — recipient.chat_id невалиден для send"
+  VERDICT_YELLOW=1
+elif [ "$HAS_INCOMING" -gt 0 ]; then
+  yellow "  🟡 Incoming есть, но никто не пытался отвечать — проверь handler"
+  VERDICT_YELLOW=1
+else
+  yellow "  ⚠ Нет recent данных — попроси юзера написать в бот и повтори"
+  VERDICT_YELLOW=1
+fi
+
 # === Verdict ===
 echo ""
 echo "=== VERDICT ==="
