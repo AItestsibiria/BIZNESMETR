@@ -1960,10 +1960,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                       <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-purple-500/20 animate-in fade-in zoom-in-95 duration-300">
                         <div className="w-full aspect-square bg-gradient-to-br from-purple-900 via-blue-900 to-black relative cursor-pointer" onPointerDown={(e) => { const tgt = e.target as HTMLElement; if (tgt.closest("button, a, [role=button], input, [data-no-collapse]")) return; /* Eugene 2026-05-21 Босс: 500ms cooldown (iOS double-tap standard, anti случайных касаний). */ if (Date.now() - expandedAtRef.current < 500) return; e.preventDefault(); setExpandedId(null); }}>
                           {track.imageUrl && <img key={track.imageUrl} src={track.imageUrl} alt="" className="w-full h-full object-cover absolute inset-0 animate-in fade-in duration-500" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />}
-                          {/* Eugene 2026-05-19 Босс «S на большой обложке тоже,
-                              в том же месте». Top-right pill — Swipe-режим. */}
+                          {/* Eugene 2026-05-19 Босс «S на большой обложке».
+                              Eugene 2026-05-21 Босс «раздвинь Play и S элегантно».
+                              Отступ от угла увеличен (top-4 right-4 = 16px),
+                              на mobile меньше size чтобы не «давить» на Play. */}
                           <button
-                            className="absolute top-2 right-2 w-11 h-11 rounded-full bg-black/60 backdrop-blur-sm border border-white/20 hover:border-fuchsia-400/60 hover:bg-black/80 flex items-center justify-center hover:scale-110 active:scale-95 transition-all z-50 shadow-lg shadow-fuchsia-500/30"
+                            className="absolute top-4 right-4 w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-black/60 backdrop-blur-sm border border-white/20 hover:border-fuchsia-400/60 hover:bg-black/80 flex items-center justify-center hover:scale-110 active:scale-95 transition-all z-50 shadow-lg shadow-fuchsia-500/30"
                             title="Свайп-режим — листай ← → большие обложки"
                             aria-label="Свайп-режим"
                             onClick={(e) => {
@@ -1991,8 +1993,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                           <div className="absolute bottom-1 left-1/2 -translate-x-1/2 z-10">
                             <span className="inline-flex items-center gap-1 text-white/20 drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)]"><svg viewBox="0 0 24 24" className="w-3 h-3" fill="none"><path d="M3 12c1.5-3 3-5 4.5-3s2 4 3.5 2 2.5-5 4-3 2 4 3.5 2 2.5-4 3.5-2" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" /></svg><span className="text-[10px] whitespace-nowrap">MuzaAi.ru</span></span>
                           </div>
-                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-40">
-                            <button className="pointer-events-auto w-16 h-16 rounded-full bg-white/20 flex items-center justify-center border border-white/30 hover:bg-white/30 transition-colors" onClick={() => togglePlay(track)}>
+                          {/* Eugene 2026-05-21 Босс «раздвинь Play и S элегантно».
+                              Play смещён вниз 4% от центра (mt-[4%]) — освобождает
+                              верх обложки для S-кнопки. + frosted ring вокруг Play
+                              для визуального separation от фона. */}
+                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-40 mt-[4%]">
+                            <button className="pointer-events-auto w-16 h-16 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center border-2 border-white/40 hover:bg-white/30 hover:scale-105 active:scale-95 transition-all shadow-[0_4px_20px_rgba(0,0,0,0.4)]" onClick={() => togglePlay(track)}>
                               {ePlaying ? <Pause className="w-7 h-7 text-white" /> : <Play className="w-7 h-7 text-white ml-1" />}
                             </button>
                           </div>
