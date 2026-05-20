@@ -238,11 +238,28 @@ export function SupportModal({
                 key={i}
                 className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
               >
+                {/* Eugene 2026-05-20 Босс «tap на сообщение копирует предыдущее».
+                    Click на bubble → текст переносится в input. На bot-reply
+                    копируем предыдущее user-сообщение (для refinement). */}
                 <div
+                  onClick={() => {
+                    let textToCopy = m.text;
+                    if (m.role !== "user") {
+                      for (let k = i - 1; k >= 0; k--) {
+                        if (msgs[k]?.role === "user") { textToCopy = msgs[k].text; break; }
+                      }
+                    }
+                    setInput(textToCopy || "");
+                    setTimeout(() => {
+                      const ta = document.querySelector<HTMLTextAreaElement>('textarea[data-support-input]');
+                      if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+                    }, 20);
+                  }}
+                  title="Нажми чтобы скопировать в поле ввода"
                   className={
                     m.role === "user"
-                      ? "max-w-[80%] rounded-2xl rounded-br-md px-4 py-2 bg-gradient-to-br from-purple-500/30 to-fuchsia-500/20 border border-purple-400/30 text-white text-sm font-sans"
-                      : "max-w-[80%] rounded-2xl rounded-bl-md px-4 py-2 bg-white/[0.04] border border-white/10 text-white/90 text-sm font-sans"
+                      ? "max-w-[80%] rounded-2xl rounded-br-md px-4 py-2 bg-gradient-to-br from-purple-500/30 to-fuchsia-500/20 border border-purple-400/30 text-white text-sm font-sans cursor-pointer hover:brightness-110 transition-all"
+                      : "max-w-[80%] rounded-2xl rounded-bl-md px-4 py-2 bg-white/[0.04] border border-white/10 text-white/90 text-sm font-sans cursor-pointer hover:brightness-110 transition-all"
                   }
                 >
                   {m.text.split("\n").map((line, j) => (
@@ -262,13 +279,26 @@ export function SupportModal({
           {/* Input area */}
           <div className="p-4 border-t border-white/10 space-y-3">
             <div className="flex gap-2">
-              <input
+              {/* Eugene 2026-05-20 Босс «не видно всю строку» — auto-resize textarea */}
+              <textarea
+                data-support-input
                 value={input}
-                onChange={e => setInput(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                onChange={e => {
+                  setInput(e.target.value);
+                  const ta = e.target as HTMLTextAreaElement;
+                  ta.style.height = "auto";
+                  ta.style.height = Math.min(ta.scrollHeight, 132) + "px";
+                }}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    if (input.trim()) sendMessage();
+                  }
+                }}
                 placeholder="Опишите вашу ситуацию…"
                 disabled={!ticket || sending}
-                className="flex-1 input-glow bg-white/[0.03] border border-purple-500/20 rounded-xl px-4 py-2 text-white text-sm font-sans placeholder:text-white/30 focus:outline-none focus:border-purple-400/50"
+                rows={1}
+                className="flex-1 input-glow bg-white/[0.03] border border-purple-500/20 rounded-xl px-4 py-2 text-white text-sm font-sans placeholder:text-white/30 focus:outline-none focus:border-purple-400/50 resize-none leading-[1.4] min-h-[2.5rem] max-h-[8.25rem] overflow-y-auto"
               />
               <Button
                 onClick={sendMessage}

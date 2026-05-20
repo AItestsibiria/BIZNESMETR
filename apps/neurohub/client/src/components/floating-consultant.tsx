@@ -1943,12 +1943,37 @@ export function FloatingConsultant() {
                         <span className="bg-gradient-to-r from-purple-300 via-violet-300 to-cyan-300 bg-clip-text text-transparent">Муза</span>
                       </div>
                     )}
-                    <div className={`max-w-[80%] px-3 py-2 rounded-2xl text-[13px] leading-relaxed whitespace-pre-wrap break-words ${
+                    {/* Eugene 2026-05-20 Босс «при нажатии сразу копировало
+                        предыдущее». Tap на bubble → текст копируется в input
+                        для редактирования. Tap на свой msg = его текст; tap на
+                        bot-reply = текст предыдущего MOEГО сообщения (чтобы
+                        задать тот же вопрос с правкой). */}
+                    <div
+                      onClick={() => {
+                        let textToCopy = m.text;
+                        if (m.role !== "user") {
+                          // Найти предыдущее user-сообщение (искать назад от fullIdx)
+                          for (let k = fullIdx - 1; k >= 0; k--) {
+                            if (chatMsgs[k]?.role === "user") {
+                              textToCopy = chatMsgs[k].text;
+                              break;
+                            }
+                          }
+                        }
+                        setChatInput(textToCopy || "");
+                        // Click click bonus: фокус на input после копирования
+                        setTimeout(() => {
+                          const ta = document.querySelector<HTMLTextAreaElement>('textarea[data-muza-chat-input]');
+                          if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+                        }, 20);
+                      }}
+                      title="Нажми чтобы скопировать в поле ввода"
+                      className={`max-w-[80%] px-3 py-2 rounded-2xl text-[13px] leading-relaxed whitespace-pre-wrap break-words cursor-pointer hover:brightness-110 transition-all ${
                       m.role === "user"
                         ? "bg-gradient-to-br from-purple-500/30 to-blue-500/25 text-white border border-purple-400/30"
                         : "bg-white/[0.06] text-white/90 border border-white/[0.08]"
                     }`}>{linkify(m.text).map((p, j) => p.href
-                        ? <a key={j} href={p.href} target="_blank" rel="noopener noreferrer" className="underline text-cyan-300 hover:text-cyan-200">{p.text}</a>
+                        ? <a key={j} href={p.href} target="_blank" rel="noopener noreferrer" className="underline text-cyan-300 hover:text-cyan-200" onClick={(e) => e.stopPropagation()}>{p.text}</a>
                         : <span key={j}>{p.text}</span>
                       )}</div>
                     {/* Eugene 2026-05-17 Босс «резервные каналы при downtime».
@@ -2298,8 +2323,12 @@ export function FloatingConsultant() {
                   💡
                 </button>
               )}
-              <input
-                type="text"
+              {/* Eugene 2026-05-20 Босс «улучши возможность правки в диалоговом
+                  окне не видно всю строку» — converted from <input type="text"> to
+                  auto-resize <textarea>. Enter = send, Shift+Enter = новая строка.
+                  Min 1 line (3.5rem), max 6 lines (visual cap, scroll внутри). */}
+              <textarea
+                data-muza-chat-input
                 value={chatInput}
                 onChange={(e) => {
                   // Eugene 2026-05-14 Босс «появление хотя бы одного символа
@@ -2309,11 +2338,27 @@ export function FloatingConsultant() {
                     trackEngagement("consultant_action", { action: "chat_start_typing" });
                   }
                   setChatInput(e.target.value);
+                  // Auto-resize: вернуть в auto, измерить scrollHeight, выставить
+                  // height = min(scrollHeight, 6 lines * line-height ≈ 132px).
+                  const ta = e.target as HTMLTextAreaElement;
+                  ta.style.height = "auto";
+                  ta.style.height = Math.min(ta.scrollHeight, 132) + "px";
+                }}
+                onKeyDown={(e) => {
+                  // Enter без Shift = send (исторический паттерн single-line);
+                  // Shift+Enter = новая строка (стандарт textarea). На мобиле
+                  // virtual keyboard «Send» button тоже триггерит Enter — OK.
+                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    if (chatInput.trim() && !chatSending) {
+                      const form = (e.target as HTMLElement).closest("form");
+                      form?.requestSubmit();
+                    }
+                  }
                 }}
                 onFocus={() => {
                   // Eugene 2026-05-15 Босс «надо поднимать последний текст».
                   // На мобилке открытие клавиатуры скрывает последнее сообщение.
-                  // 2 раза с задержкой — пока браузер не пересчитал layout.
                   setTimeout(() => {
                     if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
                   }, 50);
@@ -2324,7 +2369,8 @@ export function FloatingConsultant() {
                 placeholder={chatPaired ? "Продолжаем…" : "Сообщение Музе…"}
                 maxLength={1500}
                 disabled={chatSending}
-                className="flex-1 min-w-0 bg-white/[0.07] text-[16px] text-white placeholder:text-white/40 px-4 py-3.5 rounded-xl border-2 border-purple-400/25 focus:border-purple-400/60 focus:outline-none disabled:opacity-50 font-medium"
+                rows={1}
+                className="flex-1 min-w-0 bg-white/[0.07] text-[16px] text-white placeholder:text-white/40 px-4 py-3 rounded-xl border-2 border-purple-400/25 focus:border-purple-400/60 focus:outline-none disabled:opacity-50 font-medium resize-none leading-[1.4] min-h-[3.25rem] max-h-[8.25rem] overflow-y-auto"
                 autoFocus
               />
               <button
