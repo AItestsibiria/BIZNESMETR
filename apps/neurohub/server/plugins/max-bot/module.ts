@@ -514,11 +514,29 @@ function verifyWebhookSecret(req: any): boolean {
 const router = Router();
 
 router.post("/webhook", async (req, res) => {
+  // Eugene 2026-05-20: aggressive logging (warn-level — info может filter'иться).
+  // Выясняем что приходит от Max API (формат update'а, какие поля доступны),
+  // чтобы понять где silent fail.
+  try {
+    const bodyKeys = Object.keys(req.body || {});
+    const sample = JSON.stringify(req.body || {}).slice(0, 500);
+    bootRefs?.logger.warn?.("[max-bot DEBUG] webhook IN", {
+      ip: (req as any).ip,
+      ua: (req.headers["user-agent"] || "").toString().slice(0, 80),
+      hasSecretHeader: !!(req.headers["x-max-bot-api-secret"] || req.headers["x-max-webhook-secret"] || req.headers["x-bot-api-secret"]),
+      bodyKeys,
+      sample,
+    });
+  } catch (e: any) {
+    bootRefs?.logger.warn?.("[max-bot DEBUG] webhook IN log failed", { error: String(e?.message || e) });
+  }
+
   // Secret verification
   if (WEBHOOK_SECRET() && !verifyWebhookSecret(req)) {
     bootRefs?.logger.warn?.("[max-bot] invalid webhook secret", {
       ip: (req as any).ip,
       ua: (req.headers["user-agent"] || "").toString().slice(0, 80),
+      headerNames: Object.keys(req.headers).filter(h => h.startsWith("x-")),
     });
     return res.status(403).json({ data: null, error: "forbidden" });
   }
@@ -585,8 +603,16 @@ router.post("/webhook", async (req, res) => {
       } catch { return null; }
     })();
 
+    bootRefs?.logger.warn?.("[max-bot DEBUG] parsed", {
+      chatId: chatId.slice(0, 30),
+      fromId: fromId.slice(0, 30),
+      textLen: text.length,
+      textSample: text.slice(0, 80),
+      hasSharedPhone: !!sharedPhone,
+    });
+
     if (!chatId) {
-      bootRefs?.logger.info?.("[max-bot] webhook: missing chatId", { keys: Object.keys(u || {}).slice(0, 5) });
+      bootRefs?.logger.warn?.("[max-bot DEBUG] missing chatId — return", { keys: Object.keys(u || {}).slice(0, 5) });
       return;
     }
 
@@ -598,11 +624,12 @@ router.post("/webhook", async (req, res) => {
       u?.update_id ??
       `${chatId}:${text.slice(0, 30)}:${Math.floor(Date.now() / 3000)}`;
     if (isMaxMsgDup(dedupKey)) {
-      bootRefs?.logger.info?.("[max-bot] skipping duplicate", { key: String(dedupKey).slice(0, 30) });
+      bootRefs?.logger.warn?.("[max-bot DEBUG] skipping duplicate", { key: String(dedupKey).slice(0, 30) });
       return;
     }
 
     if (!text) {
+      bootRefs?.logger.warn?.("[max-bot DEBUG] no text — return", { hasSharedPhone: !!sharedPhone });
       // Не-текстовое сообщение (file/photo/voice) — пока не обрабатываем для
       // chat. Можем добавить в будущем — например voice → STT → answer.
       bootRefs?.logger.info?.("[max-bot] non-text update — skipping", { chatId, hasText: !!text });
