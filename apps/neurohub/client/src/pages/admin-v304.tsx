@@ -2780,10 +2780,223 @@ function BotChannelsTab({ toast }: { toast: any }) {
         </div>
       )}
 
+      <MaxControlsPanel toast={toast} />
+
       <div className="text-[11px] text-white/40 px-1">
         💡 Карточки автообновляются каждые 60 сек. Cron каждый час проверяет все каналы + шлёт Telegram-alert админу при смене статуса (green → red/yellow).
         Web-чат при downtime LLM показывает юзеру баннер с резервными каналами (Telegram / Max).
       </div>
+    </div>
+  );
+}
+
+// Eugene 2026-05-20 (subagent setup-max). Расширение BotChannelsTab —
+// Max-specific controls: re-register webhook, test-message, recent messages.
+// Per No-duplicates rule расширяем существующий tab вместо создания нового.
+function MaxControlsPanel({ toast }: { toast: any }) {
+  const { data: statusData, refetch } = useQuery<any>({
+    queryKey: ["/api/admin/v304/max/status"],
+    refetchInterval: 60_000,
+  });
+  const status = statusData?.data;
+  const [testChatId, setTestChatId] = useState("");
+  const [testText, setTestText] = useState("Тестовое сообщение от MuzaAi");
+  const [registering, setRegistering] = useState(false);
+  const [testing, setTesting] = useState(false);
+
+  const registerWebhook = async () => {
+    setRegistering(true);
+    try {
+      const r = await apiRequest("POST", "/api/admin/v304/max/register-webhook", {});
+      const j = await r.json();
+      if (j.data?.baseUsed) {
+        toast({
+          title: "✅ Webhook зарегистрирован",
+          description: `${j.data.baseUsed}\n${j.data.url}`,
+        });
+        refetch();
+      } else {
+        toast({
+          title: "Не удалось",
+          description: j.error || "—",
+          variant: "destructive",
+        });
+      }
+    } catch (e: any) {
+      toast({ title: "Сетевая ошибка", description: String(e?.message || e), variant: "destructive" });
+    } finally {
+      setRegistering(false);
+    }
+  };
+
+  const sendTestMessage = async () => {
+    if (!testChatId.trim()) {
+      toast({ title: "Введите chatId", variant: "destructive" });
+      return;
+    }
+    setTesting(true);
+    try {
+      const r = await apiRequest("POST", "/api/admin/v304/max/test-message", {
+        chatId: testChatId.trim(),
+        text: testText.trim() || "Test",
+      });
+      const j = await r.json();
+      if (j.data?.delivered) {
+        toast({
+          title: "✅ Отправлено",
+          description: `chatId=${testChatId} via ${j.data.baseUsed}`,
+        });
+      } else {
+        toast({
+          title: "Не доставлено",
+          description: j.error || JSON.stringify(j.data?.attempts || j.data || {}).slice(0, 200),
+          variant: "destructive",
+        });
+      }
+    } catch (e: any) {
+      toast({ title: "Сетевая ошибка", description: String(e?.message || e), variant: "destructive" });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const copyStatusReport = () => {
+    if (!status) return;
+    const lines: string[] = [
+      "Max bot · status report",
+      `configured: ${status.configured}`,
+      `webhookSecret: ${status.webhookSecretConfigured}`,
+      `apiBase: ${status.apiBase}`,
+      `me: ${status.me ? JSON.stringify(status.me).slice(0, 200) : "—"}`,
+      `meError: ${status.meError || "—"}`,
+      `counts: 1h=${status.counts?.messagesLastHour ?? 0}, 24h=${status.counts?.messagesLast24h ?? 0}, sessions=${status.counts?.sessionsTotal ?? 0}`,
+      "",
+      "Recent sessions:",
+      ...(status.recentSessions || []).slice(0, 10).map((s: any) =>
+        `  • ${s.externalId} (sid=${String(s.sessionId).slice(0, 8)}…) msgs=${s.msgCount} lastAt=${s.lastMessageAt}`,
+      ),
+      "",
+      "Recent messages:",
+      ...(status.recentMessages || []).slice(0, 10).map((m: any) =>
+        `  [${m.role}] ${String(m.text || "").slice(0, 120)}`,
+      ),
+    ];
+    navigator.clipboard.writeText(lines.join("\n")).then(() => {
+      toast({ title: "📋 Отчёт Max скопирован" });
+    });
+  };
+
+  return (
+    <div className="p-4 rounded-2xl border border-fuchsia-500/20 bg-gradient-to-br from-fuchsia-500/[0.05] to-purple-500/[0.05] space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-[13px] font-bold text-white">📱 Max — управление</h3>
+        <button
+          onClick={copyStatusReport}
+          disabled={!status}
+          className="text-[10px] px-2 py-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.10] text-white/70 border border-white/[0.08] disabled:opacity-40"
+        >
+          📋 Скопировать
+        </button>
+      </div>
+
+      {!status?.configured && (
+        <div className="text-[11px] text-amber-300/90">
+          ⚠ MAX_BOT_TOKEN не задан — канал отключён. Установи на VPS через .env + pm2 restart.
+        </div>
+      )}
+
+      {status?.configured && (
+        <>
+          <div className="grid grid-cols-2 gap-2 text-[10px] text-white/60">
+            <div>API base: <span className="font-mono text-cyan-300">{status.apiBase}</span></div>
+            <div>Webhook secret: <span className="font-mono">{status.webhookSecretConfigured ? "✅ задан" : "⚠ не задан"}</span></div>
+            <div>За 1 час: <span className="font-mono text-cyan-300">{status.counts?.messagesLastHour ?? 0}</span> сообщений</div>
+            <div>За 24 часа: <span className="font-mono text-cyan-300">{status.counts?.messagesLast24h ?? 0}</span> сообщений</div>
+          </div>
+
+          {status.meError && (
+            <div className="text-[10px] text-red-300/80">getMe error: {status.meError}</div>
+          )}
+          {status.me && (
+            <div className="text-[10px] text-emerald-300/80 font-mono break-all">
+              me: {JSON.stringify(status.me).slice(0, 200)}
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-2 pt-2 border-t border-white/[0.05]">
+            <button
+              onClick={registerWebhook}
+              disabled={registering}
+              className="text-[11px] px-3 py-1.5 rounded-lg bg-fuchsia-500/20 hover:bg-fuchsia-500/30 text-fuchsia-200 border border-fuchsia-400/30 disabled:opacity-40"
+            >
+              {registering ? "Регистрирую…" : "🔁 Пере-регистрировать webhook"}
+            </button>
+          </div>
+
+          <div className="pt-2 border-t border-white/[0.05] space-y-2">
+            <div className="text-[11px] font-semibold text-white/70">📤 Test-сообщение</div>
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_2fr_auto] gap-2">
+              <input
+                value={testChatId}
+                onChange={(e) => setTestChatId(e.target.value)}
+                placeholder="Max chat_id (user_id)"
+                className="text-[11px] px-2 py-1.5 rounded-lg bg-white/[0.06] border border-white/[0.10] text-white placeholder:text-white/30 outline-none focus:border-fuchsia-400/40"
+              />
+              <input
+                value={testText}
+                onChange={(e) => setTestText(e.target.value)}
+                placeholder="Текст сообщения"
+                className="text-[11px] px-2 py-1.5 rounded-lg bg-white/[0.06] border border-white/[0.10] text-white placeholder:text-white/30 outline-none focus:border-fuchsia-400/40"
+              />
+              <button
+                onClick={sendTestMessage}
+                disabled={testing || !testChatId.trim()}
+                className="text-[11px] px-3 py-1.5 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 border border-purple-400/30 disabled:opacity-40"
+              >
+                {testing ? "Отправляю…" : "Отправить"}
+              </button>
+            </div>
+          </div>
+
+          {status.recentSessions && status.recentSessions.length > 0 && (
+            <details className="pt-2 border-t border-white/[0.05]">
+              <summary className="text-[11px] font-semibold text-white/70 cursor-pointer">
+                💬 Recent sessions ({status.recentSessions.length})
+              </summary>
+              <div className="mt-2 space-y-1 max-h-40 overflow-y-auto">
+                {status.recentSessions.map((s: any) => (
+                  <div key={s.sessionId} className="text-[10px] text-white/60 font-mono flex justify-between gap-2 hover:bg-white/[0.04] px-1">
+                    <span className="text-cyan-300">{s.externalId}</span>
+                    <span>msgs={s.msgCount}</span>
+                    <span className="text-white/40">{s.lastMessageAt}</span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+
+          {status.recentMessages && status.recentMessages.length > 0 && (
+            <details className="pt-2 border-t border-white/[0.05]">
+              <summary className="text-[11px] font-semibold text-white/70 cursor-pointer">
+                📜 Recent messages ({status.recentMessages.length})
+              </summary>
+              <div className="mt-2 space-y-1 max-h-60 overflow-y-auto">
+                {status.recentMessages.map((m: any) => (
+                  <div key={m.id} className="text-[10px] flex gap-2 hover:bg-white/[0.04] px-1 py-0.5">
+                    <span className={m.role === "user" ? "text-cyan-300 shrink-0" : "text-fuchsia-300 shrink-0"}>
+                      [{m.role}]
+                    </span>
+                    <span className="text-white/70 break-all">{String(m.text || "").slice(0, 200)}</span>
+                    {m.attachedTrackId && (
+                      <span className="text-amber-300 shrink-0">🎵#{m.attachedTrackId}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+        </>
+      )}
     </div>
   );
 }
