@@ -362,4 +362,47 @@ spawn("bash", ["-c", cmd], { env: { HOME: "/root", PM2_HOME: "/root/.pm2", PATH:
 
 ---
 
-*Last updated: 2026-05-07. Каждый новый bug-class пополняет список.*
+## 15. MAX_BOT_TOKEN leak через web-консоль timeweb.cloud (2026-05-20)
+
+**Симптом:** При попытке заменить токен через sed-команду с placeholder `>>>ВПИШИ_СЮДА<<<`, Босс вставил **реальный токен** в shell — команда выполнилась успешно, но **полный токен попал в логи chat-клиента, история бота, мой sandbox transcript**. По Never-leak-secrets rule = permanent compromise.
+
+**Причина:** Web-консоль timeweb.cloud работает через браузер. При copy-paste из chat в console:
+1. Босс копирует команду с `>>>МАРКЕР<<<`
+2. Подставляет реальный токен вместо маркера
+3. Команда летит в shell на VPS — ок
+4. **НО** vопроссы остаются в **clipboard browser history** + chat client (если Босс case-paste'нул в chat случайно) + любой syslog который пишет полный shell history.
+
+Дополнительная причина: предыдущая команда verification (`curl ... <https://botapi.max.ru/me>`) сломалась на bash из-за autolink (`<...>`), и Босс мог переделать команду — вставив токен прямо в URL вместо переменной.
+
+**Анти-паттерн:**
+- ❌ `echo "TOKEN=ABCDEF..."` где `ABCDEF` это реальное значение (Boss copy-paste'нул в chat)
+- ❌ Команда с реальным значением URL: `curl https://api.com/me?token=ABCDEF`
+- ❌ Autolink `<https://...>` в команде → bash syntax error → Босс «исправляет» команду руками, может leak
+
+**Рабочий паттерн:**
+- ✅ Маркер `>>>ВПИШИ_СЮДА<<<` или `🔴ВПИШИ_СЮДА🔴` обязателен с обеих сторон
+- ✅ URL в командах через переменные shell: `P=https; B=api.com; curl "$P://$B/path"`
+- ✅ После любого suspected leak — **revoke** у провайдера + новый ключ + ввод НА VPS (никогда не через chat)
+
+**Что делать при leak (порядок строгий):**
+1. Идентифицировать что ушло (тип токена / ключа / URL)
+2. **Revoke у провайдера** — отозвать, не «изменить»
+3. Сгенерировать новый
+4. Ввести руками на VPS через ту же sed-команду
+5. Запустить verification что новый работает
+6. Записать дату+тип в этот файл
+
+**Verify-паттерн без autolink:**
+```bash
+T=$(awk -F= '/^MAX_BOT_TOKEN=/{print $2}' /var/www/neurohub/.env)
+P=https; B=botapi.max.ru
+curl -s -H "Authorization: $T" "$P://$B/me"
+```
+
+URL составлен из переменных — chat-клиент не превратит в autolink.
+
+**Урок:** даже самый аккуратный placeholder marker не защищает если Босс «помогает» руками редактировать команду до Enter'a. Дополнительная мера — verification команды ВСЕГДА с URL через переменные.
+
+---
+
+*Last updated: 2026-05-20. Каждый новый bug-class пополняет список.*
