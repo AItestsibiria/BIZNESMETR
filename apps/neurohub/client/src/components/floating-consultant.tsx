@@ -425,6 +425,12 @@ export function FloatingConsultant() {
   const [exiting, setExiting] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  // Eugene 2026-05-20 Босс: pinch-to-expand + drag-to-expand на Музе.
+  // Pinch (2 пальца раздвигаются ≥50px) → expand. Drag (1 палец/курсор
+  // от FAB на ≥60px) → expand. Возврат жеста — collapse. Click тоже работает.
+  const pinchStartDistRef = useRef<number | null>(null);
+  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const dragExpandedRef = useRef(false);
   const [reaction, setReaction] = useState<string | null>(null);
   const reactionIdxRef = useRef(0);
   const reactionTimerRef = useRef<number | null>(null);
@@ -1631,6 +1637,11 @@ export function FloatingConsultant() {
             dismiss();
           }}
           onClick={() => {
+            // Если только что раскрыли через drag — не toggle.
+            if (dragExpandedRef.current) {
+              dragExpandedRef.current = false;
+              return;
+            }
             // Single-click: меню expanded. Double-click intercept выше.
             try { playMuzaChime(); } catch {}
             const phrase = CLICK_REACTIONS[reactionIdxRef.current % CLICK_REACTIONS.length];
@@ -1642,8 +1653,59 @@ export function FloatingConsultant() {
           }}
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
-          aria-label="Муза"
-          className="block w-24 h-36 sm:w-28 sm:h-48 active:scale-95 transition-transform opacity-90 hover:opacity-100 consultant-dance"
+          onPointerDown={(e) => {
+            // Eugene 2026-05-20: drag-to-expand для mouse/pen/touch (1 палец).
+            if (e.isPrimary) {
+              dragStartRef.current = { x: e.clientX, y: e.clientY };
+              dragExpandedRef.current = false;
+            }
+          }}
+          onPointerMove={(e) => {
+            if (!dragStartRef.current) return;
+            const dx = dragStartRef.current.x - e.clientX;
+            const dy = dragStartRef.current.y - e.clientY;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist > 60 && !expanded) {
+              try { playMuzaChime(); } catch {}
+              setExpanded(true);
+              trackEngagement("consultant_open", { via: "drag" });
+              dragExpandedRef.current = true;
+              dragStartRef.current = null;
+            }
+          }}
+          onPointerUp={() => { dragStartRef.current = null; }}
+          onPointerCancel={() => { dragStartRef.current = null; }}
+          onTouchStart={(e) => {
+            // Eugene 2026-05-20: pinch-to-expand на mobile (2 пальца).
+            // При появлении 2-го пальца — отменяем drag, остаётся только pinch.
+            if (e.touches.length === 2) {
+              const dx = e.touches[0].clientX - e.touches[1].clientX;
+              const dy = e.touches[0].clientY - e.touches[1].clientY;
+              pinchStartDistRef.current = Math.sqrt(dx * dx + dy * dy);
+              dragStartRef.current = null;
+            }
+          }}
+          onTouchMove={(e) => {
+            if (e.touches.length === 2 && pinchStartDistRef.current !== null) {
+              const dx = e.touches[0].clientX - e.touches[1].clientX;
+              const dy = e.touches[0].clientY - e.touches[1].clientY;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              const delta = dist - pinchStartDistRef.current;
+              if (delta > 50 && !expanded) {
+                try { playMuzaChime(); } catch {}
+                setExpanded(true);
+                trackEngagement("consultant_open", { via: "pinch" });
+                pinchStartDistRef.current = dist;
+              } else if (delta < -50 && expanded) {
+                setExpanded(false);
+                pinchStartDistRef.current = dist;
+              }
+            }
+          }}
+          onTouchEnd={() => { pinchStartDistRef.current = null; }}
+          onTouchCancel={() => { pinchStartDistRef.current = null; }}
+          aria-label="Муза — клик, растяни двумя пальцами или потяни для меню"
+          className="block w-24 h-36 sm:w-28 sm:h-48 active:scale-95 transition-transform opacity-90 hover:opacity-100 consultant-dance touch-none"
         >
           {/* Eugene 2026-05-18: 3D-аватар (musa-3d) с onError fallback на
               SVG. После approve в админке consultant-avatar.png будет
