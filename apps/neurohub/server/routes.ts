@@ -4380,6 +4380,34 @@ export async function registerRoutes(
     });
   });
 
+  // Eugene 2026-05-20 Босс «надо почту подключить». Admin endpoints для
+  // диагностики и тестовой отправки email (Gmail + custom SMTP).
+  app.get("/api/admin/v304/email/status", requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const { getEmailStatus } = await import("./lib/emailSender");
+      const status = getEmailStatus();
+      res.json({ ok: true, ...status });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  app.post("/api/admin/v304/email/test", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { sendEmail } = await import("./lib/emailSender");
+      const to = String(req.body?.to || "").trim();
+      const subject = String(req.body?.subject || "MuzaAi email test").trim();
+      const text = String(req.body?.text || "Это тестовое письмо от MuzaAi admin panel. Если ты получил его — SMTP настроен правильно.").trim();
+      if (!to || !to.includes("@")) {
+        return res.status(400).json({ ok: false, error: "invalid 'to' email" });
+      }
+      const r = await sendEmail({ to, subject, text, kind: "transactional" });
+      res.json(r);
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
   // Eugene 2026-05-17 Босс «архив и текущие диалоги бота по любому каналу».
   // Список chatbot-сессий с фильтрами channel/status/q + pagination.
   // - channel: 'all' | 'web' | 'telegram' | 'max'
