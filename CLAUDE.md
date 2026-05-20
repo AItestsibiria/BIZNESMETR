@@ -200,6 +200,66 @@ ssh root@72.56.1.149 'sed -i "/^ИМЯ_КЛЮЧА=/d" /var/www/neurohub/.env \
 
 Для **критических операций** (миграции, удаление таблиц, ротация ключей) — отдельный manual snapshot вне auto-deploy цикла.
 
+### Yars-admin-confirmation rule (Eugene 2026-05-20, **сильнее Autonomous-execution rule в части code-changes**)
+
+**Все Ярс-сообщения админа (Босса), которые касаются ПРАВОК В КОД — приходят в этот chat и требуют моего явного подтверждения «да» / «применяй» / «1 ok» перед commit'ом.** Auto-apply в проде НЕ применяет code-changes без подтверждения здесь.
+
+Что такое «Ярс-сообщение админа»:
+- Сообщение от Босса в Музa-чате (web/TG/Max/admin-voice) которое содержит operator-команды
+- Сообщение записывается в `admin_chat_messages` таблицу (см. Admin-Muza-message base + auto-apply rule)
+- Тип команд распознаётся через `yarsExecutor` категории: `news_post`, `kb_update`, `persona_tweak`, `ui_text`, `code_change`, `db_migration`, `endpoint_add`, `endpoint_remove`, `feature_toggle`, ...
+- Сообщения с маркером «Ярс:» / «yars:» / «оператор:» / содержащие действия которые меняют **код проекта**
+
+Workflow когда Босс приносит Ярс-команду в этот chat (как копи-паст или скриншот):
+
+1. **Claude echo**: цитирую распознанную команду + контекст из admin_chat_messages если предоставлен
+2. **Анализ**: какие файлы затрагивает, какая логика, риск (data-loss / breaking change / cosmetic)
+3. **Предложение**: diff или описание изменений с file:line
+4. **Жду явного «да»** от Босса:
+   - «да» / «применяй» / «1 ok» / «✅» — apply + commit + push
+   - «нет» / «отбой» / «1 нет» — discard
+   - вопросы / уточнения от Босса — отвечаю не применяя
+5. **После apply**: commit message содержит `via=yars-confirmed` и SHA в audit-log
+
+Какие команды БЕЗ confirmation в этот chat (auto-apply через executeYarsCommand на VPS):
+- ✅ `news_post` — контент-публикация (новость на главной)
+- ✅ `kb_update` — правка KB файла
+- ✅ `persona_tweak` — правка персоны (если только текст, не структура)
+- ✅ `ui_text` — текстовые правки UI (toast'ы, button labels)
+- ✅ `feature_toggle` — включение/выключение feature-флага
+
+Какие ТРЕБУЮТ confirmation в этот chat (отправляются мне сюда):
+- 🔴 `code_change` — любое изменение TypeScript/React кода
+- 🔴 `db_migration` — ALTER/CREATE TABLE
+- 🔴 `endpoint_add` / `endpoint_remove` — новые/удалённые HTTP endpoints
+- 🔴 `schema_change` — изменения shared/schema.ts
+- 🔴 `plugin_install` / `plugin_remove` — добавление/удаление плагинов
+- 🔴 `core_change` — правки в core (auth, billing, generations, streaming, payments, playlist, admin)
+- 🔴 `dependency_change` — npm install/remove
+- 🔴 `secret_change` — ротация ключей (всегда через прямой SSH, не через Ярс)
+- 🔴 `prod_deploy` — deploy на prod (всегда явное «да» Босса)
+
+Технические детали (как Ярс-сообщения попадают в этот chat):
+- На текущей стадии — Босс копирует/пересылает Ярс-сообщения в этот chat вручную
+- Будущее: webhook от prod при категории требующей confirm → forward в этот chat через интеграцию (TG MCP / email subscription / GitHub issue auto-create)
+- При webhook реализации — `admin_chat_messages` пометить флагом `pending_claude_review=true` и `claude_review_session_id` чтобы видеть в админке какие команды отправлены мне
+
+Реализация в БД (для будущей wire-через-webhook):
+- ALTER TABLE `admin_chat_messages`:
+  - `pending_claude_review INTEGER DEFAULT 0` (0/1)
+  - `claude_review_decision TEXT` (`approved` | `rejected` | `clarification_requested` | `auto_applied`)
+  - `claude_review_at INTEGER`
+  - `claude_review_commit_sha TEXT` (если applied — какой SHA)
+- Admin endpoint `GET /api/admin/v304/yars-pending-review` — список pending для отчёта Боссу
+
+Применяется к: всем Музa-каналам где Босс может писать operator-команды (web, TG, Max). НЕ применяется к: чистым диалогам без operator-action (просто разговор Музы с авторами).
+
+Связано с:
+- Admin-Muza-message base + auto-apply rule — записывает все admin messages в БД
+- Autonomous-execution rule — определяет 🟢/🔴 actions; этот rule усиливает 🔴 в части code
+- Clone-deprecated + GH-only deploy rule — code изменения через git push, не прямой SSH
+- Secrets-admin-only rule — секреты НИКОГДА через Ярс, всегда прямой SSH ввод
+
 ### Autonomous-execution rule (Eugene 2026-05-18, **сильнее Working rhythm rule**)
 
 **Сократить путь между сообщением Босса и воплощением — сообщение → решение → воплощение в том же chat-цикле. БЕЗ переспросов и одобрений когда можно.**
