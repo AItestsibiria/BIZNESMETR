@@ -79,7 +79,7 @@ echo "=== 6. Статус ==="
 systemctl status neurohub-backup.timer --no-pager | head -12
 echo ""
 echo "=== 7. Последние backup'ы ==="
-ls -lt /var/backups/neurohub-manual/nomp3-*.tar.gz 2>/dev/null | head -5
+ls -lt /var/backups/neurohub-manual/MuzaAi-Triumph-*.tar.gz 2>/dev/null | head -5
 
 echo ""
 echo "=== DONE ==="

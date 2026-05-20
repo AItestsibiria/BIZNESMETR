@@ -19,9 +19,11 @@ SRC_REPO="/opt/muziai-src"
 
 # === Подготовка ===
 mkdir -p "$DEST"
-TS=$(date +%Y%m%d-%H%M%S)
+# Eugene 2026-05-20 Босс: формат имени «MuzaAi-Triumph-DDMMYY-HHMM.tar.gz»
+# (consistent с Triumph-tag rule).
+TS=$(date +%d%m%y-%H%M)
 SHA=$(cd "$SRC_REPO" 2>/dev/null && git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-OUTFILE="$DEST/nomp3-$TS-$SHA.tar.gz"
+OUTFILE="$DEST/MuzaAi-Triumph-$TS.tar.gz"
 
 cd "$APP_DIR" || { echo "[$(date -u +%FT%TZ)] FAIL: $APP_DIR не найден" >> "$LOG"; exit 1; }
 
@@ -46,9 +48,9 @@ COUNT=$(tar -tzf "$OUTFILE" 2>/dev/null | wc -l)
 echo "[$(date -u +%FT%TZ)] OK: $OUTFILE ($SIZE, $COUNT файлов, sha=$SHA)" >> "$LOG"
 
 # === Ротация — удаляем старше KEEP ===
-KEPT=$(ls -t "$DEST"/nomp3-*.tar.gz 2>/dev/null | wc -l)
+KEPT=$(ls -t "$DEST"/MuzaAi-Triumph-*.tar.gz 2>/dev/null | wc -l)
 if [ "$KEPT" -gt "$KEEP" ]; then
-  TO_DELETE=$(ls -t "$DEST"/nomp3-*.tar.gz | tail -n +$((KEEP+1)))
+  TO_DELETE=$(ls -t "$DEST"/MuzaAi-Triumph-*.tar.gz | tail -n +$((KEEP+1)))
   for f in $TO_DELETE; do
     rm -f "$f"
     echo "[$(date -u +%FT%TZ)] ROTATED: удалил $f" >> "$LOG"
@@ -57,6 +59,6 @@ fi
 
 # === Итоговая статистика в stdout (видно при ручном запуске) ===
 echo "✓ Backup создан: $OUTFILE ($SIZE, $COUNT файлов)"
-echo "✓ Всего backup'ов: $(ls -1 $DEST/nomp3-*.tar.gz 2>/dev/null | wc -l) (keep=$KEEP)"
+echo "✓ Всего backup'ов: $(ls -1 $DEST/MuzaAi-Triumph-*.tar.gz 2>/dev/null | wc -l) (keep=$KEEP)"
 echo "✓ Total size: $(du -sh $DEST 2>/dev/null | cut -f1)"
 echo "✓ Log: $LOG"

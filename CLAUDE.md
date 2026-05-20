@@ -905,6 +905,23 @@ Audit-сценарий перед коммитом UI-фичи:
 - `pages/landing.tsx` hero — `scan-line` overlay + `neon-text` на «MuzaAi»
 - `pages/login-phone.tsx` / `register-phone.tsx` — `holographic` + `cyber-grid` фон
 
+### Backup-naming rule (Eugene 2026-05-20)
+
+**Файлы backup (любые — БД, .env, authors/, любые архивы проекта) именовать в формате `MuzaAi-Triumph-DDMMYY-HHMM.tar.gz`** (consistent с Triumph-tag rule).
+
+- `DDMMYY` — день-месяц-год (например `200526`)
+- `HHMM` — час-минута локального времени запуска backup (например `2330`)
+- Расширение `.tar.gz` (или `.zip` если контекст требует)
+- Никаких `nomp3-`, `backup-`, `prod-snapshot-` префиксов — всегда `MuzaAi-Triumph-`
+
+Примеры:
+- `MuzaAi-Triumph-200526-2330.tar.gz` — backup от 20.05.2026 в 23:30
+- `MuzaAi-Triumph-210526-0300.tar.gz` — auto-backup от 21.05.2026 в 03:00 (cron)
+
+Применяется к: cron auto-backup (`deploy/backup-no-mp3.sh`), ручным snapshots, перед-deploy backup'ам (`auto-deploy-prod.sh` если переименовать), любым future backup-pipelines.
+
+НЕ применяется к: триумф-tag'ам в git (`triumph-DDMMYY` — у них свой формат без extension).
+
 ### Triumph-tag rule (Eugene 2026-05-10)
 
 **Когда Eugene говорит «Триумф» / «Победа» / «Сохрани редакцию» с ракетами 🚀 — создаю git tag формата `triumph-DDMMYY` на текущем HEAD с описанием что вошло.**
