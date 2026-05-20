@@ -380,6 +380,25 @@
    нежно ненавязчиво — чтобы юзер заметил и узнал что туда можно тапнуть
    для раскрытия cover details + swipe-навигации.
    Период 5 сек, лёгкое усиление glow + scale (не overdone). */
+/* Eugene 2026-05-20 Босс: «нежно пульсирующий + поярче» — кнопка «Чат с Музой»
+   в облачке Музы. Период 2.4 сек, мягкое scale + glow дыхание. */
+@keyframes chatPulse {
+  0%, 100% {
+    box-shadow: 0 0 18px rgba(217,70,239,0.45), 0 0 0 0 rgba(217,70,239,0.4);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 28px rgba(217,70,239,0.75), 0 0 0 8px rgba(217,70,239,0);
+    transform: scale(1.04);
+  }
+}
+.animate-chat-pulse {
+  animation: chatPulse 2.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-chat-pulse { animation: none; }
+}
+
 @keyframes detailsPulse {
   0%, 70%, 100% {
     box-shadow: 0 0 12px rgba(168, 85, 247, 0.3);

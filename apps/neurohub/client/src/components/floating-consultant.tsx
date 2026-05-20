@@ -1485,7 +1485,7 @@ export function FloatingConsultant() {
             самом низу парой, Чат как яркое мини-облачко. */}
         {expanded && (
           <div
-            className="absolute bottom-full right-0 mb-3 w-60 sm:w-64 p-2.5 bg-gradient-to-br from-violet-400/20 via-fuchsia-300/15 to-sky-400/15 backdrop-blur-2xl border border-white/15 shadow-lg shadow-purple-400/15 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-hidden"
+            className="absolute bottom-full right-0 mb-3 w-72 sm:w-80 p-4 bg-gradient-to-br from-violet-400/25 via-fuchsia-300/18 to-sky-400/18 backdrop-blur-2xl border border-white/15 shadow-lg shadow-purple-400/15 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-hidden"
             style={{
               borderRadius: "60% 40% 55% 70% / 50% 65% 45% 60%",
               boxShadow: "0 20px 60px rgba(139, 92, 246, 0.5), 0 0 40px rgba(34, 211, 238, 0.25), inset 0 0 30px rgba(255, 255, 255, 0.05)",
@@ -1624,18 +1624,20 @@ export function FloatingConsultant() {
                 мини-облачный bubble (светлый bg, contrasting border), Скрыть
                 — компактная серая.
                 min-h-[44px] iOS HIG для удобного тапа на смартфоне. */}
-            <div className="grid grid-cols-[1fr_auto] gap-2 mt-2">
+            <div className="grid grid-cols-[1fr_auto] gap-2 mt-3">
+              {/* Eugene 2026-05-20 Босс: «Чат с Музой» — pulse-glow + ярче чем
+                  остальные пункты + больше шрифт. Привлекает внимание. */}
               <button
                 type="button"
                 onClick={openChat}
-                className="relative min-h-[44px] px-3 rounded-[40%_50%_45%_55%/50%_45%_55%_50%] bg-gradient-to-br from-white/35 via-white/25 to-white/15 hover:from-white/45 hover:via-white/35 hover:to-white/25 transition-all text-white text-[13px] font-semibold shadow-lg shadow-white/10 border-2 border-white/40 overflow-hidden group active:scale-95"
+                className="relative min-h-[48px] px-3 rounded-[40%_50%_45%_55%/50%_45%_55%_50%] bg-gradient-to-br from-purple-400/70 via-fuchsia-400/60 to-cyan-400/55 hover:from-purple-400/90 hover:via-fuchsia-400/80 hover:to-cyan-400/75 transition-all text-white text-[14px] font-bold shadow-[0_0_18px_rgba(217,70,239,0.45)] hover:shadow-[0_0_28px_rgba(217,70,239,0.7)] border-2 border-white/55 overflow-hidden group active:scale-95 animate-chat-pulse"
                 aria-label="Открыть чат с Музой"
               >
                 <span className="relative z-10 flex items-center justify-center gap-1.5">
                   <span className="text-base">💬</span>
-                  <span>Чат</span>
+                  <span>Чат с Музой</span>
                 </span>
-                <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" aria-hidden="true" />
+                <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" aria-hidden="true" />
               </button>
               <button
                 type="button"
