@@ -1076,7 +1076,89 @@ Audit при code review:
 - При расширении KB / persona prompt — проверить что нет утечек админских деталей в public-zone
 - При изменении governance логики — обновить это правило
 
-### Suno-audio-playback rule (Eugene 2026-05-19, **решение зафиксировано**)
+### User-memory-context rule (Eugene 2026-05-20)
+
+**Музa держит контекст общения с авторизованным юзером. Сжимает воду — оставляет главное. При заходе в чат поднимает сохранённый контекст и общается как менеджер который помнит клиента. Новые факты подтягивает из кабинета (профиль, треки, платежи, премиум).**
+
+Зачем: Босс «не начинаем с нуля каждый раз». Юзер сказал в прошлой сессии что хочет песню маме на 70-летие — Музa должна это помнить и спросить «как там подарок маме, понравилось?» в следующем заходе. Не «здравствуйте, чем могу помочь?» Никаких amnesia-агентов.
+
+Архитектура хранения:
+
+**1. Таблица `user_memory`** (1 строка на юзера):
+- `user_id INTEGER PRIMARY KEY`
+- `summary TEXT` — narrative-сжатие, 1-3 параграфа, что важно помнить (стиль, темы, контекст жизни, недавние интересы)
+- `facts_json TEXT` — структурированные факты `{name, occupation, family, hobbies, music_preferences, important_dates, special_events, location}` — каждый ключ опционален
+- `preferences_json TEXT` — предпочтения генерации `{voices, styles, lyrics_themes, languages, avoid_topics}`
+- `last_updated_at INTEGER` — millis
+- `message_count_summarized INTEGER` — сколько сообщений уже сжато
+- `version INTEGER` — counter обновлений (для отладки/история)
+- (optional) `history_jsonl_path TEXT` — путь к полному JSONL для аудита
+
+**2. Pipeline сжатия** (background):
+- После каждой N-й (default N=10) пары exchange (юзер+бот) — фоновый LLM call:
+  - Input: предыдущий `summary` + facts_json + последние N сообщений (raw)
+  - Output: новый `summary` + обновлённые facts (добавление/изменение)
+  - Промпт: «Сжимай в narrative-форму. Сохраняй: имя, занятия, ключевые события (дни рождения, юбилеи), темы которые юзер обсуждал, упоминания близких людей, эмоциональный контекст. Удаляй: разовый smalltalk, общие фразы»
+- Fire-and-forget: ошибка сжатия не блокирует основной chat-flow
+- TTL: summary refresh не реже чем раз в неделю даже если N не достигнут (если юзер активен)
+
+**3. При заходе в чат / каждом запросе** — система делает 2 вещи:
+- a) **Memory snapshot**: грузит `user_memory.summary + facts_json + preferences_json`
+- b) **Live cabinet snapshot**: SELECT из БД актуальное состояние юзера:
+  - `users.name, country, phone, createdAt`
+  - count generations (total / last 7d / last 24h)
+  - last generation date + title
+  - balance / paid_balance / bonus_tracks
+  - premium_subscriptions (active tier + expires_at)
+  - last payment date+amount
+- Оба блока inject'ятся в system prompt как `[USER CONTEXT — MANAGER VIEW]` блок:
+  ```
+  Это {name} ({country}, регистрация {createdAt}).
+  Что помнишь о нём: {summary}
+  Ключевые факты: {facts_json_pretty}
+  Предпочтения: {preferences_json_pretty}
+  Активность: треков всего {N}, за неделю {N7}, последний «{lastTitle}» {lastDate}.
+  Баланс: {balance}₽ (премиум: {premium_active ? tier : 'нет'}).
+  Открой разговор как менеджер который видит этого клиента и помнит его историю — НЕ начинай с нуля.
+  ```
+
+**4. Cache invalidation:**
+- Cabinet snapshot — TTL 5 минут (per-userId memoize)
+- Memory snapshot — invalidated при successful compression (background job стучит в cache)
+- При user-action (новая генерация / оплата / refund) — event-bus publishes `user.cabinet.changed:userId` → cache invalidates
+
+**5. Privacy / governance:**
+- Plain текст summary хранится в `data.db` — стандартная security (admin SSH-only access)
+- НЕ хранить в `facts_json` секретов (passwords, OTP, payment-tokens) — нормализатор очищает
+- Юзер видит «что Музa помнит обо мне» через `/dashboard → 🧠 Память Музы` (transparency)
+- Кнопка «Забыть» → DELETE user_memory row + audit-log + сброс facts на null
+- GDPR-completeness: при удалении аккаунта `user_memory` тоже удаляется cascade
+
+**6. Admin UI:**
+- Вкладка в `/admin/v304 → 🧠 Память юзеров` — list всех юзеров с memory summary preview
+- Click → drawer с полным `summary + facts + preferences + history of versions`
+- Admin может: edit (override), force-recompress (trigger ручного сжатия), delete (с confirm-flow по Admin-everything-except-delete rule)
+- Audit-log: каждая admin-правка пишется в `admin_audit_log`
+
+**7. Endpoints:**
+- `GET /api/account/memory` (auth) — юзер видит свою память
+- `POST /api/account/memory/forget` (auth) — юзер удаляет свою память
+- `GET /api/admin/v304/user-memory[?userId=X]` (admin) — список или один юзер
+- `POST /api/admin/v304/user-memory/:userId/recompress` (admin) — force-trigger
+- `PUT /api/admin/v304/user-memory/:userId` (admin) — manual edit
+- `DELETE /api/admin/v304/user-memory/:userId` (admin) — с confirm
+
+**8. Что НЕ делает (anti-pattern):**
+- ❌ НЕ держит full raw message history в memory-таблице — для аудита есть `chatbot_messages`, memory это distillation
+- ❌ НЕ блокирует chat-response на compression (всегда async)
+- ❌ НЕ перезаписывает factor при противоречии — добавляет в `facts_json.history[]` для аудита
+- ❌ НЕ injectit memory в anonymous-чате (только при authedUserId)
+
+Применяется к: всем chat-каналам авторизованных юзеров (web /api/muza/chat, Telegram bot с linked user, Max bot с linked user, future channels). НЕ применяется к: анонимным посетителям (там session-only context).
+
+Связано с: Cross-channel conversation linking rule (один thread по userId), Musa-knowledge-governance rule (что Музa может рассказать клиенту), Single-persona-across-channels rule (одна персона помнит этого клиента независимо от канала).
+
+
 
 **Воспроизведение Suno-треков (и любых других private audio) в `<audio>` тегах требует 3-уровневой защиты. Cookie-fallback на сервере + use-credentials на клиенте + Range support — обязательны вместе.**
 
