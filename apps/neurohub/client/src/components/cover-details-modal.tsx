@@ -130,6 +130,26 @@ export function CoverDetailsModal({
   // Info-popover (отдельный от первого hint overlay).
   const [showInfo, setShowInfo] = useState(false);
 
+  // Eugene 2026-05-20 Босс «Текст сайта не должен быть в Swipe» — body
+  // scroll lock пока модалка открыта. Без этого юзер может проскроллить
+  // landing вниз и видеть «Три мощных инструмента» под обложкой через
+  // частично прозрачный backdrop.
+  useEffect(() => {
+    if (!open) return;
+    const prevOverflow = document.body.style.overflow;
+    const prevPaddingRight = document.body.style.paddingRight;
+    // Компенсация исчезающего scrollbar чтобы layout не дёргался
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+    document.body.style.overflow = "hidden";
+    if (scrollbarWidth > 0) {
+      document.body.style.paddingRight = `${scrollbarWidth}px`;
+    }
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.body.style.paddingRight = prevPaddingRight;
+    };
+  }, [open]);
+
   // Eugene 2026-05-19 Босс «при нажатии и удерживании обложки — сохранить
   // с соляными знаками проекта». Long-press 700ms → canvas-watermark «MuzaAi.ru»
   // + волна → download .jpg.
@@ -343,7 +363,10 @@ export function CoverDetailsModal({
       aria-modal="true"
       aria-label="Детали обложки"
       onClick={handleBackdropClick}
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-[#08081a]/96 backdrop-blur-2xl animate-in fade-in duration-200 cursor-zoom-out"
+      /* Eugene 2026-05-20 Босс «текст сайта не должен быть в Swipe»: bg /96
+         → solid bg-[#08081a] (без прозрачности). Раньше через 4% landing
+         («Три мощных инструмента») просачивался сквозь backdrop. */
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-[#08081a] backdrop-blur-2xl animate-in fade-in duration-200 cursor-zoom-out"
       data-testid="cover-details-modal"
     >
       {/* Eugene 2026-05-17 — hi-tech holographic overlay поверх backdrop

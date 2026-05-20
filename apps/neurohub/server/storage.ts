@@ -163,6 +163,10 @@ try {
     if (!cmcn.includes("audio_url")) sqlite.exec("ALTER TABLE chatbot_messages ADD COLUMN audio_url TEXT");
     if (!cmcn.includes("audio_duration_sec")) sqlite.exec("ALTER TABLE chatbot_messages ADD COLUMN audio_duration_sec REAL");
     if (!cmcn.includes("audio_premium_only")) sqlite.exec("ALTER TABLE chatbot_messages ADD COLUMN audio_premium_only INTEGER NOT NULL DEFAULT 0");
+    // Eugene 2026-05-20 Босс «мини-плеер в чате» — при find_public_track с
+    // hint=playNow:<id> backend пишет attached_track_id в bot-message; frontend
+    // рендерит inline track-card с persistent audio singleton (Persistent-audio-only rule).
+    if (!cmcn.includes("attached_track_id")) sqlite.exec("ALTER TABLE chatbot_messages ADD COLUMN attached_track_id INTEGER");
   } catch (e) {
     console.warn("[BOOTSTRAP] chatbot_messages audio alter failed:", (e as Error).message);
   }

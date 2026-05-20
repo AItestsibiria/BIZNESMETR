@@ -11,6 +11,7 @@ import { useDraggablePosition } from "@/lib/clampViewport";
 import { onJourneyEvent } from "../lib/user-journey";
 import { getPersistentPlayerAudio } from "../lib/lockscreen";
 import { SupportModal } from "./support-modal";
+import { ChatTrackCard, type ChatTrackCardData } from "./chat-track-card";
 
 // Eugene 2026-05-14 Босс: «после 1 dismiss через 1 мин, если ещё раз — 1 час».
 const REAPPEAR_MS_FIRST = 60_000;     // 1 минута после первого dismiss
@@ -111,6 +112,10 @@ type ChatMessage = {
   // Eugene 2026-05-18 Босс «inline-карточка регистрации» — Войти / Регистрация /
   // Дать email. Возникает когда Муза предложила сохранить текст анонимному юзеру.
   proposedRegistration?: ProposedRegistration;
+  // Eugene 2026-05-20 Босс «мини-плеер в чате». Когда Муза вызвала
+  // find_public_track и tool вернул hint=playNow:<id> — backend прикрепляет
+  // attachedTrack к ответу. Фронт рендерит inline ChatTrackCard под текстом.
+  attachedTrack?: ChatTrackCardData;
 };
 
 // Quick-reply chips — типичные первые сообщения чтобы юзер не залипал

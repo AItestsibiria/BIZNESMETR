@@ -390,6 +390,11 @@ export const chatbotMessages = sqliteTable("chatbot_messages", {
   audioUrl: text("audio_url"),                          // ссылка на mp3 (authors/voice-msg/...)
   audioDurationSec: real("audio_duration_sec"),         // длительность в секундах
   audioPremiumOnly: integer("audio_premium_only").notNull().default(0), // 1 если только для premium
+  // Eugene 2026-05-20 Босс «мини-плеер в чате» — поиск+воспроизведение публичных
+  // треков прямо из диалога. Если Муза (LLM) вызвала find_public_track и
+  // вернула hint=playNow:<id> — backend сохраняет id трека в attached_track_id.
+  // Frontend рендерит inline ChatTrackCard с persistent audio singleton.
+  attachedTrackId: integer("attached_track_id"),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 

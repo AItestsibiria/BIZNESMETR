@@ -2313,6 +2313,73 @@ export async function registerRoutes(
     }
   }
 
+  // Eugene 2026-05-20 Босс «мини-плеер в чате». Расширенная история для UI —
+  // подтягивает attachedTrack meta для сообщений у которых attached_track_id
+  // != NULL. JOIN-style query через raw SQL (Drizzle select от двух таблиц
+  // сложнее, чем оправдано). Used in /api/muza/chat/init + /api/user/musa-history.
+  type HistoryItemWithAttachment = {
+    role: string;
+    text: string;
+    createdAt: string | null;
+    attachedTrack?: {
+      id: number;
+      title: string;
+      authorName: string | null;
+      audioUrl: string;
+      coverUrl: string;
+      durationSec: number;
+    };
+  };
+  function loadSessionHistoryRich(sessionId: string, limit = 30): HistoryItemWithAttachment[] {
+    try {
+      const raw = (db as any).$client.prepare(`
+        SELECT cm.role, cm.text, cm.created_at AS createdAt, cm.attached_track_id AS attachedTrackId,
+               g.display_title AS gTitle, g.prompt AS gPrompt, g.author_name AS gAuthor,
+               g.status AS gStatus, g.is_public AS gIsPublic, g.deleted_at AS gDeletedAt,
+               g.result_url AS gResultUrl, g.result_data AS gResultData, g.type AS gType
+        FROM (
+          SELECT * FROM chatbot_messages WHERE session_id = ? ORDER BY id DESC LIMIT ?
+        ) cm
+        LEFT JOIN generations g ON g.id = cm.attached_track_id
+        ORDER BY cm.id ASC
+      `).all(sessionId, limit) as any[];
+      return raw.map((r) => {
+        const item: HistoryItemWithAttachment = {
+          role: String(r.role || "user"),
+          text: String(r.text || ""),
+          createdAt: r.createdAt || null,
+        };
+        if (
+          r.attachedTrackId &&
+          r.gType === "music" &&
+          r.gStatus === "done" &&
+          (r.gIsPublic === 1 || r.gIsPublic === 2) &&
+          !r.gDeletedAt &&
+          r.gResultUrl
+        ) {
+          let duration = 0;
+          try {
+            const data = JSON.parse(r.gResultData || "{}");
+            if (Array.isArray(data.result) && data.result[0]?.duration) {
+              duration = Number(data.result[0].duration) || 0;
+            }
+          } catch {}
+          item.attachedTrack = {
+            id: Number(r.attachedTrackId),
+            title: r.gTitle || String(r.gPrompt || "").slice(0, 80) || "Без названия",
+            authorName: r.gAuthor || null,
+            audioUrl: `/api/stream/${r.attachedTrackId}`,
+            coverUrl: `/api/cover/${r.attachedTrackId}.jpg`,
+            durationSec: duration,
+          };
+        }
+        return item;
+      });
+    } catch {
+      return [];
+    }
+  }
+
   // Soft-auth: если в request есть Bearer token — возвращаем userId, иначе null.
   // НЕ блокирует доступ (в отличие от authMiddleware).
   function tryGetUserId(req: Request): number | null {
@@ -2706,7 +2773,9 @@ export async function registerRoutes(
         } catch {}
       }
 
-      const history = loadSessionHistory(session.id, 30);
+      // Eugene 2026-05-20 Босс «мини-плеер в чате»: грузим history с
+      // attachedTrack meta — для прошлых сообщений где Муза прикрепила трек.
+      const history = loadSessionHistoryRich(session.id, 30);
       const persona = personaFor(session.id);
 
       // Особое приветствие: если paired — Муза помнит что было в мессенджере.
@@ -3057,6 +3126,27 @@ export async function registerRoutes(
           }).catch(() => {});
         } catch {}
       }
+      // Eugene 2026-05-20 Босс «мини-плеер в чате». Перехватываем результат
+      // find_public_track tool — если hint=playNow:<id>, после ответа LLM
+      // прикрепим attachedTrack к ответу и сохраним attached_track_id в БД.
+      // Последний playNow wins (если Муза вызвала несколько find_public_track —
+      // прикрепится тот трек, который выбран в финальном ответе).
+      let attachedTrackId: number | null = null;
+      const onToolResult = (toolName: string, _input: any, result: string) => {
+        if (toolName !== "find_public_track") return;
+        try {
+          const j = JSON.parse(result);
+          const hint = String(j?.hint || "");
+          const m = hint.match(/^playNow:(\d+)$/);
+          if (m) {
+            const id = Number(m[1]);
+            if (Number.isFinite(id) && id > 0) attachedTrackId = id;
+          }
+        } catch {
+          // Не JSON — возможно error string. Ignore.
+        }
+      };
+
       let reply = await callUnifiedMuzaLLM({
         sessionId: session.id,
         userId: authUserId,
@@ -3066,6 +3156,7 @@ export async function registerRoutes(
         dynamicContext: systemDynamic,
         maxTokens: 400,
         role: muzaRole,
+        onToolResult,
       });
       let usedFallback = false;
       if (!reply) {
@@ -3184,12 +3275,57 @@ export async function registerRoutes(
       }
       console.log(`[MUZA-CHAT] sessionId=${session.id.slice(0, 16)} user="${text.slice(0, 50)}" replyLen=${reply.length} qr=${quickReplies.length} fallback=${usedFallback}`);
 
+      // Eugene 2026-05-20 Босс «мини-плеер в чате». Если find_public_track
+      // вернул playNow:<id> — собираем attachedTrack meta из БД (валидируем
+      // что трек существует и публичный). Если не валидируется — null,
+      // ничего не прикрепляем.
+      let attachedTrack: {
+        id: number;
+        title: string;
+        authorName: string | null;
+        audioUrl: string;
+        coverUrl: string;
+        durationSec: number;
+      } | null = null;
+      if (attachedTrackId !== null) {
+        try {
+          const t = db.select().from(generations).where(eq(generations.id, attachedTrackId)).get() as any;
+          if (
+            t &&
+            t.type === "music" &&
+            t.status === "done" &&
+            (t.isPublic === 1 || t.isPublic === 2) &&
+            !t.deletedAt &&
+            t.resultUrl
+          ) {
+            let duration = 0;
+            try {
+              const data = JSON.parse(t.resultData || "{}");
+              if (Array.isArray(data.result) && data.result[0]?.duration) {
+                duration = Number(data.result[0].duration) || 0;
+              }
+            } catch {}
+            attachedTrack = {
+              id: Number(t.id),
+              title: t.displayTitle || String(t.prompt || "").slice(0, 80) || "Без названия",
+              authorName: t.authorName || null,
+              audioUrl: `/api/stream/${t.id}`,
+              coverUrl: `/api/cover/${t.id}.jpg`,
+              durationSec: duration,
+            };
+          }
+        } catch (e: any) {
+          console.warn("[MUZA-CHAT attachedTrack]", e?.message || e);
+        }
+      }
+
       // Сохраняем bot reply + обновляем lastMessageAt
       db.insert(chatbotMessages).values({
         sessionId: session.id,
         role: "bot",
         text: reply,
-      }).run();
+        attachedTrackId: attachedTrack ? attachedTrack.id : null,
+      } as any).run();
       db.update(chatbotSessions)
         .set({ lastMessageAt: new Date().toISOString() })
         .where(eq(chatbotSessions.id, session.id))
@@ -3243,6 +3379,12 @@ export async function registerRoutes(
         // [PROPOSE_REGISTER:reason=X] — отдаём payload для inline-карточки
         // «Войти / Зарегистрироваться / Дать email».
         proposedRegistration,
+        // Eugene 2026-05-20 Босс «мини-плеер в чате». attachedTrack — компактные
+        // meta-данные публичного трека для inline ChatTrackCard. autoPlay=true
+        // только для свежего ответа (на client-side при rendering — последнее
+        // сообщение). Persistent audio singleton (lockscreen.ts) переключится
+        // на этот трек, lock-screen ownership сохраняется.
+        attachedTrack,
       });
     } catch (e: any) {
       console.error("[MUZA-CHAT send]", e);
@@ -7532,11 +7674,17 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
         res.status(403).json({ data: null, error: "Доступ только к своим диалогам" });
         return;
       }
+      // Eugene 2026-05-20 Босс «мини-плеер в чате»: подтягиваем attachedTrack
+      // meta для bot-сообщений с attached_track_id (LEFT JOIN на generations).
       const messages = sqliteDb.prepare(`
-        SELECT id, role, text, created_at AS createdAt
-        FROM chatbot_messages
-        WHERE session_id = ?
-        ORDER BY id ASC
+        SELECT cm.id, cm.role, cm.text, cm.created_at AS createdAt, cm.attached_track_id AS attachedTrackId,
+               g.display_title AS gTitle, g.prompt AS gPrompt, g.author_name AS gAuthor,
+               g.status AS gStatus, g.is_public AS gIsPublic, g.deleted_at AS gDeletedAt,
+               g.result_url AS gResultUrl, g.result_data AS gResultData, g.type AS gType
+        FROM chatbot_messages cm
+        LEFT JOIN generations g ON g.id = cm.attached_track_id
+        WHERE cm.session_id = ?
+        ORDER BY cm.id ASC
         LIMIT 1000
       `).all(sessionId) as any[];
       res.json({
@@ -7550,12 +7698,40 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
             lastMessageAt: sess.last_message_at || null,
             topicHint: sess.intent || null,
           },
-          messages: messages.map((m) => ({
-            id: Number(m.id),
-            role: m.role === "user" ? "user" : "bot",
-            text: String(m.text || ""),
-            createdAt: m.createdAt || null,
-          })),
+          messages: messages.map((m) => {
+            let attachedTrack: any = undefined;
+            if (
+              m.attachedTrackId &&
+              m.gType === "music" &&
+              m.gStatus === "done" &&
+              (m.gIsPublic === 1 || m.gIsPublic === 2) &&
+              !m.gDeletedAt &&
+              m.gResultUrl
+            ) {
+              let duration = 0;
+              try {
+                const data = JSON.parse(m.gResultData || "{}");
+                if (Array.isArray(data.result) && data.result[0]?.duration) {
+                  duration = Number(data.result[0].duration) || 0;
+                }
+              } catch {}
+              attachedTrack = {
+                id: Number(m.attachedTrackId),
+                title: m.gTitle || String(m.gPrompt || "").slice(0, 80) || "Без названия",
+                authorName: m.gAuthor || null,
+                audioUrl: `/api/stream/${m.attachedTrackId}`,
+                coverUrl: `/api/cover/${m.attachedTrackId}.jpg`,
+                durationSec: duration,
+              };
+            }
+            return {
+              id: Number(m.id),
+              role: m.role === "user" ? "user" : "bot",
+              text: String(m.text || ""),
+              createdAt: m.createdAt || null,
+              attachedTrack,
+            };
+          }),
         },
         error: null,
       });

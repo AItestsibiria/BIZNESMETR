@@ -63,6 +63,14 @@ export interface UnifiedLLMOpts {
    * админский voice-канал — видит всё. По умолчанию undefined → user-tools only.
    */
   role?: string | null;
+  /**
+   * Eugene 2026-05-20 Босс «мини-плеер в чате».
+   * Callback который вызывается ПОСЛЕ каждого executeTool с парой
+   * (toolName, toolResult). Caller (routes.ts /api/muza/chat) использует
+   * это чтобы поймать hint=playNow:<id> из find_public_track и прикрепить
+   * attachedTrack к финальному ответу. Sync, не throw'ит.
+   */
+  onToolResult?: (toolName: string, input: any, result: string) => void;
 }
 
 export type KeySwitchEvent = {
@@ -416,6 +424,7 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
               role: opts.role,
             });
             console.log(`[MUZA-TOOL/${opts.channel}] ${block.name}(${JSON.stringify(block.input).slice(0, 60)}) → ${result.slice(0, 80)}`);
+            try { opts.onToolResult?.(block.name, block.input, result); } catch {}
             toolResults.push({ type: "tool_result", tool_use_id: block.id, content: result });
           }
         }
@@ -482,6 +491,7 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
                   role: opts.role,
                 });
                 console.log(`[MUZA-TOOL-${loopIter}/${opts.channel}] ${block.name} → ${result.slice(0, 60)}`);
+                try { opts.onToolResult?.(block.name, block.input, result); } catch {}
                 tr.push({ type: "tool_result", tool_use_id: block.id, content: result });
               }
             }

@@ -451,6 +451,28 @@ export const MUZA_TOOLS: ToolDef[] = [
       required: ["query"],
     },
   },
+
+  // Eugene 2026-05-20 Босс «мини-плеер в чате — Муза находит трек и сразу
+  // прикрепляет к ответу». Поиск по публичным трекам (is_public=1 или 2) с
+  // ranked scoring (title 100/70/40, lyrics 35/20, prompt 15). При exactCount=1
+  // возвращает hint=playNow:<id> — backend парсит из tool-result и прикрепляет
+  // attachedTrack к ответу /api/muza/chat. Frontend рендерит inline-карточку
+  // с persistent <audio>.
+  //
+  // Использовать когда юзер просит послушать конкретный трек:
+  //   «поставь песню про маму», «включи Луну», «хочу послушать про звёзды»,
+  //   «давай тот трек где про дождь». Доступен всем (анон + клиент + админ).
+  {
+    name: "find_public_track",
+    description: "ВКЛЮЧАЕТ трек прямо в чате. Используй когда юзер просит послушать конкретное: «поставь X», «включи Y», «хочу послушать про маму», «давай тот где про дождь», «найди трек про звёзды». Поиск в публичных треках сайта (одобренные + новые авторы). Возвращает 0-5 матчей с audio_url. Если exactCount=1 → песня АВТОМАТИЧЕСКИ прикрепляется к твоему ответу и проигрывается у юзера (просто скажи «Включаю: <название>»). Если несколько — спроси у юзера какой включить (1, 2, 3). Если 0 — попроси переформулировать.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Поисковая фраза (название трека, часть текста, тема, имя автора). 1-100 символов." },
+      },
+      required: ["query"],
+    },
+  },
   {
     name: "filter_playlist",
     description: "Переключить плейлист на main (одобренные) / new (новые авторы) / my (только мои). «покажи новых», «топ авторов», «мои треки в плеере».",
@@ -1390,6 +1412,139 @@ const HANDLERS: Record<string, ToolHandler> = {
     }
     const label = t === "main" ? "основной" : t === "new" ? "новые авторы" : "мои треки";
     return `[PLAYER_ACTION:filter:${t}] Показываю плейлист «${label}».`;
+  },
+
+  // Eugene 2026-05-20 Босс «мини-плеер в чате». Поиск по публичным трекам с
+  // ranked scoring. Backend (routes.ts /api/muza/chat) парсит tool-result —
+  // если есть hint:"playNow:<id>" → прикрепляет attachedTrack к ответу,
+  // фронт рендерит inline ChatTrackCard с persistent audio singleton.
+  async find_public_track({ query }) {
+    try {
+      const raw = String(query || "").trim();
+      if (!raw) {
+        return JSON.stringify({ matches: [], exactCount: 0, total: 0, hint: "noMatch", message: "Пустой запрос." });
+      }
+      const q = raw.toLowerCase().slice(0, 100);
+      // Слова длиной ≥3 (служебные «как», «где», «то» игнорируем)
+      const words = q.split(/\s+/).filter((w) => w.length >= 3);
+      if (words.length === 0) {
+        // Если все слова короткие — используем всю строку как один токен
+        words.push(q);
+      }
+      // Берём кандидатов широко через OR LIKE (по любому из слов),
+      // потом scoring + sort в JS. Лимит 60 чтобы не утянуть тысячи строк.
+      const orClauses: string[] = [];
+      const params: any[] = [];
+      for (const w of words) {
+        const pat = `%${w}%`;
+        orClauses.push(
+          "(lower(COALESCE(display_title, '')) LIKE ? OR lower(COALESCE(prompt, '')) LIKE ?" +
+            " OR lower(COALESCE(author_name, '')) LIKE ? OR lower(COALESCE(result_data, '')) LIKE ?)",
+        );
+        params.push(pat, pat, pat, pat);
+      }
+      const orSql = orClauses.length > 0 ? `AND (${orClauses.join(" OR ")})` : "";
+      const sqlText = `
+        SELECT id, display_title, prompt, author_name, style, result_data, cover_gen_id, created_at
+        FROM generations
+        WHERE type='music' AND status='done' AND is_public IN (1,2)
+          AND deleted_at IS NULL AND result_url IS NOT NULL
+          ${orSql}
+        ORDER BY id DESC
+        LIMIT 60
+      `;
+      const rows = ((db as any).$client.prepare(sqlText).all(...params) || []) as any[];
+      if (rows.length === 0) {
+        return JSON.stringify({ matches: [], exactCount: 0, total: 0, hint: "noMatch", message: `По «${raw}» в публичных треках ничего не нашлось.` });
+      }
+      // Scoring
+      const scored = rows.map((r) => {
+        const title = String(r.display_title || "").toLowerCase();
+        const prompt = String(r.prompt || "").toLowerCase();
+        const author = String(r.author_name || "").toLowerCase();
+        // Извлекаем lyrics из result_data JSON если есть
+        let lyrics = "";
+        try {
+          const data = JSON.parse(r.result_data || "{}");
+          if (Array.isArray(data.result) && data.result[0]?.lyric) {
+            lyrics = String(data.result[0].lyric).toLowerCase();
+          }
+        } catch {}
+        // plays из style.plays
+        let plays = 0;
+        try {
+          const meta = JSON.parse(r.style || "{}");
+          if (typeof meta.plays === "number") plays = meta.plays;
+        } catch {}
+        let score = 0;
+        if (title && title === q) score += 100;
+        else if (title) {
+          const hasAll = words.every((w) => title.includes(w));
+          if (hasAll) score += 70;
+          else {
+            const matched = words.filter((w) => title.includes(w)).length;
+            if (matched > 0) score += 40 * (matched / words.length);
+          }
+        }
+        if (lyrics) {
+          const hasAll = words.every((w) => lyrics.includes(w));
+          if (hasAll) score += 35;
+          else {
+            const matched = words.filter((w) => lyrics.includes(w)).length;
+            if (matched > 0) score += 20 * (matched / words.length);
+          }
+        }
+        if (prompt) {
+          const matched = words.filter((w) => prompt.includes(w)).length;
+          if (matched > 0) score += 15 * (matched / words.length);
+        }
+        if (author) {
+          const matched = words.filter((w) => author.includes(w)).length;
+          if (matched > 0) score += 10 * (matched / words.length);
+        }
+        // Snippet — первые 80 символов lyrics или prompt
+        const snippetSrc = lyrics || prompt;
+        const snippet = snippetSrc ? snippetSrc.replace(/\s+/g, " ").slice(0, 80) : "";
+        return {
+          id: Number(r.id),
+          title: r.display_title || (r.prompt || "").slice(0, 50) || "Без названия",
+          authorName: r.author_name || null,
+          score: Math.round(score),
+          plays,
+          snippet,
+        };
+      });
+      scored.sort((a, b) => (b.score - a.score) || (b.plays - a.plays));
+      const top = scored.filter((s) => s.score > 0).slice(0, 5);
+      if (top.length === 0) {
+        return JSON.stringify({ matches: [], exactCount: 0, total: 0, hint: "noMatch", message: `По «${raw}» ничего конкретного не нашла.` });
+      }
+      const exactCount = top.filter((s) => s.score >= 80).length;
+      let hint = "askChoice";
+      if (exactCount === 1 && top.length === 1) hint = `playNow:${top[0].id}`;
+      else if (exactCount === 1) hint = `playNow:${top[0].id}`; // 1 точное совпадение даже из нескольких — включаем
+      else if (top.length === 0) hint = "noMatch";
+      return JSON.stringify({
+        matches: top.map((m) => ({
+          id: m.id,
+          title: m.title,
+          authorName: m.authorName,
+          snippet: m.snippet,
+          score: m.score,
+        })),
+        exactCount,
+        total: top.length,
+        hint,
+        message:
+          hint.startsWith("playNow:")
+            ? `Включаю «${top[0].title}»${top[0].authorName ? ` от ${top[0].authorName}` : ""}.`
+            : `Нашла ${top.length}:\n${top
+                .map((t, i) => `${i + 1}. «${t.title}»${t.authorName ? ` — ${t.authorName}` : ""}`)
+                .join("\n")}\nКакой включить?`,
+      });
+    } catch (e: any) {
+      return JSON.stringify({ matches: [], exactCount: 0, total: 0, hint: "noMatch", message: `Ошибка поиска: ${e?.message || e}` });
+    }
   },
 
   // Voice picker (Eugene 2026-05-17 Босс): marker [VOICE_CHANGED:<voice>:<emotion>]
