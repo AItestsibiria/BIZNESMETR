@@ -12,7 +12,10 @@ import path from "node:path";
 export type SortMode = "date" | "rating" | "random" | "top_month";
 
 const ALLOWED_MODES: SortMode[] = ["date", "rating", "random", "top_month"];
-const DEFAULT_CYCLE: SortMode[] = ["date", "rating", "random"];
+// Eugene 2026-05-21 Босс: полный цикл по умолчанию — все 4 режима.
+// «От даты до случайно поочерёдно» — date → rating → random → top_month → date → ...
+// Админ может урезать цикл через POST /api/admin/v304/playlist-sort-rotation.
+const DEFAULT_CYCLE: SortMode[] = ["date", "rating", "random", "top_month"];
 const CONFIG_FILE = path.join(process.cwd(), "data", "playlist-sort-rotation.json");
 
 interface RotationConfig {
@@ -66,12 +69,21 @@ function writeConfig(cfg: RotationConfig): void {
   }
 }
 
+// Eugene 2026-05-21 Босс: cut-off ротации = 00:00 МСК, НЕ UTC.
+// Раньше cycle сменялся в 00:00 UTC (= 03:00 МСК) — Босс хочет 00:00 МСК.
+// Решение: сдвигаем now на +3 часа (МСК = UTC+3) — тогда floor div by day
+// даёт правильный MSK day-index. startDate тоже трактуется как MSK midnight.
+const MSK_OFFSET_MS = 3 * 60 * 60 * 1000;
+
 function dayIndexFrom(startDate: string): number {
   try {
-    const startMs = Date.parse(startDate + "T00:00:00Z");
-    if (!isFinite(startMs)) return 0;
-    const nowMs = Date.now();
-    return Math.max(0, Math.floor((nowMs - startMs) / 86_400_000));
+    // startDate "2026-05-19" → trat как 00:00 МСК = 21:00 UTC предыдущего дня.
+    // Парсим как UTC midnight, потом сдвигаем (== прибавляем 0 на shifted-scale).
+    const startUtcMs = Date.parse(startDate + "T00:00:00Z");
+    if (!isFinite(startUtcMs)) return 0;
+    // Shifted-scale: now += 3h, start без сдвига (UTC midnight == MSK midnight на shifted-scale).
+    const nowShiftedMs = Date.now() + MSK_OFFSET_MS;
+    return Math.max(0, Math.floor((nowShiftedMs - startUtcMs) / 86_400_000));
   } catch { return 0; }
 }
 

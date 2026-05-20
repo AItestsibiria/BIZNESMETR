@@ -905,6 +905,27 @@ Audit-сценарий перед коммитом UI-фичи:
 - `pages/landing.tsx` hero — `scan-line` overlay + `neon-text` на «MuzaAi»
 - `pages/login-phone.tsx` / `register-phone.tsx` — `holographic` + `cyber-grid` фон
 
+### Playlist-daily-rotation rule (Eugene 2026-05-21)
+
+**Параметры сортировки плейлиста на главной ротируются автоматически — 1 раз в сутки в 00:00 МСК. По умолчанию категория «Песни» (`song`) выбрана.**
+
+Конкретика:
+- **Cycle** (порядок ротации, default): `date → rating → random → top_month → date → …`
+- **Cut-off**: 00:00 МСК (= 21:00 UTC), НЕ 00:00 UTC. Источник правды — `lib/playlistSortRotation.ts:dayIndexFrom()` (shifted-scale +3h).
+- **Категория по умолчанию**: `song` (Песни), НЕ `all`. Юзер видит сразу плейлист «Песни» при первом заходе.
+- **Юзер-override**: если юзер выбрал свою сортировку или категорию — сохраняется в localStorage, ротация default НЕ перебивает.
+
+Технически:
+- Server: `apps/neurohub/server/lib/playlistSortRotation.ts` (DEFAULT_CYCLE + dayIndexFrom + getTodayDefaultSort)
+- Client: `landing.tsx:487-508` — при загрузке если у юзера нет saved sortMode → fetch `/api/playlist/sort-default`
+- Client: `landing.tsx:512-515` — categoryFilter default = `'song'`
+- Admin endpoint: `POST /api/admin/v304/playlist-sort-rotation` body `{cycle: [...]}` — менять порядок
+- Storage: `data/playlist-sort-rotation.json` на VPS
+
+Применяется к: главной странице (`/`) плейлисту в landing.tsx. НЕ применяется к: dashboard, track-page, музыкальным событиям — там собственные UI без ротации.
+
+Анти-паттерн который правило закрывает: cut-off ротации был на 00:00 UTC = 03:00 МСК — юзеры открывающие сайт в 02:30 МСК видели вчерашнюю сортировку. Теперь 00:00 МСК — ровно полночь по Москве.
+
 ### Pricing-single-source rule (Eugene 2026-05-20)
 
 **При изменении стоимости любой услуги (генерация трека, обложка, текст, кавер, премиум-подписка, реферальный бонус, любые future SKU) — ОБЯЗАТЕЛЬНО находить ВСЕ места где цена отражена + изменять везде + правила подсчёта списания + учёта баланса.**
