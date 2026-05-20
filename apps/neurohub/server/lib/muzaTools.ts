@@ -625,6 +625,46 @@ export const MUZA_TOOLS: ToolDef[] = [
     },
   },
 
+  // === Eugene 2026-05-20: Admin-tools для batch-resolve queue'ов
+  // (рекомендация от admin-support-audit subagent'а). LLM может закрывать
+  // тикеты/эскалации/идеи голосом — без копания в UI.
+  {
+    name: "dismiss_escalation",
+    description: "[ADMIN-ONLY] Закрыть эскалацию из escalation_queue со status='dismissed' (отклонена — не считается жалобой). Используй когда юзер случайно нажал «жалоба», или когда сам разрешил вопрос с юзером. Нужны id (escalation id) и reason (короткое объяснение).",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "number", description: "ID эскалации в escalation_queue" },
+        reason: { type: "string", description: "Причина dismiss'а (1-200 символов)" },
+      },
+      required: ["id", "reason"],
+    },
+  },
+  {
+    name: "resolve_escalation",
+    description: "[ADMIN-ONLY] Закрыть эскалацию из escalation_queue со status='resolved' (решена — проблема устранена). Используй когда проблема юзера действительно была и ты её решил. Нужны id и resolution (что сделал).",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "number", description: "ID эскалации" },
+        resolution: { type: "string", description: "Что было сделано (1-500)" },
+      },
+      required: ["id", "resolution"],
+    },
+  },
+  {
+    name: "mark_suggestion_reviewed",
+    description: "[ADMIN-ONLY] Отметить предложение из client_suggestions как reviewed. Используй когда обдумал идею и решил что с ней делать. id — ID предложения, note — короткая заметка (что планируешь делать).",
+    input_schema: {
+      type: "object",
+      properties: {
+        id: { type: "number", description: "ID предложения в client_suggestions" },
+        note: { type: "string", description: "Заметка о решении (1-500)" },
+      },
+      required: ["id", "note"],
+    },
+  },
+
   // === Eugene 2026-05-20: Кабинет/Плейлист — Муза управляет всем кроме
   // удалений и оплат. Auth required (userId). Каждый tool пишет audit-snapshot.
   {
@@ -2229,6 +2269,101 @@ const HANDLERS: Record<string, ToolHandler> = {
     } catch (e: any) {
       console.error("[TOOL log_nps]", e);
       return `Ошибка log_nps: ${e?.message || e}`;
+    }
+  },
+
+  // === Eugene 2026-05-20: admin-tools для batch-resolve (см. tools выше) ===
+
+  async dismiss_escalation(input, ctx) {
+    if (!isAdminCtx(ctx)) return "[ADMIN-ONLY] Нет прав.";
+    const id = Number(input?.id);
+    const reason = String(input?.reason || "").trim().slice(0, 200);
+    if (!Number.isFinite(id) || !reason) return "Нужны id (число) и reason (строка).";
+    try {
+      const now = Date.now();
+      const result: any = db.run(sql`
+        UPDATE escalation_queue
+        SET status = 'dismissed', dismiss_reason = ${reason},
+            resolved_at = ${now}, assigned_to_user_id = ${ctx?.userId ?? null}
+        WHERE id = ${id} AND status = 'open'
+      `);
+      if (!result || result.changes === 0) return `Эскалация #${id} не найдена или уже закрыта.`;
+      try {
+        recordAuditEntry({
+          adminUserId: ctx?.userId ?? null,
+          adminEmail: "muza-admin-tool",
+          action: "update",
+          entity: "escalation_queue:dismiss",
+          entityKey: String(id),
+          before: { status: "open" },
+          after: { status: "dismissed", reason },
+        });
+      } catch {}
+      return `✓ Эскалация #${id} dismissed. Reason: «${reason}».`;
+    } catch (e: any) {
+      return `Ошибка dismiss_escalation: ${e?.message || e}`;
+    }
+  },
+
+  async resolve_escalation(input, ctx) {
+    if (!isAdminCtx(ctx)) return "[ADMIN-ONLY] Нет прав.";
+    const id = Number(input?.id);
+    const resolution = String(input?.resolution || "").trim().slice(0, 500);
+    if (!Number.isFinite(id) || !resolution) return "Нужны id и resolution.";
+    try {
+      const now = Date.now();
+      const result: any = db.run(sql`
+        UPDATE escalation_queue
+        SET status = 'resolved', resolution = ${resolution},
+            resolved_at = ${now}, assigned_to_user_id = ${ctx?.userId ?? null}
+        WHERE id = ${id} AND status = 'open'
+      `);
+      if (!result || result.changes === 0) return `Эскалация #${id} не найдена или уже закрыта.`;
+      try {
+        recordAuditEntry({
+          adminUserId: ctx?.userId ?? null,
+          adminEmail: "muza-admin-tool",
+          action: "update",
+          entity: "escalation_queue:resolve",
+          entityKey: String(id),
+          before: { status: "open" },
+          after: { status: "resolved", resolution },
+        });
+      } catch {}
+      return `✓ Эскалация #${id} resolved: «${resolution}».`;
+    } catch (e: any) {
+      return `Ошибка resolve_escalation: ${e?.message || e}`;
+    }
+  },
+
+  async mark_suggestion_reviewed(input, ctx) {
+    if (!isAdminCtx(ctx)) return "[ADMIN-ONLY] Нет прав.";
+    const id = Number(input?.id);
+    const note = String(input?.note || "").trim().slice(0, 500);
+    if (!Number.isFinite(id) || !note) return "Нужны id и note.";
+    try {
+      const now = Date.now();
+      const result: any = db.run(sql`
+        UPDATE client_suggestions
+        SET reviewed = 1, review_note = ${note}, reviewed_at = ${now},
+            reviewed_by_user_id = ${ctx?.userId ?? null}
+        WHERE id = ${id} AND (reviewed IS NULL OR reviewed = 0)
+      `);
+      if (!result || result.changes === 0) return `Предложение #${id} не найдено или уже просмотрено.`;
+      try {
+        recordAuditEntry({
+          adminUserId: ctx?.userId ?? null,
+          adminEmail: "muza-admin-tool",
+          action: "update",
+          entity: "client_suggestions:reviewed",
+          entityKey: String(id),
+          before: { reviewed: 0 },
+          after: { reviewed: 1, note },
+        });
+      } catch {}
+      return `✓ Предложение #${id} отмечено как просмотренное. Заметка: «${note}».`;
+    } catch (e: any) {
+      return `Ошибка mark_suggestion_reviewed: ${e?.message || e}`;
     }
   },
 

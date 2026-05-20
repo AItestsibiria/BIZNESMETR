@@ -153,10 +153,13 @@ export default function RegisterPhonePage() {
 
           {/* Eugene 2026-05-17 Босс «ЗВОНОК БЕСПЛАТНЫЙ» крупным баннером —
               amber→cyan gradient + neon-text hi-tech акцент. Снимает страх
-              «а сколько спишут?». */}
+              «а сколько спишут?».
+              Eugene 2026-05-20 (I2 fix): добавлен attention-animation
+              free-call-attention — subtle pulse каждые 5 сек чтобы баннер
+              стал визуально активным focal point. */}
           <div className="mt-5">
             <p
-              className="text-3xl md:text-5xl font-display font-bold bg-gradient-to-r from-amber-400 via-amber-300 to-cyan-400 bg-clip-text text-transparent neon-text tracking-wider"
+              className="text-3xl md:text-5xl font-display font-bold bg-gradient-to-r from-amber-400 via-amber-300 to-cyan-400 bg-clip-text text-transparent neon-text tracking-wider free-call-attention"
               data-testid="banner-call-free-hero"
             >
               ЗВОНОК БЕСПЛАТНЫЙ

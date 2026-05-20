@@ -26,8 +26,11 @@ function StarfieldCanvas() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    // Eugene 2026-05-20 (frontend-audit-N4): TS не сужает ctx через closures
+    // (drawMilkyWay/etc), поэтому делаем explicit non-null binding после guard.
+    const _ctx = canvas.getContext("2d");
+    if (!_ctx) return;
+    const ctx: CanvasRenderingContext2D = _ctx;
 
     let animId: number;
     let dpr = window.devicePixelRatio || 1;

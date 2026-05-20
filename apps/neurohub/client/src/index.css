@@ -990,6 +990,24 @@
   animation: phone-pulse 2s ease-in-out infinite;
 }
 
+/* Eugene 2026-05-20 (I2 fix) Босс «attention animation на ЗВОНОК БЕСПЛАТНЫЙ».
+   Subtle glow + scale на amber→cyan баннере. 5-сек цикл — заметно но не
+   агрессивно. Используется в register-phone / login-phone. */
+@keyframes free-call-attention {
+  0%, 100% {
+    text-shadow: 0 0 16px rgba(251, 191, 36, 0.4), 0 0 32px rgba(0, 212, 255, 0.2);
+    transform: scale(1);
+  }
+  50% {
+    text-shadow: 0 0 24px rgba(251, 191, 36, 0.8), 0 0 48px rgba(0, 212, 255, 0.5);
+    transform: scale(1.03);
+  }
+}
+.free-call-attention {
+  animation: free-call-attention 5s ease-in-out infinite;
+  transform-origin: center;
+}
+
 /* Reduced motion — отключаем шевелящиеся эффекты для accessibility */
 @media (prefers-reduced-motion: reduce) {
   .scan-line::before,
@@ -997,7 +1015,8 @@
   .holographic,
   .particle-bg::before,
   .particle-bg::after,
-  .phone-pulse {
+  .phone-pulse,
+  .free-call-attention {
     animation: none;
   }
 }

@@ -2204,7 +2204,7 @@ export function FloatingConsultant() {
                         bot-msg (повторное нажатие меняет выбор для дальнейшего). */}
                     {showQR && (
                       <div className="flex flex-wrap gap-1.5 justify-center w-full max-w-[95%] mx-auto">
-                        {m.quickReplies.map((qr, qi) => (
+                        {(m.quickReplies ?? []).map((qr, qi) => (
                           <button
                             key={qi}
                             type="button"
