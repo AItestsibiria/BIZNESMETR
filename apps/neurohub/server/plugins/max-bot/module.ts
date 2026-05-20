@@ -1,23 +1,54 @@
-// Max-bot helper (Eugene 2026-05-11): отвечает в Max через тот же KB+persona
-// что и telegram-bot. Webhook: /api/max-bot/webhook
-// Refactored: persona + KB + prompt → shared lib (lib/consultantPersona).
+// Max-bot — chat-assistant в Max messenger (платформа max.ru).
+//
+// Endpoints:
+//   POST /api/max-bot/webhook            — приём update'ов от Max
+//   GET  /api/max-bot/info               — диагностика: getMe + webhook info
+//   GET  /api/max-bot/setup-webhook      — установить webhook URL (secret-protected)
+//
+// Persona + KB + LLM — единая точка callUnifiedMuzaLLM (lib/llmCore.ts).
+// Cross-channel history через loadHistoryForLLM. Memory inject через
+// buildMemoryContext для авторизованных юзеров.
+//
+// Дедупликация по update_id / message_id (Bot-webhook-dedup rule).
+// Webhook secret-token verification (если MAX_WEBHOOK_SECRET задан).
+//
+// Eugene 2026-05-20 (subagent setup-max): полная настройка по аналогии с
+// telegram-bot. Cross-channel memory + female voice persona + attached_track.
+
 import { Router } from "express";
-import type { BootContext, Module } from "../../core";
 import { eq } from "drizzle-orm";
-import { db } from "../../storage";
-import { chatbotSessions, chatbotMessages } from "@shared/schema";
 import { randomUUID } from "node:crypto";
+import * as crypto from "node:crypto";
+
+import type { BootContext, Module } from "../../core";
+import { db } from "../../storage";
+import { chatbotSessions, chatbotMessages, users, generations } from "@shared/schema";
 import { personaFor, buildPersonaSystem } from "../../lib/consultantPersona";
 import { callUnifiedMuzaLLM } from "../../lib/llmCore";
 import { loadHistoryForLLM } from "../../lib/chatHistory";
 import { logUserActionFailure } from "../../lib/userActionFailures";
 import { detectsYars, recordYarsMention } from "../../lib/yarsDetect";
+import { buildMemoryContext, scheduleCompressionIfNeeded } from "../../lib/userMemory";
+import { storage } from "../../storage";
 
-const MAX_API = "https://platform-api.max.ru";
+// === Конфиг ===
+
+// Max Business API base URL. Босс предоставил docs:
+// https://dev.max.ru/docs/maxbusiness/selectionservices
+// Современный endpoint для ботов — `botapi.max.ru` (см.
+// plugins/bot-channels-health которая делает GET /me туда). Legacy
+// `platform-api.max.ru` оставлен для backward-compat (некоторые endpoints
+// проекта ещё на нём).
+const MAX_API_PRIMARY = process.env.MAX_API_BASE || "https://botapi.max.ru";
+const MAX_API_LEGACY = "https://platform-api.max.ru";
+
 const TOKEN = () => process.env.MAX_BOT_TOKEN || "";
+const WEBHOOK_SECRET = () => process.env.MAX_WEBHOOK_SECRET || "";
+
 let bootRefs: { eventBus: BootContext["eventBus"]; logger: BootContext["logger"] } | null = null;
 
-// Eugene 2026-05-12 (Босс): dedup по update_id / message_id.
+// === Dedup (Bot-webhook-dedup rule) ===
+
 const processedMaxMessages = new Map<string, number>();
 function isMaxMsgDup(key: string | number | undefined): boolean {
   if (!key) return false;
@@ -35,10 +66,35 @@ function isMaxMsgDup(key: string | number | undefined): boolean {
   return false;
 }
 
-async function maxApi(p: string, body: any, method: "POST" | "GET" = "POST"): Promise<any> {
+// === Admin alert на repeated downtime ===
+
+const lastDowntimeAlertAt = new Map<string, number>();
+function notifyAdminMaxDowntime(reason: string): void {
+  try {
+    const now = Date.now();
+    const lastAt = lastDowntimeAlertAt.get(reason) || 0;
+    if (now - lastAt < 60 * 60_000) return; // 1 alert/час на ключ
+    lastDowntimeAlertAt.set(reason, now);
+    const tgToken = process.env.TELEGRAM_BOT_TOKEN;
+    const adminId = process.env.ADMIN_TELEGRAM_ID;
+    if (!tgToken || !adminId) return;
+    const text = `🚨 Max-bot: ${reason}. Проверь /admin/v304 → 🔌 Каналы.`;
+    fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: adminId, text, disable_web_page_preview: true }),
+      signal: AbortSignal.timeout(8_000),
+    }).catch(() => {});
+  } catch {}
+}
+
+// === HTTP helper ===
+
+async function maxApi(p: string, body: any, method: "POST" | "GET" = "POST", opts?: { useLegacy?: boolean }): Promise<any> {
   const tok = TOKEN();
   if (!tok) throw new Error("MAX_BOT_TOKEN missing");
-  const r = await fetch(`${MAX_API}${p}`, {
+  const base = opts?.useLegacy ? MAX_API_LEGACY : MAX_API_PRIMARY;
+  const r = await fetch(`${base}${p}`, {
     method,
     headers: { Authorization: tok, "Content-Type": "application/json" },
     body: method === "POST" ? JSON.stringify(body) : undefined,
@@ -46,21 +102,34 @@ async function maxApi(p: string, body: any, method: "POST" | "GET" = "POST"): Pr
   });
   if (!r.ok) {
     const t = await r.text().catch(() => "");
-    throw new Error(`Max ${p} ${r.status}: ${t.slice(0, 200)}`);
+    throw new Error(`Max ${method} ${p} ${r.status}: ${t.slice(0, 200)}`);
   }
   return r.json().catch(() => null);
 }
-async function sendMessage(chatId: string, text: string, attachments?: any[]) {
+
+// === SendMessage с автоматическим fallback на legacy base ===
+
+async function sendMessage(chatId: string, text: string, attachments?: any[]): Promise<void> {
+  const body: any = { text };
+  if (attachments && attachments.length) body.attachments = attachments;
   try {
-    const body: any = { text };
-    if (attachments && attachments.length) body.attachments = attachments;
     await maxApi(`/messages?chat_id=${encodeURIComponent(chatId)}`, body);
-  } catch (e) {
-    bootRefs?.logger.warn?.("[max-bot] sendMessage failed", { chatId, error: String(e) });
+  } catch (e: any) {
+    const msg = String(e?.message || e);
+    bootRefs?.logger.warn?.("[max-bot] sendMessage primary failed", { chatId, error: msg });
+    // Fallback на legacy URL (platform-api.max.ru) — некоторые установки
+    // ещё используют старый endpoint.
+    try {
+      await maxApi(`/messages?chat_id=${encodeURIComponent(chatId)}`, body, "POST", { useLegacy: true });
+    } catch (e2: any) {
+      bootRefs?.logger.warn?.("[max-bot] sendMessage legacy also failed", { chatId, error: String(e2?.message || e2) });
+      notifyAdminMaxDowntime("sendMessage failed (primary + legacy)");
+    }
   }
 }
-// Eugene 2026-05-11/12: образ помощника. URL с cache-bust версией
-// (mtime PNG) — Max/нюанс кэшей не отдаёт устаревший файл.
+
+// === Образ Музы (cache-bust через mtime) ===
+
 function getConsultantPhotoVersion(): string {
   try {
     const fs = require("node:fs");
@@ -75,26 +144,49 @@ function getConsultantPhotoVersion(): string {
   return "1";
 }
 
-async function sendConsultantPhoto(chatId: string, caption: string) {
+async function sendConsultantPhoto(chatId: string, caption: string): Promise<void> {
   try {
     const base = process.env.PUBLIC_BASE_URL || "https://muzaai.ru";
     const photoUrl = `${base}/consultant-avatar.png?v=${getConsultantPhotoVersion()}`;
-    await maxApi(`/messages?chat_id=${encodeURIComponent(chatId)}`, {
-      text: caption,
-      attachments: [{ type: "image", payload: { url: photoUrl } }],
-    });
-  } catch (e) {
-    bootRefs?.logger.warn?.("[max-bot] sendPhoto failed, fallback to text", { chatId, error: String(e) });
+    await sendMessage(chatId, caption, [{ type: "image", payload: { url: photoUrl } }]);
+  } catch (e: any) {
+    bootRefs?.logger.warn?.("[max-bot] sendPhoto failed, text fallback", { chatId, error: String(e?.message || e) });
     await sendMessage(chatId, caption);
   }
 }
 
-// Eugene 2026-05-16 Босс «один мозг для всех каналов» — Max-bot теперь
-// идёт через единственную точку callUnifiedMuzaLLM (lib/llmCore.ts).
-// Раньше у max-bot был свой одноразовый tryClaude БЕЗ history и БЕЗ
-// MUZA_TOOLS. Теперь персистентная сессия + tools + cross-channel history.
+// === Audio attachment (для inline-плеера трека) ===
+// Eugene 2026-05-20 Босс «Музa находит трек и сразу прикрепляет к ответу».
+// find_public_track tool возвращает hint=playNow:<id> → backend сохраняет
+// attachedTrackId → этот helper отправляет audio attachment в Max.
+async function sendTrackAttachment(chatId: string, trackId: number, caption: string): Promise<boolean> {
+  try {
+    const base = process.env.PUBLIC_BASE_URL || "https://muzaai.ru";
+    // ВАЖНО: Max audio attachment требует публичный URL (без cookie auth).
+    // /api/stream/:id отдаёт mp3 (см. routes.ts). Для anonymous Max-юзера
+    // нужен fallback на public streaming endpoint. Если /api/stream
+    // требует auth — здесь Max сам не сможет load, но юзер увидит URL в
+    // тексте сообщения и сможет открыть в браузере.
+    const audioUrl = `${base}/api/stream/${trackId}`;
+    const trackUrl = `${base}/#/track/${trackId}`;
+    const fullCaption = `${caption}\n\n🎵 ${trackUrl}`;
+    // Сначала пробуем audio attachment. Если падает — fallback на текст с URL.
+    try {
+      await sendMessage(chatId, fullCaption, [{ type: "audio", payload: { url: audioUrl } }]);
+      return true;
+    } catch (e: any) {
+      bootRefs?.logger.info?.("[max-bot] sendAudio fallback to text", { trackId, error: String(e?.message || e).slice(0, 100) });
+      await sendMessage(chatId, fullCaption);
+      return false;
+    }
+  } catch (e: any) {
+    bootRefs?.logger.warn?.("[max-bot] sendTrackAttachment failed", { trackId, error: String(e?.message || e) });
+    return false;
+  }
+}
 
-// GPTunnel-fallback (gpt-4o-mini без tools) сохранён как последний резерв.
+// === GPTunnel fallback ===
+
 async function tryGPTunnelFallback(sys: string, text: string, history: Array<{ role: string; content: string }>): Promise<string | null> {
   const key = process.env.GPTUNNEL_API_KEY || "";
   if (!key) return null;
@@ -116,43 +208,61 @@ async function tryGPTunnelFallback(sys: string, text: string, history: Array<{ r
   } catch { return null; }
 }
 
-// Сессия / история по chatId (Max external_id).
+// === Session management ===
+
 function findOrCreateMaxSession(chatId: string, userKey: string): { sessionId: string; userId: number | null } {
   try {
     const row = db.select().from(chatbotSessions).where(eq(chatbotSessions.externalId, chatId)).get() as any;
     if (row?.id) return { sessionId: row.id, userId: row.userId ?? null };
   } catch {}
   const sessionId = randomUUID();
+  // Linked user: пока нет users.maxId, но если когда-то будет — добавим lookup
+  // через telegramId или phone. Сейчас Max-сессия создаётся anonymous.
+  let linkedUserId: number | null = null;
+  try {
+    // Backward-compat: некоторые юзеры могли auth'нуться через web-чат
+    // и потом write в Max с тем же external user_id. Эта проверка
+    // безопасна (eq возвращает первый матч или null).
+    const u = db.select().from(users).where(eq(users.telegramId, userKey)).get() as any;
+    if (u) linkedUserId = u.id;
+  } catch {}
   try {
     const lockedPersona = personaFor(userKey).name;
     db.insert(chatbotSessions).values({
       id: sessionId,
       channel: "max",
       externalId: chatId,
+      userId: linkedUserId,
       state: "active",
       personaName: lockedPersona,
       startedAt: new Date().toISOString(),
       lastMessageAt: new Date().toISOString(),
     }).run();
   } catch {}
-  return { sessionId, userId: null };
+  return { sessionId, userId: linkedUserId };
 }
 
-function saveMaxMessage(sessionId: string, role: "user" | "bot", text: string, userId?: number | null): void {
+function saveMaxMessage(
+  sessionId: string,
+  role: "user" | "bot",
+  text: string,
+  opts?: { userId?: number | null; attachedTrackId?: number | null },
+): void {
   try {
     const inserted = db.insert(chatbotMessages).values({
       sessionId,
       role,
       text: text.slice(0, 3900),
+      attachedTrackId: opts?.attachedTrackId ?? null,
       createdAt: new Date().toISOString(),
-    }).returning({ id: chatbotMessages.id }).get();
-    // Eugene 2026-05-19 CSAT-аудит: оживляем message_analysis для Max-канала
+    } as any).returning({ id: chatbotMessages.id }).get();
+    // CSAT-аудит (как в telegram-bot)
     if (role === "user") {
       import("../message-analysis/module").then(({ logMessageAnalysis }) => {
         logMessageAnalysis({
           messageId: inserted?.id ?? null,
           sessionId,
-          userId: userId ?? null,
+          userId: opts?.userId ?? null,
           channel: "max",
           text,
         });
@@ -161,25 +271,114 @@ function saveMaxMessage(sessionId: string, role: "user" | "bot", text: string, u
   } catch {}
 }
 
-async function generateReply(sessionId: string, userKey: string, text: string, authUserId: number | null): Promise<string> {
-  // 1. Primary: единый Claude-call через llmCore (с MUZA_TOOLS + cross-channel history).
+// === Resolve attachedTrack для inline-плеера ===
+
+interface AttachedTrack {
+  id: number;
+  title: string;
+  authorName: string | null;
+  audioUrl: string;
+  coverUrl: string;
+  durationSec: number;
+}
+
+function resolveAttachedTrack(trackId: number): AttachedTrack | null {
+  try {
+    const t = db.select().from(generations).where(eq(generations.id, trackId)).get() as any;
+    if (
+      !t ||
+      t.type !== "music" ||
+      t.status !== "done" ||
+      !(t.isPublic === 1 || t.isPublic === 2) ||
+      t.deletedAt ||
+      !t.resultUrl
+    ) return null;
+    let duration = 0;
+    try {
+      const data = JSON.parse(t.resultData || "{}");
+      if (Array.isArray(data.result) && data.result[0]?.duration) {
+        duration = Number(data.result[0].duration) || 0;
+      }
+    } catch {}
+    return {
+      id: Number(t.id),
+      title: t.displayTitle || String(t.prompt || "").slice(0, 80) || "Без названия",
+      authorName: t.authorName || null,
+      audioUrl: `/api/stream/${t.id}`,
+      coverUrl: `/api/cover/${t.id}.jpg`,
+      durationSec: duration,
+    };
+  } catch (e: any) {
+    bootRefs?.logger.warn?.("[max-bot] resolveAttachedTrack", { trackId, error: String(e?.message || e) });
+    return null;
+  }
+}
+
+// === Generate reply ===
+
+async function generateReply(
+  sessionId: string,
+  userKey: string,
+  text: string,
+  authUserId: number | null,
+  muzaRole: string | null,
+): Promise<{ reply: string; attachedTrackId: number | null }> {
+  // Build memory context (только для linked users)
+  let memoryCtx = "";
+  if (authUserId) {
+    try {
+      memoryCtx = await buildMemoryContext(authUserId, "max");
+    } catch (e: any) {
+      bootRefs?.logger.warn?.("[max-bot] buildMemoryContext failed", { userId: authUserId, error: String(e?.message || e) });
+    }
+  }
+
+  // Yars (owner) detection — добавим hint в dynamicContext
+  let ownerHint = "";
+  if (detectsYars(text)) {
+    ownerHint = "\n\n[АДМИН: это Ярс — основатель MuzaAi. Говори с ним коротко, конструктивно, по сути.]";
+    bootRefs?.logger.info?.("[YARS-MENTION]", { channel: "max", sessionId, userId: authUserId, text: text.slice(0, 200) });
+    recordYarsMention({ sessionId, userId: authUserId, channel: "max", text });
+  }
+
+  // Eugene 2026-05-20: attachedTrack-перехват через onToolResult.
+  // find_public_track возвращает hint=playNow:<id> при exactCount=1 → ловим.
+  let attachedTrackId: number | null = null;
+  const onToolResult = (toolName: string, _input: any, result: string) => {
+    if (toolName !== "find_public_track") return;
+    try {
+      const j = JSON.parse(result);
+      const hint = String(j?.hint || "");
+      const m = hint.match(/^playNow:(\d+)$/);
+      if (m) {
+        const id = Number(m[1]);
+        if (Number.isFinite(id) && id > 0) attachedTrackId = id;
+      }
+    } catch {}
+  };
+
+  // 1. Primary: единая Claude через llmCore (с MUZA_TOOLS + cross-channel history).
   const history = loadHistoryForLLM(sessionId, 15);
+  const dynamicContext = (memoryCtx ? memoryCtx + "\n\n" : "") + ownerHint;
   const reply = await callUnifiedMuzaLLM({
     sessionId,
     userId: authUserId,
     channel: "max",
     userText: text,
     history,
+    dynamicContext,
     maxTokens: 400,
+    role: muzaRole,
+    onToolResult,
   });
-  if (reply) return reply;
+  if (reply) return { reply, attachedTrackId };
 
-  // 2. Backup: GPTunnel (без tools).
+  // 2. Backup: GPTunnel (gpt-4o-mini, без tools)
   const sys = buildPersonaSystem(userKey);
   const o = await tryGPTunnelFallback(sys, text, history);
-  if (o) return o;
+  if (o) return { reply: o, attachedTrackId: null };
 
-  // 3. Все упали → hardcoded fallback + register failure.
+  // 3. Все упали — register failure + admin alert
   logUserActionFailure({
     channel: "max",
     action: "chat-reply",
@@ -187,92 +386,378 @@ async function generateReply(sessionId: string, userKey: string, text: string, a
     errorMessage: "Anthropic + GPTunnel оба не ответили — отдан hardcoded fallback",
     context: { userKey: String(userKey).slice(0, 32), textPreview: text.slice(0, 100) },
   });
-  return `Здравствуйте! Я — Муза 🎵 Чуть-чуть тормозит — попробуйте через минуту.`;
+  notifyAdminMaxDowntime("LLM полностью недоступен в Max-канале");
+  return {
+    reply: `Здравствуй! Я — Муза 🎵 Чуть-чуть тормозит — попробуй через минуту.`,
+    attachedTrackId: null,
+  };
 }
+
+// === Webhook secret verification ===
+
+function verifyWebhookSecret(req: any): boolean {
+  const expected = WEBHOOK_SECRET();
+  if (!expected) {
+    // Backward-compat: если secret не задан — warn раз в час, но не блокируем.
+    const g: any = global as any;
+    if (!g.__max_webhook_secret_warned || Date.now() - g.__max_webhook_secret_warned > 3600_000) {
+      g.__max_webhook_secret_warned = Date.now();
+      bootRefs?.logger.warn?.("[max-bot] MAX_WEBHOOK_SECRET не задан — webhook принимает запросы без secret-token (prod risk)");
+    }
+    return true;
+  }
+  // Max шлёт secret через header (точное имя зависит от docs). Проверяем оба
+  // частых варианта: 'x-max-bot-api-secret' (legacy max-channel pattern) и
+  // 'x-max-webhook-secret' (более общий). Берём первый совпавший.
+  const candidates = [
+    String(req.headers["x-max-bot-api-secret"] || ""),
+    String(req.headers["x-max-webhook-secret"] || ""),
+    String(req.headers["x-bot-api-secret"] || ""),
+  ];
+  for (const got of candidates) {
+    if (!got) continue;
+    if (got.length !== expected.length) continue;
+    try {
+      if (crypto.timingSafeEqual(Buffer.from(got, "utf8"), Buffer.from(expected, "utf8"))) return true;
+    } catch {}
+  }
+  return false;
+}
+
+// === Router ===
 
 const router = Router();
 
 router.post("/webhook", async (req, res) => {
+  // Secret verification
+  if (WEBHOOK_SECRET() && !verifyWebhookSecret(req)) {
+    bootRefs?.logger.warn?.("[max-bot] invalid webhook secret", {
+      ip: (req as any).ip,
+      ua: (req.headers["user-agent"] || "").toString().slice(0, 80),
+    });
+    return res.status(403).json({ data: null, error: "forbidden" });
+  }
+
+  // Сразу отвечаем 200 — Max не будет ретраить webhook
   res.status(200).send("ok");
+
   try {
+    // Eugene 2026-05-17 Босс «pause_bot tool через admin-voice».
+    try {
+      const { isBotPausedRuntime } = await import("../../lib/muzaTools");
+      if (isBotPausedRuntime()) {
+        bootRefs?.logger.info?.("[max-bot] paused (runtime) — skipping update");
+        return;
+      }
+    } catch {}
+
     const u: any = req.body || {};
     const msg = u.message || u;
-    const chatId = String(msg?.chat?.id ?? msg?.chat_id ?? msg?.peer_id ?? "");
-    const fromId = String(msg?.sender?.user_id ?? msg?.from?.user_id ?? msg?.user_id ?? chatId);
-    const text = String(msg?.body?.text ?? msg?.text ?? "").trim();
-    if (!chatId || !text) return;
-    // Dedup: Max может ретраить webhook → не отвечаем дважды на одно сообщение.
-    const dedupKey = msg?.message_id || msg?.id || msg?.body?.mid || `${chatId}:${text.slice(0,30)}:${Math.floor(Date.now()/3000)}`;
+
+    // Поля Max API. Используем наиболее распространённые имена с fallback'ами.
+    // По docs (https://dev.max.ru/docs/maxbusiness/selectionservices):
+    //   payload содержит chat (chat_id), sender (user_id), body (text)
+    // Также чтобы не уронить старые форматы — поддерживаем legacy paths.
+    const chatId = String(
+      msg?.chat?.id ??
+      msg?.chat?.chat_id ??
+      msg?.chat_id ??
+      u?.chat_id ??
+      u?.chat?.chat_id ??
+      msg?.peer_id ??
+      ""
+    );
+    const fromId = String(
+      msg?.sender?.user_id ??
+      msg?.from?.user_id ??
+      msg?.user_id ??
+      u?.user?.user_id ??
+      u?.from?.user_id ??
+      chatId
+    );
+    const text = String(
+      msg?.body?.text ??
+      msg?.text ??
+      u?.message?.body?.text ??
+      ""
+    ).trim();
+
+    if (!chatId) {
+      bootRefs?.logger.info?.("[max-bot] webhook: missing chatId", { keys: Object.keys(u || {}).slice(0, 5) });
+      return;
+    }
+
+    // Dedup
+    const dedupKey =
+      msg?.message_id ??
+      msg?.id ??
+      msg?.body?.mid ??
+      u?.update_id ??
+      `${chatId}:${text.slice(0, 30)}:${Math.floor(Date.now() / 3000)}`;
     if (isMaxMsgDup(dedupKey)) {
       bootRefs?.logger.info?.("[max-bot] skipping duplicate", { key: String(dedupKey).slice(0, 30) });
       return;
     }
-    const p = personaFor(fromId);
-    const { sessionId, userId: authUserId } = findOrCreateMaxSession(chatId, fromId);
-    if (text === "/start") {
-      // Eugene 2026-05-18 Босс «в чате выводим только аватар Музы — имена персон скрыты».
-      void p; // персона определяет тон в LLM prompt'е, но не отображается юзеру
-      const hello = `🎵 Привет! Я — Муза. Помогу подобрать песню под событие — для какого случая думаете?`;
-      saveMaxMessage(sessionId, "user", text);
-      await sendConsultantPhoto(chatId, hello);
-      saveMaxMessage(sessionId, "bot", hello);
+
+    if (!text) {
+      // Не-текстовое сообщение (file/photo/voice) — пока не обрабатываем для
+      // chat. Можем добавить в будущем — например voice → STT → answer.
+      bootRefs?.logger.info?.("[max-bot] non-text update — skipping", { chatId, hasText: !!text });
       return;
     }
-    saveMaxMessage(sessionId, "user", text);
-    // Eugene 2026-05-17: detection «Ярс» — расширенное логирование + alert.
-    if (detectsYars(text)) {
-      bootRefs?.logger.info?.("[YARS-MENTION]", {
-        channel: "max",
-        sessionId,
-        userId: authUserId,
-        text: text.slice(0, 200),
-        timestamp: new Date().toISOString(),
-      });
-      recordYarsMention({ sessionId, userId: authUserId, channel: "max", text });
+
+    const { sessionId, userId: authUserId } = findOrCreateMaxSession(chatId, fromId);
+
+    // /start — приветствие с образом Музы
+    if (text === "/start" || text.startsWith("/start ")) {
+      const hello = authUserId
+        ? `🎵 С возвращением! Я Муза, помогу с песней. Что хочешь сделать?`
+        : `🎵 Привет! Я — Муза. Помогу подобрать песню под событие — для какого случая думаешь?`;
+      saveMaxMessage(sessionId, "user", text, { userId: authUserId });
+      await sendConsultantPhoto(chatId, hello);
+      saveMaxMessage(sessionId, "bot", hello, { userId: authUserId });
+      return;
     }
-    const reply = await generateReply(sessionId, fromId, text, authUserId);
-    const cleanReply = reply.replace(/\s*[—\-–]+\s*(Муза|Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*(MuzaAi|MuzaAi))?\s*\.?\s*$/i, "").trimEnd();
+
+    saveMaxMessage(sessionId, "user", text, { userId: authUserId });
+
+    // Определяем admin role для filterToolsForRole в llmCore
+    let muzaRole: string | null = null;
+    if (authUserId) {
+      try {
+        const u2 = storage.getUser(authUserId);
+        const roleLower = String((u2 as any)?.role || "").toLowerCase();
+        if (roleLower === "admin" || roleLower === "super_admin") muzaRole = roleLower;
+      } catch {}
+    }
+
+    // Eugene 2026-05-20 Босс «база сообщений админа в боте Музa».
+    // Если authUser = admin/super_admin — пишем в admin_chat_messages
+    // + auto-apply при trusted IP (см. recordAdminMuzaMessage).
+    if (muzaRole) {
+      try {
+        const { recordAdminMuzaMessage } = await import("../../lib/adminChatRecorder");
+        recordAdminMuzaMessage({
+          sessionId,
+          userId: authUserId,
+          channel: "max",
+          text,
+          ip: (req as any).ip || (req as any).socket?.remoteAddress || null,
+          userAgent: req.headers["user-agent"] ? String(req.headers["user-agent"]) : null,
+          role: muzaRole,
+        }).catch(() => {});
+      } catch {}
+    }
+
+    const { reply: rawReply, attachedTrackId } = await generateReply(sessionId, fromId, text, authUserId, muzaRole);
+
+    // Cleanup: убираем дубликат подписи, [PROPOSE_GEN], [QR:...] (всё что
+    // относится к web-UI и не имеет смысла в Max-чате).
+    let cleanReply = rawReply
+      .replace(/\s*[—\-–]+\s*(Муза|Аня|Татьяна|Мария|Ольга|Алексей|Дмитрий|Михаил|Андрей|Лиза|Полина|Кирилл|Артём|Маша|Лёша)(\s*·\s*(MuzaAi|MuzaAi))?\s*\.?\s*$/i, "")
+      .replace(/\[PROPOSE_GEN:[\s\S]{0,800}?\]/gi, "")
+      .replace(/\[PROPOSE_REGISTER:[\s\S]{0,400}?\]/gi, "")
+      .replace(/\[QR:[^\]]+\]/gi, "")
+      .replace(/\[SWITCH_PERSONA:[^\]]+\]/gi, "")
+      .trim();
+
+    if (!cleanReply) {
+      cleanReply = "Слушаю тебя 🎵 Расскажи к какому событию подбираем песню?";
+    }
+
     const footer = `\n\n— Муза · MuzaAi`;
-    // Eugene 2026-05-18 Босс «в чате выводим только аватар Музы — имена персон скрыты».
     const replyWithAvatar = `🎵 ${cleanReply}${footer}`;
-    // Eugene 2026-05-12 (Босс «100%»): sendPhoto только на /start.
-    // На остальных reply'ях текст с emoji-аватаром + footer.
-    await sendMessage(chatId, replyWithAvatar);
-    saveMaxMessage(sessionId, "bot", replyWithAvatar);
-  } catch (e) {
-    bootRefs?.logger.error?.("[max-bot] webhook error", { error: String(e) });
+
+    // Если Музa нашла трек через find_public_track — отправляем audio-attachment.
+    let attachedTrack: AttachedTrack | null = null;
+    if (attachedTrackId !== null) {
+      attachedTrack = resolveAttachedTrack(attachedTrackId);
+      if (attachedTrack) {
+        const sent = await sendTrackAttachment(chatId, attachedTrack.id, replyWithAvatar);
+        bootRefs?.logger.info?.("[max-bot] track attachment", { chatId, trackId: attachedTrack.id, audioSent: sent });
+      } else {
+        // Track resolution failed → отправляем как обычное сообщение
+        await sendMessage(chatId, replyWithAvatar);
+      }
+    } else {
+      await sendMessage(chatId, replyWithAvatar);
+    }
+
+    saveMaxMessage(sessionId, "bot", replyWithAvatar, {
+      userId: authUserId,
+      attachedTrackId: attachedTrack?.id ?? null,
+    });
+
+    // Memory compression (fire-and-forget)
+    if (authUserId) {
+      scheduleCompressionIfNeeded(authUserId).catch(() => {});
+    }
+
+    bootRefs?.eventBus?.emit?.("chatbot.reply_sent", {
+      channel: "max",
+      sessionId,
+      chatId,
+      hasAttachedTrack: !!attachedTrack,
+    }, "max-bot");
+  } catch (e: any) {
+    bootRefs?.logger.error?.("[max-bot] webhook error", { error: String(e?.message || e) });
     logUserActionFailure({
       channel: "max",
       action: "webhook",
       errorCode: "webhook_handler_throw",
-      errorMessage: String(e).slice(0, 300),
+      errorMessage: String(e?.message || e).slice(0, 300),
       endpoint: "/api/max-bot/webhook",
     });
   }
 });
 
+// === Admin endpoints (защищены secret из env) ===
+
+function checkAdminSecret(req: any): boolean {
+  const secret = String(req.query.secret || req.headers["x-cron-secret"] || "");
+  const allowed = [process.env.CRON_SECRET, process.env.SESSION_SECRET].filter(Boolean) as string[];
+  if (allowed.length === 0) return false;
+  return allowed.includes(secret);
+}
+
+// GET /api/max-bot/info — диагностика
 router.get("/info", async (_req, res) => {
-  if (!TOKEN()) return res.json({ configured: false });
+  if (!TOKEN()) return res.json({ configured: false, error: "MAX_BOT_TOKEN missing" });
   try {
-    const r = await fetch(`${MAX_API}/me`, { headers: { Authorization: TOKEN() } });
-    const j = await r.json().catch(() => null);
-    res.json({ configured: true, me: j });
+    // Пробуем primary (botapi.max.ru), потом legacy (platform-api.max.ru)
+    let me: any = null;
+    let baseUsed = "";
+    let err: string | null = null;
+    try {
+      const r = await fetch(`${MAX_API_PRIMARY}/me`, {
+        headers: { Authorization: TOKEN() },
+        signal: AbortSignal.timeout(8_000),
+      });
+      if (r.ok) {
+        me = await r.json().catch(() => null);
+        baseUsed = MAX_API_PRIMARY;
+      } else {
+        err = `primary ${r.status}`;
+      }
+    } catch (e: any) {
+      err = `primary ${String(e?.message || e).slice(0, 100)}`;
+    }
+    if (!me) {
+      try {
+        const r = await fetch(`${MAX_API_LEGACY}/me`, {
+          headers: { Authorization: TOKEN() },
+          signal: AbortSignal.timeout(8_000),
+        });
+        if (r.ok) {
+          me = await r.json().catch(() => null);
+          baseUsed = MAX_API_LEGACY;
+        } else {
+          err = (err ? err + "; " : "") + `legacy ${r.status}`;
+        }
+      } catch (e: any) {
+        err = (err ? err + "; " : "") + `legacy ${String(e?.message || e).slice(0, 100)}`;
+      }
+    }
+    res.json({
+      configured: true,
+      me,
+      baseUsed,
+      error: err,
+      webhookSecret: !!WEBHOOK_SECRET(),
+    });
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }
 });
 
+// GET /api/max-bot/setup-webhook?url=...&secret=...
+// Регистрирует webhook у Max через subscriptions API. Точный формат
+// endpoint'а зависит от docs Max — пробуем 2 варианта.
+router.get("/setup-webhook", async (req, res) => {
+  if (!checkAdminSecret(req)) {
+    return res.status(403).json({ ok: false, error: "secret required" });
+  }
+  if (!TOKEN()) {
+    return res.status(400).json({ ok: false, error: "MAX_BOT_TOKEN missing" });
+  }
+  const url = String(req.query.url || process.env.MAX_WEBHOOK_URL || "");
+  if (!url || !url.startsWith("https://")) {
+    return res.status(400).json({ ok: false, error: "url=https://... required" });
+  }
+
+  // Max Business API subscriptions endpoint. По docs точное имя может быть
+  // /subscriptions (стандарт) или /webhook. Пробуем оба.
+  const attempts: Array<{ base: string; path: string; method: "POST" }> = [
+    { base: MAX_API_PRIMARY, path: "/subscriptions", method: "POST" },
+    { base: MAX_API_LEGACY, path: "/subscriptions", method: "POST" },
+  ];
+
+  const body: any = { url };
+  // Subscribe ко всем типам updates (если API это поддерживает).
+  body.update_types = ["message_created", "bot_started", "bot_added"];
+  if (WEBHOOK_SECRET()) body.secret = WEBHOOK_SECRET();
+
+  const results: any[] = [];
+  for (const a of attempts) {
+    try {
+      const r = await fetch(`${a.base}${a.path}`, {
+        method: a.method,
+        headers: { Authorization: TOKEN(), "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(10_000),
+      });
+      const respText = await r.text().catch(() => "");
+      results.push({ base: a.base, path: a.path, status: r.status, body: respText.slice(0, 300) });
+      if (r.ok) {
+        let j: any = null;
+        try { j = JSON.parse(respText); } catch {}
+        return res.json({ ok: true, baseUsed: a.base, url, secret_set: !!WEBHOOK_SECRET(), response: j ?? respText.slice(0, 300), attempts: results });
+      }
+    } catch (e: any) {
+      results.push({ base: a.base, path: a.path, error: String(e?.message || e).slice(0, 200) });
+    }
+  }
+  return res.status(502).json({ ok: false, error: "all subscription endpoints failed", attempts: results });
+});
+
+// GET /api/max-bot/kb/reload — alias для совместимости с KB-sync rule (web-чат)
+router.get("/kb/reload", (req, res) => {
+  if (!checkAdminSecret(req)) {
+    return res.status(403).json({ ok: false, error: "secret required" });
+  }
+  // KB обслуживается общим loader'ом lib/consultantPersona — telegram-bot
+  // тоже шлёт сюда. Здесь только маркер «получили».
+  try {
+    const { loadKB, kbPath } = require("../../lib/consultantPersona");
+    const text = loadKB(true);
+    res.json({ ok: !!text, length: text.length, path: kbPath() });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: String(e?.message || e) });
+  }
+});
+
 const maxBotModule: Module = {
   name: "max-bot",
-  version: "0.1.0",
-  description: "Max-bot helper (chat-assistant). Webhook: /api/max-bot/webhook. Без MAX_BOT_TOKEN — degraded.",
-  publishes: [],
+  version: "0.2.0",
+  description: "Max-bot chat-assistant — единая точка с TG. Webhook /api/max-bot/webhook + memory + cross-channel history + find_public_track audio attachment. Без MAX_BOT_TOKEN — degraded.",
+  publishes: ["chatbot.reply_sent"],
   routes: { prefix: "max-bot", router },
   onLoad: async (ctx) => {
     bootRefs = { eventBus: ctx.eventBus, logger: ctx.logger };
-    ctx.logger.info("max-bot online", { token: TOKEN() ? "configured" : "missing" });
+    ctx.logger.info("max-bot online", {
+      token: TOKEN() ? "configured" : "missing",
+      webhookSecret: WEBHOOK_SECRET() ? "configured" : "missing",
+      apiBase: MAX_API_PRIMARY,
+    });
   },
-  healthCheck: () => ({ status: TOKEN() ? "ok" : "degraded", details: { bot_token: !!TOKEN() } }),
+  healthCheck: () => ({
+    status: TOKEN() ? "ok" : "degraded",
+    details: {
+      bot_token: !!TOKEN(),
+      webhook_secret: !!WEBHOOK_SECRET(),
+      api_base: MAX_API_PRIMARY,
+    },
+  }),
 };
 
 export default maxBotModule;

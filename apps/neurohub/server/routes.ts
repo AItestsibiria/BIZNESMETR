@@ -2872,17 +2872,12 @@ export async function registerRoutes(
         }
       }
 
-      // Eugene 2026-05-14 Босс «при заходе в чате предложи нажать давайте
-      // знакомиться». Первая QR-кнопка — приглашение на знакомство.
-      let initialQR: string[];
-      if (paired || authUserId) {
-        initialQR = ["Давайте знакомиться", "Покажи мои треки", "Помоги с новым"];
-      } else {
-        const isForeignGreeting = greeting.includes("Россия приветствует автора из");
-        initialQR = isForeignGreeting
-          ? ["Да, я отсюда", "Я из другой страны", "Давайте знакомиться"]
-          : ["Давайте знакомиться", "Хочу песню в подарок", "Сначала примеры"];
-      }
+      // Eugene 2026-05-20 Босс «Облака убери из чата если пользователь сам
+      // не попросит подсказки, текст облаков бери из текущего контекста».
+      // Initial QR-кнопок больше нет на старте — чат чистый. Музa предлагает
+      // варианты ТОЛЬКО когда юзер сам попросит («предложи варианты»,
+      // «дай подсказки», «что мне написать», «помоги выбрать»).
+      const initialQR: string[] = [];
 
       const initMemo = extractMemoryFromHistory(history.map(h => ({ role: h.role, text: h.text })));
       res.json({
@@ -3291,13 +3286,11 @@ export async function registerRoutes(
         reply = pool[Math.floor(Math.random() * pool.length)];
         usedFallback = true;
       }
-      // Eugene 2026-05-14 Босс «реши кардинально». Если Claude забыл [QR:]
-      // маркеры — дать дефолтные кнопки чтобы юзер всегда мог продолжить.
-      if (quickReplies.length === 0) {
-        quickReplies = authUserId
-          ? ["Покажи мои треки", "Хочу новый трек", "Расскажи про обложки"]
-          : ["Расскажи подробнее", "Что у вас тут есть?", "Хочу попробовать"];
-      }
+      // Eugene 2026-05-20 Босс «Облака убери из чата если пользователь сам
+      // не попросит подсказки». Дефолтные QR-кнопки убраны — если Музa не
+      // вернула [QR:] маркеры, оставляем пустые. Кнопки появляются ТОЛЬКО
+      // когда Музa сама добавила их в ответ (например юзер попросил
+      // «варианты»/«подсказки»/«что писать»).
       console.log(`[MUZA-CHAT] sessionId=${session.id.slice(0, 16)} user="${text.slice(0, 50)}" replyLen=${reply.length} qr=${quickReplies.length} fallback=${usedFallback}`);
 
       // Eugene 2026-05-20 Босс «мини-плеер в чате». Если find_public_track
