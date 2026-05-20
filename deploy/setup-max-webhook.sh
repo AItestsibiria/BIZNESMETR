@@ -30,14 +30,23 @@ NEED_RESTART=0
 # openssl rand -base64 32 иногда даёт 43 chars без padding — используем
 # openssl rand 32 | base64 -w 0 что всегда возвращает 44 chars.
 CURRENT_SECRET=$(grep '^MAX_WEBHOOK_SECRET=' "$ENV_FILE" | cut -d= -f2-)
+# Max API отвергает secret c символами / + = (base64 special).
+# Используем alphanumeric only — 44 chars из [a-zA-Z0-9].
+# Регенерация ВСЕГДА если secret содержит non-alphanumeric, или если длина != 44.
+NEEDS_REGEN=0
 if [ -z "$CURRENT_SECRET" ] || [ ${#CURRENT_SECRET} -ne 44 ]; then
-  NEW_SECRET=$(openssl rand 32 | base64 -w 0)
+  NEEDS_REGEN=1
+elif echo "$CURRENT_SECRET" | LC_ALL=C grep -q '[^a-zA-Z0-9]'; then
+  NEEDS_REGEN=1
+fi
+if [ "$NEEDS_REGEN" = "1" ]; then
+  NEW_SECRET=$(LC_ALL=C tr -dc 'a-zA-Z0-9' </dev/urandom | head -c 44)
   sed -i "/^MAX_WEBHOOK_SECRET=/d" "$ENV_FILE"
   echo "MAX_WEBHOOK_SECRET=${NEW_SECRET}" >> "$ENV_FILE"
-  echo "  ✓ MAX_WEBHOOK_SECRET (re)сгенерирован — длина ${#NEW_SECRET}"
+  echo "  ✓ MAX_WEBHOOK_SECRET (re)сгенерирован — alphanumeric 44 chars"
   NEED_RESTART=1
 else
-  echo "  ✓ MAX_WEBHOOK_SECRET уже задан (длина 44)"
+  echo "  ✓ MAX_WEBHOOK_SECRET уже задан (alphanumeric 44 chars)"
 fi
 
 # MAX_BOT_ID
