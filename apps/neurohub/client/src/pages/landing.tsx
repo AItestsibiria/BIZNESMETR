@@ -348,21 +348,45 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const { toast } = useToast();
   const { user } = useAuth();
   const [tracks, setTracks] = useState<any[]>([]);
-  // ТЗ Eugene 2026-05-08: настройки плейлиста и текущий трек — ПЕР-ЮЗЕР.
-  // Разные пользователи не делят выборку и позицию воспроизведения.
-  // Ключ: pl_v2:<userId|guest>:<setting>. После login/logout useEffect
-  // ниже re-читает значения для нового user.id.
-  const psKey = useCallback((k: string) => `pl_v2:${user?.id || "guest"}:${k}`, [user?.id]);
+  // Eugene 2026-05-20 Босс «при login/logout choice плейлиста теряется».
+  // ROOT CAUSE: pl_v2:<userId|guest>:<k> переключался по user.id —
+  // на логин stale pl_v2:<id>:<k> перебивал свежий guest-выбор; на
+  // logout state писался обратно в guest и при следующем входе опять
+  // терялся. ФИКС: STABLE-ключ pl_v2:<k> — настройки плейлиста привязаны
+  // к браузеру, а не к аккаунту. Legacy ключи мигрируются on-read once.
+  const psKey = useCallback((k: string) => `pl_v2:${k}`, []);
+  // readInitial — для useState-initializers: stable → legacy per-user
+  // (если user.id уже резолвлен) → legacy guest. На hit мигрируем в stable.
+  const readInitial = (k: string): string | null => {
+    try {
+      const stable = localStorage.getItem(`pl_v2:${k}`);
+      if (stable !== null) return stable;
+      const sources: string[] = [];
+      if (user?.id != null) sources.push(`pl_v2:${user.id}:${k}`);
+      sources.push(`pl_v2:guest:${k}`);
+      for (const src of sources) {
+        const v = localStorage.getItem(src);
+        if (v !== null) { localStorage.setItem(`pl_v2:${k}`, v); return v; }
+      }
+    } catch {}
+    return null;
+  };
   // Persist playingId + currentTime в localStorage (а не sessionStorage —
-  // переживёт закрытие вкладки), per-user.
+  // переживёт закрытие вкладки).
   const [playingId, setPlayingId] = useState<number | null>(() => {
-    try { const v = localStorage.getItem(`pl_v2:${user?.id || "guest"}:trackId`); return v ? Number(v) : null; } catch { return null; }
+    const v = readInitial("trackId"); return v ? Number(v) : null;
   });
   const [currentTime, setCurrentTime] = useState<number>(() => {
-    try { const v = localStorage.getItem(`pl_v2:${user?.id || "guest"}:currentTime`); return v ? Number(v) : 0; } catch { return 0; }
+    const v = readInitial("currentTime"); return v ? Number(v) : 0;
   });
-  // Persist при изменении (throttle через ref для timeupdate)
-  useEffect(() => { try { if (playingId) localStorage.setItem(psKey("trackId"), String(playingId)); else localStorage.removeItem(psKey("trackId")); } catch {} }, [playingId, psKey]);
+  // Persist при изменении. Skip-first: не пишем default-state до того
+  // как post-mount migration effect (внизу) успеет подхватить legacy
+  // per-user данные — иначе default перебьёт миграцию.
+  const playingIdDirty = useRef(false);
+  useEffect(() => {
+    if (!playingIdDirty.current) { playingIdDirty.current = true; return; }
+    try { if (playingId) localStorage.setItem(psKey("trackId"), String(playingId)); else localStorage.removeItem(psKey("trackId")); } catch {}
+  }, [playingId, psKey]);
   const [trackDuration, setTrackDuration] = useState(0);
   // Eugene 2026-05-14 Босс «играет, но кнопка пауза отражается». audioRef.paused —
   // прямое свойство, React не re-render. Делаем State + listeners на play/pause events.
@@ -455,19 +479,19 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // Eugene 2026-05-15 Босс «2 плейлиста на главной + кнопки заметные».
   // playlistKind: 'main' = одобренный (default) | 'new' = новые авторы.
   const [playlistKind, setPlaylistKind] = useState<"main" | "new">(() => {
-    try { const s = localStorage.getItem(`pl_v2:${user?.id || "guest"}:kind`); if (s === "main" || s === "new") return s; } catch {}
-    return "main";
+    const s = readInitial("kind"); return (s === "main" || s === "new") ? s : "main";
   });
   const [sortMode, setSortMode] = useState<"rating" | "date" | "random" | "top_month">(() => {
-    try { const s = localStorage.getItem(`pl_v2:${user?.id || "guest"}:sortMode`); if (s === "rating" || s === "date" || s === "random" || s === "top_month") return s; } catch {}
-    return "date"; // Initial — server default подгружается ниже useEffect'ом
+    const s = readInitial("sortMode");
+    return (s === "rating" || s === "date" || s === "random" || s === "top_month") ? s : "date";
+    // Initial — server default подгружается ниже useEffect'ом
   });
   // Eugene 2026-05-19 Босс «правило по умолчанию: по дате → рейтинг → случайно
   // (цикл по дням, админ меняет порядок)». При первой загрузке если у юзера
   // нет своего выбора в localStorage — спрашиваем server какой сегодня default.
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(`pl_v2:${user?.id || "guest"}:sortMode`);
+      const saved = localStorage.getItem("pl_v2:sortMode");
       if (saved) return; // у юзера уже свой выбор — не перебиваем
     } catch {}
     fetch("/api/playlist/sort-default", { cache: "no-store" })
@@ -478,37 +502,52 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         }
       })
       .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [sortDir, setSortDir] = useState<"asc" | "desc">(() => {
-    try { const s = localStorage.getItem(`pl_v2:${user?.id || "guest"}:sortDir`); if (s === "asc" || s === "desc") return s; } catch {}
-    return "asc";
+    const s = readInitial("sortDir"); return (s === "asc" || s === "desc") ? s : "asc";
   });
   const [categoryFilter, setCategoryFilter] = useState<'all' | 'song' | 'greeting' | 'instrumental'>(() => {
-    try { const s = localStorage.getItem(`pl_v2:${user?.id || "guest"}:category`); if (s === "all" || s === "song" || s === "greeting" || s === "instrumental") return s; } catch {}
-    return "song";
+    const s = readInitial("category");
+    return (s === "all" || s === "song" || s === "greeting" || s === "instrumental") ? s : "song";
   });
-  // Persist каждый раз когда меняется
-  // ТЗ Eugene 2026-05-08 «параметры выборки плейлиста ПЕР-ЮЗЕР, после
-  // возврата продолжи плейлист». Re-read settings когда user меняется
-  // (login/logout) и persist в localStorage с user-key.
+  // Eugene 2026-05-20 — Auth резолвится async: при mount user?.id ещё
+  // undefined, поэтому readInitial видит только guest-legacy. Когда
+  // user.id появляется, проверяем legacy per-user ключи; если stable
+  // ещё пуст (skip-first persist не дал записать default) — переносим
+  // в state, persist ниже синкнет в stable.
   useEffect(() => {
-    try {
-      const sm = localStorage.getItem(psKey("sortMode"));
-      if (sm === "rating" || sm === "date" || sm === "random" || sm === "top_month") setSortMode(sm);
-      const sd = localStorage.getItem(psKey("sortDir"));
-      if (sd === "asc" || sd === "desc") setSortDir(sd);
-      const cf = localStorage.getItem(psKey("category"));
-      if (cf === "all" || cf === "song" || cf === "greeting" || cf === "instrumental") setCategoryFilter(cf);
-      const tid = localStorage.getItem(psKey("trackId"));
-      if (tid) setPlayingId(Number(tid));
-      const ct = localStorage.getItem(psKey("currentTime"));
-      if (ct) setCurrentTime(Number(ct));
-    } catch {}
-  }, [user?.id, psKey]);
-  useEffect(() => { try { localStorage.setItem(psKey("sortMode"), sortMode); } catch {} }, [sortMode, psKey]);
-  useEffect(() => { try { localStorage.setItem(psKey("sortDir"), sortDir); } catch {} }, [sortDir, psKey]);
-  useEffect(() => { try { localStorage.setItem(psKey("category"), categoryFilter); } catch {} }, [categoryFilter, psKey]);
+    if (!user?.id) return;
+    const uid = user.id;
+    const tryMigrate = (k: string, apply: (v: string) => void) => {
+      try {
+        if (localStorage.getItem(`pl_v2:${k}`) !== null) return;
+        const v = localStorage.getItem(`pl_v2:${uid}:${k}`);
+        if (v !== null) apply(v);
+      } catch {}
+    };
+    tryMigrate("kind", (v) => { if (v === "main" || v === "new") setPlaylistKind(v); });
+    tryMigrate("sortMode", (v) => { if (v === "rating" || v === "date" || v === "random" || v === "top_month") setSortMode(v); });
+    tryMigrate("sortDir", (v) => { if (v === "asc" || v === "desc") setSortDir(v); });
+    tryMigrate("category", (v) => { if (v === "all" || v === "song" || v === "greeting" || v === "instrumental") setCategoryFilter(v); });
+    tryMigrate("trackId", (v) => { const n = Number(v); if (n) setPlayingId(n); });
+    tryMigrate("currentTime", (v) => { const n = Number(v); if (Number.isFinite(n) && n > 0) setCurrentTime(n); });
+  }, [user?.id]);
+  // Persist + skip-first (см. комментарий у playingId-persist выше).
+  const sortModeDirty = useRef(false);
+  useEffect(() => {
+    if (!sortModeDirty.current) { sortModeDirty.current = true; return; }
+    try { localStorage.setItem(psKey("sortMode"), sortMode); } catch {}
+  }, [sortMode, psKey]);
+  const sortDirDirty = useRef(false);
+  useEffect(() => {
+    if (!sortDirDirty.current) { sortDirDirty.current = true; return; }
+    try { localStorage.setItem(psKey("sortDir"), sortDir); } catch {}
+  }, [sortDir, psKey]);
+  const categoryDirty = useRef(false);
+  useEffect(() => {
+    if (!categoryDirty.current) { categoryDirty.current = true; return; }
+    try { localStorage.setItem(psKey("category"), categoryFilter); } catch {}
+  }, [categoryFilter, psKey]);
   const [currentPage, setCurrentPage] = useState(1);
   const TRACKS_PER_PAGE = 20;
   const repeatModeRef = useRef(repeatMode);
@@ -737,8 +776,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     }).catch(() => {});
   }, [sortMode, sortDir, playlistKind]);
 
-  // Eugene 2026-05-15: persist playlistKind ПЕР-ЮЗЕР.
+  // Eugene 2026-05-15: persist playlistKind. Skip-first — см. комментарий
+  // у других persist-эффектов (избегаем default-pollution до migration).
+  const playlistKindDirty = useRef(false);
   useEffect(() => {
+    if (!playlistKindDirty.current) { playlistKindDirty.current = true; return; }
     try { localStorage.setItem(psKey("kind"), playlistKind); } catch {}
   }, [playlistKind, psKey]);
 
