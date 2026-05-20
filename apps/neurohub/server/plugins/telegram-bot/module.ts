@@ -737,9 +737,18 @@ router.post("/webhook", async (req, res) => {
     // картинку, повторные /start от того же юзера показываются мгновенно.
     if (text === "/start" || text === "/start@muziaipodari_bot") {
       const p = personaForSession(sessionId, fromId);
-      const hello = existingUserId
-        ? `${p.avatar} С возвращением! Я ${p.name}, помогу с песней. Что хотите сделать?`
-        : `${p.avatar} Привет! Я — Муза. Помогу подобрать песню под событие — для какого случая думаете?`;
+      // Eugene 2026-05-20 Босс «пусть Муза выбирает разные приветствия».
+      // Единый pool из ~20 вариантов (time-of-day, season, geo).
+      const { pickMusaGreeting } = await import("../../lib/musaGreetings");
+      const userName = (() => {
+        try { return existingUserId ? (storage.getUser(existingUserId)?.name || null) : null; } catch { return null; }
+      })();
+      const hello = pickMusaGreeting({
+        userName,
+        isReturning: !!existingUserId,
+        channel: "telegram",
+        channelAvatar: p.avatar,
+      });
       saveMessage(sessionId, "user", text);
       await sendConsultantPhoto(chatId, hello, STARTUP_KEYBOARD);
       saveMessage(sessionId, "bot", hello);

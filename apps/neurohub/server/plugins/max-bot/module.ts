@@ -748,9 +748,18 @@ router.post("/webhook", async (req, res) => {
           return;
         }
       }
-      const hello = authUserId
-        ? `🎵 С возвращением! Я Муза, помогу с песней. Что хочешь сделать?`
-        : `🎵 Привет! Я — Муза. Помогу подобрать песню под событие — для какого случая думаешь?`;
+      // Eugene 2026-05-20 Босс «пусть Муза выбирает разные приветствия».
+      // Используем единый pool из ~20 вариантов (time-of-day, season, geo).
+      const { pickMusaGreeting } = await import("../../lib/musaGreetings");
+      const userName = (() => {
+        try { return authUserId ? (storage.getUser(authUserId)?.name || null) : null; } catch { return null; }
+      })();
+      const hello = pickMusaGreeting({
+        userName,
+        isReturning: !!authUserId,
+        channel: "max",
+        channelAvatar: "🎵",
+      });
       await sendConsultantPhoto(chatId, hello);
       saveMaxMessage(sessionId, "bot", hello, { userId: authUserId });
       return;

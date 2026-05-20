@@ -2840,15 +2840,24 @@ export async function registerRoutes(
           }
         } catch {}
 
-        // Eugene 2026-05-14 Босс: специальное приветствие для не-РФ авторов.
-        // Россия (флаг) приветствует автора из (флаг страны) + слоган
-        // «Мировое творчество с MuzaAi».
-        const cc = (visitorGeo?.countryCode || "").toUpperCase();
-        if (visitorGeo && cc && cc !== "RU" && !CIS_COUNTRY_CODES.has(cc)) {
-          const flag = flagFor(cc);
-          const countryName = visitorGeo.country || cc;
-          greeting = `🇷🇺 Россия приветствует автора из ${flag} ${countryName}! 🌍 Мировое творчество с MuzaAi 🎵\n\nЯ — Муза, друг проекта. Это правда ваша страна? Если нет — подскажите откуда вы.`;
-        } else {
+        // Eugene 2026-05-20 Босс «пусть Муза выбирает разные приветствия».
+        // Единый pool из ~20 вариантов через pickMusaGreeting helper.
+        const { pickMusaGreeting } = await import("./lib/musaGreetings");
+        greeting = pickMusaGreeting({
+          countryCode: visitorGeo?.countryCode,
+          countryName: visitorGeo?.country,
+          city: visitorGeo?.city,
+          channel: "web",
+          channelAvatar: "🎵",
+        });
+        // Старая логика ниже сохранена как fallback на случай если helper не загрузится
+        if (!greeting) {
+          const cc = (visitorGeo?.countryCode || "").toUpperCase();
+          if (visitorGeo && cc && cc !== "RU" && !CIS_COUNTRY_CODES.has(cc)) {
+            const flag = flagFor(cc);
+            const countryName = visitorGeo.country || cc;
+            greeting = `🇷🇺 Россия приветствует автора из ${flag} ${countryName}! 🌍 Мировое творчество с MuzaAi 🎵\n\nЯ — Муза, друг проекта. Это правда ваша страна? Если нет — подскажите откуда вы.`;
+          } else {
           // Eugene 2026-05-14 Босс: в чате ТОЛЬКО «Муза», persona.name скрыта.
           const basePool = [
             `Привет! Я — Муза. На какой повод думаете песню? 🎵`,
@@ -2867,8 +2876,9 @@ export async function registerRoutes(
           } else if (visitorGeo?.country) {
             geoPool.push(`Привет! Я — Муза. Кажется, вы из ${visitorGeo.country}? Угадала? И как вас зовут?`);
           }
-          const pool = [...basePool, ...geoPool];
-          greeting = pool[Math.floor(Math.random() * pool.length)];
+            const pool = [...basePool, ...geoPool];
+            greeting = pool[Math.floor(Math.random() * pool.length)];
+          }
         }
       }
 
