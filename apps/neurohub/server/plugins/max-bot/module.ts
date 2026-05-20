@@ -109,20 +109,49 @@ async function maxApi(p: string, body: any, method: "POST" | "GET" = "POST", opt
 
 // === SendMessage с автоматическим fallback на legacy base ===
 
+// Eugene 2026-05-20: Max API POST /messages принимает chat_id ДЛЯ ГРУПП и
+// user_id ДЛЯ ЛИЧНЫХ ДИАЛОГОВ (chat_type='dialog'). Сохраняем mapping
+// chat_id → {fromId, chatType} при поступлении update, чтобы sendMessage
+// мог выбрать правильный параметр для исходящего сообщения.
+const chatContextMap = new Map<string, { fromId: string; chatType: string; updatedAt: number }>();
+
+function rememberMaxChatContext(chatId: string, fromId: string, chatType: string): void {
+  if (!chatId) return;
+  chatContextMap.set(chatId, { fromId, chatType, updatedAt: Date.now() });
+  // GC: удаляем entries старше 24ч если накопилось > 1000
+  if (chatContextMap.size > 1000) {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    for (const [k, v] of chatContextMap.entries()) {
+      if (v.updatedAt < cutoff) chatContextMap.delete(k);
+    }
+  }
+}
+
+function buildSendMessageQuery(chatId: string): string {
+  const ctx = chatContextMap.get(chatId);
+  // Для dialog (личный 1-на-1) — отправка по user_id юзера. Для всех остальных
+  // (chat, group, channel) — по chat_id.
+  if (ctx && ctx.chatType === "dialog" && ctx.fromId) {
+    return `user_id=${encodeURIComponent(ctx.fromId)}`;
+  }
+  return `chat_id=${encodeURIComponent(chatId)}`;
+}
+
 async function sendMessage(chatId: string, text: string, attachments?: any[]): Promise<void> {
   const body: any = { text };
   if (attachments && attachments.length) body.attachments = attachments;
+  const query = buildSendMessageQuery(chatId);
   try {
-    await maxApi(`/messages?chat_id=${encodeURIComponent(chatId)}`, body);
+    await maxApi(`/messages?${query}`, body);
   } catch (e: any) {
     const msg = String(e?.message || e);
-    bootRefs?.logger.warn?.("[max-bot] sendMessage primary failed", { chatId, error: msg });
+    bootRefs?.logger.warn?.("[max-bot] sendMessage primary failed", { chatId, query, error: msg });
     // Fallback на legacy URL (platform-api.max.ru) — некоторые установки
     // ещё используют старый endpoint.
     try {
-      await maxApi(`/messages?chat_id=${encodeURIComponent(chatId)}`, body, "POST", { useLegacy: true });
+      await maxApi(`/messages?${query}`, body, "POST", { useLegacy: true });
     } catch (e2: any) {
-      bootRefs?.logger.warn?.("[max-bot] sendMessage legacy also failed", { chatId, error: String(e2?.message || e2) });
+      bootRefs?.logger.warn?.("[max-bot] sendMessage legacy also failed", { chatId, query, error: String(e2?.message || e2) });
       notifyAdminMaxDowntime("sendMessage failed (primary + legacy)");
     }
   }
@@ -575,6 +604,13 @@ router.post("/webhook", async (req, res) => {
       msg?.peer_id ??
       ""
     );
+    // chat_type: 'dialog' для личных 1-на-1, 'chat' для групп.
+    const chatType = String(
+      msg?.recipient?.chat_type ??
+      msg?.chat?.type ??
+      msg?.chat_type ??
+      "dialog"
+    );
     const fromId = String(
       msg?.sender?.user_id ??
       msg?.from?.user_id ??
@@ -611,10 +647,15 @@ router.post("/webhook", async (req, res) => {
     bootRefs?.logger.warn?.("[max-bot DEBUG] parsed", {
       chatId: chatId.slice(0, 30),
       fromId: fromId.slice(0, 30),
+      chatType,
       textLen: text.length,
       textSample: text.slice(0, 80),
       hasSharedPhone: !!sharedPhone,
     });
+
+    // Запоминаем mapping для исходящих сообщений (sendMessage выбирает
+    // user_id vs chat_id на основе chat_type).
+    rememberMaxChatContext(chatId, fromId, chatType);
 
     if (!chatId) {
       bootRefs?.logger.warn?.("[max-bot DEBUG] missing chatId — return", { keys: Object.keys(u || {}).slice(0, 5) });
