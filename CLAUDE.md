@@ -213,13 +213,45 @@ ssh root@72.56.1.149 'sed -i "/^ИМЯ_КЛЮЧА=/d" /var/www/neurohub/.env \
 Workflow когда Босс приносит Ярс-команду в этот chat (как копи-паст или скриншот):
 
 1. **Claude echo**: цитирую распознанную команду + контекст из admin_chat_messages если предоставлен
-2. **Анализ**: какие файлы затрагивает, какая логика, риск (data-loss / breaking change / cosmetic)
+2. **Анализ**: какие файлы затрагивает, какая логика, **риск** (data-loss / breaking change / cosmetic)
 3. **Предложение**: diff или описание изменений с file:line
-4. **Жду явного «да»** от Босса:
-   - «да» / «применяй» / «1 ok» / «✅» — apply + commit + push
-   - «нет» / «отбой» / «1 нет» — discard
-   - вопросы / уточнения от Босса — отвечаю не применяя
+
+Дальше (Eugene 2026-05-20 уточнение «1-3, если рисков нет сразу коммич»):
+
+- 🟢 **Если рисков НЕТ** — apply + commit + push **сразу** после шагов 1-3, без шага «жду да». В отчёте Боссу — SHA + краткое описание.
+- 🔴 **Если есть риск** — шаг 4: жду явного «да» / «применяй» / «1 ok» / «✅».
+  - «нет» / «отбой» / «1 нет» — discard
+  - вопросы / уточнения от Босса — отвечаю не применяя
+
 5. **После apply**: commit message содержит `via=yars-confirmed` и SHA в audit-log
+
+**Что считается «без рисков»** (apply сразу):
+- UI text правки (toast'ы, button labels, placeholders)
+- Стили / цвета / spacing / классы Tailwind
+- Контент (новости, описания, KB texts)
+- Comment / docs правки
+- Bug fix с очевидным root cause (тоже считается no-risk, если fix targeted)
+- Tests без breaking
+- Refactor с явной выгодой и без user-visible regression
+- Новые UI tabs / drawer items / admin widgets
+- Новые endpoints для READ операций
+- Frontend safety guards (Array.isArray, ?., try/catch)
+
+**Что требует confirmation** (🔴, жду «да»):
+- DROP / DELETE / TRUNCATE — любая data-loss SQL
+- ALTER TABLE с потерей данных (DROP COLUMN, change type)
+- Изменения payment endpoints (Robokassa init/refund/result)
+- Изменения security middleware (requireAdmin, requireAuth)
+- Изменения секретов / .env / ротация
+- Force-push, rebase published commits, history rewrite
+- Удаление пользователей / аккаунтов
+- Prod deploy
+- Изменения CI/CD pipelines
+- Изменения которые могут стоить денег провайдерам (массовая Suno/GPTunnel call, bulk SMS)
+- npm install / remove (dependency-change)
+- Core file changes — auth, billing, generations, streaming, payments, playlist, admin core
+
+Простое правило: **по умолчанию apply сразу. Останавливаюсь ТОЛЬКО на жёстком списке выше.**
 
 Какие команды БЕЗ confirmation в этот chat (auto-apply через executeYarsCommand на VPS):
 - ✅ `news_post` — контент-публикация (новость на главной)
