@@ -905,6 +905,60 @@ Audit-сценарий перед коммитом UI-фичи:
 - `pages/landing.tsx` hero — `scan-line` overlay + `neon-text` на «MuzaAi»
 - `pages/login-phone.tsx` / `register-phone.tsx` — `holographic` + `cyber-grid` фон
 
+### Pricing-single-source rule (Eugene 2026-05-20)
+
+**При изменении стоимости любой услуги (генерация трека, обложка, текст, кавер, премиум-подписка, реферальный бонус, любые future SKU) — ОБЯЗАТЕЛЬНО находить ВСЕ места где цена отражена + изменять везде + правила подсчёта списания + учёта баланса.**
+
+Цены в проекте дублируются в нескольких слоях. Один из них пропустить = рассинхрон UI vs реальное списание = жалобы юзеров «нажал кнопку 299₽, списали 399₽».
+
+**Где живут цены (полный реестр — обновлять при каждом изменении):**
+
+| Слой | Файл | Что хранит |
+|---|---|---|
+| Server — централизованный | `apps/neurohub/server/routes.ts` `PRICES` объект | `music: 39900, lyrics: 9900, cover: 9900` (копейки) |
+| Server — UI labels | `apps/neurohub/server/routes.ts` `PRICE_LABELS` | `"399 ₽"` strings для error/transaction descriptions |
+| Server — tariff_history (dynamic) | `apps/neurohub/shared/schema.ts` + `lib/pricing.ts` | Архив изменений с датами (готов, не активирован) |
+| Server — referral | `apps/neurohub/server/routes.ts` `REFERRAL_BONUS` | реферальный bonus |
+| Server — audio cover | `apps/neurohub/server/plugins/audio-upload/module.ts` | `AUDIO_COVER_PRICE_KOPEK` env or hardcoded |
+| Server — max-channel templates | `apps/neurohub/server/plugins/max-channel/module.ts` | per-template price (birthday, wedding, ...) |
+| Server — invoice tariffs | `apps/neurohub/server/lib/muzaTools.ts` `TARIFFS` объект | `track_399`, `topup_500`, etc |
+| Client — main pricing | `apps/neurohub/client/src/pages/music.tsx` `MUSIC_PRICE`, `COVER_PRICE` | Кнопки «Создать песню — N ₽» |
+| Client — chat-помощник | `apps/neurohub/server/lib/consultantPersona.ts` | Якоря цены в LLM prompt |
+| Client — Музa KB | `docs/strategy/KNOWLEDGE-BASE-BOT.md` | KB строки которые Музa цитирует |
+| Client — chatbot fallback | `apps/neurohub/server/plugins/chatbot/module.ts` | Hardcoded ответы про цены |
+| UI — admin pricing tab | `apps/neurohub/client/src/pages/admin/...` (если создан) | Admin viewer текущих цен |
+| Документация | `docs/strategy/ANSWERS.md`, `KNOWLEDGE-BASE-BOT.md`, оферты | Письменные пометки |
+
+**Чек-лист при изменении цены X → Y:**
+
+1. `grep -rn "X" apps/neurohub/server/ apps/neurohub/client/src/` — найти все вхождения
+2. Server PRICES + PRICE_LABELS обновить
+3. Если используется tariff_history (lib/pricing.ts активирован) — `setTariff({serviceType, priceKopecks: NEW, ...})` + audit-log
+4. Client constants (MUSIC_PRICE, COVER_PRICE) обновить
+5. KNOWLEDGE-BASE-BOT.md — все упоминания цены
+6. consultantPersona.ts — якоря цены в LLM prompt
+7. chatbot/module.ts — fallback hardcoded ответы
+8. max-channel templates — price у каждого шаблона
+9. muzaTools.ts TARIFFS — track_NEW
+10. Smoke-test после deploy:
+    - открыть /music → кнопка «Создать песню — NEW ₽»
+    - спросить Музa «сколько стоит трек?» → ответ должен быть NEW
+    - в админке посмотреть transactions — descriptions обновились
+
+**Правила учёта баланса (НЕ меняем без согласования):**
+
+- Все цены в **копейках** (multiplied by 100) в БД (`users.balance`, `PRICES`, `tariff_history.price_kopecks`)
+- При checkAndCharge: `user.balance -= price_kopecks` атомарно через drizzle
+- Bonus tracks (free quota) проверяются ДО списания денег — `if (bonusTracks > 0) { bonusTracks -= 1; free }`
+- Refund при failed generation возвращает price_kopecks обратно в balance + transaction type='refund'
+- Все transactions пишутся в `transactions` таблицу для аудита (admin /transactions)
+
+**Применяется к:** ЛЮБОМУ изменению цены, даже на 1 рубль. Применяется к: новым SKU (новая цена = новая запись tariff_history + регистрация в PRICES + UI labels).
+
+**НЕ применяется к:** временным акциям/промокодам — там отдельный pipeline (discount codes, не меняет базовые PRICES).
+
+**Анти-паттерн который правило закрывает:** в client/music.tsx был hardcoded `299` после server PRICES уже стал 39900 — кнопка показывала «Создать — 299 ₽», списывало 399. Юзер жаловался «не та цена». Pricing-single-source rule заставляет ВСЕГДА при изменении прогонять чек-лист 1-10 выше.
+
 ### Backup-naming rule (Eugene 2026-05-20)
 
 **Файлы backup (любые — БД, .env, authors/, любые архивы проекта) именовать в формате `MuzaAi-Triumph-DDMMYY-HHMM.tar.gz`** (consistent с Triumph-tag rule).

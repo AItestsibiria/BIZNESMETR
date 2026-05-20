@@ -489,6 +489,9 @@ export default function MusicPage() {
   const [coverStyle, setCoverStyle] = useState<"photo" | "illustration" | "abstract" | "minimal">("illustration");
   const [coverPalette, setCoverPalette] = useState<string>("");
   const [coverOpen, setCoverOpen] = useState<boolean>(false); // mini-form раскрытие
+  // Eugene 2026-05-20 Босс «Pricing-single-source rule»: одно место правки цен
+  // в client. При смене — server lib/pricing.ts тоже править (см. CLAUDE.md).
+  const MUSIC_PRICE = 399;
   const COVER_PRICE = 99;
   const [lastPromptText, setLastPromptText] = useState("");
   const [copiedPrompt, setCopiedPrompt] = useState(false);
@@ -1614,7 +1617,7 @@ export default function MusicPage() {
                       <div className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20">
                         <span className="text-amber-400 text-xs">⚡</span>
                         <p className="text-xs text-amber-300/90">
-                          Будет создано <strong>{selectedStyles.length}</strong> кавера в разных стилях. Стоимость: <strong>{selectedStyles.length * 299} ₽</strong>
+                          Будет создано <strong>{selectedStyles.length}</strong> кавера в разных стилях. Стоимость: <strong>{selectedStyles.length * MUSIC_PRICE} ₽</strong>
                         </p>
                       </div>
                     )}
@@ -1792,7 +1795,7 @@ export default function MusicPage() {
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <Label className="text-sm text-muted-foreground">Количество треков за один запуск</Label>
                   <span className="text-xs text-purple-300 font-medium" data-testid="track-count-label">
-                    {selectedStyles.length} из 5 · {selectedStyles.length * 299} ₽
+                    {selectedStyles.length} из 5 · {selectedStyles.length * MUSIC_PRICE} ₽
                   </span>
                 </div>
                 <div className="grid grid-cols-5 gap-1.5" data-testid="track-count-picker">
@@ -2481,7 +2484,7 @@ export default function MusicPage() {
               ) : mode === "basic" ? (
                 <>
                   <Sparkles className="w-5 h-5 text-yellow-200 drop-shadow" />
-                  <span className="tracking-wide">{!prompt.trim() ? "Опишите песню" : `✨ Создать песню — ${299 + (coverEnabled ? COVER_PRICE : 0)} ₽`}</span>
+                  <span className="tracking-wide">{!prompt.trim() ? "Опишите песню" : `✨ Создать песню — ${MUSIC_PRICE + (coverEnabled ? COVER_PRICE : 0)} ₽`}</span>
                 </>
               ) : mode === "audio" ? (
                 <>
@@ -2490,7 +2493,7 @@ export default function MusicPage() {
                   </span>
                   <span className="tracking-wide">{audioUploading ? "Загружаю…"
                     : !audioFile && !audioUploadUrl ? "Запишите голос"
-                    : `🎵 Создать кавер — ${299 + (coverEnabled ? COVER_PRICE : 0)} ₽`}</span>
+                    : `🎵 Создать кавер — ${MUSIC_PRICE + (coverEnabled ? COVER_PRICE : 0)} ₽`}</span>
                 </>
               ) : (
                 <>
@@ -2499,7 +2502,7 @@ export default function MusicPage() {
                     {selectedStyles.length === 0
                       ? "Выберите стиль"
                       : (() => {
-                          const trackTotal = selectedStyles.length * 299;
+                          const trackTotal = selectedStyles.length * MUSIC_PRICE;
                           const grandTotal = trackTotal + (coverEnabled ? COVER_PRICE : 0);
                           return selectedStyles.length > 1
                             ? `✨ Создать ${selectedStyles.length} ${selectedStyles.length <= 4 ? "трека" : "треков"} — ${grandTotal} ₽`
