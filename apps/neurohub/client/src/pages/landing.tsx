@@ -708,19 +708,21 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     // Refresh playlist every 5 minutes — keeps renames, plays, new tracks fresh.
     // Eugene 2026-05-15 Босс «плейлист сам по себе меняется» → используем
     // mergePlaylist, чтобы для random сохранять текущий порядок.
-    const refreshInterval = setInterval(() => {
-      fetch(`/api/playlist?sort=${sortModeRef.current}&dir=${sortDir}&_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).then(data => {
-        mergePlaylist(data);
-      }).catch(() => {});
-    }, 5 * 60 * 1000);
-
-    // Refresh on tab visibility change (user comes back from dashboard)
-    const refetch = () => {
+    // Eugene 2026-05-20: r.ok + Array.isArray guard (frontend-audit fix).
+    const safeMergeRefresh = () => {
       fetch(`/api/playlist?sort=${sortModeRef.current}&dir=${sortDir}&_=${Date.now()}`, { cache: 'no-store' })
-        .then(r => r.json())
-        .then(data => mergePlaylist(data))
-        .catch(() => {});
+        .then(r => {
+          if (!r.ok) throw new Error(`playlist HTTP ${r.status}`);
+          return r.json();
+        })
+        .then(data => {
+          if (Array.isArray(data)) mergePlaylist(data);
+          else console.warn("[playlist refresh] non-array:", data);
+        })
+        .catch((e) => { console.warn("[playlist refresh] failed:", e?.message || e); });
     };
+    const refreshInterval = setInterval(safeMergeRefresh, 5 * 60 * 1000);
+    const refetch = safeMergeRefresh;
     const onVisibilityChange = () => { if (!document.hidden) refetch(); };
     const onFocus = () => refetch();
     const onPlaylistDirty = () => {
@@ -771,12 +773,25 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // загрузке лендинга. Теперь — ротация только по действиям юзера,
   // никакой приоритезации одной песни.
 
-  // Re-fetch when sort mode changes
+  // Re-fetch when sort mode changes.
+  // Eugene 2026-05-20 (frontend-audit fix): добавлен r.ok check + Array.isArray
+  // guard. Раньше при 500-ответе с {error: "..."} setTracks(data) ставил объект
+  // → .map() ниже падал runtime'ом.
   useEffect(() => {
-    fetch(`/api/playlist?status=${playlistKind}&sort=${sortMode}&dir=${sortDir}&_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).then(data => {
-      setTracks(data);
-      setCurrentPage(1);
-    }).catch(() => {});
+    fetch(`/api/playlist?status=${playlistKind}&sort=${sortMode}&dir=${sortDir}&_=${Date.now()}`, { cache: 'no-store' })
+      .then(r => {
+        if (!r.ok) throw new Error(`playlist HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(data => {
+        if (!Array.isArray(data)) {
+          console.warn("[playlist] non-array response:", data);
+          return;
+        }
+        setTracks(data);
+        setCurrentPage(1);
+      })
+      .catch((e) => { console.warn("[playlist] fetch failed:", e?.message || e); });
   }, [sortMode, sortDir, playlistKind]);
 
   // Eugene 2026-05-15: persist playlistKind. Skip-first — см. комментарий

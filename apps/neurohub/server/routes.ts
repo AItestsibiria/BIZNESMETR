@@ -3391,6 +3391,81 @@ export async function registerRoutes(
     }
   });
 
+  // Eugene 2026-05-20 Босс через admin-support-audit subagent: «отметить
+  // решено» для group_key — все записи группы становятся resolved.
+  // Body: {note: string, olderThanIso?: string} — если olderThanIso задан,
+  // резолвим только записи старше этой даты (полезно если хочешь не задеть
+  // свежие повторения той же ошибки).
+  app.post("/api/admin/v304/user-failures/group/:key/resolve", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const key = String(req.params.key || "");
+      if (!key) return res.status(400).json({ ok: false, error: "group_key required" });
+      const note = String(req.body?.note || "").trim().slice(0, 500);
+      if (!note) return res.status(400).json({ ok: false, error: "note required (что сделал)" });
+      const olderThanIso = req.body?.olderThanIso ? String(req.body.olderThanIso) : null;
+      const adminUserId = (req as any).userId ?? null;
+      const nowMs = Date.now();
+      const raw = (db as any).$client;
+      let result: any;
+      if (olderThanIso) {
+        result = raw.prepare(`
+          UPDATE user_action_failures
+          SET resolved_at = ?, resolved_note = ?, resolved_by_user_id = ?
+          WHERE group_key = ? AND resolved_at IS NULL AND created_at < ?
+        `).run(nowMs, note, adminUserId, key, olderThanIso);
+      } else {
+        result = raw.prepare(`
+          UPDATE user_action_failures
+          SET resolved_at = ?, resolved_note = ?, resolved_by_user_id = ?
+          WHERE group_key = ? AND resolved_at IS NULL
+        `).run(nowMs, note, adminUserId, key);
+      }
+      const changes = Number(result?.changes ?? 0);
+      // Audit-log
+      try {
+        raw.prepare(`
+          INSERT INTO admin_audit_log (admin_user_id, action, entity, entity_key, before_json, after_json)
+          VALUES (?, 'update', 'user_action_failures:group_resolve', ?, ?, ?)
+        `).run(adminUserId, key, null, JSON.stringify({ note, changes, olderThanIso }));
+      } catch {}
+      res.json({ ok: true, groupKey: key, resolved: changes, note, resolvedAt: nowMs });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  // Bulk-dismiss endpoint для эскалаций (admin-support-audit subagent reco):
+  // одним запросом dismiss всех open эскалаций старше определённой даты.
+  app.post("/api/admin/v304/escalations/bulk-dismiss", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const olderThanIso = req.body?.olderThanIso ? String(req.body.olderThanIso) : null;
+      const reason = String(req.body?.reason || "").trim().slice(0, 200) || "bulk-dismissed by admin";
+      if (!olderThanIso) return res.status(400).json({ ok: false, error: "olderThanIso required" });
+      const adminUserId = (req as any).userId ?? null;
+      const nowMs = Date.now();
+      const olderThanMs = (() => {
+        try { return new Date(olderThanIso).getTime(); } catch { return 0; }
+      })();
+      if (!olderThanMs) return res.status(400).json({ ok: false, error: "invalid olderThanIso" });
+      const raw = (db as any).$client;
+      const result: any = raw.prepare(`
+        UPDATE escalation_queue
+        SET status = 'dismissed', dismiss_reason = ?, resolved_at = ?, assigned_to_user_id = ?
+        WHERE status = 'open' AND created_at < ?
+      `).run(reason, nowMs, adminUserId, olderThanMs);
+      const changes = Number(result?.changes ?? 0);
+      try {
+        raw.prepare(`
+          INSERT INTO admin_audit_log (admin_user_id, action, entity, entity_key, before_json, after_json)
+          VALUES (?, 'update', 'escalation_queue:bulk_dismiss', ?, ?, ?)
+        `).run(adminUserId, `older_than:${olderThanIso}`, null, JSON.stringify({ reason, dismissed: changes }));
+      } catch {}
+      res.json({ ok: true, dismissed: changes, reason, olderThanIso });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
   // Eugene 2026-05-15 Босс «Связывай»: сквозной view диалогов одного юзера
   // через все каналы (TG/Web/Max). Возвращает все его сессии + merged
   // messages timeline. Используется в admin UI.

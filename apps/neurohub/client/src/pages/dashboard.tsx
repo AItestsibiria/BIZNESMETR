@@ -1026,6 +1026,11 @@ function formatDur(seconds: number): string {
 }
 
 function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onUpdate?: () => void }) {
+  // Eugene 2026-05-20 (frontend-audit fix): MyPlaylist использовал `toast()`
+  // в 5 местах (1434/1582/1868/1917/2013/2020) без useToast() hook → runtime
+  // crash «toast is not defined». ROOT CAUSE: hook был забыт при extract'е
+  // компонента из DashboardPage. ФИКС: явный useToast() в начале.
+  const { toast } = useToast();
   const [, navigate] = useLocation();
   const [playingId, setPlayingId] = useState<number | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
@@ -3958,7 +3963,10 @@ export default function DashboardPage() {
                         try {
                           await queryClient.refetchQueries({ predicate: (q: any) => Array.isArray(q.queryKey) && q.queryKey[0] === "/api/generations" });
                         } catch (e) { console.error("refetch failed", e); }
-                        try { onUpdate?.(); } catch {}
+                        // Eugene 2026-05-20: убрано onUpdate?.() — `onUpdate`
+                        // не в scope DashboardPage (был copy-paste из MyPlaylist).
+                        // refetchQueries выше и playlistDirty ниже достаточно
+                        // для обновления UI.
                         try { sessionStorage.setItem('playlistDirty', '1'); } catch {}
                         toast({ title: "Название изменено" });
                       } else {

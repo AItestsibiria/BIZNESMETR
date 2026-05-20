@@ -905,8 +905,13 @@ export function MusaVoiceFab() {
       recorder = pickedMime
         ? new MediaRecorder(stream, { mimeType: pickedMime })
         : new MediaRecorder(stream);
-      // eslint-disable-next-line no-console
-      console.log("[voice-fab] mimeType:", pickedMime || "default", "/ recorder.state:", recorder.state);
+      // Eugene 2026-05-20: gate diagnostic log по dev-режиму чтобы не шуметь
+      // в DevTools у Босса в проде. Можно включить через localStorage:
+      //   localStorage.setItem('muza-voice-debug', '1')
+      if (import.meta.env.DEV || (typeof window !== "undefined" && window.localStorage?.getItem("muza-voice-debug") === "1")) {
+        // eslint-disable-next-line no-console
+        console.log("[voice-fab] mimeType:", pickedMime || "default", "/ recorder.state:", recorder.state);
+      }
     } catch (e) {
       // eslint-disable-next-line no-console
       console.error("[voice-fab] MediaRecorder ctor failed:", e);
@@ -924,8 +929,10 @@ export function MusaVoiceFab() {
       // ffmpeg попробует распарсить mp4 как webm и упадёт.
       const blobMime = pickedMime || recorder.mimeType || "audio/webm";
       const blob = new Blob(chunksRef.current, { type: blobMime });
-      // eslint-disable-next-line no-console
-      console.log("[voice-fab] blob size:", blob.size, "mime:", blobMime);
+      if (import.meta.env.DEV || (typeof window !== "undefined" && window.localStorage?.getItem("muza-voice-debug") === "1")) {
+        // eslint-disable-next-line no-console
+        console.log("[voice-fab] blob size:", blob.size, "mime:", blobMime);
+      }
       chunksRef.current = [];
       // Eugene 2026-05-17: снизил threshold с 500 → 200 байт (≈0.3 сек),
       // 1 сек был слишком строгим — короткие команды «доложи» / «открой»

@@ -178,6 +178,19 @@ try {
     console.warn("[BOOTSTRAP] payments.invoice_id alter failed:", (e as Error).message);
   }
 
+  // Eugene 2026-05-20: user_action_failures.resolved_at + resolved_note + resolved_by_user_id.
+  // Босс может «отметить решено» group_key — все записи группы становятся resolved.
+  try {
+    const uafCols = sqlite.prepare("PRAGMA table_info(user_action_failures)").all() as { name: string }[];
+    const ucn = uafCols.map(c => c.name);
+    if (!ucn.includes("resolved_at")) sqlite.exec("ALTER TABLE user_action_failures ADD COLUMN resolved_at INTEGER");
+    if (!ucn.includes("resolved_note")) sqlite.exec("ALTER TABLE user_action_failures ADD COLUMN resolved_note TEXT");
+    if (!ucn.includes("resolved_by_user_id")) sqlite.exec("ALTER TABLE user_action_failures ADD COLUMN resolved_by_user_id INTEGER");
+    sqlite.exec("CREATE INDEX IF NOT EXISTS user_action_failures_resolved_idx ON user_action_failures(resolved_at)");
+  } catch (e) {
+    console.warn("[BOOTSTRAP] user_action_failures resolved alter failed:", (e as Error).message);
+  }
+
   // SMS OTP-коды (отдельная таблица для register/login flow — без юзера ещё).
   // Eugene 2026-05-15 Босс. Hash код, не plain (защита от leak data.db).
   sqlite.exec(`
@@ -693,6 +706,8 @@ try {
     CREATE INDEX IF NOT EXISTS user_action_failures_group_idx ON user_action_failures(group_key, created_at DESC);
     CREATE INDEX IF NOT EXISTS user_action_failures_user_idx ON user_action_failures(user_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS user_action_failures_created_idx ON user_action_failures(created_at DESC);
+    -- Eugene 2026-05-20: resolved_at + resolved_note для mark-as-handled.
+    -- Раньше таблица была append-only — Босс не мог отметить «разобрался».
 
     -- Eugene 2026-05-17 Босс «Ярс — это я, расширь логирование + Telegram alert».
     -- Каждое упоминание «Ярс»/«yars» (word-boundary) в любом канале (telegram,

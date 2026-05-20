@@ -3965,6 +3965,22 @@ function ConversationDrawer({ sessionId, onClose, toast }: { sessionId: string; 
                    delivered === "db_only"  ? "Сохранено (Web — юзер увидит при следующем poll)" :
                                               `Не доставлено: ${j?.deliveryError || "?"}`;
       toast({ title: "Сообщение отправлено", description: note });
+      // Eugene 2026-05-20 (backend-audit fix): показывать mismatch если
+      // auto-apply admin-команды не сработал (ADMIN_TRUSTED_IPS empty или
+      // IP не в whitelist). Раньше Босс не видел почему «диалог не происходит».
+      const adminMsg = j?.adminMessage;
+      if (adminMsg && adminMsg.recorded && !adminMsg.authorized && adminMsg.mismatch) {
+        toast({
+          title: "⚠ Auto-apply отключён",
+          description: adminMsg.mismatch,
+          variant: "destructive",
+        });
+      } else if (adminMsg && adminMsg.applied && Array.isArray(adminMsg.appliedActions)) {
+        toast({
+          title: "✓ Применено автоматически",
+          description: adminMsg.appliedActions.slice(0, 3).join("; "),
+        });
+      }
       refetch();
     },
     onError: (e: any) => toast({ title: "Ошибка отправки", description: String(e?.message || e), variant: "destructive" }),
