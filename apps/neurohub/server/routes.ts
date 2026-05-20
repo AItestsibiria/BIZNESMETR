@@ -9847,8 +9847,60 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         return;
       }
 
-      const { amount, method: rawMethod } = req.body; // amount in rubles, method = 'card' | 'sbp' (опционально)
-      const sumRubles = Number(amount);
+      // Eugene 2026-05-20 Босс «счёт можно тоже в нём выписывать». Если
+      // передан invoiceId — берём amount/description из invoices, юзер только
+      // подтверждает оплату. invoiceId должен принадлежать тому же userId,
+      // быть в status='issued', не expired.
+      const { amount, method: rawMethod, invoiceId: rawInvoiceId } = req.body;
+      let resolvedInvoice: any = null;
+      let resolvedDescription: string | null = null;
+      let sumRubles: number;
+
+      if (rawInvoiceId) {
+        const invoiceIdNum = Number(rawInvoiceId);
+        if (!Number.isFinite(invoiceIdNum)) {
+          res.status(400).json({ message: "Невалидный invoiceId" });
+          return;
+        }
+        try {
+          resolvedInvoice = (db as any).$client.prepare(`
+            SELECT id, user_id, amount_rub, description, tariff_key, status,
+                   expires_at
+            FROM invoices WHERE id = ?
+          `).get(invoiceIdNum);
+        } catch {}
+        if (!resolvedInvoice) {
+          res.status(404).json({ message: "Счёт не найден" });
+          return;
+        }
+        if (resolvedInvoice.user_id !== userId) {
+          logUserActionFailure({
+            userId, channel: "web", action: "robokassa_init", statusCode: 403,
+            errorCode: "invoice_not_owned",
+            errorMessage: `Invoice #${invoiceIdNum} принадлежит другому юзеру`,
+            endpoint: "/api/payment/create",
+          });
+          res.status(403).json({ message: "Этот счёт выписан не вам" });
+          return;
+        }
+        if (resolvedInvoice.status !== "issued") {
+          res.status(400).json({ message: `Счёт уже ${resolvedInvoice.status}` });
+          return;
+        }
+        if (resolvedInvoice.expires_at && new Date(resolvedInvoice.expires_at).getTime() < Date.now()) {
+          // Auto-mark expired
+          try {
+            (db as any).$client.prepare(`UPDATE invoices SET status='expired' WHERE id = ?`).run(invoiceIdNum);
+          } catch {}
+          res.status(400).json({ message: "Срок действия счёта истёк" });
+          return;
+        }
+        sumRubles = Number(resolvedInvoice.amount_rub);
+        resolvedDescription = String(resolvedInvoice.description || "").slice(0, 200);
+      } else {
+        sumRubles = Number(amount);
+      }
+
       if (!sumRubles || sumRubles < 10 || sumRubles > 50000) {
         logUserActionFailure({
           userId, channel: "web", action: "robokassa_init", statusCode: 400,
@@ -9880,7 +9932,9 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       }
 
       const invId = getNextInvId();
-      const description = `Пополнение баланса MuzaAi: ${sumRubles} ₽`;
+      const description = resolvedDescription
+        ? `${resolvedDescription} (счёт #${resolvedInvoice.id})`
+        : `Пополнение баланса MuzaAi: ${sumRubles} ₽`;
       const outSum = sumRubles.toFixed(2);
 
       // 54-ФЗ Receipt — обязательный для услуг с предоплатой (ст. 4.7 ФЗ-54).
@@ -9906,6 +9960,8 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         status: "pending",
         description,
         roboData: JSON.stringify({ method, incCurrLabel, receipt }),
+        // Eugene 2026-05-20: если это оплата Музa-выписанного счёта.
+        invoiceId: resolvedInvoice ? resolvedInvoice.id : null,
       }).run();
 
       // Shp_* extras — отсортированы алфавитно, добавляются в подпись и в URL.
@@ -10040,19 +10096,109 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       const amountKopecks = Math.round(parseFloat(OutSum) * 100);
       const userId = parseInt(Shp_userId);
 
+      // Eugene 2026-05-20: сохраняем invoiceId ДО overwrite roboData.
+      const invoiceIdForFulfillment = (payment as any).invoiceId ?? null;
+
       // Update payment status
       db.update(payments).set({ status: "paid", roboData: JSON.stringify(req.body) }).where(eq(payments.invId, invIdNum)).run();
 
-      // Credit user balance
-      storage.updateBalance(userId, amountKopecks);
-      storage.createTransaction({
-        userId,
-        type: "topup",
-        amount: amountKopecks,
-        description: `Оплата картой: ${OutSum} ₽ (счёт #${InvId})`,
-      });
+      // Eugene 2026-05-20 Босс «счёт можно тоже выписывать» + premium-подписка.
+      // Если это оплата Музa-выписанного счёта — НЕ кредитим balance, а делаем
+      // fulfillment по tariff_key (subscription activation / track-credit / topup).
+      if (invoiceIdForFulfillment) {
+        try {
+          const inv: any = (db as any).$client.prepare(`
+            SELECT id, user_id, amount_rub, description, tariff_key, status
+            FROM invoices WHERE id = ?
+          `).get(invoiceIdForFulfillment);
+          if (inv && inv.status !== "paid") {
+            const nowIso = new Date().toISOString();
+            (db as any).$client.prepare(`
+              UPDATE invoices
+              SET status = 'paid', paid_at = ?, robokassa_inv_id = ?
+              WHERE id = ?
+            `).run(nowIso, String(InvId), invoiceIdForFulfillment);
 
-      console.log(`[PAYMENT RESULT] SUCCESS! User ${userId} credited ${OutSum} ₽`);
+            // Tariff → subscription mapping. 30 дней дефолт для всех premium-tier.
+            const TARIFF_TO_TIER: Record<string, { tier: string; days: number }> = {
+              premium_voice_msg: { tier: "voice_messages", days: 30 },
+              // Будущие: premium_pro → { tier: 'pro', days: 30 }
+            };
+            const subSpec = TARIFF_TO_TIER[String(inv.tariff_key || "")];
+
+            if (subSpec) {
+              // Активация / продление подписки. Если есть active —
+              // expires_at = max(existing.expires_at, now) + days.
+              const existing: any = (db as any).$client.prepare(`
+                SELECT id, expires_at, status FROM premium_subscriptions
+                WHERE user_id = ? AND tier = ?
+                ORDER BY id DESC LIMIT 1
+              `).get(inv.user_id, subSpec.tier);
+              const now = Date.now();
+              const baseMs = existing && existing.expires_at && existing.status === "active"
+                ? Math.max(new Date(existing.expires_at).getTime(), now)
+                : now;
+              const expiresAt = new Date(baseMs + subSpec.days * 24 * 60 * 60 * 1000).toISOString();
+              if (existing) {
+                (db as any).$client.prepare(`
+                  UPDATE premium_subscriptions
+                  SET status = 'active', started_at = COALESCE(started_at, ?),
+                      expires_at = ?, invoice_id = ?, updated_at = ?
+                  WHERE id = ?
+                `).run(nowIso, expiresAt, invoiceIdForFulfillment, nowIso, existing.id);
+              } else {
+                (db as any).$client.prepare(`
+                  INSERT INTO premium_subscriptions
+                    (user_id, tier, status, started_at, expires_at, invoice_id)
+                  VALUES (?, ?, 'active', ?, ?, ?)
+                `).run(inv.user_id, subSpec.tier, nowIso, expiresAt, invoiceIdForFulfillment);
+              }
+              storage.createTransaction({
+                userId: inv.user_id,
+                type: "topup",
+                amount: 0,
+                description: `💎 Премиум-подписка ${subSpec.tier} активна до ${expiresAt.slice(0, 10)} (счёт #${inv.id})`,
+              });
+              console.log(`[INVOICE PAID] Subscription ${subSpec.tier} active for user #${inv.user_id} until ${expiresAt}`);
+            } else if (String(inv.tariff_key || "").startsWith("topup_") || inv.tariff_key === "custom") {
+              // Topup-tariff — credit balance как обычно.
+              storage.updateBalance(inv.user_id, inv.amount_rub * 100);
+              storage.createTransaction({
+                userId: inv.user_id,
+                type: "topup",
+                amount: inv.amount_rub * 100,
+                description: `Счёт #${inv.id}: ${inv.description}`,
+              });
+              console.log(`[INVOICE PAID] Topup ${inv.amount_rub}₽ for user #${inv.user_id}`);
+            } else {
+              // track_399 и прочее — credit balance (тариф пойдёт на следующую генерацию).
+              storage.updateBalance(inv.user_id, inv.amount_rub * 100);
+              storage.createTransaction({
+                userId: inv.user_id,
+                type: "topup",
+                amount: inv.amount_rub * 100,
+                description: `Счёт #${inv.id}: ${inv.description}`,
+              });
+              console.log(`[INVOICE PAID] ${inv.tariff_key} ${inv.amount_rub}₽ → balance for user #${inv.user_id}`);
+            }
+          }
+        } catch (e) {
+          console.error("[INVOICE FULFILLMENT] failed:", (e as Error).message);
+          // Не возвращаем ошибку Robokassa — деньги уже списаны. Админ разберёт
+          // через admin_chat_messages / invoices status.
+        }
+      } else {
+        // Старая логика — топ-ап balance.
+        storage.updateBalance(userId, amountKopecks);
+        storage.createTransaction({
+          userId,
+          type: "topup",
+          amount: amountKopecks,
+          description: `Оплата картой: ${OutSum} ₽ (счёт #${InvId})`,
+        });
+      }
+
+      console.log(`[PAYMENT RESULT] SUCCESS! User ${userId} paid ${OutSum} ₽${invoiceIdForFulfillment ? ` (invoice #${invoiceIdForFulfillment})` : ""}`);
 
       // BACKEND-14 fix Eugene 14:27: atomic flag-set чтобы parallel webhooks
       // не дали бонус дважды. UPDATE WHERE referralBonusGiven=0 — changes=1

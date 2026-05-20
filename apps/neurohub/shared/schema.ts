@@ -120,6 +120,10 @@ export const payments = sqliteTable("payments", {
   status: text("status").notNull().default("pending"), // pending, paid, failed
   description: text("description"),
   roboData: text("robo_data"), // JSON response from Robokassa
+  // Eugene 2026-05-20: связь с Музa-выписанным счётом (invoices.id). Если не
+  // NULL — payment-result handler НЕ кредитит balance, а делает fulfillment
+  // по invoice.tariff_key (premium_subscription / track / topup).
+  invoiceId: integer("invoice_id"),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 

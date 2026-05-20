@@ -167,6 +167,17 @@ try {
     console.warn("[BOOTSTRAP] chatbot_messages audio alter failed:", (e as Error).message);
   }
 
+  // Eugene 2026-05-20: payments.invoice_id — связь с Музa-выписанным счётом.
+  // Если NOT NULL → /api/payment/result делает fulfillment по invoice.tariff_key
+  // (активация premium-подписки / track-кредит), вместо обычного topup balance.
+  try {
+    const payCols = sqlite.prepare("PRAGMA table_info(payments)").all() as { name: string }[];
+    const pcn = payCols.map(c => c.name);
+    if (!pcn.includes("invoice_id")) sqlite.exec("ALTER TABLE payments ADD COLUMN invoice_id INTEGER");
+  } catch (e) {
+    console.warn("[BOOTSTRAP] payments.invoice_id alter failed:", (e as Error).message);
+  }
+
   // SMS OTP-коды (отдельная таблица для register/login flow — без юзера ещё).
   // Eugene 2026-05-15 Босс. Hash код, не plain (защита от leak data.db).
   sqlite.exec(`

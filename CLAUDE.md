@@ -1326,11 +1326,23 @@ Schema:
 - `premium_subscriptions` table — `tier` (`voice_messages` | future tiers), `status` (`pending`/`active`/`expired`/`cancelled`), `invoice_id` FK
 - `invoices` table — Музa-issued счета (см. Muza-cabinet-management rule).
 
-Цепочка покупки:
+Цепочка покупки (полностью wired в `/api/payment/result` от 20.05):
 1. Юзер: «Хочу аудио-сообщения от Музы»
-2. Музa вызывает `issue_invoice({tariff: "premium_voice_msg", description: "..."})` → возвращает Robokassa-link
-3. Юзер оплачивает → Robokassa callback → `invoices.status='paid'` + `premium_subscriptions.status='active'` (cron / event-handler — отдельный шаг wiring)
-4. Frontend gate: при `audio_premium_only=1` показывать только если у юзера active-подписка ИЛИ role=admin
+2. Музa вызывает `issue_invoice({tariff: "premium_voice_msg", description: "..."})` → `invoices` record + URL `/api/invoice/:id/pay`
+3. Юзер открывает URL → `POST /api/payment/create {invoiceId}` → загружает invoice → Robokassa redirect (amount, description из invoice)
+4. Юзер платит → Robokassa Result callback → `payment.status='paid'`:
+   - Если `payment.invoice_id NOT NULL` — fulfillment по `invoice.tariff_key`:
+     * `premium_voice_msg` → `premium_subscriptions.status='active'`, `expires_at=+30d` (продление при активной)
+     * `topup_*` / `custom` → credit balance + topup-transaction
+     * `track_399` etc → credit balance
+   - Иначе — старая логика topup balance
+5. Frontend gate: при `audio_premium_only=1` показывать только если `premium_subscriptions.status='active'` ИЛИ role=admin
+
+Tariff → tier mapping в `routes.ts` (TARIFF_TO_TIER):
+- `premium_voice_msg` → `voice_messages`, 30 дней
+- (Будущие tier'ы добавляются туда же)
+
+Idempotency: `if (invoice.status === 'paid') skip` — повторные Robokassa retries не дублируют activation.
 
 Применяется к: chatbot_messages с audio_url. НЕ применяется к: текстовым сообщениям, музыкальным трекам (генерация — отдельная экономика per-track).
 
