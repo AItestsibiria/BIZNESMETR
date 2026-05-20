@@ -58,70 +58,98 @@ function joinList(items: string[]): string {
 }
 
 /**
- * Собирает короткий русский доклад для TTS-озвучки.
- * Текст: 4-7 предложений, ~30-60 секунд при чтении голосом alena.
+ * Собирает русский доклад для TTS-озвучки.
+ *
+ * Eugene 2026-05-20 Босс «расширь доклад, в сухом режиме без деталей,
+ * по мере уменьшения». Расширено с 4-7 до всех значимых метрик. Сортируется
+ * по убыванию value. Robokassa-блок скрывается пока ROBO_PASSWORD_1 пуст.
  */
 export function buildAdminBriefing(src: BriefingSource): string {
   const parts: string[] = [];
   const period = PERIOD_RU[src.period || ""] || "за последние семь дней";
 
-  parts.push("Здравствуй, Босс. Это Муза с докладом.");
+  parts.push("Босс, доклад", `${period}.`);
+  parts.push("Сухо, по убыванию.");
 
-  // === Состояние систем ===
+  // === Состояние систем (коротко: сколько зелёных / жёлтых / красных) ===
   const cards = Array.isArray(src.statusCards) ? src.statusCards : [];
-  const red = cards.filter((c) => c.status === "red");
-  const yellow = cards.filter((c) => c.status === "yellow");
 
-  if (red.length === 0 && yellow.length === 0 && cards.length > 0) {
-    parts.push("Все системы работают нормально.");
+  // Eugene 2026-05-20: убираем Robokassa пока ключи не подключены —
+  // карточка "payments" перегружает доклад если ROBO_PASSWORD_1 пуст.
+  const roboConfigured = Boolean((process.env.ROBO_PASSWORD_1 || "").trim());
+  const filteredCards = cards.filter((c) => {
+    if (roboConfigured) return true;
+    const k = String(c.key || "").toLowerCase();
+    const l = String(c.label || "").toLowerCase();
+    return !(k.includes("payment") || k.includes("robokassa") || l.includes("платеж") || l.includes("robo"));
+  });
+
+  const red = filteredCards.filter((c) => c.status === "red");
+  const yellow = filteredCards.filter((c) => c.status === "yellow");
+  const green = filteredCards.filter((c) => c.status === "green");
+
+  if (red.length === 0 && yellow.length === 0 && filteredCards.length > 0) {
+    parts.push(`Все ${filteredCards.length} ${pluralRu(filteredCards.length, "система", "системы", "систем")} зелёные.`);
   } else {
     if (red.length > 0) {
-      const names = joinList(red.map((c) => c.label));
-      parts.push(`Внимание: проблемы в группах ${names}.`);
+      parts.push(`Красных: ${red.length} — ${joinList(red.map((c) => c.label))}.`);
     }
     if (yellow.length > 0) {
-      const names = joinList(yellow.map((c) => c.label));
-      parts.push(`Предупреждения по группам ${names}.`);
+      parts.push(`Жёлтых: ${yellow.length} — ${joinList(yellow.map((c) => c.label))}.`);
+    }
+    if (green.length > 0) {
+      parts.push(`Зелёных: ${green.length}.`);
     }
   }
 
-  // === Метрики ===
+  // === Метрики по убыванию (sort desc by value) ===
   const m = src.metrics || {};
-  const metricBits: string[] = [];
-  const regs = num(m.registrations?.total);
-  if (regs > 0) metricBits.push(`${regs} ${pluralRu(regs, "регистрация", "регистрации", "регистраций")}`);
-  const plays = num(m.plays?.total);
-  if (plays > 0) metricBits.push(`${plays} ${pluralRu(plays, "прослушивание", "прослушивания", "прослушиваний")}`);
-  const gens =
-    num(m.generations?.music?.done) +
-    num(m.generations?.lyrics?.done) +
-    num(m.generations?.cover?.done);
-  if (gens > 0) metricBits.push(`${gens} ${pluralRu(gens, "генерация", "генерации", "генераций")}`);
-  const visits = num(m.visitors?.unique);
-  if (visits > 0) metricBits.push(`${visits} ${pluralRu(visits, "посетитель", "посетителя", "посетителей")}`);
+  type MetricBit = { value: number; phrase: string };
+  const bits: MetricBit[] = [];
 
-  if (metricBits.length > 0) {
-    parts.push(`${capitalize(period)}: ${joinList(metricBits)}.`);
-  }
+  const push = (value: number, phrase: string) => {
+    if (value > 0) bits.push({ value, phrase });
+  };
 
-  // === Платежи ===
-  const payCount = num(m.payments?.count);
-  const payKop = num(m.payments?.sumKopecks);
-  if (payCount > 0 || payKop > 0) {
-    const rub = Math.round(payKop / 100);
-    parts.push(
-      `Оплат ${payCount} на сумму ${rub} ${pluralRu(rub, "рубль", "рубля", "рублей")}.`,
-    );
-  }
+  push(num(m.visitors?.unique), `${num(m.visitors?.unique)} ${pluralRu(num(m.visitors?.unique), "посетитель", "посетителя", "посетителей")}`);
+  push(num(m.plays?.total), `${num(m.plays?.total)} ${pluralRu(num(m.plays?.total), "прослушивание", "прослушивания", "прослушиваний")}`);
+  push(num(m.plays?.unique), `${num(m.plays?.unique)} уникальных слушателей`);
+  push(num(m.downloads?.count), `${num(m.downloads?.count)} ${pluralRu(num(m.downloads?.count), "скачивание", "скачивания", "скачиваний")}`);
+  push(num(m.registrations?.total), `${num(m.registrations?.total)} ${pluralRu(num(m.registrations?.total), "регистрация", "регистрации", "регистраций")}`);
 
-  // === Ошибки генераций ===
+  const musicDone = num(m.generations?.music?.done);
+  const lyricsDone = num(m.generations?.lyrics?.done);
+  const coverDone = num(m.generations?.cover?.done);
+  push(musicDone, `${musicDone} ${pluralRu(musicDone, "трек", "трека", "треков")} сгенерировано`);
+  push(lyricsDone, `${lyricsDone} ${pluralRu(lyricsDone, "текст", "текста", "текстов")}`);
+  push(coverDone, `${coverDone} ${pluralRu(coverDone, "обложка", "обложки", "обложек")}`);
+
   const errMusic = num(m.generations?.music?.error);
-  if (errMusic > 0) {
-    parts.push(`Ошибок генерации музыки: ${errMusic}. Проверь refund pipeline.`);
+  push(errMusic, `${errMusic} ${pluralRu(errMusic, "ошибка", "ошибки", "ошибок")} генерации`);
+
+  // === Платежи — только если Robokassa подключена ===
+  if (roboConfigured) {
+    const payCount = num(m.payments?.count);
+    const payKop = num(m.payments?.sumKopecks);
+    if (payCount > 0) {
+      push(payCount, `${payCount} ${pluralRu(payCount, "оплата", "оплаты", "оплат")}`);
+    }
+    if (payKop > 0) {
+      const rub = Math.round(payKop / 100);
+      push(rub, `${rub} ${pluralRu(rub, "рубль", "рубля", "рублей")} выручки`);
+    }
+  }
+
+  // Sort desc by value, output all (по правилу «пока не доест»).
+  bits.sort((a, b) => b.value - a.value);
+  if (bits.length > 0) {
+    parts.push(bits.map((b) => b.phrase).join(". ") + ".");
+  } else {
+    parts.push("Метрики нулевые.");
   }
 
   parts.push("Доклад окончен.");
-  return parts.join(" ");
+  return parts.filter(Boolean).join(" ");
 }
 
 // === Русские числительные ===
