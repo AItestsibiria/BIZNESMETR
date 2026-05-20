@@ -4660,6 +4660,200 @@ export async function registerRoutes(
     }
   });
 
+  // ============================================================
+  // Eugene 2026-05-20 (subagent setup-max) — admin Max endpoints
+  // ============================================================
+  //
+  // GET  /api/admin/v304/max/status          — статус канала + recent messages
+  // POST /api/admin/v304/max/register-webhook — пере-регистрация webhook у Max
+  // POST /api/admin/v304/max/test-message    — отправка test message конкретному
+  //                                            юзеру (для verify token + chat_id)
+
+  app.get("/api/admin/v304/max/status", requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const token = process.env.MAX_BOT_TOKEN || "";
+      const secret = process.env.MAX_WEBHOOK_SECRET || "";
+      const apiBase = process.env.MAX_API_BASE || "https://botapi.max.ru";
+      let me: any = null;
+      let meError: string | null = null;
+      if (token) {
+        try {
+          const r = await fetch(`${apiBase}/me`, {
+            headers: { Authorization: token },
+            signal: AbortSignal.timeout(8_000),
+          });
+          if (r.ok) {
+            me = await r.json().catch(() => null);
+          } else {
+            meError = `HTTP ${r.status}`;
+          }
+        } catch (e: any) {
+          meError = String(e?.message || e).slice(0, 200);
+        }
+      }
+      const recentSessions = db.all<any>(sql`
+        SELECT id, external_id, user_id, last_message_at, persona_name,
+          (SELECT COUNT(*) FROM chatbot_messages WHERE session_id = chatbot_sessions.id) AS msg_count
+        FROM chatbot_sessions
+        WHERE channel = 'max'
+        ORDER BY last_message_at DESC
+        LIMIT 20
+      `) as any[];
+      const counts = db.get<any>(sql`
+        SELECT
+          (SELECT COUNT(*) FROM chatbot_messages cm
+            JOIN chatbot_sessions cs ON cs.id = cm.session_id
+            WHERE cs.channel = 'max' AND cm.created_at >= datetime('now','-1 hour')) AS h1,
+          (SELECT COUNT(*) FROM chatbot_messages cm
+            JOIN chatbot_sessions cs ON cs.id = cm.session_id
+            WHERE cs.channel = 'max' AND cm.created_at >= datetime('now','-1 day')) AS d1
+      `) as any;
+      const recentMessages = db.all<any>(sql`
+        SELECT cm.id, cm.session_id, cm.role, cm.text, cm.created_at, cm.attached_track_id, cs.external_id
+        FROM chatbot_messages cm
+        JOIN chatbot_sessions cs ON cs.id = cm.session_id
+        WHERE cs.channel = 'max'
+        ORDER BY cm.id DESC
+        LIMIT 20
+      `) as any[];
+      res.json({
+        data: {
+          configured: !!token,
+          webhookSecretConfigured: !!secret,
+          apiBase,
+          me,
+          meError,
+          counts: {
+            messagesLastHour: Number(counts?.h1 || 0),
+            messagesLast24h: Number(counts?.d1 || 0),
+            sessionsTotal: recentSessions.length,
+          },
+          recentSessions: recentSessions.map((s: any) => ({
+            sessionId: s.id,
+            externalId: s.external_id,
+            userId: s.user_id,
+            lastMessageAt: s.last_message_at,
+            personaName: s.persona_name,
+            msgCount: Number(s.msg_count || 0),
+          })),
+          recentMessages: recentMessages.reverse().map((m: any) => ({
+            id: m.id,
+            sessionId: m.session_id,
+            externalId: m.external_id,
+            role: m.role,
+            text: String(m.text || "").slice(0, 300),
+            attachedTrackId: m.attached_track_id || null,
+            createdAt: m.created_at,
+          })),
+        },
+        error: null,
+      });
+    } catch (e: any) {
+      console.error("[admin/v304/max/status]", e);
+      res.status(500).json({ data: null, error: "internal error" });
+    }
+  });
+
+  app.post("/api/admin/v304/max/register-webhook", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const token = process.env.MAX_BOT_TOKEN || "";
+      if (!token) {
+        return res.status(400).json({ data: null, error: "MAX_BOT_TOKEN не задан" });
+      }
+      const apiBase = process.env.MAX_API_BASE || "https://botapi.max.ru";
+      const explicitUrl = String((req.body || {}).url || process.env.MAX_WEBHOOK_URL || "");
+      const baseUrl = process.env.PUBLIC_BASE_URL || "https://muzaai.ru";
+      const url = explicitUrl || `${baseUrl}/api/max-bot/webhook`;
+      if (!url.startsWith("https://")) {
+        return res.status(400).json({ data: null, error: "webhook url must be https" });
+      }
+      const secret = process.env.MAX_WEBHOOK_SECRET || "";
+      const candidates = [apiBase, "https://platform-api.max.ru"];
+      const body: any = { url, update_types: ["message_created", "bot_started", "bot_added"] };
+      if (secret) body.secret = secret;
+      const attempts: any[] = [];
+      for (const base of candidates) {
+        try {
+          const r = await fetch(`${base}/subscriptions`, {
+            method: "POST",
+            headers: { Authorization: token, "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(10_000),
+          });
+          const txt = await r.text().catch(() => "");
+          attempts.push({ base, status: r.status, response: txt.slice(0, 300) });
+          if (r.ok) {
+            let parsed: any = null;
+            try { parsed = JSON.parse(txt); } catch {}
+            return res.json({
+              data: { baseUsed: base, url, secretSet: !!secret, response: parsed ?? txt.slice(0, 300), attempts },
+              error: null,
+            });
+          }
+        } catch (e: any) {
+          attempts.push({ base, error: String(e?.message || e).slice(0, 200) });
+        }
+      }
+      return res.status(502).json({
+        data: { url, secretSet: !!secret, attempts },
+        error: "Все endpoints subscriptions упали — проверь логи и docs Max",
+      });
+    } catch (e: any) {
+      console.error("[admin/v304/max/register-webhook]", e);
+      res.status(500).json({ data: null, error: "internal error" });
+    }
+  });
+
+  app.post("/api/admin/v304/max/test-message", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const token = process.env.MAX_BOT_TOKEN || "";
+      if (!token) {
+        return res.status(400).json({ data: null, error: "MAX_BOT_TOKEN не задан" });
+      }
+      const apiBase = process.env.MAX_API_BASE || "https://botapi.max.ru";
+      const chatId = String((req.body || {}).chatId || (req.body || {}).userId || "").trim();
+      const text = String((req.body || {}).text || "Test message от MuzaAi").trim();
+      if (!chatId) {
+        return res.status(400).json({ data: null, error: "chatId required" });
+      }
+      if (text.length > 4000) {
+        return res.status(400).json({ data: null, error: "text too long (max 4000)" });
+      }
+      const candidates = [apiBase, "https://platform-api.max.ru"];
+      const body = { text };
+      const attempts: any[] = [];
+      for (const base of candidates) {
+        try {
+          const r = await fetch(`${base}/messages?chat_id=${encodeURIComponent(chatId)}`, {
+            method: "POST",
+            headers: { Authorization: token, "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(10_000),
+          });
+          const respText = await r.text().catch(() => "");
+          attempts.push({ base, status: r.status, response: respText.slice(0, 300) });
+          if (r.ok) {
+            let parsed: any = null;
+            try { parsed = JSON.parse(respText); } catch {}
+            return res.json({
+              data: { delivered: true, baseUsed: base, chatId, response: parsed ?? respText.slice(0, 300), attempts },
+              error: null,
+            });
+          }
+        } catch (e: any) {
+          attempts.push({ base, error: String(e?.message || e).slice(0, 200) });
+        }
+      }
+      return res.status(502).json({
+        data: { delivered: false, chatId, attempts },
+        error: "Не удалось отправить — проверь chatId / token",
+      });
+    } catch (e: any) {
+      console.error("[admin/v304/max/test-message]", e);
+      res.status(500).json({ data: null, error: "internal error" });
+    }
+  });
+
   // Eugene 2026-05-16 Босс: универсальный просмотр диалога по userId ИЛИ sessionId.
   // Telegram-alert при reason='owner_inquiry' ведёт сюда — у Босса в URL только
   // sessionId, поэтому endpoint обрабатывает оба формата:
