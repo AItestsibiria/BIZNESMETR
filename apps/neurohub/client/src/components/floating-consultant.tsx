@@ -7,7 +7,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { playMuzaChime, playMuzaTick, playMuzaSparkle } from "../lib/muza-sounds";
 import { useFeatureEnabled } from "@/lib/featureToggles";
-import { useDraggablePosition } from "@/lib/clampViewport";
 import { onJourneyEvent } from "../lib/user-journey";
 import { getPersistentPlayerAudio } from "../lib/lockscreen";
 import { SupportModal } from "./support-modal";
@@ -404,17 +403,24 @@ export function FloatingConsultant() {
       window.removeEventListener("musa-mouse-follow-end", onEnd as EventListener);
     };
   }, []);
-  // Eugene 2026-05-19 Windows-in-viewport rule: draggable FAB с persist
-  // позиции. По умолчанию bottom-right; пользователь может оттащить куда хочет.
+  // Eugene 2026-05-20 Босс: Музa ВСЕГДА справа внизу на mobile/laptop,
+  // чтобы не перекрывалась чатом независимо от расположения окна чата.
+  // Drag убран — позиция фиксирована, при resize окна пересчитывается.
   const FAB_SIZE = { width: 80, height: 80 };
-  const { pos: fabPos, dragging: fabDragging, onPointerDown: fabPointerDown, onPointerMove: fabPointerMove, onPointerUp: fabPointerUp } = useDraggablePosition(
-    "muza-fab-position",
-    () => ({
-      x: typeof window === "undefined" ? 100 : window.innerWidth - FAB_SIZE.width - 16,
-      y: typeof window === "undefined" ? 100 : window.innerHeight - FAB_SIZE.height - 16,
-    }),
-    FAB_SIZE,
-  );
+  const computeFabPos = () => ({
+    x: typeof window === "undefined" ? 100 : Math.max(8, window.innerWidth - FAB_SIZE.width - 16),
+    y: typeof window === "undefined" ? 100 : Math.max(8, window.innerHeight - FAB_SIZE.height - 16),
+  });
+  const [fabPos, setFabPos] = useState(computeFabPos);
+  useEffect(() => {
+    const onResize = () => setFabPos(computeFabPos());
+    window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
+    };
+  }, []);
   const [visible, setVisible] = useState(false);
   const [exiting, setExiting] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -1407,44 +1413,14 @@ export function FloatingConsultant() {
         position: "fixed",
         left: fabPos.x,
         top: fabPos.y,
-        zIndex: 30,
+        zIndex: 100000,
       }}
       className={`transition-opacity duration-500 ${exiting ? "opacity-0 consultant-slide-out" : "opacity-100 consultant-slide-in animate-in fade-in"} ${smartHighlight ? "consultant-attention" : ""}`}
       data-testid="floating-consultant"
     >
       <div className="relative">
-        {/* Eugene 2026-05-19 Drag handle — пользователь может перетащить FAB
-            куда удобно. Маленький grip ⋮⋮ в верхнем углу. */}
-        <button
-          type="button"
-          aria-label="Перетащить помощницу"
-          title="Перетащи помощницу"
-          onPointerDown={fabPointerDown}
-          onPointerMove={fabPointerMove}
-          onPointerUp={fabPointerUp}
-          onPointerCancel={fabPointerUp}
-          style={{
-            position: "absolute",
-            top: -2,
-            left: -10,
-            width: 22,
-            height: 22,
-            borderRadius: "9999px",
-            background: "rgba(20,18,40,0.7)",
-            border: "1px solid rgba(168,85,247,0.4)",
-            color: "rgba(255,255,255,0.65)",
-            fontSize: 12,
-            lineHeight: "18px",
-            cursor: fabDragging ? "grabbing" : "grab",
-            touchAction: "none",
-            zIndex: 50,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            backdropFilter: "blur(6px)",
-          }}
-          data-no-collapse
-        >⋮⋮</button>
+        {/* Eugene 2026-05-20 Босс: Музa зафиксирована справа внизу,
+            drag handle убран. */}
         {/* Eugene 2026-05-14 Босс «нажатие на облако заводит в чат».
             Облако кликабельно — открывает чат напрямую.
             Eugene 2026-05-17 Босс: при smart-триггере (idle/form_abandon)
@@ -1742,7 +1718,9 @@ export function FloatingConsultant() {
               // Desktop/iPad без chatSize — тоже CSS-default; с chatSize — inline width/height.
               isMobile || !chatSize ? "w-[92vw] max-w-[420px] sm:w-[380px] sm:!h-[460px]" : ""
             } ${
-              drawerSnap === "br" ? "right-0 bottom-0 sm:bottom-4 sm:right-4" :
+              // Eugene 2026-05-20 Босс: чат не перекрывает Музу (bottom-right).
+              // br/bl смещены выше на высоту Музы (80px) + gap.
+              drawerSnap === "br" ? "right-0 bottom-[104px] sm:bottom-[104px] sm:right-4" :
               drawerSnap === "bl" ? "left-0 bottom-0 sm:bottom-4 sm:left-4" :
               drawerSnap === "tr" ? "right-0 top-20 sm:top-20 sm:right-4" :
               drawerSnap === "tl" ? "left-0 top-20 sm:top-20 sm:left-4" :
