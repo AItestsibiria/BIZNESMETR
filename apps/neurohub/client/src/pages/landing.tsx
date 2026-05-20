@@ -2066,18 +2066,23 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               <>
                                 <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCountries(v => !v); }} className="text-[10px] px-2 py-1 rounded-full bg-white/5 text-white/60 border border-white/10 hover:bg-white/10 hover:text-white/90 transition-colors cursor-pointer" title="Нас слушают">🌍 {countriesCount}</button>
                                 {showCountries && createPortal(
-                                  <div onClick={() => { setShowCountries(false); setShowCitiesPanel(false); }} style={{position:'fixed',inset:0,zIndex:99999,background:'transparent',display:'flex',alignItems:'flex-end',justifyContent:'center',padding:'16px'}}>
+                                  /* Eugene 2026-05-21 Босс: «закрывается от нажатия в любой точке» — backdrop visible
+                                     (rgba для подсветки + надёжная hit-zone на touch). + onPointerDown для touch close.
+                                     «Панель можно подвигать в любую сторону» — убран spring-back на dragEnd. */
+                                  <div
+                                    onPointerDown={(e) => { if (e.target === e.currentTarget) { setShowCountries(false); setShowCitiesPanel(false); } }}
+                                    onClick={(e) => { if (e.target === e.currentTarget) { setShowCountries(false); setShowCitiesPanel(false); } }}
+                                    style={{position:'fixed',inset:0,zIndex:99999,background:'rgba(0,0,0,0.35)',backdropFilter:'blur(2px)',WebkitBackdropFilter:'blur(2px)',display:'flex',alignItems:'flex-end',justifyContent:'center',padding:'16px'}}
+                                  >
                                     <motion.div
                                       drag
                                       dragMomentum={false}
-                                      dragElastic={0.15}
-                                      animate={countriesDragControls}
-                                      onPointerDown={startCountriesLongPress}
+                                      dragElastic={0}
+                                      onPointerDown={(e) => { e.stopPropagation(); startCountriesLongPress(e); }}
                                       onPointerUp={cancelCountriesLongPress}
                                       onPointerLeave={cancelCountriesLongPress}
                                       onPointerCancel={cancelCountriesLongPress}
                                       onDragStart={cancelCountriesLongPress}
-                                      onDragEnd={() => countriesDragControls.start({ x: 0, y: 0, transition: { type: "spring", stiffness: 300, damping: 25 } })}
                                       onClick={(e) => e.stopPropagation()}
                                       style={{width:'auto',minWidth:'200px',maxWidth:'min(400px,calc(100vw-32px))',maxHeight:'70vh',overflowY:'auto',borderRadius:'16px',background:'rgba(255,255,255,0.05)',backdropFilter:'blur(24px)',WebkitBackdropFilter:'blur(24px)',border:'1px solid rgba(255,255,255,0.1)',padding:'16px',boxShadow:'0 20px 60px rgba(0,0,0,0.5)',touchAction:'none',cursor:'grab'}}>
                                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
