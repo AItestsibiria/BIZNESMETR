@@ -133,57 +133,60 @@ function rememberMaxChatContext(chatId: string, fromId: string, chatType: string
   }
 }
 
+// Cool-down: если бот suspended (на модерации) — на 5 минут перестаём
+// пытаться отправлять. Иначе при каждом incoming сообщении делаем 5 API
+// calls к Max → флудим их API. Это снимется автоматически когда первый
+// успешный send пройдёт (после модерации) — cool-down сбросится.
+let suspendedUntil = 0;
+
 async function sendMessage(chatId: string, text: string, attachments?: any[]): Promise<void> {
+  if (Date.now() < suspendedUntil) {
+    bootRefs?.logger.info?.("[max-bot] sendMessage skipped — bot on moderation cooldown", {
+      chatId,
+      retryInSec: Math.round((suspendedUntil - Date.now()) / 1000),
+    });
+    return;
+  }
+
   const ctx = chatContextMap.get(chatId);
   const isDialog = ctx?.chatType === "dialog";
   const baseBody: any = { text };
   if (attachments && attachments.length) baseBody.attachments = attachments;
 
-  // Если есть mid от incoming — формируем reply-link. Max ожидает это для
-  // ответа на конкретное сообщение в активном dialog.
-  const bodyWithLink: any = ctx?.lastMid
-    ? { ...baseBody, link: { type: "reply", mid: ctx.lastMid } }
-    : baseBody;
-
-  // Стратегия попыток (учитывая Max'ные ошибки `chat.not.found` для chat_id
-  // и `dialog.suspended` для user_id):
-  // 1. dialog: user_id + reply-link → если 403 пробуем chat_id + reply-link
-  // 2. group: chat_id + reply-link → если 404 пробуем user_id + reply-link
-  // 3. fallback без link
+  // 2 попытки (раньше было 5 — слишком шумно):
+  // dialog: user_id → chat_id
+  // chat:   chat_id → user_id
   const dialogQuery = ctx?.fromId ? `user_id=${encodeURIComponent(ctx.fromId)}` : "";
   const chatQuery = `chat_id=${encodeURIComponent(chatId)}`;
-
-  const attempts: { label: string; query: string; body: any }[] = isDialog
+  const attempts: { label: string; query: string }[] = isDialog
     ? [
-        ...(dialogQuery ? [{ label: "dialog-user_id+reply", query: dialogQuery, body: bodyWithLink }] : []),
-        { label: "dialog-chat_id+reply", query: chatQuery, body: bodyWithLink },
-        ...(dialogQuery ? [{ label: "dialog-user_id-noLink", query: dialogQuery, body: baseBody }] : []),
-        { label: "dialog-chat_id-noLink", query: chatQuery, body: baseBody },
+        ...(dialogQuery ? [{ label: "dialog-user_id", query: dialogQuery }] : []),
+        { label: "dialog-chat_id", query: chatQuery },
       ]
     : [
-        { label: "chat-chat_id+reply", query: chatQuery, body: bodyWithLink },
-        ...(dialogQuery ? [{ label: "chat-user_id+reply", query: dialogQuery, body: bodyWithLink }] : []),
-        { label: "chat-chat_id-noLink", query: chatQuery, body: baseBody },
+        { label: "chat-chat_id", query: chatQuery },
+        ...(dialogQuery ? [{ label: "chat-user_id", query: dialogQuery }] : []),
       ];
 
+  let suspendedSeen = false;
   let lastError = "";
   for (const att of attempts) {
     try {
-      await maxApi(`/messages?${att.query}`, att.body);
+      await maxApi(`/messages?${att.query}`, baseBody);
       bootRefs?.logger.info?.("[max-bot] sendMessage ok", { chatId, attempt: att.label });
+      suspendedUntil = 0; // сбрасываем cool-down при первом успехе
       return;
     } catch (e: any) {
       lastError = String(e?.message || e);
-      bootRefs?.logger.warn?.("[max-bot] sendMessage attempt failed", { chatId, attempt: att.label, error: lastError.slice(0, 200) });
+      if (lastError.includes("dialog.suspended")) suspendedSeen = true;
+      bootRefs?.logger.warn?.("[max-bot] sendMessage attempt failed", { chatId, attempt: att.label, error: lastError.slice(0, 150) });
     }
   }
 
-  // Все варианты упали — fallback на legacy URL с базовым chat_id+text
-  try {
-    await maxApi(`/messages?${chatQuery}`, baseBody, "POST", { useLegacy: true });
-    bootRefs?.logger.info?.("[max-bot] sendMessage ok via legacy", { chatId });
-  } catch (e2: any) {
-    bootRefs?.logger.warn?.("[max-bot] sendMessage all attempts failed", { chatId, error: String(e2?.message || e2).slice(0, 200), prev: lastError.slice(0, 200) });
+  if (suspendedSeen) {
+    suspendedUntil = Date.now() + 5 * 60_000; // 5 минут cool-down
+    bootRefs?.logger.warn?.("[max-bot] bot on moderation — cool-down 5min");
+  } else {
     notifyAdminMaxDowntime("sendMessage failed (all attempts)");
   }
 }
