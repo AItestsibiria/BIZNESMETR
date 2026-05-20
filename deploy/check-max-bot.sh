@@ -32,7 +32,7 @@ echo "=== Local /api/max-bot/status ==="
 curl -fsS "http://${LOCAL_API}/api/max-bot/status" 2>/dev/null | jq . 2>/dev/null || echo "❌ endpoint failed (server down or route not registered)"
 
 echo ""
-echo "=== Max API getMe (using token from .env) ==="
+echo "=== Max API getMe (Authorization header — 2 формата) ==="
 TOK=$(grep '^MAX_BOT_TOKEN=' "$ENV_FILE" | cut -d= -f2-)
 BASE=$(grep '^MAX_API_BASE=' "$ENV_FILE" | cut -d= -f2-)
 [ -z "$BASE" ] && BASE="https://botapi.max.ru"
@@ -41,13 +41,23 @@ if [ -z "$TOK" ]; then
   echo "❌ MAX_BOT_TOKEN пуст — пропустил getMe"
 else
   echo "API base: $BASE"
-  curl -fsS "${BASE}/me?access_token=${TOK}" 2>/dev/null | jq . 2>/dev/null || curl -s "${BASE}/me?access_token=${TOK}"
+  echo "--- formal: Authorization: <TOKEN> (без Bearer) ---"
+  curl -s -H "Authorization: ${TOK}" "${BASE}/me" 2>/dev/null
+  echo ""
+  echo "--- formal: Authorization: Bearer <TOKEN> ---"
+  curl -s -H "Authorization: Bearer ${TOK}" "${BASE}/me" 2>/dev/null
+  echo ""
 fi
 
 echo ""
-echo "=== Webhook subscriptions ==="
+echo "=== Webhook subscriptions (оба формата) ==="
 if [ -n "$TOK" ]; then
-  curl -fsS "${BASE}/subscriptions?access_token=${TOK}" 2>/dev/null | jq . 2>/dev/null || curl -s "${BASE}/subscriptions?access_token=${TOK}"
+  echo "--- formal: Authorization: <TOKEN> ---"
+  curl -s -H "Authorization: ${TOK}" "${BASE}/subscriptions" 2>/dev/null
+  echo ""
+  echo "--- formal: Authorization: Bearer <TOKEN> ---"
+  curl -s -H "Authorization: Bearer ${TOK}" "${BASE}/subscriptions" 2>/dev/null
+  echo ""
 fi
 
 echo ""
