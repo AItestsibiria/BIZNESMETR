@@ -2,6 +2,8 @@
 
 This file provides context and conventions for AI assistants (Claude Code and others) working in this repository.
 
+> **Read `references/MEMORY.md` first.** It carries the running cumulative context from prior sessions (current deployment state, recent decisions, open items, compromised credentials). After non-trivial work APPEND a one-line dated entry to its "Decision log". This file (CLAUDE.md) stays mostly stable — conventions and architecture; MEMORY.md grows with time.
+
 ---
 
 ## Current Repository State
