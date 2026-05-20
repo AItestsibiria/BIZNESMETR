@@ -248,6 +248,36 @@ try {
     CREATE INDEX IF NOT EXISTS sms_provider_logs_status_idx ON sms_provider_logs(status, created_at);
   `);
 
+  // Eugene 2026-05-20 Босс «архив сохранять тарифов с датами + админ меняет
+  // стоимость с текущей даты». История изменений цен — каждое изменение =
+  // новая запись. Текущая цена = последняя WHERE effective_from <= now.
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS tariff_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      service_type TEXT NOT NULL,
+      price_kopecks INTEGER NOT NULL,
+      effective_from TEXT NOT NULL,
+      set_by_user_id INTEGER,
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS tariff_history_type_idx ON tariff_history(service_type, effective_from DESC);
+  `);
+
+  // Seed initial tariffs если table пустая (для согласованности с PRICES в routes.ts).
+  const tariffCount = sqlite.prepare("SELECT COUNT(*) as cnt FROM tariff_history").get() as { cnt: number };
+  if (tariffCount.cnt === 0) {
+    const seedAt = "2025-01-01 00:00:00";
+    sqlite.prepare("INSERT INTO tariff_history (service_type, price_kopecks, effective_from, notes, created_at) VALUES (?, ?, ?, ?, datetime('now'))")
+      .run("music", 39900, seedAt, "Seed: trace 399 ₽ default");
+    sqlite.prepare("INSERT INTO tariff_history (service_type, price_kopecks, effective_from, notes, created_at) VALUES (?, ?, ?, ?, datetime('now'))")
+      .run("lyrics", 9900, seedAt, "Seed: lyrics 99 ₽ default");
+    sqlite.prepare("INSERT INTO tariff_history (service_type, price_kopecks, effective_from, notes, created_at) VALUES (?, ?, ?, ?, datetime('now'))")
+      .run("cover", 9900, seedAt, "Seed: cover 99 ₽ default");
+    sqlite.prepare("INSERT INTO tariff_history (service_type, price_kopecks, effective_from, notes, created_at) VALUES (?, ?, ?, ?, datetime('now'))")
+      .run("audio_cover", 39900, seedAt, "Seed: audio-cover 399 ₽ default");
+  }
+
   // Универсальная очередь подтверждений изменений данных автора (имя, email,
   // phone, телеграм-id, любое будущее поле). Eugene 2026-05-15 Босс
   // «возможность менять данные с подтверждением что меняется от автора».

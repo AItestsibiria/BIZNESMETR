@@ -962,6 +962,28 @@ export const insertTransactionSchema = createInsertSchema(transactions).omit({
   createdAt: true,
 });
 
+// Eugene 2026-05-20 Босс: «архив сохранять тарифов с датами + админ меняет
+// стоимость с текущей даты». tariff_history — каждое изменение цены = новая
+// запись. Текущая цена = последняя запись WHERE effective_from <= now()
+// ORDER BY effective_from DESC.
+export const tariffHistory = sqliteTable("tariff_history", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  // serviceType: 'music' | 'lyrics' | 'cover' | 'audio_cover' | etc
+  serviceType: text("service_type").notNull(),
+  // Цена в копейках (как balance в users)
+  priceKopecks: integer("price_kopecks").notNull(),
+  // С какого момента действует. ISO. Может быть в будущем (запланировать).
+  effectiveFrom: text("effective_from").notNull(),
+  // Кто изменил (admin user_id) — null если seed.
+  setByUserId: integer("set_by_user_id"),
+  // Заметка/причина изменения
+  notes: text("notes"),
+  // Когда создана запись (история, не действия)
+  createdAt: text("created_at").notNull(),
+});
+
+export type TariffHistory = typeof tariffHistory.$inferSelect;
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
