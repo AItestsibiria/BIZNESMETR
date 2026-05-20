@@ -4,10 +4,13 @@
 // Получает сигнал от Музы (через POST /api/escalations/log) когда юзер
 // выражает недовольство. Priority high → Telegram alert Боссу немедленно.
 //
-// TODO after merge ae295800: подключить вызов из muzaTools.ts (tool
-// `detect_negative` или intercept в chat-pipeline) — когда юзер пишет
-// негативно, Муза автоматически POST'ит сюда. Сейчас endpoint internal
-// (без auth, но фильтруется по client IP whitelist или Bearer:internal).
+// Eugene 2026-05-20: wiring done — escalation выполняется через два пути:
+//   1) Server-side detect_negative hook в /api/muza/chat (routes.ts:2864-2895)
+//      — sync sentiment-check на каждое user-сообщение, isCritical+score<-0.5
+//      → escalate с priority='high' (Telegram alert админу немедленно).
+//   2) muzaTools.escalate_to_human tool — LLM может явно эскалировать когда
+//      юзер просит «позови человека» / «жалоба» (apps/neurohub/server/lib/muzaTools.ts).
+// Endpoint /api/escalations/log остаётся для внешних каналов (yars-webhook-bridge etc).
 
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";

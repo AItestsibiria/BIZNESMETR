@@ -463,11 +463,14 @@ const PhoneCheckSchema = z.object({
 
 // In-memory rate limiter (ip → { count, resetAt }). Совпадает по форме с
 // rateLimit() из routes.ts; локальный т.к. модуль изолирован.
+// Eugene 2026-05-20 (I16 fix): 5/мин → 3/мин чтобы понизить риск phone-enum
+// атаки. Phone-check выдаёт «exists/no» — без rate-limit можно перебирать
+// номера для определения активных юзеров.
 const phoneCheckRateMap = new Map<string, { count: number; resetAt: number }>();
 function checkPhoneCheckRateLimit(ip: string): boolean {
   const now = Date.now();
   const windowMs = 60 * 1000;
-  const max = 5;
+  const max = 3;
   const entry = phoneCheckRateMap.get(ip);
   if (!entry || now > entry.resetAt) {
     phoneCheckRateMap.set(ip, { count: 1, resetAt: now + windowMs });

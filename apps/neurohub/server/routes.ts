@@ -459,8 +459,22 @@ async function gptunnelFetch(path: string, options: RequestInit = {}) {
 
 // Suno webhook secret — derive из SESSION_SECRET если не задан явно.
 // Eugene 2026-05-08 doc-audit: callback_url убирает polling, экономит API calls.
-const SUNO_WEBHOOK_SECRET = process.env.SUNO_WEBHOOK_SECRET
-  || crypto.createHash("sha256").update((process.env.SESSION_SECRET || "fallback") + ":suno-webhook").digest("hex").slice(0, 32);
+// Eugene 2026-05-20 (C15 fix): explicit throw если оба env пусты — иначе literal
+// "fallback" даёт известный секрет атакующему. ROOT CAUSE: до этого fallback
+// secret = sha256("fallback:suno-webhook") — same для всех инсталляций.
+const SUNO_WEBHOOK_SECRET = (() => {
+  const explicit = process.env.SUNO_WEBHOOK_SECRET;
+  if (explicit && explicit.length >= 16) return explicit;
+  const session = process.env.SESSION_SECRET;
+  if (!session || session.length < 16) {
+    throw new Error(
+      "[BOOTSTRAP] SUNO_WEBHOOK_SECRET unset AND SESSION_SECRET unset/short. " +
+      "Set SUNO_WEBHOOK_SECRET=<random 32+ hex> in .env (openssl rand -hex 32) " +
+      "OR ensure SESSION_SECRET is set (32+ bytes base64). Refusing to use literal 'fallback'.",
+    );
+  }
+  return crypto.createHash("sha256").update(session + ":suno-webhook").digest("hex").slice(0, 32);
+})();
 
 function publicHostUrl(req?: Request): string {
   // Используем первый available из:
@@ -2814,8 +2828,20 @@ export async function registerRoutes(
       res.status(429).json({ ok: false, error: "Слишком много сообщений за минуту" });
       return;
     }
+    // Eugene 2026-05-20 (I15 fix): body size cap. rawBody — express.json verify
+    // сохраняет Buffer. Cap 64KB чтобы юзер не мог через массивные сообщения
+    // забить LLM context / DoS.
     try {
-      const text = String(req.body?.message || "").trim().slice(0, 1500);
+      const bodySize = (req as any).rawBody?.length || 0;
+      if (bodySize > 65536) {
+        res.status(413).json({ ok: false, error: "Сообщение слишком большое (max 64 KB)" });
+        return;
+      }
+    } catch {}
+    try {
+      // Eugene 2026-05-20: max 8000 символов на userText (вместо прежнего 1500).
+      // Этого достаточно для длинных творческих описаний песен.
+      const text = String(req.body?.message || "").trim().slice(0, 8000);
       const clientSessionId = String(req.body?.sessionId || "").slice(0, 64);
       if (!text || !clientSessionId) {
         res.status(400).json({ ok: false, error: "Нужны message + sessionId" });
@@ -5012,11 +5038,19 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     }
     // BACKEND-6 fix Eugene 14:23: privacy check. Не-публичные треки доступны
     // только владельцу. Раньше любой мог по ID увидеть приватный трек.
+    // Eugene 2026-05-20 (C5 fix): добавлен admin override + cookie fallback.
     if (gen.isPublic !== 1) {
+      const cookieToken = (() => {
+        const raw = req.headers.cookie || '';
+        const m = raw.match(/(?:^|;\s*)auth_token=([^;]+)/);
+        return m ? decodeURIComponent(m[1]) : '';
+      })();
       const authHeader = req.headers.authorization;
+      let token = '';
+      if (typeof authHeader === "string" && authHeader.startsWith("Bearer ")) token = authHeader.slice(7);
+      if (!token) token = cookieToken;
       let viewerId: number | null = null;
-      if (typeof authHeader === "string" && authHeader.startsWith("Bearer ")) {
-        const token = authHeader.slice(7);
+      if (token) {
         try {
           const row = db.get<{ userId: number }>(
             sql`SELECT user_id as userId FROM sessions WHERE token = ${token} LIMIT 1`,
@@ -5024,7 +5058,8 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
           viewerId = row?.userId ?? null;
         } catch {}
       }
-      if (viewerId !== gen.userId) {
+      const viewer = viewerId ? storage.getUser(viewerId) : null;
+      if (!isAdminUser(viewer) && viewerId !== gen.userId) {
         res.status(403).json({ message: "Этот трек приватный" });
         return;
       }
@@ -6957,8 +6992,15 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
       }
       // Eugene 2026-05-18 IDOR-fix (ACCESS-BYPASS-AUDIT-170526 #1):
       // приватные треки (isPublic=0) — только владелец/админ.
+      // Eugene 2026-05-20 (C5 fix): добавлен cookie auth_token fallback —
+      // <audio> tags на iOS Safari не шлют Authorization header, нужен cookie.
       if ((gen.isPublic ?? 0) === 0) {
-        const vToken = (req.headers.authorization || '').replace('Bearer ', '') || (req.query.token as string) || '';
+        const vCookieToken = (() => {
+          const raw = req.headers.cookie || '';
+          const m = raw.match(/(?:^|;\s*)auth_token=([^;]+)/);
+          return m ? decodeURIComponent(m[1]) : '';
+        })();
+        const vToken = (req.headers.authorization || '').replace('Bearer ', '') || (req.query.token as string) || vCookieToken || '';
         const vUserId = vToken ? tokenStore.get(vToken) : undefined;
         const vUser = vUserId ? storage.getUser(vUserId) : null;
         if (!isAdminUser(vUser) && gen.userId !== vUserId) {

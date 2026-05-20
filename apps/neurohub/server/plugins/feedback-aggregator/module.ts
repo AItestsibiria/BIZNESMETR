@@ -11,9 +11,11 @@
 // Per Knowledge-base sync + Hourly digest rules: кластерный alert идёт
 // дополнительно к hourly digest (для важности).
 //
-// TODO after merge ae295800: добавить tool log_suggestion / log_nps в
-// muzaTools.ts — Муза будет вызывать POST endpoints автоматически когда
-// юзер делится мнением. Сейчас endpoints — публичные (auth-aware).
+// Eugene 2026-05-20: wiring done — tools log_suggestion (muzaTools.ts:2170)
+// и log_nps (muzaTools.ts:2207) делают direct-DB insert в client_suggestions /
+// nps_log без HTTP-hop'а. Cluster-alert cron работает поверх этих данных.
+// HTTP endpoints (/api/feedback/suggestion, /api/feedback/nps) остаются для
+// внешних интеграций и web-форм.
 
 import { Router, type Request, type Response } from "express";
 import { z } from "zod";

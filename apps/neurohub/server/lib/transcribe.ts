@@ -226,25 +226,46 @@ async function tryGPTunnel(buffer: Buffer, mime: string, ext: string): Promise<T
 // === Public API ===
 
 /**
- * Транскрипция: только Yandex SpeechKit. Eugene 2026-05-09: убрали
- * fallback на OpenAI Whisper и GPTunnel Whisper — лишние провайдеры с
- * лишними сообщениями для пользователя. Yandex русский — single source.
- * Если Yandex упал/вернул пустой результат → юзер видит понятное
- * сообщение «Yandex SpeechKit временно недоступен».
+ * Транскрипция: Yandex SpeechKit → GPTunnel Whisper → OpenAI Whisper.
+ * Eugene 2026-05-20 (I6 fix): re-enabled fallback chain после Yandex
+ * outage 17.05. Каждый провайдер пробуется последовательно — если
+ * предыдущий вернул empty/ok=false, дёргаем следующий. Stop on first ok.
+ *
+ * Это решает gap: Yandex иногда возвращает 503/timeout — без fallback
+ * юзер видит «Yandex SpeechKit недоступен» и не может голосом говорить.
+ * С chain'ом — GPTunnel/OpenAI Whisper подхватывают.
  */
 export async function transcribeRussianAudio(buffer: Buffer, mime: string, ext: string): Promise<TranscribeResult> {
   const attempts: TranscribeAttempt[] = [];
+
   const a = await tryYandex(buffer, mime);
   attempts.push(a);
   if (a.ok && a.transcript) {
     return { transcript: a.transcript, provider: "yandex", attempts };
   }
+
+  const b = await tryGPTunnel(buffer, mime, ext);
+  attempts.push(b);
+  if (b.ok && b.transcript) {
+    return { transcript: b.transcript, provider: "gptunnel", attempts };
+  }
+
+  const c = await tryOpenAI(buffer, mime, ext);
+  attempts.push(c);
+  if (c.ok && c.transcript) {
+    return { transcript: c.transcript, provider: "openai", attempts };
+  }
+
   return { transcript: "", provider: null, attempts };
 }
 
 /**
- * Verify: оставляем только Yandex — для админ-диагностики /verify-stt.
+ * Verify: все провайдеры для админ-диагностики /verify-stt.
  */
 export async function verifyAllProviders(buffer: Buffer, mime: string, ext: string): Promise<TranscribeAttempt[]> {
-  return [await tryYandex(buffer, mime)];
+  return [
+    await tryYandex(buffer, mime),
+    await tryGPTunnel(buffer, mime, ext),
+    await tryOpenAI(buffer, mime, ext),
+  ];
 }

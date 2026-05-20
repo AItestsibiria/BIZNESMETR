@@ -10,9 +10,11 @@
 //   4) Босс открывает Admin → 🎙 Команды Ярса → видит pending, одним
 //      кликом ✅ Применить (safe) или ❌ Отклонить (dangerous требует confirm)
 //
-// TODO after merge ae295800: подключить вызов POST /incoming из muzaTools
-// (новый tool `submit_operator_command`) — Муза будет передавать команды
-// в очередь автоматически.
+// Eugene 2026-05-20: wiring done — muzaTools.submit_operator_command делает
+// direct-DB insert (apps/neurohub/server/lib/muzaTools.ts:2126), без HTTP-hop'а.
+// Это эквивалентно POST /incoming, но быстрее: на server-side в той же sqlite-БД.
+// Endpoint /api/admin/v304/operator-commands/incoming остаётся для внешних
+// webhook-каналов (yars-webhook-bridge), но Муза напрямую использует DB.
 
 import { Router, type Request, type Response } from "express";
 import crypto from "crypto";

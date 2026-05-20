@@ -594,5 +594,71 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
     // Eugene 2026-05-18 audit: TimeWeb ключ пустой → залогировать (раньше silent).
     console.warn("[MUZA-LLM] TimeWeb fallback skipped: TIMEWEB_GATEWAY_KEY not configured");
   }
+
+  // === Eugene 2026-05-20 (I7 fix): 5-й fallback — GPT-4o-mini через GPTunnel.
+  // anti-Anthropic-outage. GPTunnel ключ уже есть для Suno-генерации,
+  // OpenAI-compatible /v1/chat/completions. БЕЗ tools — clean text.
+  // Срабатывает только если Anthropic ВСЕ упали И TimeWeb тоже не дал ответа.
+  if (process.env.GPTUNNEL_API_KEY) {
+    try {
+      const sysText = systemBlocks.map(b => (typeof b === "string" ? b : (b?.text || ""))).join("\n\n");
+      const messages: any[] = [{ role: "system", content: sysText }];
+      for (const h of history.slice(-15)) {
+        messages.push({
+          role: h.role === "user" ? "user" : "assistant",
+          content: typeof h.content === "string" ? h.content : String(h.content || ""),
+        });
+      }
+      messages.push({ role: "user", content: safeUserText });
+      const r = await fetch("https://gptunnel.ru/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.GPTUNNEL_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: process.env.GPTUNNEL_LLM_MODEL || "gpt-4o-mini",
+          messages,
+          max_tokens: Math.min(maxTokens, 2000),
+          temperature: 0.7,
+        }),
+        signal: AbortSignal.timeout(45_000),
+      });
+      if (r.ok) {
+        const json: any = await r.json().catch(() => null);
+        const text = String(json?.choices?.[0]?.message?.content || "").trim();
+        if (json?.usage) {
+          muzaTokenStats.inputTokens += Number(json.usage.prompt_tokens || 0);
+          muzaTokenStats.outputTokens += Number(json.usage.completion_tokens || 0);
+          muzaTokenStats.callsCount += 1;
+        }
+        if (text.length > 0) {
+          notifyAdminKeySwitch({
+            at: new Date().toISOString(),
+            provider: "Anthropic + TimeWeb → GPTunnel/gpt-4o-mini",
+            from: prevFailed?.name || "TIMEWEB",
+            fromStatus: prevFailed?.status || "empty",
+            to: "GPTUNNEL_API_KEY",
+            reason: "все Anthropic-ключи и TimeWeb упали, перешли на GPT-4o-mini",
+          }).catch(() => {});
+          setLLMKeyStatus("GPTUNNEL_LLM", { lastUsedAt: new Date().toISOString(), lastStatus: 200 });
+          return text;
+        }
+        setLLMKeyStatus("GPTUNNEL_LLM", { lastUsedAt: new Date().toISOString(), lastStatus: "error", lastErrorMsg: "empty response" });
+        console.warn("[MUZA-LLM] GPTunnel/gpt-4o-mini returned empty text");
+      } else {
+        const body = await r.text().catch(() => "");
+        setLLMKeyStatus("GPTUNNEL_LLM", { lastUsedAt: new Date().toISOString(), lastStatus: "error", lastErrorMsg: `HTTP ${r.status}: ${body.slice(0, 200)}` });
+        console.warn(`[MUZA-LLM] GPTunnel/gpt-4o-mini HTTP ${r.status}: ${body.slice(0, 200)}`);
+      }
+    } catch (e: any) {
+      const msg = String(e?.message || e);
+      setLLMKeyStatus("GPTUNNEL_LLM", { lastUsedAt: new Date().toISOString(), lastStatus: "error", lastErrorMsg: msg.slice(0, 200) });
+      console.warn("[MUZA-LLM] GPTunnel fallback error:", msg);
+    }
+  } else {
+    console.warn("[MUZA-LLM] GPTunnel fallback skipped: GPTUNNEL_API_KEY not configured");
+  }
+
   return null;
 }
