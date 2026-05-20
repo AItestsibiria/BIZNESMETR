@@ -1118,6 +1118,28 @@ try {
   } catch (e) {
     console.error("[MIGRATION] muza_user_actions failed:", e);
   }
+
+  // Eugene 2026-05-20 Босс «Музa держит контекст общения с юзером» —
+  // User-memory-context rule. Одна строка на userId. Background-сжатие
+  // после каждых 10 сообщений. См. lib/userMemory.ts.
+  try {
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS user_memory (
+        user_id INTEGER PRIMARY KEY,
+        summary TEXT DEFAULT '',
+        facts_json TEXT DEFAULT '{}',
+        preferences_json TEXT DEFAULT '{}',
+        last_updated_at INTEGER,
+        message_count_summarized INTEGER DEFAULT 0,
+        version INTEGER DEFAULT 0,
+        last_cabinet_snapshot_json TEXT DEFAULT '{}'
+      );
+    `);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS user_memory_updated_idx
+      ON user_memory(last_updated_at DESC)`);
+  } catch (e) {
+    console.error("[MIGRATION] user_memory failed:", e);
+  }
 } catch (e) {
   console.error("[MIGRATION] Error:", e);
 }

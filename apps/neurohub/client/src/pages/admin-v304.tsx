@@ -234,6 +234,402 @@ function GlobalPeriodSelector() {
   );
 }
 
+// Eugene 2026-05-20 Босс User-memory-context rule: админский UI для управления
+// памятью Музы по юзерам. List → drawer per-user → tabs (Память / Кабинет /
+// Сообщения) → actions (Recompress / Edit / Delete with confirm).
+function MusaMemoryAdminTab({ toast }: { toast: ReturnType<typeof useToast>["toast"] }) {
+  const [search, setSearch] = useState("");
+  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
+  const [view, setView] = useState<"memory" | "cabinet" | "messages">("memory");
+  const [editMode, setEditMode] = useState(false);
+  const [editSummary, setEditSummary] = useState("");
+  const [editFactsText, setEditFactsText] = useState("");
+  const [editPrefsText, setEditPrefsText] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  type ListItem = {
+    userId: number;
+    name: string | null;
+    email: string | null;
+    summaryPreview: string;
+    factsCount: number;
+    preferencesCount: number;
+    lastUpdated: number | null;
+    version: number;
+    messageCountSummarized: number;
+  };
+
+  const { data: listData, refetch: refetchList } = useQuery<{ ok: boolean; users: ListItem[]; total: number }>({
+    queryKey: ["/api/admin/v304/user-memory", search],
+    queryFn: async () => {
+      const r = await apiRequest("GET", `/api/admin/v304/user-memory?limit=100${search ? `&search=${encodeURIComponent(search)}` : ""}`);
+      return r.json();
+    },
+  });
+
+  type DetailData = {
+    ok: boolean;
+    memory: { userId: number; summary: string; facts: Record<string, any>; preferences: Record<string, any>; lastUpdated: number | null; messageCount: number; version: number };
+    user: { id: number; name: string; email: string; createdAt: string };
+    cabinetSnapshot: any;
+    recentMessages: Array<{ id: number; role: string; text: string; createdAt: string; sessionId: string; channel: string | null }>;
+  };
+
+  const { data: detailData, refetch: refetchDetail } = useQuery<DetailData>({
+    queryKey: ["/api/admin/v304/user-memory", selectedUserId],
+    queryFn: async () => {
+      if (!selectedUserId) return null as any;
+      const r = await apiRequest("GET", `/api/admin/v304/user-memory/${selectedUserId}`);
+      return r.json();
+    },
+    enabled: !!selectedUserId,
+  });
+
+  // Sync editor fields when detail loads or edit mode toggles on
+  useEffect(() => {
+    if (detailData?.memory && editMode) {
+      setEditSummary(detailData.memory.summary || "");
+      setEditFactsText(JSON.stringify(detailData.memory.facts || {}, null, 2));
+      setEditPrefsText(JSON.stringify(detailData.memory.preferences || {}, null, 2));
+      setEditError(null);
+    }
+  }, [detailData, editMode]);
+
+  const handleRecompress = async () => {
+    if (!selectedUserId) return;
+    setBusy(true);
+    try {
+      const r = await apiRequest("POST", `/api/admin/v304/user-memory/${selectedUserId}/recompress`);
+      const j = await r.json();
+      if (j?.ok) {
+        toast({ title: `Recompress готов → v${j.version}` });
+        refetchDetail();
+        refetchList();
+      } else {
+        toast({ title: "Recompress не удалось", description: j?.error || "All keys failed", variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: e?.message || "Ошибка", variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleSaveEdit = async () => {
+    if (!selectedUserId) return;
+    setEditError(null);
+    let facts: Record<string, any>;
+    let prefs: Record<string, any>;
+    try {
+      facts = JSON.parse(editFactsText || "{}");
+      if (typeof facts !== "object" || Array.isArray(facts) || facts === null) {
+        throw new Error("Facts должны быть объектом {}");
+      }
+    } catch (e: any) {
+      setEditError(`Невалидный JSON в facts: ${e?.message}`);
+      return;
+    }
+    try {
+      prefs = JSON.parse(editPrefsText || "{}");
+      if (typeof prefs !== "object" || Array.isArray(prefs) || prefs === null) {
+        throw new Error("Preferences должны быть объектом {}");
+      }
+    } catch (e: any) {
+      setEditError(`Невалидный JSON в preferences: ${e?.message}`);
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await apiRequest("PUT", `/api/admin/v304/user-memory/${selectedUserId}`, {
+        summary: editSummary,
+        facts,
+        preferences: prefs,
+      });
+      const j = await r.json();
+      if (j?.ok) {
+        toast({ title: `Сохранено → v${j.version}` });
+        setEditMode(false);
+        refetchDetail();
+        refetchList();
+      } else {
+        toast({ title: "Сохранение не удалось", description: j?.error, variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: e?.message || "Ошибка", variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!selectedUserId) return;
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      setTimeout(() => setConfirmDelete(false), 5000);
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await apiRequest("DELETE", `/api/admin/v304/user-memory/${selectedUserId}`, { confirm: true });
+      const j = await r.json();
+      if (j?.ok) {
+        toast({ title: "Память юзера удалена" });
+        setSelectedUserId(null);
+        setConfirmDelete(false);
+        refetchList();
+      } else {
+        toast({ title: "Удаление не удалось", description: j?.error, variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: e?.message || "Ошибка", variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const closeDrawer = () => {
+    setSelectedUserId(null);
+    setEditMode(false);
+    setConfirmDelete(false);
+    setView("memory");
+  };
+
+  const list = listData?.users || [];
+  const total = listData?.total || 0;
+
+  return (
+    <div className="space-y-4">
+      <div className="p-4 rounded-2xl border border-fuchsia-500/20 bg-gradient-to-br from-fuchsia-500/[0.04] via-purple-500/[0.04] to-cyan-500/[0.04]">
+        <h2 className="text-lg font-display font-bold text-white mb-1">
+          🧠 <span className="bg-gradient-to-r from-fuchsia-300 via-purple-300 to-cyan-300 bg-clip-text text-transparent">Память юзеров</span>
+        </h2>
+        <p className="text-xs text-muted-foreground">
+          Long-term memory Музы — narrative summary + facts + preferences для каждого авторизованного юзера.
+          Сжатие происходит автоматически (Anthropic LLM) после каждых 10 сообщений.
+          Босс может смотреть, править вручную, force-recompress, удалять.
+        </p>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <Input
+          placeholder="🔍 Поиск по имени или email…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="max-w-md bg-white/5 border-purple-400/20"
+        />
+        <span className="text-xs font-mono text-muted-foreground">
+          Всего: <span className="text-white">{total}</span>
+        </span>
+      </div>
+
+      <div className="grid gap-2">
+        {list.length === 0 ? (
+          <div className="text-sm text-muted-foreground py-8 text-center">
+            {search ? "Нет результатов по поиску." : "Пока ни у одного юзера нет сохранённой памяти."}
+          </div>
+        ) : (
+          list.map((u) => (
+            <button
+              key={u.userId}
+              type="button"
+              onClick={() => { setSelectedUserId(u.userId); setEditMode(false); }}
+              className="text-left p-3 rounded-xl border border-purple-500/15 bg-white/[0.02] hover:bg-white/[0.04] hover:border-fuchsia-500/40 transition-all"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium text-white">
+                    {u.name || `Юзер #${u.userId}`}
+                    <span className="ml-2 text-[10px] font-mono text-muted-foreground">#{u.userId}</span>
+                    {u.email ? <span className="ml-2 text-[11px] font-mono text-purple-300/70">{u.email}</span> : null}
+                  </div>
+                  <div className="text-xs text-white/70 line-clamp-2 mt-1">
+                    {u.summaryPreview || <span className="text-muted-foreground italic">(пусто)</span>}
+                  </div>
+                </div>
+                <div className="text-right text-[10px] font-mono text-muted-foreground space-y-0.5 shrink-0">
+                  <div>v{u.version}</div>
+                  <div>{u.factsCount}f · {u.preferencesCount}p</div>
+                  <div>{u.lastUpdated ? new Date(u.lastUpdated).toLocaleDateString("ru-RU", { day: "2-digit", month: "short" }) : "—"}</div>
+                </div>
+              </div>
+            </button>
+          ))
+        )}
+      </div>
+
+      {/* Drawer */}
+      {selectedUserId && detailData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xl p-2 sm:p-4" onClick={closeDrawer}>
+          <div
+            className="glass-card w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-2xl border border-fuchsia-500/30 p-4 sm:p-6 shadow-[0_0_60px_rgba(217,70,239,0.4)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-display font-bold text-white">
+                  {detailData.user?.name || `Юзер #${detailData.user?.id}`}
+                </h3>
+                <div className="text-xs font-mono text-muted-foreground">
+                  #{detailData.user?.id} · {detailData.user?.email}
+                </div>
+              </div>
+              <button onClick={closeDrawer} className="text-xl text-white/60 hover:text-white">✕</button>
+            </div>
+
+            {/* Sub-tabs */}
+            <div className="flex items-center gap-2 mb-4 border-b border-white/10 pb-2">
+              {(["memory", "cabinet", "messages"] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setView(v)}
+                  className={`text-xs px-3 py-1.5 rounded-lg transition-all ${
+                    view === v
+                      ? "bg-gradient-to-r from-fuchsia-500 via-purple-500 to-blue-500 text-white shadow-[0_0_12px_rgba(217,70,239,0.4)]"
+                      : "text-muted-foreground hover:text-white bg-white/5"
+                  }`}
+                >
+                  {v === "memory" ? "🧠 Память" : v === "cabinet" ? "💼 Кабинет" : "💬 Сообщения"}
+                </button>
+              ))}
+            </div>
+
+            {view === "memory" && (
+              <div className="space-y-4">
+                {!editMode ? (
+                  <>
+                    <div>
+                      <div className="text-[11px] font-semibold text-fuchsia-300 mb-1">Summary (v{detailData.memory?.version || 0}, обновлено {detailData.memory?.lastUpdated ? new Date(detailData.memory.lastUpdated).toLocaleString("ru-RU") : "—"})</div>
+                      <div className="text-sm text-white/85 whitespace-pre-wrap leading-relaxed bg-white/5 p-3 rounded-lg">
+                        {detailData.memory?.summary || <span className="text-muted-foreground italic">(пусто)</span>}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[11px] font-semibold text-purple-300 mb-1">Facts ({Object.keys(detailData.memory?.facts || {}).length})</div>
+                      <pre className="text-xs text-white/80 font-mono bg-white/5 p-3 rounded-lg overflow-x-auto whitespace-pre-wrap">
+                        {JSON.stringify(detailData.memory?.facts || {}, null, 2)}
+                      </pre>
+                    </div>
+                    <div>
+                      <div className="text-[11px] font-semibold text-cyan-300 mb-1">Preferences ({Object.keys(detailData.memory?.preferences || {}).length})</div>
+                      <pre className="text-xs text-white/80 font-mono bg-white/5 p-3 rounded-lg overflow-x-auto whitespace-pre-wrap">
+                        {JSON.stringify(detailData.memory?.preferences || {}, null, 2)}
+                      </pre>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 pt-2">
+                      <Button
+                        size="sm"
+                        onClick={handleRecompress}
+                        disabled={busy}
+                        className="bg-gradient-to-r from-purple-500 via-fuchsia-500 to-blue-500 text-white hover:opacity-90"
+                      >
+                        {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : "🔄 "}Recompress (LLM)
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setEditMode(true)}
+                        disabled={busy}
+                        className="border-purple-500/40 hover:bg-purple-500/10"
+                      >
+                        ✏️ Редактировать
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleDelete}
+                        disabled={busy}
+                        className={confirmDelete ? "border-red-500/60 bg-red-500/10 text-red-200 hover:bg-red-500/20" : "border-red-500/30 hover:bg-red-500/10 text-red-300"}
+                      >
+                        {confirmDelete ? "Точно удалить? Жми ещё раз" : "🗑 Удалить"}
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <Label className="text-[11px] text-fuchsia-300">Summary</Label>
+                      <Textarea
+                        value={editSummary}
+                        onChange={(e) => setEditSummary(e.target.value)}
+                        rows={6}
+                        className="bg-white/5 border-purple-500/20 text-white text-sm"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-[11px] text-purple-300">Facts (JSON object)</Label>
+                      <Textarea
+                        value={editFactsText}
+                        onChange={(e) => setEditFactsText(e.target.value)}
+                        rows={8}
+                        className="bg-white/5 border-purple-500/20 text-white font-mono text-xs"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-[11px] text-cyan-300">Preferences (JSON object)</Label>
+                      <Textarea
+                        value={editPrefsText}
+                        onChange={(e) => setEditPrefsText(e.target.value)}
+                        rows={6}
+                        className="bg-white/5 border-cyan-500/20 text-white font-mono text-xs"
+                      />
+                    </div>
+                    {editError && (
+                      <div className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg p-2">
+                        {editError}
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 pt-2">
+                      <Button size="sm" onClick={handleSaveEdit} disabled={busy} className="bg-gradient-to-r from-purple-500 via-fuchsia-500 to-blue-500 text-white">
+                        {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : null}💾 Сохранить
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setEditMode(false)} disabled={busy}>
+                        Отмена
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {view === "cabinet" && (
+              <div className="space-y-2">
+                <div className="text-[11px] text-muted-foreground">Live snapshot кабинета юзера (cache 5 мин)</div>
+                {detailData.cabinetSnapshot ? (
+                  <pre className="text-xs text-white/85 font-mono bg-white/5 p-3 rounded-lg overflow-x-auto whitespace-pre-wrap">
+                    {JSON.stringify(detailData.cabinetSnapshot, null, 2)}
+                  </pre>
+                ) : (
+                  <div className="text-sm text-muted-foreground italic">Снимок недоступен.</div>
+                )}
+              </div>
+            )}
+
+            {view === "messages" && (
+              <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+                <div className="text-[11px] text-muted-foreground">Последние {detailData.recentMessages?.length || 0} сообщений (cross-channel)</div>
+                {(detailData.recentMessages || []).map((m) => (
+                  <div key={m.id} className={`p-2 rounded-lg border ${m.role === "user" ? "border-cyan-500/20 bg-cyan-500/[0.03]" : "border-fuchsia-500/20 bg-fuchsia-500/[0.03]"}`}>
+                    <div className="text-[10px] font-mono text-muted-foreground mb-1">
+                      [{m.role === "user" ? "👤" : "🎀"} {m.role}] {m.channel ? `· ${m.channel}` : ""} · {m.createdAt}
+                    </div>
+                    <div className="text-xs text-white/85 whitespace-pre-wrap">{m.text}</div>
+                  </div>
+                ))}
+                {(!detailData.recentMessages || detailData.recentMessages.length === 0) && (
+                  <div className="text-sm text-muted-foreground italic text-center py-4">Сообщений нет.</div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminV304Page() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -355,6 +751,9 @@ export default function AdminV304Page() {
           <TabsTrigger value="authors" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">👥 Авторы</TabsTrigger>
           <TabsTrigger value="user-profiles" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">👤 Профили</TabsTrigger>
           <TabsTrigger value="blocks" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🚫 Блокировки</TabsTrigger>
+          {/* Eugene 2026-05-20 Босс User-memory-context rule: память Музы по
+              юзерам — list / view / edit / recompress / delete. */}
+          <TabsTrigger value="user-memory" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🧠 Память юзеров</TabsTrigger>
         </TabsList>
         <TabsContent value="master-dashboard"><MasterDashboardTab /></TabsContent>
         <TabsContent value="brain-3d">
@@ -410,6 +809,7 @@ export default function AdminV304Page() {
         <TabsContent value="authors"><AuthorsTab toast={toast} /></TabsContent>
         <TabsContent value="user-profiles"><UserProfilesTab toast={toast} /></TabsContent>
         <TabsContent value="blocks"><BlocksTab toast={toast} /></TabsContent>
+        <TabsContent value="user-memory"><MusaMemoryAdminTab toast={toast} /></TabsContent>
       </Tabs>
 
       {/* 🎤 FAB «Сказать Музе» — доступна со всех admin-вкладок (Eugene 2026-05-17). */}

@@ -898,6 +898,34 @@ export const adminLoginCodes = sqliteTable("admin_login_codes", {
 });
 export type AdminLoginCode = typeof adminLoginCodes.$inferSelect;
 
+// Eugene 2026-05-20 Босс «Музa держит контекст общения с юзером если он
+// авторизирован, сжимает воду оставляет главное, при заходе в чат берёт
+// сохранённый контекст и общается как менеджер который помнит клиента».
+// Одна строка на юзера. Background-сжатие через LLM (Anthropic key chain)
+// после каждых N=10 сообщений. Inject в Музa system prompt при /api/muza/chat.
+// См. User-memory-context rule в CLAUDE.md.
+export const userMemory = sqliteTable("user_memory", {
+  userId: integer("user_id").primaryKey(),
+  // Narrative-сжатие, 1-3 параграфа — что важно помнить о юзере
+  summary: text("summary").default(""),
+  // Структурированные факты {name, occupation, family, hobbies,
+  // music_preferences, important_dates, special_events, location}
+  factsJson: text("facts_json").default("{}"),
+  // Предпочтения генерации {voices, styles, lyrics_themes, languages, avoid_topics}
+  preferencesJson: text("preferences_json").default("{}"),
+  // millis (Date.now())
+  lastUpdatedAt: integer("last_updated_at"),
+  // Сколько сообщений уже сжато (для отчётности и triggering recompress)
+  messageCountSummarized: integer("message_count_summarized").default(0),
+  // Counter обновлений (для отладки/admin UI)
+  version: integer("version").default(0),
+  // Snapshot последнего cabinet snapshot — для дебага и admin UI (live snapshot
+  // не хранится постоянно, обновляется при каждом chat-call с TTL 5 мин)
+  lastCabinetSnapshotJson: text("last_cabinet_snapshot_json").default("{}"),
+});
+
+export type UserMemory = typeof userMemory.$inferSelect;
+
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
   balance: true,

@@ -45,6 +45,19 @@ import {
   type ProtectedAction,
 } from "./lib/adminTwoFactor";
 import { recordAuditEntry, queryAuditLog } from "./lib/adminAuditLog";
+// Eugene 2026-05-20: User-memory-context rule — Музa держит контекст общения
+// с авторизованным юзером. См. lib/userMemory.ts + CLAUDE.md.
+import {
+  buildMemoryContext,
+  scheduleCompressionIfNeeded,
+  getUserMemory,
+  getCabinetSnapshot,
+  forgetUserMemory,
+  updateUserMemoryAdmin,
+  listUserMemories,
+  compressUserMemory,
+  getRecentMessagesForUser,
+} from "./lib/userMemory";
 import { getPeriodRange } from "./lib/periodBoundaries";
 import { getOrCreateVisitorId, readVisitorId } from "./lib/visitorCookie";
 import { getIpGeo } from "./lib/ipGeo";
@@ -3060,6 +3073,18 @@ export async function registerRoutes(
       } catch {}
       // Eugene 2026-05-14 Босс — anti-repeat: всё что уже выяснено в session memory.
       systemDynamic += memoToPromptBlock(sessionMemo);
+
+      // Eugene 2026-05-20 Босс User-memory-context rule: для авторизованных юзеров
+      // подмешиваем long-term memory (narrative summary + facts + preferences)
+      // + live cabinet snapshot. Никогда не блокирует — пустая строка при ошибке.
+      if (authUserId) {
+        try {
+          const memoryCtx = await buildMemoryContext(authUserId, "web");
+          if (memoryCtx) systemDynamic += "\n\n" + memoryCtx;
+        } catch (e: any) {
+          console.warn("[muza/chat user-memory inject]", e?.message || e);
+        }
+      }
       // Eugene 2026-05-14 Босс «Ярс — это я, проанализируй где фигурирует
       // и примени везде». Тот же паттерн что в telegram-bot/module.ts.
       // Eugene 2026-05-17: вынес regex в `yarsDetect`, добавил логирование
@@ -3359,6 +3384,13 @@ export async function registerRoutes(
           });
         }
         if (bots.length > 0) backupChannels = bots;
+      }
+
+      // Eugene 2026-05-20 Босс User-memory-context rule: fire-and-forget
+      // background compression если накопилось N сообщений. Никогда не блокирует
+      // chat-flow — все ошибки swallowed внутри scheduleCompressionIfNeeded.
+      if (authUserId) {
+        scheduleCompressionIfNeeded(authUserId).catch(() => {});
       }
 
       res.json({
@@ -6211,6 +6243,194 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     } catch (e) {
       console.error("[admin-chat-messages]", e);
       res.status(500).json({ ok: false, error: "internal error" });
+    }
+  });
+
+  // ============================================================================
+  // USER MEMORY — Eugene 2026-05-20 Босс User-memory-context rule
+  // ============================================================================
+  //
+  // Музa держит контекст общения с авторизованным юзером. Сжимает воду —
+  // оставляет главное. См. CLAUDE.md → User-memory-context rule.
+  //
+  // 2 юзерских endpoint'а + 5 админских.
+
+  // GET /api/account/memory — юзер видит свою память
+  app.get("/api/account/memory", authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).userId as number;
+      const memory = await getUserMemory(userId);
+      res.json({
+        data: {
+          summary: memory.summary,
+          facts: memory.facts,
+          preferences: memory.preferences,
+          lastUpdated: memory.lastUpdatedAt,
+          messageCount: memory.messageCountSummarized,
+          version: memory.version,
+        },
+        error: null,
+      });
+    } catch (e: any) {
+      console.error("[user-memory:get]", e);
+      res.status(500).json({ data: null, error: "Не удалось загрузить память" });
+    }
+  });
+
+  // POST /api/account/memory/forget — юзер удаляет свою память
+  app.post("/api/account/memory/forget", authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).userId as number;
+      const u = storage.getUser(userId);
+      const email = (u as any)?.email || null;
+      const deleted = forgetUserMemory(userId, { adminEmail: email ? `user-self-forget:${email}` : "user-self-forget" });
+      res.json({ data: { ok: true, deleted }, error: null });
+    } catch (e: any) {
+      console.error("[user-memory:forget]", e);
+      res.status(500).json({ data: null, error: "Не удалось забыть" });
+    }
+  });
+
+  // GET /api/admin/v304/user-memory — список юзеров с памятью
+  app.get("/api/admin/v304/user-memory", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const limit = Number(req.query.limit) || 50;
+      const offset = Number(req.query.offset) || 0;
+      const search = req.query.search ? String(req.query.search) : undefined;
+      const { users: list, total } = listUserMemories({ limit, offset, search });
+      res.json({ ok: true, users: list, total });
+    } catch (e: any) {
+      console.error("[admin user-memory:list]", e);
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  // GET /api/admin/v304/user-memory/:userId — полные детали по юзеру
+  app.get("/api/admin/v304/user-memory/:userId", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const userId = Number(req.params.userId);
+      if (!Number.isFinite(userId) || userId <= 0) {
+        res.status(400).json({ ok: false, error: "bad userId" });
+        return;
+      }
+      const u = storage.getUser(userId);
+      if (!u) {
+        res.status(404).json({ ok: false, error: "user not found" });
+        return;
+      }
+      const [memory, cabinet, recentMessages] = await Promise.all([
+        getUserMemory(userId),
+        getCabinetSnapshot(userId),
+        Promise.resolve(getRecentMessagesForUser(userId, 20)),
+      ]);
+      res.json({
+        ok: true,
+        memory: {
+          userId,
+          summary: memory.summary,
+          facts: memory.facts,
+          preferences: memory.preferences,
+          lastUpdated: memory.lastUpdatedAt,
+          messageCount: memory.messageCountSummarized,
+          version: memory.version,
+        },
+        user: {
+          id: userId,
+          name: u.name,
+          email: u.email,
+          createdAt: u.createdAt,
+        },
+        cabinetSnapshot: cabinet,
+        recentMessages,
+      });
+    } catch (e: any) {
+      console.error("[admin user-memory:detail]", e);
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  // POST /api/admin/v304/user-memory/:userId/recompress — force-trigger
+  app.post("/api/admin/v304/user-memory/:userId/recompress", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const userId = Number(req.params.userId);
+      if (!Number.isFinite(userId) || userId <= 0) {
+        res.status(400).json({ ok: false, error: "bad userId" });
+        return;
+      }
+      const result = await compressUserMemory(userId);
+      res.json({
+        ok: result.ok,
+        version: result.version,
+        beforeSummary: result.beforeSummary,
+        afterSummary: result.afterSummary,
+      });
+    } catch (e: any) {
+      console.error("[admin user-memory:recompress]", e);
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  // PUT /api/admin/v304/user-memory/:userId — manual edit
+  app.put("/api/admin/v304/user-memory/:userId", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const userId = Number(req.params.userId);
+      if (!Number.isFinite(userId) || userId <= 0) {
+        res.status(400).json({ ok: false, error: "bad userId" });
+        return;
+      }
+      const adminUser = (req as any).adminUser as { email?: string } | undefined;
+      const adminUserId = (req as any).userId as number | undefined;
+      const patch: any = {};
+      if (typeof req.body?.summary === "string") patch.summary = req.body.summary;
+      if (req.body?.facts && typeof req.body.facts === "object") patch.facts = req.body.facts;
+      if (req.body?.preferences && typeof req.body.preferences === "object") patch.preferences = req.body.preferences;
+      if (Object.keys(patch).length === 0) {
+        res.status(400).json({ ok: false, error: "Нужно хотя бы одно поле для обновления" });
+        return;
+      }
+      const result = await updateUserMemoryAdmin(userId, patch, {
+        adminEmail: adminUser?.email || undefined,
+        adminUserId: adminUserId ?? null,
+      });
+      if (!result) {
+        res.status(500).json({ ok: false, error: "update failed" });
+        return;
+      }
+      res.json({ ok: true, version: result.version, memory: {
+        summary: result.summary,
+        facts: result.facts,
+        preferences: result.preferences,
+        lastUpdated: result.lastUpdatedAt,
+        version: result.version,
+      }});
+    } catch (e: any) {
+      console.error("[admin user-memory:put]", e);
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  // DELETE /api/admin/v304/user-memory/:userId — с confirm
+  app.delete("/api/admin/v304/user-memory/:userId", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const userId = Number(req.params.userId);
+      if (!Number.isFinite(userId) || userId <= 0) {
+        res.status(400).json({ ok: false, error: "bad userId" });
+        return;
+      }
+      if (req.body?.confirm !== true) {
+        res.status(400).json({ ok: false, error: "Нужно подтверждение: confirm: true" });
+        return;
+      }
+      const adminUser = (req as any).adminUser as { email?: string } | undefined;
+      const adminUserId = (req as any).userId as number | undefined;
+      const deleted = forgetUserMemory(userId, {
+        adminEmail: adminUser?.email || "admin-delete",
+        adminUserId: adminUserId ?? null,
+      });
+      res.json({ ok: true, deleted });
+    } catch (e: any) {
+      console.error("[admin user-memory:delete]", e);
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
     }
   });
 

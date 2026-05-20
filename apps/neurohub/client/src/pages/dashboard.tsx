@@ -2492,6 +2492,179 @@ function formatRelative(iso: string | null): string {
   } catch { return "—"; }
 }
 
+// Eugene 2026-05-20 Босс User-memory-context rule: транспарентность для юзера
+// — что Музa помнит обо мне. Юзер видит summary + facts + preferences,
+// может «забыть всё» одним кликом (DELETE user_memory row + audit-log).
+function MusaMemorySection() {
+  const { toast } = useToast();
+  const [showDetails, setShowDetails] = useState(false);
+  const [confirmForget, setConfirmForget] = useState(false);
+
+  const { data, isLoading, refetch } = useQuery<{ data: {
+    summary: string;
+    facts: Record<string, any>;
+    preferences: Record<string, any>;
+    lastUpdated: number | null;
+    messageCount: number;
+    version: number;
+  } | null; error: string | null }>({
+    queryKey: ["/api/account/memory"],
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/account/memory");
+      return r.json();
+    },
+  });
+
+  const memory = data?.data;
+  const hasSummary = !!(memory?.summary && memory.summary.trim());
+  const factsKeys = memory?.facts ? Object.keys(memory.facts) : [];
+  const prefsKeys = memory?.preferences ? Object.keys(memory.preferences) : [];
+
+  const lastUpdated = memory?.lastUpdated ? new Date(memory.lastUpdated) : null;
+  const lastUpdatedLabel = lastUpdated
+    ? lastUpdated.toLocaleString("ru-RU", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
+    : "—";
+
+  const handleForget = async () => {
+    if (!confirmForget) {
+      setConfirmForget(true);
+      setTimeout(() => setConfirmForget(false), 5000);
+      return;
+    }
+    try {
+      const r = await apiRequest("POST", "/api/account/memory/forget");
+      const j = await r.json();
+      if (j?.data?.ok) {
+        toast({ title: "Память Музы очищена 🧹", description: "Я начну узнавать тебя заново." });
+        setConfirmForget(false);
+        refetch();
+        queryClient.invalidateQueries({ queryKey: ["/api/account/memory"] });
+      } else {
+        toast({ title: "Не получилось забыть", variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: e?.message || "Ошибка", variant: "destructive" });
+    }
+  };
+
+  const formatFactValue = (v: any): string => {
+    if (v === null || v === undefined) return "—";
+    if (Array.isArray(v)) return v.slice(0, 5).join(", ");
+    if (typeof v === "object") {
+      try { return JSON.stringify(v).slice(0, 200); } catch { return "[обьект]"; }
+    }
+    return String(v).slice(0, 200);
+  };
+
+  return (
+    <div className="mb-6 glass-card rounded-2xl p-5 border border-fuchsia-500/30 hover:border-fuchsia-500/50 transition-colors">
+      <div className="flex items-start gap-4">
+        <div className="relative flex-shrink-0">
+          <div className="text-4xl select-none">🧠</div>
+          <div
+            className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-gradient-to-br from-fuchsia-500 via-purple-500 to-blue-500 flex items-center justify-center text-base shadow-[0_0_12px_rgba(217,70,239,0.5)] border-2 border-[#0a0a17]"
+            aria-hidden="true"
+          >
+            ✨
+          </div>
+        </div>
+        <div className="flex-1 min-w-0">
+          <h3 className="text-lg font-display font-bold text-white mb-1">
+            🧠 <span className="bg-gradient-to-r from-fuchsia-300 via-purple-300 to-cyan-300 bg-clip-text text-transparent">Что Музa помнит обо мне</span>
+            {memory?.version ? (
+              <span className="ml-2 text-[10px] font-sans font-medium text-fuchsia-400/70 align-middle">v{memory.version}</span>
+            ) : null}
+          </h3>
+
+          {isLoading ? (
+            <p className="text-sm font-sans text-muted-foreground">Загружаю…</p>
+          ) : !hasSummary && factsKeys.length === 0 ? (
+            <p className="text-sm font-sans text-muted-foreground">
+              Музa пока тебя узнаёт. Поговори со мной — я буду помнить контекст: имя,
+              что любишь, какие события важны. Память обновляется автоматически.
+            </p>
+          ) : (
+            <>
+              {hasSummary && (
+                <p className="text-sm font-sans text-white/85 leading-relaxed">
+                  {memory!.summary}
+                </p>
+              )}
+
+              <div className="mt-3 flex items-center gap-3 text-[11px] font-sans text-muted-foreground">
+                <span>Обновлено: <span className="font-mono text-white/80">{lastUpdatedLabel}</span></span>
+                {memory?.messageCount ? (
+                  <span>· Сжато сообщений: <span className="font-mono text-white/80">{memory.messageCount}</span></span>
+                ) : null}
+              </div>
+
+              {(factsKeys.length > 0 || prefsKeys.length > 0) && (
+                <button
+                  type="button"
+                  onClick={() => setShowDetails(s => !s)}
+                  className="mt-3 text-xs font-sans text-fuchsia-300 hover:text-fuchsia-200 transition-colors"
+                >
+                  {showDetails ? "Скрыть подробности" : `Подробности (${factsKeys.length} фактов, ${prefsKeys.length} предпочтений)`}
+                </button>
+              )}
+
+              {showDetails && (
+                <div className="mt-3 space-y-3">
+                  {factsKeys.length > 0 && (
+                    <div>
+                      <div className="text-[11px] font-sans font-semibold text-purple-300/80 mb-1">Ключевые факты</div>
+                      <ul className="text-xs font-sans text-white/80 space-y-1">
+                        {factsKeys.map(k => (
+                          <li key={k} className="flex gap-2">
+                            <span className="text-fuchsia-400 font-mono">{k}:</span>
+                            <span className="break-words flex-1">{formatFactValue(memory!.facts[k])}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {prefsKeys.length > 0 && (
+                    <div>
+                      <div className="text-[11px] font-sans font-semibold text-cyan-300/80 mb-1">Предпочтения</div>
+                      <ul className="text-xs font-sans text-white/80 space-y-1">
+                        {prefsKeys.map(k => (
+                          <li key={k} className="flex gap-2">
+                            <span className="text-cyan-400 font-mono">{k}:</span>
+                            <span className="break-words flex-1">{formatFactValue(memory!.preferences[k])}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+
+          {(hasSummary || factsKeys.length > 0) && (
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleForget}
+                className={`text-[11px] font-sans px-3 py-1.5 rounded-lg border transition-all ${
+                  confirmForget
+                    ? "bg-red-500/20 border-red-500/50 text-red-200 hover:bg-red-500/30"
+                    : "bg-white/5 border-white/10 text-muted-foreground hover:text-red-300 hover:border-red-500/30"
+                }`}
+              >
+                {confirmForget ? "Точно забыть всё? (нажми ещё раз)" : "🧹 Забыть всё"}
+              </button>
+              <p className="text-[10px] text-muted-foreground/60">
+                Музa сотрёт всё что знает о тебе. Это нельзя отменить.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MusaHistorySection() {
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
@@ -3375,6 +3548,11 @@ export default function DashboardPage() {
             </p>
           </DialogContent>
         </Dialog>
+
+        {/* Eugene 2026-05-20 Босс User-memory-context rule: транспарентность —
+            что Музa помнит обо мне. Юзер видит свой long-term memory summary,
+            может «забыть всё» (DELETE user_memory). */}
+        <MusaMemorySection />
 
         {/* Eugene 2026-05-18 Босс «иконочка Музы под папочкой — открывает
             историю взаимодействия. Юзер может в любое время зайти и продолжить
