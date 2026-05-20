@@ -153,6 +153,20 @@ try {
   // Index по phone (для login by phone).
   try { sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS users_phone_idx ON users(phone) WHERE phone IS NOT NULL`); } catch {}
 
+  // Eugene 2026-05-20 Босс «Сообщения аудио в чате для админа (премиум)».
+  // chatbot_messages расширяется опциональным audio_url + audio_duration_sec.
+  // Если message содержит audio_url — фронт рендерит как <audio>. Frontend
+  // gate: показывает только если is_admin OR premium_subscriptions.status='active'.
+  try {
+    const chatMsgCols = sqlite.prepare("PRAGMA table_info(chatbot_messages)").all() as { name: string }[];
+    const cmcn = chatMsgCols.map(c => c.name);
+    if (!cmcn.includes("audio_url")) sqlite.exec("ALTER TABLE chatbot_messages ADD COLUMN audio_url TEXT");
+    if (!cmcn.includes("audio_duration_sec")) sqlite.exec("ALTER TABLE chatbot_messages ADD COLUMN audio_duration_sec REAL");
+    if (!cmcn.includes("audio_premium_only")) sqlite.exec("ALTER TABLE chatbot_messages ADD COLUMN audio_premium_only INTEGER NOT NULL DEFAULT 0");
+  } catch (e) {
+    console.warn("[BOOTSTRAP] chatbot_messages audio alter failed:", (e as Error).message);
+  }
+
   // SMS OTP-коды (отдельная таблица для register/login flow — без юзера ещё).
   // Eugene 2026-05-15 Босс. Hash код, не plain (защита от leak data.db).
   sqlite.exec(`
@@ -540,6 +554,48 @@ try {
     );
     CREATE INDEX IF NOT EXISTS chatbot_messages_session_idx ON chatbot_messages(session_id, created_at);
 
+    -- Eugene 2026-05-20 Босс «Сообщения аудио в чате для админа (будет
+    -- premium подписка) выдадим авторам кто подпишется». Премиум-фича —
+    -- голосовые сообщения админа в Музa-чате. Изначально для админа +
+    -- premium-подписчиков. Audio URL ссылается на authors/voice-msg/<sha>.mp3
+    -- (загружается через /api/audio-uploads с pii-flag = voice_msg).
+    -- Доступ к воспроизведению gate'ом через premium_subscriptions.status='active'.
+    CREATE TABLE IF NOT EXISTS premium_subscriptions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      tier TEXT NOT NULL DEFAULT 'voice_messages',  -- 'voice_messages' | 'pro' | ...
+      status TEXT NOT NULL DEFAULT 'pending',       -- 'pending' | 'active' | 'expired' | 'cancelled'
+      started_at TEXT,
+      expires_at TEXT,
+      invoice_id INTEGER,                           -- → invoices.id (Robokassa init id)
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS premium_subscriptions_user_idx ON premium_subscriptions(user_id, status);
+    CREATE INDEX IF NOT EXISTS premium_subscriptions_status_idx ON premium_subscriptions(status, expires_at);
+
+    -- Eugene 2026-05-20 Босс «счёт можно тоже в нём выписывать». Реестр
+    -- выписанных счетов от Музы. Это НЕ платёж — это invoice (proforma)
+    -- с готовой Robokassa init-ссылкой. Юзер кликает → переходит на
+    -- Robokassa → платит → robokassa-callback переводит status в 'paid'.
+    CREATE TABLE IF NOT EXISTS invoices (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      issued_by TEXT NOT NULL DEFAULT 'muza',       -- 'muza' | 'admin' | 'system'
+      amount_rub INTEGER NOT NULL,
+      description TEXT NOT NULL,
+      tariff_key TEXT,                              -- 'track_399' | 'premium_voice_msg' | ...
+      status TEXT NOT NULL DEFAULT 'issued',        -- 'issued' | 'paid' | 'cancelled' | 'expired'
+      robokassa_payment_url TEXT,                   -- готовая ссылка для оплаты
+      robokassa_inv_id TEXT,                        -- уникальный ID операции Robokassa
+      paid_at TEXT,
+      expires_at TEXT,
+      meta TEXT,                                    -- JSON {chat_session_id, applied_to:...}
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS invoices_user_idx ON invoices(user_id, status);
+    CREATE INDEX IF NOT EXISTS invoices_status_idx ON invoices(status, created_at DESC);
+
     -- Song drafts (Eugene 2026-05-11): сохранённые идеи/тексты юзеров.
     CREATE TABLE IF NOT EXISTS song_drafts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -640,6 +696,28 @@ try {
     );
     CREATE INDEX IF NOT EXISTS yars_mentions_recent_idx ON yars_mentions(created_at DESC);
     CREATE INDEX IF NOT EXISTS yars_mentions_session_idx ON yars_mentions(session_id, created_at DESC);
+
+    -- Eugene 2026-05-20 Босс «Веди базу сообщений админа в боте Муза».
+    -- Запись каждого admin-сообщения в Музa-канал. Gate: role admin|super_admin
+    -- + ip ∈ ADMIN_TRUSTED_IPS → авто-применение через yarsExecutor.
+    CREATE TABLE IF NOT EXISTS admin_chat_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      user_id INTEGER,
+      channel TEXT NOT NULL,                 -- 'web' | 'inject' | 'telegram' | 'max'
+      text TEXT NOT NULL,
+      ip TEXT,
+      user_agent TEXT,
+      role TEXT,                             -- 'admin' | 'super_admin' | 'user' | null
+      authorized INTEGER NOT NULL DEFAULT 0, -- 1 если оба критерия выполнены
+      authorization_mismatch TEXT,           -- точный reason если authorized=0
+      applied INTEGER NOT NULL DEFAULT 0,    -- 1 если executor выполнил safe-команду
+      applied_action TEXT,                   -- JSON {category, applied, artifactId} | {ok:false, error}
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS admin_chat_messages_recent_idx ON admin_chat_messages(created_at DESC);
+    CREATE INDEX IF NOT EXISTS admin_chat_messages_user_idx ON admin_chat_messages(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS admin_chat_messages_authorized_idx ON admin_chat_messages(authorized, created_at DESC);
 
     -- Sprint 3.1 audio-input: пользовательские аудио-файлы для cover/extend.
     -- SHA256 = идемпотентность.

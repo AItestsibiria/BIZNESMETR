@@ -3006,6 +3006,31 @@ export async function registerRoutes(
           if (roleLower === "admin" || roleLower === "super_admin") muzaRole = roleLower;
         } catch {}
       }
+
+      // Eugene 2026-05-20 Босс «Веди базу сообщений админа в боте Муза.
+      // Применяй немедленно то что написано». Запись в admin_chat_messages
+      // + (если ip ∈ ADMIN_TRUSTED_IPS) auto-apply через yarsExecutor.
+      // Sync, не throw'ит — recording-failure не ломает chat-pipeline.
+      if (muzaRole) {
+        try {
+          const { recordAdminMuzaMessage } = await import("./lib/adminChatRecorder");
+          recordAdminMuzaMessage({
+            sessionId: session.id,
+            userId: authUserId,
+            channel: "web",
+            text,
+            ip,
+            userAgent: req.headers["user-agent"] ? String(req.headers["user-agent"]) : null,
+            role: muzaRole,
+          }).then((r) => {
+            if (r.applied) {
+              console.info?.("[ADMIN-MSG applied]", session.id, r.appliedActions.join("; "));
+            } else if (r.mismatch) {
+              console.info?.("[ADMIN-MSG no-apply]", session.id, r.mismatch);
+            }
+          }).catch(() => {});
+        } catch {}
+      }
       let reply = await callUnifiedMuzaLLM({
         sessionId: session.id,
         userId: authUserId,
@@ -4258,6 +4283,34 @@ export async function registerRoutes(
         .where(eq(chatbotSessions.id, sessionId))
         .run();
 
+      // Eugene 2026-05-20 Босс «база сообщений админа в боте Муза». Inject —
+      // это admin пишет от лица Музы. Записываем в admin_chat_messages
+      // (channel='inject') + gate check (auto-apply при trusted IP).
+      let adminMsgResult: any = null;
+      try {
+        const { recordAdminMuzaMessage } = await import("./lib/adminChatRecorder");
+        const adminUserId = tryGetUserId(req);
+        let adminRole: string | null = null;
+        if (adminUserId) {
+          try {
+            const u = storage.getUser(adminUserId);
+            const rl = String((u as any)?.role || "").toLowerCase();
+            if (rl === "admin" || rl === "super_admin") adminRole = rl;
+          } catch {}
+        }
+        adminMsgResult = await recordAdminMuzaMessage({
+          sessionId,
+          userId: adminUserId,
+          channel: "inject",
+          text,
+          ip: req.ip || req.socket.remoteAddress || null,
+          userAgent: req.headers["user-agent"] ? String(req.headers["user-agent"]) : null,
+          role: adminRole,
+        });
+      } catch (e) {
+        console.warn("[inject-message] adminChatRecorder failed:", (e as Error).message);
+      }
+
       // 2. Push в канал юзера если это не web.
       const channel = String(session.channel || "").toLowerCase();
       const externalId = session.externalId ? String(session.externalId) : null;
@@ -4322,6 +4375,16 @@ export async function registerRoutes(
         channel,
         delivered,
         deliveryError,
+        // Eugene 2026-05-20 — diagnostic ответ по правилу
+        // «если параметр не бьётся — сообщи конкретно какой».
+        adminMessage: adminMsgResult ? {
+          recorded: adminMsgResult.recorded,
+          authorized: adminMsgResult.authorized,
+          mismatch: adminMsgResult.mismatch ?? null,
+          applied: adminMsgResult.applied,
+          appliedActions: adminMsgResult.appliedActions,
+          artifactId: adminMsgResult.artifactId ?? null,
+        } : null,
       });
     } catch (e: any) {
       console.error("[inject-message]", e);
@@ -5770,6 +5833,66 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
   // где начинается с Ярс, применяй как правила бота».
   // Сканирует все user-сообщения содержащие «Ярс», группирует по сессиям,
   // извлекает текст после ключевого слова — это потенциальное правило.
+  // Eugene 2026-05-20 Босс «Веди базу сообщений админа в боте Муза».
+  // Каждое admin-сообщение в Музa-чат (web/inject) — здесь, с gate-статусом
+  // (authorized/mismatch) и executor-результатом (applied/appliedAction).
+  app.get("/api/admin/v304/admin-chat-messages", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const raw = (db as any).$client;
+      const limit = Math.min(Number(req.query.limit) || 100, 500);
+      const onlyAuthorized = String(req.query.authorized || "") === "1";
+      const channel = req.query.channel ? String(req.query.channel).slice(0, 20) : null;
+      const where: string[] = [];
+      const params: any[] = [];
+      if (onlyAuthorized) where.push("authorized = 1");
+      if (channel) { where.push("channel = ?"); params.push(channel); }
+      const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+      const rows = raw.prepare(`
+        SELECT id, session_id, user_id, channel, text, ip, role,
+               authorized, authorization_mismatch, applied, applied_action,
+               created_at
+        FROM admin_chat_messages
+        ${whereSql}
+        ORDER BY id DESC
+        LIMIT ?
+      `).all(...params, limit);
+      const summary = raw.prepare(`
+        SELECT
+          COUNT(*) AS total,
+          SUM(CASE WHEN authorized = 1 THEN 1 ELSE 0 END) AS authorized,
+          SUM(CASE WHEN applied = 1 THEN 1 ELSE 0 END) AS applied,
+          SUM(CASE WHEN authorized = 0 THEN 1 ELSE 0 END) AS mismatched
+        FROM admin_chat_messages
+        WHERE created_at > datetime('now', '-7 days')
+      `).get();
+      res.json({
+        ok: true,
+        summary,
+        envInfo: {
+          trustedIpsConfigured: Boolean((process.env.ADMIN_TRUSTED_IPS || "").trim()),
+          trustedIpsCount: String(process.env.ADMIN_TRUSTED_IPS || "").split(",").filter((s: string) => s.trim()).length,
+        },
+        messages: rows.map((r: any) => ({
+          id: r.id,
+          sessionId: r.session_id,
+          userId: r.user_id,
+          channel: r.channel,
+          text: String(r.text || "").slice(0, 500),
+          ip: r.ip,
+          role: r.role,
+          authorized: r.authorized === 1,
+          mismatch: r.authorization_mismatch,
+          applied: r.applied === 1,
+          appliedAction: r.applied_action ? (() => { try { return JSON.parse(r.applied_action); } catch { return null; } })() : null,
+          createdAt: r.created_at,
+        })),
+      });
+    } catch (e) {
+      console.error("[admin-chat-messages]", e);
+      res.status(500).json({ ok: false, error: "internal error" });
+    }
+  });
+
   app.get("/api/admin/v304/yars-rules", requireAdmin, (_req: Request, res: Response) => {
     try {
       const raw = (db as any).$client;
@@ -9660,6 +9783,52 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const row = db.select({ maxId: sql<number>`COALESCE(MAX(inv_id), 1000)` }).from(payments).get();
     return (row?.maxId || 1000) + 1;
   }
+
+  // Eugene 2026-05-20 Босс «счёт можно тоже в нём выписывать». Endpoint
+  // отображения выписанного Музой счёта. Юзер кликает на ссылку из чата,
+  // получает страницу с описанием + кнопкой «Оплатить» (которая дёрнет
+  // /api/payment/create с invoice.amountRub).
+  //
+  // Сейчас — JSON-ответ с invoice'ом. UI-страница и фактическое
+  // Robokassa-redirect — отдельный шаг wiring (см. PENDING-TASKS).
+  app.get("/api/invoice/:id/pay", (req: Request, res: Response) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) return res.status(400).json({ ok: false, error: "bad id" });
+      const inv: any = (db as any).$client.prepare(`
+        SELECT id, user_id, issued_by, amount_rub, description, tariff_key,
+               status, robokassa_payment_url, paid_at, expires_at, created_at
+        FROM invoices WHERE id = ?
+      `).get(id);
+      if (!inv) return res.status(404).json({ ok: false, error: "invoice not found" });
+      // Срок действия
+      const expired = inv.expires_at && new Date(inv.expires_at).getTime() < Date.now();
+      res.json({
+        ok: true,
+        invoice: {
+          id: inv.id,
+          userId: inv.user_id,
+          issuedBy: inv.issued_by,
+          amountRub: inv.amount_rub,
+          description: inv.description,
+          tariffKey: inv.tariff_key,
+          status: inv.status,
+          paidAt: inv.paid_at,
+          expiresAt: inv.expires_at,
+          expired,
+          createdAt: inv.created_at,
+        },
+        // Для оплаты юзер должен быть залогинен. Frontend на этой странице
+        // делает POST /api/payment/create с amount=inv.amount_rub.
+        next: inv.status === "issued" && !expired
+          ? { action: "post_payment_create", amount: inv.amount_rub, description: inv.description }
+          : null,
+      });
+    } catch (e) {
+      console.error("[invoice-pay]", e);
+      res.status(500).json({ ok: false, error: "internal error" });
+    }
+  });
 
   // Create payment → get Robokassa redirect URL
   // Init signature: md5( MerchantLogin:OutSum:InvId:Password1:Shp_userId=N )

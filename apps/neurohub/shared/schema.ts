@@ -382,8 +382,46 @@ export const chatbotMessages = sqliteTable("chatbot_messages", {
   text: text("text").notNull(),
   toolCall: text("tool_call"),                  // JSON если бот дёрнул tool
   toolResult: text("tool_result"),              // JSON ответа tool'а
+  // Eugene 2026-05-20 Босс «Сообщения аудио в чате для админа (премиум)».
+  audioUrl: text("audio_url"),                          // ссылка на mp3 (authors/voice-msg/...)
+  audioDurationSec: real("audio_duration_sec"),         // длительность в секундах
+  audioPremiumOnly: integer("audio_premium_only").notNull().default(0), // 1 если только для premium
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
+
+// Eugene 2026-05-20 Босс «premium-подписка для аудио в чате».
+export const premiumSubscriptions = sqliteTable("premium_subscriptions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull(),
+  tier: text("tier").notNull().default("voice_messages"),
+  status: text("status").notNull().default("pending"),  // pending|active|expired|cancelled
+  startedAt: text("started_at"),
+  expiresAt: text("expires_at"),
+  invoiceId: integer("invoice_id"),
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+// Eugene 2026-05-20 Босс «счёт можно тоже в нём выписывать». Музa-issued
+// invoices (proforma + готовая Robokassa init-ссылка).
+export const invoices = sqliteTable("invoices", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull(),
+  issuedBy: text("issued_by").notNull().default("muza"), // muza|admin|system
+  amountRub: integer("amount_rub").notNull(),
+  description: text("description").notNull(),
+  tariffKey: text("tariff_key"),
+  status: text("status").notNull().default("issued"),    // issued|paid|cancelled|expired
+  robokassaPaymentUrl: text("robokassa_payment_url"),
+  robokassaInvId: text("robokassa_inv_id"),
+  paidAt: text("paid_at"),
+  expiresAt: text("expires_at"),
+  meta: text("meta"),
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+export type PremiumSubscription = typeof premiumSubscriptions.$inferSelect;
+export type Invoice = typeof invoices.$inferSelect;
 
 export type ChatbotSession = typeof chatbotSessions.$inferSelect;
 export type ChatbotMessage = typeof chatbotMessages.$inferSelect;
@@ -486,6 +524,34 @@ export const yarsMentions = sqliteTable("yars_mentions", {
 });
 
 export type YarsMention = typeof yarsMentions.$inferSelect;
+
+// Eugene 2026-05-20 Босс «Веди базу сообщений админа в боте Муза. Применяй
+// немедленно то что написано. Правило работает если авторизирован админ, с
+// IP-адреса указанного на VPS как точка безопасности (ADMIN_TRUSTED_IPS env).
+// Если не бьётся параметр — сообщи конкретно какой».
+//
+// Каждое сообщение от админа (role admin|super_admin) в Музa-канале
+// (web /api/muza/chat, inject-message, TG/Max через bound admin) записывается
+// сюда. Если IP из trusted-set — `authorized=1` + auto-apply через
+// `executeYarsCommand()` (yarsExecutor — safe-categories). Если нет — пишется
+// `authorization_mismatch` с точным reason'ом для diagnostic.
+export const adminChatMessages = sqliteTable("admin_chat_messages", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  sessionId: text("session_id").notNull(),
+  userId: integer("user_id"),                              // admin user.id
+  channel: text("channel").notNull(),                      // 'web' | 'inject' | 'telegram' | 'max'
+  text: text("text").notNull(),
+  ip: text("ip"),
+  userAgent: text("user_agent"),
+  role: text("role"),                                      // 'admin' | 'super_admin' | 'user' | null
+  authorized: integer("authorized").notNull().default(0),  // 1 если admin + trusted_ip
+  authorizationMismatch: text("authorization_mismatch"),   // 'role:user' | 'ip:1.2.3.4 not in trusted_set' | 'env:ADMIN_TRUSTED_IPS_empty' | null
+  applied: integer("applied").notNull().default(0),        // 1 если executor выполнил безопасное действие
+  appliedAction: text("applied_action"),                   // JSON {category, applied:[...], artifactId} или {ok:false, error}
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+export type AdminChatMessage = typeof adminChatMessages.$inferSelect;
 
 // User-uploaded audio files (Sprint 3.1) — для cover/extend/voice-clone.
 // SHA256 от содержимого = идемпотентность: тот же файл = тот же uploadUrl.

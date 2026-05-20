@@ -624,6 +624,75 @@ export const MUZA_TOOLS: ToolDef[] = [
       required: ["score"],
     },
   },
+
+  // === Eugene 2026-05-20: Кабинет/Плейлист — Муза управляет всем кроме
+  // удалений и оплат. Auth required (userId). Каждый tool пишет audit-snapshot.
+  {
+    name: "rename_my_track",
+    description: "Переименовать трек юзера. ТОЛЬКО auth юзер + ТОЛЬКО свои треки (по userId). genId — ID трека, newTitle — новое название (1-120 символов).",
+    input_schema: {
+      type: "object",
+      properties: {
+        genId: { type: "number", description: "ID трека" },
+        newTitle: { type: "string", description: "Новое название (1-120 символов)" },
+      },
+      required: ["genId", "newTitle"],
+    },
+  },
+  {
+    name: "set_my_track_category",
+    description: "Изменить категорию трека юзера: 'song' (песня) / 'greeting' (поздравление) / 'instrumental'. ТОЛЬКО свои треки.",
+    input_schema: {
+      type: "object",
+      properties: {
+        genId: { type: "number" },
+        category: { type: "string", enum: ["song", "greeting", "instrumental"] },
+      },
+      required: ["genId", "category"],
+    },
+  },
+  {
+    name: "set_my_track_visibility",
+    description: "Изменить видимость трека в плейлисте: 'private' (только в кабинете), 'new_authors' (на главную в раздел Новые авторы), 'main' (основной плейлист — модерация, через челофильтр). По умолчанию автор может ставить только private/new_authors; main только админ через челофильтр. ТОЛЬКО свои треки.",
+    input_schema: {
+      type: "object",
+      properties: {
+        genId: { type: "number" },
+        visibility: { type: "string", enum: ["private", "new_authors"] },
+      },
+      required: ["genId", "visibility"],
+    },
+  },
+  {
+    name: "update_my_profile",
+    description: "Обновить профиль автора. Имя/страна/promo-настройки. Phone/email/telegram-id меняются через отдельный confirm-flow (SMS-OTP / email link) — НЕ через этот tool.",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "Имя автора (1-80)" },
+        country: { type: "string", description: "Страна (свободный ввод, нормализуется)" },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "issue_invoice",
+    description: "Выписать счёт (proforma) на оплату. Музa делает это для покупки треков, премиум-подписки. Возвращает Robokassa-payment-url. Юзер кликает → переходит на Robokassa → платит. ИСПОЛЬЗУЙ ТОЛЬКО когда юзер явно говорит «выпиши счёт» / «хочу оплатить X». tariff — 'track_399' / 'premium_voice_msg' / 'topup_<N>'. amountRub берётся из tariff'а если не указан.",
+    input_schema: {
+      type: "object",
+      properties: {
+        tariff: { type: "string", description: "Ключ тарифа: track_399 | premium_voice_msg | topup_500 | topup_1000 | custom" },
+        amountRub: { type: "number", description: "Сумма ₽ (только если tariff=custom)" },
+        description: { type: "string", description: "Описание счёта (1-200)" },
+      },
+      required: ["tariff", "description"],
+    },
+  },
+  {
+    name: "get_my_subscriptions",
+    description: "Показать активные подписки автора (premium voice messages и т.д.). БЕЗ параметров — userId из контекста.",
+    input_schema: { type: "object", properties: {}, required: [] },
+  },
 ];
 
 // === Email 2FA wrapper helper (Eugene 2026-05-17 Босс) ===
@@ -2160,6 +2229,217 @@ const HANDLERS: Record<string, ToolHandler> = {
     } catch (e: any) {
       console.error("[TOOL log_nps]", e);
       return `Ошибка log_nps: ${e?.message || e}`;
+    }
+  },
+
+  // === Eugene 2026-05-20: cabinet/playlist management (auth required) ===
+
+  async rename_my_track(input, ctx) {
+    if (!ctx?.userId) return "Юзер не залогинен. Предложи войти в кабинет.";
+    const genId = Number(input?.genId);
+    const newTitle = String(input?.newTitle || "").trim().slice(0, 120);
+    if (!Number.isFinite(genId) || !newTitle) return "Нужны genId (число) и newTitle (1-120).";
+    try {
+      const gen = db.select().from(generations).where(eq(generations.id, genId)).get() as any;
+      if (!gen) return `Трек #${genId} не найден.`;
+      if (gen.userId !== ctx.userId) return "Этот трек не твой — нельзя переименовывать чужие.";
+      const oldTitle = gen.displayTitle;
+      db.update(generations).set({ displayTitle: newTitle }).where(eq(generations.id, genId)).run();
+      try {
+        recordAuditEntry({
+          adminUserId: ctx.userId,
+          adminEmail: "muza-self-service",
+          action: "update",
+          entity: "generation:title",
+          entityKey: String(genId),
+          before: { displayTitle: oldTitle },
+          after: { displayTitle: newTitle },
+        });
+      } catch {}
+      return `✓ Трек #${genId} переименован: «${oldTitle}» → «${newTitle}».`;
+    } catch (e: any) {
+      return `Ошибка rename_my_track: ${e?.message || e}`;
+    }
+  },
+
+  async set_my_track_category(input, ctx) {
+    if (!ctx?.userId) return "Юзер не залогинен.";
+    const genId = Number(input?.genId);
+    const category = String(input?.category || "");
+    if (!["song", "greeting", "instrumental"].includes(category)) return "category должен быть song / greeting / instrumental.";
+    if (!Number.isFinite(genId)) return "Нужен genId.";
+    try {
+      const gen = db.select().from(generations).where(eq(generations.id, genId)).get() as any;
+      if (!gen) return `Трек #${genId} не найден.`;
+      if (gen.userId !== ctx.userId) return "Не твой трек.";
+      if (gen.type !== "music") return "Категорию можно менять только у треков (type=music).";
+      // Категория в style.category (JSON), не отдельная колонка. См.
+      // /api/generations/:id/category в routes.ts (тот же паттерн).
+      let meta: any = {};
+      try { meta = JSON.parse(gen.style || "{}"); } catch {}
+      const oldCat = meta.category || "song";
+      meta.category = category;
+      const newVoiceType = category === "instrumental"
+        ? "instrumental"
+        : (gen.voiceType === "instrumental" ? null : gen.voiceType);
+      db.update(generations)
+        .set({ style: JSON.stringify(meta), voiceType: newVoiceType })
+        .where(eq(generations.id, genId))
+        .run();
+      try {
+        recordAuditEntry({
+          adminUserId: ctx.userId,
+          adminEmail: "muza-self-service",
+          action: "update",
+          entity: "generation:category",
+          entityKey: String(genId),
+          before: { category: oldCat },
+          after: { category },
+        });
+      } catch {}
+      return `✓ Категория трека #${genId}: ${oldCat} → ${category}.`;
+    } catch (e: any) {
+      return `Ошибка set_my_track_category: ${e?.message || e}`;
+    }
+  },
+
+  async set_my_track_visibility(input, ctx) {
+    if (!ctx?.userId) return "Юзер не залогинен.";
+    const genId = Number(input?.genId);
+    const visibility = String(input?.visibility || "");
+    // По Two-playlist rule: main только через челофильтр/админа.
+    // Автор может сам поставить только private (0) или new_authors (2).
+    if (!["private", "new_authors"].includes(visibility)) {
+      return "visibility должен быть private (только в кабинете) или new_authors (в Новые авторы). Перевод в основной плейлист — только через челофильтр (>50 play/24ч) или админ.";
+    }
+    if (!Number.isFinite(genId)) return "Нужен genId.";
+    const isPublicNew = visibility === "private" ? 0 : 2;
+    try {
+      const gen = db.select().from(generations).where(eq(generations.id, genId)).get() as any;
+      if (!gen) return `Трек #${genId} не найден.`;
+      if (gen.userId !== ctx.userId) return "Не твой трек.";
+      const oldVis = gen.isPublic;
+      db.update(generations).set({ isPublic: isPublicNew }).where(eq(generations.id, genId)).run();
+      try {
+        recordAuditEntry({
+          adminUserId: ctx.userId,
+          adminEmail: "muza-self-service",
+          action: "update",
+          entity: "generation:visibility",
+          entityKey: String(genId),
+          before: { isPublic: oldVis },
+          after: { isPublic: isPublicNew },
+        });
+      } catch {}
+      return `✓ Трек #${genId}: ${oldVis === 0 ? "private" : oldVis === 1 ? "main" : "new_authors"} → ${visibility}.`;
+    } catch (e: any) {
+      return `Ошибка set_my_track_visibility: ${e?.message || e}`;
+    }
+  },
+
+  async update_my_profile(input, ctx) {
+    if (!ctx?.userId) return "Юзер не залогинен.";
+    const name = input?.name ? String(input.name).trim().slice(0, 80) : null;
+    const country = input?.country ? String(input.country).trim().slice(0, 80) : null;
+    if (!name && !country) return "Не указано ни одно поле для обновления.";
+    try {
+      const u = db.select().from(users).where(eq(users.id, ctx.userId)).get() as any;
+      if (!u) return "Юзер не найден.";
+      const updates: Record<string, any> = {};
+      if (name) updates.name = name;
+      if (country) updates.country = country;
+      const setSql = Object.keys(updates).map(k => `${k.replace(/[A-Z]/g, m => "_" + m.toLowerCase())} = ?`).join(", ");
+      const values = Object.values(updates);
+      sqliteDb.prepare(`UPDATE users SET ${setSql} WHERE id = ?`).run(...values, ctx.userId);
+      try {
+        recordAuditEntry({
+          adminUserId: ctx.userId,
+          adminEmail: "muza-self-service",
+          action: "update",
+          entity: "user:profile",
+          entityKey: String(ctx.userId),
+          before: { name: u.name, country: u.country },
+          after: updates,
+        });
+      } catch {}
+      return `✓ Профиль обновлён: ${Object.entries(updates).map(([k,v]) => `${k}=«${v}»`).join(", ")}.`;
+    } catch (e: any) {
+      return `Ошибка update_my_profile: ${e?.message || e}`;
+    }
+  },
+
+  async issue_invoice(input, ctx) {
+    if (!ctx?.userId) return "Юзер не залогинен — счёт выписать некому.";
+    const tariff = String(input?.tariff || "").trim();
+    const description = String(input?.description || "").trim().slice(0, 200);
+    const customAmountRub = Number(input?.amountRub);
+    if (!tariff || !description) return "Нужны tariff и description.";
+    // Tariff lookup
+    const TARIFFS: Record<string, { amountRub: number; tariffKey: string }> = {
+      track_399: { amountRub: 399, tariffKey: "track_399" },
+      premium_voice_msg: { amountRub: 199, tariffKey: "premium_voice_msg" },
+      topup_500: { amountRub: 500, tariffKey: "topup_500" },
+      topup_1000: { amountRub: 1000, tariffKey: "topup_1000" },
+      topup_2000: { amountRub: 2000, tariffKey: "topup_2000" },
+    };
+    let amountRub: number;
+    let tariffKey: string;
+    if (tariff === "custom") {
+      if (!Number.isFinite(customAmountRub) || customAmountRub < 1 || customAmountRub > 50000) return "Для custom-тарифа нужен amountRub (1-50000).";
+      amountRub = Math.round(customAmountRub);
+      tariffKey = "custom";
+    } else {
+      const t = TARIFFS[tariff];
+      if (!t) return `Неизвестный tariff. Доступные: ${Object.keys(TARIFFS).join(", ")} | custom.`;
+      amountRub = t.amountRub;
+      tariffKey = t.tariffKey;
+    }
+    try {
+      // Insert invoice (proforma). Robokassa-URL генерируется в отдельном
+      // endpoint /api/invoice/:id/pay-link чтобы можно было ротировать
+      // signature без переписи всех старых счетов.
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      const meta = JSON.stringify({ chat_session_id: ctx.sessionId ?? null });
+      const result: any = sqliteDb.prepare(`
+        INSERT INTO invoices
+          (user_id, issued_by, amount_rub, description, tariff_key, status, expires_at, meta)
+        VALUES (?, 'muza', ?, ?, ?, 'issued', ?, ?)
+      `).run(ctx.userId, amountRub, description, tariffKey, expiresAt, meta);
+      const invoiceId = Number(result?.lastInsertRowid ?? 0);
+      const payUrl = `${PUBLIC_URL}/api/invoice/${invoiceId}/pay`;
+      try {
+        recordAuditEntry({
+          adminUserId: ctx.userId,
+          adminEmail: "muza-self-service",
+          action: "create",
+          entity: "invoice",
+          entityKey: String(invoiceId),
+          before: null,
+          after: { tariff: tariffKey, amountRub, description },
+        });
+      } catch {}
+      return `✓ Счёт #${invoiceId} выписан: ${amountRub}₽ — «${description}». Оплата: ${payUrl}. Действует 24ч.`;
+    } catch (e: any) {
+      return `Ошибка issue_invoice: ${e?.message || e}`;
+    }
+  },
+
+  async get_my_subscriptions(_input, ctx) {
+    if (!ctx?.userId) return "Юзер не залогинен.";
+    try {
+      const rows = sqliteDb.prepare(`
+        SELECT id, tier, status, started_at, expires_at, invoice_id
+        FROM premium_subscriptions
+        WHERE user_id = ?
+        ORDER BY id DESC
+        LIMIT 10
+      `).all(ctx.userId) as any[];
+      if (rows.length === 0) return "У тебя пока нет подписок. Если хочешь — могу выписать счёт на premium_voice_msg (199 ₽/мес).";
+      const active = rows.filter(r => r.status === "active");
+      const lines = rows.slice(0, 5).map(r => `#${r.id} ${r.tier} — ${r.status}${r.expires_at ? ` (до ${String(r.expires_at).slice(0, 10)})` : ""}`);
+      return `Подписки: ${active.length} активных из ${rows.length}.\n${lines.join("\n")}`;
+    } catch (e: any) {
+      return `Ошибка get_my_subscriptions: ${e?.message || e}`;
     }
   },
 };

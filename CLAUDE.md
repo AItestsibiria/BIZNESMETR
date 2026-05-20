@@ -1268,6 +1268,72 @@ if (Date.now() - expandedAtRef.current < 350) return;
 
 Срок 350ms подобран эмпирически (типовой intervals между touch-events на iOS Safari ~ 100-250ms, double-tap ≤500ms). 300ms тоже OK; >500ms ощущается как «глючит».
 
+### Admin-Muza-message base + auto-apply rule (Eugene 2026-05-20)
+
+**Каждое сообщение от админа (role admin|super_admin) в Музa-канал пишется в `admin_chat_messages`.** Если IP запроса входит в `ADMIN_TRUSTED_IPS` env (whitelist на VPS — «точка безопасности») — сообщение автоматически применяется через `executeYarsCommand()` (yarsExecutor — safe categories: `news_post`, `kb_update`, `persona_tweak`, `ui_text`). Если не выполнен хотя бы один параметр — пишется конкретный `authorization_mismatch` для diagnostic.
+
+**Реализация:**
+- Таблица `admin_chat_messages` (schema + storage migration): `session_id`, `user_id`, `channel`, `text`, `ip`, `user_agent`, `role`, `authorized` (0/1), `authorization_mismatch` (точный reason), `applied` (0/1), `applied_action` (JSON executor result).
+- Helper `apps/neurohub/server/lib/adminChatRecorder.ts` — `recordAdminMuzaMessage()` с двумя gate'ами + auto-apply при passing both.
+- Wire: `/api/muza/chat` (web), `/api/admin/v304/conversations/:id/inject-message`. TG/Max bots — добавляются по мере привязки admin TG/Max ID.
+- Admin endpoint `GET /api/admin/v304/admin-chat-messages?limit=&authorized=1&channel=web` — список + summary + envInfo.
+
+**Mismatch reasons (точные строки, по которым Босс понимает где провал):**
+- `role:user (expected admin|super_admin)` — юзер не админ
+- `role:anonymous (expected ...)` — нет auth
+- `env:ADMIN_TRUSTED_IPS_empty (auto-apply disabled — set on VPS)` — whitelist не настроен
+- `ip:unknown (request has no IP)` — req.ip отсутствует
+- `ip:<masked> not in trusted_set (size=N)` — IP не в whitelist'е N IP
+
+**Safe default:** если `ADMIN_TRUSTED_IPS` env пуст → auto-apply ВЫКЛЮЧЕН (запись в БД идёт всё равно, для audit). Это защита от misconfiguration.
+
+**Установка trusted-IP на VPS** (Босс делает руками):
+```
+ssh root@31.130.148.107 'sed -i "/^ADMIN_TRUSTED_IPS=/d" /var/www/neurohub/.env && echo "ADMIN_TRUSTED_IPS=🔴IP1,IP2,IP3🔴" >> /var/www/neurohub/.env && chmod 600 /var/www/neurohub/.env && pm2 restart neurohub --update-env'
+```
+
+Применяется к: web `/api/muza/chat`, admin inject-message. Все остальные admin-actions через Музу идут через `requireAdmin` middleware + audit-log (отдельный путь).
+
+### Muza-cabinet-management rule (Eugene 2026-05-20)
+
+**Музa полностью управляет кабинетом + плейлистом автора при авторизации. КРОМЕ удалений и оплат. Счета можно выписывать в чате.**
+
+Tools в `muzaTools.ts` (доступны юзеру при auth):
+- `rename_my_track` — переименовать свой трек (1-120 символов)
+- `set_my_track_category` — `song` / `greeting` / `instrumental` (синхронизирует voiceType)
+- `set_my_track_visibility` — `private` / `new_authors` (main — только челофильтр >50 play/24ч или админ)
+- `update_my_profile` — name / country (phone/email — отдельный confirm-flow)
+- `issue_invoice` — выписать счёт (proforma) с готовой Robokassa-ссылкой. Тарифы: `track_399`, `premium_voice_msg`, `topup_500/1000/2000`, `custom`
+- `get_my_subscriptions` — активные подписки автора
+
+**Что НЕ может Музa (по правилу «кроме удалений и оплат»):**
+- ❌ Удалять трек (`deleted_at` или hard-delete) — только через separate confirm-flow
+- ❌ Удалять аккаунт юзера
+- ❌ Списывать деньги напрямую (`charge_user`, `refund`, прямой `payments` UPDATE) — только через Robokassa init
+- ❌ Менять чужие треки (`gen.userId !== ctx.userId` → отказ)
+- ❌ Переводить в основной плейлист (`visibility=main`) — только челофильтр или админ
+
+Аудит-trail: каждое действие пишет в `admin_audit_log` с `admin_email='muza-self-service'` — Босс видит кто/что Музa сделала от лица юзера.
+
+Применяется к: всем channel'ам где Музa отвечает (web/TG/Max). LLM сама выбирает tool через function-calling.
+
+### Premium voice-messages rule (Eugene 2026-05-20)
+
+**Аудио-сообщения от Музы и админа в чате — premium-фича. Доступ авторам с подпиской.**
+
+Schema:
+- `chatbot_messages` расширена: `audio_url`, `audio_duration_sec`, `audio_premium_only` (0/1)
+- `premium_subscriptions` table — `tier` (`voice_messages` | future tiers), `status` (`pending`/`active`/`expired`/`cancelled`), `invoice_id` FK
+- `invoices` table — Музa-issued счета (см. Muza-cabinet-management rule).
+
+Цепочка покупки:
+1. Юзер: «Хочу аудио-сообщения от Музы»
+2. Музa вызывает `issue_invoice({tariff: "premium_voice_msg", description: "..."})` → возвращает Robokassa-link
+3. Юзер оплачивает → Robokassa callback → `invoices.status='paid'` + `premium_subscriptions.status='active'` (cron / event-handler — отдельный шаг wiring)
+4. Frontend gate: при `audio_premium_only=1` показывать только если у юзера active-подписка ИЛИ role=admin
+
+Применяется к: chatbot_messages с audio_url. НЕ применяется к: текстовым сообщениям, музыкальным трекам (генерация — отдельная экономика per-track).
+
 ### Persistent-audio-only rule (Eugene 2026-05-18, **навсегда зафиксировано**)
 
 **Босс «перемещение стало лучше, запомни правило использовать только это решение, не снять, во всём проекте».** После 9 итераций lock-screen наконец работает — root cause найден по W3C MediaSession §3.3 и зафиксирован persistent singleton pattern.
