@@ -561,7 +561,12 @@ router.post("/webhook", async (req, res) => {
     // По docs (https://dev.max.ru/docs/maxbusiness/selectionservices):
     //   payload содержит chat (chat_id), sender (user_id), body (text)
     // Также чтобы не уронить старые форматы — поддерживаем legacy paths.
+    // Eugene 2026-05-20: Max API формат — chat_id живёт в message.recipient.chat_id
+    // (подтверждено реальным webhook payload). Остальные fallback'и для будущей
+    // совместимости.
     const chatId = String(
+      msg?.recipient?.chat_id ??
+      msg?.recipient?.id ??
       msg?.chat?.id ??
       msg?.chat?.chat_id ??
       msg?.chat_id ??
