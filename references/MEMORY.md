@@ -108,6 +108,7 @@ everything the CEO would otherwise hold in his head. Memory tools
 
 ## Decision log (новое сверху)
 
+- **2026-05-12** Голосовой диалог: добавлен `src/integrations/voice.ts` с `VoiceTranscriber` интерфейсом и дефолтной реализацией поверх **OpenAI Whisper API**. Telegram адаптер теперь качает voice/audio через `bot.telegram.getFile` + прямой `fetch` и передаёт в роутер уже как текст. ENV: `OPENAI_API_KEY`, `STT_PROVIDER`, `STT_MODEL`, `STT_LANGUAGE_HINT=ru`, `VOICE_REPLIES_ENABLED=false`. Точки `// TODO(muziai/voice)` готовы — когда MuziAI пришлёт их STT/TTS контур, подменим без переделки интерфейса. ТЗ для них расширено секцией 7 (приоритетной).
 - **2026-05-12** Создан этот файл памяти. Идея: при старте новой сессии Claude читает CLAUDE.md → MEMORY.md → продолжает с полным контекстом, не переспрашивая.
 - **2026-05-12** Switched user path: laptop вместо iPhone для VPS setup. Сгенерили SSH-ключ на ноуте, через Timeweb web-console добавили его в `/home/novo/.ssh/authorized_keys` + NOPASSWD sudoers fix.
 - **2026-05-11** Mission Control 🚀 dashboard: cosmic theme, glassmorphism, starfield, 7 живых карточек, опрос 5 s. Авто-деплой workflow готов (`.github/workflows/deploy.yml`).

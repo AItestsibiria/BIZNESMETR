@@ -35,6 +35,13 @@ const schema = z.object({
   CLAUDE_MODEL_DEFAULT: z.string().default('claude-sonnet-4-6'),
   CLAUDE_MODEL_HEAVY: z.string().default('claude-opus-4-7'),
 
+  // Voice dialogue — STT (and later TTS) provider config.
+  OPENAI_API_KEY: z.string().optional(),
+  STT_PROVIDER: z.enum(['openai', 'muziai']).default('openai'),
+  STT_MODEL: z.string().default('whisper-1'),
+  STT_LANGUAGE_HINT: z.string().default('ru'),
+  VOICE_REPLIES_ENABLED: z.coerce.boolean().default(false),
+
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_WEBHOOK_SECRET: z.string().optional(),
   TELEGRAM_WEBHOOK_PATH: z.string().default('/webhooks/telegram'),

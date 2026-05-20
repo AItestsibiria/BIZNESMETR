@@ -1,12 +1,17 @@
 import { Telegraf } from 'telegraf'
-import type { Update } from 'telegraf/typings/core/types/typegram'
+import type { Message, Update } from 'telegraf/typings/core/types/typegram'
 import { Channel } from '@prisma/client'
 import { config } from '../config'
 import { logger } from '../logger'
+import { getTranscriber } from '../integrations/voice'
 import type { IncomingHandler, MessengerAdapter, OutboundMessage } from './adapter'
 
-// TODO(muziai): replace this stub with the patterns used in MuziAI
-// (webhook registration, middleware chain, error handling, attachment parsing).
+// TODO(muziai): replace text/voice handler internals with the patterns used
+// in MuziAI (webhook middleware chain, error wrapping, attachment parsing,
+// rate limiting). Current implementation is a working baseline.
+
+const VOICE_TRANSCRIBE_MAX_BYTES = 25 * 1024 * 1024 // OpenAI Whisper limit
+const VOICE_MAX_DURATION_SEC = 600 // 10 minutes — sanity cap
 
 export class TelegramAdapter implements MessengerAdapter {
   readonly channel = Channel.TELEGRAM
@@ -26,14 +31,9 @@ export class TelegramAdapter implements MessengerAdapter {
       const from = ctx.from
       if (!from) return
 
-      const text =
-        'text' in msg
-          ? msg.text
-          : 'caption' in msg && typeof msg.caption === 'string'
-            ? msg.caption
-            : ''
-
       try {
+        const text = await this.resolveText(msg)
+
         await this.onIncoming({
           channel: Channel.TELEGRAM,
           externalUserId: String(from.id),
@@ -42,13 +42,72 @@ export class TelegramAdapter implements MessengerAdapter {
             ? { displayName: from.username ?? from.first_name }
             : {}),
           text,
-          attachments: [], // TODO(muziai): map photo/voice/document/audio
+          attachments: [], // TODO(muziai): also surface photos/documents/audio metadata
           receivedAt: new Date(),
         })
       } catch (error) {
         logger.error({ error, updateId: ctx.update.update_id }, 'Telegram handler failed')
+        try {
+          await this.bot.telegram.sendMessage(
+            ctx.chat.id,
+            'Не смог обработать сообщение — попробуй ещё раз или напиши текстом.',
+          )
+        } catch {
+          /* swallow — fall through */
+        }
       }
     })
+  }
+
+  /**
+   * Returns the effective text of a message. For text/caption — returned as-is.
+   * For voice/audio — downloads the file and runs it through the transcriber.
+   */
+  private async resolveText(msg: Message): Promise<string> {
+    if ('text' in msg && msg.text) return msg.text
+    if ('caption' in msg && typeof msg.caption === 'string' && msg.caption) return msg.caption
+
+    const voice = 'voice' in msg ? msg.voice : undefined
+    const audio = 'audio' in msg ? msg.audio : undefined
+    const media = voice ?? audio
+    if (!media) return ''
+
+    if (media.duration && media.duration > VOICE_MAX_DURATION_SEC) {
+      logger.warn({ duration: media.duration }, 'Voice too long — skipping transcription')
+      return '[голосовое слишком длинное, пришли короче]'
+    }
+    if (media.file_size && media.file_size > VOICE_TRANSCRIBE_MAX_BYTES) {
+      logger.warn({ size: media.file_size }, 'Voice exceeds STT size limit')
+      return '[голосовое слишком большое для распознавания]'
+    }
+
+    const transcriber = getTranscriber()
+    if (!transcriber.isConfigured()) {
+      logger.warn({ provider: transcriber.name }, 'Voice received but transcription disabled')
+      return '[голосовое: распознавание не настроено — задай OPENAI_API_KEY]'
+    }
+
+    const buffer = await this.downloadFile(media.file_id)
+    const transcription = await transcriber.transcribe({
+      audio: buffer,
+      mimeType: media.mime_type ?? 'audio/ogg',
+      filename: voice ? 'voice.ogg' : 'audio.bin',
+      languageHint: config.STT_LANGUAGE_HINT,
+    })
+    return transcription.text
+  }
+
+  private async downloadFile(fileId: string): Promise<Buffer> {
+    if (!config.TELEGRAM_BOT_TOKEN) {
+      throw new Error('TELEGRAM_BOT_TOKEN is required to download files')
+    }
+    const file = await this.bot.telegram.getFile(fileId)
+    if (!file.file_path) throw new Error('Telegram returned a file with no file_path')
+    const url = `https://api.telegram.org/file/bot${config.TELEGRAM_BOT_TOKEN}/${file.file_path}`
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`Telegram file download failed: HTTP ${res.status}`)
+    const arrayBuffer = await res.arrayBuffer()
+    return Buffer.from(arrayBuffer)
   }
 
   /** Express middleware that processes a single webhook update. */
