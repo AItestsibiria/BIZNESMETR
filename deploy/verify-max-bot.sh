@@ -93,13 +93,13 @@ echo "[4] Max API getMe:"
 if [ -n "$TOK" ]; then
   ME_JSON=$(curl -s -H "Authorization: $TOK" "${API_BASE}/me" 2>/dev/null)
   if echo "$ME_JSON" | grep -q '"user_id"'; then
-    NAME=$(echo "$ME_JSON" | grep -oP '"first_name":"[^"]*"' | head -1 | cut -d'"' -f4)
-    UNAME=$(echo "$ME_JSON" | grep -oP '"username":"[^"]*"' | head -1 | cut -d'"' -f4)
-    UID=$(echo "$ME_JSON" | grep -oP '"user_id":[0-9]+' | head -1 | cut -d: -f2)
-    green "  ✓ bot: $NAME (@$UNAME, id=$UID)"
+    BOT_NAME=$(echo "$ME_JSON" | grep -oP '"first_name":"[^"]*"' | head -1 | cut -d'"' -f4)
+    BOT_UNAME=$(echo "$ME_JSON" | grep -oP '"username":"[^"]*"' | head -1 | cut -d'"' -f4)
+    BOT_UID_REMOTE=$(echo "$ME_JSON" | grep -oP '"user_id":[0-9]+' | head -1 | cut -d: -f2)
+    green "  ✓ bot: $BOT_NAME (@$BOT_UNAME, id=$BOT_UID_REMOTE)"
     # Сверка с MAX_BOT_ID
-    if [ -n "$BOT_ID" ] && [ "$UID" != "$BOT_ID" ]; then
-      yellow "  ⚠ MAX_BOT_ID в .env ($BOT_ID) != getMe user_id ($UID)"
+    if [ -n "$BOT_ID" ] && [ "$BOT_UID_REMOTE" != "$BOT_ID" ]; then
+      yellow "  ⚠ MAX_BOT_ID в .env ($BOT_ID) != getMe user_id ($BOT_UID_REMOTE)"
       VERDICT_YELLOW=1
     fi
   else
@@ -138,8 +138,10 @@ fi
 echo ""
 echo "[6] Recent logs (max-bot за последние 100 строк):"
 LOGS=$(pm2 logs neurohub --nostream --lines 100 2>&1 | grep -iE 'max-bot|max_bot' || true)
-ERR_COUNT=$(echo "$LOGS" | grep -ciE 'error|fail|undefined' || echo 0)
-TOTAL_COUNT=$(echo "$LOGS" | grep -c '.' || echo 0)
+ERR_COUNT=$(printf '%s\n' "$LOGS" | grep -ciE 'error|fail|undefined' | head -1)
+TOTAL_COUNT=$(printf '%s\n' "$LOGS" | grep -c '.' | head -1)
+[ -z "$ERR_COUNT" ] && ERR_COUNT=0
+[ -z "$TOTAL_COUNT" ] && TOTAL_COUNT=0
 if [ "$TOTAL_COUNT" = "0" ]; then
   yellow "  ⚠ нет упоминаний max-bot в недавних логах"
 elif [ "$ERR_COUNT" = "0" ]; then
