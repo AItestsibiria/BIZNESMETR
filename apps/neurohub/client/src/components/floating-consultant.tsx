@@ -468,6 +468,11 @@ export function FloatingConsultant() {
     // Используем global flag — computeFabPos читает его при пересчёте.
     (window as any).__muzaChatOpen = chatOpen;
     setFabPos(computeFabPos());
+    // Eugene 2026-05-20 Босс «когда чат раскрывается на смартфоне облачко
+    // убирай одновременно» — force collapse expanded когда chat открывается.
+    // Гарантия что меню-облачко не перекрывает chat drawer (любой путь
+    // открытия, не только openChat()).
+    if (chatOpen) setExpanded(false);
   }, [chatOpen]);
   const [chatMsgs, setChatMsgs] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
