@@ -702,7 +702,27 @@ export function FloatingConsultant() {
         if (j.persona) setChatPersona(j.persona);
         if (j.paired) setChatPaired({ channel: j.pairedFromChannel });
         const hist: ChatMessage[] = Array.isArray(j.history)
-          ? j.history.map((h: any) => ({ role: h.role === "bot" ? "bot" : "user", text: h.text }))
+          ? j.history.map((h: any) => {
+              const msg: ChatMessage = { role: h.role === "bot" ? "bot" : "user", text: h.text };
+              // Eugene 2026-05-20 Босс «мини-плеер в чате»: history-сообщения
+              // с attachedTrack — рендерим без autoPlay (юзер сам нажмёт Play).
+              if (
+                h.attachedTrack &&
+                typeof h.attachedTrack === "object" &&
+                typeof h.attachedTrack.id === "number" &&
+                typeof h.attachedTrack.audioUrl === "string"
+              ) {
+                msg.attachedTrack = {
+                  id: h.attachedTrack.id,
+                  title: String(h.attachedTrack.title || "").slice(0, 200) || "Без названия",
+                  authorName: typeof h.attachedTrack.authorName === "string" ? h.attachedTrack.authorName : null,
+                  audioUrl: String(h.attachedTrack.audioUrl).slice(0, 500),
+                  coverUrl: typeof h.attachedTrack.coverUrl === "string" ? h.attachedTrack.coverUrl : undefined,
+                  durationSec: typeof h.attachedTrack.durationSec === "number" ? h.attachedTrack.durationSec : 0,
+                };
+              }
+              return msg;
+            })
           : [];
         // Eugene 2026-05-14 Босс «паузы как человек». Greeting показываем
         // СРАЗУ (юзер только что открыл, ждёт сразу), а quickReplies — через
@@ -770,10 +790,30 @@ export function FloatingConsultant() {
       const j = await r.json();
       const data = j?.data;
       if (data?.messages && Array.isArray(data.messages)) {
-        const msgs: ChatMessage[] = data.messages.map((m: any) => ({
-          role: m.role === "user" ? "user" : "bot",
-          text: String(m.text || ""),
-        }));
+        const msgs: ChatMessage[] = data.messages.map((m: any) => {
+          const msg: ChatMessage = {
+            role: m.role === "user" ? "user" : "bot",
+            text: String(m.text || ""),
+          };
+          // Eugene 2026-05-20 Босс «мини-плеер в чате»: history musa-session
+          // тоже содержит attachedTrack для bot-сообщений с прикрепленным треком.
+          if (
+            m.attachedTrack &&
+            typeof m.attachedTrack === "object" &&
+            typeof m.attachedTrack.id === "number" &&
+            typeof m.attachedTrack.audioUrl === "string"
+          ) {
+            msg.attachedTrack = {
+              id: m.attachedTrack.id,
+              title: String(m.attachedTrack.title || "").slice(0, 200) || "Без названия",
+              authorName: typeof m.attachedTrack.authorName === "string" ? m.attachedTrack.authorName : null,
+              audioUrl: String(m.attachedTrack.audioUrl).slice(0, 500),
+              coverUrl: typeof m.attachedTrack.coverUrl === "string" ? m.attachedTrack.coverUrl : undefined,
+              durationSec: typeof m.attachedTrack.durationSec === "number" ? m.attachedTrack.durationSec : 0,
+            };
+          }
+          return msg;
+        });
         setChatMsgs(msgs);
         if (data.session?.personaName) {
           setChatPersona({
@@ -1093,12 +1133,36 @@ export function FloatingConsultant() {
                   : undefined,
               }
             : undefined;
+        // Eugene 2026-05-20 Босс «мини-плеер в чате». Если backend прикрепил
+        // attachedTrack (find_public_track tool вернул playNow:<id>) — берём
+        // payload с валидацией shape. autoPlay=true применяется на render
+        // (только последнее сообщение, чтобы при перезагрузке history старые
+        // треки не запускались сами).
+        let attachedTrack: ChatTrackCardData | undefined = undefined;
+        if (
+          j.attachedTrack &&
+          typeof j.attachedTrack === "object" &&
+          typeof j.attachedTrack.id === "number" &&
+          typeof j.attachedTrack.title === "string" &&
+          typeof j.attachedTrack.audioUrl === "string"
+        ) {
+          attachedTrack = {
+            id: j.attachedTrack.id,
+            title: String(j.attachedTrack.title).slice(0, 200),
+            authorName: typeof j.attachedTrack.authorName === "string" ? j.attachedTrack.authorName.slice(0, 100) : null,
+            audioUrl: String(j.attachedTrack.audioUrl).slice(0, 500),
+            coverUrl: typeof j.attachedTrack.coverUrl === "string" ? j.attachedTrack.coverUrl.slice(0, 500) : undefined,
+            durationSec: typeof j.attachedTrack.durationSec === "number" ? j.attachedTrack.durationSec : 0,
+          };
+        }
+
         setChatMsgs(m => [...m, {
           role: "bot",
           text: j.reply,
           backupChannels,
           proposedGeneration,
           proposedRegistration,
+          attachedTrack,
           // quickReplies подадим отдельной перезаписью через ещё одну паузу
         }]);
         setChatSending(false);
@@ -1984,6 +2048,18 @@ export function FloatingConsultant() {
                         ? <a key={j} href={p.href} target="_blank" rel="noopener noreferrer" className="underline text-cyan-300 hover:text-cyan-200" onClick={(e) => e.stopPropagation()}>{p.text}</a>
                         : <span key={j}>{p.text}</span>
                       )}</div>
+                    {/* Eugene 2026-05-20 Босс «мини-плеер в чате».
+                        Когда Муза вызвала find_public_track и tool вернул
+                        hint=playNow:<id> — backend прикрепил attachedTrack.
+                        Рендерим inline-карточку с persistent audio singleton.
+                        autoPlay=true только для последнего bot-сообщения
+                        (свежий ответ) — для history юзер сам нажмёт Play. */}
+                    {m.role === "bot" && m.attachedTrack && (
+                      <ChatTrackCard
+                        track={m.attachedTrack}
+                        autoPlay={i === arr.length - 1}
+                      />
+                    )}
                     {/* Eugene 2026-05-17 Босс «резервные каналы при downtime».
                         Если LLM вернул fallback — показываем баннер с
                         альтернативами (Telegram / Max). Юзер не остаётся
