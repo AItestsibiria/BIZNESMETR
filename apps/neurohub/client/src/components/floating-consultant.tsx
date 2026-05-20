@@ -1728,7 +1728,7 @@ export function FloatingConsultant() {
           onTouchEnd={() => { pinchStartDistRef.current = null; }}
           onTouchCancel={() => { pinchStartDistRef.current = null; }}
           aria-label="Муза — клик, растяни двумя пальцами или потяни для меню"
-          className="block w-24 h-36 sm:w-28 sm:h-48 active:scale-95 transition-transform opacity-90 hover:opacity-100 consultant-dance touch-none"
+          className="block w-24 h-36 sm:w-28 sm:h-48 active:scale-95 transition-transform opacity-90 hover:opacity-100 consultant-dance"
         >
           {/* Eugene 2026-05-18: 3D-аватар (musa-3d) с onError fallback на
               SVG. После approve в админке consultant-avatar.png будет
