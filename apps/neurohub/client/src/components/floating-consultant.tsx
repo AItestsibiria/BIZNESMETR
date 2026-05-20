@@ -2371,7 +2371,11 @@ export function FloatingConsultant() {
                 }}
                 placeholder={chatPaired ? "Продолжаем…" : "Сообщение Музе…"}
                 maxLength={1500}
-                disabled={chatSending}
+                // Eugene 2026-05-20 Босс «после отправки можно следующее писать».
+                // disabled={chatSending} убран — юзер пишет след. сообщение
+                // пока ждёт ответ LLM (fallback chain до 45 сек). Кнопка
+                // submit остаётся disabled пока пред. не ответил, чтобы
+                // избежать concurrent requests.
                 rows={1}
                 className="flex-1 min-w-0 bg-white/[0.07] text-[16px] text-white placeholder:text-white/40 px-4 py-3 rounded-xl border-2 border-purple-400/25 focus:border-purple-400/60 focus:outline-none disabled:opacity-50 font-medium resize-none leading-[1.4] min-h-[3.25rem] max-h-[8.25rem] overflow-y-auto"
                 autoFocus
