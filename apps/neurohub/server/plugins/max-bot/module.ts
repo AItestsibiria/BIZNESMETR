@@ -242,6 +242,54 @@ async function consumeMaxLinkNonce(nonce: string, maxUserId: string): Promise<{ 
   }
 }
 
+// Eugene 2026-05-20 «Привязка по номеру телефона как дополнительный канал».
+// Юзер share-contact'нул в Max ИЛИ написал /привязать +7905... — ищем
+// users.phone == normalized(phone) AND phone_verified=1 → линкуем maxUserId.
+// Минимальная защита: phone должен быть verified в users (SMS-OTP уже
+// пройден на сайте). Без verification flag — отказ (нельзя занять чужой
+// номер просто написав его в Max).
+async function linkMaxByPhone(rawPhone: string, maxUserId: string): Promise<{ ok: boolean; userId?: number; error?: string }> {
+  try {
+    // Normalize phone: убираем всё кроме цифр + leading 7/8 unification
+    const digits = String(rawPhone).replace(/\D/g, "");
+    if (digits.length < 10) return { ok: false, error: "номер слишком короткий" };
+    // Russian phones: 7XXXXXXXXXX (11 digits) или 8XXXXXXXXXX → +7XXXXXXXXXX
+    let normalized = digits;
+    if (normalized.length === 10) normalized = "7" + normalized; // 9XXX → 79XXX
+    if (normalized.length === 11 && normalized.startsWith("8")) normalized = "7" + normalized.slice(1);
+    const e164 = "+" + normalized;
+
+    const raw = (db as any).$client;
+    // Ищем users с этим phone (+ phone_verified=1)
+    const candidates: any[] = raw.prepare(`
+      SELECT id, name, phone, phone_verified, max_user_id
+      FROM users
+      WHERE (phone = ? OR phone = ? OR phone = ?)
+        AND phone_verified = 1
+      LIMIT 5
+    `).all(e164, normalized, "+" + digits);
+
+    if (!candidates.length) return { ok: false, error: "номер не найден или не подтверждён по SMS" };
+    if (candidates.length > 1) return { ok: false, error: "несколько аккаунтов с этим номером — обратись в поддержку" };
+
+    const target = candidates[0];
+    if (target.max_user_id && target.max_user_id !== maxUserId) {
+      return { ok: false, error: "этот аккаунт уже привязан к другому Max-юзеру" };
+    }
+
+    // Проверка что max_user_id не занят другим
+    const otherUser: any = raw.prepare("SELECT id FROM users WHERE max_user_id = ? AND id != ?").get(maxUserId, target.id);
+    if (otherUser) return { ok: false, error: "этот Max-аккаунт уже привязан к другому профилю" };
+
+    // Линкуем
+    raw.prepare("UPDATE users SET max_user_id = ? WHERE id = ?").run(maxUserId, target.id);
+    return { ok: true, userId: target.id };
+  } catch (e: any) {
+    console.warn("[max-bot] linkMaxByPhone error:", e?.message || e);
+    return { ok: false, error: "техническая ошибка" };
+  }
+}
+
 function findOrCreateMaxSession(chatId: string, userKey: string): { sessionId: string; userId: number | null } {
   try {
     const row = db.select().from(chatbotSessions).where(eq(chatbotSessions.externalId, chatId)).get() as any;
@@ -519,6 +567,24 @@ router.post("/webhook", async (req, res) => {
       ""
     ).trim();
 
+    // Eugene 2026-05-20 Босс «привязка через номер телефона». Max API позволяет
+    // юзеру share свой контакт (attachment type=contact / type=phone). Если
+    // attachment пришёл — извлекаем phone и пытаемся auto-link.
+    const sharedPhone = (() => {
+      try {
+        const atts = msg?.body?.attachments ?? msg?.attachments ?? u?.attachments ?? [];
+        if (!Array.isArray(atts) || atts.length === 0) return null;
+        for (const a of atts) {
+          const t = String(a?.type ?? a?.kind ?? "").toLowerCase();
+          if (t === "contact" || t === "phone" || t === "share_contact") {
+            const phone = a?.payload?.phone || a?.payload?.phone_number || a?.phone || a?.phone_number || a?.contact?.phone || null;
+            if (phone) return String(phone);
+          }
+        }
+        return null;
+      } catch { return null; }
+    })();
+
     if (!chatId) {
       bootRefs?.logger.info?.("[max-bot] webhook: missing chatId", { keys: Object.keys(u || {}).slice(0, 5) });
       return;
@@ -579,6 +645,40 @@ router.post("/webhook", async (req, res) => {
         : `🎵 Привет! Я — Муза. Помогу подобрать песню под событие — для какого случая думаешь?`;
       await sendConsultantPhoto(chatId, hello);
       saveMaxMessage(sessionId, "bot", hello, { userId: authUserId });
+      return;
+    }
+
+    // Eugene 2026-05-20 Босс «привязка по номеру телефона как дополнительный
+    // канал улучшения стыковки». Если юзер share-contact'нул (attachment) ИЛИ
+    // написал /привязать +7905... — пытаемся match с users.phone (verified).
+    // Это дополнение к deep-link nonce flow, не замена.
+    if (sharedPhone || text.match(/^\/(привязать|link|подключить)\b/i)) {
+      saveMaxMessage(sessionId, "user", text || `(контакт: ${sharedPhone || "?"})`, { userId: authUserId });
+      const phoneFromText = (() => {
+        const m = text.match(/(\+?\d[\d\s\-()]{8,18})/);
+        return m ? m[1] : null;
+      })();
+      const candidatePhone = sharedPhone || phoneFromText;
+      if (!candidatePhone) {
+        const msg2 = `📱 Чтобы привязать аккаунт через телефон — пришли свой номер кнопкой «Поделиться контактом» (значок 📎 → Контакт), либо напиши «/привязать +7905...» Номер должен совпадать с тем что ты указал при регистрации на muzaai.ru. \n\nИли проще: открой https://muzaai.ru/#/dashboard и нажми «Подключить Max-бот» — там одна кнопка.`;
+        await sendMessage(chatId, msg2);
+        saveMaxMessage(sessionId, "bot", msg2, { userId: authUserId });
+        return;
+      }
+      const linkResult = await linkMaxByPhone(candidatePhone, fromId);
+      if (linkResult.ok && linkResult.userId) {
+        try { db.update(chatbotSessions).set({ userId: linkResult.userId }).where(eq(chatbotSessions.id, sessionId)).run(); } catch {}
+        const userName = (() => { try { return storage.getUser(linkResult.userId!)?.name || ""; } catch { return ""; } })();
+        const msg3 = userName
+          ? `🎵 ${userName}, аккаунт подключён по номеру. Теперь я помню тебя и вижу твой кабинет.`
+          : `🎵 Аккаунт подключён по номеру. Теперь я помню тебя.`;
+        await sendConsultantPhoto(chatId, msg3);
+        saveMaxMessage(sessionId, "bot", msg3, { userId: linkResult.userId });
+      } else {
+        const msg4 = `Не получилось привязать: ${linkResult.error || "номер не найден"}. Проверь что регистрировался на muzaai.ru с этим номером и подтвердил его через SMS. Или используй кнопку «Подключить Max-бот» в кабинете на сайте.`;
+        await sendMessage(chatId, msg4);
+        saveMaxMessage(sessionId, "bot", msg4, { userId: authUserId });
+      }
       return;
     }
 
