@@ -128,7 +128,9 @@ export function SupportModal({
     setInput("");
     setSending(true);
     const ctrl = new AbortController();
-    const tid = window.setTimeout(() => ctrl.abort(), 25_000);
+    // Eugene 2026-05-20 (frontend-audit fix): 25s → 45s. LLM fallback chain
+    // (Anthropic → TimeWeb → GPTunnel GPT-4o-mini) укладывается в 30-45s.
+    const tid = window.setTimeout(() => ctrl.abort(), 45_000);
     try {
       const r = await fetch("/api/muza/chat", {
         method: "POST",

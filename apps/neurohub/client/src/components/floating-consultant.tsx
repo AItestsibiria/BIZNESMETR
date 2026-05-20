@@ -1027,7 +1027,10 @@ export function FloatingConsultant() {
     setChatInput("");
     setChatSending(true);
     const ctrl = new AbortController();
-    const timeoutId = window.setTimeout(() => ctrl.abort(), 20_000);
+    // Eugene 2026-05-20 (frontend-audit fix #3): 20s → 45s. При Anthropic 403
+    // fallback chain (Claude-2 → Claude-3 → TimeWeb → GPTunnel GPT-4o-mini)
+    // занимает 30-45 сек. 20s слишком короткий — AbortError на здоровом стеке.
+    const timeoutId = window.setTimeout(() => ctrl.abort(), 45_000);
     try {
       const r = await fetch("/api/muza/chat", {
         method: "POST",

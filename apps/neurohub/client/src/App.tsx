@@ -30,6 +30,7 @@ import { ErrorBoundary } from "./components/error-boundary";
 import { PlayerProvider } from "./lib/player-agent";
 import { FloatingConsultant } from "./components/floating-consultant";
 import { WalkingMusa } from "./components/walking-musa";
+import { useEffect, useState } from "react";
 
 // Wrapper для рендера каждой страницы внутри ErrorBoundary с именем —
 // чтобы вместо чёрного экрана при runtime-ошибке показать стек.
@@ -88,10 +89,31 @@ function AppContent() {
       </Router>
       <Toaster />
       <BackgroundMusic />
-      <FloatingConsultant />
+      {/* Eugene 2026-05-20 (frontend-audit fix #1) — FAB collision на /admin/v304:
+          FloatingConsultant z-30 в bottom-right И MusaVoiceFab z-50 в bottom-right
+          оверлэпали — Босс думал что жмёт чат-кнопку Музы, попадал в voice-FAB
+          → открывался voice-панель → «диалог не происходит». ФИКС: на admin-pages
+          FloatingConsultant скрыт (у админа есть MusaVoiceFab для admin-задач). */}
+      <AdminAwareFloatingConsultant />
       <WalkingMusa />
     </div>
   );
+}
+
+function AdminAwareFloatingConsultant() {
+  // useHashLocation в Router'е, поэтому слушаем hashchange напрямую —
+  // useLocation из wouter без Router context даёт path-routing, не hash.
+  const [hash, setHash] = useState<string>(() => (typeof window !== "undefined" ? window.location.hash : ""));
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handler = () => setHash(window.location.hash);
+    window.addEventListener("hashchange", handler);
+    return () => window.removeEventListener("hashchange", handler);
+  }, []);
+  const path = hash.replace(/^#/, "") || "/";
+  const isAdminPage = path.startsWith("/admin");
+  if (isAdminPage) return null;
+  return <FloatingConsultant />;
 }
 
 function App() {
