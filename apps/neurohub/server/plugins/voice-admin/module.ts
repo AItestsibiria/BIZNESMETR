@@ -443,6 +443,14 @@ async function callAdminVoiceLLM(opts: {
   // streaming → faster TTS playback → tighter conversation loop.
   const maxTokens = opts.dialogMode ? 220 : 600;
 
+  // TODO (Eugene 2026-05-20): voice-admin использует свой собственный
+  // Anthropic-tool-use loop с tool_choice=none fallback. Босс попросил
+  // реверс LLM (TimeWeb primary, Anthropic fallback) — для main Музы
+  // (lib/llmCore.ts) уже сделано. Для admin-voice оставляем Anthropic
+  // primary ВРЕМЕННО: tool_choice + voice-admin specific tool semantics
+  // требуют Anthropic-native API; миграция на TimeWeb (OpenAI-compat без
+  // tool_choice) — отдельная задача.
+
   // Eugene 2026-05-20 (backend-audit fix #1): filterToolsForRole('admin')
   // вместо raw MUZA_TOOLS — это включает ВСЕ tools (admin-only + user-zone)
   // и устраняет шум для tool-selection. Раньше LLM могла выбрать irrelevant

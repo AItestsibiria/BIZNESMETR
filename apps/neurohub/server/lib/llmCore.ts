@@ -293,19 +293,27 @@ async function notifyAdminKeySwitch(ev: KeySwitchEvent): Promise<void> {
 // === Главная функция ===
 
 /**
- * Единственный путь к Claude для Музы. Возвращает text-ответ либо null,
- * если все ключи упали / API недоступен. Никаких hardcoded fallback-строк —
+ * Единственный путь к LLM для Музы. Возвращает text-ответ либо null,
+ * если все провайдеры упали. Никаких hardcoded fallback-строк —
  * выбор fallback'а делает caller (web /muza/chat / TG webhook / Max webhook).
  *
- * Tool-use loop:
- *   1. Шлём messages + tools=MUZA_TOOLS
- *   2. Если stop_reason="tool_use" — выполняем tools, добавляем результаты,
- *      делаем следующий call. Max 4 итерации.
- *   3. На end_turn — возвращаем текст.
+ * Eugene 2026-05-20 Босс: PRIMARY = TimeWeb Gateway, FALLBACK = Anthropic (3-key chain),
+ * последний резерв = GPTunnel/gpt-4o-mini.
+ * Раньше было наоборот (Anthropic primary, TimeWeb fallback).
+ *
+ * Порядок попыток:
+ *   1. TimeWeb Gateway (OpenAI-compat, без tools) — primary
+ *   2. Anthropic 3-key chain (с MUZA_TOOLS + tool-use loop) — fallback
+ *   3. GPTunnel/gpt-4o-mini — последний резерв
+ *
+ * Tool-use loop работает ТОЛЬКО на Anthropic-шаге. TimeWeb и GPTunnel
+ * возвращают чистый text без tool-calling.
  */
 export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string | null> {
   const attempts = listAnthropicKeys();
-  if (attempts.length === 0) return null;
+  // Eugene 2026-05-20: убрано raннее return null если attempts.length===0,
+  // потому что теперь primary = TimeWeb, Anthropic — fallback. Если ни одного
+  // Anthropic-ключа нет, TimeWeb всё равно должен попробовать ответить.
 
   // 1. System prompt — единый для всех каналов.
   //    Stable часть кэшируется (ephemeral TTL 1h), dynamic — отдельным блоком.
@@ -361,6 +369,49 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
 
   let prevFailed: { name: string; status: number | string; reason?: string } | null = null;
 
+  // === [PRIMARY] TimeWeb Gateway (Eugene 2026-05-20 Босс «TimeWeb primary, Anthropic fallback») ===
+  // Раньше TimeWeb запускался ТОЛЬКО если все Anthropic-ключи упали — теперь наоборот.
+  // OpenAI-compatible, БЕЗ tools (Anthropic-tool-use оставлен на fallback-шаге).
+  // Если TimeWeb даёт пустой ответ или ошибку — caskадно переходим на Anthropic 3-key chain.
+  if (process.env.TIMEWEB_GATEWAY_KEY) {
+    try {
+      // OpenAI-compatible system — сворачиваем cache-blocks в один string.
+      const sysText = systemBlocks.map(b => (typeof b === "string" ? b : (b?.text || ""))).join("\n\n");
+      const tw = await callTimeWebGateway({
+        systemPrompt: sysText,
+        history: history.slice(-15),
+        userText: safeUserText,
+        maxTokens,
+        // Eugene 2026-05-20: TimeWeb gateway основан на Anthropic-compatible API.
+        // Дефолт — anthropic/claude-haiku-4-5 (proven endpoint api.timeweb.ai/v1).
+        model: process.env.TIMEWEB_GATEWAY_MODEL || "anthropic/claude-haiku-4-5",
+      });
+      if (tw.usage) {
+        // OpenAI-формат: prompt_tokens / completion_tokens
+        muzaTokenStats.inputTokens += Number(tw.usage.prompt_tokens || 0);
+        muzaTokenStats.outputTokens += Number(tw.usage.completion_tokens || 0);
+        muzaTokenStats.callsCount += 1;
+      }
+      if (tw.text && tw.text.length > 0) {
+        return tw.text;
+      }
+      // TimeWeb вернул пустой text → fallback на Anthropic.
+      console.warn("[MUZA-LLM] TimeWeb (primary) returned empty text — fallback to Anthropic. endpoint:", tw.endpoint || "?");
+      setLLMKeyStatus("TIMEWEB_GATEWAY_KEY", { lastUsedAt: new Date().toISOString(), lastStatus: "error", lastErrorMsg: "empty response" });
+      prevFailed = { name: "TIMEWEB_GATEWAY_KEY", status: "empty-response", reason: "TimeWeb returned empty text" };
+    } catch (e: any) {
+      const msg = String(e?.message || e);
+      console.warn("[MUZA-LLM] TimeWeb (primary) error — fallback to Anthropic:", msg);
+      setLLMKeyStatus("TIMEWEB_GATEWAY_KEY", { lastUsedAt: new Date().toISOString(), lastStatus: "error", lastErrorMsg: msg.slice(0, 200) });
+      prevFailed = { name: "TIMEWEB_GATEWAY_KEY", status: "error", reason: msg.slice(0, 200) };
+    }
+  } else {
+    console.warn("[MUZA-LLM] TimeWeb (primary) skipped: TIMEWEB_GATEWAY_KEY not configured — пробуем Anthropic");
+  }
+
+  // === [FALLBACK 1] Anthropic 3-key chain (с MUZA_TOOLS + tool-use loop) ===
+  // Eugene 2026-05-20: было primary, теперь fallback. Если Anthropic-ключей нет —
+  // пропустим этот блок и провалимся на GPTunnel fallback.
   for (let i = 0; i < attempts.length; i++) {
     const { name, key } = attempts[i];
     // C2: восстановить чистый snapshot перед каждым ключом
@@ -555,60 +606,14 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
     }
   }
 
-  // === TimeWeb Gateway fallback (Eugene 2026-05-16 «основной резерв») ===
-  // Все Anthropic-ключи упали — пробуем TimeWeb. Без MUZA_TOOLS (gateway
-  // обычно не поддерживает Anthropic-tools); возвращаем чистый text.
-  if (process.env.TIMEWEB_GATEWAY_KEY) {
-    try {
-      // OpenAI-compatible system — сворачиваем cache-blocks в один string.
-      const sysText = systemBlocks.map(b => (typeof b === "string" ? b : (b?.text || ""))).join("\n\n");
-      const tw = await callTimeWebGateway({
-        systemPrompt: sysText,
-        history: history.slice(-15),
-        userText: safeUserText,
-        maxTokens,
-        // Eugene 2026-05-19 Musa-diag: TimeWeb gateway основан на Anthropic-
-        // compatible API. Дефолт должен быть anthropic-моделью (claude-haiku),
-        // не openai/gpt-4o-mini (gateway может не понимать openai-namespace).
-        model: process.env.TIMEWEB_GATEWAY_MODEL || "anthropic/claude-haiku-4-5",
-      });
-      if (tw.usage) {
-        // OpenAI-формат: prompt_tokens / completion_tokens
-        muzaTokenStats.inputTokens += Number(tw.usage.prompt_tokens || 0);
-        muzaTokenStats.outputTokens += Number(tw.usage.completion_tokens || 0);
-        muzaTokenStats.callsCount += 1;
-      }
-      if (tw.text && tw.text.length > 0) {
-        // Уведомим админа — все Claude-ключи упали, перешли на TimeWeb.
-        if (prevFailed) {
-          notifyAdminKeySwitch({
-            at: new Date().toISOString(),
-            provider: "Anthropic → TimeWeb fallback",
-            from: prevFailed.name,
-            fromStatus: prevFailed.status,
-            to: "TIMEWEB_GATEWAY_KEY",
-            reason: `все Claude-ключи упали, TimeWeb endpoint=${tw.endpoint}`,
-          }).catch(() => {});
-        }
-        return tw.text;
-      }
-      // Eugene 2026-05-18 audit: TimeWeb вернул пустой text → залогировать
-      // (раньше было silent return null → админ слепой).
-      console.warn("[MUZA-LLM] TimeWeb returned empty text — endpoint:", tw.endpoint || "?");
-      setLLMKeyStatus("TIMEWEB_GATEWAY_KEY", { lastUsedAt: new Date().toISOString(), lastStatus: "error", lastErrorMsg: "empty response" });
-    } catch (e: any) {
-      console.warn("[MUZA-LLM] TimeWeb fallback error:", String(e?.message || e));
-      setLLMKeyStatus("TIMEWEB_GATEWAY_KEY", { lastUsedAt: new Date().toISOString(), lastStatus: "error", lastErrorMsg: String(e?.message || e).slice(0, 200) });
-    }
-  } else {
-    // Eugene 2026-05-18 audit: TimeWeb ключ пустой → залогировать (раньше silent).
-    console.warn("[MUZA-LLM] TimeWeb fallback skipped: TIMEWEB_GATEWAY_KEY not configured");
-  }
+  // Eugene 2026-05-20: TimeWeb блок перенесён НАВЕРХ (до Anthropic) — теперь
+  // TimeWeb primary. Здесь он уже отработал. Если дошли сюда — TimeWeb упал
+  // и Anthropic 3-key chain тоже не вернул text → пробуем последний резерв.
 
-  // === Eugene 2026-05-20 (I7 fix): 5-й fallback — GPT-4o-mini через GPTunnel.
-  // anti-Anthropic-outage. GPTunnel ключ уже есть для Suno-генерации,
-  // OpenAI-compatible /v1/chat/completions. БЕЗ tools — clean text.
-  // Срабатывает только если Anthropic ВСЕ упали И TimeWeb тоже не дал ответа.
+  // === [FALLBACK 2] GPTunnel/gpt-4o-mini — последний резерв.
+  // Срабатывает только если TimeWeb упал И ВСЕ Anthropic-ключи упали.
+  // GPTunnel ключ уже есть для Suno-генерации, OpenAI-compatible /v1/chat/completions.
+  // БЕЗ tools — clean text.
   if (process.env.GPTUNNEL_API_KEY) {
     try {
       const sysText = systemBlocks.map(b => (typeof b === "string" ? b : (b?.text || ""))).join("\n\n");

@@ -235,14 +235,43 @@ async function probeLLMEngine(): Promise<{
   fallbackStatus: "ok" | "fail" | "untested";
   fallbackError?: string;
 }> {
+  // Eugene 2026-05-20 Босс: PRIMARY = TimeWeb Gateway, FALLBACK = Anthropic.
+  // Раньше было наоборот (Anthropic primary, TimeWeb fallback).
   const result: any = {
-    primary: "anthropic",
+    primary: "timeweb-gateway",
     primaryStatus: "untested",
-    fallback: "timeweb-gateway",
+    fallback: "anthropic",
     fallbackStatus: "untested",
   };
 
-  // Anthropic — лёгкий probe (1 token)
+  // TimeWeb (primary) — ping
+  if (process.env.TIMEWEB_GATEWAY_KEY) {
+    try {
+      const tw = await callTimeWebGateway({
+        systemPrompt: "echo",
+        history: [],
+        userText: "ok",
+        maxTokens: 5,
+        // Eugene 2026-05-20: дефолт — anthropic/claude-haiku-4-5 (proven via api.timeweb.ai/v1).
+        model: process.env.TIMEWEB_GATEWAY_MODEL || "anthropic/claude-haiku-4-5",
+      });
+      if (tw.text) {
+        result.primaryStatus = "ok";
+      } else {
+        result.primaryStatus = "fail";
+        const last = getLLMKeyStatus("TIMEWEB_GATEWAY_KEY");
+        result.primaryError = last?.lastErrorMsg || "TimeWeb вернул пустой ответ";
+      }
+    } catch (e: any) {
+      result.primaryStatus = "fail";
+      result.primaryError = String(e?.message || e).slice(0, 150);
+    }
+  } else {
+    result.primaryError = "TIMEWEB_GATEWAY_KEY не задан";
+    result.primaryStatus = "fail";
+  }
+
+  // Anthropic (fallback) — лёгкий probe (1 token)
   const keys = listAnthropicKeys();
   if (keys.length > 0) {
     try {
@@ -261,47 +290,22 @@ async function probeLLMEngine(): Promise<{
         signal: AbortSignal.timeout(10_000),
       });
       if (r.status >= 200 && r.status < 300) {
-        result.primaryStatus = "ok";
+        result.fallbackStatus = "ok";
       } else if (r.status === 400) {
         // invalid_request_error может означать что ключ принят (вопрос только в payload)
-        result.primaryStatus = "ok";
-      } else {
-        result.primaryStatus = "fail";
-        const t = await r.text().catch(() => "");
-        result.primaryError = `HTTP ${r.status}: ${t.slice(0, 100)}`;
-      }
-    } catch (e: any) {
-      result.primaryStatus = "fail";
-      result.primaryError = e?.name === "AbortError" ? "timeout" : String(e?.message || e).slice(0, 150);
-    }
-  } else {
-    result.primaryError = "Anthropic ключи не настроены";
-    result.primaryStatus = "fail";
-  }
-
-  // TimeWeb fallback — ping
-  if (process.env.TIMEWEB_GATEWAY_KEY) {
-    try {
-      const tw = await callTimeWebGateway({
-        systemPrompt: "echo",
-        history: [],
-        userText: "ok",
-        maxTokens: 5,
-        model: process.env.TIMEWEB_GATEWAY_MODEL || "gpt-4o-mini",
-      });
-      if (tw.text) {
         result.fallbackStatus = "ok";
       } else {
         result.fallbackStatus = "fail";
-        const last = getLLMKeyStatus("TIMEWEB_GATEWAY_KEY");
-        result.fallbackError = last?.lastErrorMsg || "TimeWeb вернул пустой ответ";
+        const t = await r.text().catch(() => "");
+        result.fallbackError = `HTTP ${r.status}: ${t.slice(0, 100)}`;
       }
     } catch (e: any) {
       result.fallbackStatus = "fail";
-      result.fallbackError = String(e?.message || e).slice(0, 150);
+      result.fallbackError = e?.name === "AbortError" ? "timeout" : String(e?.message || e).slice(0, 150);
     }
   } else {
-    result.fallbackError = "TIMEWEB_GATEWAY_KEY не задан";
+    result.fallbackError = "Anthropic ключи не настроены";
+    result.fallbackStatus = "fail";
   }
 
   return result;

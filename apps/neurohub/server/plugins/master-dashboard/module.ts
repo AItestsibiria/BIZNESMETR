@@ -1137,8 +1137,9 @@ router.get("/brain-export", requireAdmin, (_req, res) => {
     // Провайдеры
     const providerNodes: BrainNode[] = [
       { id: "provider:gptunnel", group: "provider", label: "GPTunnel (Suno)", status: process.env.GPTUNNEL_API_KEY ? "green" : "red" },
-      { id: "provider:anthropic", group: "provider", label: "Anthropic", status: process.env.ANTHROPIC_API_KEY ? "green" : "yellow" },
-      { id: "provider:timeweb", group: "provider", label: "TimeWeb LLM", status: process.env.TIMEWEB_GATEWAY_KEY ? "green" : "yellow" },
+      // Eugene 2026-05-20 Босс: TimeWeb primary, Anthropic fallback (раньше наоборот).
+      { id: "provider:timeweb", group: "provider", label: "TimeWeb LLM (primary)", status: process.env.TIMEWEB_GATEWAY_KEY ? "green" : "yellow" },
+      { id: "provider:anthropic", group: "provider", label: "Anthropic (fallback)", status: process.env.ANTHROPIC_API_KEY ? "green" : "yellow" },
       { id: "provider:openai", group: "provider", label: "OpenAI", status: process.env.OPENAI_API_KEY ? "green" : "yellow" },
       { id: "provider:yandex", group: "provider", label: "Yandex SpeechKit", status: process.env.YANDEX_SPEECHKIT_API_KEY ? "green" : "yellow" },
       { id: "provider:robokassa", group: "provider", label: "Robokassa", status: process.env.ROBO_PASSWORD_1 ? "green" : "red" },

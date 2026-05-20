@@ -78,7 +78,8 @@ async function checkTimeWebGateway(): Promise<{ status: "ok" | "fail"; error?: s
       history: [],
       userText: "ping",
       maxTokens: 5,
-      model: process.env.TIMEWEB_GATEWAY_MODEL || "gpt-4o-mini",
+      // Eugene 2026-05-20: дефолт — anthropic/claude-haiku-4-5 (proven via api.timeweb.ai/v1).
+      model: process.env.TIMEWEB_GATEWAY_MODEL || "anthropic/claude-haiku-4-5",
     });
     if (r.text && r.text.length > 0) return { status: "ok" };
     return { status: "fail", error: "пустой ответ или endpoint не найден" };
@@ -190,10 +191,11 @@ function configOnly(envName: string): KeyDef["check"] {
 
 const KEY_DEFS: KeyDef[] = [
   // === LLM-цепочка (порядок = priority) ===
-  { name: "ANTHROPIC_API_KEY", category: "🤖 LLM (Claude)", purpose: "Муза-чат, бот, агенты — primary", kind: "live-check", check: () => checkAnthropicByEnv("ANTHROPIC_API_KEY") },
-  { name: "ANTHROPIC_API_KEY_BACKUP", category: "🤖 LLM (Claude)", purpose: "Резерв Claude #2", kind: "live-check", check: () => checkAnthropicByEnv("ANTHROPIC_API_KEY_BACKUP") },
-  { name: "ANTHROPIC_API_KEY_BOT", category: "🤖 LLM (Claude)", purpose: "Резерв Claude #3", kind: "live-check", check: () => checkAnthropicByEnv("ANTHROPIC_API_KEY_BOT") },
-  { name: "TIMEWEB_GATEWAY_KEY", category: "🤖 LLM (резерв)", purpose: "TimeWeb Gateway (OpenAI-compat) — основной резерв после Claude", kind: "live-check", check: checkTimeWebGateway },
+  // Eugene 2026-05-20 Босс: PRIMARY = TimeWeb Gateway, FALLBACK = Anthropic 3-key chain.
+  { name: "TIMEWEB_GATEWAY_KEY", category: "🤖 LLM (primary)", purpose: "TimeWeb Gateway (OpenAI-compat) — primary провайдер Музы", kind: "live-check", check: checkTimeWebGateway },
+  { name: "ANTHROPIC_API_KEY", category: "🤖 LLM (fallback)", purpose: "Anthropic Claude — fallback после TimeWeb", kind: "live-check", check: () => checkAnthropicByEnv("ANTHROPIC_API_KEY") },
+  { name: "ANTHROPIC_API_KEY_BACKUP", category: "🤖 LLM (fallback)", purpose: "Резерв Claude #2", kind: "live-check", check: () => checkAnthropicByEnv("ANTHROPIC_API_KEY_BACKUP") },
+  { name: "ANTHROPIC_API_KEY_BOT", category: "🤖 LLM (fallback)", purpose: "Резерв Claude #3", kind: "live-check", check: () => checkAnthropicByEnv("ANTHROPIC_API_KEY_BOT") },
 
   // === Музыка + STT ===
   { name: "GPTUNNEL_API_KEY", category: "🎵 Музыка", purpose: "Suno генерация через GPTunnel", kind: "live-check", check: checkGptunnel },
