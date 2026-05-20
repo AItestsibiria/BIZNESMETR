@@ -150,6 +150,18 @@ export function CoverDetailsModal({
     };
   }, [open]);
 
+  // Eugene 2026-05-21 Босс «главная не двигается при зажиме верх-вниз» —
+  // безусловный cleanup при unmount компонента. Защищает от случая когда
+  // modal unmount'ит без переключения open=false (Strict-mode double-render,
+  // React reconciler edge case, неожиданный navigation) — body.overflow
+  // остаётся 'hidden' и весь landing залипает.
+  useEffect(() => {
+    return () => {
+      document.body.style.overflow = "";
+      document.body.style.paddingRight = "";
+    };
+  }, []);
+
   // Eugene 2026-05-19 Босс «при нажатии и удерживании обложки — сохранить
   // с соляными знаками проекта». Long-press 700ms → canvas-watermark «MuzaAi.ru»
   // + волна → download .jpg.
