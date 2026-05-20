@@ -403,14 +403,33 @@ export function FloatingConsultant() {
       window.removeEventListener("musa-mouse-follow-end", onEnd as EventListener);
     };
   }, []);
-  // Eugene 2026-05-20 Босс: Музa ВСЕГДА справа внизу на mobile/laptop,
-  // чтобы не перекрывалась чатом независимо от расположения окна чата.
-  // Drag убран — позиция фиксирована, при resize окна пересчитывается.
-  const FAB_SIZE = { width: 80, height: 80 };
-  const computeFabPos = () => ({
-    x: typeof window === "undefined" ? 100 : Math.max(8, window.innerWidth - FAB_SIZE.width - 16),
-    y: typeof window === "undefined" ? 100 : Math.max(8, window.innerHeight - FAB_SIZE.height - 16),
-  });
+  // Eugene 2026-05-20 Босс: универсальное позиционирование Музы.
+  // - Реальные размеры (96×144 mobile, 112×192 desktop) — изображение не обрезалось
+  // - iOS safe-area-inset-bottom (home indicator)
+  // - При открытом чате на mobile — поднимаемся над окном чата
+  // - Recompute при resize / orientationchange / chatOpen toggle
+  const computeFabPos = () => {
+    if (typeof window === "undefined") return { x: 100, y: 100 };
+    const isMobile = window.innerWidth < 640;
+    const fabW = isMobile ? 96 : 112;
+    const fabH = isMobile ? 144 : 192;
+    // iOS safe-area через probe-element + env(safe-area-inset-bottom)
+    let safeBottom = 16;
+    try {
+      const probe = document.createElement("div");
+      probe.style.cssText = "position:fixed;bottom:0;padding-bottom:env(safe-area-inset-bottom);visibility:hidden;pointer-events:none;";
+      document.body.appendChild(probe);
+      const pad = parseInt(getComputedStyle(probe).paddingBottom, 10) || 0;
+      safeBottom = Math.max(16, pad + 8);
+      document.body.removeChild(probe);
+    } catch {}
+    // chatOpen+mobile: chat drawer занимает ~60vh снизу — поднимаем Музу над ним
+    const isChatOpen = (window as any).__muzaChatOpen === true;
+    const chatLifted = isChatOpen && isMobile ? Math.round(window.innerHeight * 0.62) : 0;
+    const x = Math.max(8, window.innerWidth - fabW - 8);
+    const y = Math.max(8, window.innerHeight - fabH - safeBottom - chatLifted);
+    return { x, y };
+  };
   const [fabPos, setFabPos] = useState(computeFabPos);
   useEffect(() => {
     const onResize = () => setFabPos(computeFabPos());
@@ -445,6 +464,10 @@ export function FloatingConsultant() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.dispatchEvent(new CustomEvent(chatOpen ? "musa-chat-open" : "musa-chat-close"));
+    // Eugene 2026-05-20 Босс: при открытии чата на mobile поднять Музу над окном.
+    // Используем global flag — computeFabPos читает его при пересчёте.
+    (window as any).__muzaChatOpen = chatOpen;
+    setFabPos(computeFabPos());
   }, [chatOpen]);
   const [chatMsgs, setChatMsgs] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
