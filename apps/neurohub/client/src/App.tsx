@@ -29,7 +29,6 @@ import BackgroundMusic from "./components/background-music";
 import { ErrorBoundary } from "./components/error-boundary";
 import { PlayerProvider } from "./lib/player-agent";
 import { FloatingConsultant } from "./components/floating-consultant";
-import { WalkingMusa } from "./components/walking-musa";
 import { useEffect, useState } from "react";
 
 // Wrapper для рендера каждой страницы внутри ErrorBoundary с именем —
@@ -95,7 +94,8 @@ function AppContent() {
           → открывался voice-панель → «диалог не происходит». ФИКС: на admin-pages
           FloatingConsultant скрыт (у админа есть MusaVoiceFab для admin-задач). */}
       <AdminAwareFloatingConsultant />
-      <WalkingMusa />
+      {/* Eugene 2026-05-20 Босс: маленькую Музу (WalkingMusa) убрали с сайта —
+          остаётся только большая в bottom-right (FloatingConsultant). */}
     </div>
   );
 }
