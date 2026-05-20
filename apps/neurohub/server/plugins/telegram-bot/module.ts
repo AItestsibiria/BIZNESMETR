@@ -32,6 +32,7 @@ import { loadHistoryForLLM } from "../../lib/chatHistory";
 import { callUnifiedMuzaLLM } from "../../lib/llmCore";
 import { logUserActionFailure } from "../../lib/userActionFailures";
 import { detectsYars, recordYarsMention } from "../../lib/yarsDetect";
+import { buildMemoryContext, scheduleCompressionIfNeeded } from "../../lib/userMemory";
 
 const TELEGRAM_API = "https://api.telegram.org";
 
@@ -872,12 +873,24 @@ async function processIncomingText(chatId: string, fromId: string, sessionId: st
       const sRow = db.select().from(chatbotSessions).where(eq(chatbotSessions.id, sessionId)).get() as any;
       authUserId = sRow?.userId ?? null;
     } catch {}
+
+    // Eugene 2026-05-20 Босс User-memory-context rule: long-term memory + cabinet
+    // snapshot для linked users. Никогда не блокирует — пустая строка при ошибке.
+    let userMemoryCtx = "";
+    if (authUserId) {
+      try {
+        userMemoryCtx = await buildMemoryContext(authUserId, "telegram");
+      } catch (e: any) {
+        bootRefs?.logger.warn?.("[telegram-bot] buildMemoryContext failed", { userId: authUserId, error: String(e?.message || e) });
+      }
+    }
+
     const rawReply = await generateReply(
       sessionId,
       fromId,
       text,
       history,
-      memoryHint + ltmHint + ownerHint + profileHint + learningsHint + todayHint,
+      memoryHint + ltmHint + ownerHint + profileHint + learningsHint + todayHint + (userMemoryCtx ? "\n\n" + userMemoryCtx : ""),
       authUserId,
     );
     // Eugene 2026-05-12: маркер смены помощника. LLM может вставить
@@ -920,6 +933,13 @@ async function processIncomingText(chatId: string, fromId: string, sessionId: st
     const replyWithAvatar = `🎵 ${cleanReply}${pairInvite}${footer}`;
     await sendMessage(chatId, replyWithAvatar);
     saveMessage(sessionId, "bot", replyWithAvatar);
+
+    // Eugene 2026-05-20 Босс User-memory-context rule: fire-and-forget background
+    // compression если накопилось N сообщений с момента последнего сжатия.
+    if (authUserId) {
+      scheduleCompressionIfNeeded(authUserId).catch(() => {});
+    }
+
     bootRefs?.eventBus?.emit?.("chatbot.reply_sent", { channel: "telegram", sessionId, chatId }, "telegram-bot");
     // Eugene 2026-05-11: async update профиля юзера (имя/возраст/город/повод).
     // Не блокирует ответ — запускается после sendMessage, обновится к
