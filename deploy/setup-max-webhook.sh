@@ -25,15 +25,19 @@ fi
 echo "=== Шаг 1: проверка/установка ENV vars ==="
 NEED_RESTART=0
 
-# MAX_WEBHOOK_SECRET — генерируем если пуст
-if ! grep -q '^MAX_WEBHOOK_SECRET=.\+' "$ENV_FILE"; then
-  NEW_SECRET=$(openssl rand -base64 32)
+# MAX_WEBHOOK_SECRET — генерируем если пуст ИЛИ длина не 44.
+# Max API ожидает РОВНО 44 chars (base64 32 байт с padding =).
+# openssl rand -base64 32 иногда даёт 43 chars без padding — используем
+# openssl rand 32 | base64 -w 0 что всегда возвращает 44 chars.
+CURRENT_SECRET=$(grep '^MAX_WEBHOOK_SECRET=' "$ENV_FILE" | cut -d= -f2-)
+if [ -z "$CURRENT_SECRET" ] || [ ${#CURRENT_SECRET} -ne 44 ]; then
+  NEW_SECRET=$(openssl rand 32 | base64 -w 0)
   sed -i "/^MAX_WEBHOOK_SECRET=/d" "$ENV_FILE"
   echo "MAX_WEBHOOK_SECRET=${NEW_SECRET}" >> "$ENV_FILE"
-  echo "  ✓ MAX_WEBHOOK_SECRET сгенерирован (длина 44)"
+  echo "  ✓ MAX_WEBHOOK_SECRET (re)сгенерирован — длина ${#NEW_SECRET}"
   NEED_RESTART=1
 else
-  echo "  ✓ MAX_WEBHOOK_SECRET уже задан"
+  echo "  ✓ MAX_WEBHOOK_SECRET уже задан (длина 44)"
 fi
 
 # MAX_BOT_ID
