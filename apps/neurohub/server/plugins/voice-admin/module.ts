@@ -44,7 +44,7 @@ import { db } from "../../storage";
 import { requireAdmin } from "../../core/adminAuth";
 import { transcribeRussianAudio } from "../../lib/transcribe";
 import { synthesizeYandexTts, type YandexVoice } from "../../lib/yandexTts";
-import { MUZA_TOOLS, executeTool } from "../../lib/muzaTools";
+import { MUZA_TOOLS, executeTool, filterToolsForRole } from "../../lib/muzaTools";
 import { buildPersonaSystem } from "../../lib/consultantPersona";
 import {
   getCachedDashboardSummary,
@@ -368,7 +368,10 @@ async function callAdminVoiceLLM(opts: {
   let inputTokens = 0;
   let outputTokens = 0;
 
-  const stable = buildPersonaSystem(opts.sessionId);
+  // Eugene 2026-05-20 (backend-audit fix #2): передаём isAdmin=true — иначе
+  // persona ставит user-zone ограничения («не отвечай на технические темы»)
+  // и LLM «отказывается» отвечать → пустой ответ → fallback string.
+  const stable = buildPersonaSystem(opts.sessionId, "consultant", true);
   // Dialog mode (Eugene 2026-05-17 Босс «continuous conversation»):
   // более короткий промпт + приоритет tool calls + минимум воды. Юзер слышит
   // ответ голосом в continuous loop — длинные тексты утомят.
@@ -440,6 +443,21 @@ async function callAdminVoiceLLM(opts: {
   // streaming → faster TTS playback → tighter conversation loop.
   const maxTokens = opts.dialogMode ? 220 : 600;
 
+  // Eugene 2026-05-20 (backend-audit fix #1): filterToolsForRole('admin')
+  // вместо raw MUZA_TOOLS — это включает ВСЕ tools (admin-only + user-zone)
+  // и устраняет шум для tool-selection. Раньше LLM могла выбрать irrelevant
+  // user-tool (save_song_draft) когда Босс просил admin-метрики.
+  const adminTools = filterToolsForRole("admin");
+
+  // Eugene 2026-05-20 (backend-audit fix #3): tool-loop dedupe — break если
+  // tool вызван 3+ раз с одинаковыми параметрами (Claude зацикливается).
+  // Раньше while(loopIter<5) крутился 5 итераций × 20сек = 100сек → юзер
+  // получал fallback string «не получилось», хотя ключи живы.
+  const toolCallCounts = new Map<string, number>();
+  const toolKey = (name: string, input: any): string => {
+    try { return `${name}::${JSON.stringify(input).slice(0, 200)}`; } catch { return name; }
+  };
+
   for (const key of keyCandidates) {
     try {
       let loopIter = 0;
@@ -457,7 +475,7 @@ async function callAdminVoiceLLM(opts: {
             max_tokens: maxTokens,
             system: systemBlocks,
             messages,
-            tools: MUZA_TOOLS,
+            tools: adminTools,
           }),
           signal: AbortSignal.timeout(20_000),
         });
@@ -474,19 +492,51 @@ async function callAdminVoiceLLM(opts: {
         if (j?.stop_reason === "tool_use" && Array.isArray(j.content)) {
           messages.push({ role: "assistant", content: j.content });
           const toolResults: any[] = [];
+          let forceBreakAfterThis = false;
           for (const block of j.content) {
             if (block.type === "tool_use") {
-              const result = await executeTool(block.name, block.input, {
-                userId: opts.userId,
-                sessionId: opts.sessionId,
-                channel: "admin-voice",
-                role: "admin",
-              });
+              // Eugene 2026-05-20 dedupe: считаем вызовы по (name,input).
+              // 3+ повторов → стаб результат + breakout, чтобы избежать
+              // зацикливания Claude (5 итераций × 20сек = 100сек fail).
+              const tkey = toolKey(block.name, block.input);
+              const cnt = (toolCallCounts.get(tkey) || 0) + 1;
+              toolCallCounts.set(tkey, cnt);
+              let result: string;
+              if (cnt > 2) {
+                result = "Стоп: этот tool уже вызван 3+ раз с теми же параметрами. Используй полученные данные и отвечай Боссу.";
+                forceBreakAfterThis = true;
+              } else {
+                result = await executeTool(block.name, block.input, {
+                  userId: opts.userId,
+                  sessionId: opts.sessionId,
+                  channel: "admin-voice",
+                  role: "admin",
+                });
+              }
               actions.push({ tool: block.name, input: block.input || {}, result: String(result).slice(0, 1500) });
               toolResults.push({ type: "tool_result", tool_use_id: block.id, content: result });
             }
           }
           messages.push({ role: "user", content: toolResults });
+          if (forceBreakAfterThis) {
+            // Финальный call с tool_choice=none — модель ОБЯЗАНА вернуть текст
+            // (не tool_use). Без этого fallback на «Не получилось».
+            try {
+              const r2 = await fetch("https://api.anthropic.com/v1/messages", {
+                method: "POST",
+                headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+                body: JSON.stringify({ model, max_tokens: maxTokens, system: systemBlocks, messages, tools: adminTools, tool_choice: { type: "none" } }),
+                signal: AbortSignal.timeout(20_000),
+              });
+              if (r2.ok) {
+                const j2: any = await r2.json();
+                if (j2?.usage) { inputTokens += Number(j2.usage.input_tokens || 0); outputTokens += Number(j2.usage.output_tokens || 0); }
+                const text2 = (j2?.content || []).find((b: any) => b.type === "text")?.text || "";
+                if (text2) return { responseText: String(text2).slice(0, 2000), actions, usage: { inputTokens, outputTokens } };
+              }
+            } catch {}
+            break;
+          }
           continue;
         }
         // end_turn

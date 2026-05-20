@@ -5868,6 +5868,75 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
   // где начинается с Ярс, применяй как правила бота».
   // Сканирует все user-сообщения содержащие «Ярс», группирует по сессиям,
   // извлекает текст после ключевого слова — это потенциальное правило.
+  // Eugene 2026-05-20 Босс «"Новые авторы" — кто зарегистрируется после 20.05.
+  // Все 16 действующих юзеров до 20.05 — в основной плейлист». Backfill: для
+  // всех established-авторов (created_at < cutoff) — все их published треки
+  // (is_public=1 или =2) → переключаем в is_public=1. Приватные (=0) не трогаем.
+  app.post("/api/admin/v304/backfill-authors-cutoff", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const dryRun = String(req.query.dryRun || req.body?.dryRun || "") === "1";
+      const NEW_AUTHORS_CUTOFF_ISO = "2026-05-20T00:00:00.000Z";
+      const raw = (db as any).$client;
+
+      // 1. Established-авторы — created_at < cutoff
+      const candidates: any[] = raw.prepare(`
+        SELECT g.id, g.user_id, g.is_public, g.display_title, g.created_at AS gen_created,
+               u.created_at AS user_created, u.name AS author_name
+        FROM generations g
+        JOIN users u ON u.id = g.user_id
+        WHERE g.type = 'music'
+          AND g.status = 'done'
+          AND g.is_public = 2
+          AND g.deleted_at IS NULL
+          AND u.created_at < ?
+        ORDER BY g.id DESC
+      `).all(NEW_AUTHORS_CUTOFF_ISO);
+
+      const summary = {
+        cutoff: NEW_AUTHORS_CUTOFF_ISO,
+        candidatesFound: candidates.length,
+        usersAffected: new Set(candidates.map(c => c.user_id)).size,
+        dryRun,
+        moved: 0,
+        sampleIds: candidates.slice(0, 10).map((c: any) => ({
+          id: c.id,
+          userId: c.user_id,
+          authorName: c.author_name,
+          title: String(c.display_title || "").slice(0, 50),
+        })),
+      };
+
+      if (!dryRun && candidates.length > 0) {
+        const ids = candidates.map(c => c.id);
+        const placeholders = ids.map(() => "?").join(",");
+        const result: any = raw.prepare(`
+          UPDATE generations
+          SET is_public = 1
+          WHERE id IN (${placeholders})
+        `).run(...ids);
+        summary.moved = Number(result?.changes ?? 0);
+
+        // Audit-log
+        try {
+          (db as any).$client.prepare(`
+            INSERT INTO admin_audit_log (admin_user_id, admin_email, action, entity, entity_key, before_json, after_json)
+            VALUES (?, 'backfill-authors-cutoff', 'update', 'generations:is_public_bulk', 'cutoff-2026-05-20',
+                    ?, ?)
+          `).run(
+            (req as any).userId ?? null,
+            JSON.stringify({ candidateIds: ids.slice(0, 50), totalCandidates: ids.length, prevValue: 2 }),
+            JSON.stringify({ newValue: 1, moved: summary.moved }),
+          );
+        } catch {}
+      }
+
+      res.json({ ok: true, ...summary });
+    } catch (e: any) {
+      console.error("[backfill-authors-cutoff]", e);
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
   // Eugene 2026-05-20 Босс «Веди базу сообщений админа в боте Муза».
   // Каждое admin-сообщение в Музa-чат (web/inject) — здесь, с gate-статусом
   // (authorized/mismatch) и executor-результатом (applied/appliedAction).
@@ -8918,12 +8987,22 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         const meta = JSON.parse(gen.style || '{}');
         wasApproved = !!(meta.approvedOnce);
       } catch {}
-      if (wasApproved) {
-        // Already approved once — author can publish freely
+      // Eugene 2026-05-20 Босс «"Новые авторы" — кто зарегистрируется ПОСЛЕ
+      // двадцатого мая. Все 16 действующих юзеров до 20.05 — в основной
+      // плейлист без модерации». Cutoff = 2026-05-20 00:00 UTC.
+      const NEW_AUTHORS_CUTOFF_ISO = "2026-05-20T00:00:00.000Z";
+      const isEstablishedAuthor = (() => {
+        const created = String(user?.createdAt || "");
+        if (!created) return false;
+        try { return new Date(created).getTime() < new Date(NEW_AUTHORS_CUTOFF_ISO).getTime(); } catch { return false; }
+      })();
+      if (wasApproved || isEstablishedAuthor) {
+        // Already approved once OR established author (registered before 2026-05-20)
+        // — публикуется сразу в main без модерации.
         db.update(generations).set(buildPublishPatch(1)).where(eq(generations.id, genId)).run();
-        res.json({ ok: true });
+        res.json({ ok: true, autoApproved: isEstablishedAuthor && !wasApproved });
       } else {
-        // First time — request moderation
+        // First time для new author — request moderation
         db.update(generations).set(buildPublishPatch(2)).where(eq(generations.id, genId)).run();
         // Eugene 2026-05-19 Босс «уведомления админа о новых публикациях
         // для подтверждения». Telegram alert админу с ссылкой в админ-tab.

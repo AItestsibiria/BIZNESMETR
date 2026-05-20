@@ -42,8 +42,11 @@ export function getUserIdFromBearer(req: any): number | null {
 
 export function isAdminUser(u: Pick<User, "role" | "email"> | null | undefined): boolean {
   if (!u) return false;
-  // 1) роль в БД (приоритет)
-  if (((u as any).role ?? "").toString().toLowerCase() === "admin") return true;
+  // 1) роль в БД (приоритет). Eugene 2026-05-20 (backend-audit fix):
+  // распознаём И "admin" И "super_admin" — раньше строгое === "admin"
+  // отвергало super_admin'ов → requireAdmin отдавал 403 silent.
+  const role = ((u as any).role ?? "").toString().toLowerCase();
+  if (role === "admin" || role === "super_admin") return true;
   // 2) email-whitelist (env override / legacy)
   return ADMIN_EMAILS.has(((u as any).email ?? "").toString().toLowerCase());
 }

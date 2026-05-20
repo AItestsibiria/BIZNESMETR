@@ -372,13 +372,16 @@ Tuning параметров (если нужно ужесточить):
 - `2` — новые авторы («Новые авторы» — только что опубликовано, ждёт review)
 
 Flow:
-1. Автор жмёт «Опубликовать» → `is_public` становится `2` (попадает в «Новые авторы»). Автору отправляется уведомление (TODO: следующим коммитом подключить notifications).
+1. Автор жмёт «Опубликовать» → проверяется `user.createdAt` против cutoff:
+   - **`createdAt < 2026-05-20` (established author, 16 действующих юзеров)** — публикуется СРАЗУ в `is_public=1` без модерации
+   - **`createdAt >= 2026-05-20` (new author)** — `is_public=2` (попадает в «Новые авторы»), ждёт челофильтра/админа
 2. На главной — toggle «Плейлист авторов» / «Новые авторы». Большие визуальные кнопки с активным glow (purple-amber для main, emerald-cyan для new). Сохраняется в localStorage пер-юзер.
 3. `/api/playlist?status=main|new` — выдаёт треки соответствующего плейлиста (`is_public=1` или `=2`).
 4. **Челофильтр >50/24ч**: треки в «Новые авторы» с >50 play за последние 24ч (по правилу прослушиваний — без накруток) попадают в admin-список «🔥 Кандидаты на основной». Admin одним кликом переводит.
 5. Admin endpoint `POST /api/admin/v304/generations/:id/playlist {status: main|new|private}` — перевод между плейлистами + audit-log.
 6. Admin endpoint `GET /api/admin/v304/playlist-candidates` — список треков `is_public=2` sort by `plays24h DESC` + флаг `hot:true` если >50.
 7. Обратный flow тоже работает: трек из `main` можно вернуть в `new` (если упали показатели или есть жалобы).
+8. **Backfill endpoint** (Eugene 2026-05-20): `POST /api/admin/v304/backfill-authors-cutoff[?dryRun=1]` — переводит все existing треки established-авторов из `is_public=2` в `is_public=1`. Один раз после deploy этого правила. Audit-log + dry-run support.
 
 UI акцент: переключатель плейлистов — самый визуально яркий элемент в плейлист-секции (Босс «кнопки заметные, ключевой выбор»). Значки 🏆 (main) / ✨ (new), gradient backdrop, glow на active, scale-up.
 
