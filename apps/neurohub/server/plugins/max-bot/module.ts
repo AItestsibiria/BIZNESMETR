@@ -210,22 +210,59 @@ async function tryGPTunnelFallback(sys: string, text: string, history: Array<{ r
 
 // === Session management ===
 
+// Eugene 2026-05-20: Max deep-link consume. Юзер сгенерировал nonce в
+// /api/auth/max/start-link (из dashboard кнопки «Подключить Max»). Здесь
+// проверяем валидность (existing + not used + not expired) → линкуем
+// users.maxUserId = maxUserId → mark nonce as used.
+async function consumeMaxLinkNonce(nonce: string, maxUserId: string): Promise<{ ok: boolean; userId?: number; error?: string }> {
+  if (!nonce || !/^[a-f0-9]{16,64}$/i.test(nonce)) {
+    return { ok: false, error: "невалидная ссылка" };
+  }
+  try {
+    const raw = (db as any).$client;
+    const row: any = raw.prepare("SELECT user_id, expires_at, used_at FROM max_link_nonces WHERE nonce = ?").get(nonce);
+    if (!row) return { ok: false, error: "ссылка не найдена" };
+    if (row.used_at) return { ok: false, error: "ссылка уже использована" };
+    if (Number(row.expires_at) < Date.now()) return { ok: false, error: "ссылка устарела" };
+    const userId = Number(row.user_id);
+    if (!userId) return { ok: false, error: "ссылка некорректна" };
+
+    // Проверка что max_user_id ещё не привязан к ДРУГОМУ юзеру
+    const existing: any = raw.prepare("SELECT id FROM users WHERE max_user_id = ? AND id != ?").get(maxUserId, userId);
+    if (existing) return { ok: false, error: "этот Max-аккаунт уже привязан к другому профилю" };
+
+    // Линкуем + помечаем nonce использованным
+    raw.prepare("UPDATE users SET max_user_id = ? WHERE id = ?").run(maxUserId, userId);
+    raw.prepare("UPDATE max_link_nonces SET used_at = ?, used_max_user_id = ? WHERE nonce = ?").run(Date.now(), maxUserId, nonce);
+
+    return { ok: true, userId };
+  } catch (e: any) {
+    console.warn("[max-bot] consumeMaxLinkNonce error:", e?.message || e);
+    return { ok: false, error: "техническая ошибка" };
+  }
+}
+
 function findOrCreateMaxSession(chatId: string, userKey: string): { sessionId: string; userId: number | null } {
   try {
     const row = db.select().from(chatbotSessions).where(eq(chatbotSessions.externalId, chatId)).get() as any;
     if (row?.id) return { sessionId: row.id, userId: row.userId ?? null };
   } catch {}
   const sessionId = randomUUID();
-  // Linked user: пока нет users.maxId, но если когда-то будет — добавим lookup
-  // через telegramId или phone. Сейчас Max-сессия создаётся anonymous.
+  // Eugene 2026-05-20: User linking through maxUserId колонка.
+  // Сначала ищем по users.maxUserId — это primary linking key для Max.
+  // Fallback на users.telegramId — для случаев когда юзер дал тот же ID
+  // (редко, но возможно если Max импортирует TG accounts).
   let linkedUserId: number | null = null;
   try {
-    // Backward-compat: некоторые юзеры могли auth'нуться через web-чат
-    // и потом write в Max с тем же external user_id. Эта проверка
-    // безопасна (eq возвращает первый матч или null).
-    const u = db.select().from(users).where(eq(users.telegramId, userKey)).get() as any;
-    if (u) linkedUserId = u.id;
+    const byMax = db.select().from(users).where(eq(users.maxUserId, userKey)).get() as any;
+    if (byMax) linkedUserId = byMax.id;
   } catch {}
+  if (!linkedUserId) {
+    try {
+      const u = db.select().from(users).where(eq(users.telegramId, userKey)).get() as any;
+      if (u) linkedUserId = u.id;
+    } catch {}
+  }
   try {
     const lockedPersona = personaFor(userKey).name;
     db.insert(chatbotSessions).values({
@@ -508,12 +545,38 @@ router.post("/webhook", async (req, res) => {
 
     const { sessionId, userId: authUserId } = findOrCreateMaxSession(chatId, fromId);
 
-    // /start — приветствие с образом Музы
+    // /start — приветствие с образом Музы.
+    // Eugene 2026-05-20: deep-link `/start link_<nonce>` — линкует Max
+    // user_id к users.id (юзер сгенерировал nonce в web-кабинете и
+    // запустил bot по ссылке). После линка memory + кабинет работают.
     if (text === "/start" || text.startsWith("/start ")) {
+      saveMaxMessage(sessionId, "user", text, { userId: authUserId });
+      const arg = text.startsWith("/start ") ? text.slice(7).trim() : "";
+      if (arg.startsWith("link_")) {
+        const nonce = arg.slice(5);
+        const linkResult = await consumeMaxLinkNonce(nonce, fromId);
+        if (linkResult.ok && linkResult.userId) {
+          // Привязали — обновляем текущую Max-сессию и шлём confirm
+          try {
+            db.update(chatbotSessions).set({ userId: linkResult.userId }).where(eq(chatbotSessions.id, sessionId)).run();
+          } catch {}
+          const userName = (() => { try { return storage.getUser(linkResult.userId!)?.name || ""; } catch { return ""; } })();
+          const msg = userName
+            ? `🎵 Привет, ${userName}! Аккаунт подключён. Теперь я помню наши разговоры и вижу твой кабинет.`
+            : `🎵 Аккаунт подключён. Теперь я помню тебя и вижу твой кабинет.`;
+          await sendConsultantPhoto(chatId, msg);
+          saveMaxMessage(sessionId, "bot", msg, { userId: linkResult.userId });
+          return;
+        } else {
+          const msg = `Не получилось подключить аккаунт: ${linkResult.error || "ссылка устарела"}. Сгенерируй новую в кабинете на muzaai.ru.`;
+          await sendMessage(chatId, msg);
+          saveMaxMessage(sessionId, "bot", msg, { userId: authUserId });
+          return;
+        }
+      }
       const hello = authUserId
         ? `🎵 С возвращением! Я Муза, помогу с песней. Что хочешь сделать?`
         : `🎵 Привет! Я — Муза. Помогу подобрать песню под событие — для какого случая думаешь?`;
-      saveMaxMessage(sessionId, "user", text, { userId: authUserId });
       await sendConsultantPhoto(chatId, hello);
       saveMaxMessage(sessionId, "bot", hello, { userId: authUserId });
       return;

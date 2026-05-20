@@ -132,6 +132,21 @@ try {
   const ucn = userCols.map(c => c.name);
   if (!ucn.includes("pending_name")) sqlite.exec("ALTER TABLE users ADD COLUMN pending_name TEXT");
   if (!ucn.includes("name_change_token")) sqlite.exec("ALTER TABLE users ADD COLUMN name_change_token TEXT");
+  // Eugene 2026-05-20: Max messenger user_id linking (deep-link flow)
+  if (!ucn.includes("max_user_id")) {
+    sqlite.exec("ALTER TABLE users ADD COLUMN max_user_id TEXT");
+    try { sqlite.exec("CREATE UNIQUE INDEX IF NOT EXISTS users_max_user_id_idx ON users(max_user_id) WHERE max_user_id IS NOT NULL"); } catch {}
+  }
+  // Linking nonces для Max-deep-link одноразовые
+  sqlite.exec(`CREATE TABLE IF NOT EXISTS max_link_nonces (
+    nonce TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    used_at INTEGER,
+    used_max_user_id TEXT
+  )`);
+  sqlite.exec("CREATE INDEX IF NOT EXISTS max_link_nonces_user_idx ON max_link_nonces(user_id, created_at DESC)");
   // Eugene 2026-05-14 Босс: правило «1000 первых из РФ + ближнее зарубежье».
   if (!ucn.includes("country")) sqlite.exec("ALTER TABLE users ADD COLUMN country TEXT");
   if (!ucn.includes("country_code")) sqlite.exec("ALTER TABLE users ADD COLUMN country_code TEXT");

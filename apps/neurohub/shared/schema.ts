@@ -16,6 +16,7 @@ export const users = sqliteTable("users", {
   referredBy: integer("referred_by"), // ID автора, кто привёл
   referralBonusGiven: integer("referral_bonus_given").notNull().default(0), // получил ли бонус за 1ю оплату
   telegramId: text("telegram_id"), // Telegram user ID
+  maxUserId: text("max_user_id"), // Max messenger user ID (Eugene 2026-05-20)
   blocked: integer("blocked").notNull().default(0), // 1 = blocked
   pendingName: text("pending_name"), // новое имя, ожидающее подтверждения
   nameChangeToken: text("name_change_token"), // токен для подтверждения смены имени

@@ -6478,6 +6478,73 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     }
   });
 
+  // Eugene 2026-05-20: Max deep-link linking. Юзер из dashboard жмёт
+  // «Подключить Max-бот» → этот endpoint создаёт одноразовый nonce (24h TTL)
+  // + возвращает deep-link URL `<MAX_BOT_LINK>?start=link_<nonce>`. После
+  // клика юзер открывает Max → /start link_<nonce> → max-bot.consumeMaxLinkNonce
+  // линкует maxUserId к users.id.
+  app.post("/api/account/max/start-link", authMiddleware, (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).userId as number;
+      const u = storage.getUser(userId);
+      if (!u) { res.status(401).json({ data: null, error: "unauthorized" }); return; }
+
+      // Если уже привязан — возвращаем флаг + bot link для перехода в чат
+      if ((u as any).maxUserId) {
+        const botLink = process.env.MAX_BOT_LINK || "https://max.ru";
+        res.json({ data: { alreadyLinked: true, maxUserId: (u as any).maxUserId, botUrl: botLink }, error: null });
+        return;
+      }
+
+      const crypto = require("node:crypto");
+      const nonce = crypto.randomBytes(24).toString("hex");
+      const nowMs = Date.now();
+      const expiresAt = nowMs + 24 * 60 * 60 * 1000; // 24h
+
+      const raw = (db as any).$client;
+      // Cleanup старых unused nonces для этого юзера (max 5 active)
+      try {
+        raw.prepare(`DELETE FROM max_link_nonces WHERE user_id = ? AND used_at IS NULL AND expires_at < ?`).run(userId, nowMs);
+      } catch {}
+      raw.prepare(`INSERT INTO max_link_nonces (nonce, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)`).run(nonce, userId, nowMs, expiresAt);
+
+      const botLink = process.env.MAX_BOT_LINK || "https://max.ru";
+      // Формат deep-link зависит от Max API — пробуем оба варианта
+      const deepLink = botLink.includes("?")
+        ? `${botLink}&start=link_${nonce}`
+        : `${botLink}?start=link_${nonce}`;
+
+      res.json({ data: { nonce, deepLink, expiresAt, botUrl: botLink }, error: null });
+    } catch (e: any) {
+      console.error("[max:start-link]", e);
+      res.status(500).json({ data: null, error: "Не удалось создать ссылку" });
+    }
+  });
+
+  // GET /api/account/max/status — проверка привязан ли Max
+  app.get("/api/account/max/status", authMiddleware, (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).userId as number;
+      const u = storage.getUser(userId);
+      const linked = !!(u as any)?.maxUserId;
+      res.json({ data: { linked, maxUserId: linked ? (u as any).maxUserId : null, botUrl: process.env.MAX_BOT_LINK || null }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: "Не удалось проверить статус" });
+    }
+  });
+
+  // POST /api/account/max/unlink — отвязать Max от аккаунта
+  app.post("/api/account/max/unlink", authMiddleware, (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).userId as number;
+      const raw = (db as any).$client;
+      raw.prepare("UPDATE users SET max_user_id = NULL WHERE id = ?").run(userId);
+      res.json({ data: { ok: true }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: "Не удалось отвязать" });
+    }
+  });
+
   // GET /api/admin/v304/user-memory — список юзеров с памятью
   app.get("/api/admin/v304/user-memory", requireAdmin, (req: Request, res: Response) => {
     try {
