@@ -464,7 +464,15 @@ export function CoverDetailsModal({
           выходит за viewport. Добавлено max-h-[90vh] overflow-hidden на
           сам container (и max-h-[70vh] ниже на cover image) — square
           обложка остаётся в пределах высоты экрана. */}
-      <div className="w-[94vw] max-w-2xl md:max-w-xl lg:max-w-2xl max-h-[100vh] flex flex-col items-center justify-center gap-3 px-2 py-4 relative">
+      {/* Eugene 2026-05-20 Босс: универсальное под гаджет. max-h учитывает
+          safe-area-inset-top/bottom (iOS notch + home indicator). Container
+          flex-shrink чтобы cover + controls умещались без overflow. */}
+      <div
+        className="w-[94vw] max-w-2xl md:max-w-xl lg:max-w-2xl flex flex-col items-center justify-center gap-2 sm:gap-3 px-2 py-2 sm:py-4 relative overflow-hidden"
+        style={{
+          maxHeight: "calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 16px)",
+        }}
+      >
         {/* Eugene 2026-05-19 Босс «как Apple NowPlaying — гармонично без пустого
             поля внизу». h-fit + justify-center в outer items-center =
             контент центрируется по viewport, container занимает столько
@@ -513,7 +521,7 @@ export function CoverDetailsModal({
             square aspect-ratio + 85vh высота заставлял container выходить
             за viewport (1024×1366 → square 1024 > 70% от 1366). */}
         <div
-          className="relative w-full aspect-square max-h-[68vh] rounded-3xl overflow-hidden shadow-[0_8px_40px_rgba(124,58,237,0.18)]"
+          className="relative w-full aspect-square max-h-[55vh] sm:max-h-[60vh] md:max-h-[65vh] lg:max-h-[68vh] rounded-3xl overflow-hidden shadow-[0_8px_40px_rgba(124,58,237,0.18)] shrink-0"
           onClick={(e) => e.stopPropagation()}
         >
           <AnimatePresence mode="wait" initial={false}>
