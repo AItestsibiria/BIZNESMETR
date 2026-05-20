@@ -15,7 +15,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { createPortal } from "react-dom";
-import { motion, useAnimation } from "framer-motion";
+import { motion, useAnimation, useDragControls } from "framer-motion";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -452,6 +452,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // Eugene 2026-05-16 Босс: панель стран — drag (тап+движение), long-press
   // (~500ms) исчезает, release → snap обратно в исходное место (0,0).
   const countriesDragControls = useAnimation();
+  // Eugene 2026-05-21 Босс: «список городов скроллим пальцем, panel на месте».
+  // useDragControls + dragListener={false} → drag активируется ТОЛЬКО через
+  // явный .start(e) из header'а. Body (ul со странами) получает native scroll.
+  const countriesDragHandle = useDragControls();
   const countriesLongPressRef = useRef<number | null>(null);
   const startCountriesLongPress = useCallback(() => {
     if (countriesLongPressRef.current) window.clearTimeout(countriesLongPressRef.current);
@@ -2076,19 +2080,29 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   >
                                     <motion.div
                                       drag
+                                      dragListener={false}
+                                      dragControls={countriesDragHandle}
                                       dragMomentum={false}
                                       dragElastic={0}
-                                      onPointerDown={(e) => { e.stopPropagation(); startCountriesLongPress(e); }}
-                                      onPointerUp={cancelCountriesLongPress}
-                                      onPointerLeave={cancelCountriesLongPress}
-                                      onPointerCancel={cancelCountriesLongPress}
-                                      onDragStart={cancelCountriesLongPress}
+                                      onPointerDown={(e) => { e.stopPropagation(); }}
                                       onClick={(e) => e.stopPropagation()}
-                                      style={{width:'auto',minWidth:'200px',maxWidth:'min(400px,calc(100vw-32px))',maxHeight:'70vh',overflowY:'auto',borderRadius:'16px',background:'rgba(255,255,255,0.05)',backdropFilter:'blur(24px)',WebkitBackdropFilter:'blur(24px)',border:'1px solid rgba(255,255,255,0.1)',padding:'16px',boxShadow:'0 20px 60px rgba(0,0,0,0.5)',touchAction:'none',cursor:'grab'}}>
-                                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
+                                      style={{width:'auto',minWidth:'200px',maxWidth:'min(400px,calc(100vw-32px))',maxHeight:'70vh',display:'flex',flexDirection:'column',borderRadius:'16px',background:'rgba(255,255,255,0.05)',backdropFilter:'blur(24px)',WebkitBackdropFilter:'blur(24px)',border:'1px solid rgba(255,255,255,0.1)',boxShadow:'0 20px 60px rgba(0,0,0,0.5)'}}>
+                                      {/* Drag-handle: header. PointerDown активирует drag panel.
+                                          Eugene 2026-05-21 Босс: «скроллим список пальцем, panel на месте».
+                                          Скролл — отдельно ниже, drag — только тут. */}
+                                      <div
+                                        onPointerDown={(e) => { startCountriesLongPress(e); countriesDragHandle.start(e); }}
+                                        onPointerUp={cancelCountriesLongPress}
+                                        onPointerLeave={cancelCountriesLongPress}
+                                        onPointerCancel={cancelCountriesLongPress}
+                                        style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 16px 10px',borderBottom:'1px solid rgba(255,255,255,0.06)',cursor:'grab',touchAction:'none',userSelect:'none'}}
+                                      >
                                         <p style={{fontSize:'14px',fontWeight:600,color:'rgba(255,255,255,0.95)',margin:0}}>Нас слушают</p>
-                                        <button onClick={() => { setShowCountries(false); setShowCitiesPanel(false); }} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',fontSize:'20px',cursor:'pointer',padding:'0 8px'}}>×</button>
+                                        <button onClick={(e) => { e.stopPropagation(); setShowCountries(false); setShowCitiesPanel(false); }} onPointerDown={(e) => e.stopPropagation()} style={{background:'none',border:'none',color:'rgba(255,255,255,0.5)',fontSize:'20px',cursor:'pointer',padding:'0 8px'}}>×</button>
                                       </div>
+                                      {/* Scrollable body — pan-y разрешает вертикальный native scroll,
+                                          drag panel (горизонталь+вертикаль через handle) уже отключён здесь. */}
+                                      <div style={{flex:1,overflowY:'auto',padding:'12px 16px 16px',touchAction:'pan-y',WebkitOverflowScrolling:'touch'}}>
                                       <ul style={{listStyle:'none',padding:0,margin:0,display:'flex',flexDirection:'column',gap:'6px'}}>
                                         {countriesList.map(c => <li key={c.country_code || c.country} style={{display:'flex',alignItems:'center',gap:'8px',fontSize:'13px',color:'rgba(255,255,255,0.85)',padding:'4px 0'}}><span style={{flex:1,wordBreak:'break-word'}}>{c.country}</span><span style={{fontSize:'18px',flexShrink:0}}>{flagOf(c.country_code, c.country)}</span></li>)}
                                         {countriesList.length === 0 && <li style={{fontSize:'12px',color:'rgba(255,255,255,0.4)'}}>Пока нет данных</li>}
@@ -2129,6 +2143,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                           )}
                                         </>
                                       )}
+                                      </div> {/* /scrollable body */}
                                     </motion.div>
                                   </div>,
                                   document.body
