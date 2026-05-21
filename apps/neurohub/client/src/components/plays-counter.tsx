@@ -507,7 +507,8 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
           </div>
         </div>
 
-        {/* Planet — clickable button (rotating prograde, opens geo modal) */}
+        {/* Eugene 2026-05-21 Босс «убери кольца вокруг Земли» — кольца удалены.
+            Cyan ping-точка тоже скрыта (она была частью «глаз»-effect'а). */}
         <button
           type="button"
           onClick={() => { setShowGeo(true); loadGeo(); }}
@@ -515,18 +516,6 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
           title="Откуда слушают"
           className="relative flex h-20 w-20 items-center justify-center flex-shrink-0 rounded-full hover:scale-105 active:scale-95 transition-transform z-10"
         >
-          <div className="absolute inset-0 rounded-full border border-violet-400/20" />
-          <div className="absolute inset-2 rounded-full border border-cyan-300/20" />
-          <div
-            className="absolute h-2 w-2 rounded-full bg-[#22D3EE]"
-            style={{ boxShadow: "0 0 18px rgba(34,211,238,0.9)" }}
-            aria-hidden="true"
-          >
-            <span
-              className="absolute inset-0 rounded-full bg-[#22D3EE]"
-              style={{ animation: animEnabled ? "uc-live-ping 1.8s ease-out infinite" : "none" }}
-            />
-          </div>
           <PlanetIcon size={80} />
         </button>
       </div>
@@ -652,11 +641,12 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
               width: "min(440px, calc(100vw - 24px))",
               maxHeight: "calc(100vh - 40px)",
               overflowY: "auto",
-              background: "linear-gradient(135deg, rgba(7,8,18,0.92) 0%, rgba(20,16,44,0.88) 50%, rgba(12,30,76,0.92) 100%)",
-              backdropFilter: "blur(40px) saturate(180%)",
-              WebkitBackdropFilter: "blur(40px) saturate(180%)",
-              border: "1px solid rgba(139,92,246,0.25)",
-              boxShadow: "0 32px 80px rgba(139,92,246,0.5), 0 8px 24px rgba(0,0,0,0.45), 0 0 60px rgba(34,211,238,0.18), inset 0 1px 0 rgba(255,255,255,0.10)",
+              // Eugene 2026-05-21 Босс «при нажатии i расплывается» — убран
+              // backdropFilter blur 40px. Solid deep-space фон (без прозрачности
+              // = backdrop не виден → нечего размазывать).
+              background: "linear-gradient(135deg, #0F0A28 0%, #14102C 50%, #0A1834 100%)",
+              border: "1px solid rgba(139,92,246,0.35)",
+              boxShadow: "0 32px 80px rgba(139,92,246,0.5), 0 8px 24px rgba(0,0,0,0.6), 0 0 60px rgba(34,211,238,0.18), inset 0 1px 0 rgba(255,255,255,0.10)",
               position: "relative",
               overflow: "hidden",
             }}
