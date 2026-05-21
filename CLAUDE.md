@@ -1647,6 +1647,48 @@ Reference: lockscreen.ts `setPlayerVolume`, landing.tsx volume useEffect + playT
 - `90b83fc` — Музa universal positioning (real sizes + safe-area + chatOpen offset)
 - `34c30ce` — swipe modal responsive (safe-area + cover max-h по breakpoints)
 
+### LLM-key-functional-check rule (Eugene 2026-05-21)
+
+**Ключ считается ДЕЙСТВУЮЩИМ только если может выполнять функционал Музы — отвечать как 25-летняя помощница MuzaAi на русском.** Базовый ping endpoint'а («HTTP 200 OK») НЕДОСТАТОЧЕН.
+
+Functional check (`apps/neurohub/server/plugins/api-health/module.ts`):
+
+**Test prompt:**
+- system: «Ты — Музa, 25-летняя девушка-помощница MuzaAi. Отвечай в женском роде, по-русски.»
+- user: «Привет! Скажи коротко: чем ты можешь помочь автору песен?»
+- max_tokens: 60
+
+**Verify reply через `isFunctionalMuzaReply(text)`:**
+- ✅ non-empty
+- ✅ length 5-500 chars (не too short / not garbage long)
+- ✅ Содержит кириллицу (Музa отвечает по-русски)
+- ❌ НЕ содержит deny-паттерны: `as an ai`, `i cannot`, `i'm sorry, but i`, `я не могу`, `не имею возможности`
+
+**Применяется к проверкам:**
+- `checkDeepSeek()` — DEEPSEEK_API_KEY
+- `checkTimeWebGateway()` — TIMEWEB_GATEWAY_KEY
+- `checkAnthropicKey()` — все 3 Anthropic ключа (ANTHROPIC_API_KEY / _BACKUP / _BOT)
+- `checkGptunnel()` — GPTUNNEL_API_KEY (для chat)
+
+**Что показывается в UI** (`/admin/v304 → 🔑 API ключи`):
+- 🟢 ok — ключ functional, Музa отвечает по правилам
+- 🔴 fail с конкретной причиной:
+  - `empty response` — ключ принял, но не вернул text
+  - `too short (N chars)` — coomon garbage reply
+  - `no Cyrillic in reply — не русский язык` — модель ответила на English
+  - `deny-pattern detected (LLM отказал)` — модель отказалась («I cannot...»)
+  - `model deprecated` — Anthropic вернул `invalid_request_error`
+  - `HTTP N` — endpoint error
+
+**Anti-pattern:**
+- ❌ Считать что ключ ok если только endpoint вернул 200 — он может вернуть пустой text / English deny / garbage
+- ❌ max_tokens=1 ping — не покажет функционал
+- ❌ Игнорировать deny-patterns — модель может быть rate-limited / content-filtered и возвращать I cannot
+
+**Применяется к:** all LLM-key health checks в проекте. НЕ применяется к: STT/TTS (там свои functional checks — Yandex SpeechKit / Yandex TTS).
+
+Reference: commit с расширением checks, helper `isFunctionalMuzaReply` в api-health/module.ts.
+
 ### LLM-chain-order rule (Eugene 2026-05-21)
 
 **Порядок попыток LLM-провайдеров Музы — DeepSeek первый (дешевле), TimeWeb второй, далее Anthropic по имени sort (API_KEY → _BACKUP → _BOT), последний резерв — GPTunnel.**

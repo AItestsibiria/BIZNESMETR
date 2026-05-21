@@ -41,6 +41,8 @@ interface KeyDef {
 
 async function checkAnthropicKey(key: string): Promise<{ status: "ok" | "fail"; error?: string }> {
   try {
+    // Eugene 2026-05-21 Босс «правило: ключ действующий = может выполнять
+    // функционал Музы». Functional test prompt (не просто ping).
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -50,23 +52,51 @@ async function checkAnthropicKey(key: string): Promise<{ status: "ok" | "fail"; 
       },
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
-        max_tokens: 1,
-        messages: [{ role: "user", content: "ok" }],
+        max_tokens: 60,
+        system: MUZA_FUNCTIONAL_PROMPT,
+        messages: [{ role: "user", content: MUZA_FUNCTIONAL_USER_MSG }],
       }),
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(15_000),
     });
-    if (r.status >= 200 && r.status < 300) return { status: "ok" };
-    // 400 invalid_request тоже считается OK — ключ принят, просто модель не та.
     if (r.status === 400) {
       const j: any = await r.json().catch(() => null);
       const errType = j?.error?.type;
-      if (errType === "invalid_request_error") return { status: "ok" };
+      if (errType === "invalid_request_error") {
+        return { status: "fail", error: "model deprecated или payload bad — НЕ functional" };
+      }
     }
-    const errText = await r.text().catch(() => "");
-    return { status: "fail", error: `HTTP ${r.status}: ${errText.slice(0, 150)}` };
+    if (!r.ok) {
+      const errText = await r.text().catch(() => "");
+      return { status: "fail", error: `HTTP ${r.status}: ${errText.slice(0, 150)}` };
+    }
+    const j: any = await r.json().catch(() => null);
+    const text = j?.content?.[0]?.text;
+    const verdict = isFunctionalMuzaReply(text);
+    if (verdict.ok) return { status: "ok" };
+    return { status: "fail", error: verdict.reason || "не выполняет функционал Музы" };
   } catch (e: any) {
     return { status: "fail", error: e?.name === "AbortError" ? "timeout" : String(e?.message || e).slice(0, 150) };
   }
+}
+
+// Eugene 2026-05-21 Босс «правило: ключ действующий = может выполнять функционал Музы».
+// Functional check вместо базового ping. Test prompt в стиле Музы, verify response:
+// - non-empty
+// - содержит кириллицу (русский — главный язык Музы)
+// - НЕ содержит deny-паттерны («as an AI», «I cannot», «I'm sorry, but I…»)
+// - длина 5-300 chars (proper reply, не просто punctuation/garbage)
+const MUZA_FUNCTIONAL_PROMPT = "Ты — Музa, 25-летняя девушка-помощница MuzaAi. Отвечай в женском роде, по-русски.";
+const MUZA_FUNCTIONAL_USER_MSG = "Привет! Скажи коротко: чем ты можешь помочь автору песен?";
+const DENY_PATTERNS = /\b(as an ai|i cannot|i can'?t|i'm sorry, but i|i don't have|sorry, i am not|я не могу|не имею возможности)\b/i;
+
+function isFunctionalMuzaReply(text: string | null): { ok: boolean; reason?: string } {
+  if (!text) return { ok: false, reason: "empty response" };
+  const trimmed = text.trim();
+  if (trimmed.length < 5) return { ok: false, reason: `too short (${trimmed.length} chars)` };
+  if (trimmed.length > 500) return { ok: false, reason: `too long (${trimmed.length} chars), likely garbage` };
+  if (!/[а-яёА-ЯЁ]/.test(trimmed)) return { ok: false, reason: "no Cyrillic in reply — не русский язык" };
+  if (DENY_PATTERNS.test(trimmed)) return { ok: false, reason: "deny-pattern detected (LLM отказал)" };
+  return { ok: true };
 }
 
 async function checkTimeWebGateway(): Promise<{ status: "ok" | "fail"; error?: string }> {
@@ -74,15 +104,15 @@ async function checkTimeWebGateway(): Promise<{ status: "ok" | "fail"; error?: s
   if (!key) return { status: "fail", error: "TIMEWEB_GATEWAY_KEY не задан" };
   try {
     const r = await callTimeWebGateway({
-      systemPrompt: "Ты тестовый эхо-бот.",
+      systemPrompt: MUZA_FUNCTIONAL_PROMPT,
       history: [],
-      userText: "ping",
-      maxTokens: 5,
-      // Eugene 2026-05-20: дефолт — anthropic/claude-haiku-4-5 (proven via api.timeweb.ai/v1).
+      userText: MUZA_FUNCTIONAL_USER_MSG,
+      maxTokens: 60,
       model: process.env.TIMEWEB_GATEWAY_MODEL || "anthropic/claude-haiku-4-5",
     });
-    if (r.text && r.text.length > 0) return { status: "ok" };
-    return { status: "fail", error: "пустой ответ или endpoint не найден" };
+    const verdict = isFunctionalMuzaReply(r.text);
+    if (verdict.ok) return { status: "ok" };
+    return { status: "fail", error: verdict.reason || "не выполняет функционал Музы" };
   } catch (e: any) {
     return { status: "fail", error: String(e?.message || e).slice(0, 150) };
   }
@@ -94,13 +124,14 @@ async function checkDeepSeek(): Promise<{ status: "ok" | "fail"; error?: string 
   try {
     const { callDeepSeek } = await import("../../lib/llmCore");
     const r = await callDeepSeek({
-      systemPrompt: "Ты тестовый эхо-бот.",
+      systemPrompt: MUZA_FUNCTIONAL_PROMPT,
       history: [],
-      userText: "ping",
-      maxTokens: 5,
+      userText: MUZA_FUNCTIONAL_USER_MSG,
+      maxTokens: 60,
     });
-    if (r.text && r.text.length > 0) return { status: "ok" };
-    return { status: "fail", error: "пустой ответ" };
+    const verdict = isFunctionalMuzaReply(r.text);
+    if (verdict.ok) return { status: "ok" };
+    return { status: "fail", error: verdict.reason || "не выполняет функционал Музы" };
   } catch (e: any) {
     return { status: "fail", error: String(e?.message || e).slice(0, 150) };
   }
