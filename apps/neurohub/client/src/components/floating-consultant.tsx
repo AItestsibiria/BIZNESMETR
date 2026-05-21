@@ -449,12 +449,32 @@ export function FloatingConsultant() {
     return { w: isMobile ? 96 : 112, h: isMobile ? 144 : 192 };
   };
   const FAB_DRAG_KEY = "consultant-fab-position";
-  const userPositionedRef = useRef<boolean>(typeof window !== "undefined" && readPos(FAB_DRAG_KEY) !== null);
+  // Eugene 2026-05-21 Босс «Музa по умолчанию в правом нижнем углу в рабочем
+  // пространстве её управления». Persist drag-позиции — sessionStorage (не
+  // localStorage): юзер может перетащить в текущей сессии, но при F5/новом
+  // визите Музa возвращается на default — правый нижний угол.
+  const readSessionPos = (): { x: number; y: number } | null => {
+    try {
+      const raw = sessionStorage.getItem(FAB_DRAG_KEY);
+      if (!raw) return null;
+      const p = JSON.parse(raw);
+      if (typeof p?.x === "number" && typeof p?.y === "number") return { x: p.x, y: p.y };
+      return null;
+    } catch { return null; }
+  };
+  const writeSessionPos = (pos: { x: number; y: number }) => {
+    try { sessionStorage.setItem(FAB_DRAG_KEY, JSON.stringify(pos)); } catch {}
+  };
+  // Cleanup legacy localStorage позиции (от прошлых сессий когда хранили в localStorage)
+  if (typeof window !== "undefined") {
+    try { localStorage.removeItem(FAB_DRAG_KEY); } catch {}
+  }
+  const userPositionedRef = useRef<boolean>(typeof window !== "undefined" && readSessionPos() !== null);
   const computeFabPos = () => {
     if (typeof window === "undefined") return { x: 100, y: 100 };
     const { w: fabW, h: fabH } = getFabSize();
-    // Если юзер уже двигал — используем сохранённую позицию (clamped в viewport).
-    const saved = readPos(FAB_DRAG_KEY);
+    // Если юзер уже двигал в ТЕКУЩЕЙ session — используем её позицию.
+    const saved = readSessionPos();
     if (saved) return clampToViewport(saved.x, saved.y, fabW, fabH);
     const isMobile = window.innerWidth < 640;
     // iOS safe-area через probe-element + env(safe-area-inset-bottom)
@@ -1765,8 +1785,9 @@ export function FloatingConsultant() {
           dragModeRef.current = false;
           setDragMode(false);
           try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
-          // Сохраняем юзер-позицию в localStorage
-          writePos(FAB_DRAG_KEY, fabPos);
+          // Eugene 2026-05-21 Босс: persist в sessionStorage (не localStorage)
+          // — default правый нижний возвращается при F5/новом визите.
+          writeSessionPos(fabPos);
           userPositionedRef.current = true;
           e.stopPropagation();
           e.preventDefault();
