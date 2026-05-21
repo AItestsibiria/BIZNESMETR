@@ -14,30 +14,89 @@ import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Sparkles } from "lucide-react";
 
-// Eugene 2026-05-21 Босс «эту планету :)» — показал emoji 🌍 (Earth Globe
-// Europe-Africa). Plus «крутиться плавно в направлении научном» — slow CCW.
-// prograde (как Земля/Юпитер/Сатурн, кроме Венеры/Урана).
-function PlanetIcon({ size = 44 }: { size?: number }) {
+// Eugene 2026-05-21 Босс «направление и скорость по науке. Точка обзора
+// центральная это экватор. Добавь луну слева вверху по научному».
+//
+// Earth: 3D rotateY вокруг полярной оси (вертикальная). Скорость 60s/оборот
+// (real Earth 24h — visual scale ×1440). Направление positive rotateY =
+// surface drifts LEFT — соответствует виду с восточной стороны (где Африка
+// уезжает на наш запад = влево).
+//
+// Moon: орбита prograde (counterclockwise от north pole, same as Earth's
+// rotation). Старт в top-left как просил Boss. Период real ~27 days,
+// visual 90s. Размер ~27% от Earth (real 1737km / Earth 6371km = 27.3%).
+function PlanetIcon({ size = 80 }: { size?: number }) {
   const uid = String(Math.random()).slice(2, 8);
+  // size = wrapper. Earth ~55% font, moon orbit radius ~42%, moon ~18%.
+  const earthSize = Math.round(size * 0.55);
+  const orbitRadius = Math.round(size * 0.42);
+  const moonSize = Math.round(size * 0.18);
+  // Top-left start: angle 225° (math), offset = orbitRadius * cos(45°) ≈ 0.707
+  const offset = Math.round(orbitRadius * 0.707);
   return (
     <span
       style={{
+        position: "relative",
         display: "inline-block",
-        fontSize: `${size}px`,
-        lineHeight: 1,
-        animation: `planet-emoji-spin-${uid} 20s linear infinite`,
-        filter: "drop-shadow(0 0 8px rgba(34,211,238,0.4))",
+        width: `${size}px`,
+        height: `${size}px`,
+        perspective: `${size * 4}px`,
       }}
       aria-hidden="true"
     >
-      🌍
+      {/* Earth — rotateY around polar axis (equator-view scientific direction).
+          rotateY(positive) = surface drifts LEFT = вид с восточной стороны
+          (Африка уезжает к нашему западу = влево). real 24h, visual 60s. */}
+      <span
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: `${earthSize}px`,
+          lineHeight: 1,
+          animation: `earth-spin-${uid} 60s linear infinite`,
+          transformStyle: "preserve-3d",
+          filter: "drop-shadow(0 0 10px rgba(34,211,238,0.45))",
+        }}
+      >
+        🌍
+      </span>
+      {/* Moon orbit wrapper — rotates CCW (prograde, same as Earth's spin =
+          научное направление). Moon child positioned top-left (-X, -Y from
+          center) → стартует слева вверху как просил Boss. */}
+      <span
+        style={{
+          position: "absolute",
+          inset: 0,
+          animation: `moon-orbit-${uid} 90s linear infinite`,
+        }}
+      >
+        <span
+          style={{
+            position: "absolute",
+            top: `calc(50% - ${moonSize / 2}px - ${offset}px)`,
+            left: `calc(50% - ${moonSize / 2}px - ${offset}px)`,
+            fontSize: `${moonSize}px`,
+            lineHeight: 1,
+            filter: "drop-shadow(0 0 3px rgba(255,255,255,0.55))",
+          }}
+        >
+          🌙
+        </span>
+      </span>
       <style>{`
-        @keyframes planet-emoji-spin-${uid} {
+        @keyframes earth-spin-${uid} {
+          from { transform: rotateY(0deg); }
+          to { transform: rotateY(360deg); }
+        }
+        @keyframes moon-orbit-${uid} {
           from { transform: rotate(0deg); }
           to { transform: rotate(-360deg); }
         }
         @media (prefers-reduced-motion: reduce) {
-          span[style*="planet-emoji-spin-${uid}"] { animation: none !important; }
+          span[style*="earth-spin-${uid}"], span[style*="moon-orbit-${uid}"] { animation: none !important; }
         }
       `}</style>
     </span>
@@ -468,7 +527,7 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
               style={{ animation: animEnabled ? "uc-live-ping 1.8s ease-out infinite" : "none" }}
             />
           </div>
-          <PlanetIcon size={52} />
+          <PlanetIcon size={80} />
         </button>
       </div>
 
