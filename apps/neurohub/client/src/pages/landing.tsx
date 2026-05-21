@@ -1315,47 +1315,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const totalPages = Math.max(1, Math.ceil(filteredMusic.length / TRACKS_PER_PAGE));
   const safePage = Math.min(currentPage, totalPages);
 
-  // Eugene 2026-05-21 Босс: «убрать паузу между треками — переключение должно быть мгновенным».
-  // Preload next track audio metadata + cover image в фоне когда играет текущий.
-  // → handleEnded переключение происходит за ~50ms вместо 300-500ms (нет network round-trip).
-  // Cleanup: при смене playingId старый preload отвязывается, src='' освобождает memory.
-  useEffect(() => {
-    if (!playingId) return;
-    const list = filteredMusicRef.current || [];
-    if (list.length < 2) return;
-    const idx = list.findIndex(t => t.id === playingId);
-    if (idx < 0) return;
-    const nextIdx = (idx + 1) % list.length;
-    const nextTrack = list[nextIdx];
-    if (!nextTrack?.audioUrl) return;
-
-    // 1. Audio metadata preload — invisible <audio>, не претендует на MediaSession
-    //    (НЕ зарегистрирован через registerAudio, НЕ играет, не имеет controls).
-    const preAudio = new Audio();
-    preAudio.preload = "metadata";
-    preAudio.crossOrigin = "use-credentials"; // для protected /api/stream cookies
-    try { preAudio.src = nextTrack.audioUrl; } catch {}
-
-    // 2. Cover preload — через <link rel="preload"> (browser hint)
-    let coverLink: HTMLLinkElement | null = null;
-    if (nextTrack.imageUrl) {
-      try {
-        coverLink = document.createElement("link");
-        coverLink.rel = "preload";
-        coverLink.as = "image";
-        coverLink.href = nextTrack.imageUrl;
-        document.head.appendChild(coverLink);
-      } catch {}
-    }
-
-    return () => {
-      try { preAudio.src = ""; preAudio.load(); } catch {}
-      if (coverLink && coverLink.parentNode) {
-        try { coverLink.parentNode.removeChild(coverLink); } catch {}
-      }
-    };
-  }, [playingId]);
-
   const paginatedMusic = filteredMusic.slice((safePage - 1) * TRACKS_PER_PAGE, safePage * TRACKS_PER_PAGE);
 
   const skipPrev = () => {
