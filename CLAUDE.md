@@ -1996,6 +1996,157 @@ Reference: `apps/neurohub/client/src/lib/lockscreen.ts` (getPersistentPlayerAudi
 
 Анти-паттерн который правило закрывает: **commit `9030cc4` + ошибки 841-857** + **dormant webhook** — обе регрессии случились из-за отсутствия сверки с docs. Если бы открыли docs.kie.ai сразу — знали бы что `webhookUrl` это правильное имя (а не `callback_url`).
 
+### Apple-audio-best-practices rule (Eugene 2026-05-21, **дополняет Persistent-audio-only rule + iOS-lock-screen-audio rule + Volume-control-cross-platform rule**)
+
+**По официальной документации Apple WebKit + W3C MediaSession — соблюдаем точные требования iOS Safari для audio playback и lock-screen NowPlaying.** Любая правка кода работающего с `<audio>` / MediaSession / AudioContext на iOS — обязана соответствовать этим пунктам.
+
+**Источники** (read first перед правкой):
+- W3C MediaSession spec — https://www.w3.org/TR/mediasession/
+- WebKit blog «New <video> Policies for iOS» — https://webkit.org/blog/6784/new-video-policies-for-ios/
+- WebKit Bugzilla 237878 «AudioContext is suspended on iOS when page is backgrounded» — https://bugs.webkit.org/show_bug.cgi?id=237878
+- WebKit Bugzilla 231105 «AudioContext stops on macOS Safari background» — https://bugs.webkit.org/show_bug.cgi?id=231105
+- Apple Developer Forums «WKWebView Web Audio can't play after locking screen» — https://developer.apple.com/forums/thread/658375
+- D. Bushell «iOS Web Apps and Media Session API» (2023, поведение iOS 16.4+) — https://dbushell.com/2023/03/20/ios-pwa-media-session-api/
+- web.dev «Customize media notifications» — https://web.dev/articles/media-session
+
+**Обязательные requirements (по Apple/WebKit):**
+
+1. **User gesture для первого play().** Apple WebKit: «JavaScript which resulted in the call to audio.play() must have directly resulted from a handler for a touchend, click, doubleclick, or keydown event». Никакого `audio.play()` из `setTimeout` / `Promise.then` / `useEffect` без gesture trace. Только в обработчике onClick / onTouchEnd.
+
+2. **`preload="metadata"` (не `auto`) для playlist tracks.** WebKit forces preload=none on cellular для iOS Safari, но `metadata` даёт длительность без full download. По web.dev: «preload="metadata" offers the best balance, loading dimensions and duration without consuming excessive bandwidth». Используй для playlist items.
+
+3. **Persistent `<audio>` element для player audio.** Не создавать новый `<audio>` при смене трека (см. Persistent-audio-only rule). MediaSession ownership держится за HTMLMediaElement — gap в DOM → iOS отдаёт NowPlaying чужому приложению.
+
+4. **MediaSession metadata SYNCHRONOUSLY в user-gesture handler** который вызывает `audio.play()`. Apple WebKit делает snapshot NowPlaying в момент `play()` — async setters (внутри `.then()` после fetch) могут не попасть в snapshot. Pattern:
+   ```ts
+   onClick = () => {
+     navigator.mediaSession.metadata = new MediaMetadata({...}); // SYNCHRONOUSLY
+     audio.src = url;
+     audio.play(); // ← snapshot taken here
+   };
+   ```
+
+5. **Artwork размеры — multiple, минимум 256×256 и 512×512.** По web.dev: «target 512×512 for Chrome Android, 256×256 for low-end». iOS 16.4 исправил artwork bug, iOS 18 наконец использует 512×512 (раньше pixellated upscale до 16.4). Recommended sizes: `96,128,192,256,384,512` — в одном `artwork[]` массиве. Type `image/jpeg` или `image/png`. URL должен быть доступен без auth (Suno covers — public yandexcloud URLs OK).
+
+6. **`navigator.mediaSession.playbackState`** обновлять в `play`/`pause` event listeners audio element — иначе iOS NowPlaying не знает что трек играет / на паузе:
+   ```ts
+   audio.addEventListener('play', () => { navigator.mediaSession.playbackState = 'playing'; });
+   audio.addEventListener('pause', () => { navigator.mediaSession.playbackState = 'paused'; });
+   ```
+
+7. **`setPositionState()` каждый раз при `loadedmetadata` + `timeupdate` (throttle).** iOS lock-screen scrubber / seek-bar читает duration+position отсюда. Requirements (W3C): `duration > 0`, `0 ≤ position ≤ duration`, `playbackRate > 0`. Если хоть одно нарушено — throw, скраббер сломан. Live stream — `duration: Infinity`.
+
+8. **AudioContext.createMediaElementSource() ЗАПРЕЩЁН на iOS** — см. iOS-lock-screen-audio rule. Подтверждение: WebKit Bugzilla 237878 — AudioContext suspended при backgrounded page. Solution на iOS: НЕ использовать Web Audio для player audio (volume slider не работает на iOS — это known WebKit constraint, не баг). На desktop/Android — GainNode pipeline OK.
+
+9. **Audio-only — НЕ нужен `playsinline`.** Атрибут только для `<video>` (предотвращает fullscreen takeover). Для `<audio>` ignore.
+
+10. **Lock-screen artwork — public URL (не blob URL для production).** D. Bushell findings: blob URLs работают на iOS 16.4+, но реальная public URL надёжнее (iOS кэширует, lock-screen появляется быстрее). У нас Suno covers уже на yandexcloud — использовать прямую URL.
+
+**Action handlers обязательные** (для iOS lock-screen + headset/AirPods):
+```ts
+const actionHandlers: Array<[MediaSessionAction, MediaSessionActionHandler]> = [
+  ['play', () => audio.play()],
+  ['pause', () => audio.pause()],
+  ['previoustrack', () => skipPrev()],
+  ['nexttrack', () => skipNext()],
+  ['seekto', (d) => {
+    if (d.fastSeek && 'fastSeek' in audio) { audio.fastSeek(d.seekTime!); return; }
+    audio.currentTime = d.seekTime!;
+    updatePositionState();
+  }],
+  ['seekbackward', (d) => { audio.currentTime = Math.max(0, audio.currentTime - (d.seekOffset || 10)); }],
+  ['seekforward', (d) => { audio.currentTime = Math.min(audio.duration, audio.currentTime + (d.seekOffset || 10)); }],
+];
+for (const [action, handler] of actionHandlers) {
+  try { navigator.mediaSession.setActionHandler(action, handler); } catch {}
+}
+```
+
+**Что НЕ делать (anti-patterns подтверждённые docs):**
+- ❌ `new Audio(url)` для player tracks (см. Persistent-audio-only rule)
+- ❌ `audioCtx.createMediaElementSource(playerAudio)` на iOS (см. iOS-lock-screen-audio rule + Bugzilla 237878)
+- ❌ `audio.play()` без user gesture (WebKit policy)
+- ❌ Async setting `navigator.mediaSession.metadata` после `audio.play()` — может не попасть в NowPlaying snapshot
+- ❌ Artwork только в 1 размере < 256×256 — iOS pre-16.4 покажет pixellated
+- ❌ Полагаться на `audio.volume = X` — на iOS read-only (= system volume), volume slider только для UI
+
+**Применяется к:** `apps/neurohub/client/src/lib/lockscreen.ts`, `apps/neurohub/client/src/pages/landing.tsx`, `dashboard.tsx`, `track.tsx`, любым future player'ам. НЕ применяется к: TTS one-shot (Музa voice), preview audio в админке.
+
+**Audit при правке player code:**
+1. `grep -n "new Audio(" apps/neurohub/client/src/pages/landing.tsx` — должен быть пуст (только через `getPersistentPlayerAudio()`)
+2. `grep -n "createMediaElementSource" apps/neurohub/client/src/lib/lockscreen.ts` — должен быть только внутри `if (!isIOS())`
+3. `grep -n "mediaSession.metadata" apps/neurohub/client/src/` — должен вызываться synchronously в click/touch handler
+
+**Reference commits:** `8d047e1` (Persistent-audio-only foundation), `584c51d` (revert AudioContext на iOS).
+
+### Android-audio-best-practices rule (Eugene 2026-05-21, **дополняет Apple-audio-best-practices rule**)
+
+**По официальной документации Chrome / web.dev / Android MediaSession — Chrome on Android требует точного MediaSession setup для lock-screen + notification controls + audio focus.** Большая часть API одинакова с iOS, но есть Android-specific требования и поведение.
+
+**Источники** (read first перед правкой):
+- web.dev «Customize media notifications and playback controls» — https://web.dev/articles/media-session
+- Chrome for Developers blog «Media Session» — https://developer.chrome.com/blog/media-session
+- web.dev «Fast playback with audio and video preload» — https://web.dev/articles/fast-playback-with-preload
+- Chromium «Controlling Media Playback» — https://chromium.googlesource.com/chromium/src/+/refs/tags/72.0.3626.62/services/media_session/controlling_media_playback.md
+- MDN «MediaSession: setPositionState()» — https://developer.mozilla.org/en-US/docs/Web/API/MediaSession/setPositionState
+- W3C/Chromium «Audio focus issue #9» — https://github.com/w3c/mediasession/issues/9
+
+**Обязательные requirements (по Chrome/Android):**
+
+1. **Audio duration ≥ 5 секунд для notification.** По Chromium: «browser requests full audio focus to display notifications only when media duration is at least 5 seconds, preventing incidental sounds from showing notifications». Sound effects / short jingles НЕ покажут lock-screen controls — это by design. У нас Suno tracks обычно >2 мин — OK.
+
+2. **Action handlers persist across track changes.** Web.dev: «media session action handlers will persist through media playbacks». Set once при init player, не реустанавливать на каждый track. Это даёт smooth UX: юзер тапает «next» на lock-screen → handler уже зарегистрирован.
+
+3. **Artwork ОБЯЗАТЕЛЬНО 512×512 для Chrome Android lock-screen.** Web.dev: «Notification artwork target size in Chrome for Android is 512×512. For low-end devices, it is 256×256». Если нет 512×512 — Chrome upscale'нет 256×256 или возьмёт `<link rel="icon">` favicon. Suno cover URLs обычно 1024×1024 — давай браузеру `sizes: "512x512"` (он сам downscale'нет).
+
+4. **`setPositionState()` обязательно — без него нет scrubber на lock-screen.** MDN: «works with lock screen media controls in Chrome on Android, enabling the system to display an accurate seekbar/scrubber». Без вызова `setPositionState` — на lock-screen видны только кнопки play/pause/prev/next, БЕЗ progress bar.
+
+5. **`seekto` handler ОБЯЗАТЕЛЕН для scrubber interaction.** Когда юзер тащит scrubber на lock-screen — Chrome dispatches `seekto` action с `details.seekTime` (новое время в сек) + опционально `details.fastSeek: true`. Без handler'а scrubber не реагирует. Pattern с fastSeek fallback — см. Apple-audio-best-practices rule пункт «Action handlers обязательные».
+
+6. **Audio focus типы (Chromium):**
+   - **Gain** — default для most media. Stops other sessions (другая music app pause'ится). Используется когда наш player начинает play.
+   - **Gain Transient** — короткое прерывание, другие resume после. Не для нас (это для voice prompts / notifications).
+   - **Gain Transient May Duck** — для коротких звуков ≤ 5 сек (UI sound effects). Other audio продолжает играть quieter.
+
+7. **Interruption handling.** Audio focus loss events:
+   - `AUDIOFOCUS_LOSS` — permanent (другое приложение взяло focus) → должны pause + НЕ resume сами. Юзер нажимает play вручную.
+   - `AUDIOFOCUS_LOSS_TRANSIENT` — звонок / GPS voice → pause, при `AUDIOFOCUS_GAIN` (возврат) — resume.
+   - Browser handles это автоматически через native HTMLMediaElement events `pause` / `play`. Реагируй на them через `audio.addEventListener('pause', ...)` чтобы обновить UI state.
+
+8. **`preload="metadata"` на cellular.** Web.dev: «On a cellular connection (2G, 3G, and 4G), Chrome forces the preload value to metadata». Даже если ставишь `preload="auto"` — Chrome переопределит. Не борись, оставь `metadata` — это даёт duration без full download.
+
+9. **Background playback в обычном browser tab.** Chrome продолжает audio playback когда tab свёрнут — но если tab killed (memory pressure / Battery saver) — audio останавливается. PWA / TWA имеют known issues («audio cuts within 60 seconds» — GoogleChrome/android-browser-helper issue 305). Workaround: **держать MediaSession active** через `playbackState='playing'` + регулярные `setPositionState` updates — даёт Chrome подсказку что media активна, OS реже kill'ит process.
+
+10. **Bluetooth / headset controls** — Chrome автоматически маппит:
+    - Headset play/pause button → `play` / `pause` action handlers
+    - Headset next/prev → `previoustrack` / `nexttrack`
+    - Bluetooth car controls (через A2DP/AVRCP) — тоже через MediaSession action handlers
+    - Никакого extra setup — handlers тех же что для lock-screen, работают везде.
+
+**Action handlers для Android lock-screen + notification + headset:** см. Apple-audio-best-practices rule (пункт «Action handlers обязательные»). API идентичный — один setup работает на iOS + Android + Desktop.
+
+**Что НЕ делать (anti-patterns подтверждённые docs):**
+- ❌ Дублировать setActionHandler при смене трека (handlers persist — лишний overhead)
+- ❌ Полагаться на autoplay без user gesture — Chrome 73+ enforces autoplay policy (https://developers.google.com/web/updates/2019/02/chrome-73-media-updates)
+- ❌ Отсутствие `setPositionState` — scrubber lock-screen не работает
+- ❌ Artwork только в 96×96 — Chrome Android downscale пиксельного 96 до 512 lock-screen
+- ❌ Treat audio focus loss как «всегда resume» — на `AUDIOFOCUS_LOSS` юзер должен сам нажать play (другое приложение хочет audio)
+
+**PWA / TWA caveat:**
+- В обычном browser tab — background playback стабильный (через MediaSession)
+- В PWA standalone mode / TWA wrapper — known instability (audio cuts ~60 сек после minimize)
+- У нас НЕ PWA (web SPA), значит проблема не актуальна. Если когда-нибудь будем оборачивать в TWA — учесть.
+
+**Применяется к:** тем же файлам что Apple-audio-best-practices rule (lockscreen.ts, landing.tsx, dashboard.tsx, track.tsx). Не применяется к: TTS one-shot (короткое < 5 сек, Chrome не покажет notification).
+
+**Audit при правке (общий для iOS + Android):**
+1. MediaSession setup делается ОДИН раз при init player (handlers + first metadata) — не на каждый track switch
+2. `setPositionState` вызывается на `loadedmetadata` (init duration) + throttled `timeupdate` (каждые 1-2 сек) + после `seekto`
+3. `playbackState` updates на каждый play/pause event
+4. Artwork массив содержит ≥ 256×256 и ≥ 512×512 (даже если один файл — два entries с разными sizes допустимы, browser сам решит)
+
+**Reference:** правило Action handlers + setPositionState + playbackState — единый pattern работает на iOS Safari, Android Chrome, Desktop Chrome/Firefox/Safari/Edge. Cross-platform setup один — поведение platform-specific.
+
 ### Docs-first-always rule (Eugene 2026-05-18, **сильнее Docs-first debugging rule**)
 
 **При начале ЛЮБОЙ работы над чем-то — сначала открываю официальную документацию.** Не только для дебага, но и для новых фич, refactor'ов, интеграций, выбора API. Расширяет старое правило «Docs-first debugging» на всю работу.
