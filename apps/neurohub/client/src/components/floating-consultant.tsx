@@ -11,6 +11,9 @@ import { onJourneyEvent } from "../lib/user-journey";
 import { getPersistentPlayerAudio } from "../lib/lockscreen";
 import { SupportModal } from "./support-modal";
 import { ChatTrackCard, type ChatTrackCardData } from "./chat-track-card";
+// Eugene 2026-05-21 Босс Chat-tool-calling MVP: approval-карточка + job-карточка
+// для chat-tool результатов (generate_lyrics / create_music_job / publish_asset).
+import { ChatApprovalCard, ChatJobCard } from "./chat-tool-cards";
 
 // Eugene 2026-05-14 Босс: «после 1 dismiss через 1 мин, если ещё раз — 1 час».
 const REAPPEAR_MS_FIRST = 60_000;     // 1 минута после первого dismiss
@@ -99,6 +102,35 @@ type ProposedRegistration = {
   lyricsText?: string;
   message?: string;
 };
+// Eugene 2026-05-21 Босс Chat-tool-calling MVP. pendingApproval — LLM вызвал
+// платный tool (generate_lyrics / create_music_job и т.п.) без confirm_spend;
+// backend вернул approval_required. Фронт рендерит карточку «Стоит X ₽,
+// подтвердить?» + кнопки [Да] / [Отмена]. По «Да» — клиент шлёт «Да,
+// подтверждаю генерацию» и LLM повторяет tool с confirm_spend=true.
+type PendingApproval = {
+  tool: string;
+  estimated_cost_kopecks: number;
+  estimated_cost_label: string;
+  user_balance_label?: string;
+  user_bonus_tracks?: number;
+  params_preview?: any;
+  message: string;
+};
+// attachedJob — генерация юзера (music/lyrics/cover) созданная через chat-tool.
+// Если type='music' и status='processing' — frontend polling GET
+// /api/generations/:id/status каждые 7 сек до status='done' или 'error'.
+// Когда done — показываем audio_url + cover.
+type AttachedJob = {
+  jobId: number;
+  type: "music" | "lyrics" | "cover" | string;
+  status: "processing" | "done" | "error" | "cancelled" | string;
+  title: string;
+  audioUrl: string | null;
+  coverUrl: string | null;
+  lyricsPreview: string | null;
+  durationSec: number;
+  errorReason: string | null;
+};
 type ChatMessage = {
   role: "user" | "bot";
   text: string;
@@ -115,6 +147,9 @@ type ChatMessage = {
   // find_public_track и tool вернул hint=playNow:<id> — backend прикрепляет
   // attachedTrack к ответу. Фронт рендерит inline ChatTrackCard под текстом.
   attachedTrack?: ChatTrackCardData;
+  // Eugene 2026-05-21 Босс Chat-tool-calling MVP.
+  pendingApproval?: PendingApproval;
+  attachedJob?: AttachedJob;
 };
 
 // Quick-reply chips — типичные первые сообщения чтобы юзер не залипал
@@ -1234,6 +1269,45 @@ export function FloatingConsultant() {
           };
         }
 
+        // Eugene 2026-05-21 Босс Chat-tool-calling MVP: pendingApproval +
+        // attachedJob парсинг. Approval-карточка появится сразу под reply,
+        // attachedJob — inline-card статуса с polling если processing.
+        let pendingApproval: PendingApproval | undefined = undefined;
+        if (
+          j.pendingApproval &&
+          typeof j.pendingApproval === "object" &&
+          typeof j.pendingApproval.tool === "string" &&
+          typeof j.pendingApproval.message === "string"
+        ) {
+          pendingApproval = {
+            tool: String(j.pendingApproval.tool).slice(0, 60),
+            estimated_cost_kopecks: Number(j.pendingApproval.estimated_cost_kopecks || 0),
+            estimated_cost_label: String(j.pendingApproval.estimated_cost_label || "").slice(0, 60),
+            user_balance_label: typeof j.pendingApproval.user_balance_label === "string" ? j.pendingApproval.user_balance_label.slice(0, 60) : undefined,
+            user_bonus_tracks: Number(j.pendingApproval.user_bonus_tracks || 0),
+            params_preview: j.pendingApproval.params_preview ?? null,
+            message: String(j.pendingApproval.message).slice(0, 500),
+          };
+        }
+        let attachedJob: AttachedJob | undefined = undefined;
+        if (
+          j.attachedJob &&
+          typeof j.attachedJob === "object" &&
+          typeof j.attachedJob.jobId === "number" &&
+          typeof j.attachedJob.type === "string"
+        ) {
+          attachedJob = {
+            jobId: Number(j.attachedJob.jobId),
+            type: String(j.attachedJob.type).slice(0, 30),
+            status: String(j.attachedJob.status || "processing").slice(0, 30),
+            title: String(j.attachedJob.title || "").slice(0, 200) || "Без названия",
+            audioUrl: typeof j.attachedJob.audioUrl === "string" ? j.attachedJob.audioUrl.slice(0, 500) : null,
+            coverUrl: typeof j.attachedJob.coverUrl === "string" ? j.attachedJob.coverUrl.slice(0, 500) : null,
+            lyricsPreview: typeof j.attachedJob.lyricsPreview === "string" ? j.attachedJob.lyricsPreview.slice(0, 500) : null,
+            durationSec: Number(j.attachedJob.durationSec || 0),
+            errorReason: typeof j.attachedJob.errorReason === "string" ? j.attachedJob.errorReason.slice(0, 300) : null,
+          };
+        }
         setChatMsgs(m => [...m, {
           role: "bot",
           text: j.reply,
@@ -1241,6 +1315,8 @@ export function FloatingConsultant() {
           proposedGeneration,
           proposedRegistration,
           attachedTrack,
+          pendingApproval,
+          attachedJob,
           // quickReplies подадим отдельной перезаписью через ещё одну паузу
         }]);
         setChatSending(false);
@@ -2167,6 +2243,24 @@ export function FloatingConsultant() {
                         track={m.attachedTrack}
                         autoPlay={i === arr.length - 1}
                       />
+                    )}
+                    {/* Eugene 2026-05-21 Босс Chat-tool-calling MVP.
+                        Approval-карточка для платных tools (generate_lyrics /
+                        create_music_job / publish_asset). По «Да» — шлём
+                        confirm-сообщение в чат и LLM повторяет tool с
+                        confirm_spend=true / confirm_publish=true. */}
+                    {m.role === "bot" && m.pendingApproval && i === arr.length - 1 && (
+                      <ChatApprovalCard
+                        approval={m.pendingApproval}
+                        onApprove={() => doSendMessage(`Да, подтверждаю ${m.pendingApproval!.tool}. Запускай (confirm_spend=true, confirm_publish=true).`)}
+                        onCancel={() => doSendMessage("Нет, отмена. Не запускаем.")}
+                      />
+                    )}
+                    {/* attachedJob — генерация юзера созданная через chat-tool.
+                        Если processing — polling /api/generations/:id/status
+                        каждые 7 сек. Когда done — встроенный audio player. */}
+                    {m.role === "bot" && m.attachedJob && (
+                      <ChatJobCard initial={m.attachedJob} autoPoll={i === arr.length - 1} />
                     )}
                     {/* Eugene 2026-05-17 Босс «резервные каналы при downtime».
                         Если LLM вернул fallback — показываем баннер с

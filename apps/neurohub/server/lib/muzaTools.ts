@@ -2845,17 +2845,25 @@ function splitMarkdownSections(text: string): { section: string; text: string }[
   return out;
 }
 
+// Eugene 2026-05-21 Босс Chat-tool-calling MVP: некоторые tools делают
+// внешний HTTP-вызов к GPTunnel (Suno /media/create ≈ 5-25 сек, lyrics
+// /chat/completions ≈ 5-15 сек) — для них timeout повышен до 35 сек.
+// Дефолт остаётся 8 сек для in-process tools (DB queries / геолокация).
+const LONG_TOOL_TIMEOUTS: Record<string, number> = {
+  generate_lyrics: 35_000,
+  rewrite_lyrics: 35_000,
+  create_music_job: 35_000,
+};
+
 export async function executeTool(name: string, input: any, context: ToolContext): Promise<string> {
   const handler = HANDLERS[name];
   if (!handler) return `Tool "${name}" not found.`;
-  // Eugene 2026-05-19 Триумф-Музы C5: 8-сек timeout per tool. Иначе медленный
-  // tool (геолокация, БД-агрегат) блокирует chat-pipeline и юзер видит spinner
-  // 20+ сек → abort'ит вкладку.
+  const timeoutMs = LONG_TOOL_TIMEOUTS[name] ?? 8_000;
   try {
     return await Promise.race<string>([
       handler(input || {}, context),
       new Promise<string>((_, reject) =>
-        setTimeout(() => reject(new Error(`tool timeout 8s: ${name}`)), 8_000),
+        setTimeout(() => reject(new Error(`tool timeout ${timeoutMs / 1000}s: ${name}`)), timeoutMs),
       ),
     ]);
   } catch (e: any) {
@@ -2878,3 +2886,15 @@ export function filterToolsForRole(role: string | null | undefined): ToolDef[] {
   if (isAdmin) return MUZA_TOOLS;
   return MUZA_TOOLS.filter((t) => !ADMIN_TOOL_MARKER.test(t.description));
 }
+
+// Eugene 2026-05-21 Босс «чат-бот с tool calling — диалоговое управление
+// генерацией». Подключаем CHAT_GENERATION_TOOLS (generate_lyrics / rewrite_lyrics
+// / create_music_job / get_generation_status / list_recent_assets /
+// get_asset_details / publish_asset / cancel_generation_job) после описания
+// HANDLERS / MUZA_TOOLS — мутируем (массив/объект extensible, const lock
+// касается только rebinding). Это позволяет LLM через /api/muza/chat
+// вызывать генерацию музыки и текста прямо из диалога с approval flow.
+// Подробнее: lib/chatGenerationTools.ts + Chat-tool-calling rule в CLAUDE.md.
+import { CHAT_GENERATION_TOOLS, CHAT_GENERATION_HANDLERS } from "./chatGenerationTools";
+for (const td of CHAT_GENERATION_TOOLS) MUZA_TOOLS.push(td);
+Object.assign(HANDLERS, CHAT_GENERATION_HANDLERS);

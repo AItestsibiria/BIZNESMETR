@@ -3174,19 +3174,56 @@ export async function registerRoutes(
       // Последний playNow wins (если Муза вызвала несколько find_public_track —
       // прикрепится тот трек, который выбран в финальном ответе).
       let attachedTrackId: number | null = null;
+      // Eugene 2026-05-21 Босс Chat-tool-calling MVP: перехватываем
+      // approval_required от платных tools (generate_lyrics / rewrite_lyrics /
+      // create_music_job / publish_asset) + attachedJob от create_music_job /
+      // get_generation_status. Frontend получит structured payload и отрендерит
+      // карточку «Стоит X ₽, подтвердить?» / inline-плеер с polling status.
+      // Последний approval wins (LLM может вызвать несколько — берём финальный).
+      let pendingApproval: any = null;
+      let attachedJobId: number | null = null;
       const onToolResult = (toolName: string, _input: any, result: string) => {
-        if (toolName !== "find_public_track") return;
+        // find_public_track → attachedTrack (existing)
+        if (toolName === "find_public_track") {
+          try {
+            const j = JSON.parse(result);
+            const hint = String(j?.hint || "");
+            const m = hint.match(/^playNow:(\d+)$/);
+            if (m) {
+              const id = Number(m[1]);
+              if (Number.isFinite(id) && id > 0) attachedTrackId = id;
+            }
+          } catch {}
+          return;
+        }
+        // Eugene 2026-05-21: chat generation tools
+        const isChatGenTool = [
+          "generate_lyrics", "rewrite_lyrics", "create_music_job",
+          "publish_asset", "get_generation_status",
+        ].includes(toolName);
+        if (!isChatGenTool) return;
         try {
           const j = JSON.parse(result);
+          // Approval flow: backend tool вернул approval_required=true
+          if (j && j.approval_required === true && j.ok === false) {
+            pendingApproval = {
+              tool: String(j.tool || toolName),
+              estimated_cost_kopecks: Number(j.estimated_cost_kopecks || 0),
+              estimated_cost_label: String(j.estimated_cost_label || ""),
+              user_balance_label: String(j.user_balance_label || ""),
+              user_bonus_tracks: Number(j.user_bonus_tracks || 0),
+              params_preview: j.params_preview || null,
+              message: String(j.message || "Подтвердите действие"),
+            };
+          }
+          // attachedJob hint: create_music_job (после spend confirm) / get_generation_status (done)
           const hint = String(j?.hint || "");
-          const m = hint.match(/^playNow:(\d+)$/);
+          const m = hint.match(/^attachedJob:(\d+)$/);
           if (m) {
             const id = Number(m[1]);
-            if (Number.isFinite(id) && id > 0) attachedTrackId = id;
+            if (Number.isFinite(id) && id > 0) attachedJobId = id;
           }
-        } catch {
-          // Не JSON — возможно error string. Ignore.
-        }
+        } catch {}
       };
 
       let reply = await callUnifiedMuzaLLM({
@@ -3359,6 +3396,58 @@ export async function registerRoutes(
         }
       }
 
+      // Eugene 2026-05-21 Босс Chat-tool-calling MVP: attachedJob — генерация
+      // юзера (music/lyrics/cover) которую LLM создал через chat-tool. Frontend
+      // отрендерит inline-карточку с progress + опциональный audio player.
+      // Только своя генерация (security guard); если уже done — включает audio_url.
+      let attachedJob: {
+        jobId: number;
+        type: string;
+        status: string;
+        title: string;
+        audioUrl: string | null;
+        coverUrl: string | null;
+        lyricsPreview: string | null;
+        durationSec: number;
+        errorReason: string | null;
+      } | null = null;
+      if (attachedJobId !== null && authUserId) {
+        try {
+          const j = db.select().from(generations).where(eq(generations.id, attachedJobId)).get() as any;
+          if (j && j.userId === authUserId) {
+            let coverUrl: string | null = null;
+            let lyricsPreview: string | null = null;
+            let durationSec = 0;
+            if (j.type === "music" && j.status === "done") {
+              try {
+                const rd = JSON.parse(j.resultData || "{}");
+                if (Array.isArray(rd.result) && rd.result[0]) {
+                  coverUrl = rd.result[0].image_url || null;
+                  if (rd.result[0].lyric) lyricsPreview = String(rd.result[0].lyric).slice(0, 200);
+                  durationSec = Number(rd.result[0].duration || 0) || 0;
+                }
+              } catch {}
+            }
+            if (j.type === "lyrics" && j.status === "done") {
+              lyricsPreview = String(j.resultUrl || "").slice(0, 200);
+            }
+            attachedJob = {
+              jobId: Number(j.id),
+              type: String(j.type),
+              status: String(j.status),
+              title: j.displayTitle || String(j.prompt || "").slice(0, 80) || "Без названия",
+              audioUrl: j.type === "music" && j.status === "done" ? `/api/stream/${j.id}` : null,
+              coverUrl: j.type === "music" && j.status === "done" ? `/api/cover/${j.id}.jpg` : coverUrl,
+              lyricsPreview,
+              durationSec,
+              errorReason: j.status === "error" ? (j.errorReason || null) : null,
+            };
+          }
+        } catch (e: any) {
+          console.warn("[MUZA-CHAT attachedJob]", e?.message || e);
+        }
+      }
+
       // Сохраняем bot reply + обновляем lastMessageAt
       db.insert(chatbotMessages).values({
         sessionId: session.id,
@@ -3432,6 +3521,16 @@ export async function registerRoutes(
         // сообщение). Persistent audio singleton (lockscreen.ts) переключится
         // на этот трек, lock-screen ownership сохраняется.
         attachedTrack,
+        // Eugene 2026-05-21 Босс Chat-tool-calling MVP: pendingApproval —
+        // когда LLM вызвал платный tool без confirm_spend/confirm_publish.
+        // Frontend рендерит approval-карточку «Стоит X ₽, подтвердить?» +
+        // кнопки [Да] / [Отмена]. По «Да» — клиент шлёт ответное сообщение
+        // (например «да, подтверждаю») и LLM повторяет tool с confirm_spend=true.
+        pendingApproval,
+        // attachedJob — генерация юзера (music/lyrics/cover) созданная через
+        // chat-tool. Frontend рендерит карточку с polling статусом (для music
+        // в processing) или сразу плеер если done.
+        attachedJob,
       });
     } catch (e: any) {
       console.error("[MUZA-CHAT send]", e);
@@ -8013,6 +8112,56 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
       return;
     }
     res.json(storage.getUserGenerations(userId));
+  });
+
+  // Eugene 2026-05-21 Босс Chat-tool-calling MVP: GET /api/generations/:id/status
+  // — lightweight статус одной генерации для polling из чата после
+  // create_music_job (frontend опрашивает каждые 5-10 сек). Возвращает только
+  // публичные fields (никаких internal raw payload). Только свои генерации.
+  app.get("/api/generations/:id/status", authMiddleware, (req: Request, res: Response) => {
+    const userId = (req as any).userId;
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      res.status(400).json({ ok: false, error: "id обязателен" });
+      return;
+    }
+    const gen = storage.getGeneration(id);
+    if (!gen) {
+      res.status(404).json({ ok: false, error: "Не найдено" });
+      return;
+    }
+    if (gen.userId !== userId) {
+      res.status(403).json({ ok: false, error: "Доступ запрещён" });
+      return;
+    }
+    let coverUrl: string | null = null;
+    let lyricsPreview: string | null = null;
+    let durationSec = 0;
+    if (gen.type === "music" && gen.status === "done") {
+      try {
+        const rd = JSON.parse((gen as any).resultData || "{}");
+        if (Array.isArray(rd.result) && rd.result[0]) {
+          coverUrl = rd.result[0].image_url || null;
+          if (rd.result[0].lyric) lyricsPreview = String(rd.result[0].lyric).slice(0, 200);
+          durationSec = Number(rd.result[0].duration || 0) || 0;
+        }
+      } catch {}
+    }
+    if (gen.type === "lyrics" && gen.status === "done") {
+      lyricsPreview = String((gen as any).resultUrl || "").slice(0, 200);
+    }
+    res.json({
+      ok: true,
+      jobId: gen.id,
+      type: gen.type,
+      status: gen.status,
+      title: (gen as any).displayTitle || String(gen.prompt || "").slice(0, 80) || "Без названия",
+      audioUrl: gen.type === "music" && gen.status === "done" ? `/api/stream/${gen.id}` : null,
+      coverUrl: gen.type === "music" && gen.status === "done" ? `/api/cover/${gen.id}.jpg` : coverUrl,
+      lyricsPreview,
+      durationSec,
+      errorReason: gen.status === "error" ? ((gen as any).errorReason || null) : null,
+    });
   });
 
   // ==================== LYRICS DRAFTS (Eugene 2026-05-18 Босс) ====================

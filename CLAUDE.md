@@ -4,6 +4,68 @@ This file provides context and conventions for AI assistants (Claude Code and ot
 
 ---
 
+### Chat-tool-calling rule (Eugene 2026-05-21)
+
+**Все генерации (music / lyrics / cover) и управление треками доступны через Музу-чат как tool calls, не только через UI кнопки.** Музa использует Anthropic function-calling — сама решает когда вызвать tool на основании реплики юзера.
+
+**MVP tools** (см. `apps/neurohub/server/lib/chatGenerationTools.ts`):
+- `generate_lyrics({topic, style?, mood?, language?, confirm_spend})` — 99 ₽
+- `rewrite_lyrics({lyrics_id, instruction, confirm_spend})` — 99 ₽
+- `create_music_job({source_type, lyrics_id?|lyrics_text?|prompt?, genre?, mood?, voice?, category?, confirm_spend})` — 399 ₽ (или подарочный трек если есть)
+- `get_generation_status({job_id})` — бесплатно
+- `list_recent_assets({limit?})` — бесплатно
+- `get_asset_details({asset_id})` — бесплатно
+- `publish_asset({asset_id, visibility, confirm_publish})` — бесплатно, но требует confirm
+- `cancel_generation_job({job_id})` — бесплатно (refund если deny)
+
+**Approval flow (обязательный для платных + visibility changes):**
+
+1. Музa вызывает tool БЕЗ `confirm_spend`/`confirm_publish` → backend возвращает JSON:
+   ```json
+   {
+     "ok": false,
+     "approval_required": true,
+     "tool": "create_music_job",
+     "estimated_cost_kopecks": 39900,
+     "estimated_cost_label": "399 ₽",
+     "user_balance_label": "1200 ₽",
+     "params_preview": {...},
+     "message": "Создать музыкальный трек «Маме на 70» (pop, warm) — 399 ₽?"
+   }
+   ```
+2. `/api/muza/chat` `onToolResult` callback ловит `approval_required` → ставит `pendingApproval` в response.
+3. Frontend (`floating-consultant.tsx`) рендерит `ChatApprovalCard` под bot-message с кнопками **[Подтвердить]** / **[Отмена]**.
+4. Юзер жмёт **Подтвердить** → отправляется текст «Да, подтверждаю <tool>. Запускай (confirm_spend=true, confirm_publish=true).» → LLM повторяет вызов tool уже с confirm-флагом → backend списывает деньги и запускает генерацию.
+
+**attachedJob hint flow:**
+- Tool handler возвращает JSON с `hint: "attachedJob:<gen_id>"` → backend ловит → загружает meta-данные → передаёт `attachedJob` в response → frontend рендерит `ChatJobCard`.
+- Если `status='processing'` (music) — frontend опрашивает `GET /api/generations/:id/status` каждые 7 сек (макс 7 мин).
+- Когда `status='done'` — встроенный `<audio>` с persistent player.
+
+**Жёсткие правила:**
+
+1. **Все платные tools обязаны проверять `confirm_spend === true` ДО любого списания.** Без подтверждения — возвращают `approval_required: true`. Это закрывает риск «LLM по своей инициативе спустил баланс юзера».
+2. **`publish_asset` требует `confirm_publish === true`.** Иначе тоже approval.
+3. **Audit-log обязателен.** Каждый успешный tool call → `recordAuditEntry({entity: "chat_tool:<name>", entityKey: <gen_id>, after: {...params}})`. Босс видит в `/admin/v304 → audit-log`.
+4. **Ownership check.** Все tools работающие с конкретным `asset_id`/`job_id` обязаны проверять `gen.userId === ctx.userId`. Иначе — `{ok:false, error:"Не найдено или не принадлежит вам."}`.
+5. **Refund при ошибке.** Если списали деньги но генерация упала (GPTunnel вернул error, нет task_id) — обязательный `storage.refundGeneration({...})` + `{ok:false, error:"...Баланс возвращён.", refunded:true}`.
+6. **Reuse existing logic.** Tools НЕ создают параллельные endpoints — обёртки над существующей логикой (`storage.createGeneration`, `gptunnelCall`, `normalizeVocalParams`, `getCurrentPriceKopecks`). См. Reuse-working-solutions rule.
+7. **Timeout для GPTunnel tools 35 сек.** Дефолтные 8 сек слишком короткие для `/media/create` (Suno gen accept ≈ 5-25 сек). См. `LONG_TOOL_TIMEOUTS` в `muzaTools.ts`.
+
+**НЕ применяется к:**
+- Анонимным юзерам — без auth все tools возвращают `{ok:false, error:"Юзер не залогинен."}`. Анон проходит через registration flow (PROPOSE_REGISTER маркер).
+- Free-tier бонусным трекам — bonusTracks списываются autoamtically до денег (см. `create_music_job` handler).
+
+**Применяется к:** web `/api/muza/chat`, Telegram bot (когда подключим chat tools — пока только web), Max bot. НЕ применяется к: REST endpoints `/api/music/generate` и т.п. (они остаются для UI кнопок).
+
+**Связано с:**
+- Pricing-single-source rule — все цены через `getCurrentPriceKopecks()` (lib/pricing.ts)
+- Reuse-working-solutions rule — tools используют тот же pipeline что REST endpoints
+- Musa-knowledge-governance rule — клиент видит только свои треки/платежи (ownership guard)
+- User-action-failure registry rule — failed tools пишутся в `user_action_failures` (TODO для следующих итераций)
+
+---
+
 ### Self-review-before-output rule (Eugene 2026-05-16)
 
 **Перед выдачей любого решения — критически просматриваю его сам.** Если нашёл ошибку — исправляю и выдаю исправленное. Если ошибок нет — выдаю.
