@@ -49,13 +49,14 @@ const RollingDigit = ({ value, blinkPhase, lastInRow, dimmed }: { value: number;
         width: "0.62em",
         height: "1em",
         lineHeight: "1em",
-        // Eugene 2026-05-21 Босс «цвет счётчика в стиле MuzaAi» — brand palette.
-        // Active: bright fuchsia/cyan glow. Dimmed leading zeros: тёмно-purple.
-        color: dimmed ? "rgba(196, 132, 252, 0.20)" : "#f0abfc",
-        textShadow: dimmed ? "none" : "0 0 8px #d946ef, 0 0 16px #06b6d4, 0 0 24px #7c3aed",
-        WebkitTextFillColor: dimmed ? "rgba(196, 132, 252, 0.20)" : "#f0abfc",
+        // Eugene 2026-05-21 Босс «счётчик меняющий цвет градиент от одного цвета к
+        // другому». Animated brand color cycle через CSS class — purple→fuchsia→cyan→purple.
+        // Dimmed leading zeros — static дим-purple без анимации.
+        color: dimmed ? "rgba(196, 132, 252, 0.20)" : undefined,
+        WebkitTextFillColor: dimmed ? "rgba(196, 132, 252, 0.20)" : undefined,
         opacity: dimmed ? 0.55 : 1,
       }}
+      data-active={!dimmed ? "1" : undefined}
     >
       <span
         className="block transition-transform duration-[1500ms] ease-[cubic-bezier(0.34,1.56,0.64,1)]"
@@ -363,6 +364,17 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
         .uc-digit-blink {
           animation: uc-digit-blink 600ms ease-in-out;
         }
+        /* Eugene 2026-05-21 Босс: «счётчик меняющий цвет градиент» */
+        @keyframes uc-color-cycle {
+          0%   { color: #c084fc; text-shadow: 0 0 8px #7c3aed, 0 0 16px #c084fc; }
+          33%  { color: #f0abfc; text-shadow: 0 0 8px #d946ef, 0 0 16px #f0abfc; }
+          66%  { color: #67e8f9; text-shadow: 0 0 8px #06b6d4, 0 0 16px #67e8f9; }
+          100% { color: #c084fc; text-shadow: 0 0 8px #7c3aed, 0 0 16px #c084fc; }
+        }
+        [data-active="1"] {
+          animation: uc-color-cycle 6s ease-in-out infinite;
+          -webkit-text-fill-color: currentColor;
+        }
         .uc-pulse {
           animation: uc-pulse 1.4s ease-in-out infinite;
         }
@@ -579,9 +591,9 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
                 <button
                   type="button"
                   onClick={() => setShowAddForm(true)}
-                  className="w-full py-2.5 rounded-lg bg-pink-500/25 hover:bg-pink-500/40 border border-pink-400/40 text-[13px] font-semibold transition-all flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-95"
+                  className="w-full py-2.5 rounded-lg bg-white/95 hover:bg-white text-purple-900 border border-white/30 text-[13px] font-semibold transition-all flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-95 shadow-md"
                 >
-                  <span className="text-[16px] leading-none">＋</span>
+                  <span className="text-[16px] leading-none font-bold">＋</span>
                   <span>Добавить свою звезду</span>
                 </button>
                 {starMsg && <div className="text-[12px] text-amber-200 mt-2 text-center">{starMsg}</div>}
