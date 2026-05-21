@@ -9528,6 +9528,41 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     res.setHeader("Cache-Control", "no-store");
     res.json(getTodayDefaultSort());
   });
+
+  // Eugene 2026-05-21 Босс «приоритет — plays counter на фронте».
+  // Возвращает агрегированную статистику по main playlist для баннера счётчика.
+  // Cache 60 сек — снижает нагрузку SQL при частых рефрешах.
+  let _playsStatsCache: { data: any; expiresAt: number } | null = null;
+  app.get("/api/playlist/stats", (_req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "public, max-age=60");
+    if (_playsStatsCache && Date.now() < _playsStatsCache.expiresAt) {
+      res.json(_playsStatsCache.data);
+      return;
+    }
+    try {
+      const rawSql: any = (db as any).$client || sqliteDb;
+      const stats = rawSql.prepare(
+        `SELECT
+           COUNT(*) AS total_tracks,
+           COALESCE(SUM(CAST(json_extract(style, '$.plays') AS INTEGER)), 0) AS total_plays
+         FROM generations
+         WHERE type = 'music' AND deleted_at IS NULL AND status = 'done'
+           AND is_public = 1
+           AND style LIKE '{%' AND json_valid(style) = 1`
+      ).get() as { total_tracks: number; total_plays: number };
+
+      const data = {
+        totalPlays: Number(stats?.total_plays || 0),
+        totalTracks: Number(stats?.total_tracks || 0),
+        lastUpdated: new Date().toISOString(),
+      };
+      _playsStatsCache = { data, expiresAt: Date.now() + 60_000 };
+      res.json(data);
+    } catch (e: any) {
+      res.json({ totalPlays: 0, totalTracks: 0, error: String(e?.message || e).slice(0, 100) });
+    }
+  });
+
   app.get("/api/admin/v304/playlist-sort-rotation", requireAdmin, (_req: Request, res: Response) => {
     res.setHeader("Cache-Control", "no-store");
     res.json({ ...getRotationConfig(), today: getTodayDefaultSort() });

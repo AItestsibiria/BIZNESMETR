@@ -13,6 +13,7 @@ import { muteBgMusic, unmuteBgMusic } from "@/components/background-music";
 import { setupMediaSessionForTrack, setLockScreenPlaybackState, setLockScreenPosition, loadTrackIntoPlayer, setPlayerVolume } from "@/lib/lockscreen";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
+import { PlaysCounter } from "@/components/plays-counter";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { createPortal } from "react-dom";
 import { motion, useAnimation, useDragControls } from "framer-motion";
@@ -1795,6 +1796,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               onClick={() => setSearchQuery("")}
             >Сбросить</button>
           )}
+        </div>
+
+        {/* Eugene 2026-05-21 Босс «приоритет counter»: animated banner с общей
+            суммой prosлушиваний по main playlist. Cache 60s, sync с БД. */}
+        <div className="flex items-center justify-center mb-3">
+          <PlaysCounter />
         </div>
 
         {/* Track count + page info */}
