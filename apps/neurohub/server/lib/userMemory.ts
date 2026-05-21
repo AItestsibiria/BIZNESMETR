@@ -35,10 +35,19 @@ export interface UserMemoryRow {
 export interface CabinetSnapshot {
   userId: number;
   name: string | null;
+  email: string | null;
+  emailVerified: boolean;
   country: string | null;
   countryCode: string | null;
   phone: string | null;
+  phoneVerified: boolean;
   createdAt: string | null;
+  // Eugene 2026-05-21 Босс: «в админском кабинете полная информация —
+  // регистрация, начало взаимодействия, процессы».
+  firstChatMessageAt: string | null;  // когда впервые написал Музе
+  lastChatMessageAt: string | null;   // последняя активность в чате
+  firstGenerationAt: string | null;   // первая успешная генерация
+  totalMessagesToMusa: number;        // total user→Музa сообщений
   generations: {
     total: number;
     last7d: number;
@@ -274,13 +283,37 @@ export async function getCabinetSnapshot(userId: number): Promise<CabinetSnapsho
        ORDER BY id DESC LIMIT 1`,
     ).get(userId) as any;
 
+    // Eugene 2026-05-21 Босс: «начало взаимодействия, процессы». First+last chat messages,
+    // first generation, total message count — для админского 360°-view.
+    const chatStats = sqlite.prepare(
+      `SELECT
+         MIN(m.created_at) AS first_at,
+         MAX(m.created_at) AS last_at,
+         COUNT(*) AS total
+       FROM chatbot_messages m
+       INNER JOIN chatbot_sessions s ON s.id = m.session_id
+       WHERE s.user_id = ? AND m.role = 'user'`,
+    ).get(userId) as any;
+    const firstGen = sqlite.prepare(
+      `SELECT created_at FROM generations
+       WHERE user_id = ? AND type = 'music' AND status = 'done' AND deleted_at IS NULL
+       ORDER BY id ASC LIMIT 1`,
+    ).get(userId) as any;
+
     const snapshot: CabinetSnapshot = {
       userId,
       name: user.name || null,
+      email: (user as any).email || null,
+      emailVerified: !!((user as any).emailVerified),
       country: (user as any).country || null,
       countryCode: (user as any).countryCode || null,
       phone: (user as any).phone || null,
+      phoneVerified: !!((user as any).phoneVerified),
       createdAt: user.createdAt || null,
+      firstChatMessageAt: chatStats?.first_at || null,
+      lastChatMessageAt: chatStats?.last_at || null,
+      firstGenerationAt: firstGen?.created_at || null,
+      totalMessagesToMusa: Number(chatStats?.total || 0),
       generations: {
         total: Number(counts?.total || 0),
         last7d: Number(counts?.last7d || 0),
