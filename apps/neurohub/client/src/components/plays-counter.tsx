@@ -32,10 +32,12 @@ const RollingDigit = ({ value, blinkPhase, lastInRow, dimmed }: { value: number;
         width: "0.62em",
         height: "1em",
         lineHeight: "1em",
-        color: dimmed ? "rgba(253, 230, 138, 0.22)" : "#fde68a",
-        textShadow: dimmed ? "none" : "0 0 8px #f0abfc, 0 0 16px #67e8f9, 0 0 24px #c084fc",
-        WebkitTextFillColor: dimmed ? "rgba(253, 230, 138, 0.22)" : "#fde68a",
-        opacity: dimmed ? 0.6 : 1,
+        // Eugene 2026-05-21 Босс «цвет счётчика в стиле MuzaAi» — brand palette.
+        // Active: bright fuchsia/cyan glow. Dimmed leading zeros: тёмно-purple.
+        color: dimmed ? "rgba(196, 132, 252, 0.20)" : "#f0abfc",
+        textShadow: dimmed ? "none" : "0 0 8px #d946ef, 0 0 16px #06b6d4, 0 0 24px #7c3aed",
+        WebkitTextFillColor: dimmed ? "rgba(196, 132, 252, 0.20)" : "#f0abfc",
+        opacity: dimmed ? 0.55 : 1,
       }}
     >
       <span
@@ -442,16 +444,25 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
           i
         </button>
         {showInfo && (
-          <div
-            className="absolute left-1/2 -translate-x-1/2 px-5 py-4 rounded-3xl text-[13px] text-white z-30 animate-in fade-in slide-in-from-top-1 duration-200"
-            style={{
-              top: "calc(100% + 14px)",
-              minWidth: "340px",
-              maxWidth: "min(500px, calc(100vw - 24px))",
-              background: "linear-gradient(135deg, rgba(124,58,237,0.95) 0%, rgba(217,70,239,0.92) 50%, rgba(6,182,212,0.95) 100%)",
-              boxShadow: "0 16px 48px rgba(217,70,239,0.45), 0 0 40px rgba(124,58,237,0.35)",
-            }}
-          >
+          <>
+            {/* Eugene 2026-05-21 Босс «содержание не видно» — popup as modal
+                с backdrop, centered, не перекрывает плейлист как absolute child. */}
+            <div
+              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60] animate-in fade-in duration-200"
+              onClick={() => setShowInfo(false)}
+              aria-hidden="true"
+            />
+            <div
+              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-5 py-4 rounded-3xl text-[13px] text-white z-[61] animate-in fade-in zoom-in-95 duration-200"
+              style={{
+                width: "min(440px, calc(100vw - 24px))",
+                maxHeight: "calc(100vh - 40px)",
+                overflowY: "auto",
+                background: "linear-gradient(135deg, rgba(124,58,237,0.96) 0%, rgba(217,70,239,0.93) 50%, rgba(6,182,212,0.96) 100%)",
+                boxShadow: "0 24px 64px rgba(217,70,239,0.5), 0 0 48px rgba(124,58,237,0.4)",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
             <div className="flex items-start justify-between gap-3 mb-3">
               <div className="text-[14px] font-semibold leading-relaxed">
                 ✨ Когда наш плейлист дойдёт до <b className="font-mono text-amber-200 text-[15px]">1 000 000</b> прослушиваний — маякнём{" "}
@@ -535,7 +546,8 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
               {starMsg && <div className="text-[11px] text-amber-200">{starMsg}</div>}
               <div className="text-[10px] text-white/50">Instagram обязателен для новой звезды</div>
             </form>
-          </div>
+            </div>
+          </>
         )}
 
         {/* Eugene 2026-05-21 Босс: «кнопка mini отключить анимацию по смыслу
