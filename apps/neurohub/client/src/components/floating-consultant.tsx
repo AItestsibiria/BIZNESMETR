@@ -1507,6 +1507,46 @@ export function FloatingConsultant() {
     }, 350);
   };
 
+  // Eugene 2026-05-21 Босс «постукивания по экрану — Музa приходит/уходит».
+  // 3 тапа за 1.2 сек по ПУСТОЙ области (не на кнопке/инпуте/линке) → toggle.
+  // Уходит на 60 мин если нажали при visible; приходит мгновенно если hidden.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const KNOCK_WINDOW_MS = 1200;
+    const REQUIRED_KNOCKS = 3;
+    const tapTimestamps: number[] = [];
+    const onTap = (e: PointerEvent) => {
+      const tgt = e.target as HTMLElement | null;
+      if (!tgt) return;
+      // Игнорируем тапы на интерактивные элементы — постукивание только по «пустоте»
+      if (tgt.closest("button, a, input, textarea, select, label, audio, video, [role=button], [role=tab], [role=link], [role=textbox], [role=switch], [role=slider], [data-testid='floating-consultant'], [data-uc-digit], .uc-rocket, .fw-rocket, .fw-burst")) {
+        return;
+      }
+      const now = Date.now();
+      tapTimestamps.push(now);
+      while (tapTimestamps.length > 0 && now - tapTimestamps[0] > KNOCK_WINDOW_MS) {
+        tapTimestamps.shift();
+      }
+      if (tapTimestamps.length >= REQUIRED_KNOCKS) {
+        tapTimestamps.length = 0;
+        try { (navigator as any).vibrate?.([15, 40, 15]); } catch {}
+        if (visible) {
+          // «Уходит» — мягкий exit + не вернётся 60 мин (или больше если повторно)
+          dismiss();
+        } else {
+          // «Приходит» — мгновенно показать; сбрасываем счётчик dismiss'а
+          if (timerRef.current) { window.clearTimeout(timerRef.current); timerRef.current = null; }
+          dismissedRef.current = 0;
+          try { sessionStorage.removeItem(SS_KEY); } catch {}
+          setVisible(true);
+          try { playMuzaSparkle(); } catch {}
+        }
+      }
+    };
+    document.addEventListener("pointerdown", onTap, { passive: true });
+    return () => document.removeEventListener("pointerdown", onTap);
+  }, [visible]);
+
   // Eugene 2026-05-14 Босс «любой резкий скролл вниз — появляется Муза».
   // Меряем pixel-velocity между scroll-events; если резко вниз — show.
   useEffect(() => {
