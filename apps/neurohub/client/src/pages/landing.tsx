@@ -2054,7 +2054,45 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   return (
                     <div className="px-2 pb-2 pt-1">
                       <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-purple-500/20 animate-in fade-in zoom-in-95 duration-300">
-                        <div className="w-full aspect-square bg-gradient-to-br from-purple-900 via-blue-900 to-black relative cursor-pointer" onPointerDown={(e) => { const tgt = e.target as HTMLElement; if (tgt.closest("button, a, [role=button], input, [data-no-collapse]")) return; /* Eugene 2026-05-21 Босс: 500ms cooldown (iOS double-tap standard, anti случайных касаний). */ if (Date.now() - expandedAtRef.current < 500) return; e.preventDefault(); setExpandedId(null); }}>
+                        <div
+                          className="w-full aspect-square bg-gradient-to-br from-purple-900 via-blue-900 to-black relative cursor-pointer"
+                          /* Eugene 2026-05-21 Босс «замедли чувствительность —
+                             хочу промотать, она закрывается». Раньше collapse
+                             на onPointerDown — любое касание прогресс-бара
+                             закрывало cover. Теперь pointerdown записывает
+                             старт; pointerup проверяет: расстояние ≤8px,
+                             длительность ≤350мс, cooldown после expand 700мс.
+                             Drag/scrub/long-press НЕ закрывают cover. */
+                          onPointerDown={(e) => {
+                            const tgt = e.target as HTMLElement;
+                            if (tgt.closest("button, a, [role=button], input, [data-no-collapse]")) return;
+                            (e.currentTarget as any).__capX = e.clientX;
+                            (e.currentTarget as any).__capY = e.clientY;
+                            (e.currentTarget as any).__capAt = Date.now();
+                          }}
+                          onPointerUp={(e) => {
+                            const ce = e.currentTarget as any;
+                            const sx = ce.__capX;
+                            const sy = ce.__capY;
+                            const sat = ce.__capAt;
+                            ce.__capX = ce.__capY = ce.__capAt = undefined;
+                            if (sx == null || sat == null) return;
+                            const tgt = e.target as HTMLElement;
+                            if (tgt.closest("button, a, [role=button], input, [data-no-collapse]")) return;
+                            const dx = Math.abs(e.clientX - sx);
+                            const dy = Math.abs(e.clientY - sy);
+                            const dt = Date.now() - sat;
+                            if (dx > 8 || dy > 8) return; // drag/scrub — не collapse
+                            if (dt > 350) return;          // long-press — не collapse
+                            if (Date.now() - expandedAtRef.current < 700) return;
+                            e.preventDefault();
+                            setExpandedId(null);
+                          }}
+                          onPointerCancel={(e) => {
+                            const ce = e.currentTarget as any;
+                            ce.__capX = ce.__capY = ce.__capAt = undefined;
+                          }}
+                        >
                           {track.imageUrl && <img key={track.imageUrl} src={track.imageUrl} alt="" className="w-full h-full object-cover absolute inset-0 animate-in fade-in duration-500" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />}
                           {/* Eugene 2026-05-19 Босс «S на большой обложке».
                               Eugene 2026-05-21 Босс «Плей и S в наложении»:
