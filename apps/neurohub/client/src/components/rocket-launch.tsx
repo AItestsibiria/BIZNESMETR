@@ -35,7 +35,8 @@ function randomRocketFromBottom(): Rocket {
     startY: 110,
     endX,
     angle,
-    duration: 4 + Math.random() * 2,
+    // Eugene 2026-05-21 Босс «медленнее». 4-6s → 8-10s.
+    duration: 8 + Math.random() * 2,
     delay: Math.random() * 0.4,
     emoji: ROCKET_EMOJIS[Math.floor(Math.random() * ROCKET_EMOJIS.length)],
     positioning: "vw-vh",
@@ -53,7 +54,8 @@ function rocketFromPoint(px: number, py: number): Rocket {
     startY: py,
     endX,
     angle,
-    duration: 5 + Math.random() * 1.5, // 5-6.5 sec — медленно
+    // Eugene 2026-05-21 Босс «медленнее». 5-6.5s → 9-10.5s.
+    duration: 9 + Math.random() * 1.5,
     delay: 0,
     emoji: "🚀",
     positioning: "abs-px",
@@ -62,31 +64,36 @@ function rocketFromPoint(px: number, py: number): Rocket {
 
 export function RocketLaunch() {
   const [rockets, setRockets] = useState<Rocket[]>([]);
+  // Eugene 2026-05-21 Босс «не больше 1 ракеты». Gate: если уже летит — skip.
+  const inFlightRef = { current: 0 } as { current: number };
 
   useEffect(() => {
     const onTrackFinished = () => {
-      // Eugene 2026-05-21 Босс: «одна ракета на 1 трек».
+      if (inFlightRef.current > 0) return; // одна за раз
+      inFlightRef.current = 1;
       const newRockets: Rocket[] = [randomRocketFromBottom()];
       setRockets(prev => [...prev, ...newRockets]);
 
-      const maxLifetime = 7000;
+      const maxLifetime = Math.round((newRockets[0].duration + 1) * 1000);
       setTimeout(() => {
         const ids = new Set(newRockets.map(r => r.id));
         setRockets(prev => prev.filter(r => !ids.has(r.id)));
-        // Notify PlaysCounter → blink-post (для случая ended-event)
+        inFlightRef.current = 0;
         try { window.dispatchEvent(new CustomEvent("muza:rocket-landed")); } catch {}
       }, maxLifetime);
     };
-    // Eugene 2026-05-21 Босс «появление новой цифры → ракета из этой цифры → blink».
     const onCounterUp = (ev: CustomEvent) => {
+      if (inFlightRef.current > 0) return; // одна за раз
       const x = Number(ev.detail?.x);
       const y = Number(ev.detail?.y);
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      inFlightRef.current = 1;
       const r = rocketFromPoint(x, y);
       setRockets(prev => [...prev, r]);
       const lifetimeMs = Math.round(r.duration * 1000) + 500;
       setTimeout(() => {
         setRockets(prev => prev.filter(rr => rr.id !== r.id));
+        inFlightRef.current = 0;
         try { window.dispatchEvent(new CustomEvent("muza:rocket-landed")); } catch {}
       }, lifetimeMs);
     };
@@ -141,6 +148,8 @@ export function RocketLaunch() {
           0%, 100% { opacity: 0.3; transform: scaleY(0.6); }
           50% { opacity: 0.9; transform: scaleY(1); }
         }
+        /* Eugene 2026-05-21 Босс «медленнее» — trail тоже медленнее. */
+        .rocket-trail { animation-duration: 0.7s !important; }
         .rocket-fx {
           position: fixed;
           left: 0;
