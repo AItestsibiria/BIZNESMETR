@@ -166,19 +166,34 @@ export function getPersistentPlayerAudio(): HTMLAudioElement | null {
 // iOS Safari ИГНОРИРУЕТ HTMLMediaElement.volume — оно read-only, system volume only.
 // Решение по MDN/WebKit: создать AudioContext + GainNode между source и destination.
 // gain.value управляет громкостью независимо от system volume на ВСЕХ платформах.
+//
+// Eugene 2026-05-21 (вечер) Босс: «при lock screen воспроизведение прерывается».
+// ROOT CAUSE: на iOS Safari после createMediaElementSource() audio routes через
+// AudioContext. При lock screen iOS suspended'ит AudioContext → audio stops.
+// FIX: на iOS НЕ создаём AudioContext (volume slider не работает в iOS Safari всё
+// равно — system volume only). На desktop / Android — GainNode работает.
 let _audioCtx: AudioContext | null = null;
 let _gainNode: GainNode | null = null;
 let _mediaSrc: MediaElementAudioSourceNode | null = null;
 
+function isIOS(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  if (/iPad|iPhone|iPod/.test(ua)) return true;
+  // iPadOS 13+ маскирует под Mac — детектим через maxTouchPoints
+  if ((navigator as any).platform === "MacIntel" && (navigator as any).maxTouchPoints > 1) return true;
+  return false;
+}
+
 function ensureAudioGraph(audio: HTMLAudioElement): GainNode | null {
   if (_gainNode) return _gainNode;
   if (typeof window === "undefined") return null;
+  // На iOS Safari НЕ создаём AudioContext — он ломает background playback при lock screen.
+  if (isIOS()) return null;
   try {
     const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
     if (!Ctx) return null;
     _audioCtx = new Ctx();
-    // createMediaElementSource можно вызвать ОДИН раз на element.
-    // После этого audio.volume может не работать — но gain работает.
     _mediaSrc = _audioCtx.createMediaElementSource(audio);
     _gainNode = _audioCtx.createGain();
     _mediaSrc.connect(_gainNode);
@@ -192,18 +207,18 @@ function ensureAudioGraph(audio: HTMLAudioElement): GainNode | null {
 
 /**
  * Устанавливает громкость плеера (0..1).
- * Сначала пробует HTMLMediaElement.volume (работает на desktop + Android),
- * потом Web Audio GainNode (iOS Safari + работает на всех).
+ * Desktop / Android — Web Audio GainNode + HTMLMediaElement.volume.
+ * iOS Safari — только HTMLMediaElement.volume (даже если read-only, не ломаем
+ * background playback через AudioContext).
  */
 export function setPlayerVolume(audio: HTMLAudioElement, volume: number): void {
   const v = Math.max(0, Math.min(1, volume));
-  // 1. HTMLMediaElement.volume — desktop / Android
   try { audio.volume = v; } catch {}
-  // 2. Web Audio gain — iOS Safari, cross-platform
+  // iOS — НЕ трогаем AudioContext (ломает lock-screen playback)
+  if (isIOS()) return;
   const gain = ensureAudioGraph(audio);
   if (gain) {
     try {
-      // resume context если suspended (iOS требует user gesture для start)
       if (_audioCtx && _audioCtx.state === "suspended") {
         _audioCtx.resume().catch(() => {});
       }
