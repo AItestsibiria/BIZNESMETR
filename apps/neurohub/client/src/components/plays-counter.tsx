@@ -712,15 +712,19 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
         <>
           <div className="fixed inset-0 bg-black/75 z-[10000] animate-in fade-in duration-200"
             onClick={() => setShowGeo(false)} aria-hidden="true" />
-          {/* Eugene 2026-05-21 Босс «все панели связанные со счётчиком используй
-              параметры панели» → glass-card + rounded-2xl + border-white/[0.06]
-              (как player panel). Inline background/shadow убран — glass-card дёт. */}
+          {/* Eugene 2026-05-21 Босс «при нажатии i расплывается опять».
+              ROOT CAUSE: glass-card имеет backdrop-filter blur(40px), который
+              compound'ит с blur counter card'ы сзади = размазывание.
+              FIX: solid deep-space фон без backdrop-filter, border/shadow в духе
+              player panel вручную. */}
           <div
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-5 py-4 glass-card rounded-2xl border border-white/[0.06] text-[13px] text-white z-[10001] animate-in fade-in zoom-in-95 duration-200"
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-5 py-4 rounded-2xl border border-white/[0.08] text-[13px] text-white z-[10001] animate-in fade-in zoom-in-95 duration-200"
             style={{
               width: "min(440px, calc(100vw - 24px))",
               maxHeight: "calc(100vh - 40px)",
               overflowY: "auto",
+              background: "#0F0A28",
+              boxShadow: "0 24px 48px rgba(0,0,0,0.6), 0 0 32px rgba(139,92,246,0.18), inset 0 0.5px 0 rgba(255,255,255,0.08)",
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -812,13 +816,16 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
             onClick={() => setShowInfo(false)}
             aria-hidden="true"
           />
-          {/* Eugene 2026-05-21 Босс «все панели — параметры панели плеера» */}
+          {/* Eugene 2026-05-21 Босс «при нажатии i расплывается опять» fix — без
+              glass-card (его backdrop-blur compound'ил с card'ой сзади). Solid bg. */}
           <div
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-5 py-4 glass-card rounded-2xl border border-white/[0.06] text-[13px] text-white z-[10001] animate-in fade-in zoom-in-95 duration-200"
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-5 py-4 rounded-2xl border border-white/[0.08] text-[13px] text-white z-[10001] animate-in fade-in zoom-in-95 duration-200"
             style={{
               width: "min(440px, calc(100vw - 24px))",
               maxHeight: "calc(100vh - 40px)",
               overflowY: "auto",
+              background: "#0F0A28",
+              boxShadow: "0 24px 48px rgba(0,0,0,0.6), 0 0 32px rgba(139,92,246,0.18), inset 0 0.5px 0 rgba(255,255,255,0.08)",
               position: "relative",
               overflow: "hidden",
             }}
