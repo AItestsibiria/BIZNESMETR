@@ -1834,6 +1834,66 @@ Idempotency: `if (invoice.status === 'paid') skip` — повторные Roboka
 
 Применяется к: chatbot_messages с audio_url. НЕ применяется к: текстовым сообщениям, музыкальным трекам (генерация — отдельная экономика per-track).
 
+### iOS-lock-screen-audio rule (Eugene 2026-05-21, **навсегда зафиксировано**)
+
+**На iOS Safari НИКОГДА не вызывать `AudioContext.createMediaElementSource()` на player audio — это ломает background playback при lock screen.**
+
+**ROOT CAUSE (W3C Web Audio API + Apple WebKit поведение):**
+- `createMediaElementSource(audioElement)` маршрутизирует audio output **через AudioContext** (вместо direct HTMLAudioElement → speaker).
+- При блокировке экрана iOS Safari автоматически вызывает `audioCtx.suspend()` — это часть power management policy для background apps.
+- Suspended AudioContext = НЕТ output = трек останавливается даже если `audio.paused === false`.
+- На desktop / Android этого не происходит — AudioContext продолжает работать в background.
+
+**Решение (детектор + двойная стратегия):**
+```ts
+function isIOS(): boolean {
+  if (typeof navigator === "undefined") return false;
+  if (/iPad|iPhone|iPod/.test(navigator.userAgent)) return true;
+  // iPadOS 13+ маскируется под Mac — детектим через maxTouchPoints
+  if (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1) return true;
+  return false;
+}
+
+export function setPlayerVolume(audio: HTMLAudioElement, volume: number): void {
+  const v = Math.max(0, Math.min(1, volume));
+  try { audio.volume = v; } catch {}
+  // iOS: НЕ создаём AudioContext — ломает lock-screen playback.
+  // Volume slider на iOS не работает (audio.volume read-only = system) —
+  // это Apple WebKit design, принимаем как trade-off.
+  if (isIOS()) return;
+  // Desktop / Android: Web Audio GainNode pipeline для cross-platform volume.
+  const gain = ensureAudioGraph(audio);
+  if (gain) gain.gain.value = v;
+}
+```
+
+**Что КАТЕГОРИЧЕСКИ запрещено** (любая правка нарушающая правило — баг до того как написать):
+- ❌ `audioCtx.createMediaElementSource(playerAudio)` — на iOS ломает lock screen
+- ❌ Любые helpers / hooks / wrappers которые connect player audio к AudioContext без iOS guard
+- ❌ Refactor «давай везде через Web Audio для consistency» — НЕТ. iOS требует separate path.
+
+**Что РАЗРЕШЕНО** (исключения, не нарушают правило):
+- ✅ AudioContext **без** `createMediaElementSource` — например для analyser node на mic input
+- ✅ Web Audio для one-shot TTS / sound effects (отдельные `<audio>` не player audio)
+- ✅ AudioContext на desktop / Android (detected через !isIOS())
+
+**Trade-off (явный, не баг):**
+| Платформа | Volume slider | Background playback |
+|---|---|---|
+| iOS Safari / iPad | UI работает, реальная громкость = system volume | ✅ Работает |
+| Desktop Chrome/Safari/Firefox | ✅ Работает через GainNode | ✅ Работает |
+| Android Chrome | ✅ Работает | ✅ Работает |
+
+**Сопутствующие правила:**
+- Persistent-audio-only rule (никогда не remove `<audio>` из DOM) — иначе iOS отдаёт MediaSession чужим приложениям
+- Suno-audio-playback rule — cookie-fallback + use-credentials для protected streams
+
+**Reference:** commit `584c51d` (revert AudioContext на iOS из commit `54fb237`).
+
+**Применяется к:** всем lib/lockscreen.ts функциям, любым future audio infrastructure. Если кто-то когда-то решит «оптимизировать» через Web Audio — этот rule выше любой оптимизации.
+
+**НЕ применяется к:** Web Audio для visualizer (analyser node на отдельный source, не player), TTS one-shot где background playback не нужен.
+
 ### Persistent-audio-only rule (Eugene 2026-05-18, **навсегда зафиксировано**)
 
 **Босс «перемещение стало лучше, запомни правило использовать только это решение, не снять, во всём проекте».** После 9 итераций lock-screen наконец работает — root cause найден по W3C MediaSession §3.3 и зафиксирован persistent singleton pattern.
