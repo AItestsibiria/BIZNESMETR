@@ -17,21 +17,24 @@ interface Stats {
   totalTracks: number;
 }
 
-// Single rolling digit (Slot Machine effect). Eugene 2026-05-21 fix:
-// явный color (без gradient clip от родителя) — иначе цифры invisible когда
-// родитель использует -webkit-text-fill-color:transparent + background-clip:text.
-function RollingDigit({ value }: { value: number }) {
+// Single rolling digit (Slot Machine effect). Eugene 2026-05-21:
+// - Явный color (override gradient clip от родителя)
+// - Blink при изменении value (анимация + post-rocket fade-back)
+// - Forwards ref для измерения позиции (для rocket launch)
+const RollingDigit = ({ value, blinkPhase, lastInRow }: { value: number; blinkPhase: "idle" | "blink-pre" | "blink-post"; lastInRow?: boolean }) => {
   const safeValue = Math.max(0, Math.min(9, value));
+  const blinkClass = blinkPhase !== "idle" ? "uc-digit-blink" : "";
   return (
     <span
-      className="inline-block overflow-hidden align-baseline relative"
+      data-uc-digit={lastInRow ? "last" : undefined}
+      className={`inline-block overflow-hidden align-baseline relative ${blinkClass}`}
       style={{
         width: "0.62em",
         height: "1em",
         lineHeight: "1em",
         color: "#fde68a",
         textShadow: "0 0 8px #f0abfc, 0 0 16px #67e8f9, 0 0 24px #c084fc",
-        WebkitTextFillColor: "#fde68a", // override gradient clip от родителя
+        WebkitTextFillColor: "#fde68a",
       }}
     >
       <span
@@ -44,17 +47,24 @@ function RollingDigit({ value }: { value: number }) {
       </span>
     </span>
   );
-}
+};
 
-// Number formatted with thousand separator, each digit as RollingDigit
-function RollingNumber({ value }: { value: number }) {
+// Number formatted with thousand separator, each digit as RollingDigit.
+// blinkPhase передаётся для last digit (правый край — там «растёт» число).
+function RollingNumber({ value, blinkPhase }: { value: number; blinkPhase: "idle" | "blink-pre" | "blink-post" }) {
   const formatted = value.toLocaleString("ru-RU");
+  const chars = formatted.split("");
+  // Найти индекс последней цифры (не разделитель)
+  let lastDigitIdx = -1;
+  for (let i = chars.length - 1; i >= 0; i--) {
+    if (Number.isFinite(parseInt(chars[i], 10))) { lastDigitIdx = i; break; }
+  }
   return (
     <>
-      {formatted.split("").map((ch, i) => {
+      {chars.map((ch, i) => {
         const digit = parseInt(ch, 10);
         if (Number.isFinite(digit)) {
-          return <RollingDigit key={`${i}-${ch}`} value={digit} />;
+          return <RollingDigit key={`${i}-${ch}`} value={digit} blinkPhase={i === lastDigitIdx ? blinkPhase : "idle"} lastInRow={i === lastDigitIdx} />;
         }
         return <span key={`${i}-sep`} className="inline-block">{ch}</span>;
       })}
@@ -65,6 +75,10 @@ function RollingNumber({ value }: { value: number }) {
 export function PlaysCounter({ className = "" }: { className?: string }) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [tick, setTick] = useState(0); // для re-trigger flash при изменении
+  // Eugene 2026-05-21 Босс «новая цифра моргает → ракета вылетает → моргает обратно».
+  // blinkPhase: idle (нет события) | blink-pre (моргание перед launch) | blink-post (моргание после landing).
+  const [blinkPhase, setBlinkPhase] = useState<"idle" | "blink-pre" | "blink-post">("idle");
+  const prevTotalRef = useRef<number | null>(null);
   // Eugene 2026-05-21 Босс: «кнопка отключить анимации на 1 день. 3 дня
   // подряд = до явного включения. По IP». State от server.
   const [animEnabled, setAnimEnabled] = useState(true);
@@ -89,6 +103,11 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
     fetchStats();
     const interval = setInterval(fetchStats, 60_000);
 
+    // Eugene 2026-05-21 Босс: «появление новой цифры → blink → ракета → blink».
+    // Listener на back-event от ракеты «landed» — повторяем blink.
+    const onRocketLanded = () => setBlinkPhase("blink-post");
+    window.addEventListener("muza:rocket-landed", onRocketLanded as EventListener);
+
     // Read animation preference (by IP, server-side)
     fetch("/api/user-preferences/anim-state", { cache: "no-store" })
       .then(r => r.ok ? r.json() : null)
@@ -100,8 +119,63 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
       })
       .catch(() => {});
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("muza:rocket-landed", onRocketLanded as EventListener);
+    };
   }, []);
+
+  // Eugene 2026-05-21 Босс: «логика — новая цифра моргает, появляется ракета,
+  // после взлёта моргает обратно». Sequence:
+  // 1. totalPlays растёт → blink-pre (моргание) 600ms
+  // 2. Через 600ms → dispatch 'muza:counter-up' с position last-digit (DOM rect)
+  //    → RocketLaunch ловит и spawn'ит ракету из этой позиции
+  // 3. Ракета летит (4-6 сек) → rocket-landed event back → blink-post 600ms
+  // 4. blink-post → idle
+  useEffect(() => {
+    if (!animEnabled) return;
+    if (stats == null) return;
+    const prev = prevTotalRef.current;
+    prevTotalRef.current = stats.totalPlays;
+    if (prev == null || stats.totalPlays <= prev) return;
+
+    // Phase 1: blink-pre
+    setBlinkPhase("blink-pre");
+    const t1 = setTimeout(() => {
+      // Phase 2: spawn ракеты из позиции last-digit
+      try {
+        const lastDigit = document.querySelector('[data-uc-digit="last"]') as HTMLElement | null;
+        if (lastDigit) {
+          const rect = lastDigit.getBoundingClientRect();
+          const cx = rect.left + rect.width / 2;
+          const cy = rect.top + rect.height / 2;
+          window.dispatchEvent(new CustomEvent("muza:counter-up", {
+            detail: {
+              x: cx,
+              y: cy,
+              delta: stats.totalPlays - (prev || 0),
+            },
+          }));
+        }
+      } catch {}
+      setBlinkPhase("idle");
+    }, 600);
+
+    // Phase 3 (blink-post) приходит через listener на 'muza:rocket-landed'.
+    // На случай если listener не сработает — auto-fallback через 7 сек.
+    const t2 = setTimeout(() => {
+      setBlinkPhase(prev => prev === "blink-post" ? "idle" : prev);
+    }, 7000);
+
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [stats?.totalPlays, animEnabled]);
+
+  // Auto-fade blink-post через 600ms
+  useEffect(() => {
+    if (blinkPhase !== "blink-post") return;
+    const t = setTimeout(() => setBlinkPhase("idle"), 600);
+    return () => clearTimeout(t);
+  }, [blinkPhase]);
 
   const toggleAnim = () => {
     const newState = !animEnabled;
@@ -165,6 +239,15 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
         @keyframes uc-spark {
           0% { transform: scale(0) translate(0, 0); opacity: 1; }
           100% { transform: scale(1.4) translate(var(--uc-sx), var(--uc-sy)); opacity: 0; }
+        }
+        @keyframes uc-digit-blink {
+          0%, 100% { opacity: 1; transform: scale(1); filter: brightness(1); }
+          25% { opacity: 0.3; transform: scale(1.15); filter: brightness(2); }
+          50% { opacity: 1; transform: scale(1.2); filter: brightness(2.5); }
+          75% { opacity: 0.4; transform: scale(1.1); filter: brightness(2); }
+        }
+        .uc-digit-blink {
+          animation: uc-digit-blink 600ms ease-in-out;
         }
         .uc-pulse {
           animation: uc-pulse 1.4s ease-in-out infinite;
@@ -259,9 +342,9 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
               Neon glow через text-shadow в самих digit'ах. */}
           <span
             className="font-mono text-2xl sm:text-3xl font-black tracking-tight leading-none"
-            style={{ animation: "uc-flicker 4s ease-in-out infinite" }}
+            style={{ animation: animEnabled ? "uc-flicker 4s ease-in-out infinite" : "none" }}
           >
-            <RollingNumber value={stats.totalPlays} />
+            <RollingNumber value={stats.totalPlays} blinkPhase={blinkPhase} />
           </span>
           {/* Electric underline */}
           <span
