@@ -523,7 +523,7 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
                 )}
               </div>
               {starMsg && <div className="text-[11px] text-amber-200">{starMsg}</div>}
-              <div className="text-[10px] text-white/50">Голос — 1 раз в час · Instagram обязателен для новой звезды</div>
+              <div className="text-[10px] text-white/50">Instagram обязателен для новой звезды</div>
             </form>
           </div>
         )}

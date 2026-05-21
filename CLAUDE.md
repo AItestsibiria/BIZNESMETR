@@ -1801,7 +1801,7 @@ Validation Instagram URL:
 - Если name existing и URL пустой — vote OK (увеличиваем counter), profile_url не меняется
 - Если name existing и URL задан + было пусто — обновляем profile_url
 
-Rate limit: 1 vote / IP / час (через `star_votes_log` table).
+Rate limit: НЕТ ограничений по времени (Eugene 2026-05-21 «ограничений нет по времени Star»). `star_votes_log` остаётся для audit но без блокировки.
 
 Seed: «Leo Di Caprio» → `https://www.instagram.com/leonardodicaprio`
 

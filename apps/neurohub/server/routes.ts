@@ -9760,11 +9760,8 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       }
 
       const ip = String(req.headers["x-forwarded-for"] || req.ip || "").split(",")[0].trim().replace(/^::ffff:/, "") || "unknown";
-      const recent = rawSql.prepare("SELECT id FROM star_votes_log WHERE ip = ? AND voted_at > datetime('now','-1 hour') LIMIT 1").get(ip);
-      if (recent) {
-        res.json({ ok: false, error: "Можно голосовать раз в час" });
-        return;
-      }
+      // Eugene 2026-05-21 Босс: «ограничений нет по времени Star». Rate limit убран.
+      // star_votes_log остаётся для audit, но блокировки нет.
       if (existing) {
         const updateUrl = rawUrl && !existing.profile_url ? normalizedUrl : null;
         if (updateUrl) {
