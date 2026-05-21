@@ -1,113 +1,170 @@
-// Eugene 2026-05-21 Босс «задизайн ракету в brand-цветах MuzaAi».
+// Eugene 2026-05-21 Босс «3D iso · триумф, Variant C — Trophy с лавровым венком».
 //
-// Brand palette: purple #7C3AED, fuchsia #D946EF, cyan #06B6D4, electric blue #00D4FF.
-// Inline SVG (без deps), animated thrust flame через keyframes.
+// Премиум-ракета: 2-тоновое тело (dark→bright purple), золотая центральная stripe,
+// иллюминатор cyan с белым highlight, fins с золотым контуром, лавровый венок
+// из золотых ellipse-листьев, soft halo. Анимация: пламя пульсирует, лавр
+// слегка покачивается (триумфальный shimmer).
+//
+// Brand palette: purple #7c3aed/#5b1c95, fuchsia #d946ef, cyan #06b6d4,
+// gold #fbbf24/#fde68a (триумф-акцент).
 
 interface BrandRocketProps {
   size?: number;
   className?: string;
 }
 
-export function BrandRocket({ size = 36, className = "" }: BrandRocketProps) {
-  // Unique IDs чтобы избежать конфликта когда несколько ракет в DOM одновременно
+export function BrandRocket({ size = 48, className = "" }: BrandRocketProps) {
   const uid = String(Math.random()).slice(2, 9);
   return (
     <svg
-      viewBox="0 0 64 64"
+      viewBox="0 0 100 120"
       width={size}
-      height={size}
+      height={size * 1.2}
       className={className}
       aria-hidden="true"
-      style={{ filter: "drop-shadow(0 0 8px rgba(217,70,239,0.7)) drop-shadow(0 0 16px rgba(124,58,237,0.5))" }}
+      style={{ filter: `drop-shadow(0 0 10px rgba(251,191,36,0.55)) drop-shadow(0 0 18px rgba(217,70,239,0.45))` }}
     >
       <defs>
-        {/* Body gradient: purple → fuchsia → cyan по вертикали */}
-        <linearGradient id={`body-${uid}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#06B6D4" />
-          <stop offset="35%" stopColor="#7C3AED" />
-          <stop offset="100%" stopColor="#D946EF" />
+        {/* Body halves */}
+        <linearGradient id={`bodyL-${uid}`} x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="#5b1c95" />
+          <stop offset="100%" stopColor="#a855f7" />
         </linearGradient>
-        {/* Window: cyan glow */}
-        <radialGradient id={`win-${uid}`} cx="0.5" cy="0.5" r="0.5">
-          <stop offset="0%" stopColor="#A5F3FC" />
-          <stop offset="100%" stopColor="#06B6D4" />
-        </radialGradient>
-        {/* Flame: fuchsia → cyan по высоте */}
+        <linearGradient id={`bodyR-${uid}`} x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="#a855f7" />
+          <stop offset="100%" stopColor="#5b1c95" />
+        </linearGradient>
+        {/* Nose cone — gold→fuchsia */}
+        <linearGradient id={`nose-${uid}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#fde68a" />
+          <stop offset="100%" stopColor="#d946ef" />
+        </linearGradient>
+        {/* Flame — yellow→fuchsia→fade */}
         <linearGradient id={`flame-${uid}`} x1="0.5" y1="0" x2="0.5" y2="1">
-          <stop offset="0%" stopColor="#D946EF" />
-          <stop offset="60%" stopColor="#7C3AED" />
-          <stop offset="100%" stopColor="#06B6D4" stopOpacity="0" />
+          <stop offset="0%" stopColor="#fef3c7" stopOpacity="0.95" />
+          <stop offset="40%" stopColor="#d946ef" stopOpacity="0.85" />
+          <stop offset="100%" stopColor="#06b6d4" stopOpacity="0" />
         </linearGradient>
-        {/* Wings: solid fuchsia */}
-        <linearGradient id={`wing-${uid}`} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#D946EF" />
-          <stop offset="100%" stopColor="#7C3AED" />
-        </linearGradient>
+        {/* Halo */}
+        <radialGradient id={`halo-${uid}`} cx="0.5" cy="0.5" r="0.5">
+          <stop offset="0%" stopColor="#fbbf24" stopOpacity="0.35" />
+          <stop offset="60%" stopColor="#d946ef" stopOpacity="0.12" />
+          <stop offset="100%" stopColor="#7c3aed" stopOpacity="0" />
+        </radialGradient>
         <style>{`
           .br-flame-${uid} {
-            transform-origin: 32px 52px;
-            animation: br-flicker-${uid} 0.18s ease-in-out infinite alternate;
+            transform-origin: 50px 90px;
+            animation: br-flame-${uid} 0.2s ease-in-out infinite alternate;
           }
-          @keyframes br-flicker-${uid} {
-            0% { transform: scaleY(0.85) scaleX(0.92); opacity: 0.85; }
-            100% { transform: scaleY(1.15) scaleX(1.05); opacity: 1; }
+          .br-laurel-${uid} {
+            transform-origin: 50px 60px;
+            animation: br-laurel-${uid} 2.4s ease-in-out infinite;
+          }
+          .br-halo-${uid} {
+            transform-origin: 50px 60px;
+            animation: br-halo-${uid} 2.8s ease-in-out infinite;
+          }
+          @keyframes br-flame-${uid} {
+            0% { transform: scaleY(0.85) scaleX(0.92); opacity: 0.88; }
+            100% { transform: scaleY(1.18) scaleX(1.06); opacity: 1; }
+          }
+          @keyframes br-laurel-${uid} {
+            0%, 100% { transform: scale(1); opacity: 0.9; }
+            50% { transform: scale(1.04); opacity: 1; }
+          }
+          @keyframes br-halo-${uid} {
+            0%, 100% { opacity: 0.6; transform: scale(1); }
+            50% { opacity: 0.95; transform: scale(1.05); }
           }
           @media (prefers-reduced-motion: reduce) {
-            .br-flame-${uid} { animation: none; }
+            .br-flame-${uid}, .br-laurel-${uid}, .br-halo-${uid} { animation: none; }
           }
         `}</style>
       </defs>
 
-      {/* Flame (под body, видна снизу) */}
-      <g className={`br-flame-${uid}`}>
-        <path d="M26 46 Q32 64 38 46 Q35 56 32 58 Q29 56 26 46 Z" fill={`url(#flame-${uid})`} />
-        <path d="M29 46 Q32 56 35 46 Q33 52 32 53 Q31 52 29 46 Z" fill="#A5F3FC" opacity="0.7" />
+      {/* Golden halo behind */}
+      <circle className={`br-halo-${uid}`} cx="50" cy="60" r="42" fill={`url(#halo-${uid})`} />
+
+      {/* Laurel wreath — left */}
+      <g className={`br-laurel-${uid}`} fill="#fbbf24" opacity="0.9">
+        <ellipse cx="20" cy="40" rx="3" ry="8" transform="rotate(-55 20 40)" />
+        <ellipse cx="14" cy="52" rx="3.2" ry="8.5" transform="rotate(-35 14 52)" />
+        <ellipse cx="11" cy="65" rx="3.2" ry="8.5" transform="rotate(-15 11 65)" />
+        <ellipse cx="13" cy="78" rx="3" ry="8" transform="rotate(20 13 78)" />
+        <ellipse cx="20" cy="89" rx="3" ry="8" transform="rotate(45 20 89)" />
+      </g>
+      {/* Laurel wreath — right (mirror) */}
+      <g className={`br-laurel-${uid}`} fill="#fbbf24" opacity="0.9">
+        <ellipse cx="80" cy="40" rx="3" ry="8" transform="rotate(55 80 40)" />
+        <ellipse cx="86" cy="52" rx="3.2" ry="8.5" transform="rotate(35 86 52)" />
+        <ellipse cx="89" cy="65" rx="3.2" ry="8.5" transform="rotate(15 89 65)" />
+        <ellipse cx="87" cy="78" rx="3" ry="8" transform="rotate(-20 87 78)" />
+        <ellipse cx="80" cy="89" rx="3" ry="8" transform="rotate(-45 80 89)" />
       </g>
 
-      {/* Левое крыло */}
+      {/* Flame */}
+      <g className={`br-flame-${uid}`}>
+        <path d="M35 88 Q50 130 65 88 Q58 115 50 122 Q42 115 35 88 Z" fill={`url(#flame-${uid})`} />
+        <path d="M42 88 Q50 110 58 88 Q54 100 50 103 Q46 100 42 88 Z" fill="#fef3c7" opacity="0.7" />
+      </g>
+
+      {/* Body — left half */}
       <path
-        d="M16 36 L24 36 L24 50 L12 52 Z"
-        fill={`url(#wing-${uid})`}
-        stroke="#7C3AED"
+        d="M47 18 L24 50 L24 80 L30 92 L47 95 Z"
+        fill={`url(#bodyL-${uid})`}
+        stroke="#3b0764"
         strokeWidth="0.5"
       />
-      {/* Правое крыло */}
+      {/* Body — right half */}
       <path
-        d="M48 36 L40 36 L40 50 L52 52 Z"
-        fill={`url(#wing-${uid})`}
-        stroke="#7C3AED"
+        d="M53 18 L76 50 L76 80 L70 92 L53 95 Z"
+        fill={`url(#bodyR-${uid})`}
+        stroke="#3b0764"
         strokeWidth="0.5"
       />
 
-      {/* Body (rocket shape) */}
+      {/* Nose cone */}
       <path
-        d="M32 4
-           C 24 4, 20 14, 20 26
-           L 20 46
-           C 20 50, 24 52, 32 52
-           C 40 52, 44 50, 44 46
-           L 44 26
-           C 44 14, 40 4, 32 4 Z"
-        fill={`url(#body-${uid})`}
-        stroke="#06B6D4"
-        strokeWidth="0.8"
+        d="M47 18 L53 18 L58 4 L42 4 Z"
+        fill={`url(#nose-${uid})`}
+      />
+      <path
+        d="M42 4 L50 -4 L58 4 Z"
+        transform="translate(0,4)"
+        fill="#fde68a"
       />
 
-      {/* Nose tip highlight */}
-      <path
-        d="M32 4 C 28 6, 26 12, 26 18 L 38 18 C 38 12, 36 6, 32 4 Z"
-        fill="#A5F3FC"
-        opacity="0.4"
+      {/* Center golden stripe (premium accent) */}
+      <line
+        x1="50" y1="18" x2="50" y2="93"
+        stroke="#fde68a"
+        strokeWidth="2"
+        opacity="0.92"
+        strokeLinecap="round"
       />
 
-      {/* Window (cockpit) */}
-      <circle cx="32" cy="24" r="6" fill={`url(#win-${uid})`} stroke="#0891B2" strokeWidth="1" />
-      <circle cx="30" cy="22" r="2" fill="#ECFEFF" opacity="0.85" />
+      {/* Premium window — dark rim + cyan + white highlight */}
+      <circle cx="50" cy="50" r="11" fill="#1e293b" />
+      <circle cx="50" cy="50" r="9" fill="#06b6d4" />
+      <circle cx="46" cy="46" r="3" fill="#ECFEFF" opacity="0.9" />
 
-      {/* Body details: 2 rivets / panel lines */}
-      <line x1="22" y1="36" x2="42" y2="36" stroke="#7C3AED" strokeWidth="0.5" opacity="0.6" />
-      <circle cx="32" cy="40" r="0.8" fill="#06B6D4" opacity="0.7" />
-      <circle cx="32" cy="44" r="0.8" fill="#06B6D4" opacity="0.7" />
+      {/* Heavy fins — gold-trimmed */}
+      <path
+        d="M24 75 L8 100 L26 92 Z"
+        fill="#5b1c95"
+        stroke="#fbbf24"
+        strokeWidth="1.5"
+      />
+      <path
+        d="M76 75 L92 100 L74 92 Z"
+        fill="#5b1c95"
+        stroke="#fbbf24"
+        strokeWidth="1.5"
+      />
+
+      {/* Body panel lines (subtle) */}
+      <line x1="28" y1="70" x2="72" y2="70" stroke="#fbbf24" strokeWidth="0.7" opacity="0.55" />
+      <line x1="30" y1="82" x2="70" y2="82" stroke="#fbbf24" strokeWidth="0.6" opacity="0.45" />
     </svg>
   );
 }
