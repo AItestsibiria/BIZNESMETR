@@ -732,10 +732,26 @@ export function FloatingConsultant() {
   const initChatSession = useCallback(async () => {
     try {
       const sid = ensureClientSessionId();
+      // Eugene 2026-05-21 Босс: «из внешних мессенджеров ссылка на web Музa-чат».
+      // Читаем ?pair= из URL — TG-бот шлёт https://muzaai.ru/?pair=CODE.
+      // Server линкует session с TG history по pairCode.
+      let pairCode: string | undefined;
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const p = params.get("pair");
+        if (p && p.length >= 3 && p.length <= 32) {
+          pairCode = p;
+          // Чистим query чтобы повторный F5 не дёргал pair заново
+          params.delete("pair");
+          const newQuery = params.toString();
+          const newUrl = window.location.pathname + (newQuery ? "?" + newQuery : "") + window.location.hash;
+          window.history.replaceState({}, "", newUrl);
+        }
+      } catch {}
       const r = await fetch("/api/muza/chat/init", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: sid }),
+        body: JSON.stringify({ sessionId: sid, ...(pairCode ? { pairCode } : {}) }),
       });
       const j = await r.json();
       if (j?.ok) {
@@ -803,6 +819,21 @@ export function FloatingConsultant() {
     chatInitialized.current = true;
     await initChatSession();
   }, [initChatSession, chatOpen]);
+
+  // Eugene 2026-05-21 Босс: «из внешних мессенджеров ссылка на web Музa-чат».
+  // При detection ?pair= в URL — auto-open чат на mount. initChatSession сам
+  // прочитает pair и передаст на server для линковки TG/Max history.
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("pair")) {
+        setVisible(true);
+        // Задержка чтобы visible state применился до openChat
+        setTimeout(() => { openChat(); }, 200);
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Eugene 2026-05-18 Босс «в кабинете автора иконочка Музы под папочкой —
   // открывает историю взаимодействия. Юзер может в любое время зайти и

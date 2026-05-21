@@ -923,7 +923,11 @@ async function processIncomingText(chatId: string, fromId: string, sessionId: st
         const code = getOrCreatePairCode(sessionId);
         if (code) {
           markPairCodeOffered(sessionId);
-          pairInvite = `\n\n✨ Кстати, у меня там на сайте уютнее: https://muzaai.ru — там просто шепнёшь мне «${code}» и я подтяну весь наш разговор. Веселее, обещаю!`;
+          // Eugene 2026-05-21 Босс: «сделал из внешних мессенджеров ссылку на
+          // web Музa-чат» — кликабельная ссылка с pair=CODE в query.
+          // Frontend (landing.tsx) при detection ?pair= → auto open chat +
+          // POST /api/muza/chat/init {pairCode} → линкует session с TG history.
+          pairInvite = `\n\n✨ Кстати, у меня там на сайте уютнее — продолжим разговор там, я подтяну всё что мы обсуждали:\nhttps://muzaai.ru/?pair=${encodeURIComponent(code)}`;
         }
       }
     } catch (e) { bootRefs?.logger.warn?.("[telegram-bot] pair-code offer skipped", { error: String(e) }); }
