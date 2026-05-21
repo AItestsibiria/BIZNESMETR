@@ -2261,6 +2261,13 @@ GH Actions workflow `deploy-prod.yml` остаётся как **резерв** (
 **Применяется к:** всем feature пушам с 18 мая 2026 (вечер).
 **Не применяется к:** критическим hotfix'ам где Босс явно сказал «сразу на prod».
 
+**Автоматизация (Eugene 2026-05-21):**
+- One-command sync prod→clone: `bash /opt/neurohub-src/deploy/sync-prod-to-clone.sh` на VPS clone (см. `deploy/sync-prod-to-clone.sh`).
+  Делает pre-flight backup clone-а (формат `MuzaAi-Triumph-DDMMYY-HHMM.tar.gz`), снимает консистентный snapshot prod (`sqlite3 .backup`), rsync, разворачивает, ставит clone на тот же git SHA, rebuild, health-check.
+  Флаги: `--with-mp3` (включить аудио), `--no-env` (не копировать секреты), `--dry-run`.
+- Промоушн clone→prod: `bash /opt/neurohub-src/deploy/promote-clone-to-prod.sh` — создаёт annotated tag `prod-ready-DDMMYY-HHMM`, push в GitHub, печатает 3 варианта prod-deploy (GH Actions / auto-deploy timer / manual SSH).
+- Полная документация workflow + SSH-setup + troubleshooting: `docs/strategy/CLONE-PROD-SYNC-WORKFLOW.md`.
+
 ### Clone-deprecated + GH-only deploy rule (Eugene 2026-05-15, **сильнее всех предыдущих deploy-правил**)
 
 **Clone (`clone.muziai.ru`) больше не используется как промежуточный environment.** Auto-deploy на clone продолжает работать (cron на VPS 72.56.1.149 берёт коммиты из ветки `claude/add-claude-documentation-OW5V7`), но его результаты — не predeploy-проверка для prod. Все изменения идут сразу в production muziai.ru.

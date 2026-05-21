@@ -1,5 +1,9 @@
 # Sync prod → clone (готовые SSH-команды)
 
+> **⚠️ DEPRECATED 2026-05-21** — этот файл оставлен как историческая справка.
+> Актуальный workflow + автоматизированные скрипты:
+> **[`docs/strategy/CLONE-PROD-SYNC-WORKFLOW.md`](./CLONE-PROD-SYNC-WORKFLOW.md)** + `deploy/sync-prod-to-clone.sh` + `deploy/promote-clone-to-prod.sh`.
+
 **Дата:** 18 мая 2026  
 **Цель:** clone.muziai.ru должен стать копией muzaai.ru (с учётом генераций треков юзеров).
 
