@@ -9713,6 +9713,75 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     }
   });
 
+  // Eugene 2026-05-21 Босс: «после 1 000 000 prosлушиваний — мировой звезде.
+  // Юзер предлагает имя, голосует. Топ рейтинг показывается». По IP — 1 vote/час.
+  app.get("/api/star-suggestions/top", (req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "public, max-age=30");
+    try {
+      const limit = Math.min(20, Math.max(1, parseInt(String(req.query.limit || "10"), 10)));
+      const rawSql: any = (db as any).$client || sqliteDb;
+      const rows = rawSql.prepare("SELECT name_display, profile_url, votes FROM star_suggestions ORDER BY votes DESC, last_voted_at DESC LIMIT ?").all(limit) as Array<{ name_display: string; profile_url: string | null; votes: number }>;
+      const totalVotes = rawSql.prepare("SELECT COALESCE(SUM(votes),0) as s FROM star_suggestions").get() as { s: number };
+      res.json({ top: rows, totalVotes: Number(totalVotes?.s || 0), totalCandidates: rows.length });
+    } catch (e: any) {
+      res.json({ top: [], totalVotes: 0, error: String(e?.message || e).slice(0, 100) });
+    }
+  });
+  app.post("/api/star-suggestions/vote", (req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "no-store");
+    try {
+      const rawName = String(req.body?.name || "").trim();
+      const rawUrl = String(req.body?.profileUrl || "").trim();
+      if (rawName.length < 2 || rawName.length > 60) {
+        res.json({ ok: false, error: "Имя 2-60 символов" });
+        return;
+      }
+      if (!/^[\p{L}\p{N}\s\-.']+$/u.test(rawName)) {
+        res.json({ ok: false, error: "Только буквы, цифры, пробел, дефис, точка, апостроф" });
+        return;
+      }
+      // Eugene 2026-05-21 Босс «при добавлении звезды ссылка на Instagram обязательна».
+      // Validate Instagram URL pattern.
+      const normalizedUrl = rawUrl.replace(/^@/, "https://www.instagram.com/").trim();
+      const igRegex = /^https?:\/\/(www\.)?instagram\.com\/[A-Za-z0-9_.]+\/?(\?.*)?$/i;
+      const isNewName = true; // дальше проверим
+      const rawSql: any = (db as any).$client || sqliteDb;
+      const normalized = rawName.toLowerCase().replace(/\s+/g, " ").trim();
+      const existing = rawSql.prepare("SELECT id, votes, profile_url FROM star_suggestions WHERE name_normalized = ?").get(normalized) as any;
+
+      // Если NEW name → URL обязателен. Если existing → URL опциональный (можно просто голос).
+      if (!existing && !igRegex.test(normalizedUrl)) {
+        res.json({ ok: false, error: "Ссылка на Instagram обязательна. Формат: https://www.instagram.com/<username>" });
+        return;
+      }
+      if (existing && rawUrl && !igRegex.test(normalizedUrl)) {
+        res.json({ ok: false, error: "Неверный формат Instagram-ссылки" });
+        return;
+      }
+
+      const ip = String(req.headers["x-forwarded-for"] || req.ip || "").split(",")[0].trim().replace(/^::ffff:/, "") || "unknown";
+      const recent = rawSql.prepare("SELECT id FROM star_votes_log WHERE ip = ? AND voted_at > datetime('now','-1 hour') LIMIT 1").get(ip);
+      if (recent) {
+        res.json({ ok: false, error: "Можно голосовать раз в час" });
+        return;
+      }
+      if (existing) {
+        const updateUrl = rawUrl && !existing.profile_url ? normalizedUrl : null;
+        if (updateUrl) {
+          rawSql.prepare("UPDATE star_suggestions SET votes = votes + 1, profile_url = ?, last_voted_at = datetime('now') WHERE id = ?").run(updateUrl, existing.id);
+        } else {
+          rawSql.prepare("UPDATE star_suggestions SET votes = votes + 1, last_voted_at = datetime('now') WHERE id = ?").run(existing.id);
+        }
+      } else {
+        rawSql.prepare("INSERT INTO star_suggestions (name_normalized, name_display, profile_url, votes) VALUES (?, ?, ?, 1)").run(normalized, rawName, normalizedUrl);
+      }
+      rawSql.prepare("INSERT INTO star_votes_log (ip, name_normalized) VALUES (?, ?)").run(ip, normalized);
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.json({ ok: false, error: String(e?.message || e).slice(0, 100) });
+    }
+  });
+
   // Eugene 2026-05-21 Босс: «кнопка отключить анимации на 1 день. Если 3 дня
   // подряд — сохранить до явного включения. По IP».
   //

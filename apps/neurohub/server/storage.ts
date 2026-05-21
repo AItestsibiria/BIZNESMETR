@@ -213,6 +213,26 @@ try {
   // SMS OTP-коды (отдельная таблица для register/login flow — без юзера ещё).
   // Eugene 2026-05-15 Босс. Hash код, не plain (защита от leak data.db).
   sqlite.exec(`
+    -- Eugene 2026-05-21 Босс: «после 1 000 000 prosлушиваний — мировой звезде.
+    -- Предложите имя + голосование + топ рейтинг».
+    CREATE TABLE IF NOT EXISTS star_suggestions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name_normalized TEXT NOT NULL UNIQUE,
+      name_display TEXT NOT NULL,
+      profile_url TEXT,  -- Eugene 2026-05-21 Босс: переход на аккаунт звезды
+      votes INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_voted_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS star_sugg_votes_idx ON star_suggestions(votes DESC);
+    CREATE TABLE IF NOT EXISTS star_votes_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ip TEXT NOT NULL,
+      name_normalized TEXT NOT NULL,
+      voted_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS star_votes_ip_idx ON star_votes_log(ip, voted_at);
+
     -- Eugene 2026-05-21 Босс: «кнопка отключить анимации на 1 день,
     -- если 3 дня подряд — сохранить до явного включения. По IP».
     CREATE TABLE IF NOT EXISTS anim_preferences (
@@ -287,6 +307,26 @@ try {
       .run("cover", 9900, seedAt, "Seed: cover 99 ₽ default");
     sqlite.prepare("INSERT INTO tariff_history (service_type, price_kopecks, effective_from, notes, created_at) VALUES (?, ?, ?, ?, datetime('now'))")
       .run("audio_cover", 39900, seedAt, "Seed: audio-cover 399 ₽ default");
+  }
+
+  // Migration: добавить profile_url колонку если не существует (для existing БД).
+  try {
+    const hasUrlCol = sqlite.prepare("PRAGMA table_info(star_suggestions)").all().some((c: any) => c.name === "profile_url");
+    if (!hasUrlCol) {
+      sqlite.exec("ALTER TABLE star_suggestions ADD COLUMN profile_url TEXT");
+    }
+  } catch {}
+
+  // Eugene 2026-05-21 Босс: «в топе Leo Di Caprio + при нажатии переход на
+  // Instagram аккаунт».
+  const starCount = sqlite.prepare("SELECT COUNT(*) as cnt FROM star_suggestions").get() as { cnt: number };
+  if (starCount.cnt === 0) {
+    sqlite.prepare("INSERT INTO star_suggestions (name_normalized, name_display, profile_url, votes) VALUES (?, ?, ?, ?)")
+      .run("leo di caprio", "Leo Di Caprio", "https://www.instagram.com/leonardodicaprio", 1);
+  } else {
+    // Existing seed — обновить profile_url если ещё не задан
+    sqlite.prepare("UPDATE star_suggestions SET profile_url = ? WHERE name_normalized = ? AND (profile_url IS NULL OR profile_url = '')")
+      .run("https://www.instagram.com/leonardodicaprio", "leo di caprio");
   }
 
   // Универсальная очередь подтверждений изменений данных автора (имя, email,

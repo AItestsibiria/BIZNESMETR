@@ -83,8 +83,56 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
   // подряд = до явного включения. По IP». State от server.
   const [animEnabled, setAnimEnabled] = useState(true);
   const [permanentOff, setPermanentOff] = useState(false);
-  // Eugene 2026-05-21 Босс: «кнопка i — после 1 000 000 маякнем мировой звезде».
+  // Eugene 2026-05-21 Босс: «кнопка i — после 1 000 000 prosлушиваний маякнём
+  // мировой звезде. Предложите имя, голосование, при нажатии «мировой звезды»
+  // показывай рейтинг. В топе Leo Di Caprio».
   const [showInfo, setShowInfo] = useState(false);
+  const [showRating, setShowRating] = useState(false);
+  const [starInput, setStarInput] = useState("");
+  const [starUrlInput, setStarUrlInput] = useState("");
+  const [starSubmitting, setStarSubmitting] = useState(false);
+  const [starMsg, setStarMsg] = useState<string | null>(null);
+  const [starTop, setStarTop] = useState<Array<{ name: string; url: string | null; votes: number }>>([]);
+  const [starTotalVotes, setStarTotalVotes] = useState(0);
+
+  const loadStarRating = () => {
+    fetch("/api/star-suggestions/top?limit=10", { cache: "no-store" })
+      .then(r => r.ok ? r.json() : null)
+      .then(j => {
+        if (j?.top) {
+          setStarTop(j.top.map((r: any) => ({ name: r.name_display, url: r.profile_url || null, votes: r.votes })));
+          setStarTotalVotes(Number(j.totalVotes || 0));
+        }
+      })
+      .catch(() => {});
+  };
+  const submitStar = (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = starInput.trim();
+    const url = starUrlInput.trim();
+    if (name.length < 2) { setStarMsg("Имя минимум 2 символа"); return; }
+    if (!url) { setStarMsg("Ссылка на Instagram обязательна"); return; }
+    setStarSubmitting(true);
+    setStarMsg(null);
+    fetch("/api/star-suggestions/vote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, profileUrl: url }),
+    })
+      .then(r => r.json())
+      .then(j => {
+        if (j?.ok) {
+          setStarMsg(`Голос за «${name}» учтён ⭐`);
+          setStarInput("");
+          setStarUrlInput("");
+          loadStarRating();
+        } else {
+          setStarMsg(j?.error || "Ошибка");
+        }
+      })
+      .catch(() => setStarMsg("Сеть недоступна"))
+      .finally(() => setStarSubmitting(false));
+  };
 
   useEffect(() => {
     const fetchStats = () => {
@@ -379,24 +427,104 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
             При нажатии — после 1 000 000 маякнем мировой звезде». */}
         <button
           type="button"
-          onClick={() => setShowInfo(v => !v)}
+          onClick={() => { setShowInfo(v => !v); if (!showInfo) loadStarRating(); }}
           aria-label="Информация"
           title="Что будет после 1 000 000?"
-          className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-white/8 hover:bg-white/15 border border-white/15 flex items-center justify-center text-[10px] italic font-bold text-white/70 hover:text-white transition-colors leading-none"
+          className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-white/8 hover:bg-white/15 border border-white/15 flex items-center justify-center text-[10px] italic font-bold text-white/70 hover:text-white transition-colors leading-none z-10"
         >
           i
         </button>
         {showInfo && (
           <div
-            className="absolute left-1/2 -translate-x-1/2 -top-14 px-4 py-2 rounded-2xl text-[12px] text-white whitespace-nowrap z-20 animate-in fade-in slide-in-from-bottom-1 duration-200"
+            className="absolute left-1/2 -translate-x-1/2 -top-2 px-4 py-3 rounded-2xl text-[12px] text-white z-30 animate-in fade-in slide-in-from-top-1 duration-200"
             style={{
-              background: "linear-gradient(135deg, rgba(124,58,237,0.95) 0%, rgba(217,70,239,0.95) 50%, rgba(6,182,212,0.95) 100%)",
-              boxShadow: "0 8px 32px rgba(217,70,239,0.4), 0 0 24px rgba(124,58,237,0.3)",
+              top: "calc(100% + 12px)",
+              minWidth: "280px",
+              maxWidth: "min(360px, calc(100vw - 32px))",
+              background: "linear-gradient(135deg, rgba(124,58,237,0.95) 0%, rgba(217,70,239,0.92) 50%, rgba(6,182,212,0.95) 100%)",
+              boxShadow: "0 12px 40px rgba(217,70,239,0.4), 0 0 32px rgba(124,58,237,0.3)",
             }}
-            onClick={() => setShowInfo(false)}
           >
-            ✨ После <b>1 000 000</b> маякнём мировой звезде!
-            <span className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-3 h-3 rotate-45" style={{ background: "linear-gradient(135deg, rgba(217,70,239,0.95), rgba(6,182,212,0.95))" }} aria-hidden="true" />
+            <div className="flex items-start justify-between gap-2 mb-2">
+              <div className="text-[13px] font-semibold leading-snug">
+                ✨ После <b className="font-mono">1 000 000</b> прослушиваний — маякнём{" "}
+                <button
+                  type="button"
+                  onClick={() => { setShowRating(v => !v); if (!showRating) loadStarRating(); }}
+                  className="underline decoration-dotted hover:no-underline cursor-pointer font-bold"
+                >
+                  мировой звезде
+                </button>!
+              </div>
+              <button onClick={() => setShowInfo(false)} className="text-white/70 hover:text-white text-[16px] leading-none -mt-1" aria-label="Закрыть">×</button>
+            </div>
+
+            {showRating && starTop.length > 0 && (
+              <div className="mb-3 bg-black/25 rounded-xl p-3 border border-white/10">
+                <div className="text-[11px] uppercase tracking-wider text-white/70 mb-2 font-semibold">🏆 Топ-10 рейтинг ({starTotalVotes} голосов)</div>
+                <ol className="space-y-1.5 list-none">
+                  {starTop.map((s, i) => (
+                    <li key={s.name} className="flex items-center justify-between gap-2 text-[12px]">
+                      <span className="text-white/60 w-5 font-mono">{i + 1}.</span>
+                      {s.url ? (
+                        <a
+                          href={s.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1 truncate text-white hover:text-amber-200 underline decoration-dotted hover:no-underline transition-colors"
+                          title={`Открыть профиль ${s.name}`}
+                        >
+                          {s.name}
+                        </a>
+                      ) : (
+                        <span className="flex-1 truncate text-white/80">{s.name}</span>
+                      )}
+                      <span className="font-mono text-amber-200 font-bold">{s.votes}</span>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+
+            <form onSubmit={submitStar} className="space-y-2">
+              <div className="text-[11px] text-white/80 font-semibold">Предложите имя:</div>
+              <input
+                type="text"
+                value={starInput}
+                onChange={(e) => setStarInput(e.target.value)}
+                placeholder="Имя звезды"
+                maxLength={60}
+                className="w-full px-3 py-1.5 rounded-lg bg-black/30 border border-white/20 text-[12px] text-white placeholder:text-white/40 focus:outline-none focus:border-white/40"
+              />
+              <input
+                type="url"
+                value={starUrlInput}
+                onChange={(e) => setStarUrlInput(e.target.value)}
+                placeholder="Instagram (обязательно)"
+                maxLength={120}
+                className="w-full px-3 py-1.5 rounded-lg bg-black/30 border border-white/20 text-[12px] text-white placeholder:text-white/40 focus:outline-none focus:border-white/40"
+              />
+              <div className="flex items-center gap-2">
+                <button
+                  type="submit"
+                  disabled={starSubmitting}
+                  className="flex-1 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 disabled:opacity-50 border border-white/20 text-[12px] font-semibold transition-colors"
+                >
+                  {starSubmitting ? "..." : "⭐ Голосовать"}
+                </button>
+                {!showRating && (
+                  <button
+                    type="button"
+                    onClick={() => { setShowRating(true); loadStarRating(); }}
+                    className="px-3 py-1.5 rounded-lg bg-black/20 hover:bg-black/30 border border-white/10 text-[11px]"
+                  >
+                    🏆 Топ
+                  </button>
+                )}
+              </div>
+              {starMsg && <div className="text-[11px] text-amber-200">{starMsg}</div>}
+              <div className="text-[10px] text-white/50">Голос — 1 раз в час · Instagram обязателен для новой звезды</div>
+            </form>
           </div>
         )}
 

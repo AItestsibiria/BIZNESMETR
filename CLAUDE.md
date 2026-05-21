@@ -1787,6 +1787,28 @@ Functional check (`apps/neurohub/server/plugins/api-health/module.ts`):
 
 Reference: commit с расширением checks, helper `isFunctionalMuzaReply` в api-health/module.ts.
 
+### Star-suggestion rule (Eugene 2026-05-21)
+
+**При предложении новой «мировой звезды» (counter «i» popup) ссылка на Instagram ОБЯЗАТЕЛЬНА.** Для existing звёзд (повторный голос) — опционально.
+
+Validation Instagram URL:
+```
+/^https?:\/\/(www\.)?instagram\.com\/[A-Za-z0-9_.]+\/?(\?.*)?$/i
+```
+
+- Можно ввести `@username` — frontend/backend перепишет в `https://www.instagram.com/<username>`
+- Если URL не валиден или пуст для NEW name → `{ok:false, error:"Ссылка на Instagram обязательна. Формат: https://www.instagram.com/<username>"}`
+- Если name existing и URL пустой — vote OK (увеличиваем counter), profile_url не меняется
+- Если name existing и URL задан + было пусто — обновляем profile_url
+
+Rate limit: 1 vote / IP / час (через `star_votes_log` table).
+
+Seed: «Leo Di Caprio» → `https://www.instagram.com/leonardodicaprio`
+
+При нажатии на имя в рейтинге → открывается в новой вкладке (`target="_blank" rel="noopener noreferrer"`).
+
+Reference: routes.ts `/api/star-suggestions/vote` + `top`, schema `star_suggestions(name_normalized PK, name_display, profile_url, votes, ...)`, UI в `plays-counter.tsx`.
+
 ### User-anim-preference rule (Eugene 2026-05-21)
 
 **Mini-toggle кнопка возле визуальных эффектов (PlaysCounter, future animations) — выключение на 1 день. Если юзер 3 дня подряд выключает — сохранить до явного включения. Identification по IP.**
