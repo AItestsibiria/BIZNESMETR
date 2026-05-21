@@ -1,25 +1,26 @@
-// Eugene 2026-05-21 Босс: «самый динамичный счётчик в мире — все 5 вариантов».
+// Eugene 2026-05-21 Босс «дизайн счётчика: deep space #070812 + violet #8B5CF6 +
+// cyan #22D3EE + gold #FBBF24. Glass-card, мягкие скругления, glow. Сайт живой:
+// пульс, онлайн, рост». Реализовано на базе MuzaAiVisitCounter (Boss spec).
 //
-// Комбо:
-// 1. Slot Machine — digits крутятся вертикально к новому значению
-// 2. Cosmic Orbit — 3 планеты вращаются вокруг counter'а
-// 3. Heartbeat Pulse — scale + glow каждые 600ms
-// 4. Music Equalizer — 5 vertical bars играют ритм
-// 5. Neon Sign — flicker + electric underline
-//
-// CSS-only (без heavy JS framers), GPU-accelerated (transform/opacity),
-// prefers-reduced-motion safe.
+// Связка с существующим backend:
+// - GET /api/playlist/stats — {totalPlays, totalTracks, todayPlays, onlineNow}
+// - SSE /api/playlist/stats/stream — push при каждом play через broadcastPlaysStats
+// - POST /api/star-suggestions/vote — голосование за мировую звезду
+// - GET  /api/star-suggestions/top — топ рейтинг
+// - POST /api/user-preferences/anim-toggle — toggle анимаций (по IP)
+// - GET  /api/user-preferences/anim-state — текущее состояние
 
 import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
+import { Eye, Sparkles, TrendingUp } from "lucide-react";
 
 interface Stats {
   totalPlays: number;
   totalTracks: number;
+  todayPlays?: number;
+  onlineNow?: number;
 }
 
-// Eugene 2026-05-21 Босс «лайк сердечко в классическом Instagram виде».
-// Instagram-style heart icon — SVG inline (без deps).
 function HeartIcon({ filled, className = "" }: { filled?: boolean; className?: string }) {
   if (filled) {
     return (
@@ -35,185 +36,32 @@ function HeartIcon({ filled, className = "" }: { filled?: boolean; className?: s
   );
 }
 
-// Single rolling digit (Slot Machine effect). Eugene 2026-05-21:
-// - Явный color (override gradient clip от родителя)
-// - Blink при изменении value (анимация + post-rocket fade-back)
-// - Forwards ref для измерения позиции (для rocket launch)
-const RollingDigit = ({ value, blinkPhase, lastInRow, dimmed }: { value: number; blinkPhase: "idle" | "blink-pre" | "blink-post"; lastInRow?: boolean; dimmed?: boolean }) => {
-  const safeValue = Math.max(0, Math.min(9, value));
-  const blinkClass = blinkPhase !== "idle" ? "uc-digit-blink" : "";
-  return (
-    <span
-      data-uc-digit={lastInRow ? "last" : undefined}
-      className={`inline-block overflow-hidden align-baseline relative ${blinkClass}`}
-      style={{
-        width: "0.62em",
-        height: "1em",
-        lineHeight: "1em",
-        // Eugene 2026-05-21 Босс «счётчик меняющий цвет градиент от одного цвета к
-        // другому». Animated brand color cycle через CSS class — purple→fuchsia→cyan→purple.
-        // Dimmed leading zeros — static дим-purple без анимации.
-        color: dimmed ? "rgba(196, 132, 252, 0.20)" : undefined,
-        WebkitTextFillColor: dimmed ? "rgba(196, 132, 252, 0.20)" : undefined,
-        opacity: dimmed ? 0.55 : 1,
-      }}
-      data-active={!dimmed ? "1" : undefined}
-    >
-      <span
-        className="block transition-transform duration-[1500ms] ease-[cubic-bezier(0.34,1.56,0.64,1)]"
-        style={{ transform: `translateY(-${safeValue}em)`, willChange: "transform" }}
-      >
-        {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(d => (
-          <span key={d} className="block text-center" style={{ height: "1em", lineHeight: "1em" }}>{d}</span>
-        ))}
-      </span>
-    </span>
-  );
-};
-
-// Eugene 2026-05-21 Босс: «счётчик должен выглядеть 000000 где цифры
-// отражают онлайн изменение». Odometer-style — pad to 6 digits, leading
-// zeros dimmed. Bright digit = реальное значение, dim = «потенциал до миллиона».
-function RollingNumber({ value, blinkPhase }: { value: number; blinkPhase: "idle" | "blink-pre" | "blink-post" }) {
-  const safeValue = Math.max(0, Math.min(999999, Math.floor(value)));
-  const padded = safeValue.toString().padStart(6, "0");
-  // firstNonZero — индекс первой не-нулевой цифры. Всё до неё = leading zeros (dim).
-  // Если все нули (value=0) → firstNonZero = 5 (последняя), все остальные dim.
-  let firstNonZero = padded.search(/[1-9]/);
-  if (firstNonZero < 0) firstNonZero = padded.length - 1;
-  const lastDigitIdx = padded.length - 1;
-  return (
-    <span className="inline-flex" style={{ letterSpacing: "0.02em" }}>
-      {padded.split("").map((ch, i) => {
-        const digit = parseInt(ch, 10);
-        const isDimmed = i < firstNonZero;
-        return (
-          <RollingDigit
-            key={i}
-            value={digit}
-            blinkPhase={i === lastDigitIdx ? blinkPhase : "idle"}
-            lastInRow={i === lastDigitIdx}
-            dimmed={isDimmed}
-          />
-        );
-      })}
-    </span>
-  );
-}
-
 export function PlaysCounter({ className = "" }: { className?: string }) {
   const [stats, setStats] = useState<Stats | null>(null);
-  const [tick, setTick] = useState(0); // для re-trigger flash при изменении
-  // Eugene 2026-05-21 Босс «новая цифра моргает → ракета вылетает → моргает обратно».
-  // blinkPhase: idle (нет события) | blink-pre (моргание перед launch) | blink-post (моргание после landing).
-  const [blinkPhase, setBlinkPhase] = useState<"idle" | "blink-pre" | "blink-post">("idle");
+  const [bumped, setBumped] = useState(0); // tick для growth-arrow анимации
   const prevTotalRef = useRef<number | null>(null);
-  // Eugene 2026-05-21 Босс: «кнопка отключить анимации на 1 день. 3 дня
-  // подряд = до явного включения. По IP». State от server.
   const [animEnabled, setAnimEnabled] = useState(true);
   const [permanentOff, setPermanentOff] = useState(false);
-  // Eugene 2026-05-21 Босс «эквалайзеры реагируют на стиль музыки: быстрая
-  // моргают в такт». Subscribe to persistent audio + estimate beat speed.
-  // На iOS createMediaElementSource ЗАПРЕЩЁН (iOS-lock-screen-audio rule) —
-  // используем proxy: playing/paused + длительность трека для оценки темпа.
-  // Track tempo proxy: if track duration < 180s — "fast" (likely uptempo);
-  // 180-260 — medium; >260 — slow. Plus modulate by paused state.
-  const [audioState, setAudioState] = useState<{ playing: boolean; tempoCls: "fast" | "medium" | "slow" }>({ playing: false, tempoCls: "medium" });
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    // Достаём persistent audio singleton — может ещё не существовать.
-    const findAudio = (): HTMLAudioElement | null => {
-      try {
-        return (window as any).__muziaiAudio || document.querySelector("audio[data-muziai-player]") || null;
-      } catch { return null; }
-    };
-    let audio: HTMLAudioElement | null = findAudio();
-    const update = () => {
-      const a = findAudio();
-      audio = a;
-      const playing = !!(a && !a.paused && (a.currentTime > 0 || a.readyState >= 2));
-      const dur = a?.duration && isFinite(a.duration) ? a.duration : 0;
-      // Tempo proxy: короткий трек = быстрый темп
-      const tempoCls: "fast" | "medium" | "slow" = !playing ? "medium"
-        : dur > 0 && dur < 150 ? "fast"
-        : dur > 240 ? "slow"
-        : "medium";
-      setAudioState(s => (s.playing === playing && s.tempoCls === tempoCls) ? s : { playing, tempoCls });
-    };
-    update();
-    const onPlay = () => update();
-    const onPause = () => update();
-    const onLoaded = () => update();
-    const onEnded = () => update();
-    // Periodic re-check (audio singleton может пересоздаться вне нашего ведения).
-    const interval = window.setInterval(update, 1500);
-    const attach = (a: HTMLAudioElement) => {
-      a.addEventListener("play", onPlay);
-      a.addEventListener("pause", onPause);
-      a.addEventListener("loadedmetadata", onLoaded);
-      a.addEventListener("ended", onEnded);
-    };
-    if (audio) attach(audio);
-    // Также наблюдаем за появлением audio (через MutationObserver на body)
-    const mo = new MutationObserver(() => {
-      const a = findAudio();
-      if (a && a !== audio) { audio = a; attach(a); update(); }
-    });
-    mo.observe(document.body, { childList: true, subtree: true });
-    return () => {
-      window.clearInterval(interval);
-      mo.disconnect();
-      if (audio) {
-        try {
-          audio.removeEventListener("play", onPlay);
-          audio.removeEventListener("pause", onPause);
-          audio.removeEventListener("loadedmetadata", onLoaded);
-          audio.removeEventListener("ended", onEnded);
-        } catch {}
-      }
-    };
-  }, []);
-
-  // Equalizer animation duration в зависимости от темпа/playing.
-  // Fast → 0.28s, medium → 0.6s, slow → 0.9s. Paused → static (40% height).
-  const eqBaseSec = !audioState.playing ? 0
-    : audioState.tempoCls === "fast" ? 0.28
-    : audioState.tempoCls === "slow" ? 0.9
-    : 0.6;
-  // Eugene 2026-05-21 Босс: «кнопка i — после 1 000 000 prosлушиваний маякнём
-  // мировой звезде. Предложите имя, голосование, при нажатии «мировой звезды»
-  // показывай рейтинг. В топе Leo Di Caprio».
+  // === Star modal state ===
   const [showInfo, setShowInfo] = useState(false);
   const [showRating, setShowRating] = useState(false);
   const [starInput, setStarInput] = useState("");
   const [starUrlInput, setStarUrlInput] = useState("");
   const [starSubmitting, setStarSubmitting] = useState(false);
-  // Eugene 2026-05-21 Босс: «вначале если хотят добавить — нажимают +, заполняют поля,
-  // после подтверждения сердечко автоматом». Form скрыта до click на «+ Добавить».
   const [showAddForm, setShowAddForm] = useState(false);
-  // Eugene 2026-05-21 Босс: «проверяй написание аккаунта, если неправильно
-  // предлагай юзеру правильный вариант». Server при verify Instagram URL
-  // может вернуть suggestion с правильным написанием.
-  const [starSuggestion, setStarSuggestion] = useState<string | null>(null);
   const [starMsg, setStarMsg] = useState<string | null>(null);
   const [starTop, setStarTop] = useState<Array<{ name: string; url: string | null; votes: number }>>([]);
-  const [starTotalVotes, setStarTotalVotes] = useState(0);
 
   const loadStarRating = () => {
     fetch("/api/star-suggestions/top?limit=10", { cache: "no-store" })
       .then(r => r.ok ? r.json() : null)
       .then(j => {
-        if (j?.top) {
-          setStarTop(j.top.map((r: any) => ({ name: r.name_display, url: r.profile_url || null, votes: r.votes })));
-          setStarTotalVotes(Number(j.totalVotes || 0));
-        }
+        if (j?.top) setStarTop(j.top.map((r: any) => ({ name: r.name_display, url: r.profile_url || null, votes: r.votes })));
       })
       .catch(() => {});
   };
   const voteForExisting = (name: string) => {
-    // Eugene 2026-05-21 Босс: «при нажатии на сердечко рядом с именем — лайк за existing».
-    // URL не нужен (existing звезда), backend разрешает без URL для existing names.
     fetch("/api/star-suggestions/vote", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -221,14 +69,9 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
     })
       .then(r => r.json())
       .then(j => {
-        if (j?.ok) {
-          setStarMsg(`Сердечко поставлено ${name} ⭐`);
-          loadStarRating();
-        } else if (j?.alreadyVoted) {
-          setStarMsg(`Голос за «${name}» учтён ранее`);
-        } else {
-          setStarMsg(j?.error || "Ошибка");
-        }
+        if (j?.ok) { setStarMsg(`Сердечко поставлено ${name} ⭐`); loadStarRating(); }
+        else if (j?.alreadyVoted) setStarMsg(`Голос за «${name}» учтён ранее`);
+        else setStarMsg(j?.error || "Ошибка");
       })
       .catch(() => setStarMsg("Сеть недоступна"));
   };
@@ -247,27 +90,25 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
     })
       .then(r => r.json())
       .then(j => {
-        if (j?.ok) {
-          setStarMsg(`Голос за «${name}» учтён ⭐`);
-          setStarInput("");
-          setStarUrlInput("");
-          loadStarRating();
-        } else {
-          setStarMsg(j?.error || "Ошибка");
-        }
+        if (j?.ok) { setStarMsg(`Голос за «${name}» учтён ⭐`); setStarInput(""); setStarUrlInput(""); loadStarRating(); }
+        else setStarMsg(j?.error || "Ошибка");
       })
       .catch(() => setStarMsg("Сеть недоступна"))
       .finally(() => setStarSubmitting(false));
   };
 
+  // === SSE + initial fetch + anim-preference ===
   useEffect(() => {
     const applyStats = (j: any) => {
       if (j && typeof j.totalPlays === "number") {
         setStats(prev => {
-          if (prev && prev.totalPlays !== j.totalPlays) {
-            setTick(t => t + 1);
-          }
-          return { totalPlays: j.totalPlays, totalTracks: j.totalTracks };
+          if (prev && prev.totalPlays !== j.totalPlays) setBumped(t => t + 1);
+          return {
+            totalPlays: j.totalPlays,
+            totalTracks: j.totalTracks,
+            todayPlays: typeof j.todayPlays === "number" ? j.todayPlays : prev?.todayPlays,
+            onlineNow: typeof j.onlineNow === "number" ? j.onlineNow : prev?.onlineNow,
+          };
         });
       }
     };
@@ -277,11 +118,6 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
         .then(applyStats)
         .catch(() => {});
     };
-
-    // Eugene 2026-05-21 Босс «онлайн автообновление счётчика из первоисточника».
-    // SSE — server push при каждом засчитанном play. Браузер сам ретраит при
-    // разрыве (retry: 5000ms). Fallback на polling только если EventSource
-    // не поддерживается (старые браузеры — IE, некоторые embedded WebView).
     let es: EventSource | null = null;
     let pollInterval: any = null;
     if (typeof EventSource !== "undefined") {
@@ -290,9 +126,6 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
         es.addEventListener("stats", (ev: MessageEvent) => {
           try { applyStats(JSON.parse(ev.data)); } catch {}
         });
-        // На случай EventSource ошибки (5xx, network down) — браузер сам
-        // переподключится. Дополнительно — стартуем мягкий polling 2 мин
-        // как страховка если SSE завис в полу-закрытом состоянии.
         pollInterval = setInterval(fetchStats, 120_000);
       } catch {
         fetchStats();
@@ -302,45 +135,22 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
       fetchStats();
       pollInterval = setInterval(fetchStats, 60_000);
     }
-
-    // Eugene 2026-05-21 Босс: «появление новой цифры → blink → ракета → blink».
-    // Listener на back-event от ракеты «landed» — повторяем blink.
-    const onRocketLanded = () => setBlinkPhase("blink-post");
-    window.addEventListener("muza:rocket-landed", onRocketLanded as EventListener);
-
-    // Read animation preference (by IP, server-side)
     fetch("/api/user-preferences/anim-state", { cache: "no-store" })
       .then(r => r.ok ? r.json() : null)
-      .then(j => {
-        if (j) {
-          setAnimEnabled(!!j.enabled);
-          setPermanentOff(!!j.permanentOff);
-        }
-      })
+      .then(j => { if (j) { setAnimEnabled(!!j.enabled); setPermanentOff(!!j.permanentOff); } })
       .catch(() => {});
-
     return () => {
       if (pollInterval) clearInterval(pollInterval);
       if (es) { try { es.close(); } catch {} }
-      window.removeEventListener("muza:rocket-landed", onRocketLanded as EventListener);
     };
   }, []);
 
-  // Eugene 2026-05-21 Босс: «логика — новая цифра моргает, появляется ракета,
-  // после взлёта моргает обратно». Sequence:
-  // 1. totalPlays растёт → blink-pre (моргание) 600ms
-  // 2. Через 600ms → dispatch 'muza:counter-up' с position last-digit (DOM rect)
-  //    → RocketLaunch ловит и spawn'ит ракету из этой позиции
-  // 3. Ракета летит (4-6 сек) → rocket-landed event back → blink-post 600ms
-  // 4. blink-post → idle
+  // === Milestone +1000 detection ===
   useEffect(() => {
-    if (!animEnabled) return;
-    if (stats == null) return;
+    if (!animEnabled || stats == null) return;
     const prev = prevTotalRef.current;
     prevTotalRef.current = stats.totalPlays;
     if (prev == null || stats.totalPlays <= prev) return;
-    // Eugene 2026-05-21 Босс «на +1000 фейерверк в стиле MuzaAi».
-    // Detect milestone crossing — если crossed multiple of 1000.
     try {
       const prevK = Math.floor(prev / 1000);
       const newK = Math.floor(stats.totalPlays / 1000);
@@ -348,44 +158,7 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
         window.dispatchEvent(new CustomEvent("muza:milestone-1000", { detail: { milestone: newK * 1000 } }));
       }
     } catch {}
-
-    // Phase 1: blink-pre
-    setBlinkPhase("blink-pre");
-    const t1 = setTimeout(() => {
-      // Phase 2: spawn ракеты из позиции last-digit
-      try {
-        const lastDigit = document.querySelector('[data-uc-digit="last"]') as HTMLElement | null;
-        if (lastDigit) {
-          const rect = lastDigit.getBoundingClientRect();
-          const cx = rect.left + rect.width / 2;
-          const cy = rect.top + rect.height / 2;
-          window.dispatchEvent(new CustomEvent("muza:counter-up", {
-            detail: {
-              x: cx,
-              y: cy,
-              delta: stats.totalPlays - (prev || 0),
-            },
-          }));
-        }
-      } catch {}
-      setBlinkPhase("idle");
-    }, 600);
-
-    // Phase 3 (blink-post) приходит через listener на 'muza:rocket-landed'.
-    // На случай если listener не сработает — auto-fallback через 7 сек.
-    const t2 = setTimeout(() => {
-      setBlinkPhase(prev => prev === "blink-post" ? "idle" : prev);
-    }, 7000);
-
-    return () => { clearTimeout(t1); clearTimeout(t2); };
   }, [stats?.totalPlays, animEnabled]);
-
-  // Auto-fade blink-post через 600ms
-  useEffect(() => {
-    if (blinkPhase !== "blink-post") return;
-    const t = setTimeout(() => setBlinkPhase("idle"), 600);
-    return () => clearTimeout(t);
-  }, [blinkPhase]);
 
   const toggleAnim = () => {
     const newState = !animEnabled;
@@ -396,474 +169,265 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
       body: JSON.stringify({ enabled: newState }),
     })
       .then(r => r.json())
-      .then(j => {
-        if (j?.state) {
-          setAnimEnabled(!!j.state.enabled);
-          setPermanentOff(!!j.state.permanentOff);
-        }
-      })
+      .then(j => { if (j?.state) { setAnimEnabled(!!j.state.enabled); setPermanentOff(!!j.state.permanentOff); } })
       .catch(() => {});
   };
 
   if (!stats || stats.totalPlays === 0) return null;
 
+  const total = stats.totalPlays;
+  const today = stats.todayPlays ?? 0;
+  const online = stats.onlineNow ?? 0;
+  const fmt = (n: number) => n.toLocaleString("ru-RU");
+
   return (
-    <>
-      {/* === GLOBAL CSS (inline, scoped via unique class names) === */}
+    <section
+      className={`relative overflow-hidden rounded-[28px] border border-white/10 p-5 ${className} ${animEnabled ? "uc-card-pulse" : ""} cursor-pointer`}
+      style={{
+        background: "rgba(7,8,18,0.92)",
+        backdropFilter: "blur(24px) saturate(140%)",
+        WebkitBackdropFilter: "blur(24px) saturate(140%)",
+        boxShadow: "0 0 60px rgba(139,92,246,0.18), 0 8px 32px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06)",
+      }}
+      role="button"
+      tabIndex={0}
+      onClick={(e) => {
+        const tgt = e.target as HTMLElement;
+        if (tgt.closest("button, a")) return;
+        setShowInfo(v => !v);
+        if (!showInfo) { setShowRating(true); loadStarRating(); }
+      }}
+    >
       <style>{`
-        @keyframes uc-pulse {
-          0%, 100% { transform: scale(1); box-shadow: 0 0 24px rgba(124,58,237,0.35), 0 0 48px rgba(217,70,239,0.20); }
-          50% { transform: scale(1.025); box-shadow: 0 0 36px rgba(124,58,237,0.55), 0 0 72px rgba(217,70,239,0.35); }
+        @keyframes uc-card-pulse {
+          0%, 100% { box-shadow: 0 0 60px rgba(139,92,246,0.18), 0 8px 32px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06); }
+          50% { box-shadow: 0 0 80px rgba(139,92,246,0.35), 0 0 32px rgba(34,211,238,0.18), 0 8px 32px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.10); }
         }
-        @keyframes uc-orbit {
-          from { transform: rotate(0deg) translateX(var(--uc-radius)) rotate(0deg); }
-          to { transform: rotate(360deg) translateX(var(--uc-radius)) rotate(-360deg); }
+        .uc-card-pulse { animation: uc-card-pulse 2.4s ease-in-out infinite; }
+        @keyframes uc-num-bump {
+          0% { transform: translateY(0) scale(1); filter: brightness(1); }
+          30% { transform: translateY(-3px) scale(1.04); filter: brightness(1.4) drop-shadow(0 0 12px #FBBF24); }
+          100% { transform: translateY(0) scale(1); filter: brightness(1); }
         }
-        @keyframes uc-orbit-rev {
-          from { transform: rotate(0deg) translateX(var(--uc-radius)) rotate(0deg); }
-          to { transform: rotate(-360deg) translateX(var(--uc-radius)) rotate(360deg); }
+        .uc-num-bump { animation: uc-num-bump 700ms ease-out; }
+        @keyframes uc-growth-arrow {
+          0% { transform: translateY(8px); opacity: 0; }
+          40% { transform: translateY(-4px); opacity: 1; }
+          100% { transform: translateY(-18px); opacity: 0; }
         }
-        @keyframes uc-eq-bar {
-          0%, 100% { transform: scaleY(0.3); }
-          50% { transform: scaleY(1); }
-        }
-        @keyframes uc-flicker {
-          0%, 100% { opacity: 1; }
-          7% { opacity: 0.88; }
-          11% { opacity: 1; }
-          19% { opacity: 0.94; }
-          21% { opacity: 1; }
-          47% { opacity: 0.97; }
-          50% { opacity: 1; }
-        }
-        @keyframes uc-electric {
-          0% { background-position: -200% 0; }
-          100% { background-position: 200% 0; }
-        }
-        @keyframes uc-comet {
-          0% { transform: translate(-120%, -60%) rotate(20deg) scale(0.6); opacity: 0; }
-          15% { opacity: 1; }
-          85% { opacity: 1; }
-          100% { transform: translate(120%, 60%) rotate(20deg) scale(0.6); opacity: 0; }
-        }
-        @keyframes uc-spark {
-          0% { transform: scale(0) translate(0, 0); opacity: 1; }
-          100% { transform: scale(1.4) translate(var(--uc-sx), var(--uc-sy)); opacity: 0; }
-        }
-        @keyframes uc-digit-blink {
-          0%, 100% { opacity: 1; transform: scale(1); filter: brightness(1); }
-          25% { opacity: 0.3; transform: scale(1.15); filter: brightness(2); }
-          50% { opacity: 1; transform: scale(1.2); filter: brightness(2.5); }
-          75% { opacity: 0.4; transform: scale(1.1); filter: brightness(2); }
-        }
-        .uc-digit-blink {
-          animation: uc-digit-blink 600ms ease-in-out;
-        }
-        /* Eugene 2026-05-21 Босс: «счётчик меняющий цвет градиент» */
-        @keyframes uc-color-cycle {
-          0%   { color: #c084fc; text-shadow: 0 0 8px #7c3aed, 0 0 16px #c084fc; }
-          33%  { color: #f0abfc; text-shadow: 0 0 8px #d946ef, 0 0 16px #f0abfc; }
-          66%  { color: #67e8f9; text-shadow: 0 0 8px #06b6d4, 0 0 16px #67e8f9; }
-          100% { color: #c084fc; text-shadow: 0 0 8px #7c3aed, 0 0 16px #c084fc; }
-        }
-        [data-active="1"] {
-          animation: uc-color-cycle 6s ease-in-out infinite;
-          -webkit-text-fill-color: currentColor;
-        }
-        .uc-pulse {
-          animation: uc-pulse 1.4s ease-in-out infinite;
-        }
-        .uc-neon-text {
-          background: linear-gradient(90deg, #c084fc, #f0abfc, #67e8f9, #f0abfc, #c084fc);
-          background-size: 200% auto;
-          -webkit-background-clip: text;
-          background-clip: text;
-          -webkit-text-fill-color: transparent;
-          animation: uc-flicker 4s ease-in-out infinite, uc-electric 6s linear infinite;
-          filter: drop-shadow(0 0 8px #d946ef) drop-shadow(0 0 16px #06b6d4);
-        }
-        .uc-underline {
-          background: linear-gradient(90deg, transparent 0%, #d946ef 40%, #06b6d4 60%, transparent 100%);
-          background-size: 200% 100%;
-          animation: uc-electric 2.4s linear infinite;
+        @keyframes uc-live-ping {
+          0% { transform: scale(1); opacity: 0.6; }
+          100% { transform: scale(2.8); opacity: 0; }
         }
         @media (prefers-reduced-motion: reduce) {
-          .uc-pulse, .uc-neon-text, .uc-underline { animation: none !important; }
-          .uc-orbit { animation: none !important; }
+          .uc-card-pulse, .uc-num-bump { animation: none !important; }
         }
       `}</style>
 
-      <div
-        className={`relative inline-flex items-center justify-center px-3.5 py-2 rounded-full ${animEnabled ? "uc-pulse" : ""} ${className} cursor-pointer`}
-        style={{
-          background: "linear-gradient(135deg, rgba(124,58,237,0.18) 0%, rgba(217,70,239,0.14) 50%, rgba(6,182,212,0.18) 100%)",
-          border: "1px solid rgba(217,70,239,0.40)",
-          backdropFilter: "blur(20px)",
-          WebkitBackdropFilter: "blur(20px)",
-        }}
-        title={`${stats.totalTracks} треков · нажми чтобы открыть меню звезды`}
-        aria-live="polite"
-        role="button"
-        tabIndex={0}
-        onClick={(e) => {
-          // Eugene 2026-05-21 Босс: «при нажатии на счётчик раскрывай меню
-          // со звездой параллельно i». Игнорируем клики по дочерним buttons
-          // (i / ✦/○ / drag-handle) — они имеют свою логику.
-          const tgt = e.target as HTMLElement;
-          if (tgt.closest("button")) return;
-          setShowInfo(v => !v);
-          if (!showInfo) { setShowRating(true); loadStarRating(); }
-        }}
-      >
-        {/* === Cosmic Orbits — 3 planet'ы вокруг (only if anim enabled) === */}
-        {animEnabled && (
+      {/* Glow blobs — violet (top-right) + cyan (bottom-left) */}
+      <div className="pointer-events-none absolute -right-16 -top-16 h-44 w-44 rounded-full bg-violet-500/20 blur-3xl" aria-hidden="true" />
+      <div className="pointer-events-none absolute -bottom-20 -left-10 h-48 w-48 rounded-full bg-cyan-400/10 blur-3xl" aria-hidden="true" />
+
+      {/* ===== Top row: badge + heading + big number + live eye ===== */}
+      <div className="relative flex items-center justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-white/60">
+            <Sparkles className="h-3.5 w-3.5 text-[#FBBF24]" />
+            Live pulse MuzaAi
+          </div>
+
+          <h3 className="text-sm font-medium tracking-wide text-white/70">Прослушивания</h3>
+
+          <div className="mt-2 flex items-end gap-2 relative">
+            <div
+              key={`bump-${bumped}`}
+              className={`bg-gradient-to-r from-white via-[#EDE9FE] to-[#22D3EE] bg-clip-text text-4xl font-semibold tracking-tight text-transparent ${bumped > 0 ? "uc-num-bump" : ""}`}
+            >
+              {fmt(total)}
+            </div>
+            <div className="mb-1 text-xs text-white/40">всего</div>
+            {/* Growth arrow — fires on counter bump */}
+            {bumped > 0 && animEnabled && (
+              <span
+                key={`arrow-${bumped}`}
+                className="absolute -top-2 left-0 text-[#FBBF24] text-sm font-bold pointer-events-none"
+                style={{ animation: "uc-growth-arrow 1.8s ease-out forwards", textShadow: "0 0 8px #FBBF24" }}
+                aria-hidden="true"
+              >
+                ↑
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Live eye — pulsing cyan dot + concentric rings */}
+        <div className="relative flex h-20 w-20 items-center justify-center flex-shrink-0">
+          <div className="absolute inset-0 rounded-full border border-violet-400/20" />
+          <div className="absolute inset-2 rounded-full border border-cyan-300/20" />
           <div
-            className="absolute inset-0 pointer-events-none"
-            style={{ "--uc-radius": "85px" } as any}
+            className="absolute h-2 w-2 rounded-full bg-[#22D3EE]"
+            style={{ boxShadow: "0 0 18px rgba(34,211,238,0.9)" }}
+            aria-hidden="true"
           >
             <span
-              className="absolute top-1/2 left-1/2 w-1.5 h-1.5 rounded-full bg-fuchsia-400 shadow-[0_0_8px_#d946ef]"
-              style={{ animation: "uc-orbit 9s linear infinite", marginLeft: "-3px", marginTop: "-3px" }}
-              aria-hidden="true"
-            />
-            <span
-              className="absolute top-1/2 left-1/2 w-1 h-1 rounded-full bg-cyan-300 shadow-[0_0_6px_#67e8f9]"
-              style={{ animation: "uc-orbit-rev 6s linear infinite", marginLeft: "-2px", marginTop: "-2px", animationDelay: "-2s" }}
-              aria-hidden="true"
-            />
-            <span
-              className="absolute top-1/2 left-1/2 w-1 h-1 rounded-full bg-purple-300 shadow-[0_0_6px_#c084fc]"
-              style={{ animation: "uc-orbit 13s linear infinite", marginLeft: "-2px", marginTop: "-2px", animationDelay: "-5s" }}
-              aria-hidden="true"
+              className="absolute inset-0 rounded-full bg-[#22D3EE]"
+              style={{ animation: animEnabled ? "uc-live-ping 1.8s ease-out infinite" : "none" }}
             />
           </div>
-        )}
+          <Eye className="relative h-7 w-7 text-white/80" />
+        </div>
+      </div>
 
-        {/* === Comet — пролетает на каждом update (only if anim enabled) === */}
-        {animEnabled && (
-          <span
-            key={`comet-${tick}`}
-            className="absolute pointer-events-none top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[10px] text-amber-300"
-            style={{ animation: "uc-comet 1.6s ease-out forwards", filter: "drop-shadow(0 0 6px #fbbf24)" }}
-            aria-hidden="true"
-          >
-            ✨
-          </span>
-        )}
-
-        {/* === Music Equalizer Bars (left) — only if anim enabled === */}
-        {/* Eugene 2026-05-21 Босс «эквалайзеры зеркально слева и справа».
-            Mirror: левый и правый эквалайзеры одинаковый brand gradient
-            (purple→fuchsia→cyan) + одинаковая последовательность timings.
-            Левый bars 0,1,2,3 (наружу→центр), правый 3,2,1,0 (центр→наружу). */}
-        <div className="flex items-end gap-[2px] h-[15px] mr-2" aria-hidden="true">
-          {[0, 1, 2, 3].map(i => {
-            // Eugene 2026-05-21 Босс «эквалайзеры реагируют на стиль музыки».
-            // playing → анимация активна с темпом из audioState; paused → static.
-            const playingAnim = animEnabled && audioState.playing && eqBaseSec > 0;
-            return (
-              <span
-                key={`eql-${i}`}
-                className="w-[1.75px] bg-gradient-to-t from-purple-500 via-fuchsia-500 to-cyan-400 rounded-full origin-bottom"
-                style={{
-                  height: animEnabled ? "100%" : "40%",
-                  animation: playingAnim
-                    ? `uc-eq-bar ${eqBaseSec + i * 0.04}s ease-in-out infinite`
-                    : animEnabled
-                      ? `uc-eq-bar ${0.9 + i * 0.12}s ease-in-out infinite`
-                      : "none",
-                  animationDelay: `${i * 0.08}s`,
-                }}
-              />
-            );
-          })}
+      {/* ===== Bottom 2-col grid: Сегодня · Онлайн ===== */}
+      <div className="relative mt-5 grid grid-cols-2 gap-3">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-4 backdrop-blur">
+          <div className="flex items-center gap-2 text-xs text-white/45">
+            <TrendingUp className="h-3.5 w-3.5 text-[#8B5CF6]" />
+            Сегодня
+          </div>
+          <div className="mt-1 text-2xl font-semibold text-white">{fmt(today)}</div>
         </div>
 
-        {/* === Slot Machine number — Neon glow === */}
-        <span className="relative inline-flex items-center gap-1">
-          <span className="text-[14px]" aria-hidden="true">🎧</span>
-          {/* Eugene 2026-05-21 Босс «+15% к счётчику».
-              text-[11px]/xs → text-[13px]/sm. Neon glow в digits. */}
-          <span
-            className="font-mono text-[13px] sm:text-sm font-black tracking-tight leading-none"
-            style={{ animation: animEnabled ? "uc-flicker 4s ease-in-out infinite" : "none" }}
-          >
-            <RollingNumber value={stats.totalPlays} blinkPhase={blinkPhase} />
-          </span>
-          {/* Electric underline */}
-          <span
-            className="uc-underline absolute -bottom-1 left-7 right-0 h-[2px] rounded-full opacity-80"
+        <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-4 backdrop-blur">
+          <div className="flex items-center gap-2 text-xs text-white/45">
+            <span
+              className="relative h-2 w-2 rounded-full bg-emerald-400"
+              style={{ boxShadow: "0 0 12px rgba(52,211,153,0.9)" }}
+              aria-hidden="true"
+            >
+              {animEnabled && (
+                <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-50" />
+              )}
+            </span>
+            Онлайн
+          </div>
+          <div className="mt-1 text-2xl font-semibold text-white">{fmt(online)}</div>
+        </div>
+      </div>
+
+      {/* ===== Buttons: i (info) + ✦/○ (anim toggle) ===== */}
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setShowInfo(v => !v); if (!showInfo) { setShowRating(true); loadStarRating(); } }}
+        aria-label="Информация"
+        title="Что будет после 1 000 000?"
+        className="absolute top-3 right-3 w-6 h-6 rounded-full bg-white/8 hover:bg-white/15 border border-white/15 flex items-center justify-center text-[11px] italic font-bold text-white/70 hover:text-white transition-colors z-10"
+      >
+        i
+      </button>
+
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); toggleAnim(); }}
+        aria-label={animEnabled ? "Отключить анимацию" : "Включить анимацию"}
+        title={permanentOff ? "Анимация выключена постоянно. Жми чтобы включить." : animEnabled ? "Отключить на 1 день" : "Включить анимацию"}
+        className="absolute bottom-3 right-3 w-5 h-5 rounded-full bg-white/8 hover:bg-white/15 border border-white/15 flex items-center justify-center text-[10px] text-white/60 hover:text-white transition-colors z-10"
+      >
+        {animEnabled ? "✦" : "○"}
+      </button>
+
+      {/* ===== Star modal (portal to body) ===== */}
+      {showInfo && typeof document !== "undefined" && createPortal(
+        <>
+          <div
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60] animate-in fade-in duration-200"
+            onClick={() => setShowInfo(false)}
             aria-hidden="true"
           />
-        </span>
+          <div
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-5 py-4 rounded-3xl text-[13px] text-white z-[61] animate-in fade-in zoom-in-95 duration-200"
+            style={{
+              width: "min(440px, calc(100vw - 24px))",
+              maxHeight: "calc(100vh - 40px)",
+              overflowY: "auto",
+              background: "linear-gradient(135deg, rgba(7,8,18,0.92) 0%, rgba(20,16,44,0.88) 50%, rgba(12,30,76,0.92) 100%)",
+              backdropFilter: "blur(40px) saturate(180%)",
+              WebkitBackdropFilter: "blur(40px) saturate(180%)",
+              border: "1px solid rgba(139,92,246,0.25)",
+              boxShadow: "0 32px 80px rgba(139,92,246,0.5), 0 8px 24px rgba(0,0,0,0.45), 0 0 60px rgba(34,211,238,0.18), inset 0 1px 0 rgba(255,255,255,0.10)",
+              position: "relative",
+              overflow: "hidden",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Glass highlights */}
+            <div aria-hidden="true" style={{ position: "absolute", top: 0, left: 0, right: 0, height: "45%", background: "linear-gradient(180deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.02) 60%, transparent 100%)", pointerEvents: "none", borderRadius: "24px 24px 0 0" }} />
+            <div aria-hidden="true" style={{ position: "absolute", top: "-30%", right: "-20%", width: "70%", height: "70%", background: "radial-gradient(circle, rgba(34,211,238,0.22) 0%, transparent 70%)", pointerEvents: "none" }} />
+            <div aria-hidden="true" style={{ position: "absolute", bottom: "-30%", left: "-20%", width: "70%", height: "70%", background: "radial-gradient(circle, rgba(139,92,246,0.28) 0%, transparent 70%)", pointerEvents: "none" }} />
 
-        {/* === Music Equalizer Bars (right side) === */}
-        <div className="flex items-end gap-[2px] h-[15px] ml-2" aria-hidden="true">
-          {/* Зеркало левого — reversed order (3→0) с тем же timing pattern */}
-          {[3, 2, 1, 0].map(i => (
-            <span
-              key={`eqr-${i}`}
-              className="w-[1.75px] bg-gradient-to-t from-purple-500 via-fuchsia-500 to-cyan-400 rounded-full origin-bottom"
-              style={{
-                height: animEnabled ? "100%" : "40%",
-                animation: animEnabled ? `uc-eq-bar ${0.6 + i * 0.12}s ease-in-out infinite` : "none",
-                animationDelay: `${i * 0.1}s`,
-              }}
-            />
-          ))}
-        </div>
-
-        {/* Label под counter'ом — Eugene 2026-05-21 Босс: убрано «обновлено» */}
-        <span className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[9px] uppercase tracking-widest text-white/50 font-semibold whitespace-nowrap">
-          прослушиваний
-        </span>
-
-        {/* Eugene 2026-05-21 Босс: «кнопка i справа сверху от счётчика.
-            При нажатии — после 1 000 000 маякнем мировой звезде». */}
-        <button
-          type="button"
-          onClick={() => { setShowInfo(v => !v); if (!showInfo) { setShowRating(true); loadStarRating(); } }}
-          aria-label="Информация"
-          title="Что будет после 1 000 000?"
-          className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white/8 hover:bg-white/15 border border-white/15 flex items-center justify-center text-[9px] italic font-bold text-white/70 hover:text-white transition-colors leading-none z-10"
-        >
-          i
-        </button>
-        {/* Eugene 2026-05-21 Босс «отцентруй» — portal к document.body чтобы
-            фиксированная позиция не привязывалась к counter'у (родитель имеет
-            backdrop-filter → создаёт новый containing block для fixed детей,
-            из-за чего модалка сдвигалась вбок). Portal выносит модалку из
-            counter'а в body — fixed теперь относительно viewport. */}
-        {showInfo && typeof document !== "undefined" && createPortal(
-          <>
-            <div
-              className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60] animate-in fade-in duration-200"
-              onClick={() => setShowInfo(false)}
-              aria-hidden="true"
-            />
-            <div
-              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-5 py-4 rounded-3xl text-[13px] text-white z-[61] animate-in fade-in zoom-in-95 duration-200"
-              style={{
-                width: "min(440px, calc(100vw - 24px))",
-                maxHeight: "calc(100vh - 40px)",
-                overflowY: "auto",
-                // Eugene 2026-05-21 Босс «окно звезды в стиле MuzaAi глянец премиум».
-                // Multi-layer premium glass — frosted base + top highlight strip +
-                // corner brand glows + crisp inner border. Apple/iOS premium feel.
-                background: "linear-gradient(135deg, rgba(28,16,68,0.86) 0%, rgba(40,22,96,0.82) 50%, rgba(12,30,76,0.86) 100%)",
-                backdropFilter: "blur(40px) saturate(180%)",
-                WebkitBackdropFilter: "blur(40px) saturate(180%)",
-                border: "1px solid rgba(255,255,255,0.14)",
-                boxShadow: "0 32px 80px rgba(124,58,237,0.5), 0 8px 24px rgba(0,0,0,0.45), 0 0 60px rgba(6,182,212,0.25), inset 0 1px 0 rgba(255,255,255,0.22)",
-                position: "relative",
-                overflow: "hidden",
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {/* Premium glass highlights (decorative, pointerEvents: none) */}
-              {/* Top mirror highlight — like real polished glass */}
-              <div
-                aria-hidden="true"
-                style={{
-                  position: "absolute",
-                  top: 0, left: 0, right: 0,
-                  height: "45%",
-                  background: "linear-gradient(180deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.02) 60%, transparent 100%)",
-                  pointerEvents: "none",
-                  borderRadius: "24px 24px 0 0",
-                }}
-              />
-              {/* Cyan corner glow — top right */}
-              <div
-                aria-hidden="true"
-                style={{
-                  position: "absolute",
-                  top: "-30%", right: "-20%",
-                  width: "70%", height: "70%",
-                  background: "radial-gradient(circle, rgba(6,182,212,0.28) 0%, transparent 70%)",
-                  pointerEvents: "none",
-                }}
-              />
-              {/* Purple corner glow — bottom left */}
-              <div
-                aria-hidden="true"
-                style={{
-                  position: "absolute",
-                  bottom: "-30%", left: "-20%",
-                  width: "70%", height: "70%",
-                  background: "radial-gradient(circle, rgba(124,58,237,0.32) 0%, transparent 70%)",
-                  pointerEvents: "none",
-                }}
-              />
-              {/* Bottom subtle shine — sub-bottom mirror */}
-              <div
-                aria-hidden="true"
-                style={{
-                  position: "absolute",
-                  bottom: 0, left: 0, right: 0,
-                  height: "18%",
-                  background: "linear-gradient(0deg, rgba(255,255,255,0.04) 0%, transparent 100%)",
-                  pointerEvents: "none",
-                  borderRadius: "0 0 24px 24px",
-                }}
-              />
-              {/* Content wrapper to keep above decorative layers */}
-              <div style={{ position: "relative", zIndex: 1 }}>
-            <div className="flex items-start justify-between gap-3 mb-3">
-              <div className="text-[14px] font-semibold leading-relaxed">
-                ✨ Когда наш плейлист дойдёт до <b className="font-mono text-amber-200 text-[15px]">1 000 000</b> прослушиваний — маякнём{" "}
-                <button
-                  type="button"
-                  onClick={() => { setShowRating(v => !v); if (!showRating) loadStarRating(); }}
-                  className="underline decoration-wavy decoration-amber-200 hover:no-underline cursor-pointer font-bold text-amber-100"
-                >
-                  мировой звезде
-                </button>!
-                <div className="mt-1.5 text-[11px] text-white/75 font-normal leading-relaxed">
-                  Кого предложишь? Голосуем кто заслуживает услышать наших авторов. За одно имя — один голос с твоего IP.
-                </div>
-              </div>
-              <button onClick={() => setShowInfo(false)} className="text-white/70 hover:text-white text-[20px] leading-none flex-shrink-0" aria-label="Закрыть">×</button>
-            </div>
-
-            {showRating && starTop.length > 0 && (
-              <div className="mb-3 bg-black/25 rounded-xl p-3 border border-white/10">
-                <div className="text-[11px] uppercase tracking-wider text-white/70 mb-2 font-semibold">
-                  🏆 Топ рейтинг
-                </div>
-                <ol className="space-y-1.5 list-none">
-                  {starTop.map((s, i) => (
-                    <li key={s.name} className="flex items-center justify-between gap-2 text-[12px]">
-                      <span className="text-white/60 w-5 font-mono">{i + 1}.</span>
-                      {s.url ? (
-                        <a
-                          href={s.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex-1 truncate text-white hover:text-pink-200 underline decoration-dotted hover:no-underline transition-colors"
-                          title={`Открыть профиль ${s.name}`}
-                        >
-                          {s.name}
-                        </a>
-                      ) : (
-                        <span className="flex-1 truncate text-white/80">{s.name}</span>
-                      )}
-                      {/* Eugene 2026-05-21 Босс: «лайк ставится по клику на сердечко» */}
-                      <button
-                        type="button"
-                        onClick={() => voteForExisting(s.name)}
-                        className="flex items-center gap-1 text-pink-300 font-bold hover:scale-110 active:scale-95 transition-transform"
-                        title={`Поставить ❤ за ${s.name}`}
-                      >
-                        <HeartIcon filled className="w-4 h-4" />
-                        <span className="font-mono text-[12px]">{s.votes}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            )}
-
-            {/* Eugene 2026-05-21 Босс: form скрыта за «+ Добавить», после
-                подтверждения сердечко автоматом. */}
-            {!showAddForm ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setShowAddForm(true)}
-                  className="w-full py-2.5 rounded-lg bg-white/95 hover:bg-white text-purple-900 border border-white/30 text-[13px] font-semibold transition-all flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-95 shadow-md"
-                >
-                  <span className="text-[16px] leading-none font-bold">＋</span>
-                  <span>Добавить свою звезду</span>
-                </button>
-                {starMsg && <div className="text-[12px] text-amber-200 mt-2 text-center">{starMsg}</div>}
-              </>
-            ) : (
-              <form onSubmit={submitStar} className="space-y-2">
-                <div className="text-[12px] text-white/85 font-semibold flex items-center justify-between">
-                  <span className="flex items-center gap-1.5">
-                    <HeartIcon filled className="w-3.5 h-3.5 text-pink-300" />
-                    <span>Добавляем звезду</span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => { setShowAddForm(false); setStarInput(""); setStarUrlInput(""); setStarMsg(null); }}
-                    className="text-white/60 hover:text-white text-[16px] leading-none"
-                    aria-label="Отмена"
-                  >×</button>
-                </div>
-                <input
-                  type="text"
-                  value={starInput}
-                  onChange={(e) => setStarInput(e.target.value)}
-                  placeholder="Имя звезды (например Beyoncé)"
-                  maxLength={60}
-                  autoFocus
-                  className="w-full px-3 py-2 rounded-lg bg-black/30 border border-white/20 text-[13px] text-white placeholder:text-white/40 focus:outline-none focus:border-white/40"
-                />
-                <input
-                  type="url"
-                  value={starUrlInput}
-                  onChange={(e) => setStarUrlInput(e.target.value)}
-                  placeholder="Instagram URL (обязательно)"
-                  maxLength={120}
-                  className="w-full px-3 py-2 rounded-lg bg-black/30 border border-white/20 text-[13px] text-white placeholder:text-white/40 focus:outline-none focus:border-white/40"
-                />
-                <button
-                  type="submit"
-                  disabled={starSubmitting}
-                  className={`w-full py-2 rounded-lg disabled:opacity-50 border text-[13px] font-semibold transition-all flex items-center justify-center gap-2 ${starSubmitting ? "bg-white/15 border-white/20" : "bg-pink-500/30 hover:bg-pink-500/50 border-pink-400/40 hover:scale-[1.01] active:scale-95"}`}
-                >
-                  {starSubmitting ? (
-                    "Проверяем аккаунт..."
-                  ) : (
-                    <>
-                      <HeartIcon filled className="w-4 h-4 text-pink-300" />
-                      <span>Добавить и поставить ❤</span>
-                    </>
-                  )}
-                </button>
-                {starMsg && (
-                  <div className="text-[12px] text-amber-200 leading-relaxed">
-                    {starMsg}
-                    {starSuggestion && (
-                      <button
-                        type="button"
-                        onClick={() => { setStarUrlInput(starSuggestion); setStarMsg("Применено!"); }}
-                        className="block mt-1 underline text-pink-200 hover:text-pink-100"
-                      >
-                        Применить: {starSuggestion}
-                      </button>
-                    )}
+            <div style={{ position: "relative", zIndex: 1 }}>
+              <div className="flex items-start justify-between gap-3 mb-3">
+                <div className="text-[14px] font-semibold leading-relaxed">
+                  ✨ Когда наш плейлист дойдёт до <b className="font-mono text-[#FBBF24] text-[15px]">1 000 000</b> прослушиваний — маякнём{" "}
+                  <button type="button" onClick={() => { setShowRating(v => !v); if (!showRating) loadStarRating(); }}
+                    className="underline decoration-wavy decoration-[#FBBF24] hover:no-underline font-bold text-[#FDE68A]">мировой звезде</button>!
+                  <div className="mt-1.5 text-[11px] text-white/75 font-normal leading-relaxed">
+                    Кого предложишь? Голосуем кто заслуживает услышать наших авторов. За одно имя — один голос с твоего IP.
                   </div>
-                )}
-                <div className="text-[10px] text-white/55 leading-snug">Проверим что аккаунт существует. Сердечко поставится автоматом.</div>
-              </form>
-            )}
-              </div>{/* /content-wrapper z-index:1 */}
-            </div>
-          </>,
-          document.body
-        )}
+                </div>
+                <button onClick={() => setShowInfo(false)} className="text-white/70 hover:text-white text-[20px] leading-none flex-shrink-0" aria-label="Закрыть">×</button>
+              </div>
 
-        {/* Eugene 2026-05-21 Босс: «кнопка mini отключить анимацию по смыслу
-            в первом нижнем». Tracking по IP через server. 3 дня подряд →
-            permanent off до явного включения. */}
-        <button
-          type="button"
-          onClick={toggleAnim}
-          aria-label={animEnabled ? "Отключить анимацию на день" : "Включить анимацию"}
-          title={permanentOff
-            ? "Анимация выключена постоянно (3 дня подряд). Жмите чтобы включить."
-            : animEnabled
-              ? "Отключить анимацию на 1 день"
-              : "Включить анимацию"
-          }
-          className="absolute -bottom-4 right-1.5 w-4 h-4 rounded-full bg-white/8 hover:bg-white/15 border border-white/15 flex items-center justify-center text-[9px] transition-colors leading-none"
-        >
-          {animEnabled ? "✦" : "○"}
-        </button>
-      </div>
-    </>
+              {showRating && starTop.length > 0 && (
+                <div className="mb-3 bg-black/25 rounded-xl p-3 border border-white/10">
+                  <div className="text-[11px] uppercase tracking-wider text-white/70 mb-2 font-semibold">🏆 Топ рейтинг</div>
+                  <ol className="space-y-1.5 list-none">
+                    {starTop.map((s, i) => (
+                      <li key={s.name} className="flex items-center justify-between gap-2 text-[12px]">
+                        <span className="text-white/60 w-5 font-mono">{i + 1}.</span>
+                        {s.url ? (
+                          <a href={s.url} target="_blank" rel="noopener noreferrer"
+                            className="flex-1 truncate text-white hover:text-[#22D3EE] underline decoration-dotted hover:no-underline transition-colors">{s.name}</a>
+                        ) : (<span className="flex-1 truncate text-white/80">{s.name}</span>)}
+                        <button type="button" onClick={() => voteForExisting(s.name)}
+                          className="flex items-center gap-1 text-[#FBBF24] font-bold hover:scale-110 active:scale-95 transition-transform">
+                          <HeartIcon filled className="w-4 h-4" />
+                          <span className="font-mono text-[12px]">{s.votes}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+              )}
+
+              {!showAddForm ? (
+                <>
+                  <button type="button" onClick={() => setShowAddForm(true)}
+                    className="w-full py-2.5 rounded-lg bg-white/95 hover:bg-white text-[#070812] border border-white/30 text-[13px] font-semibold transition-all flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-95 shadow-md">
+                    <span className="text-[16px] leading-none font-bold">＋</span>
+                    <span>Добавить свою звезду</span>
+                  </button>
+                  {starMsg && <div className="text-[12px] text-[#FBBF24] mt-2 text-center">{starMsg}</div>}
+                </>
+              ) : (
+                <form onSubmit={submitStar} className="space-y-2">
+                  <div className="text-[12px] text-white/85 font-semibold flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <HeartIcon filled className="w-3.5 h-3.5 text-[#FBBF24]" />
+                      <span>Добавляем звезду</span>
+                    </span>
+                    <button type="button" onClick={() => { setShowAddForm(false); setStarInput(""); setStarUrlInput(""); setStarMsg(null); }}
+                      className="text-white/60 hover:text-white text-[16px] leading-none">×</button>
+                  </div>
+                  <input type="text" value={starInput} onChange={(e) => setStarInput(e.target.value)}
+                    placeholder="Имя звезды (например Beyoncé)" maxLength={60} autoFocus
+                    className="w-full px-3 py-2 rounded-lg bg-black/30 border border-white/20 text-[13px] text-white placeholder:text-white/40 focus:outline-none focus:border-[#8B5CF6]" />
+                  <input type="url" value={starUrlInput} onChange={(e) => setStarUrlInput(e.target.value)}
+                    placeholder="Instagram URL (обязательно)" maxLength={120}
+                    className="w-full px-3 py-2 rounded-lg bg-black/30 border border-white/20 text-[13px] text-white placeholder:text-white/40 focus:outline-none focus:border-[#8B5CF6]" />
+                  <button type="submit" disabled={starSubmitting}
+                    className={`w-full py-2 rounded-lg disabled:opacity-50 border text-[13px] font-semibold transition-all flex items-center justify-center gap-2 ${starSubmitting ? "bg-white/15 border-white/20" : "bg-[#8B5CF6]/30 hover:bg-[#8B5CF6]/50 border-[#8B5CF6]/40 hover:scale-[1.01] active:scale-95"}`}>
+                    {starSubmitting ? "Проверяем аккаунт..." : (<><HeartIcon filled className="w-4 h-4 text-[#FBBF24]" /><span>Добавить и поставить ❤</span></>)}
+                  </button>
+                  {starMsg && <div className="text-[12px] text-[#FBBF24] leading-relaxed">{starMsg}</div>}
+                  <div className="text-[10px] text-white/55 leading-snug">Проверим что аккаунт существует. Сердечко поставится автоматом.</div>
+                </form>
+              )}
+            </div>
+          </div>
+        </>,
+        document.body
+      )}
+    </section>
   );
 }

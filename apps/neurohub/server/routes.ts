@@ -9941,10 +9941,25 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       }
     } catch {}
   }
+  // Eugene 2026-05-21 Босс «MuzaAiVisitCounter» + «online auto-update» —
+  // SSE clients Set declared up-front, чтобы computePlaysStats мог считать
+  // онлайн-юзеров. broadcastPlaysStats / endpoint /stream ниже.
+  type StatsSseClient = { res: Response; id: number };
+  const _statsSseClients = new Set<StatsSseClient>();
+  let _sseClientCounter = 0;
+
   // Helper: compute fresh stats (использует cache если свеж).
-  function computePlaysStats(): { totalPlays: number; totalTracks: number; lastUpdated: string } {
+  // Extended payload: totalPlays (всего), todayPlays (с 00:00 МСК), onlineNow.
+  function computePlaysStats(): {
+    totalPlays: number;
+    totalTracks: number;
+    todayPlays: number;
+    onlineNow: number;
+    lastUpdated: string;
+  } {
     if (_playsStatsCache && Date.now() < _playsStatsCache.expiresAt) {
-      return _playsStatsCache.data;
+      // onlineNow меняется быстро — пересчитываем поверх кэша
+      return { ..._playsStatsCache.data, onlineNow: _statsSseClients.size };
     }
     const rawSql: any = (db as any).$client || sqliteDb;
     const stats = rawSql.prepare(
@@ -9956,9 +9971,19 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
          AND is_public = 1
          AND style LIKE '{%' AND json_valid(style) = 1`
     ).get() as { total_tracks: number; total_plays: number };
+    // Today MSK = текущий день по UTC+3, начало 00:00 МСК = (UTC текущего дня в 21:00 предыдущего OR 21:00 текущего)
+    const now = new Date();
+    const mskNow = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+    const mskTodayStart = new Date(Date.UTC(mskNow.getUTCFullYear(), mskNow.getUTCMonth(), mskNow.getUTCDate(), 0, 0, 0));
+    const utcTodayStart = new Date(mskTodayStart.getTime() - 3 * 60 * 60 * 1000).toISOString();
+    const todayRow = rawSql.prepare(
+      `SELECT COUNT(*) AS cnt FROM gen_activity WHERE action='play' AND created_at >= ?`
+    ).get(utcTodayStart) as { cnt: number };
     const data = {
       totalPlays: Number(stats?.total_plays || 0),
       totalTracks: Number(stats?.total_tracks || 0),
+      todayPlays: Number(todayRow?.cnt || 0),
+      onlineNow: _statsSseClients.size,
       lastUpdated: new Date().toISOString(),
     };
     _playsStatsCache = { data, expiresAt: Date.now() + PLAYS_STATS_CACHE_MS };
@@ -9976,12 +10001,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
 
   // Eugene 2026-05-21 Босс «сделай онлайн автообновление счётчика
   // прослушиваний из первоисточника». SSE — server-push при каждом play.
-  // Преимущество над polling (60 сек): мгновенный update + 1 connection per юзер
-  // вместо 60 HTTP-запросов в час.
-  // Reconnect — browser auto через EventSource (retry: 5000).
-  type StatsSseClient = { res: Response; id: number };
-  const _statsSseClients = new Set<StatsSseClient>();
-  let _sseClientCounter = 0;
+  // SSE clients Set + counter уже объявлены выше (для computePlaysStats).
   function broadcastPlaysStats(): void {
     if (_statsSseClients.size === 0) return;
     try {
