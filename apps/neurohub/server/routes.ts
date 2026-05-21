@@ -10002,18 +10002,53 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   // Eugene 2026-05-21 Босс «по нажатии на планету — страны/города».
   // Public endpoint — топ-10 стран + топ-10 городов посетителей (last 30 days).
   // Cache 60s.
+  // Eugene 2026-05-21 Босс «обновляй в реальном времени за месяц» — cache
+  // 60s → 20s для realtime feel + still не бьём БД на каждый клик.
   let _geoTopCache: { data: any; expiresAt: number } | null = null;
   app.get("/api/playlist/geo-top", (_req: Request, res: Response) => {
-    res.setHeader("Cache-Control", "public, max-age=60");
+    res.setHeader("Cache-Control", "public, max-age=20");
     try {
       if (_geoTopCache && Date.now() < _geoTopCache.expiresAt) {
         return res.json(_geoTopCache.data);
       }
       const rawSql: any = (db as any).$client || sqliteDb;
       const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      // Eugene 2026-05-21 Босс «страны на английском + при равенстве % Россия выше».
+      // CASE-канонизация → English names. ORDER BY visits DESC, RU first on ties.
       const countries: Array<{ countryCode: string; country: string; visits: number }> = rawSql.prepare(`
         SELECT COALESCE(country_code, '??') AS countryCode,
-               MAX(country) AS country,
+               CASE country
+                 WHEN 'США' THEN 'United States'
+                 WHEN 'Россия' THEN 'Russia'
+                 WHEN 'Германия' THEN 'Germany'
+                 WHEN 'Великобритания' THEN 'United Kingdom'
+                 WHEN 'Нидерланды' THEN 'Netherlands'
+                 WHEN 'Украина' THEN 'Ukraine'
+                 WHEN 'Молдова' THEN 'Moldova'
+                 WHEN 'Франция' THEN 'France'
+                 WHEN 'Италия' THEN 'Italy'
+                 WHEN 'Испания' THEN 'Spain'
+                 WHEN 'Польша' THEN 'Poland'
+                 WHEN 'Беларусь' THEN 'Belarus'
+                 WHEN 'Казахстан' THEN 'Kazakhstan'
+                 WHEN 'Турция' THEN 'Turkey'
+                 WHEN 'Китай' THEN 'China'
+                 WHEN 'Япония' THEN 'Japan'
+                 WHEN 'Индия' THEN 'India'
+                 WHEN 'Бразилия' THEN 'Brazil'
+                 WHEN 'Канада' THEN 'Canada'
+                 WHEN 'Австралия' THEN 'Australia'
+                 WHEN 'Израиль' THEN 'Israel'
+                 WHEN 'ОАЭ' THEN 'UAE'
+                 WHEN 'Грузия' THEN 'Georgia'
+                 WHEN 'Армения' THEN 'Armenia'
+                 WHEN 'Азербайджан' THEN 'Azerbaijan'
+                 WHEN 'Узбекистан' THEN 'Uzbekistan'
+                 WHEN 'Кыргызстан' THEN 'Kyrgyzstan'
+                 WHEN 'Таджикистан' THEN 'Tajikistan'
+                 WHEN 'Туркменистан' THEN 'Turkmenistan'
+                 ELSE country
+               END AS country,
                COUNT(*) AS visits
         FROM visitors
         WHERE created_at >= ? AND country_code IS NOT NULL AND country_code != ''
@@ -10042,7 +10077,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         totalCountries: Number(totalCountriesRow?.cnt || 0),
         days: 30,
       };
-      _geoTopCache = { data, expiresAt: Date.now() + 60_000 };
+      _geoTopCache = { data, expiresAt: Date.now() + 20_000 };
       res.json(data);
     } catch (e: any) {
       res.json({ countries: [], cities: [], totalVisits: 0, error: String(e?.message || e).slice(0, 100) });
@@ -12132,9 +12167,13 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
 
   // Публичный счётчик стран посетителей (для плеера)
   app.get("/api/public/countries-count", (req: Request, res: Response) => {
-    res.set("Cache-Control", "public, max-age=3600");
+    // Eugene 2026-05-21 Босс «данные счётчика стран обновляй в реальном
+    // времени за месяц». Cache 60s (раньше был 1 час); WHERE created_at
+    // last 30 days добавлен ниже.
+    res.set("Cache-Control", "public, max-age=60");
     const raw = (db as any).$client;
     try {
+      const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
       const sqlQ = `
         SELECT canon AS country, MAX(country_code) AS country_code, SUM(n) AS n FROM (
           SELECT
@@ -12167,11 +12206,11 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
               WHEN 'Узбекистан' THEN 'Uzbekistan'
               ELSE country
             END AS canon, country_code, COUNT(*) AS n
-          FROM visitors WHERE country IS NOT NULL AND country != ''
+          FROM visitors WHERE country IS NOT NULL AND country != '' AND created_at >= ?
           GROUP BY canon, country_code
         ) GROUP BY canon ORDER BY (canon = 'Russia') DESC, n DESC`;
-      const rows = (raw as any).prepare(sqlQ).all();
-      res.json({ countries: rows.length, list: rows });
+      const rows = (raw as any).prepare(sqlQ).all(since30d);
+      res.json({ countries: rows.length, list: rows, days: 30 });
     } catch { res.json({ countries: 0, list: [] }); }
   });
 

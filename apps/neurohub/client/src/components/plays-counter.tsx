@@ -203,6 +203,18 @@ interface Stats {
   onlineNow?: number;
 }
 
+// Eugene 2026-05-21 Босс «страны на английском с флагами везде».
+// ISO 3166-1 alpha-2 country code → emoji flag (regional indicator letters).
+function codeToFlag(code: string | null | undefined): string {
+  if (!code || code.length !== 2) return "🏳️";
+  try {
+    const cc = code.toUpperCase();
+    return String.fromCodePoint(...[...cc].map(c => 0x1F1E6 + c.charCodeAt(0) - 65));
+  } catch {
+    return "🏳️";
+  }
+}
+
 function HeartIcon({ filled, className = "" }: { filled?: boolean; className?: string }) {
   if (filled) {
     return (
@@ -342,13 +354,19 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
       .catch(() => {});
   };
   useEffect(() => {
-    // Под-планетный счётчик из общего endpoint'а (sync с плеером)
-    fetch("/api/public/countries-count", { cache: "no-store" })
-      .then(r => r.ok ? r.json() : null)
-      .then(j => { if (j && typeof j.countries === "number") setCountriesCount(j.countries); })
-      .catch(() => {});
-    // Geo-модалка — пред-загрузка breakdown (% по странам + города)
-    loadGeo();
+    // Eugene 2026-05-21 Босс «обновляй в реальном времени за месяц» —
+    // polling 30 сек для countriesCount + geoData. Server cache 20-60s
+    // → инвалидируется между запросами.
+    const refresh = () => {
+      fetch("/api/public/countries-count", { cache: "no-store" })
+        .then(r => r.ok ? r.json() : null)
+        .then(j => { if (j && typeof j.countries === "number") setCountriesCount(j.countries); })
+        .catch(() => {});
+      loadGeo();
+    };
+    refresh();
+    const interval = setInterval(refresh, 30_000);
+    return () => clearInterval(interval);
   }, []);
   // Когда любая модалка открыта — паузим walking-musa тур.
   useEffect(() => {
@@ -702,17 +720,31 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
                     <div className="text-[11px] text-white/40">Нет данных за период</div>
                   ) : (
                     <ol className="space-y-1.5 list-none">
-                      {/* Eugene 2026-05-21 Босс «по странам цифры замени на проценты» */}
-                      {geoData.countries.map((c, i) => {
-                        const pct = geoData.totalVisits > 0 ? Math.round((c.visits / geoData.totalVisits) * 100) : 0;
-                        return (
+                      {/* Eugene 2026-05-21 Босс «при равенстве округлённых % Россия выше».
+                          Post-process: считаем pct, сортируем по pct DESC + RU-first tie-break.
+                          Stable sort (sort с numeric compare) сохраняет server-order для не-RU ties. */}
+                      {(() => {
+                        const withPct = geoData.countries.map(c => ({
+                          ...c,
+                          pct: geoData.totalVisits > 0 ? Math.round((c.visits / geoData.totalVisits) * 100) : 0,
+                        }));
+                        withPct.sort((a, b) => {
+                          if (b.pct !== a.pct) return b.pct - a.pct;
+                          // Тiе по %: Russia первая
+                          if (a.code === "RU" && b.code !== "RU") return -1;
+                          if (b.code === "RU" && a.code !== "RU") return 1;
+                          // Иначе сохраняем server-order (по visits DESC)
+                          return b.visits - a.visits;
+                        });
+                        return withPct.map((c, i) => (
                           <li key={c.code} className="flex items-center gap-2 text-[12px]">
                             <span className="text-white/50 w-5 font-mono">{i + 1}.</span>
+                            <span className="text-base leading-none">{codeToFlag(c.code)}</span>
                             <span className="text-white/85 flex-1 truncate">{c.name}</span>
-                            <span className="text-[#22D3EE] font-mono text-[12px] w-12 text-right font-semibold">{pct}%</span>
+                            <span className="text-[#22D3EE] font-mono text-[12px] w-12 text-right font-semibold">{c.pct}%</span>
                           </li>
-                        );
-                      })}
+                        ));
+                      })()}
                     </ol>
                   )}
                 </div>
@@ -725,11 +757,12 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
                     <div className="text-[11px] text-white/40">Нет данных за период</div>
                   ) : (
                     <ol className="space-y-1.5 list-none">
-                      {/* Eugene 2026-05-21 Босс «в панели городов убери счётчик» */}
+                      {/* Eugene 2026-05-21 Босс «города без счётчика + флаги» */}
                       {geoData.cities.map((c, i) => (
                         <li key={`${c.city}-${c.code}`} className="flex items-center gap-2 text-[12px]">
                           <span className="text-white/50 w-5 font-mono">{i + 1}.</span>
-                          <span className="text-white/85 flex-1 truncate">{c.city} <span className="text-white/40 text-[10px]">{c.code}</span></span>
+                          <span className="text-base leading-none">{codeToFlag(c.code)}</span>
+                          <span className="text-white/85 flex-1 truncate">{c.city}</span>
                         </li>
                       ))}
                     </ol>
