@@ -331,15 +331,25 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
     totalVisits: number;
     totalCountries: number;
   } | null>(null);
+  // Eugene 2026-05-21 Босс «количество стран с одной точки сбора, совпадать с
+  // планетой на плеере». /api/public/countries-count — тот же endpoint что
+  // landing.tsx player (🌍 N). Single source of truth.
+  const [countriesCount, setCountriesCount] = useState<number>(0);
   const loadGeo = () => {
     fetch("/api/playlist/geo-top", { cache: "no-store" })
       .then(r => r.ok ? r.json() : null)
       .then(j => { if (j) setGeoData(j); })
       .catch(() => {});
   };
-  // Eugene 2026-05-21 Босс «под планетой общее количество стран за месяц» —
-  // silent load на mount чтобы totalCountries был сразу видим под Earth.
-  useEffect(() => { loadGeo(); }, []);
+  useEffect(() => {
+    // Под-планетный счётчик из общего endpoint'а (sync с плеером)
+    fetch("/api/public/countries-count", { cache: "no-store" })
+      .then(r => r.ok ? r.json() : null)
+      .then(j => { if (j && typeof j.countries === "number") setCountriesCount(j.countries); })
+      .catch(() => {});
+    // Geo-модалка — пред-загрузка breakdown (% по странам + города)
+    loadGeo();
+  }, []);
   // Когда любая модалка открыта — паузим walking-musa тур.
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -616,11 +626,13 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
           >
             <PlanetIcon size={80} />
           </button>
-          {/* Eugene 2026-05-21 Босс «под планетой общее количество стран за месяц» */}
-          {geoData && geoData.totalCountries > 0 && (
+          {/* Eugene 2026-05-21 Босс «количество стран с одной точки сбора +
+              совпадать с планетой на плеере». countriesCount из общего endpoint
+              /api/public/countries-count — sync с landing.tsx player 🌍 N. */}
+          {countriesCount > 0 && (
             <div className="mt-1 text-[10px] text-white/65 font-mono whitespace-nowrap">
-              <span className="text-[#22D3EE] font-semibold">{geoData.totalCountries}</span>
-              <span className="text-white/45"> {geoData.totalCountries === 1 ? "страна" : geoData.totalCountries < 5 ? "страны" : "стран"}</span>
+              <span className="text-[#22D3EE] font-semibold">{countriesCount}</span>
+              <span className="text-white/45"> {countriesCount === 1 ? "страна" : countriesCount < 5 ? "страны" : "стран"}</span>
             </div>
           )}
         </div>
