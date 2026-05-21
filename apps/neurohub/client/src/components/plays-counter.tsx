@@ -493,7 +493,7 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
       `}</style>
 
       <div
-        className={`relative inline-flex items-center justify-center px-3.5 py-2 rounded-full ${animEnabled ? "uc-pulse" : ""} ${className} cursor-pointer`}
+        className={`relative inline-flex items-center justify-center px-3 py-1.5 rounded-full ${animEnabled ? "uc-pulse" : ""} ${className} cursor-pointer`}
         style={{
           background: "linear-gradient(135deg, rgba(124,58,237,0.18) 0%, rgba(217,70,239,0.14) 50%, rgba(6,182,212,0.18) 100%)",
           border: "1px solid rgba(217,70,239,0.40)",
@@ -579,12 +579,12 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
         </div>
 
         {/* === Slot Machine number — Neon glow === */}
-        <span className="relative inline-flex items-center gap-1">
-          <span className="text-sm" aria-hidden="true">🎧</span>
-          {/* Eugene 2026-05-21 Босс «счётчик ещё -30%».
-              text-lg/xl → text-xs/sm. Neon glow в digits через text-shadow. */}
+        <span className="relative inline-flex items-center gap-[3px]">
+          <span className="text-[12px]" aria-hidden="true">🎧</span>
+          {/* Eugene 2026-05-21 Босс «-30% → -10% ещё, изысканнее».
+              text-xs/sm → text-[11px]/text-xs. Neon glow в digits через text-shadow. */}
           <span
-            className="font-mono text-xs sm:text-sm font-black tracking-tight leading-none"
+            className="font-mono text-[11px] sm:text-xs font-black tracking-tight leading-none"
             style={{ animation: animEnabled ? "uc-flicker 4s ease-in-out infinite" : "none" }}
           >
             <RollingNumber value={stats.totalPlays} blinkPhase={blinkPhase} />

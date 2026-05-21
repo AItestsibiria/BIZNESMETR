@@ -2344,7 +2344,16 @@ export function FloatingConsultant() {
                 вверх чата а то из-за ввода клиентом не видно». pb-8 → 32px
                 отступ снизу, чтобы последнее сообщение не упиралось в input
                 (особенно на мобилке когда клавиатура поднимает форму). */}
-            <div ref={chatScrollRef} className="flex-1 overflow-y-auto px-3 pt-3 pb-8 space-y-2 min-h-0 scroll-pb-8">
+            <div
+              ref={chatScrollRef}
+              className="flex-1 overflow-y-auto px-3 pt-3 pb-8 space-y-2 min-h-0 scroll-pb-8"
+              /* Eugene 2026-05-21 Босс «окно чат-бота скролю — двигается сайт».
+                 overscroll-behavior: contain — браузер НЕ передаёт scroll
+                 событие body когда достигнут край скролл-контейнера.
+                 touch-action: pan-y — разрешаем только вертикальный pan,
+                 блокируем горизонтальный zoom/swipe-back на iOS. */
+              style={{ overscrollBehavior: "contain", touchAction: "pan-y", WebkitOverflowScrolling: "touch" }}
+            >
               {chatMsgs.length === 0 && (
                 <div className="text-[11px] text-white/40 text-center py-4">Загружаю…</div>
               )}

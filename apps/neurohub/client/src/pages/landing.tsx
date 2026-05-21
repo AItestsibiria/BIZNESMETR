@@ -1851,11 +1851,13 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           )}
         </div>
 
-        {/* Eugene 2026-05-21 Босс «приоритет counter»: animated banner с общей
-            суммой prosлушиваний по main playlist. Cache 60s, sync с БД.
-            mb-8 даёт место для underlabel «прослушиваний · обновлено». */}
-        <div className="flex items-center justify-center mb-8 mt-2">
+        {/* Eugene 2026-05-21 Босс «расположи гармонично между строк, изысканнее».
+            Изящный divider-блок: 2 тонкие линии brand-gradient слева/справа +
+            counter в центре. my-6 даёт воздух сверху/снизу. */}
+        <div className="flex items-center justify-center gap-3 my-6 px-4">
+          <span className="flex-1 max-w-[140px] h-px bg-gradient-to-r from-transparent via-purple-400/30 to-fuchsia-400/40" aria-hidden="true" />
           <PlaysCounter />
+          <span className="flex-1 max-w-[140px] h-px bg-gradient-to-l from-transparent via-cyan-400/30 to-fuchsia-400/40" aria-hidden="true" />
         </div>
 
         {/* Eugene 2026-05-21 Босс «ракета при окончании трека вверх под углом».
