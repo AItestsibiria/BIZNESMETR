@@ -17,6 +17,23 @@ interface Stats {
   totalTracks: number;
 }
 
+// Eugene 2026-05-21 Босс «лайк сердечко в классическом Instagram виде».
+// Instagram-style heart icon — SVG inline (без deps).
+function HeartIcon({ filled, className = "" }: { filled?: boolean; className?: string }) {
+  if (filled) {
+    return (
+      <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden="true">
+        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+    </svg>
+  );
+}
+
 // Single rolling digit (Slot Machine effect). Eugene 2026-05-21:
 // - Явный color (override gradient clip от родителя)
 // - Blink при изменении value (анимация + post-rocket fade-back)
@@ -482,7 +499,13 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
 
             {showRating && starTop.length > 0 && (
               <div className="mb-3 bg-black/25 rounded-xl p-3 border border-white/10">
-                <div className="text-[11px] uppercase tracking-wider text-white/70 mb-2 font-semibold">🏆 Топ-10 рейтинг ({starTotalVotes} голосов)</div>
+                <div className="text-[11px] uppercase tracking-wider text-white/70 mb-2 font-semibold flex items-center justify-between">
+                  <span>🏆 Топ рейтинг</span>
+                  <span className="flex items-center gap-1 text-pink-300">
+                    <HeartIcon filled className="w-3.5 h-3.5" />
+                    <span className="font-mono normal-case tracking-normal">{starTotalVotes}</span>
+                  </span>
+                </div>
                 <ol className="space-y-1.5 list-none">
                   {starTop.map((s, i) => (
                     <li key={s.name} className="flex items-center justify-between gap-2 text-[12px]">
@@ -492,7 +515,7 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
                           href={s.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="flex-1 truncate text-white hover:text-amber-200 underline decoration-dotted hover:no-underline transition-colors"
+                          className="flex-1 truncate text-white hover:text-pink-200 underline decoration-dotted hover:no-underline transition-colors"
                           title={`Открыть профиль ${s.name}`}
                         >
                           {s.name}
@@ -500,7 +523,10 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
                       ) : (
                         <span className="flex-1 truncate text-white/80">{s.name}</span>
                       )}
-                      <span className="font-mono text-amber-200 font-bold">{s.votes}</span>
+                      <span className="flex items-center gap-1 text-pink-300 font-bold">
+                        <HeartIcon filled className="w-3.5 h-3.5" />
+                        <span className="font-mono text-[12px]">{s.votes}</span>
+                      </span>
                     </li>
                   ))}
                 </ol>
@@ -508,7 +534,10 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
             )}
 
             <form onSubmit={submitStar} className="space-y-2">
-              <div className="text-[11px] text-white/80 font-semibold">Предложите имя:</div>
+              <div className="text-[12px] text-white/85 font-semibold flex items-center gap-1.5">
+                <HeartIcon filled className="w-3.5 h-3.5 text-pink-300" />
+                <span>Голосуем. За одно имя — 1 сердечко</span>
+              </div>
               <input
                 type="text"
                 value={starInput}
@@ -529,15 +558,22 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
                 <button
                   type="submit"
                   disabled={starSubmitting}
-                  className="flex-1 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 disabled:opacity-50 border border-white/20 text-[12px] font-semibold transition-colors"
+                  className={`flex-1 py-2 rounded-lg disabled:opacity-50 border text-[13px] font-semibold transition-all flex items-center justify-center gap-2 ${starSubmitting ? "bg-white/15 border-white/20" : "bg-pink-500/30 hover:bg-pink-500/50 border-pink-400/40 hover:scale-[1.02] active:scale-95"}`}
                 >
-                  {starSubmitting ? "..." : "⭐ Голосовать"}
+                  {starSubmitting ? (
+                    "..."
+                  ) : (
+                    <>
+                      <HeartIcon filled className="w-4 h-4 text-pink-300" />
+                      <span>Поставить сердечко</span>
+                    </>
+                  )}
                 </button>
                 {!showRating && (
                   <button
                     type="button"
                     onClick={() => { setShowRating(true); loadStarRating(); }}
-                    className="px-3 py-1.5 rounded-lg bg-black/20 hover:bg-black/30 border border-white/10 text-[11px]"
+                    className="px-3 py-2 rounded-lg bg-black/20 hover:bg-black/30 border border-white/10 text-[11px]"
                   >
                     🏆 Топ
                   </button>
