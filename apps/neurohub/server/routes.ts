@@ -10020,9 +10020,9 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         return res.json(_geoTopCache.data);
       }
       const rawSql: any = (db as any).$client || sqliteDb;
-      const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      // Eugene 2026-05-21 Босс «общий для стран и посещений за весь период» —
+      // фильтр last-30d убран, все запросы всё-время (period = all-time).
       // Eugene 2026-05-21 Босс «страны на английском + при равенстве % Россия выше».
-      // CASE-канонизация → English names. ORDER BY visits DESC, RU first on ties.
       const countries: Array<{ countryCode: string; country: string; visits: number }> = rawSql.prepare(`
         SELECT COALESCE(country_code, '??') AS countryCode,
                CASE country
@@ -10059,31 +10059,30 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
                END AS country,
                COUNT(*) AS visits
         FROM visitors
-        WHERE created_at >= ? AND country_code IS NOT NULL AND country_code != ''
+        WHERE country_code IS NOT NULL AND country_code != ''
         GROUP BY country_code
         ORDER BY visits DESC
         LIMIT 10
-      `).all(since) as any[];
+      `).all() as any[];
       const cities: Array<{ city: string; countryCode: string; visits: number }> = rawSql.prepare(`
         SELECT city, COALESCE(country_code, '??') AS countryCode, COUNT(*) AS visits
         FROM visitors
-        WHERE created_at >= ? AND city IS NOT NULL AND city != ''
+        WHERE city IS NOT NULL AND city != ''
         GROUP BY city, country_code
         ORDER BY visits DESC
         LIMIT 10
-      `).all(since) as any[];
-      const totalRow = rawSql.prepare(`SELECT COUNT(*) AS total FROM visitors WHERE created_at >= ?`).get(since) as { total: number };
-      // Eugene 2026-05-21 Босс «под планетой общее количество стран за месяц»
+      `).all() as any[];
+      const totalRow = rawSql.prepare(`SELECT COUNT(*) AS total FROM visitors`).get() as { total: number };
       const totalCountriesRow = rawSql.prepare(`
         SELECT COUNT(DISTINCT country_code) AS cnt FROM visitors
-        WHERE created_at >= ? AND country_code IS NOT NULL AND country_code != ''
-      `).get(since) as { cnt: number };
+        WHERE country_code IS NOT NULL AND country_code != ''
+      `).get() as { cnt: number };
       const data = {
         countries: countries.map(r => ({ code: String(r.countryCode), name: r.country || r.countryCode, visits: Number(r.visits) })),
         cities: cities.map(r => ({ city: r.city, code: r.countryCode, visits: Number(r.visits) })),
         totalVisits: Number(totalRow?.total || 0),
         totalCountries: Number(totalCountriesRow?.cnt || 0),
-        days: 30,
+        period: "all-time",
       };
       _geoTopCache = { data, expiresAt: Date.now() + 20_000 };
       res.json(data);
@@ -10092,10 +10091,12 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     }
   });
 
-  // Eugene 2026-05-21 Босс «сделай онлайн автообновление счётчика
-  // прослушиваний из первоисточника». SSE — server-push при каждом play.
-  // SSE clients Set + counter уже объявлены выше (для computePlaysStats).
-  function broadcastPlaysStats(): void {
+  // Eugene 2026-05-21 Босс «прослушивания нарастающим итогом 1 раз в минуту».
+  // Throttle: broadcastPlaysStats запросы суммируются, реальный push идёт раз
+  // в 60 сек. Pending flag — если в окне был ещё запрос, после таймера push'нём.
+  let _lastBroadcastAt = 0;
+  let _broadcastPending = false;
+  function _doBroadcast(): void {
     if (_statsSseClients.size === 0) return;
     try {
       _playsStatsCache = null;
@@ -10105,6 +10106,26 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         try { client.res.write(payload); } catch {}
       }
     } catch {}
+  }
+  // Throttle wrapper: 60s окно. Если запрос в окне — pending=true, broadcast
+  // после паузы. Гарантия: не больше 1 push'а в минуту, последнее значение всегда.
+  function broadcastPlaysStats(): void {
+    const now = Date.now();
+    const elapsed = now - _lastBroadcastAt;
+    if (elapsed >= 60_000) {
+      _lastBroadcastAt = now;
+      _broadcastPending = false;
+      _doBroadcast();
+      return;
+    }
+    // В окне — отложим
+    if (_broadcastPending) return;
+    _broadcastPending = true;
+    setTimeout(() => {
+      _lastBroadcastAt = Date.now();
+      _broadcastPending = false;
+      _doBroadcast();
+    }, 60_000 - elapsed);
   }
   // Глобальный handle для broadcast'а из других мест (где меняется play count).
   (global as any).__broadcastPlaysStats = broadcastPlaysStats;
@@ -12175,13 +12196,11 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
 
   // Публичный счётчик стран посетителей (для плеера)
   app.get("/api/public/countries-count", (req: Request, res: Response) => {
-    // Eugene 2026-05-21 Босс «данные счётчика стран обновляй в реальном
-    // времени за месяц». Cache 60s (раньше был 1 час); WHERE created_at
-    // last 30 days добавлен ниже.
+    // Eugene 2026-05-21 Босс «общий для стран и посещений за весь период» —
+    // фильтр last-30d убран, теперь all-time COUNT DISTINCT country.
     res.set("Cache-Control", "public, max-age=60");
     const raw = (db as any).$client;
     try {
-      const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
       const sqlQ = `
         SELECT canon AS country, MAX(country_code) AS country_code, SUM(n) AS n FROM (
           SELECT
@@ -12214,11 +12233,11 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
               WHEN 'Узбекистан' THEN 'Uzbekistan'
               ELSE country
             END AS canon, country_code, COUNT(*) AS n
-          FROM visitors WHERE country IS NOT NULL AND country != '' AND created_at >= ?
+          FROM visitors WHERE country IS NOT NULL AND country != ''
           GROUP BY canon, country_code
         ) GROUP BY canon ORDER BY (canon = 'Russia') DESC, n DESC`;
-      const rows = (raw as any).prepare(sqlQ).all(since30d);
-      res.json({ countries: rows.length, list: rows, days: 30 });
+      const rows = (raw as any).prepare(sqlQ).all();
+      res.json({ countries: rows.length, list: rows, period: "all-time" });
     } catch { res.json({ countries: 0, list: [] }); }
   });
 
