@@ -907,13 +907,18 @@ Audit-сценарий перед коммитом UI-фичи:
 
 ### Playlist-daily-rotation rule (Eugene 2026-05-21)
 
-**Параметры сортировки плейлиста на главной ротируются автоматически — 1 раз в сутки в 00:00 МСК. По умолчанию категория «Песни» (`song`) выбрана.**
+**Параметры сортировки плейлиста на главной ротируются автоматически — 1 раз в сутки в 00:00 МСК. По умолчанию категория «Песни» (`song`) выбрана. Применяется ко ВСЕМ юзерам (включая уже-зашедших) — через one-time migration reset localStorage.**
 
 Конкретика:
 - **Cycle** (порядок ротации, default): `date → rating → random → top_month → date → …`
 - **Cut-off**: 00:00 МСК (= 21:00 UTC), НЕ 00:00 UTC. Источник правды — `lib/playlistSortRotation.ts:dayIndexFrom()` (shifted-scale +3h).
 - **Категория по умолчанию**: `song` (Песни), НЕ `all`. Юзер видит сразу плейлист «Песни» при первом заходе.
 - **Юзер-override**: если юзер выбрал свою сортировку или категорию — сохраняется в localStorage, ротация default НЕ перебивает.
+- **Применение ко всем юзерам**: one-time migration через flag `pl_defaults_reset_version` в localStorage. При несовпадении версии — удаляются все сохранённые sortMode/category ключи → юзер получает default при следующем визите. Дальше его выбор персистится.
+  - Увеличить версию когда нужен ещё один reset (например изменили cycle):
+    ```ts
+    const PLAYLIST_DEFAULTS_RESET_VERSION = "v2026-MM-DD";
+    ```
 
 Технически:
 - Server: `apps/neurohub/server/lib/playlistSortRotation.ts` (DEFAULT_CYCLE + dayIndexFrom + getTodayDefaultSort)

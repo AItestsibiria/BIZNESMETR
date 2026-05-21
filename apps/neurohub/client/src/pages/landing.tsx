@@ -485,6 +485,32 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // удерживаться через сессии и навигацию. Используем localStorage.
   // Eugene 2026-05-15 Босс «2 плейлиста на главной + кнопки заметные».
   // playlistKind: 'main' = одобренный (default) | 'new' = новые авторы.
+  // Eugene 2026-05-21 Босс: «правила плейлиста применить ко всем юзерам при
+  // первом заходе, далее по выбору юзера». One-time migration: удаляем
+  // сохранённые sortMode/category у всех уже-зашедших юзеров. На следующем
+  // визите они получат default (категория 'song' + today's rotation sort).
+  // Дальше их выбор персистится как обычно.
+  // Migration flag — увеличиваем версию когда нужно ещё один reset.
+  const PLAYLIST_DEFAULTS_RESET_VERSION = "v2026-05-21";
+  if (typeof window !== "undefined") {
+    try {
+      const lastReset = localStorage.getItem("pl_defaults_reset_version");
+      if (lastReset !== PLAYLIST_DEFAULTS_RESET_VERSION) {
+        // Удаляем все варианты (legacy + per-user + guest)
+        const allKeys = Object.keys(localStorage);
+        for (const k of allKeys) {
+          if (k.includes("sortMode") || k.includes(":category") || k.endsWith("category")) {
+            // Только playlist-related ключи (не email, не имя — фильтрация по prefix)
+            if (k.startsWith("pl_") || k.startsWith("pl_v2:") || k.startsWith("muzaai-pl-")) {
+              localStorage.removeItem(k);
+            }
+          }
+        }
+        localStorage.setItem("pl_defaults_reset_version", PLAYLIST_DEFAULTS_RESET_VERSION);
+      }
+    } catch {}
+  }
+
   const [playlistKind, setPlaylistKind] = useState<"main" | "new">(() => {
     const s = readInitial("kind"); return (s === "main" || s === "new") ? s : "main";
   });
