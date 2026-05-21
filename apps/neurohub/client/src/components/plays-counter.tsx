@@ -11,6 +11,7 @@
 // prefers-reduced-motion safe.
 
 import { useEffect, useState, useRef } from "react";
+import { createPortal } from "react-dom";
 
 interface Stats {
   totalPlays: number;
@@ -628,10 +629,13 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
         >
           i
         </button>
-        {showInfo && (
+        {/* Eugene 2026-05-21 Босс «отцентруй» — portal к document.body чтобы
+            фиксированная позиция не привязывалась к counter'у (родитель имеет
+            backdrop-filter → создаёт новый containing block для fixed детей,
+            из-за чего модалка сдвигалась вбок). Portal выносит модалку из
+            counter'а в body — fixed теперь относительно viewport. */}
+        {showInfo && typeof document !== "undefined" && createPortal(
           <>
-            {/* Eugene 2026-05-21 Босс «содержание не видно» — popup as modal
-                с backdrop, centered, не перекрывает плейлист как absolute child. */}
             <div
               className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60] animate-in fade-in duration-200"
               onClick={() => setShowInfo(false)}
@@ -838,7 +842,8 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
             )}
               </div>{/* /content-wrapper z-index:1 */}
             </div>
-          </>
+          </>,
+          document.body
         )}
 
         {/* Eugene 2026-05-21 Босс: «кнопка mini отключить анимацию по смыслу
