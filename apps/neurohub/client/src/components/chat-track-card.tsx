@@ -63,46 +63,54 @@ export function ChatTrackCard({ track, autoPlay }: ChatTrackCardProps) {
   const [coverError, setCoverError] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
 
-  // === Mount: attach к persistent singleton, опц. auto-play ===
-  useEffect(() => {
-    const a = getPersistentPlayerAudio();
-    if (!a) return;
-    setAudio(a);
-    // Если этот трек уже играет (например юзер открыл свежий ответ и
-    // backend успел persisted) — НЕ перезапускаем, просто синхронизируем UI.
-    const sameTrack = isSameTrackPlaying(a.src, track.audioUrl);
-    if (sameTrack) {
-      setIsThis(true);
-      setIsPlaying(!a.paused);
-      setCurrentTime(a.currentTime || 0);
-      if (a.duration > 0) setDuration(a.duration);
-      return;
-    }
-    // autoPlay: только для свежего bot-message (последнее в истории).
-    if (autoPlay) {
+  // Eugene 2026-05-21 Босс «КАРДИНАЛЬНО: связка чата с плеером и управление».
+  // Build full track-object that landing.playTrack() ожидает. Когда мы
+  // диспатчим 'muza-player-action play' с этим объектом — landing.tsx
+  // регистрирует audioRef + handleEnded + autoplay-next из filteredMusic.
+  const buildTrackForPlayer = useCallback(() => ({
+    id: track.id,
+    audioUrl: track.audioUrl,
+    displayTitle: track.title,
+    authorName: track.authorName,
+    imageUrl: track.coverUrl,
+    duration: track.durationSec,
+    type: "music",
+    isPublic: 1,
+  }), [track]);
+
+  const playViaLandingOrDirect = useCallback(() => {
+    const trackObj = buildTrackForPlayer();
+    let handled = false;
+    const handlerProbe = () => { handled = true; };
+    try {
+      window.addEventListener("muza-player-action-ack", handlerProbe, { once: true });
+      window.dispatchEvent(new CustomEvent("muza-player-action", {
+        detail: { action: "play", payload: trackObj },
+      }));
+    } catch {}
+    // Если landing.tsx НЕ смонтирован (мы на dashboard/track-page) —
+    // нет ACK → через 150ms fallback на прямой play через persistent audio.
+    window.setTimeout(() => {
+      try { window.removeEventListener("muza-player-action-ack", handlerProbe); } catch {}
+      if (handled) return;
+      // Fallback: direct play via persistent audio (как было раньше)
+      const a = getPersistentPlayerAudio();
+      if (!a) return;
       try {
         loadTrackIntoPlayer(track.audioUrl);
-        // Sync mediasession metadata (lock-screen ownership)
         setupMediaSessionForTrack(
           { id: track.id, title: track.title, artist: track.authorName || "MuzaAi", album: "MuzaAi" },
-          {
-            play: () => { a.play().catch(() => {}); },
-            pause: () => { a.pause(); },
-          },
+          { play: () => a.play().catch(() => {}), pause: () => a.pause() },
           { coverBust: track.id, prewarm: true },
         );
-        // Удерживаем gradient-info на странице
         try {
           (window as any).__muziaiTrack = {
-            id: track.id,
-            title: track.title,
-            authorName: track.authorName,
-            imageUrl: track.coverUrl,
+            id: track.id, title: track.title,
+            authorName: track.authorName, imageUrl: track.coverUrl,
           };
         } catch {}
         a.play().then(() => {
           setLockScreenPlaybackState("playing");
-          // Eugene 2026-05-20: count play через тот же endpoint что и landing
           try {
             fetch(`/api/playlist/play/${track.id}`, {
               method: "POST",
@@ -111,15 +119,33 @@ export function ChatTrackCard({ track, autoPlay }: ChatTrackCardProps) {
               credentials: "include",
             }).catch(() => {});
           } catch {}
+          setIsThis(true);
         }).catch((err) => {
-          // iOS Safari блокирует autoplay без user gesture — это нормально
-          // для первого сообщения, юзер нажмёт Play вручную.
-          console.warn("[ChatTrackCard] autoplay blocked:", err?.message || err);
+          console.warn("[ChatTrackCard] play() failed:", err?.message || err);
         });
-        setIsThis(true);
       } catch (e: any) {
-        console.warn("[ChatTrackCard] autoPlay setup failed:", e?.message || e);
+        console.warn("[ChatTrackCard] fallback setup failed:", e?.message || e);
       }
+    }, 150);
+  }, [buildTrackForPlayer, track]);
+
+  // === Mount: attach к persistent singleton, опц. auto-play ===
+  useEffect(() => {
+    const a = getPersistentPlayerAudio();
+    if (!a) return;
+    setAudio(a);
+    // Если этот трек уже играет — синхронизируем UI без перезапуска.
+    const sameTrack = isSameTrackPlaying(a.src, track.audioUrl);
+    if (sameTrack) {
+      setIsThis(true);
+      setIsPlaying(!a.paused);
+      setCurrentTime(a.currentTime || 0);
+      if (a.duration > 0) setDuration(a.duration);
+      return;
+    }
+    // autoPlay: только для свежего bot-message
+    if (autoPlay) {
+      playViaLandingOrDirect();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [track.id, track.audioUrl]);
@@ -192,48 +218,43 @@ export function ChatTrackCard({ track, autoPlay }: ChatTrackCardProps) {
         }
         return;
       }
-      // Switch на этот трек
-      loadTrackIntoPlayer(track.audioUrl);
-      setupMediaSessionForTrack(
-        { id: track.id, title: track.title, artist: track.authorName || "MuzaAi", album: "MuzaAi" },
-        {
-          play: () => { audio.play().catch(() => {}); },
-          pause: () => { audio.pause(); },
-        },
-        { coverBust: track.id, prewarm: true },
-      );
-      try {
-        (window as any).__muziaiTrack = {
-          id: track.id,
-          title: track.title,
-          authorName: track.authorName,
-          imageUrl: track.coverUrl,
-        };
-      } catch {}
-      audio.play().then(() => {
-        setLockScreenPlaybackState("playing");
-        setIsThis(true);
-        try {
-          fetch(`/api/playlist/play/${track.id}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ elapsedSec: 0 }),
-            credentials: "include",
-          }).catch(() => {});
-        } catch {}
-      }).catch((err) => {
-        console.warn("[ChatTrackCard] play() failed:", err?.message || err);
-        if (String(err?.message || "").toLowerCase().includes("not allowed")) {
-          // user gesture blocked — пробуем еще раз без mediasession
-          audio.play().catch(() => {});
-        } else {
-          setUnavailable(true);
-        }
-      });
+      // Eugene 2026-05-21 «связка с плеером» — через event-bus с fallback.
+      playViaLandingOrDirect();
     } catch (e: any) {
       console.warn("[ChatTrackCard] onPlayClick error:", e?.message || e);
     }
-  }, [audio, track]);
+  }, [audio, track, playViaLandingOrDirect]);
+
+  // Eugene 2026-05-21 Босс «next трек срабатывает на 100%» — emit
+  // 'muza-player-action next/prev'. Landing.tsx обрабатывает через filteredMusic.
+  // Если landing не смонтирован — кнопки скрыты (disabled).
+  const [landingMounted, setLandingMounted] = useState(false);
+  useEffect(() => {
+    // Probe — отправляем безопасный action (volume_delta 0) и слушаем ACK.
+    let ack = false;
+    const onAck = () => { ack = true; };
+    window.addEventListener("muza-player-action-ack", onAck, { once: true });
+    window.dispatchEvent(new CustomEvent("muza-player-action", {
+      detail: { action: "volume_delta", payload: 0 },
+    }));
+    const t = window.setTimeout(() => {
+      window.removeEventListener("muza-player-action-ack", onAck);
+      setLandingMounted(ack);
+    }, 120);
+    return () => { window.clearTimeout(t); window.removeEventListener("muza-player-action-ack", onAck); };
+  }, []);
+
+  const onNextClick = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("muza-player-action", {
+      detail: { action: "next", payload: null },
+    }));
+  }, []);
+
+  const onPrevClick = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("muza-player-action", {
+      detail: { action: "prev", payload: null },
+    }));
+  }, []);
 
   const onSeek = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!audio || !isThis || duration <= 0) return;
@@ -330,16 +351,40 @@ export function ChatTrackCard({ track, autoPlay }: ChatTrackCardProps) {
           </div>
         </div>
 
-        {/* Play/Pause button */}
-        <button
-          type="button"
-          onClick={onPlayClick}
-          className="shrink-0 w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 via-fuchsia-500 to-blue-500 hover:from-purple-400 hover:via-fuchsia-400 hover:to-blue-400 border border-purple-300/40 text-white text-xl flex items-center justify-center shadow-[0_0_20px_rgba(168,85,247,0.4)] hover:shadow-[0_0_28px_rgba(168,85,247,0.6)] transition-all active:scale-95"
-          aria-label={isThis && isPlaying ? "Пауза" : "Воспроизведение"}
-          title={isThis && isPlaying ? "Пауза" : "Воспроизвести"}
-        >
-          {isThis && isPlaying ? "⏸" : "▶"}
-        </button>
+        {/* Controls — Prev / Play / Next */}
+        <div className="shrink-0 flex items-center gap-1.5">
+          {landingMounted && (
+            <button
+              type="button"
+              onClick={onPrevClick}
+              className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 border border-white/15 text-white text-sm flex items-center justify-center transition-all active:scale-95"
+              aria-label="Предыдущий трек"
+              title="Предыдущий"
+            >
+              ⏮
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onPlayClick}
+            className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 via-fuchsia-500 to-blue-500 hover:from-purple-400 hover:via-fuchsia-400 hover:to-blue-400 border border-purple-300/40 text-white text-xl flex items-center justify-center shadow-[0_0_20px_rgba(168,85,247,0.4)] hover:shadow-[0_0_28px_rgba(168,85,247,0.6)] transition-all active:scale-95"
+            aria-label={isThis && isPlaying ? "Пауза" : "Воспроизведение"}
+            title={isThis && isPlaying ? "Пауза" : "Воспроизвести"}
+          >
+            {isThis && isPlaying ? "⏸" : "▶"}
+          </button>
+          {landingMounted && (
+            <button
+              type="button"
+              onClick={onNextClick}
+              className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 border border-white/15 text-white text-sm flex items-center justify-center transition-all active:scale-95"
+              aria-label="Следующий трек"
+              title="Следующий"
+            >
+              ⏭
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

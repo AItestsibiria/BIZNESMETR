@@ -1221,13 +1221,26 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
 
   useEffect(() => {
     const handler = (e: Event) => {
-      const ce = e as CustomEvent<{ action?: string; payload?: string | null }>;
+      const ce = e as CustomEvent<{ action?: string; payload?: any }>;
       const action = String(ce?.detail?.action || "");
       const payload = ce?.detail?.payload ?? null;
       const A = playerActionsRef.current;
+      // Eugene 2026-05-21 Босс «КАРДИНАЛЬНО: связка чата с плеером». ACK для
+      // ChatTrackCard fallback — если landing смонтирован, отправитель получит
+      // подтверждение и НЕ запустит direct-play (избегаем double-trigger).
+      try { window.dispatchEvent(new CustomEvent("muza-player-action-ack", { detail: { action } })); } catch {}
       try {
         switch (action) {
           case "play": {
+            // Eugene 2026-05-21 Босс «связка с поиском в чате трека и запуском
+            // его в плеере». payload может быть: id (number) ИЛИ полный track
+            // object {id, audioUrl, displayTitle, ...} — из ChatTrackCard когда
+            // Музa нашла трек вне filteredMusic. playTrack регистрирует audioRef
+            // → handleEnded работает → autoplay-next из filteredMusic.
+            if (payload && typeof payload === "object" && (payload as any).audioUrl) {
+              A.playTrack(payload as any);
+              break;
+            }
             const id = Number(payload);
             if (!Number.isFinite(id) || id <= 0) return;
             const t = tracksRef.current.find((x: any) => x.id === id);
