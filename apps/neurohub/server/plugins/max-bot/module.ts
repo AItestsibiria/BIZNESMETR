@@ -845,8 +845,27 @@ router.post("/webhook", async (req, res) => {
       cleanReply = "Слушаю тебя 🎵 Расскажи к какому событию подбираем песню?";
     }
 
+    // Eugene 2026-05-21 Босс: pair-link на web Музa-чат в Max-боте.
+    // После 3+ обмена через 30% chance offer'им переход на сайт с подгрузкой
+    // истории. Формат единый с TG — https://muzaai.ru/?pair=CODE.
+    let pairInvite = "";
+    try {
+      const { getOrCreatePairCode, shouldOfferPairCode, markPairCodeOffered } = await import("../../lib/webChatPair");
+      const msgs = (db.select().from(chatbotMessages).where(eq(chatbotMessages.sessionId, sessionId)).all() as any[]) || [];
+      // Eugene 2026-05-21 Босс «гарантированно надо»: убран Math.random < 0.3.
+      if (msgs.length >= 2 && shouldOfferPairCode(sessionId, "max")) {
+        const code = getOrCreatePairCode(sessionId);
+        if (code) {
+          markPairCodeOffered(sessionId);
+          pairInvite = `\n\n✨ Продолжим на сайте с подгрузкой нашей истории:\nhttps://muzaai.ru/?pair=${encodeURIComponent(code)}`;
+        }
+      }
+    } catch (e: any) {
+      bootRefs?.logger.warn?.("[max-bot] pair-invite skipped", { error: String(e?.message || e) });
+    }
+
     const footer = `\n\n— Муза · MuzaAi`;
-    const replyWithAvatar = `🎵 ${cleanReply}${footer}`;
+    const replyWithAvatar = `🎵 ${cleanReply}${pairInvite}${footer}`;
 
     // Если Музa нашла трек через find_public_track — отправляем audio-attachment.
     let attachedTrack: AttachedTrack | null = null;

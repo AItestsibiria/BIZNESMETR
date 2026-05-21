@@ -1647,6 +1647,39 @@ Reference: lockscreen.ts `setPlayerVolume`, landing.tsx volume useEffect + playT
 - `90b83fc` — Музa universal positioning (real sizes + safe-area + chatOpen offset)
 - `34c30ce` — swipe modal responsive (safe-area + cover max-h по breakpoints)
 
+### Pair-link cross-channel rule (Eugene 2026-05-21)
+
+**Из любого мессенджера (Telegram, Max, future каналы) Музa ГАРАНТИРОВАННО предлагает кликабельную ссылку на web-чат с подгрузкой истории. На web Музa приветствует юзера и продолжает разговор с того места где остановились в мессенджере.**
+
+Формат ссылки (единый для всех ботов): `https://muzaai.ru/?pair=<CODE>` — где CODE = pair-code из `lib/webChatPair.ts`.
+
+Pipeline:
+1. **Bot detection** — после ≥2 exchange'ев юзера и бота, если ещё не offered → создать pair-code + добавить ссылку в конец reply.
+   - НЕ random (раньше было `Math.random() < 0.3` — убрано «гарантированно надо»)
+   - `shouldOfferPairCode(sessionId, channel)` проверяет что не offered ранее (idempotent)
+2. **Юзер клик** → открывается `muzaai.ru/?pair=CODE`
+3. **Frontend** (`floating-consultant.tsx`):
+   - useEffect на mount: detection ?pair= в URL → setVisible(true) + auto openChat() (200ms delay)
+   - initChatSession: читает ?pair= → POST `/api/muza/chat/init {pairCode}` → server линкует session
+   - После использования — query param removed (replaceState) — F5 не дёргает повторно
+4. **Server** (`/api/muza/chat/init`):
+   - Если pairCode валиден → находит session мессенджера → линкует web-session с ней (общий userId)
+   - Загружает history из мессенджер-session + возвращает в response
+   - Генерирует ОСОБОЕ приветствие (см. ниже)
+5. **Greeting на web** (routes.ts:2796-2814):
+   - «Привет! 🎵 Я узнала тебя — мы только что общались в Telegram/Max.»
+   - Цитата ПОСЛЕДНЕГО user message + ПОСЛЕДНИЙ bot reply (80 chars)
+   - «Продолжим прямо отсюда — на чём мы остановились?»
+
+Применяется к: telegram-bot, max-bot, future каналы. НЕ применяется к: anonymous web-чат (там нет источника для pair).
+
+Anti-pattern:
+- ❌ Текст «шепнёшь код XYZ» без кликабельной ссылки — юзер не знает что нажимать
+- ❌ Random offer (30%) — половина юзеров не увидит ссылку
+- ❌ Generic greeting «Привет» без context — юзер не понимает что Музa помнит его
+
+Reference: commit `378b9b6` (pair-link + auto-open chat), commit с улучшением greeting + max-bot pair.
+
 ### Player-tap-actions rule (Eugene 2026-05-21, **перекрывает Player-expand-no-restart rule**)
 
 **В плейлисте на главной два action'а разделены: маленькая обложка → ПУСКАЕТ воспроизведение, строка трека (title + author) → РАСКРЫВАЕТ обложку (inline под строкой).**

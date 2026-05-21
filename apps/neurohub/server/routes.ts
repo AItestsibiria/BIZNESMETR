@@ -2791,13 +2791,25 @@ export async function registerRoutes(
       const history = loadSessionHistoryRich(session.id, 30);
       const persona = personaFor(session.id);
 
-      // Особое приветствие: если paired — Муза помнит что было в мессенджере.
+      // Eugene 2026-05-21 Босс «Муза должна поприветствовать и продолжить с
+      // точки в мессенджере. Правило.»
+      // Если paired — тёплое приветствие со ссылкой на конкретное последнее
+      // обсуждение. Цитируется ОБЕ стороны: что юзер сказал + что Муза ответила.
+      // Цель: юзер чувствует continuity, не «отписалась заново».
       let greeting: string;
       if (paired && pairedFromChannel) {
         const channelLabel = pairedFromChannel === "telegram" ? "Telegram" : pairedFromChannel === "max" ? "Max" : "мессенджере";
         const lastUserMsg = history.filter(h => h.role === "user").slice(-1)[0]?.text || "";
-        const hint = lastUserMsg ? `Помню, мы говорили про «${lastUserMsg.slice(0, 60)}…». ` : "";
-        greeting = `Узнаю тебя — мы общались в ${channelLabel}. ${hint}Продолжим тут?`;
+        const lastBotMsg = history.filter(h => h.role === "bot").slice(-1)[0]?.text || "";
+        const userSnip = lastUserMsg ? lastUserMsg.slice(0, 80).replace(/\s+/g, " ").trim() : "";
+        const botSnip = lastBotMsg ? lastBotMsg.slice(0, 80).replace(/\s+/g, " ").trim() : "";
+        if (userSnip && botSnip) {
+          greeting = `Привет! 🎵 Я узнала тебя — мы только что общались в ${channelLabel}.\n\nТы сказал: «${userSnip}…»\nЯ ответила: «${botSnip}…»\n\nПродолжим прямо отсюда — на чём мы остановились?`;
+        } else if (userSnip) {
+          greeting = `Привет! 🎵 Я узнала тебя из ${channelLabel}. Помню, ты говорил про «${userSnip}…». Продолжим тут — расскажи дальше?`;
+        } else {
+          greeting = `Привет! 🎵 Я узнала тебя — мы общались в ${channelLabel}. Здесь у нас вся история. Продолжим с того места где остановились?`;
+        }
       } else if (authUserId) {
         // Eugene 2026-05-14 Босс «знать его треки, обсуждать прогресс как друг».
         const u = storage.getUser(authUserId);

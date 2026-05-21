@@ -918,8 +918,11 @@ async function processIncomingText(chatId: string, fromId: string, sessionId: st
     // в конец ответа приглашение «продолжить на сайте, скажи код XYZ123».
     let pairInvite = "";
     try {
+      // Eugene 2026-05-21 Босс «гарантированно надо»: убран Math.random < 0.3.
+      // Pair-link шлётся при первом удобном моменте (≥2 exchange'а юзера+Музa)
+      // если ещё не offered — гарантия что юзер увидит ссылку на web.
       const msgCount = history.length;
-      if (msgCount >= 3 && shouldOfferPairCode(sessionId, "telegram") && Math.random() < 0.3) {
+      if (msgCount >= 2 && shouldOfferPairCode(sessionId, "telegram")) {
         const code = getOrCreatePairCode(sessionId);
         if (code) {
           markPairCodeOffered(sessionId);
