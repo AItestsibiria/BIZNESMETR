@@ -65,6 +65,10 @@ function RollingNumber({ value }: { value: number }) {
 export function PlaysCounter({ className = "" }: { className?: string }) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [tick, setTick] = useState(0); // для re-trigger flash при изменении
+  // Eugene 2026-05-21 Босс: «кнопка отключить анимации на 1 день. 3 дня
+  // подряд = до явного включения. По IP». State от server.
+  const [animEnabled, setAnimEnabled] = useState(true);
+  const [permanentOff, setPermanentOff] = useState(false);
 
   useEffect(() => {
     const fetchStats = () => {
@@ -84,8 +88,38 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
     };
     fetchStats();
     const interval = setInterval(fetchStats, 60_000);
+
+    // Read animation preference (by IP, server-side)
+    fetch("/api/user-preferences/anim-state", { cache: "no-store" })
+      .then(r => r.ok ? r.json() : null)
+      .then(j => {
+        if (j) {
+          setAnimEnabled(!!j.enabled);
+          setPermanentOff(!!j.permanentOff);
+        }
+      })
+      .catch(() => {});
+
     return () => clearInterval(interval);
   }, []);
+
+  const toggleAnim = () => {
+    const newState = !animEnabled;
+    setAnimEnabled(newState);
+    fetch("/api/user-preferences/anim-toggle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: newState }),
+    })
+      .then(r => r.json())
+      .then(j => {
+        if (j?.state) {
+          setAnimEnabled(!!j.state.enabled);
+          setPermanentOff(!!j.state.permanentOff);
+        }
+      })
+      .catch(() => {});
+  };
 
   if (!stats || stats.totalPlays === 0) return null;
 
@@ -156,57 +190,61 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
       `}</style>
 
       <div
-        className={`relative inline-flex items-center justify-center px-7 py-4 rounded-full uc-pulse ${className}`}
+        className={`relative inline-flex items-center justify-center px-7 py-4 rounded-full ${animEnabled ? "uc-pulse" : ""} ${className}`}
         style={{
           background: "linear-gradient(135deg, rgba(124,58,237,0.18) 0%, rgba(217,70,239,0.14) 50%, rgba(6,182,212,0.18) 100%)",
           border: "1px solid rgba(217,70,239,0.40)",
           backdropFilter: "blur(20px)",
           WebkitBackdropFilter: "blur(20px)",
         }}
-        title={`${stats.totalTracks} треков, обновляется каждую минуту`}
+        title={`${stats.totalTracks} треков`}
         aria-live="polite"
       >
-        {/* === Cosmic Orbits — 3 planet'ы вокруг === */}
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{ "--uc-radius": "85px" } as any}
-        >
-          <span
-            className="uc-orbit absolute top-1/2 left-1/2 w-1.5 h-1.5 rounded-full bg-fuchsia-400 shadow-[0_0_8px_#d946ef]"
-            style={{ animation: "uc-orbit 9s linear infinite", marginLeft: "-3px", marginTop: "-3px" }}
-            aria-hidden="true"
-          />
-          <span
-            className="uc-orbit absolute top-1/2 left-1/2 w-1 h-1 rounded-full bg-cyan-300 shadow-[0_0_6px_#67e8f9]"
-            style={{ animation: "uc-orbit-rev 6s linear infinite", marginLeft: "-2px", marginTop: "-2px", animationDelay: "-2s" }}
-            aria-hidden="true"
-          />
-          <span
-            className="uc-orbit absolute top-1/2 left-1/2 w-1 h-1 rounded-full bg-purple-300 shadow-[0_0_6px_#c084fc]"
-            style={{ animation: "uc-orbit 13s linear infinite", marginLeft: "-2px", marginTop: "-2px", animationDelay: "-5s" }}
-            aria-hidden="true"
-          />
-        </div>
+        {/* === Cosmic Orbits — 3 planet'ы вокруг (only if anim enabled) === */}
+        {animEnabled && (
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{ "--uc-radius": "85px" } as any}
+          >
+            <span
+              className="absolute top-1/2 left-1/2 w-1.5 h-1.5 rounded-full bg-fuchsia-400 shadow-[0_0_8px_#d946ef]"
+              style={{ animation: "uc-orbit 9s linear infinite", marginLeft: "-3px", marginTop: "-3px" }}
+              aria-hidden="true"
+            />
+            <span
+              className="absolute top-1/2 left-1/2 w-1 h-1 rounded-full bg-cyan-300 shadow-[0_0_6px_#67e8f9]"
+              style={{ animation: "uc-orbit-rev 6s linear infinite", marginLeft: "-2px", marginTop: "-2px", animationDelay: "-2s" }}
+              aria-hidden="true"
+            />
+            <span
+              className="absolute top-1/2 left-1/2 w-1 h-1 rounded-full bg-purple-300 shadow-[0_0_6px_#c084fc]"
+              style={{ animation: "uc-orbit 13s linear infinite", marginLeft: "-2px", marginTop: "-2px", animationDelay: "-5s" }}
+              aria-hidden="true"
+            />
+          </div>
+        )}
 
-        {/* === Comet — пролетает на каждом update (re-mounted при tick++) === */}
-        <span
-          key={`comet-${tick}`}
-          className="absolute pointer-events-none top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[10px] text-amber-300"
-          style={{ animation: "uc-comet 1.6s ease-out forwards", filter: "drop-shadow(0 0 6px #fbbf24)" }}
-          aria-hidden="true"
-        >
-          ✨
-        </span>
+        {/* === Comet — пролетает на каждом update (only if anim enabled) === */}
+        {animEnabled && (
+          <span
+            key={`comet-${tick}`}
+            className="absolute pointer-events-none top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[10px] text-amber-300"
+            style={{ animation: "uc-comet 1.6s ease-out forwards", filter: "drop-shadow(0 0 6px #fbbf24)" }}
+            aria-hidden="true"
+          >
+            ✨
+          </span>
+        )}
 
-        {/* === Music Equalizer Bars (left + right) === */}
+        {/* === Music Equalizer Bars (left) — only if anim enabled === */}
         <div className="flex items-end gap-[2px] h-6 mr-3" aria-hidden="true">
           {[0, 1, 2, 3].map(i => (
             <span
               key={`eql-${i}`}
               className="w-[3px] bg-gradient-to-t from-purple-500 to-fuchsia-400 rounded-full origin-bottom"
               style={{
-                height: "100%",
-                animation: `uc-eq-bar ${0.6 + i * 0.15}s ease-in-out infinite`,
+                height: animEnabled ? "100%" : "40%",
+                animation: animEnabled ? `uc-eq-bar ${0.6 + i * 0.15}s ease-in-out infinite` : "none",
                 animationDelay: `${i * 0.1}s`,
               }}
             />
@@ -239,18 +277,36 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
               key={`eqr-${i}`}
               className="w-[3px] bg-gradient-to-t from-cyan-500 to-purple-400 rounded-full origin-bottom"
               style={{
-                height: "100%",
-                animation: `uc-eq-bar ${0.7 + i * 0.12}s ease-in-out infinite`,
+                height: animEnabled ? "100%" : "40%",
+                animation: animEnabled ? `uc-eq-bar ${0.7 + i * 0.12}s ease-in-out infinite` : "none",
                 animationDelay: `${0.2 + i * 0.13}s`,
               }}
             />
           ))}
         </div>
 
-        {/* Label под counter'ом */}
+        {/* Label под counter'ом — Eugene 2026-05-21 Босс: убрано «обновлено» */}
         <span className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[10px] uppercase tracking-widest text-white/50 font-semibold whitespace-nowrap">
-          прослушиваний · обновлено
+          прослушиваний
         </span>
+
+        {/* Eugene 2026-05-21 Босс: «кнопка mini отключить анимацию по смыслу
+            в первом нижнем». Tracking по IP через server. 3 дня подряд →
+            permanent off до явного включения. */}
+        <button
+          type="button"
+          onClick={toggleAnim}
+          aria-label={animEnabled ? "Отключить анимацию на день" : "Включить анимацию"}
+          title={permanentOff
+            ? "Анимация выключена постоянно (3 дня подряд). Жмите чтобы включить."
+            : animEnabled
+              ? "Отключить анимацию на 1 день"
+              : "Включить анимацию"
+          }
+          className="absolute -bottom-5 right-2 w-5 h-5 rounded-full bg-white/8 hover:bg-white/15 border border-white/15 flex items-center justify-center text-[9px] transition-colors leading-none"
+        >
+          {animEnabled ? "✦" : "○"}
+        </button>
       </div>
     </>
   );

@@ -213,6 +213,17 @@ try {
   // SMS OTP-коды (отдельная таблица для register/login flow — без юзера ещё).
   // Eugene 2026-05-15 Босс. Hash код, не plain (защита от leak data.db).
   sqlite.exec(`
+    -- Eugene 2026-05-21 Босс: «кнопка отключить анимации на 1 день,
+    -- если 3 дня подряд — сохранить до явного включения. По IP».
+    CREATE TABLE IF NOT EXISTS anim_preferences (
+      ip TEXT PRIMARY KEY,
+      disabled_until TEXT,           -- ISO, NULL = enabled
+      consecutive_disables INTEGER NOT NULL DEFAULT 0,
+      permanent_off INTEGER NOT NULL DEFAULT 0,  -- 1 = до явного включения юзером
+      last_toggle_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS anim_prefs_until_idx ON anim_preferences(disabled_until);
+
     CREATE TABLE IF NOT EXISTS sms_otp (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       phone TEXT NOT NULL,

@@ -42,10 +42,8 @@ export function RocketLaunch() {
 
   useEffect(() => {
     const onTrackFinished = () => {
-      // Spawn 1-3 ракет одновременно (random count, медленно)
-      const count = 1 + Math.floor(Math.random() * 3);
-      const newRockets: Rocket[] = [];
-      for (let i = 0; i < count; i++) newRockets.push(randomRocket());
+      // Eugene 2026-05-21 Босс: «одна ракета на 1 трек».
+      const newRockets: Rocket[] = [randomRocket()];
       setRockets(prev => [...prev, ...newRockets]);
 
       // Auto-cleanup после max duration

@@ -9713,6 +9713,89 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     }
   });
 
+  // Eugene 2026-05-21 Босс: «кнопка отключить анимации на 1 день. Если 3 дня
+  // подряд — сохранить до явного включения. По IP».
+  //
+  // State logic:
+  // - disabled_until > now → animations OFF
+  // - permanent_off=1 → animations OFF до явного toggle
+  // - consecutive_disables >= 3 → permanent_off automatic
+  //
+  // Tracking: при toggle OFF — увеличиваем counter если предыдущий toggle был
+  // в окне 25h (последовательность). Если разрыв > 25h — сбрасываем counter.
+  function extractClientIp(req: Request): string {
+    const raw = String(req.headers["x-forwarded-for"] || req.ip || "").split(",")[0].trim();
+    return raw.replace(/^::ffff:/, "") || "unknown";
+  }
+  function getAnimState(ip: string): { enabled: boolean; reason: string; disabledUntil: string | null; consecutiveDisables: number; permanentOff: boolean } {
+    try {
+      const rawSql: any = (db as any).$client || sqliteDb;
+      const row = rawSql.prepare("SELECT disabled_until, consecutive_disables, permanent_off FROM anim_preferences WHERE ip = ?").get(ip) as any;
+      if (!row) return { enabled: true, reason: "default", disabledUntil: null, consecutiveDisables: 0, permanentOff: false };
+      if (row.permanent_off) return { enabled: false, reason: "permanent (3 дня подряд)", disabledUntil: null, consecutiveDisables: Number(row.consecutive_disables || 0), permanentOff: true };
+      if (row.disabled_until && new Date(row.disabled_until).getTime() > Date.now()) {
+        return { enabled: false, reason: "1-day-off", disabledUntil: row.disabled_until, consecutiveDisables: Number(row.consecutive_disables || 0), permanentOff: false };
+      }
+      return { enabled: true, reason: "expired-or-enabled", disabledUntil: null, consecutiveDisables: Number(row.consecutive_disables || 0), permanentOff: false };
+    } catch {
+      return { enabled: true, reason: "error-fallback", disabledUntil: null, consecutiveDisables: 0, permanentOff: false };
+    }
+  }
+  app.get("/api/user-preferences/anim-state", (req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "no-store");
+    const ip = extractClientIp(req);
+    res.json(getAnimState(ip));
+  });
+  app.post("/api/user-preferences/anim-toggle", (req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "no-store");
+    const ip = extractClientIp(req);
+    const wantEnabled = req.body?.enabled !== false; // default true (enable)
+    try {
+      const rawSql: any = (db as any).$client || sqliteDb;
+      const now = new Date();
+      const nowIso = now.toISOString();
+      const existing = rawSql.prepare("SELECT disabled_until, consecutive_disables, permanent_off, last_toggle_at FROM anim_preferences WHERE ip = ?").get(ip) as any;
+      if (wantEnabled) {
+        // Юзер явно включает — сбрасываем permanent_off + counter
+        if (existing) {
+          rawSql.prepare("UPDATE anim_preferences SET disabled_until=NULL, consecutive_disables=0, permanent_off=0, last_toggle_at=? WHERE ip=?").run(nowIso, ip);
+        }
+        res.json({ ok: true, state: getAnimState(ip) });
+        return;
+      }
+      // Disable on 1 day. Tracking consecutive:
+      const oneDayMs = 24 * 60 * 60 * 1000;
+      const disabledUntil = new Date(now.getTime() + oneDayMs).toISOString();
+      let consecutive = 1;
+      let permanent = 0;
+      if (existing) {
+        const lastToggleMs = existing.last_toggle_at ? new Date(existing.last_toggle_at).getTime() : 0;
+        const sinceLastH = (now.getTime() - lastToggleMs) / (60 * 60 * 1000);
+        // Если предыдущий toggle (OFF) был в окне 25 часов — increment counter
+        if (sinceLastH <= 25 && Number(existing.consecutive_disables || 0) > 0) {
+          consecutive = Number(existing.consecutive_disables) + 1;
+        }
+        if (consecutive >= 3) {
+          permanent = 1;
+        }
+        rawSql.prepare("UPDATE anim_preferences SET disabled_until=?, consecutive_disables=?, permanent_off=?, last_toggle_at=? WHERE ip=?").run(
+          permanent ? null : disabledUntil,
+          consecutive,
+          permanent,
+          nowIso,
+          ip,
+        );
+      } else {
+        rawSql.prepare("INSERT INTO anim_preferences (ip, disabled_until, consecutive_disables, permanent_off, last_toggle_at) VALUES (?, ?, ?, ?, ?)").run(
+          ip, disabledUntil, 1, 0, nowIso,
+        );
+      }
+      res.json({ ok: true, state: getAnimState(ip) });
+    } catch (e: any) {
+      res.json({ ok: false, error: String(e?.message || e).slice(0, 150) });
+    }
+  });
+
   app.get("/api/admin/v304/playlist-sort-rotation", requireAdmin, (_req: Request, res: Response) => {
     res.setHeader("Cache-Control", "no-store");
     res.json({ ...getRotationConfig(), today: getTodayDefaultSort() });

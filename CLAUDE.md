@@ -1787,6 +1787,26 @@ Functional check (`apps/neurohub/server/plugins/api-health/module.ts`):
 
 Reference: commit с расширением checks, helper `isFunctionalMuzaReply` в api-health/module.ts.
 
+### User-anim-preference rule (Eugene 2026-05-21)
+
+**Mini-toggle кнопка возле визуальных эффектов (PlaysCounter, future animations) — выключение на 1 день. Если юзер 3 дня подряд выключает — сохранить до явного включения. Identification по IP.**
+
+Pipeline:
+- Frontend: маленькая кнопка ✦/○ снизу-справа counter'а. onClick → POST `/api/user-preferences/anim-toggle` с `{enabled: bool}`.
+- Server: таблица `anim_preferences (ip, disabled_until, consecutive_disables, permanent_off, last_toggle_at)`.
+- Логика toggle OFF:
+  - Записываем `disabled_until = now + 24h`
+  - Если предыдущий toggle (OFF) был в окне ≤ 25 часов → `consecutive_disables++`
+  - При `consecutive >= 3` → `permanent_off = 1` (хранится до явного `enabled: true`)
+- Логика toggle ON: сбрасываем `permanent_off`, `consecutive_disables`, `disabled_until=NULL`.
+- GET `/api/user-preferences/anim-state`: возвращает `{enabled, reason, disabledUntil, consecutiveDisables, permanentOff}`.
+
+Применяется к: PlaysCounter (pulse, orbits, comet, equalizer bars), future animated widgets на главной/кабинете. НЕ применяется к: критическим UI feedback (loader spinner, button press, error shake — это affordance не анимация).
+
+Compat с `prefers-reduced-motion` rule: если юзер motion-sensitive (OS-level) — animations off независимо от toggle. Toggle — дополнительный fine-grained control.
+
+Reference: commit с реализацией. Frontend: `components/plays-counter.tsx` toggleAnim state + button ✦/○ в правом нижнем углу.
+
 ### LLM-chain-order rule (Eugene 2026-05-21)
 
 **Порядок попыток LLM-провайдеров Музы — DeepSeek первый (дешевле), TimeWeb второй, далее Anthropic по имени sort (API_KEY → _BACKUP → _BOT), последний резерв — GPTunnel.**
