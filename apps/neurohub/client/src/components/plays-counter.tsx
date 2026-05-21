@@ -111,6 +111,75 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
   // подряд = до явного включения. По IP». State от server.
   const [animEnabled, setAnimEnabled] = useState(true);
   const [permanentOff, setPermanentOff] = useState(false);
+  // Eugene 2026-05-21 Босс «эквалайзеры реагируют на стиль музыки: быстрая
+  // моргают в такт». Subscribe to persistent audio + estimate beat speed.
+  // На iOS createMediaElementSource ЗАПРЕЩЁН (iOS-lock-screen-audio rule) —
+  // используем proxy: playing/paused + длительность трека для оценки темпа.
+  // Track tempo proxy: if track duration < 180s — "fast" (likely uptempo);
+  // 180-260 — medium; >260 — slow. Plus modulate by paused state.
+  const [audioState, setAudioState] = useState<{ playing: boolean; tempoCls: "fast" | "medium" | "slow" }>({ playing: false, tempoCls: "medium" });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    // Достаём persistent audio singleton — может ещё не существовать.
+    const findAudio = (): HTMLAudioElement | null => {
+      try {
+        return (window as any).__muziaiAudio || document.querySelector("audio[data-muziai-player]") || null;
+      } catch { return null; }
+    };
+    let audio: HTMLAudioElement | null = findAudio();
+    const update = () => {
+      const a = findAudio();
+      audio = a;
+      const playing = !!(a && !a.paused && (a.currentTime > 0 || a.readyState >= 2));
+      const dur = a?.duration && isFinite(a.duration) ? a.duration : 0;
+      // Tempo proxy: короткий трек = быстрый темп
+      const tempoCls: "fast" | "medium" | "slow" = !playing ? "medium"
+        : dur > 0 && dur < 150 ? "fast"
+        : dur > 240 ? "slow"
+        : "medium";
+      setAudioState(s => (s.playing === playing && s.tempoCls === tempoCls) ? s : { playing, tempoCls });
+    };
+    update();
+    const onPlay = () => update();
+    const onPause = () => update();
+    const onLoaded = () => update();
+    const onEnded = () => update();
+    // Periodic re-check (audio singleton может пересоздаться вне нашего ведения).
+    const interval = window.setInterval(update, 1500);
+    const attach = (a: HTMLAudioElement) => {
+      a.addEventListener("play", onPlay);
+      a.addEventListener("pause", onPause);
+      a.addEventListener("loadedmetadata", onLoaded);
+      a.addEventListener("ended", onEnded);
+    };
+    if (audio) attach(audio);
+    // Также наблюдаем за появлением audio (через MutationObserver на body)
+    const mo = new MutationObserver(() => {
+      const a = findAudio();
+      if (a && a !== audio) { audio = a; attach(a); update(); }
+    });
+    mo.observe(document.body, { childList: true, subtree: true });
+    return () => {
+      window.clearInterval(interval);
+      mo.disconnect();
+      if (audio) {
+        try {
+          audio.removeEventListener("play", onPlay);
+          audio.removeEventListener("pause", onPause);
+          audio.removeEventListener("loadedmetadata", onLoaded);
+          audio.removeEventListener("ended", onEnded);
+        } catch {}
+      }
+    };
+  }, []);
+
+  // Equalizer animation duration в зависимости от темпа/playing.
+  // Fast → 0.28s, medium → 0.6s, slow → 0.9s. Paused → static (40% height).
+  const eqBaseSec = !audioState.playing ? 0
+    : audioState.tempoCls === "fast" ? 0.28
+    : audioState.tempoCls === "slow" ? 0.9
+    : 0.6;
   // Eugene 2026-05-21 Босс: «кнопка i — после 1 000 000 prosлушиваний маякнём
   // мировой звезде. Предложите имя, голосование, при нажатии «мировой звезды»
   // показывай рейтинг. В топе Leo Di Caprio».
@@ -424,15 +493,26 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
       `}</style>
 
       <div
-        className={`relative inline-flex items-center justify-center px-3.5 py-2 rounded-full ${animEnabled ? "uc-pulse" : ""} ${className}`}
+        className={`relative inline-flex items-center justify-center px-3.5 py-2 rounded-full ${animEnabled ? "uc-pulse" : ""} ${className} cursor-pointer`}
         style={{
           background: "linear-gradient(135deg, rgba(124,58,237,0.18) 0%, rgba(217,70,239,0.14) 50%, rgba(6,182,212,0.18) 100%)",
           border: "1px solid rgba(217,70,239,0.40)",
           backdropFilter: "blur(20px)",
           WebkitBackdropFilter: "blur(20px)",
         }}
-        title={`${stats.totalTracks} треков`}
+        title={`${stats.totalTracks} треков · нажми чтобы открыть меню звезды`}
         aria-live="polite"
+        role="button"
+        tabIndex={0}
+        onClick={(e) => {
+          // Eugene 2026-05-21 Босс: «при нажатии на счётчик раскрывай меню
+          // со звездой параллельно i». Игнорируем клики по дочерним buttons
+          // (i / ✦/○ / drag-handle) — они имеют свою логику.
+          const tgt = e.target as HTMLElement;
+          if (tgt.closest("button")) return;
+          setShowInfo(v => !v);
+          if (!showInfo) { setShowRating(true); loadStarRating(); }
+        }}
       >
         {/* === Cosmic Orbits — 3 planet'ы вокруг (only if anim enabled) === */}
         {animEnabled && (
@@ -476,17 +556,26 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
             (purple→fuchsia→cyan) + одинаковая последовательность timings.
             Левый bars 0,1,2,3 (наружу→центр), правый 3,2,1,0 (центр→наружу). */}
         <div className="flex items-end gap-[1.5px] h-[13px] mr-1.5" aria-hidden="true">
-          {[0, 1, 2, 3].map(i => (
-            <span
-              key={`eql-${i}`}
-              className="w-[1.5px] bg-gradient-to-t from-purple-500 via-fuchsia-500 to-cyan-400 rounded-full origin-bottom"
-              style={{
-                height: animEnabled ? "100%" : "40%",
-                animation: animEnabled ? `uc-eq-bar ${0.6 + i * 0.12}s ease-in-out infinite` : "none",
-                animationDelay: `${i * 0.1}s`,
-              }}
-            />
-          ))}
+          {[0, 1, 2, 3].map(i => {
+            // Eugene 2026-05-21 Босс «эквалайзеры реагируют на стиль музыки».
+            // playing → анимация активна с темпом из audioState; paused → static.
+            const playingAnim = animEnabled && audioState.playing && eqBaseSec > 0;
+            return (
+              <span
+                key={`eql-${i}`}
+                className="w-[1.5px] bg-gradient-to-t from-purple-500 via-fuchsia-500 to-cyan-400 rounded-full origin-bottom"
+                style={{
+                  height: animEnabled ? "100%" : "40%",
+                  animation: playingAnim
+                    ? `uc-eq-bar ${eqBaseSec + i * 0.04}s ease-in-out infinite`
+                    : animEnabled
+                      ? `uc-eq-bar ${0.9 + i * 0.12}s ease-in-out infinite`
+                      : "none",
+                  animationDelay: `${i * 0.08}s`,
+                }}
+              />
+            );
+          })}
         </div>
 
         {/* === Slot Machine number — Neon glow === */}
