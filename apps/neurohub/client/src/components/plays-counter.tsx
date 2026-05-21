@@ -675,7 +675,9 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
             <PlanetIcon size={80} />
           </button>
 
-          {/* Снизу под планетой: визиты (geoData.totalVisits за 30 дней) */}
+          {/* Eugene 2026-05-21 Босс «количество визитов в стиле логотипа,
+              переменный цвет слева направо, цифры по центру планеты».
+              Logo gradient (MuzaAi style): purple→fuchsia→cyan bg-clip-text. */}
           {geoData && geoData.totalVisits > 0 && (() => {
             const n = geoData.totalVisits;
             const mod10 = n % 10;
@@ -686,9 +688,14 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
             else if (mod10 >= 2 && mod10 <= 4) word = "визита";
             else word = "визитов";
             return (
-              <div className="mt-1 text-[10px] text-white/65 font-sans whitespace-nowrap">
-                <span className="text-[#FBBF24] font-semibold" style={{ fontVariantNumeric: "tabular-nums" }}>{n.toLocaleString("ru-RU")}</span>
-                <span className="text-white/45"> {word}</span>
+              <div className="mt-1 text-center font-sans">
+                <div
+                  className="text-base font-display font-bold tracking-tight bg-gradient-to-r from-purple-400 via-fuchsia-400 to-cyan-300 bg-clip-text text-transparent leading-tight"
+                  style={{ fontVariantNumeric: "tabular-nums" }}
+                >
+                  {n.toLocaleString("ru-RU")}
+                </div>
+                <div className="text-[9px] text-white/45 leading-none -mt-0.5">{word}</div>
               </div>
             );
           })()}
