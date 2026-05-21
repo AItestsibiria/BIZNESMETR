@@ -244,6 +244,19 @@ try {
     );
     CREATE INDEX IF NOT EXISTS anim_prefs_until_idx ON anim_preferences(disabled_until);
 
+    -- Eugene 2026-05-21 Босс: «дай статистику за месяц какой параметр юзеры
+    -- выбирают в Песни — такой и по умолчанию при загрузке. Остальные по
+    -- уменьшению частоты выбора». Tracking explicit user choices в sort toggle.
+    CREATE TABLE IF NOT EXISTS playlist_sort_choices (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,
+      ip TEXT,
+      category TEXT NOT NULL,   -- 'song' | 'greeting' | 'instrumental' | 'all'
+      sort_mode TEXT NOT NULL,  -- 'date' | 'rating' | 'random' | 'top_month'
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS plsc_cat_at_idx ON playlist_sort_choices(category, created_at);
+
     CREATE TABLE IF NOT EXISTS sms_otp (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       phone TEXT NOT NULL,

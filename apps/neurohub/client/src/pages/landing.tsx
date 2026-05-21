@@ -530,7 +530,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       const saved = localStorage.getItem("pl_v2:sortMode");
       if (saved) return; // у юзера уже свой выбор — не перебиваем
     } catch {}
-    fetch("/api/playlist/sort-default", { cache: "no-store" })
+    // Eugene 2026-05-21 Босс «какой параметр юзеры выбирают в Песни —
+    // такой и по умолчанию». Передаём текущую категорию для frequency-default.
+    const cat = (() => {
+      try {
+        const s = localStorage.getItem("pl_v2:category");
+        return s || "song";
+      } catch { return "song"; }
+    })();
+    fetch(`/api/playlist/sort-default?category=${encodeURIComponent(cat)}`, { cache: "no-store" })
       .then(r => r.json())
       .then((j) => {
         if (j?.mode && ["date", "rating", "random", "top_month"].includes(j.mode)) {
@@ -1470,8 +1478,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     <section id="playlist-section" className="relative z-[1] py-20 px-4 border-t border-white/[0.04]">
       {/* Eugene 2026-05-15 Босс «больше на 30% по высоте и ширине поля плейлиста».
           max-w-3xl (768px) → max-w-5xl (1024px) = +33% ширина.
-          Внутри карточек треков высота увеличена через py-padding. */}
-      <div className="max-w-5xl mx-auto">
+          Внутри карточек треков высота увеличена через py-padding.
+          Eugene 2026-05-21 Босс «уменьши плейлист на айпеде на 20%, сохрани
+          масштабирование под другие гаджеты». md (≥768px tablet/iPad) — scale 0.8;
+          lg (≥1024px desktop) — обратно 100%. Mobile (<768) — без изменений. */}
+      <div className="max-w-5xl mx-auto md:scale-[0.8] md:origin-top lg:scale-100">
         <h2 className="text-2xl font-bold text-center mb-2">
           <span className="gradient-text">Плейлист сообщества</span>
         </h2>
@@ -1777,9 +1788,32 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           {(["date", "rating", "top_month", "random"] as const).map(mode => {
             const labels: Record<string, string> = { date: "По дате", rating: "По рейтингу", top_month: "Топ за месяц", random: "Случайно" };
             const active = sortMode === mode;
+            // Eugene 2026-05-21 Босс «какой параметр юзеры выбирают — такой
+            // и по умолчанию». Трекаем каждый explicit toggle юзера.
+            const trackChoice = (newMode: string) => {
+              try {
+                fetch("/api/playlist/track-sort", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ category: categoryFilter, sortMode: newMode }),
+                }).catch(() => {});
+              } catch {}
+            };
             return (
               <button key={mode}
-                onClick={() => { if (mode === "random") { setSortMode("random"); fetch(`/api/playlist?sort=random&dir=desc`).then(r => r.json()).then(setTracks).catch(() => {}); } else if (active) setSortDir(d => d === "asc" ? "desc" : "asc"); else { setSortMode(mode); setSortDir("asc"); } }}
+                onClick={() => {
+                  if (mode === "random") {
+                    setSortMode("random");
+                    trackChoice("random");
+                    fetch(`/api/playlist?sort=random&dir=desc`).then(r => r.json()).then(setTracks).catch(() => {});
+                  } else if (active) {
+                    setSortDir(d => d === "asc" ? "desc" : "asc");
+                  } else {
+                    setSortMode(mode);
+                    setSortDir("asc");
+                    trackChoice(mode);
+                  }
+                }}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1 ${active ? "bg-purple-500/20 text-purple-300 border border-purple-500/30" : "text-muted-foreground hover:text-white border border-white/10"}`}
               >{labels[mode]}{active && mode !== "random" && <span className="text-[10px]">{sortDir === "desc" ? "▼" : "▲"}</span>}</button>
             );

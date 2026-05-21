@@ -6522,6 +6522,83 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     }
   });
 
+  // Eugene 2026-05-21 Босс «считай прослушивания админа и автора в общей массе,
+  // примени правило к предыдущим». Backfill — конвертирует прошлые
+  // 'play_rejected:author-self' и 'play_rejected:admin' в реальный play +
+  // bumps meta.plays на соответствующее количество.
+  // Применять один раз (idempotent — повторный запуск ничего не делает,
+  // т.к. action уже изменён).
+  app.post("/api/admin/v304/backfill-author-admin-plays", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const dryRun = String(req.query.dryRun || req.body?.dryRun || "") === "1";
+      const raw = (db as any).$client;
+
+      // 1. Найти все rejected записи author-self / admin
+      const rejected: any[] = raw.prepare(`
+        SELECT gen_id, action, COUNT(*) AS cnt
+        FROM gen_activity
+        WHERE action IN ('play_rejected:author-self', 'play_rejected:admin')
+        GROUP BY gen_id, action
+      `).all();
+
+      // 2. Aggregate per gen_id
+      const perGen = new Map<number, number>();
+      for (const r of rejected) {
+        perGen.set(r.gen_id, (perGen.get(r.gen_id) || 0) + Number(r.cnt));
+      }
+
+      const summary = {
+        dryRun,
+        rejectedRowsFound: rejected.reduce((s, r) => s + Number(r.cnt), 0),
+        gensAffected: perGen.size,
+        playsAdded: 0,
+        gensSample: Array.from(perGen.entries()).slice(0, 10).map(([id, c]) => ({ genId: id, addPlays: c })),
+      };
+
+      if (!dryRun && perGen.size > 0) {
+        const tx = raw.transaction(() => {
+          for (const [genId, addPlays] of perGen.entries()) {
+            // bump meta.plays
+            const row: any = raw.prepare(`SELECT style FROM generations WHERE id = ?`).get(genId);
+            if (!row) continue;
+            let meta: any = {};
+            try { meta = JSON.parse(row.style || "{}"); } catch { meta = {}; }
+            meta.plays = (meta.plays || 0) + addPlays;
+            raw.prepare(`UPDATE generations SET style = ? WHERE id = ?`).run(JSON.stringify(meta), genId);
+            summary.playsAdded += addPlays;
+          }
+          // Mark rejected → 'play' so future stats include them
+          raw.prepare(`
+            UPDATE gen_activity SET action = 'play'
+            WHERE action IN ('play_rejected:author-self', 'play_rejected:admin')
+          `).run();
+        });
+        tx();
+
+        // Audit-log
+        try {
+          raw.prepare(`
+            INSERT INTO admin_audit_log (admin_user_id, admin_email, action, entity, entity_key, before_json, after_json)
+            VALUES (?, 'backfill-author-admin-plays', 'update', 'generations:meta_plays_bulk', 'rule-update-2026-05-21',
+                    ?, ?)
+          `).run(
+            (req as any).userId ?? null,
+            JSON.stringify({ rule: "exclude author-self + admin" }),
+            JSON.stringify({ rule: "count all (author + admin in общей массе)", gensAffected: perGen.size, playsAdded: summary.playsAdded }),
+          );
+        } catch {}
+
+        // Invalidate plays-stats cache (если есть)
+        try { (global as any)._playsStatsCache = null; } catch {}
+      }
+
+      res.json({ ok: true, ...summary });
+    } catch (e: any) {
+      console.error("[backfill-author-admin-plays]", e);
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
   // Eugene 2026-05-20 Босс «Веди базу сообщений админа в боте Муза».
   // Каждое admin-сообщение в Музa-чат (web/inject) — здесь, с gate-статусом
   // (authorized/mismatch) и executor-результатом (applied/appliedAction).
@@ -9586,39 +9663,25 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
 
   // ==================== PUBLIC PLAYLIST ====================
 
-  // Eugene 2026-05-15 Босс «правило прослушиваний». Применяется в /api/playlist/play
-  // и /api/gen-activity. Возвращает {count: boolean, reason?: string}.
-  // count=false → НЕ инкрементить, для аналитики записать с tag 'rejected'.
-  // Применяется КО ВСЕМ КРОМЕ admin'а (явное правило Босса).
+  // Eugene 2026-05-15 правило прослушиваний (Eugene 2026-05-21 update:
+  // Босс «считай прослушивания админа и автора в общей массе»). Применяется
+  // в /api/playlist/play и /api/gen-activity. count=false → НЕ инкрементить.
+  // Author-self и admin plays теперь засчитываются (правило обновлено).
   function shouldCountPlay(req: Request, gen: any): { count: boolean; reason?: string } {
-    // 1. Author-self исключить.
-    const userId = tryGetUserId(req);
-    if (userId && gen?.userId === userId) {
-      return { count: false, reason: "author-self" };
-    }
-    // 2. Admin исключить (превью трека админом не считается).
-    if (userId) {
-      try {
-        const u = storage.getUser(userId);
-        if (u && (u.role === "admin" || u.role === "super_admin")) {
-          return { count: false, reason: "admin" };
-        }
-      } catch {}
-    }
-    // 3. Bot UA исключить. Eugene 2026-05-18: единый источник через
+    // 1. Bot UA исключить. Eugene 2026-05-18: единый источник через
     // lib/botUa.ts (тот же regex что в visitor-stats / journey / click-stats).
     const ua = String(req.headers["user-agent"] || "");
     if (isBotUserAgent(ua)) {
       return { count: false, reason: "bot-ua" };
     }
-    // 4. Длительность 5+ сек (поле req.body.elapsedSec из плеера). Если не
+    // 2. Длительность 5+ сек (поле req.body.elapsedSec из плеера). Если не
     //    передано — считаем что плеер старый, разрешаем (backward compat).
     //    Новые плееры всегда передают elapsedSec.
     const elapsedRaw = (req.body as any)?.elapsedSec;
     if (typeof elapsedRaw === "number" && elapsedRaw < 5) {
       return { count: false, reason: "too-short" };
     }
-    // 5. Dedup по (gen_id, IP, window). Раньше было 60 мин — но мобильные
+    // 3. Dedup по (gen_id, IP, window). Раньше было 60 мин — но мобильные
     //    операторы РФ (MTS/Beeline/Megafon) выдают один IP тысячам юзеров
     //    через NAT → после первого плея блокировались ВСЕ остальные с того
     //    же IP час. Eugene 2026-05-17 (Босс «1% conversion plays/visits»):
@@ -9676,9 +9739,139 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   // случайно (через день). Цикл повторяется. Админ может менять порядок».
   // Сегодняшний default sort — frontend читает на первый загрузке если у
   // юзера нет своего выбора в localStorage.
-  app.get("/api/playlist/sort-default", (_req: Request, res: Response) => {
+  // Eugene 2026-05-21 Босс «какой параметр юзеры выбирают в Песни — такой и
+  // по умолчанию. Остальные по уменьшению частоты». ?category=song|greeting|...
+  // Возвращает {mode: frequency-best, ordered: [most→least], frequencies: {...},
+  // source: 'frequency'|'rotation', totalChoices: N}.
+  // Если за 30 дней <10 выборов — fallback на старую rotation cycle.
+  function getFrequencyDefault(category: string): {
+    mode: string;
+    ordered: string[];
+    frequencies: Record<string, number>;
+    source: "frequency" | "rotation";
+    totalChoices: number;
+  } {
+    try {
+      const raw = (db as any).$client;
+      const sinceIso = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const rows: Array<{ sort_mode: string; cnt: number }> = raw.prepare(`
+        SELECT sort_mode, COUNT(*) AS cnt
+        FROM playlist_sort_choices
+        WHERE category = ? AND created_at >= ?
+        GROUP BY sort_mode
+        ORDER BY COUNT(*) DESC
+      `).all(category, sinceIso) as any[];
+      const total = rows.reduce((s, r) => s + Number(r.cnt), 0);
+      const freq: Record<string, number> = {};
+      rows.forEach(r => { freq[r.sort_mode] = Number(r.cnt); });
+      const allModes = ["date", "rating", "random", "top_month"];
+      if (total < 10) {
+        const fallback = getTodayDefaultSort();
+        return {
+          mode: fallback.mode,
+          ordered: [fallback.mode, ...allModes.filter(m => m !== fallback.mode)],
+          frequencies: freq,
+          source: "rotation",
+          totalChoices: total,
+        };
+      }
+      // Frequency-based: most-used first, then remaining modes appended
+      const orderedFromData = rows.map(r => r.sort_mode);
+      const missing = allModes.filter(m => !orderedFromData.includes(m));
+      const ordered = [...orderedFromData, ...missing];
+      return {
+        mode: ordered[0] || "date",
+        ordered,
+        frequencies: freq,
+        source: "frequency",
+        totalChoices: total,
+      };
+    } catch (e) {
+      const fallback = getTodayDefaultSort();
+      return {
+        mode: fallback.mode,
+        ordered: [fallback.mode, "date", "rating", "random", "top_month"].filter((v, i, a) => a.indexOf(v) === i),
+        frequencies: {},
+        source: "rotation",
+        totalChoices: 0,
+      };
+    }
+  }
+
+  app.get("/api/playlist/sort-default", (req: Request, res: Response) => {
     res.setHeader("Cache-Control", "no-store");
-    res.json(getTodayDefaultSort());
+    const category = String(req.query.category || "song").toLowerCase();
+    if (["song", "greeting", "instrumental", "all"].includes(category)) {
+      res.json(getFrequencyDefault(category));
+    } else {
+      res.json(getTodayDefaultSort());
+    }
+  });
+
+  // Tracking sort choice — называет POST при каждом explicit user-toggle.
+  // Rate-limit: anonymous OK, 5/min/IP soft cap.
+  const _sortTrackCache = new Map<string, number>();
+  app.post("/api/playlist/track-sort", (req: Request, res: Response) => {
+    try {
+      const category = String(req.body?.category || "").toLowerCase();
+      const sortMode = String(req.body?.sortMode || "").toLowerCase();
+      if (!["song", "greeting", "instrumental", "all"].includes(category)) {
+        return res.json({ ok: false, error: "bad category" });
+      }
+      if (!["date", "rating", "random", "top_month"].includes(sortMode)) {
+        return res.json({ ok: false, error: "bad sortMode" });
+      }
+      const ip = String(req.ip || req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+      const key = `${ip}|${category}|${sortMode}`;
+      const last = _sortTrackCache.get(key) || 0;
+      const nowMs = Date.now();
+      // Дедуп: same IP+category+sortMode подряд в окне 60 сек не пишется
+      if (nowMs - last < 60_000) return res.json({ ok: true, deduped: true });
+      _sortTrackCache.set(key, nowMs);
+      // GC cache
+      if (_sortTrackCache.size > 500) {
+        for (const [k, t] of _sortTrackCache.entries()) {
+          if (nowMs - t > 5 * 60_000) _sortTrackCache.delete(k);
+        }
+      }
+      const userId = tryGetUserId(req);
+      (db as any).$client.prepare(`
+        INSERT INTO playlist_sort_choices (user_id, ip, category, sort_mode)
+        VALUES (?, ?, ?, ?)
+      `).run(userId ?? null, ip || null, category, sortMode);
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  // Admin endpoint — статистика частоты выборов за месяц по категориям.
+  app.get("/api/admin/v304/sort-frequency", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const days = Math.max(1, Math.min(365, parseInt(String(req.query.days || "30"), 10) || 30));
+      const sinceIso = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      const raw = (db as any).$client;
+      const rows: Array<{ category: string; sort_mode: string; cnt: number }> = raw.prepare(`
+        SELECT category, sort_mode, COUNT(*) AS cnt
+        FROM playlist_sort_choices
+        WHERE created_at >= ?
+        GROUP BY category, sort_mode
+        ORDER BY category, COUNT(*) DESC
+      `).all(sinceIso) as any[];
+      const byCategory: Record<string, Array<{ sortMode: string; count: number }>> = {};
+      for (const r of rows) {
+        if (!byCategory[r.category]) byCategory[r.category] = [];
+        byCategory[r.category].push({ sortMode: r.sort_mode, count: Number(r.cnt) });
+      }
+      const summary: Record<string, { default: string; total: number }> = {};
+      for (const [cat, list] of Object.entries(byCategory)) {
+        const total = list.reduce((s, x) => s + x.count, 0);
+        summary[cat] = { default: list[0]?.sortMode || "date", total };
+      }
+      res.json({ ok: true, days, byCategory, summary });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
   });
 
   // Eugene 2026-05-21 Босс «счётчик обновляется ежеминутно».
