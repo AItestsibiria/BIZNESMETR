@@ -14,49 +14,33 @@ import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Sparkles } from "lucide-react";
 
-// Eugene 2026-05-21 Босс «вместо глаза поставь планету» + «крутиться плавно
-// в направлении научном». Saturn с кольцом, brand cyan/violet gradient.
-// Научное направление prograde = против часовой стрелки если смотреть с
-// северного полюса (как Земля, Юпитер, Сатурн etc, кроме Венеры/Урана).
-// CSS rotate(-360deg) = counterclockwise = prograde.
-function PlanetIcon({ className = "" }: { className?: string }) {
+// Eugene 2026-05-21 Босс «эту планету :)» — показал emoji 🌍 (Earth Globe
+// Europe-Africa). Plus «крутиться плавно в направлении научном» — slow CCW.
+// prograde (как Земля/Юпитер/Сатурн, кроме Венеры/Урана).
+function PlanetIcon({ size = 44 }: { size?: number }) {
   const uid = String(Math.random()).slice(2, 8);
   return (
-    <svg viewBox="0 0 32 32" className={className} aria-hidden="true">
-      <defs>
-        <radialGradient id={`pl-${uid}`} cx="0.35" cy="0.35" r="0.7">
-          <stop offset="0%" stopColor="#A78BFA" />
-          <stop offset="50%" stopColor="#8B5CF6" />
-          <stop offset="100%" stopColor="#22D3EE" />
-        </radialGradient>
-        <style>{`
-          @keyframes planet-spin-${uid} {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(-360deg); }
-          }
-          .planet-body-${uid} {
-            transform-origin: 16px 16px;
-            animation: planet-spin-${uid} 14s linear infinite;
-          }
-          @media (prefers-reduced-motion: reduce) {
-            .planet-body-${uid} { animation: none; }
-          }
-        `}</style>
-      </defs>
-      {/* Ring back-half (behind planet) — static */}
-      <ellipse cx="16" cy="16" rx="13" ry="3.5" stroke="rgba(251,191,36,0.7)" strokeWidth="1.2" fill="none" transform="rotate(-22 16 16)" strokeDasharray="6 4" />
-      {/* Planet body + highlight — rotate group prograde (counterclockwise) */}
-      <g className={`planet-body-${uid}`}>
-        <circle cx="16" cy="16" r="8" fill={`url(#pl-${uid})`} />
-        <circle cx="13" cy="13" r="2" fill="rgba(255,255,255,0.45)" />
-        {/* Surface dots для визуального вращения (без них шар крутится «неподвижно») */}
-        <circle cx="19" cy="18" r="0.9" fill="rgba(255,255,255,0.25)" />
-        <circle cx="14" cy="19.5" r="0.7" fill="rgba(255,255,255,0.2)" />
-        <circle cx="17.5" cy="14" r="0.6" fill="rgba(255,255,255,0.3)" />
-      </g>
-      {/* Ring front-half (overlaps planet) — static */}
-      <path d="M3.5 18.5 Q16 23 28.5 13.5" stroke="rgba(251,191,36,0.85)" strokeWidth="1.4" fill="none" strokeLinecap="round" transform="rotate(-22 16 16)" />
-    </svg>
+    <span
+      style={{
+        display: "inline-block",
+        fontSize: `${size}px`,
+        lineHeight: 1,
+        animation: `planet-emoji-spin-${uid} 20s linear infinite`,
+        filter: "drop-shadow(0 0 8px rgba(34,211,238,0.4))",
+      }}
+      aria-hidden="true"
+    >
+      🌍
+      <style>{`
+        @keyframes planet-emoji-spin-${uid} {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(-360deg); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          span[style*="planet-emoji-spin-${uid}"] { animation: none !important; }
+        }
+      `}</style>
+    </span>
   );
 }
 
@@ -484,7 +468,7 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
               style={{ animation: animEnabled ? "uc-live-ping 1.8s ease-out infinite" : "none" }}
             />
           </div>
-          <PlanetIcon className="relative h-12 w-12" />
+          <PlanetIcon size={52} />
         </button>
       </div>
 
