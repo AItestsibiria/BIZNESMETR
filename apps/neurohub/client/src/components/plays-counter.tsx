@@ -643,15 +643,68 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
                 width: "min(440px, calc(100vw - 24px))",
                 maxHeight: "calc(100vh - 40px)",
                 overflowY: "auto",
-                // Eugene 2026-05-21 Босс «окно звезда меньше розового».
-                // Старый gradient (purple → fuchsia → cyan) → новый (deep purple
-                // → cyan, без fuchsia). Тёмный + brand-purple/cyan, не розовый.
-                background: "linear-gradient(135deg, rgba(30,15,70,0.96) 0%, rgba(50,30,110,0.94) 50%, rgba(15,45,90,0.96) 100%)",
-                boxShadow: "0 24px 64px rgba(124,58,237,0.45), 0 0 48px rgba(6,182,212,0.35)",
-                border: "1px solid rgba(124,58,237,0.4)",
+                // Eugene 2026-05-21 Босс «окно звезды в стиле MuzaAi глянец премиум».
+                // Multi-layer premium glass — frosted base + top highlight strip +
+                // corner brand glows + crisp inner border. Apple/iOS premium feel.
+                background: "linear-gradient(135deg, rgba(28,16,68,0.86) 0%, rgba(40,22,96,0.82) 50%, rgba(12,30,76,0.86) 100%)",
+                backdropFilter: "blur(40px) saturate(180%)",
+                WebkitBackdropFilter: "blur(40px) saturate(180%)",
+                border: "1px solid rgba(255,255,255,0.14)",
+                boxShadow: "0 32px 80px rgba(124,58,237,0.5), 0 8px 24px rgba(0,0,0,0.45), 0 0 60px rgba(6,182,212,0.25), inset 0 1px 0 rgba(255,255,255,0.22)",
+                position: "relative",
+                overflow: "hidden",
               }}
               onClick={(e) => e.stopPropagation()}
             >
+              {/* Premium glass highlights (decorative, pointerEvents: none) */}
+              {/* Top mirror highlight — like real polished glass */}
+              <div
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  top: 0, left: 0, right: 0,
+                  height: "45%",
+                  background: "linear-gradient(180deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.02) 60%, transparent 100%)",
+                  pointerEvents: "none",
+                  borderRadius: "24px 24px 0 0",
+                }}
+              />
+              {/* Cyan corner glow — top right */}
+              <div
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  top: "-30%", right: "-20%",
+                  width: "70%", height: "70%",
+                  background: "radial-gradient(circle, rgba(6,182,212,0.28) 0%, transparent 70%)",
+                  pointerEvents: "none",
+                }}
+              />
+              {/* Purple corner glow — bottom left */}
+              <div
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  bottom: "-30%", left: "-20%",
+                  width: "70%", height: "70%",
+                  background: "radial-gradient(circle, rgba(124,58,237,0.32) 0%, transparent 70%)",
+                  pointerEvents: "none",
+                }}
+              />
+              {/* Bottom subtle shine — sub-bottom mirror */}
+              <div
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  bottom: 0, left: 0, right: 0,
+                  height: "18%",
+                  background: "linear-gradient(0deg, rgba(255,255,255,0.04) 0%, transparent 100%)",
+                  pointerEvents: "none",
+                  borderRadius: "0 0 24px 24px",
+                }}
+              />
+              {/* Content wrapper to keep above decorative layers */}
+              <div style={{ position: "relative", zIndex: 1 }}>
             <div className="flex items-start justify-between gap-3 mb-3">
               <div className="text-[14px] font-semibold leading-relaxed">
                 ✨ Когда наш плейлист дойдёт до <b className="font-mono text-amber-200 text-[15px]">1 000 000</b> прослушиваний — маякнём{" "}
@@ -783,6 +836,7 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
                 <div className="text-[10px] text-white/55 leading-snug">Проверим что аккаунт существует. Сердечко поставится автоматом.</div>
               </form>
             )}
+              </div>{/* /content-wrapper z-index:1 */}
             </div>
           </>
         )}
