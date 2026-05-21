@@ -46,7 +46,10 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
 
   useEffect(() => {
     const fetchStats = () => {
-      fetch("/api/playlist/stats", { cache: "default" })
+      // Eugene 2026-05-21 Босс «счётчик обновляется ежеминутно».
+      // no-store — игнорируем browser HTTP cache, всегда reach server.
+      // Server даёт 30s cache → ежеминутный interval всегда получает fresh.
+      fetch("/api/playlist/stats", { cache: "no-store" })
         .then(r => r.ok ? r.json() : null)
         .then(j => {
           if (j && typeof j.totalPlays === "number") setStats(j);

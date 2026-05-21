@@ -9678,12 +9678,13 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     res.json(getTodayDefaultSort());
   });
 
-  // Eugene 2026-05-21 Босс «приоритет — plays counter на фронте».
-  // Возвращает агрегированную статистику по main playlist для баннера счётчика.
-  // Cache 60 сек — снижает нагрузку SQL при частых рефрешах.
+  // Eugene 2026-05-21 Босс «счётчик обновляется ежеминутно».
+  // Server cache 30s + client max-age 30s → гарантия что client каждую минуту
+  // (interval 60s) получает свежее значение (cache invalidate'ится посередине окна).
   let _playsStatsCache: { data: any; expiresAt: number } | null = null;
+  const PLAYS_STATS_CACHE_MS = 30_000;
   app.get("/api/playlist/stats", (_req: Request, res: Response) => {
-    res.setHeader("Cache-Control", "public, max-age=60");
+    res.setHeader("Cache-Control", "public, max-age=30");
     if (_playsStatsCache && Date.now() < _playsStatsCache.expiresAt) {
       res.json(_playsStatsCache.data);
       return;
@@ -9705,7 +9706,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         totalTracks: Number(stats?.total_tracks || 0),
         lastUpdated: new Date().toISOString(),
       };
-      _playsStatsCache = { data, expiresAt: Date.now() + 60_000 };
+      _playsStatsCache = { data, expiresAt: Date.now() + PLAYS_STATS_CACHE_MS };
       res.json(data);
     } catch (e: any) {
       res.json({ totalPlays: 0, totalTracks: 0, error: String(e?.message || e).slice(0, 100) });
