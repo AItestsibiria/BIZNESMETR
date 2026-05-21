@@ -737,7 +737,11 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
                 <h3 className="text-[15px] font-display font-bold flex items-center gap-2">
                   🌍 <span className="bg-gradient-to-r from-[#A78BFA] to-[#22D3EE] bg-clip-text text-transparent">Откуда слушают</span>
                 </h3>
-                <p className="text-[11px] text-white/55 mt-1">Последние 30 дней · {geoData ? geoData.totalVisits.toLocaleString("ru-RU") : "—"} визитов</p>
+                {/* Eugene 2026-05-21 Босс «в панели стран общее количество визитов».
+                    period теперь all-time, заголовок отражает это. */}
+                <p className="text-[11px] text-white/55 mt-1">
+                  Всё время · <span className="text-white/80 font-semibold">{geoData ? geoData.totalVisits.toLocaleString("ru-RU") : "—"}</span> визитов
+                </p>
               </div>
               <button onClick={() => setShowGeo(false)} className="text-white/70 hover:text-white text-[20px] leading-none">×</button>
             </div>
