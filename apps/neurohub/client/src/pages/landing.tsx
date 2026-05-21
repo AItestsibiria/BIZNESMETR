@@ -1067,18 +1067,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       setPlayingId(null);
       unmuteBgMusic();
     });
-    // Eugene 2026-05-21 Босс (Apple/Android best-practices rule):
-    // Audio focus interruption (звонок / навигация / другой audio app) →
-    // browser сам делает audio.pause(). Sync lock-screen state, НЕ resume сами
-    // (Chrome MediaSession docs: «при AUDIOFOCUS_LOSS не resume — ждём user action»).
-    audio.addEventListener('pause', () => {
-      if (audioRef.current !== audio) return;
-      try { setLockScreenPlaybackState("paused"); } catch {}
-    });
-    audio.addEventListener('play', () => {
-      if (audioRef.current !== audio) return;
-      try { setLockScreenPlaybackState("playing"); } catch {}
-    });
 
 
     // MediaSession уже настроена через setupMediaSessionForTrack SYNC выше —

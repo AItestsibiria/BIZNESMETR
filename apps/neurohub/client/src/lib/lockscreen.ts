@@ -248,15 +248,12 @@ export function loadTrackIntoPlayer(url: string): HTMLAudioElement | null {
 }
 
 /**
- * Build a MediaImage[] с обязательными для платформ размерами.
- * Eugene 2026-05-21 Босс (рекомендация по Apple+Android docs): только 256 и 512.
- * - iOS pre-16.4: использует 256x256 (раньше pixellated upscale на меньших)
- * - iOS 18+, Android Chrome lock-screen: 512x512 — оптимально, downscale при необходимости
- * Раньше было 5 sizes (96/192/256/384/512) — лишние fetch requests, browser
- * всё равно выбирает 256+512 для lock-screen. -60% requests без потери качества.
+ * Build a MediaImage[] with multiple sizes pointing at /api/cover/<id>.jpg?size=N.
+ * Apple/WebKit предпочитают >= 256px; даём 96, 192, 256, 384, 512 для
+ * лучшего matching на разных устройствах (iPhone, iPad, Apple Watch).
  */
 function buildArtwork(trackId: number | string, bust?: string | number): MediaImage[] {
-  const sizes = [256, 512];
+  const sizes = [96, 192, 256, 384, 512];
   const qs = bust ? `&v=${encodeURIComponent(String(bust))}` : "";
   return sizes.map(s => ({
     src: `${ORIGIN}/api/cover/${trackId}.jpg?size=${s}${qs}`,
