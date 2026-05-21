@@ -493,7 +493,7 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
       `}</style>
 
       <div
-        className={`relative inline-flex items-center justify-center px-3 py-1.5 rounded-full ${animEnabled ? "uc-pulse" : ""} ${className} cursor-pointer`}
+        className={`relative inline-flex items-center justify-center px-3.5 py-2 rounded-full ${animEnabled ? "uc-pulse" : ""} ${className} cursor-pointer`}
         style={{
           background: "linear-gradient(135deg, rgba(124,58,237,0.18) 0%, rgba(217,70,239,0.14) 50%, rgba(6,182,212,0.18) 100%)",
           border: "1px solid rgba(217,70,239,0.40)",
@@ -555,7 +555,7 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
             Mirror: левый и правый эквалайзеры одинаковый brand gradient
             (purple→fuchsia→cyan) + одинаковая последовательность timings.
             Левый bars 0,1,2,3 (наружу→центр), правый 3,2,1,0 (центр→наружу). */}
-        <div className="flex items-end gap-[1.5px] h-[13px] mr-1.5" aria-hidden="true">
+        <div className="flex items-end gap-[2px] h-[15px] mr-2" aria-hidden="true">
           {[0, 1, 2, 3].map(i => {
             // Eugene 2026-05-21 Босс «эквалайзеры реагируют на стиль музыки».
             // playing → анимация активна с темпом из audioState; paused → static.
@@ -563,7 +563,7 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
             return (
               <span
                 key={`eql-${i}`}
-                className="w-[1.5px] bg-gradient-to-t from-purple-500 via-fuchsia-500 to-cyan-400 rounded-full origin-bottom"
+                className="w-[1.75px] bg-gradient-to-t from-purple-500 via-fuchsia-500 to-cyan-400 rounded-full origin-bottom"
                 style={{
                   height: animEnabled ? "100%" : "40%",
                   animation: playingAnim
@@ -579,12 +579,12 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
         </div>
 
         {/* === Slot Machine number — Neon glow === */}
-        <span className="relative inline-flex items-center gap-[3px]">
-          <span className="text-[12px]" aria-hidden="true">🎧</span>
-          {/* Eugene 2026-05-21 Босс «-30% → -10% ещё, изысканнее».
-              text-xs/sm → text-[11px]/text-xs. Neon glow в digits через text-shadow. */}
+        <span className="relative inline-flex items-center gap-1">
+          <span className="text-[14px]" aria-hidden="true">🎧</span>
+          {/* Eugene 2026-05-21 Босс «+15% к счётчику».
+              text-[11px]/xs → text-[13px]/sm. Neon glow в digits. */}
           <span
-            className="font-mono text-[11px] sm:text-xs font-black tracking-tight leading-none"
+            className="font-mono text-[13px] sm:text-sm font-black tracking-tight leading-none"
             style={{ animation: animEnabled ? "uc-flicker 4s ease-in-out infinite" : "none" }}
           >
             <RollingNumber value={stats.totalPlays} blinkPhase={blinkPhase} />
@@ -597,12 +597,12 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
         </span>
 
         {/* === Music Equalizer Bars (right side) === */}
-        <div className="flex items-end gap-[1.5px] h-[13px] ml-1.5" aria-hidden="true">
+        <div className="flex items-end gap-[2px] h-[15px] ml-2" aria-hidden="true">
           {/* Зеркало левого — reversed order (3→0) с тем же timing pattern */}
           {[3, 2, 1, 0].map(i => (
             <span
               key={`eqr-${i}`}
-              className="w-[1.5px] bg-gradient-to-t from-purple-500 via-fuchsia-500 to-cyan-400 rounded-full origin-bottom"
+              className="w-[1.75px] bg-gradient-to-t from-purple-500 via-fuchsia-500 to-cyan-400 rounded-full origin-bottom"
               style={{
                 height: animEnabled ? "100%" : "40%",
                 animation: animEnabled ? `uc-eq-bar ${0.6 + i * 0.12}s ease-in-out infinite` : "none",
@@ -613,7 +613,7 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
         </div>
 
         {/* Label под counter'ом — Eugene 2026-05-21 Босс: убрано «обновлено» */}
-        <span className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[8px] uppercase tracking-widest text-white/50 font-semibold whitespace-nowrap">
+        <span className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-[9px] uppercase tracking-widest text-white/50 font-semibold whitespace-nowrap">
           прослушиваний
         </span>
 
@@ -624,7 +624,7 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
           onClick={() => { setShowInfo(v => !v); if (!showInfo) { setShowRating(true); loadStarRating(); } }}
           aria-label="Информация"
           title="Что будет после 1 000 000?"
-          className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 rounded-full bg-white/8 hover:bg-white/15 border border-white/15 flex items-center justify-center text-[8px] italic font-bold text-white/70 hover:text-white transition-colors leading-none z-10"
+          className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-white/8 hover:bg-white/15 border border-white/15 flex items-center justify-center text-[9px] italic font-bold text-white/70 hover:text-white transition-colors leading-none z-10"
         >
           i
         </button>
@@ -854,7 +854,7 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
               ? "Отключить анимацию на 1 день"
               : "Включить анимацию"
           }
-          className="absolute -bottom-4 right-1.5 w-3.5 h-3.5 rounded-full bg-white/8 hover:bg-white/15 border border-white/15 flex items-center justify-center text-[8px] transition-colors leading-none"
+          className="absolute -bottom-4 right-1.5 w-4 h-4 rounded-full bg-white/8 hover:bg-white/15 border border-white/15 flex items-center justify-center text-[9px] transition-colors leading-none"
         >
           {animEnabled ? "✦" : "○"}
         </button>
