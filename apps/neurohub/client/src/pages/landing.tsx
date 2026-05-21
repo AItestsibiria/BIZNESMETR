@@ -473,7 +473,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   useEffect(() => {
     const load = () => fetch("/api/public/countries-count", { cache: "no-store" }).then(r => r.json()).then(d => { setCountriesCount(d.countries || 0); setCountriesList(d.list || []); }).catch(() => {});
     load();
-    const id = setInterval(load, 3600000);
+    // Eugene 2026-05-21 Босс «приведи к 60 сек» — раз в час → раз в минуту,
+    // чтобы 🌍 N на player card обновлялся в такт с counter panel (60 сек).
+    const id = setInterval(load, 60_000);
     return () => clearInterval(id);
   }, []);
   useEffect(() => {
