@@ -6662,6 +6662,48 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     }
   });
 
+  // Eugene 2026-05-21 Босс: backfill памяти для ВСЕХ юзеров с историей чата.
+  // POST /api/admin/v304/user-memory/backfill-all?minMessages=5
+  // Пройдёт по всем users у кого есть chatbot_messages role='user' >= minMessages
+  // и triggerит compressUserMemory. Возвращает stats. Sequential — не параллелим
+  // LLM calls чтобы не выжечь rate limit.
+  app.post("/api/admin/v304/user-memory/backfill-all", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const minMessages = Math.max(1, parseInt(String(req.query.minMessages || "5"), 10));
+      const rawSql: any = (db as any).$client || sqliteDb;
+      const rows = rawSql.prepare(
+        `SELECT s.user_id AS userId, COUNT(*) AS cnt
+         FROM chatbot_messages m
+         INNER JOIN chatbot_sessions s ON s.id = m.session_id
+         WHERE s.user_id IS NOT NULL AND m.role = 'user'
+         GROUP BY s.user_id
+         HAVING cnt >= ?
+         ORDER BY cnt DESC`
+      ).all(minMessages) as Array<{ userId: number; cnt: number }>;
+
+      const { compressUserMemory } = await import("./lib/userMemory");
+      const results: Array<{ userId: number; messages: number; ok: boolean; error?: string }> = [];
+      for (const r of rows) {
+        try {
+          const result = await compressUserMemory(r.userId);
+          results.push({ userId: r.userId, messages: r.cnt, ok: !!result.ok, error: result.error });
+        } catch (e: any) {
+          results.push({ userId: r.userId, messages: r.cnt, ok: false, error: String(e?.message || e).slice(0, 150) });
+        }
+      }
+      res.json({
+        ok: true,
+        candidates: rows.length,
+        succeeded: results.filter(r => r.ok).length,
+        failed: results.filter(r => !r.ok).length,
+        results,
+      });
+    } catch (e: any) {
+      console.error("[admin user-memory:backfill-all]", e);
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
   // PUT /api/admin/v304/user-memory/:userId — manual edit
   app.put("/api/admin/v304/user-memory/:userId", requireAdmin, async (req: Request, res: Response) => {
     try {

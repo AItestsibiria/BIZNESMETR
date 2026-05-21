@@ -412,7 +412,7 @@ function MusaMemoryAdminTab({ toast }: { toast: ReturnType<typeof useToast>["toa
         </p>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <Input
           placeholder="🔍 Поиск по имени или email…"
           value={search}
@@ -422,6 +422,33 @@ function MusaMemoryAdminTab({ toast }: { toast: ReturnType<typeof useToast>["toa
         <span className="text-xs font-mono text-muted-foreground">
           Всего: <span className="text-white">{total}</span>
         </span>
+        {/* Eugene 2026-05-21 Босс: backfill памяти для всех старых юзеров с историей чата */}
+        <button
+          type="button"
+          onClick={async () => {
+            if (busy) return;
+            if (!window.confirm("Запустить compression для ВСЕХ юзеров у кого есть >= 5 сообщений? Это LLM calls, может занять 1-5 мин.")) return;
+            setBusy(true);
+            try {
+              const r = await fetch("/api/admin/v304/user-memory/backfill-all?minMessages=5", { method: "POST", credentials: "include" });
+              const j = await r.json();
+              if (j?.ok) {
+                toast({ title: "Backfill готов", description: `Кандидатов: ${j.candidates}, успешно: ${j.succeeded}, ошибок: ${j.failed}` });
+                queryClient.invalidateQueries({ queryKey: ["/api/admin/v304/user-memory"] });
+              } else {
+                toast({ title: "Ошибка", description: j?.error || "unknown" });
+              }
+            } catch (e: any) {
+              toast({ title: "Ошибка", description: String(e?.message || e) });
+            } finally {
+              setBusy(false);
+            }
+          }}
+          disabled={busy}
+          className="text-xs px-3 py-1.5 rounded-md bg-gradient-to-r from-purple-500/30 to-fuchsia-500/30 hover:from-purple-500/50 hover:to-fuchsia-500/50 border border-purple-400/30 text-white disabled:opacity-50"
+        >
+          {busy ? "🔄 Сжимаем…" : "🔄 Сжать память всех юзеров"}
+        </button>
       </div>
 
       <div className="grid gap-2">
