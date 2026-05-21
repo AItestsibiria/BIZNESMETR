@@ -645,9 +645,26 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
           </div>
         </div>
 
-        {/* Eugene 2026-05-21 Босс «убери кольца вокруг Земли» — кольца удалены.
-            Cyan ping-точка тоже скрыта (она была частью «глаз»-effect'а). */}
+        {/* Eugene 2026-05-21 Босс «страны над планетой, визиты под планетой».
+            Layout: [N стран] / 🌍 / [M визитов] — flex-col items-center. */}
         <div className="relative flex flex-col items-center flex-shrink-0 z-10">
+          {/* Сверху над планетой: страны (countriesCount из /api/public/countries-count) */}
+          {countriesCount > 0 && (() => {
+            const mod10 = countriesCount % 10;
+            const mod100 = countriesCount % 100;
+            let word: string;
+            if (mod100 >= 11 && mod100 <= 14) word = "стран";
+            else if (mod10 === 1) word = "страна";
+            else if (mod10 >= 2 && mod10 <= 4) word = "страны";
+            else word = "стран";
+            return (
+              <div className="mb-1 text-[10px] text-white/65 font-sans whitespace-nowrap">
+                <span className="text-[#22D3EE] font-semibold" style={{ fontVariantNumeric: "tabular-nums" }}>{countriesCount}</span>
+                <span className="text-white/45"> {word}</span>
+              </div>
+            );
+          })()}
+
           <button
             type="button"
             onClick={() => { setShowGeo(true); loadGeo(); }}
@@ -657,25 +674,20 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
           >
             <PlanetIcon size={80} />
           </button>
-          {/* Eugene 2026-05-21 Босс «количество стран с одной точки сбора +
-              совпадать с планетой на плеере». countriesCount из общего endpoint
-              /api/public/countries-count — sync с landing.tsx player 🌍 N. */}
-          {countriesCount > 0 && (() => {
-            // Eugene 2026-05-21 Босс «окончания слова стран по правильности
-            // прочтения цифры». Русское склонение по чтению числа:
-            // 1, 21, 31… → страна
-            // 2-4, 22-24… → страны
-            // 0, 5-20, 25-30, 111-114… → стран
-            const mod10 = countriesCount % 10;
-            const mod100 = countriesCount % 100;
+
+          {/* Снизу под планетой: визиты (geoData.totalVisits за 30 дней) */}
+          {geoData && geoData.totalVisits > 0 && (() => {
+            const n = geoData.totalVisits;
+            const mod10 = n % 10;
+            const mod100 = n % 100;
             let word: string;
-            if (mod100 >= 11 && mod100 <= 14) word = "стран";
-            else if (mod10 === 1) word = "страна";
-            else if (mod10 >= 2 && mod10 <= 4) word = "страны";
-            else word = "стран";
+            if (mod100 >= 11 && mod100 <= 14) word = "визитов";
+            else if (mod10 === 1) word = "визит";
+            else if (mod10 >= 2 && mod10 <= 4) word = "визита";
+            else word = "визитов";
             return (
               <div className="mt-1 text-[10px] text-white/65 font-sans whitespace-nowrap">
-                <span className="text-[#22D3EE] font-semibold" style={{ fontVariantNumeric: "tabular-nums" }}>{countriesCount}</span>
+                <span className="text-[#FBBF24] font-semibold" style={{ fontVariantNumeric: "tabular-nums" }}>{n.toLocaleString("ru-RU")}</span>
                 <span className="text-white/45"> {word}</span>
               </div>
             );
