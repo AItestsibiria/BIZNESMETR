@@ -329,6 +329,7 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
     countries: Array<{ code: string; name: string; visits: number }>;
     cities: Array<{ city: string; code: string; visits: number }>;
     totalVisits: number;
+    totalCountries: number;
   } | null>(null);
   const loadGeo = () => {
     fetch("/api/playlist/geo-top", { cache: "no-store" })
@@ -336,6 +337,9 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
       .then(j => { if (j) setGeoData(j); })
       .catch(() => {});
   };
+  // Eugene 2026-05-21 Босс «под планетой общее количество стран за месяц» —
+  // silent load на mount чтобы totalCountries был сразу видим под Earth.
+  useEffect(() => { loadGeo(); }, []);
   // Когда любая модалка открыта — паузим walking-musa тур.
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -479,12 +483,12 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
     <section
       className={`relative overflow-hidden rounded-[28px] border border-purple-500/20 p-5 ${className}`}
       style={{
-        // Eugene 2026-05-21 Босс «цвета в стиле основного плеера» — glass-card
-        // как у playlist (мягкий violet+cyan tint, не deep-space pure).
-        background: "linear-gradient(135deg, rgba(26,15,46,0.72) 0%, rgba(15,24,48,0.68) 50%, rgba(20,12,38,0.72) 100%)",
+        // Eugene 2026-05-21 Босс «панель прозрачной на 35% + в цвет счётчика».
+        // Brand: violet #8B5CF6 + cyan #22D3EE — те же что в digit color-cycle.
+        background: "linear-gradient(135deg, rgba(139,92,246,0.35) 0%, rgba(34,211,238,0.20) 50%, rgba(139,92,246,0.35) 100%)",
         backdropFilter: "blur(16px) saturate(140%)",
         WebkitBackdropFilter: "blur(16px) saturate(140%)",
-        boxShadow: "0 0 40px rgba(139,92,246,0.18), 0 8px 24px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.08)",
+        boxShadow: "0 0 40px rgba(139,92,246,0.18), 0 8px 24px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.08)",
       }}
     >
       <style>{`
@@ -602,15 +606,24 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
 
         {/* Eugene 2026-05-21 Босс «убери кольца вокруг Земли» — кольца удалены.
             Cyan ping-точка тоже скрыта (она была частью «глаз»-effect'а). */}
-        <button
-          type="button"
-          onClick={() => { setShowGeo(true); loadGeo(); }}
-          aria-label="Откуда слушают — страны и города"
-          title="Откуда слушают"
-          className="relative flex h-20 w-20 items-center justify-center flex-shrink-0 rounded-full hover:scale-105 active:scale-95 transition-transform z-10"
-        >
-          <PlanetIcon size={80} />
-        </button>
+        <div className="relative flex flex-col items-center flex-shrink-0 z-10">
+          <button
+            type="button"
+            onClick={() => { setShowGeo(true); loadGeo(); }}
+            aria-label="Откуда слушают — страны и города"
+            title="Откуда слушают"
+            className="relative flex h-20 w-20 items-center justify-center rounded-full hover:scale-105 active:scale-95 transition-transform"
+          >
+            <PlanetIcon size={80} />
+          </button>
+          {/* Eugene 2026-05-21 Босс «под планетой общее количество стран за месяц» */}
+          {geoData && geoData.totalCountries > 0 && (
+            <div className="mt-1 text-[10px] text-white/65 font-mono whitespace-nowrap">
+              <span className="text-[#22D3EE] font-semibold">{geoData.totalCountries}</span>
+              <span className="text-white/45"> {geoData.totalCountries === 1 ? "страна" : geoData.totalCountries < 5 ? "страны" : "стран"}</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Eugene 2026-05-21 Босс «убери сегодня и онлайн» — bottom grid удалён.
@@ -677,14 +690,14 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
                     <div className="text-[11px] text-white/40">Нет данных за период</div>
                   ) : (
                     <ol className="space-y-1.5 list-none">
+                      {/* Eugene 2026-05-21 Босс «по странам цифры замени на проценты» */}
                       {geoData.countries.map((c, i) => {
                         const pct = geoData.totalVisits > 0 ? Math.round((c.visits / geoData.totalVisits) * 100) : 0;
                         return (
                           <li key={c.code} className="flex items-center gap-2 text-[12px]">
                             <span className="text-white/50 w-5 font-mono">{i + 1}.</span>
                             <span className="text-white/85 flex-1 truncate">{c.name}</span>
-                            <span className="text-white/60 font-mono text-[11px]">{c.visits.toLocaleString("ru-RU")}</span>
-                            <span className="text-[#22D3EE] font-mono text-[10px] w-10 text-right">{pct}%</span>
+                            <span className="text-[#22D3EE] font-mono text-[12px] w-12 text-right font-semibold">{pct}%</span>
                           </li>
                         );
                       })}
@@ -700,11 +713,11 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
                     <div className="text-[11px] text-white/40">Нет данных за период</div>
                   ) : (
                     <ol className="space-y-1.5 list-none">
+                      {/* Eugene 2026-05-21 Босс «в панели городов убери счётчик» */}
                       {geoData.cities.map((c, i) => (
                         <li key={`${c.city}-${c.code}`} className="flex items-center gap-2 text-[12px]">
                           <span className="text-white/50 w-5 font-mono">{i + 1}.</span>
                           <span className="text-white/85 flex-1 truncate">{c.city} <span className="text-white/40 text-[10px]">{c.code}</span></span>
-                          <span className="text-white/60 font-mono text-[11px]">{c.visits.toLocaleString("ru-RU")}</span>
                         </li>
                       ))}
                     </ol>

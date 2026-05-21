@@ -10030,10 +10030,16 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         LIMIT 10
       `).all(since) as any[];
       const totalRow = rawSql.prepare(`SELECT COUNT(*) AS total FROM visitors WHERE created_at >= ?`).get(since) as { total: number };
+      // Eugene 2026-05-21 Босс «под планетой общее количество стран за месяц»
+      const totalCountriesRow = rawSql.prepare(`
+        SELECT COUNT(DISTINCT country_code) AS cnt FROM visitors
+        WHERE created_at >= ? AND country_code IS NOT NULL AND country_code != ''
+      `).get(since) as { cnt: number };
       const data = {
         countries: countries.map(r => ({ code: String(r.countryCode), name: r.country || r.countryCode, visits: Number(r.visits) })),
         cities: cities.map(r => ({ city: r.city, code: r.countryCode, visits: Number(r.visits) })),
         totalVisits: Number(totalRow?.total || 0),
+        totalCountries: Number(totalCountriesRow?.cnt || 0),
         days: 30,
       };
       _geoTopCache = { data, expiresAt: Date.now() + 60_000 };
