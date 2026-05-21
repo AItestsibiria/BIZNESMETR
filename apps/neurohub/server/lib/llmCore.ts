@@ -555,55 +555,77 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
       }
       // Tool-use loop: stop_reason="tool_use" → выполнить tools и зациклиться.
       if (j?.stop_reason === "tool_use" && Array.isArray(j.content)) {
-        // Eugene 2026-05-18 Босс «TOP-5 ревизии»: tool-loop dedupe.
-        // Eugene 2026-05-19 Musa-diag ROOT CAUSE: при forceBreak обязательно
-        // дозаполняем tool_result для ВСЕХ tool_use блоков — иначе Anthropic
-        // вернёт 400 «tool_result required for each tool_use» на следующем
-        // запросе → каскад на все 3 ключа → fallback → юзер видит «не работает».
-        const toolCallCounts = new Map<string, number>();
-        let forceBreak = false;
-        messages.push({ role: "assistant", content: j.content });
-        const toolResults: any[] = [];
-        for (const block of j.content) {
-          if (block.type === "tool_use") {
-            const cnt = (toolCallCounts.get(block.name) || 0) + 1;
-            toolCallCounts.set(block.name, cnt);
-            if (cnt > 2) {
-              console.warn(`[LLM-LOOP] Tool '${block.name}' called ${cnt}x — stub + break`);
-              forceBreak = true;
-              // STUB tool_result чтобы Anthropic API контракт держался
-              toolResults.push({
-                type: "tool_result",
-                tool_use_id: block.id,
-                content: "Tool call limit reached. Continue without calling this tool again — finalize the response for the user.",
-              });
-              continue;
-            }
-            const result = await executeTool(block.name, block.input, {
-              userId: opts.userId,
-              sessionId: opts.sessionId,
-              channel: opts.channel,
-              role: opts.role,
-            });
-            console.log(`[MUZA-TOOL/${opts.channel}] ${block.name}(${JSON.stringify(block.input).slice(0, 60)}) → ${result.slice(0, 80)}`);
-            try { opts.onToolResult?.(block.name, block.input, result); } catch {}
-            toolResults.push({ type: "tool_result", tool_use_id: block.id, content: result });
+        // Eugene 2026-05-21 Босс «По музе боту 1 вариант делаем» (audit #1):
+        // Multi-step reasoning. Раньше cnt>2 на ЛЮБОЙ tool → break — Музa
+        // не могла «поиск → анализ → ответ». Теперь:
+        //   - MAX_TOTAL_ITERATIONS = 6 (общий лимит rounds tool_use)
+        //   - MAX_PER_TOOL = 4 (один tool можно с разными params)
+        //   - Dedup по hash(input) — same tool + same input = stub (loop)
+        // Так Музa делает search→analyze→recommend, но не бесконечно.
+        const MAX_TOTAL_ITERATIONS = 6;
+        const MAX_PER_TOOL = 4;
+        const toolNameCounts = new Map<string, number>();
+        const toolDedupSet = new Set<string>();
+
+        // Возвращает {reject, reason, stubText} или null если выполнять.
+        const checkTool = (name: string, input: any): { reject: true; reason: string; stub: string } | null => {
+          const inputHash = JSON.stringify(input || {});
+          const dedupKey = `${name}::${inputHash}`;
+          if (toolDedupSet.has(dedupKey)) {
+            return { reject: true, reason: "duplicate-input", stub: `Этот tool с такими же параметрами уже вызывался в этой сессии. Используй сохранённый результат или вызови другой tool / финализируй ответ.` };
           }
-        }
-        messages.push({ role: "user", content: toolResults });
-        // Eugene 2026-05-19 Триумф-Музы fix: даже если forceBreak hit на outer,
-        // нужен ОДИН финальный API-call чтобы Claude засуммировал tool results
-        // в текст. Без него выпадаем на line 466 которая берёт content[0].text
-        // (а первый блок — tool_use, не text → undefined → fallback). Меняем
-        // условие чтобы хотя бы 1 итерация final-call случилась.
-        let loopIter = 0;
-        const maxLoop = forceBreak ? 1 : 4;
-        // Eugene 2026-05-19 Триумф: трекаем последний j2 чтобы извлечь text
-        // из него если цикл завершился без end_turn (line 493 берёт original j,
-        // содержащий tool_use без text → undefined → fallback).
-        let lastJ2: any = null;
-        while (loopIter < maxLoop) {
-          loopIter++;
+          const cnt = (toolNameCounts.get(name) || 0) + 1;
+          if (cnt > MAX_PER_TOOL) {
+            return { reject: true, reason: "per-tool-limit", stub: `Tool '${name}' уже вызван ${cnt - 1}× — лимит ${MAX_PER_TOOL}. Используй существующие результаты для финального ответа.` };
+          }
+          toolDedupSet.add(dedupKey);
+          toolNameCounts.set(name, cnt);
+          return null;
+        };
+
+        let iterationCount = 0;
+        let totalIterationsReached = false;
+        let lastJ2: any = j;
+        let currentResponse: any = j;
+
+        // Outer + inner объединены в один цикл. Первый раз j используется
+        // как «текущий ответ»; дальше — j2 из следующих API calls.
+        while (iterationCount < MAX_TOTAL_ITERATIONS) {
+          iterationCount++;
+          // Eugene 2026-05-19 ROOT CAUSE: dual tool_result обязательны для
+          // ВСЕХ tool_use блоков иначе 400 от Anthropic.
+          messages.push({ role: "assistant", content: currentResponse.content });
+          const toolResults: any[] = [];
+          for (const block of currentResponse.content) {
+            if (block.type === "tool_use") {
+              const rejection = checkTool(block.name, block.input);
+              if (rejection) {
+                console.warn(`[LLM-LOOP] ${block.name} rejected: ${rejection.reason} (iter ${iterationCount})`);
+                toolResults.push({ type: "tool_result", tool_use_id: block.id, content: rejection.stub });
+                continue;
+              }
+              const result = await executeTool(block.name, block.input, {
+                userId: opts.userId,
+                sessionId: opts.sessionId,
+                channel: opts.channel,
+                role: opts.role,
+              });
+              console.log(`[MUZA-TOOL/${opts.channel}/iter${iterationCount}] ${block.name}(${JSON.stringify(block.input).slice(0, 60)}) → ${result.slice(0, 80)}`);
+              try { opts.onToolResult?.(block.name, block.input, result); } catch {}
+              toolResults.push({ type: "tool_result", tool_use_id: block.id, content: result });
+            }
+          }
+          messages.push({ role: "user", content: toolResults });
+
+          // Следующий API call — даже если общий лимит достигнут, делаем
+          // финальный round чтобы Claude засуммировал tool results в текст
+          // (иначе вернём undefined через outer-text-extract → fallback).
+          if (iterationCount >= MAX_TOTAL_ITERATIONS) {
+            totalIterationsReached = true;
+            // System nudge — мягко попросить финализировать
+            messages.push({ role: "user", content: "Достигнут лимит вызовов tools (6). Используй уже полученные результаты и дай юзеру финальный ответ без новых tool_use." });
+          }
+
           const r2 = await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
             headers: {
@@ -623,58 +645,24 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
             muzaTokenStats.outputTokens += Number(j2.usage.output_tokens || 0);
             muzaTokenStats.callsCount += 1;
           }
+
           if (j2?.stop_reason === "end_turn") {
             const textBlock = (j2.content || []).find((b: any) => b.type === "text");
             return textBlock?.text?.slice(0, 2000) || null;
           }
-          if (j2?.stop_reason === "tool_use" && Array.isArray(j2.content)) {
-            messages.push({ role: "assistant", content: j2.content });
-            const tr: any[] = [];
-            let innerForceBreak = false;
-            for (const block of j2.content) {
-              if (block.type === "tool_use") {
-                const cnt = (toolCallCounts.get(block.name) || 0) + 1;
-                toolCallCounts.set(block.name, cnt);
-                if (cnt > 2) {
-                  console.warn(`[LLM-LOOP] Tool '${block.name}' called ${cnt}x — stub + break`);
-                  innerForceBreak = true;
-                  // STUB tool_result — обязателен (см. outer-loop fix)
-                  tr.push({
-                    type: "tool_result",
-                    tool_use_id: block.id,
-                    content: "Tool call limit reached. Finalize the response for the user.",
-                  });
-                  continue;
-                }
-                const result = await executeTool(block.name, block.input, {
-                  userId: opts.userId,
-                  sessionId: opts.sessionId,
-                  channel: opts.channel,
-                  role: opts.role,
-                });
-                console.log(`[MUZA-TOOL-${loopIter}/${opts.channel}] ${block.name} → ${result.slice(0, 60)}`);
-                try { opts.onToolResult?.(block.name, block.input, result); } catch {}
-                tr.push({ type: "tool_result", tool_use_id: block.id, content: result });
-              }
-            }
-            messages.push({ role: "user", content: tr });
-            if (innerForceBreak) {
-              // Сделать ОДИН финальный вызов чтобы Claude засуммировал
-              // (без break — иначе вернём undefined через line 466).
-              continue;
-            }
+          if (j2?.stop_reason === "tool_use" && Array.isArray(j2.content) && !totalIterationsReached) {
+            // Продолжить с новым tool_use
+            currentResponse = j2;
             continue;
           }
-          // stop_reason !== "end_turn" and !== "tool_use" — extract text если есть
+          // stop_reason не end_turn и не tool_use — extract text если есть
           const fallbackText = (j2?.content || []).find((b: any) => b.type === "text")?.text;
           if (typeof fallbackText === "string" && fallbackText.length > 0) {
             return fallbackText.slice(0, 2000);
           }
           break;
         }
-        // Eugene 2026-05-19 Триумф: цикл завершён без return — пробуем text
-        // из последнего ответа Claude (если он есть). Это страховка от
-        // выпадения в hardcoded fallback при tool-loop saturation.
+        // Цикл завершён без return — пробуем text из последнего ответа
         if (lastJ2) {
           const txtBlock = (lastJ2.content || []).find((b: any) => b.type === "text");
           if (txtBlock?.text && txtBlock.text.length > 0) {

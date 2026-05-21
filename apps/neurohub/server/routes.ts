@@ -6588,8 +6588,9 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
           );
         } catch {}
 
-        // Invalidate plays-stats cache (если есть)
+        // Invalidate plays-stats cache (если есть) + SSE push
         try { (global as any)._playsStatsCache = null; } catch {}
+        try { (global as any).__broadcastPlaysStats?.(); } catch {}
       }
 
       res.json({ ok: true, ...summary });
@@ -9728,6 +9729,8 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       meta.lastPlayed = new Date().toISOString();
       db.update(generations).set({ style: JSON.stringify(meta) }).where(eq(generations.id, genId)).run();
       _playsStatsCache = null;
+      // Eugene 2026-05-21 Босс «онлайн автообновление». SSE push всем подписчикам.
+      try { (global as any).__broadcastPlaysStats?.(); } catch {}
       // Eugene 2026-05-21 Босс «если до 1000 осталось 30 — уведоми, на +1000 фейерверк».
       try { checkMilestone(gen.id); } catch {}
       res.json({ ok: true, counted: true });
@@ -9938,34 +9941,87 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       }
     } catch {}
   }
+  // Helper: compute fresh stats (использует cache если свеж).
+  function computePlaysStats(): { totalPlays: number; totalTracks: number; lastUpdated: string } {
+    if (_playsStatsCache && Date.now() < _playsStatsCache.expiresAt) {
+      return _playsStatsCache.data;
+    }
+    const rawSql: any = (db as any).$client || sqliteDb;
+    const stats = rawSql.prepare(
+      `SELECT
+         COUNT(*) AS total_tracks,
+         COALESCE(SUM(CAST(json_extract(style, '$.plays') AS INTEGER)), 0) AS total_plays
+       FROM generations
+       WHERE type = 'music' AND deleted_at IS NULL AND status = 'done'
+         AND is_public = 1
+         AND style LIKE '{%' AND json_valid(style) = 1`
+    ).get() as { total_tracks: number; total_plays: number };
+    const data = {
+      totalPlays: Number(stats?.total_plays || 0),
+      totalTracks: Number(stats?.total_tracks || 0),
+      lastUpdated: new Date().toISOString(),
+    };
+    _playsStatsCache = { data, expiresAt: Date.now() + PLAYS_STATS_CACHE_MS };
+    return data;
+  }
+
   app.get("/api/playlist/stats", (_req: Request, res: Response) => {
     res.setHeader("Cache-Control", "public, max-age=30");
-    if (_playsStatsCache && Date.now() < _playsStatsCache.expiresAt) {
-      res.json(_playsStatsCache.data);
-      return;
-    }
     try {
-      const rawSql: any = (db as any).$client || sqliteDb;
-      const stats = rawSql.prepare(
-        `SELECT
-           COUNT(*) AS total_tracks,
-           COALESCE(SUM(CAST(json_extract(style, '$.plays') AS INTEGER)), 0) AS total_plays
-         FROM generations
-         WHERE type = 'music' AND deleted_at IS NULL AND status = 'done'
-           AND is_public = 1
-           AND style LIKE '{%' AND json_valid(style) = 1`
-      ).get() as { total_tracks: number; total_plays: number };
-
-      const data = {
-        totalPlays: Number(stats?.total_plays || 0),
-        totalTracks: Number(stats?.total_tracks || 0),
-        lastUpdated: new Date().toISOString(),
-      };
-      _playsStatsCache = { data, expiresAt: Date.now() + PLAYS_STATS_CACHE_MS };
-      res.json(data);
+      res.json(computePlaysStats());
     } catch (e: any) {
       res.json({ totalPlays: 0, totalTracks: 0, error: String(e?.message || e).slice(0, 100) });
     }
+  });
+
+  // Eugene 2026-05-21 Босс «сделай онлайн автообновление счётчика
+  // прослушиваний из первоисточника». SSE — server-push при каждом play.
+  // Преимущество над polling (60 сек): мгновенный update + 1 connection per юзер
+  // вместо 60 HTTP-запросов в час.
+  // Reconnect — browser auto через EventSource (retry: 5000).
+  type StatsSseClient = { res: Response; id: number };
+  const _statsSseClients = new Set<StatsSseClient>();
+  let _sseClientCounter = 0;
+  function broadcastPlaysStats(): void {
+    if (_statsSseClients.size === 0) return;
+    try {
+      _playsStatsCache = null;
+      const data = computePlaysStats();
+      const payload = `event: stats\ndata: ${JSON.stringify(data)}\n\n`;
+      for (const client of _statsSseClients) {
+        try { client.res.write(payload); } catch {}
+      }
+    } catch {}
+  }
+  // Глобальный handle для broadcast'а из других мест (где меняется play count).
+  (global as any).__broadcastPlaysStats = broadcastPlaysStats;
+
+  app.get("/api/playlist/stats/stream", (req: Request, res: Response) => {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no"); // nginx — отключить buffering
+    res.flushHeaders?.();
+    // Подсказка browser ретраить через 5 сек при разрыве
+    res.write(`retry: 5000\n\n`);
+    // Сразу шлём текущее состояние
+    try {
+      const data = computePlaysStats();
+      res.write(`event: stats\ndata: ${JSON.stringify(data)}\n\n`);
+    } catch {}
+    const client: StatsSseClient = { res, id: ++_sseClientCounter };
+    _statsSseClients.add(client);
+    // Heartbeat каждые 25 сек (nginx обычно убивает idle через 30-60 сек)
+    const heartbeat = setInterval(() => {
+      try { res.write(`: heartbeat ${Date.now()}\n\n`); } catch {}
+    }, 25_000);
+    const cleanup = () => {
+      clearInterval(heartbeat);
+      _statsSseClients.delete(client);
+      try { res.end(); } catch {}
+    };
+    req.on("close", cleanup);
+    req.on("error", cleanup);
   });
 
   // Eugene 2026-05-21 Босс: «после 1 000 000 prosлушиваний — мировой звезде.
@@ -10649,6 +10705,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
           meta.lastPlayed = new Date().toISOString();
           db.update(generations).set({ style: JSON.stringify(meta) }).where(eq(generations.id, genId)).run();
           _playsStatsCache = null;
+          try { (global as any).__broadcastPlaysStats?.(); } catch {}
           try { checkMilestone(gen.id); } catch {}
           return res.json({ ok: true, counted: true });
         } catch { return res.json({ ok: false }); }

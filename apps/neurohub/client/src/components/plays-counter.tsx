@@ -191,23 +191,47 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
   };
 
   useEffect(() => {
+    const applyStats = (j: any) => {
+      if (j && typeof j.totalPlays === "number") {
+        setStats(prev => {
+          if (prev && prev.totalPlays !== j.totalPlays) {
+            setTick(t => t + 1);
+          }
+          return { totalPlays: j.totalPlays, totalTracks: j.totalTracks };
+        });
+      }
+    };
     const fetchStats = () => {
       fetch("/api/playlist/stats", { cache: "no-store" })
         .then(r => r.ok ? r.json() : null)
-        .then(j => {
-          if (j && typeof j.totalPlays === "number") {
-            setStats(prev => {
-              if (prev && prev.totalPlays !== j.totalPlays) {
-                setTick(t => t + 1);
-              }
-              return j;
-            });
-          }
-        })
+        .then(applyStats)
         .catch(() => {});
     };
-    fetchStats();
-    const interval = setInterval(fetchStats, 60_000);
+
+    // Eugene 2026-05-21 Босс «онлайн автообновление счётчика из первоисточника».
+    // SSE — server push при каждом засчитанном play. Браузер сам ретраит при
+    // разрыве (retry: 5000ms). Fallback на polling только если EventSource
+    // не поддерживается (старые браузеры — IE, некоторые embedded WebView).
+    let es: EventSource | null = null;
+    let pollInterval: any = null;
+    if (typeof EventSource !== "undefined") {
+      try {
+        es = new EventSource("/api/playlist/stats/stream");
+        es.addEventListener("stats", (ev: MessageEvent) => {
+          try { applyStats(JSON.parse(ev.data)); } catch {}
+        });
+        // На случай EventSource ошибки (5xx, network down) — браузер сам
+        // переподключится. Дополнительно — стартуем мягкий polling 2 мин
+        // как страховка если SSE завис в полу-закрытом состоянии.
+        pollInterval = setInterval(fetchStats, 120_000);
+      } catch {
+        fetchStats();
+        pollInterval = setInterval(fetchStats, 60_000);
+      }
+    } else {
+      fetchStats();
+      pollInterval = setInterval(fetchStats, 60_000);
+    }
 
     // Eugene 2026-05-21 Босс: «появление новой цифры → blink → ракета → blink».
     // Listener на back-event от ракеты «landed» — повторяем blink.
@@ -226,7 +250,8 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
       .catch(() => {});
 
     return () => {
-      clearInterval(interval);
+      if (pollInterval) clearInterval(pollInterval);
+      if (es) { try { es.close(); } catch {} }
       window.removeEventListener("muza:rocket-landed", onRocketLanded as EventListener);
     };
   }, []);
