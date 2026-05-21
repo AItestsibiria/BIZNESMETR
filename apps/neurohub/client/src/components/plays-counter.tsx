@@ -561,12 +561,15 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
       {/* ===== Top row: badge + heading + big number + live eye ===== */}
       <div className="relative flex items-center justify-between gap-4">
         <div className="flex-1 min-w-0">
-          <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-white/60">
+          {/* Eugene 2026-05-21 Босс «шрифт панели счётчика такой же как в проекте»
+              → font-sans (Inter) для текста + font-display (Space Grotesk) для
+              числа (как hero title в landing). Brand-style consistency rule. */}
+          <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs font-sans text-white/60">
             <Sparkles className="h-3.5 w-3.5 text-[#FBBF24]" />
             Live pulse MuzaAi
           </div>
 
-          <h3 className="text-sm font-medium tracking-wide text-white/70">Прослушивания</h3>
+          <h3 className="text-sm font-sans font-medium tracking-wide text-white/70">Прослушивания</h3>
 
           <div className="mt-2 flex items-end gap-2 relative">
             {/* Eugene 2026-05-21 Босс «счётчик 000000 + эквалайзеры слева и справа
@@ -597,7 +600,8 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
 
               <div
                 key={`bump-${bumped}`}
-                className={`font-mono text-4xl font-semibold tracking-tight ${bumped > 0 ? "uc-num-bump" : ""}`}
+                className={`font-display font-bold text-4xl tracking-tight ${bumped > 0 ? "uc-num-bump" : ""}`}
+                style={{ fontVariantNumeric: "tabular-nums" }}
               >
                 <RollingNumber value={total} />
               </div>
@@ -617,7 +621,7 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
                 ))}
               </div>
             </div>
-            <div className="mb-1 text-xs text-white/40">всего</div>
+            <div className="mb-1 text-xs font-sans text-white/40">всего</div>
             {/* Growth arrow — fires on counter bump */}
             {bumped > 0 && animEnabled && (
               <span
@@ -661,8 +665,8 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
             else if (mod10 >= 2 && mod10 <= 4) word = "страны";
             else word = "стран";
             return (
-              <div className="mt-1 text-[10px] text-white/65 font-mono whitespace-nowrap">
-                <span className="text-[#22D3EE] font-semibold">{countriesCount}</span>
+              <div className="mt-1 text-[10px] text-white/65 font-sans whitespace-nowrap">
+                <span className="text-[#22D3EE] font-semibold" style={{ fontVariantNumeric: "tabular-nums" }}>{countriesCount}</span>
                 <span className="text-white/45"> {word}</span>
               </div>
             );
