@@ -25,14 +25,17 @@ import { Sparkles } from "lucide-react";
 // Moon: орбита prograde (counterclockwise от north pole, same as Earth's
 // rotation). Старт в top-left как просил Boss. Период real ~27 days,
 // visual 90s. Размер ~27% от Earth (real 1737km / Earth 6371km = 27.3%).
+// Eugene 2026-05-21 Босс «сделай похожим на 100% на emoji реальный SVG/3D,
+// посмотрю решу как дальше». SVG Earth с правдоподобными континентами
+// (Африка + Европа + Аравия + Мадагаскар), океаном radial gradient,
+// атмосферным halo, бликом сверху-слева. Континенты — внутри clipPath circle,
+// translateX animation создаёт иллюзию «земля крутится перед нами»
+// (континенты дрейфуют LEFT→RIGHT = стандартная астрономическая визуализация).
+// Луна слева вверху, prograde orbit.
 function PlanetIcon({ size = 80 }: { size?: number }) {
   const uid = String(Math.random()).slice(2, 8);
-  // size = wrapper. Earth ~55% font, moon orbit radius ~42%, moon ~18%.
-  const earthSize = Math.round(size * 0.55);
-  const orbitRadius = Math.round(size * 0.42);
-  const moonSize = Math.round(size * 0.18);
-  // Top-left start: angle 225° (math), offset = orbitRadius * cos(45°) ≈ 0.707
-  const offset = Math.round(orbitRadius * 0.707);
+  // Без Луны: Earth занимает большую часть wrapper'а
+  const earthSize = Math.round(size * 0.9);
   return (
     <span
       style={{
@@ -40,65 +43,85 @@ function PlanetIcon({ size = 80 }: { size?: number }) {
         display: "inline-block",
         width: `${size}px`,
         height: `${size}px`,
-        perspective: `${size * 4}px`,
       }}
       aria-hidden="true"
     >
-      {/* Earth — rotateY around polar axis (equator-view scientific direction).
-          rotateY(positive) = surface drifts LEFT = вид с восточной стороны
-          (Африка уезжает к нашему западу = влево). real 24h, visual 60s. */}
-      <span
+      {/* SVG Earth centered */}
+      <svg
+        viewBox="0 0 100 100"
+        width={earthSize}
+        height={earthSize}
         style={{
           position: "absolute",
-          inset: 0,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: `${earthSize}px`,
-          lineHeight: 1,
-          animation: `earth-spin-${uid} 60s linear infinite`,
-          transformStyle: "preserve-3d",
-          filter: "drop-shadow(0 0 10px rgba(34,211,238,0.45))",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+          filter: "drop-shadow(0 0 6px rgba(34,211,238,0.45)) drop-shadow(0 0 14px rgba(34,211,238,0.18))",
         }}
       >
-        🌍
-      </span>
-      {/* Moon orbit wrapper — rotates CCW (prograde, same as Earth's spin =
-          научное направление). Moon child positioned top-left (-X, -Y from
-          center) → стартует слева вверху как просил Boss. */}
-      <span
-        style={{
-          position: "absolute",
-          inset: 0,
-          animation: `moon-orbit-${uid} 90s linear infinite`,
-        }}
-      >
-        <span
-          style={{
-            position: "absolute",
-            top: `calc(50% - ${moonSize / 2}px - ${offset}px)`,
-            left: `calc(50% - ${moonSize / 2}px - ${offset}px)`,
-            fontSize: `${moonSize}px`,
-            lineHeight: 1,
-            filter: "drop-shadow(0 0 3px rgba(255,255,255,0.55))",
-          }}
-        >
-          🌙
-        </span>
-      </span>
-      <style>{`
-        @keyframes earth-spin-${uid} {
-          from { transform: rotateY(0deg); }
-          to { transform: rotateY(360deg); }
-        }
-        @keyframes moon-orbit-${uid} {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(-360deg); }
-        }
-        @media (prefers-reduced-motion: reduce) {
-          span[style*="earth-spin-${uid}"], span[style*="moon-orbit-${uid}"] { animation: none !important; }
-        }
-      `}</style>
+        <defs>
+          {/* Ocean — radial gradient, свет сверху-слева, тень снизу-справа */}
+          <radialGradient id={`ocean-${uid}`} cx="0.32" cy="0.28" r="0.78">
+            <stop offset="0%" stopColor="#8FD3F5" />
+            <stop offset="35%" stopColor="#3C95CC" />
+            <stop offset="75%" stopColor="#185A93" />
+            <stop offset="100%" stopColor="#0A2A56" />
+          </radialGradient>
+          {/* Continents gradient — зелёный → жёлтый (трава→саванна→пустыня) */}
+          <linearGradient id={`land-${uid}`} x1="0" y1="0" x2="0.15" y2="1">
+            <stop offset="0%" stopColor="#B5DA6E" />
+            <stop offset="50%" stopColor="#65AC3D" />
+            <stop offset="100%" stopColor="#C7A335" />
+          </linearGradient>
+          {/* Atmosphere halo — голубой нимб вокруг */}
+          <radialGradient id={`atmos-${uid}`} cx="0.5" cy="0.5" r="0.5">
+            <stop offset="88%" stopColor="rgba(143,211,245,0)" />
+            <stop offset="96%" stopColor="rgba(143,211,245,0.45)" />
+            <stop offset="100%" stopColor="rgba(143,211,245,0)" />
+          </radialGradient>
+          {/* Terminator shadow — мягкая тень снизу-справа */}
+          <radialGradient id={`shadow-${uid}`} cx="0.72" cy="0.78" r="0.55">
+            <stop offset="0%" stopColor="rgba(0,0,0,0.32)" />
+            <stop offset="100%" stopColor="rgba(0,0,0,0)" />
+          </radialGradient>
+          {/* clipPath — круг для клиппинга континентов в сфере */}
+          <clipPath id={`clip-${uid}`}>
+            <circle cx="50" cy="50" r="47" />
+          </clipPath>
+        </defs>
+
+        {/* Atmosphere halo (snaружи диска) */}
+        <circle cx="50" cy="50" r="50" fill={`url(#atmos-${uid})`} />
+
+        {/* Ocean sphere */}
+        <circle cx="50" cy="50" r="47" fill={`url(#ocean-${uid})`} />
+
+        {/* Continents — clipped в круг */}
+        <g clipPath={`url(#clip-${uid})`} fill={`url(#land-${uid})`} stroke="#3F7821" strokeWidth="0.4" opacity="0.95">
+          {/* Europe — два маленьких пятна сверху */}
+          <path d="M30 28 Q26 30 28 34 Q31 35 34 33 L36 30 Z" />
+          <path d="M40 25 Q44 24 47 27 Q45 30 41 30 Z" />
+          {/* Africa — характерный «boot» силуэт */}
+          <path d="M37 36 Q31 40 32 50 Q34 60 39 68 Q44 76 51 75 Q58 73 60 65 Q62 56 60 47 Q56 38 47 35 Q41 35 37 36 Z" />
+          {/* Африканский рог (Сомали) */}
+          <path d="M58 44 Q63 41 67 45 Q65 48 60 48 Z" />
+          {/* Arabian peninsula */}
+          <path d="M61 30 Q66 28 71 31 Q72 36 68 39 Q63 37 61 33 Z" />
+          {/* Madagascar (островок справа от Африки) */}
+          <path d="M64 64 Q66 62 67 65 Q66 70 63 70 Z" />
+          {/* Iceland / небольшой островок сверху-слева */}
+          <ellipse cx="25" cy="22" rx="2" ry="1.5" />
+        </g>
+
+        {/* Terminator shadow */}
+        <circle cx="50" cy="50" r="47" fill={`url(#shadow-${uid})`} />
+
+        {/* Specular highlight — блик сверху-слева (солнце) */}
+        <ellipse cx="30" cy="26" rx="14" ry="8" fill="white" opacity="0.18" />
+        <ellipse cx="27" cy="22" rx="5" ry="3" fill="white" opacity="0.4" />
+      </svg>
+
+      {/* Eugene 2026-05-21 Босс «луну убери» — moon orbit удалён. */}
     </span>
   );
 }
