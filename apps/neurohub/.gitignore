@@ -7,3 +7,16 @@ vite.config.ts.*
 *.db
 *.db-shm
 *.db-wal
+
+# Capacitor / iOS — генерируется на Mac через `npx cap add ios`
+ios/App/Pods/
+ios/App/build/
+ios/App/Podfile.lock
+ios/.DS_Store
+ios/App/App/public/
+ios/App/App.xcworkspace/xcuserdata/
+ios/App/App.xcodeproj/xcuserdata/
+ios/App/App.xcodeproj/project.xcworkspace/xcuserdata/
+
+# iOS assets — generated final ассеты (исходники в ios-assets/ committed)
+ios-assets/*.generated.png
