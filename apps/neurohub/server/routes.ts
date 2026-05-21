@@ -9962,15 +9962,23 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       return { ..._playsStatsCache.data, onlineNow: _statsSseClients.size };
     }
     const rawSql: any = (db as any).$client || sqliteDb;
-    const stats = rawSql.prepare(
-      `SELECT
-         COUNT(*) AS total_tracks,
-         COALESCE(SUM(CAST(json_extract(style, '$.plays') AS INTEGER)), 0) AS total_plays
-       FROM generations
-       WHERE type = 'music' AND deleted_at IS NULL AND status = 'done'
-         AND is_public = 1
-         AND style LIKE '{%' AND json_valid(style) = 1`
-    ).get() as { total_tracks: number; total_plays: number };
+    // Eugene 2026-05-21 Босс «на сайте такие же цифры как в админке» (God-mode).
+    // ROOT CAUSE: сайт SUM(meta.plays) public-only ≠ админ COUNT gen_activity all.
+    // FIX: единый источник — gen_activity 'play' COUNT (как админ).
+    // - totalTracks: COUNT публичных music gens (для UI «Треков: 52»)
+    // - totalPlays: COUNT(*) FROM gen_activity WHERE action='play' (all-time)
+    //   = тот же row-count который админ показывает (просто без period фильтра).
+    const tracksRow = rawSql.prepare(
+      `SELECT COUNT(*) AS cnt FROM generations
+       WHERE type='music' AND deleted_at IS NULL AND status='done' AND is_public=1`
+    ).get() as { cnt: number };
+    const playsRow = rawSql.prepare(
+      `SELECT COUNT(*) AS cnt FROM gen_activity WHERE action='play'`
+    ).get() as { cnt: number };
+    const stats = {
+      total_tracks: Number(tracksRow?.cnt || 0),
+      total_plays: Number(playsRow?.cnt || 0),
+    };
     // Today MSK = текущий день по UTC+3, начало 00:00 МСК = (UTC текущего дня в 21:00 предыдущего OR 21:00 текущего)
     const now = new Date();
     const mskNow = new Date(now.getTime() + 3 * 60 * 60 * 1000);
