@@ -576,12 +576,11 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
       {/* ===== Main row: heading + number + planet ===== */}
       <div className="relative flex items-center justify-between gap-4">
         <div className="flex-1 min-w-0 flex flex-col items-center">
-          {/* Eugene 2026-05-21 Босс «слова Счётчик МузаАй строго по центру
-              между эквалайзерами». flex-col items-center → h3 + eq-row stacked,
-              h3 центрирован относительно ширины eq-row (left-eq + number + right-eq). */}
-          <h3 className="text-sm font-sans font-medium tracking-wide text-white/70 text-center">Счётчик МузаАй</h3>
+          {/* Eugene 2026-05-21 Босс «убери надпись МузаАй, вместо неё сверху
+              наушники по центру цифр». 🎧 emoji центрирован над eq-row. */}
+          <span className="text-2xl leading-none mb-1" aria-hidden="true">🎧</span>
 
-          <div className="mt-2 flex items-end gap-2 relative">
+          <div className="mt-1 flex items-end gap-2 relative">
             {/* Eugene 2026-05-21 Босс «счётчик 000000 + эквалайзеры слева и справа
                 как на главной». 6-digit padded, dim leading zeros (violet@0.22),
                 bright active digits с цветовым циклом violet→gold→cyan. */}
