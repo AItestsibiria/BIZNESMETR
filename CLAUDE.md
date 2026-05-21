@@ -1787,6 +1787,30 @@ Functional check (`apps/neurohub/server/plugins/api-health/module.ts`):
 
 Reference: commit с расширением checks, helper `isFunctionalMuzaReply` в api-health/module.ts.
 
+### Brand-rocket-asset rule (Eugene 2026-05-21)
+
+**Любые визуальные графические элементы (ракеты, иконки, декор, illustrations) на сайте — в brand-цветах MuzaAi: purple `#7C3AED`, fuchsia `#D946EF`, cyan `#06B6D4`, electric blue `#00D4FF`. И ОБЯЗАТЕЛЬНО рядом с ними по палитре** (близкие оттенки: purple-300 `#c084fc`, fuchsia-300 `#f0abfc`, cyan-300 `#67e8f9`, cyan-100 `#a5f3fc`).
+
+Reference: `Brand-style consistency rule` (палитра в index.css). НЕ использовать вне brand:
+- ❌ amber (`#fde68a`, `#fbbf24`) — кроме live-индикаторов (status pills)
+- ❌ red (#ef4444) — кроме error states
+- ❌ green (#22c55e) — кроме success states
+- ❌ generic gray (#6b7280) — только для нейтрального текста / borders
+
+**Реализованные brand-assets:**
+- `components/brand-rocket.tsx` — inline SVG ракета в gradient brand (purple→fuchsia, cyan window, fuchsia wings, fuchsia→cyan flame). Drop-shadow fuchsia+purple glow.
+- `components/plays-counter.tsx` — fuchsia/cyan/purple text-shadow на цифрах
+- `components/rocket-launch.tsx` — использует BrandRocket
+
+При добавлении нового graphics-element:
+1. Проверь brand palette в `index.css` (`.gradient-text`, `.btn-cosmic`, и т.д.)
+2. Используй gradient `from-purple-500 via-fuchsia-500 to-cyan-500` или solid из палитры
+3. Drop-shadow / text-shadow тоже из палитры (rgba purple/fuchsia/cyan)
+4. Если нужен warmer accent — используй pink-300/400 (близко к fuchsia, но мягче) вместо amber
+5. SVG inline в TSX компоненте — не отдельные .svg файлы для critical brand graphics
+
+Reference: commit с brand-rocket, `brand-rocket.tsx`, `CLAUDE.md → Brand-style consistency rule`.
+
 ### Star-suggestion rule (Eugene 2026-05-21)
 
 **При предложении новой «мировой звезды» (counter «i» popup) ссылка на Instagram ОБЯЗАТЕЛЬНА.** Для existing звёзд (повторный голос) — опционально.

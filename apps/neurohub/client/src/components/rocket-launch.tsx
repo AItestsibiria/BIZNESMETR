@@ -8,6 +8,7 @@
 // auto-removed через 5.5s. prefers-reduced-motion safe.
 
 import { useEffect, useState } from "react";
+import { BrandRocket } from "./brand-rocket";
 
 interface Rocket {
   id: number;
@@ -147,8 +148,7 @@ export function RocketLaunch() {
           pointer-events: none;
           z-index: 9999;
           will-change: transform, opacity;
-          font-size: 36px;
-          filter: drop-shadow(0 0 12px rgba(217,70,239,0.6)) drop-shadow(0 0 24px rgba(124,58,237,0.4));
+          /* font-size убран — SVG ракета сама задаёт size */
         }
         .rocket-trail {
           position: absolute;
@@ -192,7 +192,8 @@ export function RocketLaunch() {
                   100% { transform: translate(${dx}px, -${(typeof window !== "undefined" ? window.innerHeight : 800) + 200}px) rotate(${r.angle}deg) scale(0.5); opacity: 0; }
                 }
               `}</style>
-              {r.emoji}
+              {/* Eugene 2026-05-21 Босс «ракета в brand-цветах MuzaAi» */}
+              <BrandRocket size={42} />
               <span className="rocket-trail" aria-hidden="true" />
             </span>
           );
@@ -210,7 +211,7 @@ export function RocketLaunch() {
             } as any}
             aria-hidden="true"
           >
-            {r.emoji}
+            <BrandRocket size={42} />
             <span className="rocket-trail" aria-hidden="true" />
           </span>
         );
