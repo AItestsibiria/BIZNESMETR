@@ -647,12 +647,26 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
           {/* Eugene 2026-05-21 Босс «количество стран с одной точки сбора +
               совпадать с планетой на плеере». countriesCount из общего endpoint
               /api/public/countries-count — sync с landing.tsx player 🌍 N. */}
-          {countriesCount > 0 && (
-            <div className="mt-1 text-[10px] text-white/65 font-mono whitespace-nowrap">
-              <span className="text-[#22D3EE] font-semibold">{countriesCount}</span>
-              <span className="text-white/45"> {countriesCount === 1 ? "страна" : countriesCount < 5 ? "страны" : "стран"}</span>
-            </div>
-          )}
+          {countriesCount > 0 && (() => {
+            // Eugene 2026-05-21 Босс «окончания слова стран по правильности
+            // прочтения цифры». Русское склонение по чтению числа:
+            // 1, 21, 31… → страна
+            // 2-4, 22-24… → страны
+            // 0, 5-20, 25-30, 111-114… → стран
+            const mod10 = countriesCount % 10;
+            const mod100 = countriesCount % 100;
+            let word: string;
+            if (mod100 >= 11 && mod100 <= 14) word = "стран";
+            else if (mod10 === 1) word = "страна";
+            else if (mod10 >= 2 && mod10 <= 4) word = "страны";
+            else word = "стран";
+            return (
+              <div className="mt-1 text-[10px] text-white/65 font-mono whitespace-nowrap">
+                <span className="text-[#22D3EE] font-semibold">{countriesCount}</span>
+                <span className="text-white/45"> {word}</span>
+              </div>
+            );
+          })()}
         </div>
       </div>
 
