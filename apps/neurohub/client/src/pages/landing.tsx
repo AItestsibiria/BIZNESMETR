@@ -1810,6 +1810,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           <PlaysCounter />
         </div>
 
+        {/* Eugene 2026-05-21 Босс «ракета при окончании трека вверх под углом».
+            Listener в компоненте на window event 'muza:track-finished'. */}
+        <RocketLaunch />
+
         {/* Track count + page info */}
         {filteredMusic.length > 0 && (
           <div className="flex items-center justify-between text-xs text-muted-foreground px-1 mb-2">
