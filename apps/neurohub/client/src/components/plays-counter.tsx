@@ -12,7 +12,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Eye, Sparkles, TrendingUp } from "lucide-react";
+import { Eye, Sparkles } from "lucide-react";
 
 interface Stats {
   totalPlays: number;
@@ -176,26 +176,18 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
   if (!stats || stats.totalPlays === 0) return null;
 
   const total = stats.totalPlays;
-  const today = stats.todayPlays ?? 0;
-  const online = stats.onlineNow ?? 0;
   const fmt = (n: number) => n.toLocaleString("ru-RU");
 
   return (
     <section
-      className={`relative overflow-hidden rounded-[28px] border border-white/10 p-5 ${className} ${animEnabled ? "uc-card-pulse" : ""} cursor-pointer`}
+      className={`relative overflow-hidden rounded-[28px] border border-purple-500/20 p-5 ${className} ${animEnabled ? "uc-card-pulse" : ""}`}
       style={{
-        background: "rgba(7,8,18,0.92)",
-        backdropFilter: "blur(24px) saturate(140%)",
-        WebkitBackdropFilter: "blur(24px) saturate(140%)",
-        boxShadow: "0 0 60px rgba(139,92,246,0.18), 0 8px 32px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06)",
-      }}
-      role="button"
-      tabIndex={0}
-      onClick={(e) => {
-        const tgt = e.target as HTMLElement;
-        if (tgt.closest("button, a")) return;
-        setShowInfo(v => !v);
-        if (!showInfo) { setShowRating(true); loadStarRating(); }
+        // Eugene 2026-05-21 Босс «цвета в стиле основного плеера» — glass-card
+        // как у playlist (мягкий violet+cyan tint, не deep-space pure).
+        background: "linear-gradient(135deg, rgba(26,15,46,0.72) 0%, rgba(15,24,48,0.68) 50%, rgba(20,12,38,0.72) 100%)",
+        backdropFilter: "blur(16px) saturate(140%)",
+        WebkitBackdropFilter: "blur(16px) saturate(140%)",
+        boxShadow: "0 0 40px rgba(139,92,246,0.18), 0 8px 24px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.08)",
       }}
     >
       <style>{`
@@ -278,32 +270,9 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
         </div>
       </div>
 
-      {/* ===== Bottom 2-col grid: Сегодня · Онлайн ===== */}
-      <div className="relative mt-5 grid grid-cols-2 gap-3">
-        <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-4 backdrop-blur">
-          <div className="flex items-center gap-2 text-xs text-white/45">
-            <TrendingUp className="h-3.5 w-3.5 text-[#8B5CF6]" />
-            Сегодня
-          </div>
-          <div className="mt-1 text-2xl font-semibold text-white">{fmt(today)}</div>
-        </div>
-
-        <div className="rounded-2xl border border-white/10 bg-white/[0.045] p-4 backdrop-blur">
-          <div className="flex items-center gap-2 text-xs text-white/45">
-            <span
-              className="relative h-2 w-2 rounded-full bg-emerald-400"
-              style={{ boxShadow: "0 0 12px rgba(52,211,153,0.9)" }}
-              aria-hidden="true"
-            >
-              {animEnabled && (
-                <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-50" />
-              )}
-            </span>
-            Онлайн
-          </div>
-          <div className="mt-1 text-2xl font-semibold text-white">{fmt(online)}</div>
-        </div>
-      </div>
+      {/* Eugene 2026-05-21 Босс «убери сегодня и онлайн» — bottom grid удалён.
+          todayPlays/onlineNow остаются в payload (для admin / future tabs),
+          но не рендерятся в card. */}
 
       {/* ===== Buttons: i (info) + ✦/○ (anim toggle) ===== */}
       <button
