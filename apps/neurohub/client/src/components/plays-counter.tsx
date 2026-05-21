@@ -83,6 +83,8 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
   // подряд = до явного включения. По IP». State от server.
   const [animEnabled, setAnimEnabled] = useState(true);
   const [permanentOff, setPermanentOff] = useState(false);
+  // Eugene 2026-05-21 Босс: «кнопка i — после 1 000 000 маякнем мировой звезде».
+  const [showInfo, setShowInfo] = useState(false);
 
   useEffect(() => {
     const fetchStats = () => {
@@ -372,6 +374,31 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
         <span className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[10px] uppercase tracking-widest text-white/50 font-semibold whitespace-nowrap">
           прослушиваний
         </span>
+
+        {/* Eugene 2026-05-21 Босс: «кнопка i справа сверху от счётчика.
+            При нажатии — после 1 000 000 маякнем мировой звезде». */}
+        <button
+          type="button"
+          onClick={() => setShowInfo(v => !v)}
+          aria-label="Информация"
+          title="Что будет после 1 000 000?"
+          className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-white/8 hover:bg-white/15 border border-white/15 flex items-center justify-center text-[10px] italic font-bold text-white/70 hover:text-white transition-colors leading-none"
+        >
+          i
+        </button>
+        {showInfo && (
+          <div
+            className="absolute left-1/2 -translate-x-1/2 -top-14 px-4 py-2 rounded-2xl text-[12px] text-white whitespace-nowrap z-20 animate-in fade-in slide-in-from-bottom-1 duration-200"
+            style={{
+              background: "linear-gradient(135deg, rgba(124,58,237,0.95) 0%, rgba(217,70,239,0.95) 50%, rgba(6,182,212,0.95) 100%)",
+              boxShadow: "0 8px 32px rgba(217,70,239,0.4), 0 0 24px rgba(124,58,237,0.3)",
+            }}
+            onClick={() => setShowInfo(false)}
+          >
+            ✨ После <b>1 000 000</b> маякнём мировой звезде!
+            <span className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-3 h-3 rotate-45" style={{ background: "linear-gradient(135deg, rgba(217,70,239,0.95), rgba(6,182,212,0.95))" }} aria-hidden="true" />
+          </div>
+        )}
 
         {/* Eugene 2026-05-21 Босс: «кнопка mini отключить анимацию по смыслу
             в первом нижнем». Tracking по IP через server. 3 дня подряд →
