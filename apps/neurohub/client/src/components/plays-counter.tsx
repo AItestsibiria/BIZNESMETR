@@ -118,6 +118,13 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
   const [starInput, setStarInput] = useState("");
   const [starUrlInput, setStarUrlInput] = useState("");
   const [starSubmitting, setStarSubmitting] = useState(false);
+  // Eugene 2026-05-21 Босс: «вначале если хотят добавить — нажимают +, заполняют поля,
+  // после подтверждения сердечко автоматом». Form скрыта до click на «+ Добавить».
+  const [showAddForm, setShowAddForm] = useState(false);
+  // Eugene 2026-05-21 Босс: «проверяй написание аккаунта, если неправильно
+  // предлагай юзеру правильный вариант». Server при verify Instagram URL
+  // может вернуть suggestion с правильным написанием.
+  const [starSuggestion, setStarSuggestion] = useState<string | null>(null);
   const [starMsg, setStarMsg] = useState<string | null>(null);
   const [starTop, setStarTop] = useState<Array<{ name: string; url: string | null; votes: number }>>([]);
   const [starTotalVotes, setStarTotalVotes] = useState(0);
@@ -132,6 +139,27 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
         }
       })
       .catch(() => {});
+  };
+  const voteForExisting = (name: string) => {
+    // Eugene 2026-05-21 Босс: «при нажатии на сердечко рядом с именем — лайк за existing».
+    // URL не нужен (existing звезда), backend разрешает без URL для existing names.
+    fetch("/api/star-suggestions/vote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    })
+      .then(r => r.json())
+      .then(j => {
+        if (j?.ok) {
+          setStarMsg(`Сердечко поставлено ${name} ⭐`);
+          loadStarRating();
+        } else if (j?.alreadyVoted) {
+          setStarMsg(`Голос за «${name}» учтён ранее`);
+        } else {
+          setStarMsg(j?.error || "Ошибка");
+        }
+      })
+      .catch(() => setStarMsg("Сеть недоступна"));
   };
   const submitStar = (e: React.FormEvent) => {
     e.preventDefault();
@@ -453,7 +481,7 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
             При нажатии — после 1 000 000 маякнем мировой звезде». */}
         <button
           type="button"
-          onClick={() => { setShowInfo(v => !v); if (!showInfo) loadStarRating(); }}
+          onClick={() => { setShowInfo(v => !v); if (!showInfo) { setShowRating(true); loadStarRating(); } }}
           aria-label="Информация"
           title="Что будет после 1 000 000?"
           className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-white/8 hover:bg-white/15 border border-white/15 flex items-center justify-center text-[10px] italic font-bold text-white/70 hover:text-white transition-colors leading-none z-10"
@@ -523,65 +551,98 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
                       ) : (
                         <span className="flex-1 truncate text-white/80">{s.name}</span>
                       )}
-                      <span className="flex items-center gap-1 text-pink-300 font-bold">
-                        <HeartIcon filled className="w-3.5 h-3.5" />
+                      {/* Eugene 2026-05-21 Босс: «лайк ставится по клику на сердечко» */}
+                      <button
+                        type="button"
+                        onClick={() => voteForExisting(s.name)}
+                        className="flex items-center gap-1 text-pink-300 font-bold hover:scale-110 active:scale-95 transition-transform"
+                        title={`Поставить ❤ за ${s.name}`}
+                      >
+                        <HeartIcon filled className="w-4 h-4" />
                         <span className="font-mono text-[12px]">{s.votes}</span>
-                      </span>
+                      </button>
                     </li>
                   ))}
                 </ol>
               </div>
             )}
 
-            <form onSubmit={submitStar} className="space-y-2">
-              <div className="text-[12px] text-white/85 font-semibold flex items-center gap-1.5">
-                <HeartIcon filled className="w-3.5 h-3.5 text-pink-300" />
-                <span>Голосуем. За одно имя — 1 сердечко</span>
-              </div>
-              <input
-                type="text"
-                value={starInput}
-                onChange={(e) => setStarInput(e.target.value)}
-                placeholder="Имя звезды"
-                maxLength={60}
-                className="w-full px-3 py-1.5 rounded-lg bg-black/30 border border-white/20 text-[12px] text-white placeholder:text-white/40 focus:outline-none focus:border-white/40"
-              />
-              <input
-                type="url"
-                value={starUrlInput}
-                onChange={(e) => setStarUrlInput(e.target.value)}
-                placeholder="Instagram (обязательно)"
-                maxLength={120}
-                className="w-full px-3 py-1.5 rounded-lg bg-black/30 border border-white/20 text-[12px] text-white placeholder:text-white/40 focus:outline-none focus:border-white/40"
-              />
-              <div className="flex items-center gap-2">
+            {/* Eugene 2026-05-21 Босс: form скрыта за «+ Добавить», после
+                подтверждения сердечко автоматом. */}
+            {!showAddForm ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowAddForm(true)}
+                  className="w-full py-2.5 rounded-lg bg-pink-500/25 hover:bg-pink-500/40 border border-pink-400/40 text-[13px] font-semibold transition-all flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-95"
+                >
+                  <span className="text-[16px] leading-none">＋</span>
+                  <span>Добавить свою звезду</span>
+                </button>
+                {starMsg && <div className="text-[12px] text-amber-200 mt-2 text-center">{starMsg}</div>}
+              </>
+            ) : (
+              <form onSubmit={submitStar} className="space-y-2">
+                <div className="text-[12px] text-white/85 font-semibold flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <HeartIcon filled className="w-3.5 h-3.5 text-pink-300" />
+                    <span>Добавляем звезду</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => { setShowAddForm(false); setStarInput(""); setStarUrlInput(""); setStarMsg(null); }}
+                    className="text-white/60 hover:text-white text-[16px] leading-none"
+                    aria-label="Отмена"
+                  >×</button>
+                </div>
+                <input
+                  type="text"
+                  value={starInput}
+                  onChange={(e) => setStarInput(e.target.value)}
+                  placeholder="Имя звезды (например Beyoncé)"
+                  maxLength={60}
+                  autoFocus
+                  className="w-full px-3 py-2 rounded-lg bg-black/30 border border-white/20 text-[13px] text-white placeholder:text-white/40 focus:outline-none focus:border-white/40"
+                />
+                <input
+                  type="url"
+                  value={starUrlInput}
+                  onChange={(e) => setStarUrlInput(e.target.value)}
+                  placeholder="Instagram URL (обязательно)"
+                  maxLength={120}
+                  className="w-full px-3 py-2 rounded-lg bg-black/30 border border-white/20 text-[13px] text-white placeholder:text-white/40 focus:outline-none focus:border-white/40"
+                />
                 <button
                   type="submit"
                   disabled={starSubmitting}
-                  className={`flex-1 py-2 rounded-lg disabled:opacity-50 border text-[13px] font-semibold transition-all flex items-center justify-center gap-2 ${starSubmitting ? "bg-white/15 border-white/20" : "bg-pink-500/30 hover:bg-pink-500/50 border-pink-400/40 hover:scale-[1.02] active:scale-95"}`}
+                  className={`w-full py-2 rounded-lg disabled:opacity-50 border text-[13px] font-semibold transition-all flex items-center justify-center gap-2 ${starSubmitting ? "bg-white/15 border-white/20" : "bg-pink-500/30 hover:bg-pink-500/50 border-pink-400/40 hover:scale-[1.01] active:scale-95"}`}
                 >
                   {starSubmitting ? (
-                    "..."
+                    "Проверяем аккаунт..."
                   ) : (
                     <>
                       <HeartIcon filled className="w-4 h-4 text-pink-300" />
-                      <span>Поставить сердечко</span>
+                      <span>Добавить и поставить ❤</span>
                     </>
                   )}
                 </button>
-                {!showRating && (
-                  <button
-                    type="button"
-                    onClick={() => { setShowRating(true); loadStarRating(); }}
-                    className="px-3 py-2 rounded-lg bg-black/20 hover:bg-black/30 border border-white/10 text-[11px]"
-                  >
-                    🏆 Топ
-                  </button>
+                {starMsg && (
+                  <div className="text-[12px] text-amber-200 leading-relaxed">
+                    {starMsg}
+                    {starSuggestion && (
+                      <button
+                        type="button"
+                        onClick={() => { setStarUrlInput(starSuggestion); setStarMsg("Применено!"); }}
+                        className="block mt-1 underline text-pink-200 hover:text-pink-100"
+                      >
+                        Применить: {starSuggestion}
+                      </button>
+                    )}
+                  </div>
                 )}
-              </div>
-              {starMsg && <div className="text-[11px] text-amber-200">{starMsg}</div>}
-              <div className="text-[10px] text-white/50">Instagram обязателен для новой звезды</div>
-            </form>
+                <div className="text-[10px] text-white/55 leading-snug">Проверим что аккаунт существует. Сердечко поставится автоматом.</div>
+              </form>
+            )}
             </div>
           </>
         )}
