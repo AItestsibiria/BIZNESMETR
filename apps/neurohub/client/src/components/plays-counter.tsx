@@ -21,7 +21,7 @@ interface Stats {
 // - Явный color (override gradient clip от родителя)
 // - Blink при изменении value (анимация + post-rocket fade-back)
 // - Forwards ref для измерения позиции (для rocket launch)
-const RollingDigit = ({ value, blinkPhase, lastInRow }: { value: number; blinkPhase: "idle" | "blink-pre" | "blink-post"; lastInRow?: boolean }) => {
+const RollingDigit = ({ value, blinkPhase, lastInRow, dimmed }: { value: number; blinkPhase: "idle" | "blink-pre" | "blink-post"; lastInRow?: boolean; dimmed?: boolean }) => {
   const safeValue = Math.max(0, Math.min(9, value));
   const blinkClass = blinkPhase !== "idle" ? "uc-digit-blink" : "";
   return (
@@ -32,9 +32,10 @@ const RollingDigit = ({ value, blinkPhase, lastInRow }: { value: number; blinkPh
         width: "0.62em",
         height: "1em",
         lineHeight: "1em",
-        color: "#fde68a",
-        textShadow: "0 0 8px #f0abfc, 0 0 16px #67e8f9, 0 0 24px #c084fc",
-        WebkitTextFillColor: "#fde68a",
+        color: dimmed ? "rgba(253, 230, 138, 0.22)" : "#fde68a",
+        textShadow: dimmed ? "none" : "0 0 8px #f0abfc, 0 0 16px #67e8f9, 0 0 24px #c084fc",
+        WebkitTextFillColor: dimmed ? "rgba(253, 230, 138, 0.22)" : "#fde68a",
+        opacity: dimmed ? 0.6 : 1,
       }}
     >
       <span
@@ -49,26 +50,33 @@ const RollingDigit = ({ value, blinkPhase, lastInRow }: { value: number; blinkPh
   );
 };
 
-// Number formatted with thousand separator, each digit as RollingDigit.
-// blinkPhase передаётся для last digit (правый край — там «растёт» число).
+// Eugene 2026-05-21 Босс: «счётчик должен выглядеть 000000 где цифры
+// отражают онлайн изменение». Odometer-style — pad to 6 digits, leading
+// zeros dimmed. Bright digit = реальное значение, dim = «потенциал до миллиона».
 function RollingNumber({ value, blinkPhase }: { value: number; blinkPhase: "idle" | "blink-pre" | "blink-post" }) {
-  const formatted = value.toLocaleString("ru-RU");
-  const chars = formatted.split("");
-  // Найти индекс последней цифры (не разделитель)
-  let lastDigitIdx = -1;
-  for (let i = chars.length - 1; i >= 0; i--) {
-    if (Number.isFinite(parseInt(chars[i], 10))) { lastDigitIdx = i; break; }
-  }
+  const safeValue = Math.max(0, Math.min(999999, Math.floor(value)));
+  const padded = safeValue.toString().padStart(6, "0");
+  // firstNonZero — индекс первой не-нулевой цифры. Всё до неё = leading zeros (dim).
+  // Если все нули (value=0) → firstNonZero = 5 (последняя), все остальные dim.
+  let firstNonZero = padded.search(/[1-9]/);
+  if (firstNonZero < 0) firstNonZero = padded.length - 1;
+  const lastDigitIdx = padded.length - 1;
   return (
-    <>
-      {chars.map((ch, i) => {
+    <span className="inline-flex" style={{ letterSpacing: "0.02em" }}>
+      {padded.split("").map((ch, i) => {
         const digit = parseInt(ch, 10);
-        if (Number.isFinite(digit)) {
-          return <RollingDigit key={`${i}-${ch}`} value={digit} blinkPhase={i === lastDigitIdx ? blinkPhase : "idle"} lastInRow={i === lastDigitIdx} />;
-        }
-        return <span key={`${i}-sep`} className="inline-block">{ch}</span>;
+        const isDimmed = i < firstNonZero;
+        return (
+          <RollingDigit
+            key={i}
+            value={digit}
+            blinkPhase={i === lastDigitIdx ? blinkPhase : "idle"}
+            lastInRow={i === lastDigitIdx}
+            dimmed={isDimmed}
+          />
+        );
       })}
-    </>
+    </span>
   );
 }
 
@@ -323,7 +331,7 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
       `}</style>
 
       <div
-        className={`relative inline-flex items-center justify-center px-7 py-4 rounded-full ${animEnabled ? "uc-pulse" : ""} ${className}`}
+        className={`relative inline-flex items-center justify-center px-5 py-3 rounded-full ${animEnabled ? "uc-pulse" : ""} ${className}`}
         style={{
           background: "linear-gradient(135deg, rgba(124,58,237,0.18) 0%, rgba(217,70,239,0.14) 50%, rgba(6,182,212,0.18) 100%)",
           border: "1px solid rgba(217,70,239,0.40)",
@@ -370,11 +378,11 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
         )}
 
         {/* === Music Equalizer Bars (left) — only if anim enabled === */}
-        <div className="flex items-end gap-[2px] h-6 mr-3" aria-hidden="true">
+        <div className="flex items-end gap-[2px] h-[18px] mr-2" aria-hidden="true">
           {[0, 1, 2, 3].map(i => (
             <span
               key={`eql-${i}`}
-              className="w-[3px] bg-gradient-to-t from-purple-500 to-fuchsia-400 rounded-full origin-bottom"
+              className="w-[2px] bg-gradient-to-t from-purple-500 to-fuchsia-400 rounded-full origin-bottom"
               style={{
                 height: animEnabled ? "100%" : "40%",
                 animation: animEnabled ? `uc-eq-bar ${0.6 + i * 0.15}s ease-in-out infinite` : "none",
@@ -385,13 +393,12 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
         </div>
 
         {/* === Slot Machine number — Neon glow === */}
-        <span className="relative inline-flex items-center gap-2">
-          <span className="text-2xl" aria-hidden="true">🎧</span>
-          {/* Eugene 2026-05-21 fix: NO -webkit-text-fill-color:transparent —
-              иначе RollingDigit children становятся invisible.
-              Neon glow через text-shadow в самих digit'ах. */}
+        <span className="relative inline-flex items-center gap-1.5">
+          <span className="text-lg" aria-hidden="true">🎧</span>
+          {/* Eugene 2026-05-21 Босс «счётчик меньше на 25%».
+              text-2xl/3xl → text-lg/xl (~ -25%). Neon glow в digits через text-shadow. */}
           <span
-            className="font-mono text-2xl sm:text-3xl font-black tracking-tight leading-none"
+            className="font-mono text-lg sm:text-xl font-black tracking-tight leading-none"
             style={{ animation: animEnabled ? "uc-flicker 4s ease-in-out infinite" : "none" }}
           >
             <RollingNumber value={stats.totalPlays} blinkPhase={blinkPhase} />
@@ -404,11 +411,11 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
         </span>
 
         {/* === Music Equalizer Bars (right side) === */}
-        <div className="flex items-end gap-[2px] h-6 ml-3" aria-hidden="true">
+        <div className="flex items-end gap-[2px] h-[18px] ml-2" aria-hidden="true">
           {[0, 1, 2, 3].map(i => (
             <span
               key={`eqr-${i}`}
-              className="w-[3px] bg-gradient-to-t from-cyan-500 to-purple-400 rounded-full origin-bottom"
+              className="w-[2px] bg-gradient-to-t from-cyan-500 to-purple-400 rounded-full origin-bottom"
               style={{
                 height: animEnabled ? "100%" : "40%",
                 animation: animEnabled ? `uc-eq-bar ${0.7 + i * 0.12}s ease-in-out infinite` : "none",
@@ -436,27 +443,30 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
         </button>
         {showInfo && (
           <div
-            className="absolute left-1/2 -translate-x-1/2 -top-2 px-4 py-3 rounded-2xl text-[12px] text-white z-30 animate-in fade-in slide-in-from-top-1 duration-200"
+            className="absolute left-1/2 -translate-x-1/2 px-5 py-4 rounded-3xl text-[13px] text-white z-30 animate-in fade-in slide-in-from-top-1 duration-200"
             style={{
-              top: "calc(100% + 12px)",
-              minWidth: "280px",
-              maxWidth: "min(360px, calc(100vw - 32px))",
+              top: "calc(100% + 14px)",
+              minWidth: "340px",
+              maxWidth: "min(500px, calc(100vw - 24px))",
               background: "linear-gradient(135deg, rgba(124,58,237,0.95) 0%, rgba(217,70,239,0.92) 50%, rgba(6,182,212,0.95) 100%)",
-              boxShadow: "0 12px 40px rgba(217,70,239,0.4), 0 0 32px rgba(124,58,237,0.3)",
+              boxShadow: "0 16px 48px rgba(217,70,239,0.45), 0 0 40px rgba(124,58,237,0.35)",
             }}
           >
-            <div className="flex items-start justify-between gap-2 mb-2">
-              <div className="text-[13px] font-semibold leading-snug">
-                ✨ После <b className="font-mono">1 000 000</b> прослушиваний — маякнём{" "}
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div className="text-[14px] font-semibold leading-relaxed">
+                ✨ Когда наш плейлист дойдёт до <b className="font-mono text-amber-200 text-[15px]">1 000 000</b> прослушиваний — маякнём{" "}
                 <button
                   type="button"
                   onClick={() => { setShowRating(v => !v); if (!showRating) loadStarRating(); }}
-                  className="underline decoration-dotted hover:no-underline cursor-pointer font-bold"
+                  className="underline decoration-wavy decoration-amber-200 hover:no-underline cursor-pointer font-bold text-amber-100"
                 >
                   мировой звезде
                 </button>!
+                <div className="mt-1.5 text-[11px] text-white/75 font-normal leading-relaxed">
+                  Кого предложишь? Голосуем кто заслуживает услышать наших авторов. За одно имя — один голос с твоего IP.
+                </div>
               </div>
-              <button onClick={() => setShowInfo(false)} className="text-white/70 hover:text-white text-[16px] leading-none -mt-1" aria-label="Закрыть">×</button>
+              <button onClick={() => setShowInfo(false)} className="text-white/70 hover:text-white text-[20px] leading-none flex-shrink-0" aria-label="Закрыть">×</button>
             </div>
 
             {showRating && starTop.length > 0 && (

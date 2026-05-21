@@ -9760,8 +9760,14 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       }
 
       const ip = String(req.headers["x-forwarded-for"] || req.ip || "").split(",")[0].trim().replace(/^::ffff:/, "") || "unknown";
-      // Eugene 2026-05-21 Босс: «ограничений нет по времени Star». Rate limit убран.
-      // star_votes_log остаётся для audit, но блокировки нет.
+      // Eugene 2026-05-21 Босс: «если повторно нажимать за звезду — Голос учтён ранее».
+      // Дедуп по (ip, name_normalized) — один IP голосует за конкретное имя один раз.
+      // За разные имена — голосует без ограничений.
+      const alreadyVoted = rawSql.prepare("SELECT id FROM star_votes_log WHERE ip = ? AND name_normalized = ? LIMIT 1").get(ip, normalized);
+      if (alreadyVoted) {
+        res.json({ ok: false, error: "Голос учтён ранее", alreadyVoted: true });
+        return;
+      }
       if (existing) {
         const updateUrl = rawUrl && !existing.profile_url ? normalizedUrl : null;
         if (updateUrl) {
