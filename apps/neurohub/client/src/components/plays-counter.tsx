@@ -509,15 +509,10 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
 
   return (
     <section
-      className={`relative overflow-hidden rounded-[28px] border border-purple-500/20 p-5 ${className}`}
-      style={{
-        // Eugene 2026-05-21 Босс «панель прозрачной на 35% + в цвет счётчика».
-        // Brand: violet #8B5CF6 + cyan #22D3EE — те же что в digit color-cycle.
-        background: "linear-gradient(135deg, rgba(139,92,246,0.35) 0%, rgba(34,211,238,0.20) 50%, rgba(139,92,246,0.35) 100%)",
-        backdropFilter: "blur(16px) saturate(140%)",
-        WebkitBackdropFilter: "blur(16px) saturate(140%)",
-        boxShadow: "0 0 40px rgba(139,92,246,0.18), 0 8px 24px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.08)",
-      }}
+      // Eugene 2026-05-21 Босс «стилизуй счётчик под панель плеера». Player big
+      // card в landing.tsx: 'glass-card rounded-2xl p-5 border border-white/[0.06]'.
+      // glass-card утилита из index.css уже даёт rgba(18,18,22,0.72) + backdrop-blur.
+      className={`relative overflow-hidden glass-card rounded-2xl border border-white/[0.06] p-5 ${className}`}
     >
       <style>{`
         @keyframes uc-card-pulse {
