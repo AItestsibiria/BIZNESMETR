@@ -553,18 +553,20 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
       <div className="pointer-events-none absolute -right-16 -top-16 h-44 w-44 rounded-full bg-violet-500/20 blur-3xl" aria-hidden="true" />
       <div className="pointer-events-none absolute -bottom-20 -left-10 h-48 w-48 rounded-full bg-cyan-400/10 blur-3xl" aria-hidden="true" />
 
-      {/* ===== Top row: badge + heading + big number + live eye ===== */}
+      {/* Eugene 2026-05-21 Босс «Live отцентруй» — badge на отдельной строке,
+          центр всей card'ы (а не left-aligned в первой колонке). */}
+      <div className="relative flex justify-center mb-3">
+        <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs font-sans text-white/60">
+          <Sparkles className="h-3.5 w-3.5 text-[#FBBF24]" />
+          Live pulse MuzaAi
+        </div>
+      </div>
+
+      {/* ===== Main row: heading + number + planet ===== */}
       <div className="relative flex items-center justify-between gap-4">
         <div className="flex-1 min-w-0">
-          {/* Eugene 2026-05-21 Босс «шрифт панели счётчика такой же как в проекте»
-              → font-sans (Inter) для текста + font-display (Space Grotesk) для
-              числа (как hero title в landing). Brand-style consistency rule. */}
-          <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs font-sans text-white/60">
-            <Sparkles className="h-3.5 w-3.5 text-[#FBBF24]" />
-            Live pulse MuzaAi
-          </div>
-
-          <h3 className="text-sm font-sans font-medium tracking-wide text-white/70">Прослушивания</h3>
+          {/* Eugene 2026-05-21 Босс «Прослушивания замени счётчик МузаАй» */}
+          <h3 className="text-sm font-sans font-medium tracking-wide text-white/70">Счётчик МузаАй</h3>
 
           <div className="mt-2 flex items-end gap-2 relative">
             {/* Eugene 2026-05-21 Босс «счётчик 000000 + эквалайзеры слева и справа
