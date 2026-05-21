@@ -643,8 +643,12 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
                 width: "min(440px, calc(100vw - 24px))",
                 maxHeight: "calc(100vh - 40px)",
                 overflowY: "auto",
-                background: "linear-gradient(135deg, rgba(124,58,237,0.96) 0%, rgba(217,70,239,0.93) 50%, rgba(6,182,212,0.96) 100%)",
-                boxShadow: "0 24px 64px rgba(217,70,239,0.5), 0 0 48px rgba(124,58,237,0.4)",
+                // Eugene 2026-05-21 Босс «окно звезда меньше розового».
+                // Старый gradient (purple → fuchsia → cyan) → новый (deep purple
+                // → cyan, без fuchsia). Тёмный + brand-purple/cyan, не розовый.
+                background: "linear-gradient(135deg, rgba(30,15,70,0.96) 0%, rgba(50,30,110,0.94) 50%, rgba(15,45,90,0.96) 100%)",
+                boxShadow: "0 24px 64px rgba(124,58,237,0.45), 0 0 48px rgba(6,182,212,0.35)",
+                border: "1px solid rgba(124,58,237,0.4)",
               }}
               onClick={(e) => e.stopPropagation()}
             >
