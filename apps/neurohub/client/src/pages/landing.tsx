@@ -1799,8 +1799,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         </div>
 
         {/* Eugene 2026-05-21 Босс «приоритет counter»: animated banner с общей
-            суммой prosлушиваний по main playlist. Cache 60s, sync с БД. */}
-        <div className="flex items-center justify-center mb-3">
+            суммой prosлушиваний по main playlist. Cache 60s, sync с БД.
+            mb-8 даёт место для underlabel «прослушиваний · обновлено». */}
+        <div className="flex items-center justify-center mb-8 mt-2">
           <PlaysCounter />
         </div>
 
