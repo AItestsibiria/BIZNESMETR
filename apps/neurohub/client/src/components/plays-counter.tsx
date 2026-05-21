@@ -576,14 +576,7 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
       {/* ===== Main row: heading + number + planet ===== */}
       <div className="relative flex items-center justify-between gap-4">
         <div className="flex-1 min-w-0 flex flex-col items-center">
-          {/* Eugene 2026-05-21 Босс «убери надпись МузаАй, вместо неё сверху
-              наушники по центру цифр». 🎧 emoji центрирован над eq-row. */}
-          <span className="text-2xl leading-none mb-1" aria-hidden="true">🎧</span>
-
-          <div className="mt-1 flex items-end gap-2 relative">
-            {/* Eugene 2026-05-21 Босс «счётчик 000000 + эквалайзеры слева и справа
-                как на главной». 6-digit padded, dim leading zeros (violet@0.22),
-                bright active digits с цветовым циклом violet→gold→cyan. */}
+          <div className="flex items-end gap-2 relative">
             <div className="flex items-end gap-2">
               {/* Equalizer left */}
               <div className="flex items-end gap-[2px] h-7 pb-1" aria-hidden="true">
@@ -607,12 +600,18 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
                 })}
               </div>
 
-              <div
-                key={`bump-${bumped}`}
-                className={`font-display font-bold text-4xl tracking-tight ${bumped > 0 ? "uc-num-bump" : ""}`}
-                style={{ fontVariantNumeric: "tabular-nums" }}
-              >
-                <RollingNumber value={total} />
+              {/* Eugene 2026-05-21 Босс «🎧 центр 6 условных цифр» — 🎧 в одной
+                  колонке с цифрами (flex-col items-center), eq-bars flanking
+                  эту колонку. Центрирование 🎧 строго над 6-digit number. */}
+              <div className="flex flex-col items-center">
+                <span className="text-xl leading-none mb-0.5" aria-hidden="true">🎧</span>
+                <div
+                  key={`bump-${bumped}`}
+                  className={`font-display font-bold text-4xl tracking-tight ${bumped > 0 ? "uc-num-bump" : ""}`}
+                  style={{ fontVariantNumeric: "tabular-nums" }}
+                >
+                  <RollingNumber value={total} />
+                </div>
               </div>
 
               {/* Equalizer right (mirror) */}
