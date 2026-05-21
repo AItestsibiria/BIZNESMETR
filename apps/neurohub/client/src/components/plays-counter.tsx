@@ -36,12 +36,104 @@ function HeartIcon({ filled, className = "" }: { filled?: boolean; className?: s
   );
 }
 
+// === Slot Machine digits — 6-padded 000000 style, dim leading zeros ===
+const RollingDigit = ({ value, dimmed }: { value: number; dimmed?: boolean }) => {
+  const safeValue = Math.max(0, Math.min(9, value));
+  return (
+    <span
+      className="inline-block overflow-hidden align-baseline relative"
+      style={{
+        width: "0.62em",
+        height: "1em",
+        lineHeight: "1em",
+        color: dimmed ? "rgba(139,92,246,0.22)" : undefined,
+        WebkitTextFillColor: dimmed ? "rgba(139,92,246,0.22)" : undefined,
+        opacity: dimmed ? 0.6 : 1,
+      }}
+      data-active={!dimmed ? "1" : undefined}
+    >
+      <span
+        className="block transition-transform duration-[1500ms] ease-[cubic-bezier(0.34,1.56,0.64,1)]"
+        style={{ transform: `translateY(-${safeValue}em)`, willChange: "transform" }}
+      >
+        {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(d => (
+          <span key={d} className="block text-center" style={{ height: "1em", lineHeight: "1em" }}>{d}</span>
+        ))}
+      </span>
+    </span>
+  );
+};
+
+function RollingNumber({ value }: { value: number }) {
+  const safeValue = Math.max(0, Math.min(999999, Math.floor(value)));
+  const padded = safeValue.toString().padStart(6, "0");
+  let firstNonZero = padded.search(/[1-9]/);
+  if (firstNonZero < 0) firstNonZero = padded.length - 1;
+  return (
+    <span className="inline-flex" style={{ letterSpacing: "0.02em" }}>
+      {padded.split("").map((ch, i) => (
+        <RollingDigit key={i} value={parseInt(ch, 10)} dimmed={i < firstNonZero} />
+      ))}
+    </span>
+  );
+}
+
 export function PlaysCounter({ className = "" }: { className?: string }) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [bumped, setBumped] = useState(0); // tick для growth-arrow анимации
   const prevTotalRef = useRef<number | null>(null);
   const [animEnabled, setAnimEnabled] = useState(true);
   const [permanentOff, setPermanentOff] = useState(false);
+  // Eugene 2026-05-21 Босс: эквалайзеры реагируют на playback
+  const [audioState, setAudioState] = useState<{ playing: boolean; tempoCls: "fast" | "medium" | "slow" }>({ playing: false, tempoCls: "medium" });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const findAudio = (): HTMLAudioElement | null => {
+      try {
+        return (window as any).__muziaiAudio || document.querySelector("audio[data-muziai-player]") || null;
+      } catch { return null; }
+    };
+    let audio: HTMLAudioElement | null = findAudio();
+    const update = () => {
+      const a = findAudio();
+      audio = a;
+      const playing = !!(a && !a.paused && (a.currentTime > 0 || a.readyState >= 2));
+      const dur = a?.duration && isFinite(a.duration) ? a.duration : 0;
+      const tempoCls: "fast" | "medium" | "slow" = !playing ? "medium"
+        : dur > 0 && dur < 150 ? "fast"
+        : dur > 240 ? "slow" : "medium";
+      setAudioState(s => (s.playing === playing && s.tempoCls === tempoCls) ? s : { playing, tempoCls });
+    };
+    update();
+    const interval = window.setInterval(update, 1500);
+    const attach = (a: HTMLAudioElement) => {
+      a.addEventListener("play", update);
+      a.addEventListener("pause", update);
+      a.addEventListener("loadedmetadata", update);
+      a.addEventListener("ended", update);
+    };
+    if (audio) attach(audio);
+    const mo = new MutationObserver(() => {
+      const a = findAudio();
+      if (a && a !== audio) { audio = a; attach(a); update(); }
+    });
+    mo.observe(document.body, { childList: true, subtree: true });
+    return () => {
+      window.clearInterval(interval);
+      mo.disconnect();
+      if (audio) {
+        try {
+          audio.removeEventListener("play", update);
+          audio.removeEventListener("pause", update);
+          audio.removeEventListener("loadedmetadata", update);
+          audio.removeEventListener("ended", update);
+        } catch {}
+      }
+    };
+  }, []);
+  const eqBaseSec = !audioState.playing ? 0
+    : audioState.tempoCls === "fast" ? 0.28
+    : audioState.tempoCls === "slow" ? 0.9 : 0.6;
 
   // === Star modal state ===
   const [showInfo, setShowInfo] = useState(false);
@@ -211,8 +303,17 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
           0% { transform: scale(1); opacity: 0.6; }
           100% { transform: scale(2.8); opacity: 0; }
         }
+        @keyframes uc-eq-bar { 0%, 100% { transform: scaleY(0.3); } 50% { transform: scaleY(1); } }
+        /* Активные цифры — цикл brand-цветов violet → gold → cyan → violet */
+        @keyframes uc-color-cycle {
+          0%   { color: #C4B5FD; text-shadow: 0 0 6px #8B5CF6, 0 0 14px #A78BFA; }
+          33%  { color: #FDE68A; text-shadow: 0 0 6px #FBBF24, 0 0 14px #FDE68A; }
+          66%  { color: #67E8F9; text-shadow: 0 0 6px #22D3EE, 0 0 14px #67E8F9; }
+          100% { color: #C4B5FD; text-shadow: 0 0 6px #8B5CF6, 0 0 14px #A78BFA; }
+        }
+        [data-active="1"] { animation: uc-color-cycle 6s ease-in-out infinite; }
         @media (prefers-reduced-motion: reduce) {
-          .uc-card-pulse, .uc-num-bump { animation: none !important; }
+          .uc-card-pulse, .uc-num-bump, [data-active="1"] { animation: none !important; }
         }
       `}</style>
 
@@ -231,11 +332,53 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
           <h3 className="text-sm font-medium tracking-wide text-white/70">Прослушивания</h3>
 
           <div className="mt-2 flex items-end gap-2 relative">
-            <div
-              key={`bump-${bumped}`}
-              className={`bg-gradient-to-r from-white via-[#EDE9FE] to-[#22D3EE] bg-clip-text text-4xl font-semibold tracking-tight text-transparent ${bumped > 0 ? "uc-num-bump" : ""}`}
-            >
-              {fmt(total)}
+            {/* Eugene 2026-05-21 Босс «счётчик 000000 + эквалайзеры слева и справа
+                как на главной». 6-digit padded, dim leading zeros (violet@0.22),
+                bright active digits с цветовым циклом violet→gold→cyan. */}
+            <div className="flex items-end gap-2">
+              {/* Equalizer left */}
+              <div className="flex items-end gap-[2px] h-7 pb-1" aria-hidden="true">
+                {[0, 1, 2, 3].map(i => {
+                  const playingAnim = animEnabled && audioState.playing && eqBaseSec > 0;
+                  return (
+                    <span
+                      key={`eql-${i}`}
+                      className="w-[2px] bg-gradient-to-t from-[#8B5CF6] via-[#A78BFA] to-[#22D3EE] rounded-full origin-bottom"
+                      style={{
+                        height: animEnabled ? "100%" : "40%",
+                        animation: playingAnim
+                          ? `uc-eq-bar ${eqBaseSec + i * 0.04}s ease-in-out infinite`
+                          : animEnabled
+                            ? `uc-eq-bar ${0.9 + i * 0.12}s ease-in-out infinite`
+                            : "none",
+                        animationDelay: `${i * 0.08}s`,
+                      }}
+                    />
+                  );
+                })}
+              </div>
+
+              <div
+                key={`bump-${bumped}`}
+                className={`font-mono text-4xl font-semibold tracking-tight ${bumped > 0 ? "uc-num-bump" : ""}`}
+              >
+                <RollingNumber value={total} />
+              </div>
+
+              {/* Equalizer right (mirror) */}
+              <div className="flex items-end gap-[2px] h-7 pb-1" aria-hidden="true">
+                {[3, 2, 1, 0].map(i => (
+                  <span
+                    key={`eqr-${i}`}
+                    className="w-[2px] bg-gradient-to-t from-[#8B5CF6] via-[#A78BFA] to-[#22D3EE] rounded-full origin-bottom"
+                    style={{
+                      height: animEnabled ? "100%" : "40%",
+                      animation: animEnabled ? `uc-eq-bar ${0.6 + i * 0.12}s ease-in-out infinite` : "none",
+                      animationDelay: `${i * 0.1}s`,
+                    }}
+                  />
+                ))}
+              </div>
             </div>
             <div className="mb-1 text-xs text-white/40">всего</div>
             {/* Growth arrow — fires on counter bump */}
