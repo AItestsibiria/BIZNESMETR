@@ -699,26 +699,10 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
           todayPlays/onlineNow остаются в payload (для admin / future tabs),
           но не рендерятся в card. */}
 
-      {/* ===== Buttons: i (info) + ✦/○ (anim toggle) ===== */}
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); setShowInfo(v => !v); if (!showInfo) { setShowRating(true); loadStarRating(); } }}
-        aria-label="Информация"
-        title="Что будет после 1 000 000?"
-        className="absolute top-3 right-3 w-6 h-6 rounded-full bg-white/8 hover:bg-white/15 border border-white/15 flex items-center justify-center text-[11px] italic font-bold text-white/70 hover:text-white transition-colors z-10"
-      >
-        i
-      </button>
-
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); toggleAnim(); }}
-        aria-label={animEnabled ? "Отключить анимацию" : "Включить анимацию"}
-        title={permanentOff ? "Анимация выключена постоянно. Жми чтобы включить." : animEnabled ? "Отключить на 1 день" : "Включить анимацию"}
-        className="absolute bottom-3 right-3 w-5 h-5 rounded-full bg-white/8 hover:bg-white/15 border border-white/15 flex items-center justify-center text-[10px] text-white/60 hover:text-white transition-colors z-10"
-      >
-        {animEnabled ? "✦" : "○"}
-      </button>
+      {/* Eugene 2026-05-21 Босс «убери i и другую внизу справа кнопки с
+          панели» — i (info) + ✦/○ (anim toggle) удалены. Star modal
+          по-прежнему доступен через клик на цифру/планету (если потребуется
+          вернём триггер). animEnabled остаётся state'ом но не toggleable. */}
 
       {/* ===== Geo modal (portal to body) — Eugene 2026-05-21 Босс ===== */}
       {showGeo && typeof document !== "undefined" && createPortal(
