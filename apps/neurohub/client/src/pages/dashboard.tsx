@@ -3552,7 +3552,15 @@ export default function DashboardPage() {
         {/* Eugene 2026-05-20 Босс User-memory-context rule: транспарентность —
             что Музa помнит обо мне. Юзер видит свой long-term memory summary,
             может «забыть всё» (DELETE user_memory). */}
-        <MusaMemorySection />
+        {/* Eugene 2026-05-21 Босс: «не хранить память Музы в кабинете юзера —
+            только в админском профиле. Доступ к ней только для админа».
+            UI скрыт: <MusaMemorySection /> рендерится ТОЛЬКО админу.
+            Юзер не видит свою память. Endpoints /api/account/memory остались
+            доступны для backend (diagnostic) но без UI.
+            Админ смотрит через /admin/v304 → «🧠 Память юзеров» */}
+        {(user?.role === "admin" || user?.role === "super_admin") && (
+          <MusaMemorySection />
+        )}
 
         {/* Eugene 2026-05-18 Босс «иконочка Музы под папочкой — открывает
             историю взаимодействия. Юзер может в любое время зайти и продолжить
