@@ -25,17 +25,20 @@ import { Sparkles } from "lucide-react";
 // Moon: орбита prograde (counterclockwise от north pole, same as Earth's
 // rotation). Старт в top-left как просил Boss. Период real ~27 days,
 // visual 90s. Размер ~27% от Earth (real 1737km / Earth 6371km = 27.3%).
-// Eugene 2026-05-21 Босс «сделай похожим на 100% на emoji реальный SVG/3D,
-// посмотрю решу как дальше». SVG Earth с правдоподобными континентами
-// (Африка + Европа + Аравия + Мадагаскар), океаном radial gradient,
-// атмосферным halo, бликом сверху-слева. Континенты — внутри clipPath circle,
-// translateX animation создаёт иллюзию «земля крутится перед нами»
-// (континенты дрейфуют LEFT→RIGHT = стандартная астрономическая визуализация).
-// Луна слева вверху, prograde orbit.
+// Eugene 2026-05-21 Босс «глянцевая насыщенная Земля как привыкли видеть.
+// Географически правильные континенты учитывая угол поворота, делай 3d».
+//
+// View: Africa-centric (как 🌍 emoji + NASA Blue Marble Atlantic-facing).
+// Visible: Greenland (top-left edge), Europe, North Africa, Sahara, sub-Saharan,
+//   Madagascar, Arabian peninsula (right), partial India (right edge),
+//   partial South America (left edge), Antarctic ice cap hint (bottom edge).
+//
+// 3D depth: multi-stop radial gradient ocean + atmospheric rim (Fresnel) +
+//   strong specular highlight top-left + terminator shadow bottom-right +
+//   edge darkening для sphere illusion.
 function PlanetIcon({ size = 80 }: { size?: number }) {
   const uid = String(Math.random()).slice(2, 8);
-  // Без Луны: Earth занимает большую часть wrapper'а
-  const earthSize = Math.round(size * 0.9);
+  const earthSize = Math.round(size * 0.92);
   return (
     <span
       style={{
@@ -46,7 +49,6 @@ function PlanetIcon({ size = 80 }: { size?: number }) {
       }}
       aria-hidden="true"
     >
-      {/* SVG Earth centered */}
       <svg
         viewBox="0 0 100 100"
         width={earthSize}
@@ -56,72 +58,140 @@ function PlanetIcon({ size = 80 }: { size?: number }) {
           top: "50%",
           left: "50%",
           transform: "translate(-50%, -50%)",
-          filter: "drop-shadow(0 0 6px rgba(34,211,238,0.45)) drop-shadow(0 0 14px rgba(34,211,238,0.18))",
+          filter: "drop-shadow(0 4px 12px rgba(0,0,0,0.5)) drop-shadow(0 0 10px rgba(56,189,248,0.35))",
         }}
       >
         <defs>
-          {/* Ocean — radial gradient, свет сверху-слева, тень снизу-справа */}
-          <radialGradient id={`ocean-${uid}`} cx="0.32" cy="0.28" r="0.78">
-            <stop offset="0%" stopColor="#8FD3F5" />
-            <stop offset="35%" stopColor="#3C95CC" />
-            <stop offset="75%" stopColor="#185A93" />
-            <stop offset="100%" stopColor="#0A2A56" />
+          {/* Глянцевый океан — глубокий насыщенный синий с яркими highlights */}
+          <radialGradient id={`ocean-${uid}`} cx="0.33" cy="0.27" r="0.85">
+            <stop offset="0%" stopColor="#B3E5FC" />
+            <stop offset="18%" stopColor="#4FC3F7" />
+            <stop offset="42%" stopColor="#0288D1" />
+            <stop offset="72%" stopColor="#01579B" />
+            <stop offset="100%" stopColor="#062043" />
           </radialGradient>
-          {/* Continents gradient — зелёный → жёлтый (трава→саванна→пустыня) */}
-          <linearGradient id={`land-${uid}`} x1="0" y1="0" x2="0.15" y2="1">
-            <stop offset="0%" stopColor="#B5DA6E" />
-            <stop offset="50%" stopColor="#65AC3D" />
-            <stop offset="100%" stopColor="#C7A335" />
+          {/* Континенты — насыщенный saturated green to sand */}
+          <linearGradient id={`land-${uid}`} x1="0" y1="0" x2="0.2" y2="1">
+            <stop offset="0%" stopColor="#A8E063" />
+            <stop offset="40%" stopColor="#56AB2F" />
+            <stop offset="75%" stopColor="#7BAE54" />
+            <stop offset="100%" stopColor="#C7A437" />
           </linearGradient>
-          {/* Atmosphere halo — голубой нимб вокруг */}
-          <radialGradient id={`atmos-${uid}`} cx="0.5" cy="0.5" r="0.5">
-            <stop offset="88%" stopColor="rgba(143,211,245,0)" />
-            <stop offset="96%" stopColor="rgba(143,211,245,0.45)" />
-            <stop offset="100%" stopColor="rgba(143,211,245,0)" />
+          {/* Sand/desert gradient для Сахары/Аравии */}
+          <linearGradient id={`sand-${uid}`} x1="0" y1="0" x2="0.1" y2="1">
+            <stop offset="0%" stopColor="#E8C674" />
+            <stop offset="100%" stopColor="#B8893A" />
+          </linearGradient>
+          {/* Ice/polar — для Антарктики и Гренландии */}
+          <radialGradient id={`ice-${uid}`} cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0%" stopColor="#FFFFFF" />
+            <stop offset="100%" stopColor="#D8E8F0" />
           </radialGradient>
-          {/* Terminator shadow — мягкая тень снизу-справа */}
-          <radialGradient id={`shadow-${uid}`} cx="0.72" cy="0.78" r="0.55">
-            <stop offset="0%" stopColor="rgba(0,0,0,0.32)" />
+          {/* Atmosphere — толстый cyan halo для glossy feel */}
+          <radialGradient id={`atmos-${uid}`} cx="0.5" cy="0.5" r="0.5">
+            <stop offset="83%" stopColor="rgba(135,206,250,0)" />
+            <stop offset="93%" stopColor="rgba(135,206,250,0.55)" />
+            <stop offset="98%" stopColor="rgba(135,206,250,0.25)" />
+            <stop offset="100%" stopColor="rgba(135,206,250,0)" />
+          </radialGradient>
+          {/* Terminator + edge darkening — сильный 3D shadow */}
+          <radialGradient id={`shadow-${uid}`} cx="0.75" cy="0.8" r="0.65">
+            <stop offset="0%" stopColor="rgba(0,0,0,0.45)" />
             <stop offset="100%" stopColor="rgba(0,0,0,0)" />
           </radialGradient>
-          {/* clipPath — круг для клиппинга континентов в сфере */}
+          {/* Fresnel rim — тёмный edge для sphere depth */}
+          <radialGradient id={`rim-${uid}`} cx="0.5" cy="0.5" r="0.5">
+            <stop offset="82%" stopColor="rgba(0,0,0,0)" />
+            <stop offset="100%" stopColor="rgba(0,0,0,0.45)" />
+          </radialGradient>
+          {/* Glossy specular highlight */}
+          <radialGradient id={`spec-${uid}`} cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0%" stopColor="rgba(255,255,255,0.55)" />
+            <stop offset="60%" stopColor="rgba(255,255,255,0.1)" />
+            <stop offset="100%" stopColor="rgba(255,255,255,0)" />
+          </radialGradient>
           <clipPath id={`clip-${uid}`}>
             <circle cx="50" cy="50" r="47" />
           </clipPath>
         </defs>
 
-        {/* Atmosphere halo (snaружи диска) */}
+        {/* Atmosphere halo (cyan glow snaружи) */}
         <circle cx="50" cy="50" r="50" fill={`url(#atmos-${uid})`} />
 
-        {/* Ocean sphere */}
+        {/* Ocean base */}
         <circle cx="50" cy="50" r="47" fill={`url(#ocean-${uid})`} />
 
-        {/* Continents — clipped в круг */}
-        <g clipPath={`url(#clip-${uid})`} fill={`url(#land-${uid})`} stroke="#3F7821" strokeWidth="0.4" opacity="0.95">
-          {/* Europe — два маленьких пятна сверху */}
-          <path d="M30 28 Q26 30 28 34 Q31 35 34 33 L36 30 Z" />
-          <path d="M40 25 Q44 24 47 27 Q45 30 41 30 Z" />
-          {/* Africa — характерный «boot» силуэт */}
-          <path d="M37 36 Q31 40 32 50 Q34 60 39 68 Q44 76 51 75 Q58 73 60 65 Q62 56 60 47 Q56 38 47 35 Q41 35 37 36 Z" />
-          {/* Африканский рог (Сомали) */}
-          <path d="M58 44 Q63 41 67 45 Q65 48 60 48 Z" />
-          {/* Arabian peninsula */}
-          <path d="M61 30 Q66 28 71 31 Q72 36 68 39 Q63 37 61 33 Z" />
-          {/* Madagascar (островок справа от Африки) */}
-          <path d="M64 64 Q66 62 67 65 Q66 70 63 70 Z" />
-          {/* Iceland / небольшой островок сверху-слева */}
-          <ellipse cx="25" cy="22" rx="2" ry="1.5" />
+        {/* Континенты — clipped круг, географически верные */}
+        <g clipPath={`url(#clip-${uid})`}>
+          {/* === Antarctica (ice cap, bottom edge) === */}
+          <path d="M10 88 Q30 92 50 92 Q70 92 90 88 Q80 96 50 96 Q20 96 10 88 Z" fill={`url(#ice-${uid})`} opacity="0.85" />
+
+          {/* === Greenland (top-left edge, ice) === */}
+          <path d="M14 18 Q18 14 24 18 Q26 24 22 28 Q16 26 14 22 Z" fill={`url(#ice-${uid})`} stroke="#A8C8E0" strokeWidth="0.3" />
+
+          {/* === South America fragment (left edge, partial) === */}
+          <g fill={`url(#land-${uid})`} stroke="#2E5C18" strokeWidth="0.4">
+            <path d="M6 50 Q4 56 6 62 Q10 70 12 72 Q14 70 12 60 Q10 52 8 50 Z" />
+          </g>
+
+          {/* === North America fragment (top-left edge, partial) === */}
+          <g fill={`url(#land-${uid})`} stroke="#2E5C18" strokeWidth="0.4">
+            <path d="M8 28 Q6 32 8 38 Q12 42 14 38 Q16 32 12 28 Z" />
+          </g>
+
+          {/* === Iceland === */}
+          <ellipse cx="30" cy="20" rx="2.5" ry="1.5" fill={`url(#land-${uid})`} />
+
+          {/* === Europe (Iberian, France, Italy, Scandinavia hints) === */}
+          <g fill={`url(#land-${uid})`} stroke="#2E5C18" strokeWidth="0.35">
+            <path d="M30 28 Q34 26 38 28 Q40 32 36 34 Q32 33 30 30 Z" />
+            <path d="M40 24 Q46 22 50 26 Q49 30 44 30 Q41 28 40 25 Z" />
+            <path d="M44 32 L46 36 L48 33 Z" />
+          </g>
+
+          {/* === Africa — точный силуэт (boot + horn) === */}
+          <g fill={`url(#land-${uid})`} stroke="#2E5C18" strokeWidth="0.4">
+            <path d="M36 38 Q31 40 30 46 Q29 52 32 58 Q34 64 38 70 Q42 76 48 77 Q55 76 58 70 Q62 62 62 54 Q62 46 58 40 Q52 36 44 36 Q40 36 36 38 Z" />
+            {/* Sahara desert overlay */}
+            <path d="M36 40 Q43 38 52 40 Q55 44 52 47 Q44 47 38 45 Z" fill={`url(#sand-${uid})`} stroke="none" opacity="0.85" />
+          </g>
+
+          {/* === Madagascar === */}
+          <path d="M65 64 Q67 62 68 66 Q67 71 65 71 Z" fill={`url(#land-${uid})`} stroke="#2E5C18" strokeWidth="0.3" />
+
+          {/* === Arabian peninsula === */}
+          <g fill={`url(#sand-${uid})`} stroke="#7A5520" strokeWidth="0.35">
+            <path d="M60 32 Q66 30 72 33 Q74 38 70 41 Q64 40 60 36 Z" />
+          </g>
+
+          {/* === India fragment (right edge, partial) === */}
+          <g fill={`url(#land-${uid})`} stroke="#2E5C18" strokeWidth="0.4">
+            <path d="M80 36 Q86 34 88 40 Q86 46 82 46 Q78 42 80 38 Z" />
+          </g>
+
+          {/* === Asia/Russia fragment (top-right edge) === */}
+          <g fill={`url(#land-${uid})`} stroke="#2E5C18" strokeWidth="0.4">
+            <path d="M70 20 Q80 18 88 22 Q92 26 90 30 Q82 28 74 26 Q70 24 70 20 Z" />
+          </g>
+
+          {/* Subtle cloud wisps (white, transparent) для глянца */}
+          <g fill="white" opacity="0.12">
+            <ellipse cx="25" cy="50" rx="8" ry="2" />
+            <ellipse cx="70" cy="60" rx="6" ry="1.5" />
+            <ellipse cx="55" cy="80" rx="10" ry="2" />
+          </g>
         </g>
 
-        {/* Terminator shadow */}
+        {/* Terminator shadow (внутри диска) */}
         <circle cx="50" cy="50" r="47" fill={`url(#shadow-${uid})`} />
 
-        {/* Specular highlight — блик сверху-слева (солнце) */}
-        <ellipse cx="30" cy="26" rx="14" ry="8" fill="white" opacity="0.18" />
-        <ellipse cx="27" cy="22" rx="5" ry="3" fill="white" opacity="0.4" />
-      </svg>
+        {/* Fresnel rim (edge darkening) */}
+        <circle cx="50" cy="50" r="47" fill={`url(#rim-${uid})`} />
 
-      {/* Eugene 2026-05-21 Босс «луну убери» — moon orbit удалён. */}
+        {/* Glossy specular highlight (sphere shine) */}
+        <ellipse cx="32" cy="28" rx="20" ry="13" fill={`url(#spec-${uid})`} />
+        <ellipse cx="28" cy="22" rx="6" ry="3.5" fill="white" opacity="0.55" />
+      </svg>
     </span>
   );
 }
@@ -407,7 +477,7 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
 
   return (
     <section
-      className={`relative overflow-hidden rounded-[28px] border border-purple-500/20 p-5 ${className} ${animEnabled ? "uc-card-pulse" : ""}`}
+      className={`relative overflow-hidden rounded-[28px] border border-purple-500/20 p-5 ${className}`}
       style={{
         // Eugene 2026-05-21 Босс «цвета в стиле основного плеера» — glass-card
         // как у playlist (мягкий violet+cyan tint, не deep-space pure).
