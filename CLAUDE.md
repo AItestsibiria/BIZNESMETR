@@ -1647,6 +1647,42 @@ Reference: lockscreen.ts `setPlayerVolume`, landing.tsx volume useEffect + playT
 - `90b83fc` — Музa universal positioning (real sizes + safe-area + chatOpen offset)
 - `34c30ce` — swipe modal responsive (safe-area + cover max-h по breakpoints)
 
+### LLM-chain-order rule (Eugene 2026-05-21)
+
+**Порядок попыток LLM-провайдеров Музы — DeepSeek первый (дешевле), TimeWeb второй, далее Anthropic по имени sort (API_KEY → _BACKUP → _BOT), последний резерв — GPTunnel.**
+
+Полный chain (`apps/neurohub/server/lib/llmCore.ts` функция `callUnifiedMuzaLLM`):
+
+| # | Provider | ENV | Default model | Tools |
+|---|---|---|---|---|
+| 1 | **DeepSeek (PRIMARY)** | `DEEPSEEK_API_KEY` | `deepseek-chat` | ❌ |
+| 2 | TimeWeb Gateway | `TIMEWEB_GATEWAY_KEY` | `anthropic/claude-haiku-4-5` | ❌ |
+| 3 | Anthropic | `ANTHROPIC_API_KEY` | `claude-haiku-4-5-20251001` | ✅ tool-use loop |
+| 4 | Anthropic backup | `ANTHROPIC_API_KEY_BACKUP` | то же | ✅ |
+| 5 | Anthropic bot | `ANTHROPIC_API_KEY_BOT` | то же | ✅ |
+| 6 | GPTunnel (last resort) | `GPTUNNEL_API_KEY` | `gpt-4o-mini` | ❌ |
+
+**Tools (MUZA_TOOLS — get_user_balance, save_song_draft, find_public_track, issue_invoice, и т.д.) работают ТОЛЬКО на Anthropic-шаге (#3-5).** DeepSeek / TimeWeb / GPTunnel возвращают clean text без function-calling.
+
+Почему DeepSeek первым (а не Anthropic):
+- **Цена**: $0.27/1M input + $1.10/1M output (vs Anthropic Haiku $0.80/$4.00, vs Claude Sonnet $3/$15)
+- Качество достаточное для conversational chat (Музa в основном диалог)
+- Tools всё равно недоступны на DeepSeek — если LLM просит tool, fallback на Anthropic в той же session не происходит на per-request basis; но если pattern требует tools — Anthropic возьмёт обработку.
+
+**Anthropic порядок (sort by name)**: `ANTHROPIC_API_KEY → ANTHROPIC_API_KEY_BACKUP → ANTHROPIC_API_KEY_BOT` — alphabetical. Реализация в `listAnthropicKeys()`.
+
+**Rate limits (известные):**
+| Provider | Free tier | Paid (default) | Burst |
+|---|---|---|---|
+| **DeepSeek** | 0 — только Pay-As-You-Go | Нет жёстких rate limits для baseline use; ~60 req/sec не банится | OpenAI-compat retry-after на 429 |
+| **TimeWeb Gateway** | Зависит от плана; gateway передаёт upstream limits | ≈Anthropic limits (gateway transparently proxies) | Same as upstream |
+| **Anthropic** | $5/мес free tier (10 req/min) | Tier 1: 50 req/min, 50K tokens/min input | Auto-scaling с paid usage |
+| **GPTunnel** | Нет free для chat (только Suno); for chat OpenAI-compat ($0.15-0.60/M depending model) | Soft limits |
+
+**Применяется к:** LLM каналы Музы (web /api/muza/chat, Telegram, Max, future). НЕ применяется к: STT (Yandex SpeechKit), TTS (Yandex), Suno music generation (GPTunnel media-api).
+
+Reference: commit с reorder, llmCore.ts функция `callUnifiedMuzaLLM`.
+
 ### Pair-link cross-channel rule (Eugene 2026-05-21)
 
 **Из любого мессенджера (Telegram, Max, future каналы) Музa ГАРАНТИРОВАННО предлагает кликабельную ссылку на web-чат с подгрузкой истории. На web Музa приветствует юзера и продолжает разговор с того места где остановились в мессенджере.**

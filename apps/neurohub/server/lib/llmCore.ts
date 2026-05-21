@@ -370,16 +370,18 @@ async function notifyAdminKeySwitch(ev: KeySwitchEvent): Promise<void> {
  * если все провайдеры упали. Никаких hardcoded fallback-строк —
  * выбор fallback'а делает caller (web /muza/chat / TG webhook / Max webhook).
  *
- * Eugene 2026-05-20 Босс: PRIMARY = TimeWeb Gateway, потом DeepSeek,
- * потом Anthropic (3-key chain), последний резерв = GPTunnel/gpt-4o-mini.
+ * Eugene 2026-05-21 Босс: PRIMARY = DeepSeek, потом TimeWeb, далее Anthropic
+ * (по имени sort: API_KEY → _BACKUP → _BOT), последний резерв = GPTunnel.
  *
  * Порядок попыток:
- *   1. TimeWeb Gateway (OpenAI-compat, без tools) — primary
- *   2. DeepSeek (OpenAI-compat, без tools) — fallback 1
- *   3. Anthropic 3-key chain (с MUZA_TOOLS + tool-use loop) — fallback 2
- *   4. GPTunnel/gpt-4o-mini — последний резерв
+ *   1. DeepSeek (OpenAI-compat, без tools) — PRIMARY (cheap: $0.27/$1.10 per M)
+ *   2. TimeWeb Gateway (OpenAI-compat, без tools, Anthropic-models) — fallback 1
+ *   3. Anthropic ANTHROPIC_API_KEY (tools + tool-use loop) — fallback 2a
+ *   4. Anthropic ANTHROPIC_API_KEY_BACKUP — fallback 2b
+ *   5. Anthropic ANTHROPIC_API_KEY_BOT — fallback 2c
+ *   6. GPTunnel/gpt-4o-mini — последний резерв
  *
- * Tool-use loop работает ТОЛЬКО на Anthropic-шаге. TimeWeb, DeepSeek, GPTunnel
+ * Tool-use loop работает ТОЛЬКО на Anthropic-шаге. DeepSeek, TimeWeb, GPTunnel
  * возвращают чистый text без tool-calling.
  */
 export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string | null> {
@@ -442,49 +444,9 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
 
   let prevFailed: { name: string; status: number | string; reason?: string } | null = null;
 
-  // === [PRIMARY] TimeWeb Gateway (Eugene 2026-05-20 Босс «TimeWeb primary, Anthropic fallback») ===
-  // Раньше TimeWeb запускался ТОЛЬКО если все Anthropic-ключи упали — теперь наоборот.
-  // OpenAI-compatible, БЕЗ tools (Anthropic-tool-use оставлен на fallback-шаге).
-  // Если TimeWeb даёт пустой ответ или ошибку — caskадно переходим на Anthropic 3-key chain.
-  if (process.env.TIMEWEB_GATEWAY_KEY) {
-    try {
-      // OpenAI-compatible system — сворачиваем cache-blocks в один string.
-      const sysText = systemBlocks.map(b => (typeof b === "string" ? b : (b?.text || ""))).join("\n\n");
-      const tw = await callTimeWebGateway({
-        systemPrompt: sysText,
-        history: history.slice(-15),
-        userText: safeUserText,
-        maxTokens,
-        // Eugene 2026-05-20: TimeWeb gateway основан на Anthropic-compatible API.
-        // Дефолт — anthropic/claude-haiku-4-5 (proven endpoint api.timeweb.ai/v1).
-        model: process.env.TIMEWEB_GATEWAY_MODEL || "anthropic/claude-haiku-4-5",
-      });
-      if (tw.usage) {
-        // OpenAI-формат: prompt_tokens / completion_tokens
-        muzaTokenStats.inputTokens += Number(tw.usage.prompt_tokens || 0);
-        muzaTokenStats.outputTokens += Number(tw.usage.completion_tokens || 0);
-        muzaTokenStats.callsCount += 1;
-      }
-      if (tw.text && tw.text.length > 0) {
-        return tw.text;
-      }
-      // TimeWeb вернул пустой text → fallback на Anthropic.
-      console.warn("[MUZA-LLM] TimeWeb (primary) returned empty text — fallback to Anthropic. endpoint:", tw.endpoint || "?");
-      setLLMKeyStatus("TIMEWEB_GATEWAY_KEY", { lastUsedAt: new Date().toISOString(), lastStatus: "error", lastErrorMsg: "empty response" });
-      prevFailed = { name: "TIMEWEB_GATEWAY_KEY", status: "empty-response", reason: "TimeWeb returned empty text" };
-    } catch (e: any) {
-      const msg = String(e?.message || e);
-      console.warn("[MUZA-LLM] TimeWeb (primary) error — fallback to Anthropic:", msg);
-      setLLMKeyStatus("TIMEWEB_GATEWAY_KEY", { lastUsedAt: new Date().toISOString(), lastStatus: "error", lastErrorMsg: msg.slice(0, 200) });
-      prevFailed = { name: "TIMEWEB_GATEWAY_KEY", status: "error", reason: msg.slice(0, 200) };
-    }
-  } else {
-    console.warn("[MUZA-LLM] TimeWeb (primary) skipped: TIMEWEB_GATEWAY_KEY not configured — пробуем DeepSeek");
-  }
-
-  // === [FALLBACK 1] DeepSeek (Eugene 2026-05-20 Босс «после ТМВ подключим DeepSeek») ===
-  // OpenAI-compatible endpoint api.deepseek.com/v1/chat/completions, БЕЗ tools.
-  // Дефолт — deepseek-chat (V3.x). Если упало → Anthropic 3-key chain.
+  // === [PRIMARY] DeepSeek (Eugene 2026-05-21 Босс «DeepSeek primary, TimeWeb fallback,
+  // далее по имени sort») === OpenAI-compatible, БЕЗ tools.
+  // Дешёвый ($0.27/1M input, $1.10/1M output для deepseek-chat).
   if (process.env.DEEPSEEK_API_KEY) {
     try {
       const sysText = systemBlocks.map(b => (typeof b === "string" ? b : (b?.text || ""))).join("\n\n");
@@ -500,29 +462,62 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
         muzaTokenStats.callsCount += 1;
       }
       if (ds.text && ds.text.length > 0) {
-        if (prevFailed) {
-          notifyAdminKeySwitch({
-            at: new Date().toISOString(),
-            provider: "TimeWeb → DeepSeek",
-            from: prevFailed.name,
-            fromStatus: prevFailed.status,
-            to: "DEEPSEEK_API_KEY",
-            reason: prevFailed.reason || "primary upstream failed",
-          }).catch(() => {});
-        }
         return ds.text;
       }
-      console.warn("[MUZA-LLM] DeepSeek returned empty text — fallback to Anthropic");
+      console.warn("[MUZA-LLM] DeepSeek (primary) returned empty text — fallback to TimeWeb");
       setLLMKeyStatus("DEEPSEEK_API_KEY", { lastUsedAt: new Date().toISOString(), lastStatus: "error", lastErrorMsg: "empty response" });
       prevFailed = { name: "DEEPSEEK_API_KEY", status: "empty-response", reason: "DeepSeek returned empty text" };
     } catch (e: any) {
       const msg = String(e?.message || e);
-      console.warn("[MUZA-LLM] DeepSeek error — fallback to Anthropic:", msg);
+      console.warn("[MUZA-LLM] DeepSeek (primary) error — fallback to TimeWeb:", msg);
       setLLMKeyStatus("DEEPSEEK_API_KEY", { lastUsedAt: new Date().toISOString(), lastStatus: "error", lastErrorMsg: msg.slice(0, 200) });
       prevFailed = { name: "DEEPSEEK_API_KEY", status: "error", reason: msg.slice(0, 200) };
     }
   } else {
-    console.warn("[MUZA-LLM] DeepSeek skipped: DEEPSEEK_API_KEY not configured — пробуем Anthropic");
+    console.warn("[MUZA-LLM] DeepSeek (primary) skipped: DEEPSEEK_API_KEY not configured — пробуем TimeWeb");
+  }
+
+  // === [FALLBACK 1] TimeWeb Gateway === OpenAI-compatible, БЕЗ tools.
+  // Anthropic-models через api.timeweb.ai gateway.
+  if (process.env.TIMEWEB_GATEWAY_KEY) {
+    try {
+      const sysText = systemBlocks.map(b => (typeof b === "string" ? b : (b?.text || ""))).join("\n\n");
+      const tw = await callTimeWebGateway({
+        systemPrompt: sysText,
+        history: history.slice(-15),
+        userText: safeUserText,
+        maxTokens,
+        model: process.env.TIMEWEB_GATEWAY_MODEL || "anthropic/claude-haiku-4-5",
+      });
+      if (tw.usage) {
+        muzaTokenStats.inputTokens += Number(tw.usage.prompt_tokens || 0);
+        muzaTokenStats.outputTokens += Number(tw.usage.completion_tokens || 0);
+        muzaTokenStats.callsCount += 1;
+      }
+      if (tw.text && tw.text.length > 0) {
+        if (prevFailed) {
+          notifyAdminKeySwitch({
+            at: new Date().toISOString(),
+            provider: "DeepSeek → TimeWeb",
+            from: prevFailed.name,
+            fromStatus: prevFailed.status,
+            to: "TIMEWEB_GATEWAY_KEY",
+            reason: prevFailed.reason || "primary upstream failed",
+          }).catch(() => {});
+        }
+        return tw.text;
+      }
+      console.warn("[MUZA-LLM] TimeWeb fallback empty — fallback to Anthropic. endpoint:", tw.endpoint || "?");
+      setLLMKeyStatus("TIMEWEB_GATEWAY_KEY", { lastUsedAt: new Date().toISOString(), lastStatus: "error", lastErrorMsg: "empty response" });
+      prevFailed = { name: "TIMEWEB_GATEWAY_KEY", status: "empty-response", reason: "TimeWeb returned empty text" };
+    } catch (e: any) {
+      const msg = String(e?.message || e);
+      console.warn("[MUZA-LLM] TimeWeb fallback error — fallback to Anthropic:", msg);
+      setLLMKeyStatus("TIMEWEB_GATEWAY_KEY", { lastUsedAt: new Date().toISOString(), lastStatus: "error", lastErrorMsg: msg.slice(0, 200) });
+      prevFailed = { name: "TIMEWEB_GATEWAY_KEY", status: "error", reason: msg.slice(0, 200) };
+    }
+  } else {
+    console.warn("[MUZA-LLM] TimeWeb skipped: TIMEWEB_GATEWAY_KEY not configured — пробуем Anthropic");
   }
 
   // === [FALLBACK 2] Anthropic 3-key chain (с MUZA_TOOLS + tool-use loop) ===

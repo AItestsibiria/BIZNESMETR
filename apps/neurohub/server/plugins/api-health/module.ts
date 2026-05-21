@@ -210,9 +210,9 @@ function configOnly(envName: string): KeyDef["check"] {
 const KEY_DEFS: KeyDef[] = [
   // === LLM-цепочка (порядок = priority) ===
   // Eugene 2026-05-20 Босс: PRIMARY = TimeWeb Gateway, FALLBACK = Anthropic 3-key chain.
-  { name: "TIMEWEB_GATEWAY_KEY", category: "🤖 LLM (primary)", purpose: "TimeWeb Gateway (OpenAI-compat) — primary провайдер Музы", kind: "live-check", check: checkTimeWebGateway },
-  { name: "DEEPSEEK_API_KEY", category: "🤖 LLM (fallback 1)", purpose: "DeepSeek (OpenAI-compat) — fallback после TimeWeb", kind: "live-check", check: checkDeepSeek },
-  { name: "ANTHROPIC_API_KEY", category: "🤖 LLM (fallback 2)", purpose: "Anthropic Claude — fallback после DeepSeek", kind: "live-check", check: () => checkAnthropicByEnv("ANTHROPIC_API_KEY") },
+  { name: "DEEPSEEK_API_KEY", category: "🤖 LLM (primary)", purpose: "DeepSeek (OpenAI-compat) — PRIMARY провайдер Музы (дешёвый)", kind: "live-check", check: checkDeepSeek },
+  { name: "TIMEWEB_GATEWAY_KEY", category: "🤖 LLM (fallback 1)", purpose: "TimeWeb Gateway (Anthropic-models) — fallback после DeepSeek", kind: "live-check", check: checkTimeWebGateway },
+  { name: "ANTHROPIC_API_KEY", category: "🤖 LLM (fallback 2)", purpose: "Anthropic Claude — fallback с поддержкой tools", kind: "live-check", check: () => checkAnthropicByEnv("ANTHROPIC_API_KEY") },
   { name: "ANTHROPIC_API_KEY_BACKUP", category: "🤖 LLM (fallback 2)", purpose: "Резерв Claude #2", kind: "live-check", check: () => checkAnthropicByEnv("ANTHROPIC_API_KEY_BACKUP") },
   { name: "ANTHROPIC_API_KEY_BOT", category: "🤖 LLM (fallback 2)", purpose: "Резерв Claude #3", kind: "live-check", check: () => checkAnthropicByEnv("ANTHROPIC_API_KEY_BOT") },
 
