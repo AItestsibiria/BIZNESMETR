@@ -36,9 +36,58 @@ import { Sparkles } from "lucide-react";
 // 3D depth: multi-stop radial gradient ocean + atmospheric rim (Fresnel) +
 //   strong specular highlight top-left + terminator shadow bottom-right +
 //   edge darkening для sphere illusion.
+// Eugene 2026-05-21 Босс «3D крутящуюся планету делаешь» — equirectangular
+// world-strip 200 unit wide (= 360° longitude), duplicated 200-400 для
+// seamless loop. SMIL animateTransform: translateX 0→-200 за 60s = 1 оборот.
+// Континенты в реальных позициях lon/lat: NorthAm, Greenland, Iceland, SouthAm,
+// Europe (Iberia/France/Scand), Africa+Sahara, Madagascar, Arabian peninsula,
+// India, Russia top-strip, China, Indonesia, Japan, Australia, Antarctica.
+// Static overlays (specular, terminator, Fresnel) поверх — observer-fixed.
 function PlanetIcon({ size = 80 }: { size?: number }) {
   const uid = String(Math.random()).slice(2, 8);
   const earthSize = Math.round(size * 0.92);
+  const prefersReduced = typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  // Equirectangular world (lon -180..180 → x 0..200; lat 90..-90 → y 0..100)
+  const renderWorld = (xOffset: number) => (
+    <g transform={`translate(${xOffset} 0)`}>
+      {/* North America (~lon -100, lat 40) */}
+      <path d="M 30 16 Q 22 22 20 32 Q 18 42 24 50 Q 32 54 42 52 Q 50 46 50 36 Q 48 24 42 18 Q 36 14 30 16 Z" fill={`url(#land-${uid})`} stroke="#2E5C18" strokeWidth="0.4" />
+      {/* Greenland (~lon -45, lat 72) — ice */}
+      <path d="M 70 6 Q 66 10 68 16 Q 74 22 82 20 Q 86 14 84 8 Q 78 4 70 6 Z" fill={`url(#ice-${uid})`} stroke="#A8C8E0" strokeWidth="0.3" />
+      {/* South America (~lon -60, lat -15) */}
+      <path d="M 60 50 Q 54 58 56 68 Q 58 78 64 84 Q 70 88 74 80 Q 76 70 74 60 Q 70 52 64 50 Z" fill={`url(#land-${uid})`} stroke="#2E5C18" strokeWidth="0.4" />
+      {/* Iceland (~lon -19, lat 65) */}
+      <ellipse cx="89" cy="14" rx="3" ry="1.8" fill={`url(#land-${uid})`} stroke="#2E5C18" strokeWidth="0.3" />
+      {/* Europe — Iberia/France/Italy + Scandinavia hint */}
+      <path d="M 100 18 Q 96 22 100 28 Q 106 30 110 26 L 112 22 Q 108 16 100 18 Z" fill={`url(#land-${uid})`} stroke="#2E5C18" strokeWidth="0.35" />
+      <path d="M 110 14 Q 114 12 118 16 Q 120 22 116 24 Q 113 20 110 16 Z" fill={`url(#land-${uid})`} stroke="#2E5C18" strokeWidth="0.35" />
+      {/* Africa boot (~lon 20, lat 0 — equator) */}
+      <path d="M 102 36 Q 96 40 96 48 Q 94 56 98 64 Q 102 72 108 76 Q 116 78 122 72 Q 128 64 128 54 Q 128 44 122 38 Q 114 34 108 35 Q 104 35 102 36 Z" fill={`url(#land-${uid})`} stroke="#2E5C18" strokeWidth="0.4" />
+      {/* Sahara overlay */}
+      <path d="M 100 40 Q 110 38 122 40 Q 124 44 120 46 Q 110 46 100 44 Z" fill={`url(#sand-${uid})`} opacity="0.85" />
+      {/* Madagascar (~lon 47, lat -20) */}
+      <path d="M 126 60 Q 128 64 128 70 Q 126 72 124 70 Q 122 64 124 60 Z" fill={`url(#land-${uid})`} stroke="#2E5C18" strokeWidth="0.3" />
+      {/* Arabian peninsula (~lon 45, lat 25) — sand */}
+      <path d="M 122 32 Q 128 30 134 34 Q 134 40 128 42 Q 122 40 120 36 Z" fill={`url(#sand-${uid})`} stroke="#7A5520" strokeWidth="0.35" />
+      {/* India (~lon 78, lat 22) */}
+      <path d="M 138 32 Q 144 30 148 36 Q 150 44 146 48 Q 140 46 138 38 Z" fill={`url(#land-${uid})`} stroke="#2E5C18" strokeWidth="0.4" />
+      {/* Russia/Siberia top-strip (lat 55-70, lon 30-180) */}
+      <path d="M 116 12 Q 140 8 170 10 Q 195 14 198 18 Q 180 22 150 20 Q 130 18 116 18 Z" fill={`url(#land-${uid})`} stroke="#2E5C18" strokeWidth="0.4" />
+      {/* China (~lon 105, lat 35) */}
+      <path d="M 152 24 Q 160 22 168 26 Q 172 32 168 38 Q 158 36 152 30 Z" fill={`url(#land-${uid})`} stroke="#2E5C18" strokeWidth="0.4" />
+      {/* Indonesia archipelago (~lon 115, lat -5) */}
+      <g fill={`url(#land-${uid})`} stroke="#2E5C18" strokeWidth="0.3">
+        <ellipse cx="160" cy="48" rx="3" ry="1.5" />
+        <ellipse cx="164" cy="52" rx="2.5" ry="1.2" />
+        <ellipse cx="170" cy="50" rx="2" ry="1" />
+      </g>
+      {/* Australia (~lon 135, lat -25) — sand */}
+      <path d="M 168 58 Q 178 56 186 60 Q 188 66 182 68 Q 172 66 168 62 Z" fill={`url(#sand-${uid})`} stroke="#7A5520" strokeWidth="0.4" />
+      {/* Japan (~lon 138, lat 36) */}
+      <path d="M 174 28 Q 178 26 180 30 Q 178 34 174 32 Z" fill={`url(#land-${uid})`} stroke="#2E5C18" strokeWidth="0.3" />
+    </g>
+  );
   return (
     <span
       style={{
@@ -121,64 +170,45 @@ function PlanetIcon({ size = 80 }: { size?: number }) {
         {/* Ocean base */}
         <circle cx="50" cy="50" r="47" fill={`url(#ocean-${uid})`} />
 
-        {/* Континенты — clipped круг, географически верные */}
+        {/* Rotating world-strip: 200 unit wide world + duplicate, clipped to circle.
+            SMIL animateTransform translateX 0→-200 за 60s = 1 оборот Земли.
+            На центр клипа (cx=50) видны разные части world по мере прокрутки. */}
         <g clipPath={`url(#clip-${uid})`}>
-          {/* === Antarctica (ice cap, bottom edge) === */}
-          <path d="M10 88 Q30 92 50 92 Q70 92 90 88 Q80 96 50 96 Q20 96 10 88 Z" fill={`url(#ice-${uid})`} opacity="0.85" />
-
-          {/* === Greenland (top-left edge, ice) === */}
-          <path d="M14 18 Q18 14 24 18 Q26 24 22 28 Q16 26 14 22 Z" fill={`url(#ice-${uid})`} stroke="#A8C8E0" strokeWidth="0.3" />
-
-          {/* === South America fragment (left edge, partial) === */}
-          <g fill={`url(#land-${uid})`} stroke="#2E5C18" strokeWidth="0.4">
-            <path d="M6 50 Q4 56 6 62 Q10 70 12 72 Q14 70 12 60 Q10 52 8 50 Z" />
+          {/* Antarctica — широкая полоса внизу, static (не вращается с континентами) */}
+          <path d="M0 86 Q50 90 100 88 L100 100 L0 100 Z" fill={`url(#ice-${uid})`} opacity="0.85" />
+          {/* Rotating continent strip */}
+          <g>
+            {!prefersReduced && (
+              <animateTransform
+                attributeName="transform"
+                type="translate"
+                from="0 0"
+                to="-200 0"
+                dur="60s"
+                repeatCount="indefinite"
+              />
+            )}
+            {renderWorld(0)}
+            {renderWorld(200)}
           </g>
-
-          {/* === North America fragment (top-left edge, partial) === */}
-          <g fill={`url(#land-${uid})`} stroke="#2E5C18" strokeWidth="0.4">
-            <path d="M8 28 Q6 32 8 38 Q12 42 14 38 Q16 32 12 28 Z" />
-          </g>
-
-          {/* === Iceland === */}
-          <ellipse cx="30" cy="20" rx="2.5" ry="1.5" fill={`url(#land-${uid})`} />
-
-          {/* === Europe (Iberian, France, Italy, Scandinavia hints) === */}
-          <g fill={`url(#land-${uid})`} stroke="#2E5C18" strokeWidth="0.35">
-            <path d="M30 28 Q34 26 38 28 Q40 32 36 34 Q32 33 30 30 Z" />
-            <path d="M40 24 Q46 22 50 26 Q49 30 44 30 Q41 28 40 25 Z" />
-            <path d="M44 32 L46 36 L48 33 Z" />
-          </g>
-
-          {/* === Africa — точный силуэт (boot + horn) === */}
-          <g fill={`url(#land-${uid})`} stroke="#2E5C18" strokeWidth="0.4">
-            <path d="M36 38 Q31 40 30 46 Q29 52 32 58 Q34 64 38 70 Q42 76 48 77 Q55 76 58 70 Q62 62 62 54 Q62 46 58 40 Q52 36 44 36 Q40 36 36 38 Z" />
-            {/* Sahara desert overlay */}
-            <path d="M36 40 Q43 38 52 40 Q55 44 52 47 Q44 47 38 45 Z" fill={`url(#sand-${uid})`} stroke="none" opacity="0.85" />
-          </g>
-
-          {/* === Madagascar === */}
-          <path d="M65 64 Q67 62 68 66 Q67 71 65 71 Z" fill={`url(#land-${uid})`} stroke="#2E5C18" strokeWidth="0.3" />
-
-          {/* === Arabian peninsula === */}
-          <g fill={`url(#sand-${uid})`} stroke="#7A5520" strokeWidth="0.35">
-            <path d="M60 32 Q66 30 72 33 Q74 38 70 41 Q64 40 60 36 Z" />
-          </g>
-
-          {/* === India fragment (right edge, partial) === */}
-          <g fill={`url(#land-${uid})`} stroke="#2E5C18" strokeWidth="0.4">
-            <path d="M80 36 Q86 34 88 40 Q86 46 82 46 Q78 42 80 38 Z" />
-          </g>
-
-          {/* === Asia/Russia fragment (top-right edge) === */}
-          <g fill={`url(#land-${uid})`} stroke="#2E5C18" strokeWidth="0.4">
-            <path d="M70 20 Q80 18 88 22 Q92 26 90 30 Q82 28 74 26 Q70 24 70 20 Z" />
-          </g>
-
-          {/* Subtle cloud wisps (white, transparent) для глянца */}
-          <g fill="white" opacity="0.12">
-            <ellipse cx="25" cy="50" rx="8" ry="2" />
-            <ellipse cx="70" cy="60" rx="6" ry="1.5" />
-            <ellipse cx="55" cy="80" rx="10" ry="2" />
+          {/* Cloud wisps (поверх континентов, lightly rotating) */}
+          <g opacity="0.12">
+            {!prefersReduced && (
+              <animateTransform
+                attributeName="transform"
+                type="translate"
+                from="0 0"
+                to="-200 0"
+                dur="90s"
+                repeatCount="indefinite"
+              />
+            )}
+            <ellipse cx="30" cy="40" rx="10" ry="2" fill="white" />
+            <ellipse cx="80" cy="55" rx="8" ry="1.5" fill="white" />
+            <ellipse cx="130" cy="35" rx="9" ry="2" fill="white" />
+            <ellipse cx="170" cy="50" rx="11" ry="2" fill="white" />
+            <ellipse cx="230" cy="40" rx="10" ry="2" fill="white" />
+            <ellipse cx="280" cy="55" rx="8" ry="1.5" fill="white" />
           </g>
         </g>
 
