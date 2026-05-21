@@ -446,14 +446,18 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
         )}
 
         {/* === Music Equalizer Bars (left) — only if anim enabled === */}
+        {/* Eugene 2026-05-21 Босс «эквалайзеры зеркально слева и справа».
+            Mirror: левый и правый эквалайзеры одинаковый brand gradient
+            (purple→fuchsia→cyan) + одинаковая последовательность timings.
+            Левый bars 0,1,2,3 (наружу→центр), правый 3,2,1,0 (центр→наружу). */}
         <div className="flex items-end gap-[2px] h-[18px] mr-2" aria-hidden="true">
           {[0, 1, 2, 3].map(i => (
             <span
               key={`eql-${i}`}
-              className="w-[2px] bg-gradient-to-t from-purple-500 to-fuchsia-400 rounded-full origin-bottom"
+              className="w-[2px] bg-gradient-to-t from-purple-500 via-fuchsia-500 to-cyan-400 rounded-full origin-bottom"
               style={{
                 height: animEnabled ? "100%" : "40%",
-                animation: animEnabled ? `uc-eq-bar ${0.6 + i * 0.15}s ease-in-out infinite` : "none",
+                animation: animEnabled ? `uc-eq-bar ${0.6 + i * 0.12}s ease-in-out infinite` : "none",
                 animationDelay: `${i * 0.1}s`,
               }}
             />
@@ -480,14 +484,15 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
 
         {/* === Music Equalizer Bars (right side) === */}
         <div className="flex items-end gap-[2px] h-[18px] ml-2" aria-hidden="true">
-          {[0, 1, 2, 3].map(i => (
+          {/* Зеркало левого — reversed order (3→0) с тем же timing pattern */}
+          {[3, 2, 1, 0].map(i => (
             <span
               key={`eqr-${i}`}
-              className="w-[2px] bg-gradient-to-t from-cyan-500 to-purple-400 rounded-full origin-bottom"
+              className="w-[2px] bg-gradient-to-t from-purple-500 via-fuchsia-500 to-cyan-400 rounded-full origin-bottom"
               style={{
                 height: animEnabled ? "100%" : "40%",
-                animation: animEnabled ? `uc-eq-bar ${0.7 + i * 0.12}s ease-in-out infinite` : "none",
-                animationDelay: `${0.2 + i * 0.13}s`,
+                animation: animEnabled ? `uc-eq-bar ${0.6 + i * 0.12}s ease-in-out infinite` : "none",
+                animationDelay: `${i * 0.1}s`,
               }}
             />
           ))}
