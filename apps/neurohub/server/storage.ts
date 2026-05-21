@@ -317,16 +317,19 @@ try {
     }
   } catch {}
 
-  // Eugene 2026-05-21 Босс: «в топе Leo Di Caprio + при нажатии переход на
-  // Instagram аккаунт».
+  // Eugene 2026-05-21 Босс: «Leonardo DiCaprio» (правильное написание, не Leo Di Caprio).
+  // Seed star — главная номинация для маячка после 1 000 000 prosлушиваний.
   const starCount = sqlite.prepare("SELECT COUNT(*) as cnt FROM star_suggestions").get() as { cnt: number };
   if (starCount.cnt === 0) {
     sqlite.prepare("INSERT INTO star_suggestions (name_normalized, name_display, profile_url, votes) VALUES (?, ?, ?, ?)")
-      .run("leo di caprio", "Leo Di Caprio", "https://www.instagram.com/leonardodicaprio", 1);
+      .run("leonardo dicaprio", "Leonardo DiCaprio", "https://www.instagram.com/leonardodicaprio", 1);
   } else {
-    // Existing seed — обновить profile_url если ещё не задан
+    // Existing БД — обновить старый seed «Leo Di Caprio» → «Leonardo DiCaprio»
+    sqlite.prepare("UPDATE star_suggestions SET name_normalized = ?, name_display = ?, profile_url = ? WHERE name_normalized = ?")
+      .run("leonardo dicaprio", "Leonardo DiCaprio", "https://www.instagram.com/leonardodicaprio", "leo di caprio");
+    // Гарантия profile_url для уже «leonardo dicaprio» row если URL пуст
     sqlite.prepare("UPDATE star_suggestions SET profile_url = ? WHERE name_normalized = ? AND (profile_url IS NULL OR profile_url = '')")
-      .run("https://www.instagram.com/leonardodicaprio", "leo di caprio");
+      .run("https://www.instagram.com/leonardodicaprio", "leonardo dicaprio");
   }
 
   // Универсальная очередь подтверждений изменений данных автора (имя, email,

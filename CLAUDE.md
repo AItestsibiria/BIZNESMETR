@@ -1827,7 +1827,7 @@ Validation Instagram URL:
 
 Rate limit: НЕТ ограничений по времени (Eugene 2026-05-21 «ограничений нет по времени Star»). `star_votes_log` остаётся для audit но без блокировки.
 
-Seed: «Leo Di Caprio» → `https://www.instagram.com/leonardodicaprio`
+Seed: «Leonardo DiCaprio» → `https://www.instagram.com/leonardodicaprio` (Eugene 2026-05-21: правильное написание, было «Leo Di Caprio»)
 
 При нажатии на имя в рейтинге → открывается в новой вкладке (`target="_blank" rel="noopener noreferrer"`).
 
