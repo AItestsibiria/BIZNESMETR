@@ -240,11 +240,10 @@ const RollingDigit = ({ value, dimmed }: { value: number; dimmed?: boolean }) =>
         width: "0.62em",
         height: "1em",
         lineHeight: "1em",
-        color: dimmed ? "rgba(139,92,246,0.22)" : undefined,
-        WebkitTextFillColor: dimmed ? "rgba(139,92,246,0.22)" : undefined,
-        opacity: dimmed ? 0.6 : 1,
       }}
-      data-active={!dimmed ? "1" : undefined}
+      // Eugene 2026-05-21 Босс «цифры 0000000 одинаковые» — убраны dim/color-cycle.
+      // Все digit'ы единый цвет (цвет наследуется от parent text-color).
+      data-active="1"
     >
       {/* Eugene 2026-05-21 Босс «цифра должна поворачиваться снизу вверх медленно».
           Strip 0-9 ↓, translateY(-Nem) показывает digit N — изменение N→N+1
@@ -601,11 +600,11 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
                 })}
               </div>
 
-              {/* Eugene 2026-05-21 Босс «🎧 центр 6 условных цифр» — 🎧 в одной
-                  колонке с цифрами (flex-col items-center), eq-bars flanking
-                  эту колонку. Центрирование 🎧 строго над 6-digit number. */}
+              {/* Eugene 2026-05-21 Босс «наушники отценируй над цифрами».
+                  flex-col items-center + цифры теперь uniform color = 🎧
+                  строго над центром визуально-симметричной digit-row. */}
               <div className="flex flex-col items-center">
-                <span className="text-xl leading-none mb-0.5" aria-hidden="true">🎧</span>
+                <span className="text-2xl leading-none mb-1" aria-hidden="true">🎧</span>
                 <div
                   key={`bump-${bumped}`}
                   className={`font-display font-bold text-4xl tracking-tight ${bumped > 0 ? "uc-num-bump" : ""}`}
