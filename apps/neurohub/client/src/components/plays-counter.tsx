@@ -12,7 +12,53 @@
 
 import { useEffect, useState, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Eye, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
+
+// Eugene 2026-05-21 Босс «вместо глаза поставь планету» + «крутиться плавно
+// в направлении научном». Saturn с кольцом, brand cyan/violet gradient.
+// Научное направление prograde = против часовой стрелки если смотреть с
+// северного полюса (как Земля, Юпитер, Сатурн etc, кроме Венеры/Урана).
+// CSS rotate(-360deg) = counterclockwise = prograde.
+function PlanetIcon({ className = "" }: { className?: string }) {
+  const uid = String(Math.random()).slice(2, 8);
+  return (
+    <svg viewBox="0 0 32 32" className={className} aria-hidden="true">
+      <defs>
+        <radialGradient id={`pl-${uid}`} cx="0.35" cy="0.35" r="0.7">
+          <stop offset="0%" stopColor="#A78BFA" />
+          <stop offset="50%" stopColor="#8B5CF6" />
+          <stop offset="100%" stopColor="#22D3EE" />
+        </radialGradient>
+        <style>{`
+          @keyframes planet-spin-${uid} {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(-360deg); }
+          }
+          .planet-body-${uid} {
+            transform-origin: 16px 16px;
+            animation: planet-spin-${uid} 14s linear infinite;
+          }
+          @media (prefers-reduced-motion: reduce) {
+            .planet-body-${uid} { animation: none; }
+          }
+        `}</style>
+      </defs>
+      {/* Ring back-half (behind planet) — static */}
+      <ellipse cx="16" cy="16" rx="13" ry="3.5" stroke="rgba(251,191,36,0.7)" strokeWidth="1.2" fill="none" transform="rotate(-22 16 16)" strokeDasharray="6 4" />
+      {/* Planet body + highlight — rotate group prograde (counterclockwise) */}
+      <g className={`planet-body-${uid}`}>
+        <circle cx="16" cy="16" r="8" fill={`url(#pl-${uid})`} />
+        <circle cx="13" cy="13" r="2" fill="rgba(255,255,255,0.45)" />
+        {/* Surface dots для визуального вращения (без них шар крутится «неподвижно») */}
+        <circle cx="19" cy="18" r="0.9" fill="rgba(255,255,255,0.25)" />
+        <circle cx="14" cy="19.5" r="0.7" fill="rgba(255,255,255,0.2)" />
+        <circle cx="17.5" cy="14" r="0.6" fill="rgba(255,255,255,0.3)" />
+      </g>
+      {/* Ring front-half (overlaps planet) — static */}
+      <path d="M3.5 18.5 Q16 23 28.5 13.5" stroke="rgba(251,191,36,0.85)" strokeWidth="1.4" fill="none" strokeLinecap="round" transform="rotate(-22 16 16)" />
+    </svg>
+  );
+}
 
 interface Stats {
   totalPlays: number;
@@ -141,6 +187,25 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
 
   // === Star modal state ===
   const [showInfo, setShowInfo] = useState(false);
+  // Eugene 2026-05-21 Босс «по нажатии на планету страны/города».
+  const [showGeo, setShowGeo] = useState(false);
+  const [geoData, setGeoData] = useState<{
+    countries: Array<{ code: string; name: string; visits: number }>;
+    cities: Array<{ city: string; code: string; visits: number }>;
+    totalVisits: number;
+  } | null>(null);
+  const loadGeo = () => {
+    fetch("/api/playlist/geo-top", { cache: "no-store" })
+      .then(r => r.ok ? r.json() : null)
+      .then(j => { if (j) setGeoData(j); })
+      .catch(() => {});
+  };
+  // Когда любая модалка открыта — паузим walking-musa тур.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const anyOpen = showInfo || showGeo;
+    window.dispatchEvent(new CustomEvent(anyOpen ? "musa-chat-open" : "musa-chat-close"));
+  }, [showInfo, showGeo]);
   const [showRating, setShowRating] = useState(false);
   const [starInput, setStarInput] = useState("");
   const [starUrlInput, setStarUrlInput] = useState("");
@@ -399,8 +464,14 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
           </div>
         </div>
 
-        {/* Live eye — pulsing cyan dot + concentric rings */}
-        <div className="relative flex h-20 w-20 items-center justify-center flex-shrink-0">
+        {/* Planet — clickable button (rotating prograde, opens geo modal) */}
+        <button
+          type="button"
+          onClick={() => { setShowGeo(true); loadGeo(); }}
+          aria-label="Откуда слушают — страны и города"
+          title="Откуда слушают"
+          className="relative flex h-20 w-20 items-center justify-center flex-shrink-0 rounded-full hover:scale-105 active:scale-95 transition-transform z-10"
+        >
           <div className="absolute inset-0 rounded-full border border-violet-400/20" />
           <div className="absolute inset-2 rounded-full border border-cyan-300/20" />
           <div
@@ -413,8 +484,8 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
               style={{ animation: animEnabled ? "uc-live-ping 1.8s ease-out infinite" : "none" }}
             />
           </div>
-          <Eye className="relative h-7 w-7 text-white/80" />
-        </div>
+          <PlanetIcon className="relative h-12 w-12" />
+        </button>
       </div>
 
       {/* Eugene 2026-05-21 Босс «убери сегодня и онлайн» — bottom grid удалён.
@@ -442,16 +513,98 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
         {animEnabled ? "✦" : "○"}
       </button>
 
+      {/* ===== Geo modal (portal to body) — Eugene 2026-05-21 Босс ===== */}
+      {showGeo && typeof document !== "undefined" && createPortal(
+        <>
+          <div className="fixed inset-0 bg-black/75 z-[10000] animate-in fade-in duration-200"
+            onClick={() => setShowGeo(false)} aria-hidden="true" />
+          <div
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-5 py-4 rounded-3xl text-[13px] text-white z-[10001] animate-in fade-in zoom-in-95 duration-200"
+            style={{
+              width: "min(440px, calc(100vw - 24px))",
+              maxHeight: "calc(100vh - 40px)",
+              overflowY: "auto",
+              background: "linear-gradient(135deg, rgba(7,8,18,0.92) 0%, rgba(20,16,44,0.88) 50%, rgba(12,30,76,0.92) 100%)",
+              border: "1px solid rgba(139,92,246,0.25)",
+              boxShadow: "0 32px 80px rgba(139,92,246,0.5), 0 0 60px rgba(34,211,238,0.18), inset 0 1px 0 rgba(255,255,255,0.10)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <h3 className="text-[15px] font-display font-bold flex items-center gap-2">
+                  🌍 <span className="bg-gradient-to-r from-[#A78BFA] to-[#22D3EE] bg-clip-text text-transparent">Откуда слушают</span>
+                </h3>
+                <p className="text-[11px] text-white/55 mt-1">Последние 30 дней · {geoData ? geoData.totalVisits.toLocaleString("ru-RU") : "—"} визитов</p>
+              </div>
+              <button onClick={() => setShowGeo(false)} className="text-white/70 hover:text-white text-[20px] leading-none">×</button>
+            </div>
+
+            {!geoData ? (
+              <div className="text-center py-6 text-white/50 text-[12px]">Загружаю…</div>
+            ) : (
+              <div className="space-y-4">
+                <div>
+                  <div className="text-[11px] uppercase tracking-wider text-[#FBBF24] mb-2 font-semibold flex items-center gap-1">
+                    <span>🏳️</span> Топ стран
+                  </div>
+                  {geoData.countries.length === 0 ? (
+                    <div className="text-[11px] text-white/40">Нет данных за период</div>
+                  ) : (
+                    <ol className="space-y-1.5 list-none">
+                      {geoData.countries.map((c, i) => {
+                        const pct = geoData.totalVisits > 0 ? Math.round((c.visits / geoData.totalVisits) * 100) : 0;
+                        return (
+                          <li key={c.code} className="flex items-center gap-2 text-[12px]">
+                            <span className="text-white/50 w-5 font-mono">{i + 1}.</span>
+                            <span className="text-white/85 flex-1 truncate">{c.name}</span>
+                            <span className="text-white/60 font-mono text-[11px]">{c.visits.toLocaleString("ru-RU")}</span>
+                            <span className="text-[#22D3EE] font-mono text-[10px] w-10 text-right">{pct}%</span>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  )}
+                </div>
+
+                <div>
+                  <div className="text-[11px] uppercase tracking-wider text-[#A78BFA] mb-2 font-semibold flex items-center gap-1">
+                    <span>📍</span> Топ городов
+                  </div>
+                  {geoData.cities.length === 0 ? (
+                    <div className="text-[11px] text-white/40">Нет данных за период</div>
+                  ) : (
+                    <ol className="space-y-1.5 list-none">
+                      {geoData.cities.map((c, i) => (
+                        <li key={`${c.city}-${c.code}`} className="flex items-center gap-2 text-[12px]">
+                          <span className="text-white/50 w-5 font-mono">{i + 1}.</span>
+                          <span className="text-white/85 flex-1 truncate">{c.city} <span className="text-white/40 text-[10px]">{c.code}</span></span>
+                          <span className="text-white/60 font-mono text-[11px]">{c.visits.toLocaleString("ru-RU")}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </>,
+        document.body
+      )}
+
       {/* ===== Star modal (portal to body) ===== */}
       {showInfo && typeof document !== "undefined" && createPortal(
         <>
+          {/* Eugene 2026-05-21 Босс «размазано при нажатии на и» — backdrop без
+              blur (только тёмная заливка) + z-index выше walking-musa (z=9998),
+              чтобы Музa с bubble не перекрывала модалку. */}
           <div
-            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60] animate-in fade-in duration-200"
+            className="fixed inset-0 bg-black/75 z-[10000] animate-in fade-in duration-200"
             onClick={() => setShowInfo(false)}
             aria-hidden="true"
           />
           <div
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-5 py-4 rounded-3xl text-[13px] text-white z-[61] animate-in fade-in zoom-in-95 duration-200"
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-5 py-4 rounded-3xl text-[13px] text-white z-[10001] animate-in fade-in zoom-in-95 duration-200"
             style={{
               width: "min(440px, calc(100vw - 24px))",
               maxHeight: "calc(100vh - 40px)",

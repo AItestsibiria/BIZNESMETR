@@ -9999,6 +9999,50 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     }
   });
 
+  // Eugene 2026-05-21 Босс «по нажатии на планету — страны/города».
+  // Public endpoint — топ-10 стран + топ-10 городов посетителей (last 30 days).
+  // Cache 60s.
+  let _geoTopCache: { data: any; expiresAt: number } | null = null;
+  app.get("/api/playlist/geo-top", (_req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "public, max-age=60");
+    try {
+      if (_geoTopCache && Date.now() < _geoTopCache.expiresAt) {
+        return res.json(_geoTopCache.data);
+      }
+      const rawSql: any = (db as any).$client || sqliteDb;
+      const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const countries: Array<{ countryCode: string; country: string; visits: number }> = rawSql.prepare(`
+        SELECT COALESCE(country_code, '??') AS countryCode,
+               MAX(country) AS country,
+               COUNT(*) AS visits
+        FROM visitors
+        WHERE created_at >= ? AND country_code IS NOT NULL AND country_code != ''
+        GROUP BY country_code
+        ORDER BY visits DESC
+        LIMIT 10
+      `).all(since) as any[];
+      const cities: Array<{ city: string; countryCode: string; visits: number }> = rawSql.prepare(`
+        SELECT city, COALESCE(country_code, '??') AS countryCode, COUNT(*) AS visits
+        FROM visitors
+        WHERE created_at >= ? AND city IS NOT NULL AND city != ''
+        GROUP BY city, country_code
+        ORDER BY visits DESC
+        LIMIT 10
+      `).all(since) as any[];
+      const totalRow = rawSql.prepare(`SELECT COUNT(*) AS total FROM visitors WHERE created_at >= ?`).get(since) as { total: number };
+      const data = {
+        countries: countries.map(r => ({ code: String(r.countryCode), name: r.country || r.countryCode, visits: Number(r.visits) })),
+        cities: cities.map(r => ({ city: r.city, code: r.countryCode, visits: Number(r.visits) })),
+        totalVisits: Number(totalRow?.total || 0),
+        days: 30,
+      };
+      _geoTopCache = { data, expiresAt: Date.now() + 60_000 };
+      res.json(data);
+    } catch (e: any) {
+      res.json({ countries: [], cities: [], totalVisits: 0, error: String(e?.message || e).slice(0, 100) });
+    }
+  });
+
   // Eugene 2026-05-21 Босс «сделай онлайн автообновление счётчика
   // прослушиваний из первоисточника». SSE — server-push при каждом play.
   // SSE clients Set + counter уже объявлены выше (для computePlaysStats).
