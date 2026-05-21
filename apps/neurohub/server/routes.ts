@@ -10020,9 +10020,9 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         return res.json(_geoTopCache.data);
       }
       const rawSql: any = (db as any).$client || sqliteDb;
-      // Eugene 2026-05-21 Босс «общий для стран и посещений за весь период» —
-      // фильтр last-30d убран, все запросы всё-время (period = all-time).
-      // Eugene 2026-05-21 Босс «страны на английском + при равенстве % Россия выше».
+      // Eugene 2026-05-21 Босс «статистика в кабинете и на сайте разнятся» —
+      // FIX: visits теперь = SUM(visits column) как в админ-панели (31793 visits
+      // total, не 722 unique fingerprints). Cities + countries — same.
       const countries: Array<{ countryCode: string; country: string; visits: number }> = rawSql.prepare(`
         SELECT COALESCE(country_code, '??') AS countryCode,
                CASE country
@@ -10057,7 +10057,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
                  WHEN 'Туркменистан' THEN 'Turkmenistan'
                  ELSE country
                END AS country,
-               COUNT(*) AS visits
+               COALESCE(SUM(visits), 0) AS visits
         FROM visitors
         WHERE country_code IS NOT NULL AND country_code != ''
         GROUP BY country_code
@@ -10065,14 +10065,14 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         LIMIT 10
       `).all() as any[];
       const cities: Array<{ city: string; countryCode: string; visits: number }> = rawSql.prepare(`
-        SELECT city, COALESCE(country_code, '??') AS countryCode, COUNT(*) AS visits
+        SELECT city, COALESCE(country_code, '??') AS countryCode, COALESCE(SUM(visits), 0) AS visits
         FROM visitors
         WHERE city IS NOT NULL AND city != ''
         GROUP BY city, country_code
         ORDER BY visits DESC
         LIMIT 10
       `).all() as any[];
-      const totalRow = rawSql.prepare(`SELECT COUNT(*) AS total FROM visitors`).get() as { total: number };
+      const totalRow = rawSql.prepare(`SELECT COALESCE(SUM(visits), 0) AS total FROM visitors`).get() as { total: number };
       const totalCountriesRow = rawSql.prepare(`
         SELECT COUNT(DISTINCT country_code) AS cnt FROM visitors
         WHERE country_code IS NOT NULL AND country_code != ''
