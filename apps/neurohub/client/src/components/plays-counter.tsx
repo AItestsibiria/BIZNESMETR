@@ -52,8 +52,12 @@ const RollingDigit = ({ value, dimmed }: { value: number; dimmed?: boolean }) =>
       }}
       data-active={!dimmed ? "1" : undefined}
     >
+      {/* Eugene 2026-05-21 Босс «цифра должна поворачиваться снизу вверх медленно».
+          Strip 0-9 ↓, translateY(-Nem) показывает digit N — изменение N→N+1
+          двигает strip ВВЕРХ → digit «вылезает» снизу.
+          Slow: 3500ms (было 1500). Smoother: ease-out без spring-overshoot. */}
       <span
-        className="block transition-transform duration-[1500ms] ease-[cubic-bezier(0.34,1.56,0.64,1)]"
+        className="block transition-transform duration-[3500ms] ease-[cubic-bezier(0.22,0.61,0.36,1)]"
         style={{ transform: `translateY(-${safeValue}em)`, willChange: "transform" }}
       >
         {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(d => (
