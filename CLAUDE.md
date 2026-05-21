@@ -2079,6 +2079,56 @@ for (const [action, handler] of actionHandlers) {
 
 **Reference commits:** `8d047e1` (Persistent-audio-only foundation), `584c51d` (revert AudioContext на iOS).
 
+### iOS-app-capacitor rule (Eugene 2026-05-21)
+
+**MuzaAi iOS app собирается через Capacitor.js — hybrid WebView + native shell. `apps/neurohub/capacitor.config.ts` = single source of truth. При любом изменении web — на Mac выполняем `npm run build && npx cap sync ios` чтобы переносить в Xcode project.**
+
+**Базовые параметры (зафиксированы):**
+- Bundle ID: **`ru.muzaai.app`** — нельзя менять после первого App Store submit (Apple lock)
+- App Name: **MuzaAi**
+- Display name: «MuzaAi»
+- Минимальный iOS: **iOS 14+** (покрывает 95%+ устройств)
+- Targets: iPhone + iPad (universal binary)
+- Mode: **hybrid** (`server.url = "https://muzaai.ru"`) — live load production web, native shell даёт push/IAP/splash/MediaSession
+- Apple Developer: $99/год — Босс оплачивает напрямую через https://developer.apple.com/programs/
+
+**Workflow при изменении web-кода:**
+- Web-only изменения (компоненты, тексты, KB, контент) — `git push` → auto-deploy на VPS → юзеры iOS app видят сразу при следующем открытии (WebView refresh). **НЕ требует Apple Review.**
+- Native изменения (новый Capacitor plugin, capacitor.config.ts, splash, capabilities) — на Mac `npx cap sync ios` → Xcode Archive → submit → Apple Review 1-7 дней.
+
+**Жёсткие правила:**
+1. **Capacitor config — single source of truth.** Никогда не правим Xcode настройки напрямую в `ios/App/App.xcodeproj/` — все изменения через `capacitor.config.ts` + `npx cap sync ios`. Иначе следующий sync затрёт ручные правки.
+2. **Native plugins только через Capacitor.** `@capacitor/X` или `@capacitor-community/X`. НЕ форкаем iOS код напрямую (Swift / Objective-C). Если нужно что-то native — ищем существующий plugin или создаём свой Capacitor plugin (отдельный npm package).
+3. **Web-bundle versioning.** При `npx cap copy ios` копирует текущий `dist/public/` в `ios/App/App/public/`. Это offline-fallback (если `server.url` недоступен). Для hybrid режима web всегда грузится с muzaai.ru, но bundle нужен для первого открытия (до DNS resolution).
+4. **Bundle ID immutable.** `ru.muzaai.app` — НЕЛЬЗЯ менять после первого submit. Apple binds его к App Store record. Если когда-нибудь захотим переименовать — это новое приложение в App Store.
+5. **Apple Review planning.** Каждый native update = 1-7 дней review. Critical fixes планируем заранее. Web-only fixes идут моментально (см. выше).
+6. **In-App Purchases (IAP) — пока НЕ добавляем.** Apple Tax 30% делает IAP экономически невыгодным для нашей модели (399 ₽ за трек → 279 ₽ после Apple cut, vs 387 ₽ через Robokassa web). Оформляем как «Reader app» — генерация в web, app только воспроизводит. После одобрения первой версии — рассматриваем IAP опционально.
+7. **Push notifications через APNs.** Когда добавляем — `@capacitor/push-notifications` plugin + APNs key из Apple Developer console. РФ Apple не блокирует.
+8. **Privacy Policy URL обязательна** — muzaai.ru/privacy. Без неё App Review реджектит.
+9. **ATT (App Tracking Transparency)** — пока не добавляем, потому что нет cross-app трекинга. Если когда-нибудь подключим Yandex Metrika IDFA-tracking — нужен `@capacitor-community/app-tracking-transparency`.
+
+**Структура файлов:**
+- `apps/neurohub/capacitor.config.ts` — конфиг Capacitor (commit'нут)
+- `apps/neurohub/ios-assets/` — исходники иконок + splash 1024×1024 + 2732×2732 PNG (commit'нут с README)
+- `apps/neurohub/ios/` — **генерируется на Mac** через `npx cap add ios`, в .gitignore (Pods, build) но `ios/App/App.xcodeproj/` коммитим в репо когда Босс впервые создаст на Mac
+
+**Audit при изменении iOS-related кода:**
+1. `capacitor.config.ts` изменился → обязательно `npx cap sync ios` на Mac перед next build
+2. Новый Capacitor plugin → проверить что в package.json + `npx cap sync ios` отработал без ошибок
+3. iOS-specific quirks → сверка с Apple-audio-best-practices rule + iOS-lock-screen-audio rule (WKWebView = тот же engine что Safari)
+
+**Применяется к:** всем работам с iOS app, capacitor.config.ts, splash/icon assets, App Store metadata. НЕ применяется к: web-only изменениям (они идут стандартным flow без cap sync).
+
+**Связанные docs:**
+- `docs/strategy/IOS-APP-CAPACITOR-SETUP.md` — полная инструкция для Босса (pre-req, шаги build на Mac, App Store submit, IAP economics)
+- `apps/neurohub/ios-assets/README.md` — что положить как icon.png / splash.png
+
+**Связанные правила:**
+- Apple-audio-best-practices rule — MediaSession + audio quirks в WKWebView
+- iOS-lock-screen-audio rule — не использовать createMediaElementSource на iOS
+- Persistent-audio-only rule — single `<audio>` element
+- Suno-audio-playback rule — cookie auth + use-credentials
+
 ### Android-audio-best-practices rule (Eugene 2026-05-21, **дополняет Apple-audio-best-practices rule**)
 
 **По официальной документации Chrome / web.dev / Android MediaSession — Chrome on Android требует точного MediaSession setup для lock-screen + notification controls + audio focus.** Большая часть API одинакова с iOS, но есть Android-specific требования и поведение.
