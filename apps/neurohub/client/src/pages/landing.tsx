@@ -1435,12 +1435,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         {/* Big player — full-width, visible details */}
         {currentTrack && (
           <div className="glass-card rounded-2xl p-5 mb-6 border border-white/[0.06] relative">
-            {/* Eugene 2026-05-18 Босс «S пропала». После увеличения обложки
-                (scale-150 на desktop lg) S могла перекрываться. Поднял z-50,
-                добавил bg-black/60 + backdrop-blur pill чтобы точно была
-                видна на любом фоне. */}
+            {/* Eugene 2026-05-21 Босс: «Плей и S в наложении». S смещена дальше от
+                края (top-3 right-3 = 12px) + меньше на mobile (w-9 h-9 vs sm:w-11 h-11).
+                Применено в обоих местах S — main player FAB + inline expanded. */}
             <button
-              className="absolute top-2 right-2 w-11 h-11 rounded-full bg-black/60 backdrop-blur-sm border border-white/20 hover:border-fuchsia-400/60 hover:bg-black/80 flex items-center justify-center hover:scale-110 active:scale-95 transition-all z-50 shadow-lg shadow-fuchsia-500/30"
+              className="absolute top-3 right-3 w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-black/60 backdrop-blur-sm border border-white/20 hover:border-fuchsia-400/60 hover:bg-black/80 flex items-center justify-center hover:scale-110 active:scale-95 transition-all z-50 shadow-lg shadow-fuchsia-500/30"
               title="Свайп-режим — листай ← → большие обложки"
               aria-label="Свайп-режим"
               onClick={() => setDetailsOpen(true)}
@@ -1965,11 +1964,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                         <div className="w-full aspect-square bg-gradient-to-br from-purple-900 via-blue-900 to-black relative cursor-pointer" onPointerDown={(e) => { const tgt = e.target as HTMLElement; if (tgt.closest("button, a, [role=button], input, [data-no-collapse]")) return; /* Eugene 2026-05-21 Босс: 500ms cooldown (iOS double-tap standard, anti случайных касаний). */ if (Date.now() - expandedAtRef.current < 500) return; e.preventDefault(); setExpandedId(null); }}>
                           {track.imageUrl && <img key={track.imageUrl} src={track.imageUrl} alt="" className="w-full h-full object-cover absolute inset-0 animate-in fade-in duration-500" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />}
                           {/* Eugene 2026-05-19 Босс «S на большой обложке».
-                              Eugene 2026-05-21 Босс «раздвинь Play и S элегантно».
-                              Отступ от угла увеличен (top-4 right-4 = 16px),
-                              на mobile меньше size чтобы не «давить» на Play. */}
+                              Eugene 2026-05-21 Босс «Плей и S в наложении»:
+                              S меньше на mobile (w-9 h-9) + смещена top-3 right-3
+                              (12px от края) — увеличенное расстояние от центральной Play. */}
                           <button
-                            className="absolute top-4 right-4 w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-black/60 backdrop-blur-sm border border-white/20 hover:border-fuchsia-400/60 hover:bg-black/80 flex items-center justify-center hover:scale-110 active:scale-95 transition-all z-50 shadow-lg shadow-fuchsia-500/30"
+                            className="absolute top-3 right-3 w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-black/60 backdrop-blur-sm border border-white/20 hover:border-fuchsia-400/60 hover:bg-black/80 flex items-center justify-center hover:scale-110 active:scale-95 transition-all z-50 shadow-lg shadow-fuchsia-500/30"
                             title="Свайп-режим — листай ← → большие обложки"
                             aria-label="Свайп-режим"
                             onClick={(e) => {
@@ -2026,7 +2025,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             </>
                           )}
                           {ePlaying && (
-                            <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-black/60 rounded-full px-2.5 py-1 z-20">
+                            /* Eugene 2026-05-21 Босс «Плей и S в наложении» — live-индикатор
+                               playing перенесён top-3 LEFT-3 (раньше right-3 — overlap с S). */
+                            <div className="absolute top-3 left-3 flex items-center gap-1.5 bg-black/60 rounded-full px-2.5 py-1 z-20">
                               <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" /><span className="text-[10px] text-white/80">playing</span>
                             </div>
                           )}
