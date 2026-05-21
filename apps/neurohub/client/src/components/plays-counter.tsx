@@ -243,6 +243,15 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
     const prev = prevTotalRef.current;
     prevTotalRef.current = stats.totalPlays;
     if (prev == null || stats.totalPlays <= prev) return;
+    // Eugene 2026-05-21 Босс «на +1000 фейерверк в стиле MuzaAi».
+    // Detect milestone crossing — если crossed multiple of 1000.
+    try {
+      const prevK = Math.floor(prev / 1000);
+      const newK = Math.floor(stats.totalPlays / 1000);
+      if (newK > prevK && newK > 0) {
+        window.dispatchEvent(new CustomEvent("muza:milestone-1000", { detail: { milestone: newK * 1000 } }));
+      }
+    } catch {}
 
     // Phase 1: blink-pre
     setBlinkPhase("blink-pre");
@@ -527,12 +536,8 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
 
             {showRating && starTop.length > 0 && (
               <div className="mb-3 bg-black/25 rounded-xl p-3 border border-white/10">
-                <div className="text-[11px] uppercase tracking-wider text-white/70 mb-2 font-semibold flex items-center justify-between">
-                  <span>🏆 Топ рейтинг</span>
-                  <span className="flex items-center gap-1 text-pink-300">
-                    <HeartIcon filled className="w-3.5 h-3.5" />
-                    <span className="font-mono normal-case tracking-normal">{starTotalVotes}</span>
-                  </span>
+                <div className="text-[11px] uppercase tracking-wider text-white/70 mb-2 font-semibold">
+                  🏆 Топ рейтинг
                 </div>
                 <ol className="space-y-1.5 list-none">
                   {starTop.map((s, i) => (

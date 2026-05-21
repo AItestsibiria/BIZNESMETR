@@ -15,6 +15,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { PlaysCounter } from "@/components/plays-counter";
 import { RocketLaunch } from "@/components/rocket-launch";
+import { Fireworks } from "@/components/fireworks";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { createPortal } from "react-dom";
 import { motion, useAnimation, useDragControls } from "framer-motion";
@@ -1813,6 +1814,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         {/* Eugene 2026-05-21 Босс «ракета при окончании трека вверх под углом».
             Listener в компоненте на window event 'muza:track-finished'. */}
         <RocketLaunch />
+        {/* Eugene 2026-05-21 Босс «на +1000 prosлушиваний фейерверк в стиле MuzaAi».
+            Listener на 'muza:milestone-1000' — 8 brand ракет с brust искрами. */}
+        <Fireworks />
 
         {/* Track count + page info */}
         {filteredMusic.length > 0 && (

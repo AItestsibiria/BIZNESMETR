@@ -9664,10 +9664,9 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       meta.plays = (meta.plays || 0) + 1;
       meta.lastPlayed = new Date().toISOString();
       db.update(generations).set({ style: JSON.stringify(meta) }).where(eq(generations.id, genId)).run();
-      // Eugene 2026-05-21 Босс «счётчик отражает реальные prosлушивания онлайн».
-      // Invalidate stats cache → следующий /api/playlist/stats запрос пересчитывает
-      // с актуальными данными. Без этого counter показывал stale до 30s.
       _playsStatsCache = null;
+      // Eugene 2026-05-21 Босс «если до 1000 осталось 30 — уведоми, на +1000 фейерверк».
+      try { checkMilestone(gen.id); } catch {}
       res.json({ ok: true, counted: true });
     } catch { res.json({ ok: false }); }
   });
@@ -9687,6 +9686,65 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   // (interval 60s) получает свежее значение (cache invalidate'ится посередине окна).
   let _playsStatsCache: { data: any; expiresAt: number } | null = null;
   const PLAYS_STATS_CACHE_MS = 30_000;
+
+  // Eugene 2026-05-21 Босс «на +1000 prosлушиваний фейерверк + за 30 до 1000 уведоми меня».
+  // checkMilestone вызывается после каждого засчитанного play.
+  // 30-before: alert админу когда counter впервые достигает X * 1000 - 30
+  // milestone-1000: alert + frontend fireworks (через event broadcast) когда crosses X * 1000
+  let _lastNotifiedMilestone30: number = -1;  // последний X для которого было notify «-30»
+  let _lastNotifiedMilestone1000: number = -1; // последний X для которого было notify «+1000»
+  function sendMilestoneAlert(text: string): void {
+    try {
+      const adminId = process.env.ADMIN_TELEGRAM_ID;
+      const tgToken = process.env.TELEGRAM_BOT_TOKEN;
+      if (!adminId || !tgToken) return;
+      fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: adminId, text, parse_mode: "HTML", disable_web_page_preview: true }),
+        signal: AbortSignal.timeout(8000),
+      }).catch(() => {});
+    } catch {}
+  }
+  function getCurrentPlaysSum(): number {
+    try {
+      const rawSql: any = (db as any).$client || sqliteDb;
+      const row = rawSql.prepare(
+        `SELECT COALESCE(SUM(CAST(json_extract(style, '$.plays') AS INTEGER)), 0) AS total
+         FROM generations WHERE type='music' AND deleted_at IS NULL AND status='done' AND is_public=1
+           AND style LIKE '{%' AND json_valid(style)=1`
+      ).get() as { total: number };
+      return Number(row?.total || 0);
+    } catch { return 0; }
+  }
+  function checkMilestone(_genId: number): void {
+    try {
+      const current = getCurrentPlaysSum();
+      if (current === 0) return;
+      const milestone = 1000;
+      const currentK = Math.floor(current / milestone);  // сколько full тысяч уже
+      const remainder = current % milestone;
+
+      // (1) «-30» notification: когда counter впервые достигает (currentK+1)*1000 - 30
+      const next1000 = (currentK + 1) * milestone;
+      const remainToNext = next1000 - current;
+      if (remainToNext === 30 && _lastNotifiedMilestone30 !== currentK + 1) {
+        _lastNotifiedMilestone30 = currentK + 1;
+        sendMilestoneAlert(
+          `🎯 До <b>${next1000.toLocaleString("ru-RU")}</b> прослушиваний осталось <b>30</b>!\n\nТекущее: ${current.toLocaleString("ru-RU")}\nПрослушаем 30 треков ≥5 сек — фейерверк 🎆`
+        );
+      }
+
+      // (2) «+1000» notification + fireworks: когда counter впервые crosses currentK*1000 (currentK > 0)
+      if (currentK > _lastNotifiedMilestone1000 && currentK > 0) {
+        _lastNotifiedMilestone1000 = currentK;
+        const reached = currentK * milestone;
+        sendMilestoneAlert(
+          `🎆 <b>${reached.toLocaleString("ru-RU")}</b> прослушиваний достигнуто!\n\nНа главной — brand fireworks 🎇`
+        );
+      }
+    } catch {}
+  }
   app.get("/api/playlist/stats", (_req: Request, res: Response) => {
     res.setHeader("Cache-Control", "public, max-age=30");
     if (_playsStatsCache && Date.now() < _playsStatsCache.expiresAt) {
@@ -10397,8 +10455,8 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
           meta.plays = (meta.plays || 0) + 1;
           meta.lastPlayed = new Date().toISOString();
           db.update(generations).set({ style: JSON.stringify(meta) }).where(eq(generations.id, genId)).run();
-          // Eugene 2026-05-21 Босс «счётчик отражает онлайн» — invalidate cache.
           _playsStatsCache = null;
+          try { checkMilestone(gen.id); } catch {}
           return res.json({ ok: true, counted: true });
         } catch { return res.json({ ok: false }); }
       }
