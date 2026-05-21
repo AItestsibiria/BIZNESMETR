@@ -10,7 +10,6 @@ import { ExpandToggleButton } from "@/components/expand-toggle-button";
 import { CoverDetailsModal } from "@/components/cover-details-modal";
 import { VolumeSlider } from "@/components/volume-slider";
 import { muteBgMusic, unmuteBgMusic } from "@/components/background-music";
-import { useDominantColor, dominantGlowShadow } from "@/lib/dominantColor";
 import { setupMediaSessionForTrack, setLockScreenPlaybackState, setLockScreenPosition, loadTrackIntoPlayer, setPlayerVolume } from "@/lib/lockscreen";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -1273,9 +1272,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   if (tracks.length === 0) return null;
 
   const currentTrack = tracks.find(t => t.id === playingId);
-  // Eugene 2026-05-21 Босс: подсветка обложки цветами самой обложки.
-  // Extract dominant color → glow вокруг cover в main player.
-  const dominantColor = useDominantColor(currentTrack?.imageUrl);
   const progress = trackDuration > 0 ? (currentTime / trackDuration) * 100 : 0;
 
   // Search filter
@@ -1484,12 +1480,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   className={`absolute -inset-2 rounded-2xl opacity-70 blur-2xl pointer-events-none cover-aura ${coverExpanded ? "md:-inset-3" : ""}`}
                 />
               <div
-                className={`relative bg-gradient-to-br from-purple-500/30 to-blue-500/30 flex items-center justify-center cursor-pointer overflow-hidden transition-all duration-700 w-full h-full rounded-xl ${
+                className={`relative bg-gradient-to-br from-purple-500/30 to-blue-500/30 flex items-center justify-center cursor-pointer shadow-lg shadow-purple-500/10 overflow-hidden transition-all duration-300 w-full h-full rounded-xl ${
                   coverExpanded ? "md:rounded-2xl" : ""
                 }`}
-                style={{
-                  boxShadow: dominantGlowShadow(dominantColor, playingId ? 1 : 0.5),
-                }}
                 onClick={() => setExpandedId(expandedId === currentTrack.id ? null : currentTrack.id)}
                 title={(currentTrack as any).hasCustomCover ? "Обложка создана автором" : undefined}
               >
