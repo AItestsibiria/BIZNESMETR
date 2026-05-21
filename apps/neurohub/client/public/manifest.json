@@ -1,17 +1,40 @@
 {
-  "name": "MuzaAi — AI Music Creation",
+  "name": "MuzaAi — Создавай музыку с ИИ",
   "short_name": "MuzaAi",
-  "description": "Создавай музыку с искусственным интеллектом",
-  "start_url": "/",
+  "description": "Создавай уникальные песни, обложки и тексты с ИИ-помощницей Музой. Первый трек бесплатно для РФ и СНГ.",
+  "id": "/?utm_source=pwa",
+  "start_url": "/?utm_source=pwa",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#0a0a1a",
+  "orientation": "portrait",
+  "background_color": "#0a0a17",
   "theme_color": "#7c3aed",
+  "lang": "ru",
+  "categories": ["music", "entertainment", "productivity"],
   "icons": [
     {
-      "src": "/favicon.svg?v=3",
+      "src": "/favicon.svg?v=4",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Создать песню",
+      "url": "/#/music?utm_source=pwa_shortcut",
+      "description": "Открыть страницу генерации"
+    },
+    {
+      "name": "Мои треки",
+      "url": "/#/dashboard?utm_source=pwa_shortcut",
+      "description": "Личный кабинет"
     }
   ]
 }

@@ -4,6 +4,7 @@ import "./index.css";
 import { initPixels, trackPageView } from "./lib/pixels";
 import { captureLeadTouch } from "./lib/tracking";
 import { installAudioBus } from "./lib/audio-bus";
+import { registerServiceWorker } from "./lib/registerSW";
 import { installUserJourney } from "./lib/user-journey";
 
 if (!window.location.hash) {
@@ -26,6 +27,10 @@ captureLeadTouch().catch(() => undefined);
 // Eugene 2026-05-12 (Босс): только ОДНА песня одновременно на сайте.
 // Глобальный listener pause'ит остальные audio при play любого.
 installAudioBus();
+// Eugene 2026-05-21 Босс: PWA auto-update — изменения сайта подхватываются
+// в installed-on-home-screen приложении при следующем заходе (или live через
+// background SW update каждые 5 мин). См. lib/registerSW.ts + public/sw.js.
+registerServiceWorker();
 
 // Eugene 2026-05-17 (Босс): карта пути юзера — page_view/click/scroll/
 // idle/form_focus/form_abandon/leave. Buffer + batch /api/journey/batch
