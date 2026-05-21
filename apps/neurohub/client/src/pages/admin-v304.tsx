@@ -31,6 +31,7 @@ import { Switch } from "@/components/ui/switch";
 import { Progress } from "@/components/ui/progress";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell } from "recharts";
 import MasterDashboardTab from "@/pages/admin/master-dashboard-tab";
+import MultiDomainStatsTab from "@/pages/admin/multi-domain-stats-tab";
 import SupportTicketsTab from "@/pages/admin/support-tickets-tab";
 import { BlocksTab } from "@/pages/admin/blocks-tab";
 import MusaAvatarTab from "@/pages/admin/musa-avatar-tab";
@@ -773,6 +774,9 @@ export default function AdminV304Page() {
           <TabsTrigger value="audit" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">Audit log</TabsTrigger>
           <TabsTrigger value="failures" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">⚠️ Проблемы</TabsTrigger>
           <TabsTrigger value="dialogs" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">💬 Диалоги</TabsTrigger>
+          {/* Eugene 2026-05-21 Босс Multi-domain-admin-stats rule: per-domain
+              + сводная статистика по всем instance'ам MuzaAi. */}
+          <TabsTrigger value="multi-domain" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🌐 Все домены</TabsTrigger>
           <TabsTrigger value="support" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🆘 Обращения</TabsTrigger>
           <TabsTrigger value="journey" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🗺 Путь</TabsTrigger>
           <TabsTrigger value="authors" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">👥 Авторы</TabsTrigger>
@@ -831,6 +835,7 @@ export default function AdminV304Page() {
         <TabsContent value="audit"><AuditTab toast={toast} /></TabsContent>
         <TabsContent value="failures"><FailuresTab toast={toast} /></TabsContent>
         <TabsContent value="dialogs"><DialogsTab toast={toast} /></TabsContent>
+        <TabsContent value="multi-domain"><MultiDomainStatsTab /></TabsContent>
         <TabsContent value="support"><SupportTicketsTab toast={toast} /></TabsContent>
         <TabsContent value="journey"><JourneyTab toast={toast} /></TabsContent>
         <TabsContent value="authors"><AuthorsTab toast={toast} /></TabsContent>

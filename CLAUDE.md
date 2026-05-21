@@ -1002,6 +1002,42 @@ Audit-сценарий перед коммитом UI-фичи:
 
 НЕ применяется к: триумф-tag'ам в git (`triumph-DDMMYY` — у них свой формат без extension).
 
+### Multi-domain-admin-stats rule (Eugene 2026-05-21)
+
+**Per-domain статистика и cross-domain сводка живут в одном плагине — `multi-domain-stats`. При появлении нового instance (новый домен) — добавить URL в ENV `MULTI_DOMAIN_PEERS` на всех существующих VPS. Token shared между ВСЕМИ инстансами (хранится в `.env` каждого, chmod 600).**
+
+Архитектура:
+- `apps/neurohub/server/plugins/multi-domain-stats/module.ts` — single source of truth для local + aggregated stats
+- `GET /api/admin/v304/local-stats` — статистика текущего instance (cache 60 сек). Dual-auth: либо admin-сессия (requireAdmin), либо shared HMAC token через `?token=...` (для peer-to-peer cross-domain trust). Constant-time compare через `timingSafeEqual`
+- `GET /api/admin/v304/aggregated-stats` — опрашивает peer'ов (MULTI_DOMAIN_PEERS CSV), складывает per-domain rows + TOTAL (cache 5 мин). Только requireAdmin (cross-domain не leak'аем юзерам)
+- `deploy/setup-multi-domain.sh` — генерирует token + печатает ssh-команды установки для каждого VPS
+
+ENV:
+- `MULTI_DOMAIN_PEERS` — CSV полных URL других instance'ов (`https://muzaai.ru,https://clone.muziai.ru`). Без trailing slash
+- `MULTI_DOMAIN_SHARED_TOKEN` — random base64-43, одинаковый на всех peer'ах
+
+Что показывает (admin UI «🌐 Все домены» в /admin/v304 после вкладки 💬 Диалоги):
+- Per-domain rows: domain | users | visits | gens | plays | payments | revenue | status (🟢 reachable / 🔴 down / 🟡 timeout)
+- Bottom TOTAL row — сумма по всем reachable peer'ам + local
+- Status indicators per peer: ok / timeout / auth_failed / invalid_response / error
+- Setup instructions panel — если MULTI_DOMAIN_PEERS пуст
+
+Безопасность:
+- Aggregated stats доступны ТОЛЬКО admin (не leak'аем cross-domain юзерам)
+- Cache 5 мин на peer-side, 60 сек на local-side — снижает нагрузку
+- HTTP timeout на peer fetch — 5 сек (не больше), peer недоступен → row с error, не throw'им
+- Backward compat: если `MULTI_DOMAIN_PEERS` пуст → endpoint возвращает только local stats без peer'ов (single-domain mode)
+- SQL queries только read-only (нет UPDATE/INSERT/DELETE)
+- Token rotation: re-run `setup-multi-domain.sh` → новый token → команда на каждый VPS → pm2 restart. Старый peer-fetch перестаёт работать сразу
+
+При добавлении новой метрики:
+1. Расширить `LocalStats` interface + buildLocalStats() в multi-domain-stats/module.ts
+2. Учесть в aggregateTotals() (если суммируется)
+3. Добавить в `multi-domain-stats-tab.tsx` колонку или SummaryCard
+4. НИКОГДА не возвращать PII (email/phone plain) — только aggregate counts
+
+Применяется к: per-domain отчётности, кросс-доменным сводкам выручки/юзеров/треков. НЕ применяется к: per-user analytics (там Cross-channel conversation linking rule + личные тред-views).
+
 ### Triumph-tag rule (Eugene 2026-05-10)
 
 **Когда Eugene говорит «Триумф» / «Победа» / «Сохрани редакцию» с ракетами 🚀 — создаю git tag формата `triumph-DDMMYY` на текущем HEAD с описанием что вошло.**

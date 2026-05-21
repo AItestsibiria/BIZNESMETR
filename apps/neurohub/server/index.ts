@@ -78,6 +78,7 @@ import authSmsModule from "./plugins/auth-sms/module";
 import apiHealthModule from "./plugins/api-health/module";
 import landingCmsModule from "./plugins/landing-cms/module";
 import masterDashboardModule from "./plugins/master-dashboard/module";
+import multiDomainStatsModule from "./plugins/multi-domain-stats/module";
 import botChannelsHealthModule from "./plugins/bot-channels-health/module";
 import emailChannelModule from "./plugins/email-channel/module";
 
@@ -496,6 +497,7 @@ app.post("/api/_client-error", express.json(), (req, res) => {
     { name: "api-health", module: apiHealthModule },
     { name: "landing-cms", module: landingCmsModule },
     { name: "master-dashboard", module: masterDashboardModule },
+    { name: "multi-domain-stats", module: multiDomainStatsModule },
     { name: "bot-channels-health", module: botChannelsHealthModule },
     { name: "email-channel", module: emailChannelModule },
 
