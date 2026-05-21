@@ -1787,6 +1787,35 @@ Functional check (`apps/neurohub/server/plugins/api-health/module.ts`):
 
 Reference: commit с расширением checks, helper `isFunctionalMuzaReply` в api-health/module.ts.
 
+### Counter-live-update rule (Eugene 2026-05-21)
+
+**Любые live-счётчики (PlaysCounter, future counters визитов/выручки/whatever) обновляются ТОЛЬКО через локальный setState — без перезагрузки страницы. Никаких `window.location.reload()` при обновлении data.**
+
+Pipeline (PlaysCounter — эталон):
+1. `useEffect` создаёт `setInterval(fetchStats, 60_000)` — каждые 60 сек
+2. `fetchStats` делает `fetch('/api/playlist/stats', { cache: 'no-store' })` — обходит browser HTTP cache
+3. Server возвращает свежие данные (cache server 30s + invalidate при play)
+4. `setState({totalPlays, totalTracks})` → React re-render **только PlaysCounter component**
+5. Остальная страница (playlist, header, navigation) — НЕ затрагивается
+6. Detect rise → blink digit → dispatch `muza:counter-up` → ракета вылетает
+7. После ракеты → blink-post → idle
+
+**Что КАТЕГОРИЧЕСКИ запрещено:**
+- ❌ `window.location.reload()` для обновления counter'а — это full page reload (юзер теряет scroll, audio останавливается на mobile)
+- ❌ `window.location.href = window.location.href` (то же самое)
+- ❌ Router push без cache (SPA-внутренние reloads)
+- ❌ Refetch ВСЕЙ страницы (refetch только counter-specific data)
+
+**Service Worker auto-update — exception:**
+SW делает silent reload **ТОЛЬКО при появлении новой версии сайта** (deploy). Это редкое событие (≤1 раз в час обычно). Не для counter update.
+
+Reference:
+- `components/plays-counter.tsx` — setInterval + setState pattern
+- `lib/registerSW.ts` — controllerchange listener (SW auto-update)
+- routes.ts `/api/playlist/stats` — server cache 30s + invalidate при play
+
+Применяется к: всем future live-counters (visitors, revenue, generations, plays).
+
 ### Brand-rocket-asset rule (Eugene 2026-05-21)
 
 **Любые визуальные графические элементы (ракеты, иконки, декор, illustrations) на сайте — в brand-цветах MuzaAi: purple `#7C3AED`, fuchsia `#D946EF`, cyan `#06B6D4`, electric blue `#00D4FF`. И ОБЯЗАТЕЛЬНО рядом с ними по палитре** (близкие оттенки: purple-300 `#c084fc`, fuchsia-300 `#f0abfc`, cyan-300 `#67e8f9`, cyan-100 `#a5f3fc`).
