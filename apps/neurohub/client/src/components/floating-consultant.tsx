@@ -14,6 +14,7 @@ import { ChatTrackCard, type ChatTrackCardData } from "./chat-track-card";
 // Eugene 2026-05-21 Босс Chat-tool-calling MVP: approval-карточка + job-карточка
 // для chat-tool результатов (generate_lyrics / create_music_job / publish_asset).
 import { ChatApprovalCard, ChatJobCard } from "./chat-tool-cards";
+import { clampToViewport, readPos, writePos } from "@/lib/clampViewport";
 
 // Eugene 2026-05-14 Босс: «после 1 dismiss через 1 мин, если ещё раз — 1 час».
 const REAPPEAR_MS_FIRST = 60_000;     // 1 минута после первого dismiss
@@ -443,11 +444,19 @@ export function FloatingConsultant() {
   // - iOS safe-area-inset-bottom (home indicator)
   // - При открытом чате на mobile — поднимаемся над окном чата
   // - Recompute при resize / orientationchange / chatOpen toggle
+  const getFabSize = () => {
+    const isMobile = typeof window !== "undefined" && window.innerWidth < 640;
+    return { w: isMobile ? 96 : 112, h: isMobile ? 144 : 192 };
+  };
+  const FAB_DRAG_KEY = "consultant-fab-position";
+  const userPositionedRef = useRef<boolean>(typeof window !== "undefined" && readPos(FAB_DRAG_KEY) !== null);
   const computeFabPos = () => {
     if (typeof window === "undefined") return { x: 100, y: 100 };
+    const { w: fabW, h: fabH } = getFabSize();
+    // Если юзер уже двигал — используем сохранённую позицию (clamped в viewport).
+    const saved = readPos(FAB_DRAG_KEY);
+    if (saved) return clampToViewport(saved.x, saved.y, fabW, fabH);
     const isMobile = window.innerWidth < 640;
-    const fabW = isMobile ? 96 : 112;
-    const fabH = isMobile ? 144 : 192;
     // iOS safe-area через probe-element + env(safe-area-inset-bottom)
     let safeBottom = 16;
     try {
@@ -466,6 +475,19 @@ export function FloatingConsultant() {
     return { x, y };
   };
   const [fabPos, setFabPos] = useState(computeFabPos);
+  // Eugene 2026-05-21 Босс «куклу можно перемещать пальцем + соображает,
+  // убегает если мешает полю юзера». Long-press 350ms → drag-mode.
+  // touch-action: none во время drag (W3C Pointer Events Level 2 §6).
+  const [dragMode, setDragMode] = useState(false);
+  const dragModeRef = useRef(false);
+  const fabDragStartRef = useRef<{ px: number; py: number; fx: number; fy: number; pointerId: number } | null>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+  // Eugene 2026-05-21 Босс — auto-avoidance. При overlap с focused input/textarea
+  // Музa убегает в свободный угол. autoMoved=true чтобы не перетирать user position
+  // когда юзер ушёл с поля (через 5 сек возвращаемся).
+  const lastAutoMoveRef = useRef<number>(0);
+  const userPositionBeforeAutoMoveRef = useRef<{ x: number; y: number } | null>(null);
+
   useEffect(() => {
     const onResize = () => setFabPos(computeFabPos());
     window.addEventListener("resize", onResize);
@@ -475,6 +497,87 @@ export function FloatingConsultant() {
       window.removeEventListener("orientationchange", onResize);
     };
   }, []);
+
+  // Eugene 2026-05-21: автоматическое уворачивание от focused input.
+  // Раз в 500ms проверяем — если активный элемент это input/textarea/contenteditable
+  // И Музa overlap'ает с его расширенным рамкой rect — летим в дальний свободный угол.
+  // После того как юзер ушёл с поля (no focus), через 5 сек возвращаемся обратно.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const interval = setInterval(() => {
+      if (dragModeRef.current) return; // юзер тащит — не вмешиваемся
+      const { w: fabW, h: fabH } = getFabSize();
+      const active = document.activeElement as HTMLElement | null;
+      const isInputLike = !!active && active !== document.body && (
+        active.tagName === "INPUT" ||
+        active.tagName === "TEXTAREA" ||
+        active.tagName === "SELECT" ||
+        active.getAttribute("contenteditable") === "true" ||
+        active.getAttribute("role") === "textbox"
+      );
+      if (!isInputLike) {
+        // Никто не редактирует — если мы автомувнули раньше, возвращаемся к юзер-позиции
+        if (userPositionBeforeAutoMoveRef.current && Date.now() - lastAutoMoveRef.current > 5000) {
+          const back = userPositionBeforeAutoMoveRef.current;
+          userPositionBeforeAutoMoveRef.current = null;
+          setFabPos(clampToViewport(back.x, back.y, fabW, fabH));
+        }
+        return;
+      }
+      const activeRect = active!.getBoundingClientRect();
+      // Игнорируем крошечные элементы (likely невидимый focus)
+      if (activeRect.width < 40 || activeRect.height < 16) return;
+      const margin = 32;
+      const expanded = {
+        left: activeRect.left - margin,
+        top: activeRect.top - margin,
+        right: activeRect.right + margin,
+        bottom: activeRect.bottom + margin,
+      };
+      const musaRect = {
+        left: fabPos.x, top: fabPos.y,
+        right: fabPos.x + fabW, bottom: fabPos.y + fabH,
+      };
+      const overlaps = !(
+        musaRect.right < expanded.left ||
+        musaRect.left > expanded.right ||
+        musaRect.bottom < expanded.top ||
+        musaRect.top > expanded.bottom
+      );
+      if (!overlaps) return;
+      // Найти свободный угол — дальше всего от центра active rect и не overlap.
+      const cx = (activeRect.left + activeRect.right) / 2;
+      const cy = (activeRect.top + activeRect.bottom) / 2;
+      const W = window.innerWidth;
+      const H = window.innerHeight;
+      const candidates = [
+        { x: 8, y: 8 },                              // top-left
+        { x: W - fabW - 8, y: 8 },                   // top-right
+        { x: 8, y: H - fabH - 8 },                   // bottom-left
+        { x: W - fabW - 8, y: H - fabH - 8 },        // bottom-right
+      ];
+      const freeCorners = candidates
+        .map(c => ({
+          ...c,
+          dist: Math.hypot(c.x + fabW / 2 - cx, c.y + fabH / 2 - cy),
+          free: !(
+            c.x + fabW < expanded.left || c.x > expanded.right ||
+            c.y + fabH < expanded.top || c.y > expanded.bottom
+          ),
+        }))
+        .filter(c => c.free)
+        .sort((a, b) => b.dist - a.dist);
+      const target = freeCorners[0] || candidates[3];
+      // Запоминаем текущую (юзер-) позицию для возврата после
+      if (!userPositionBeforeAutoMoveRef.current) {
+        userPositionBeforeAutoMoveRef.current = { ...fabPos };
+      }
+      lastAutoMoveRef.current = Date.now();
+      const clamped = clampToViewport(target.x, target.y, fabW, fabH);
+      setFabPos(clamped);
+    }, 500);
+    return () => clearInterval(interval);
+  }, [fabPos.x, fabPos.y]);
   const [visible, setVisible] = useState(false);
   const [exiting, setExiting] = useState(false);
   const [hovered, setHovered] = useState(false);
@@ -1562,9 +1665,85 @@ export function FloatingConsultant() {
         left: fabPos.x,
         top: fabPos.y,
         zIndex: 100000,
+        // Плавный transition обычно — но во время drag без transition (instant follow).
+        transition: dragMode ? "none" : "left 280ms cubic-bezier(.2,.7,.2,1), top 280ms cubic-bezier(.2,.7,.2,1)",
+        touchAction: dragMode ? "none" : undefined,
+        filter: dragMode ? "drop-shadow(0 0 12px rgba(124,58,237,0.5))" : undefined,
       }}
       className={`transition-opacity duration-500 ${exiting ? "opacity-0 consultant-slide-out" : "opacity-100 consultant-slide-in animate-in fade-in"} ${smartHighlight ? "consultant-attention" : ""}`}
       data-testid="floating-consultant"
+      // Eugene 2026-05-21 Босс «куклу музу можно перемещать пальцем».
+      // Long-press 350ms → drag-mode. Если палец двигается раньше — обычный click/expand.
+      onPointerDown={(e) => {
+        if (!e.isPrimary) return;
+        if (chatOpen || expanded) return; // не двигаем когда открыт чат/меню
+        const { w: fabW, h: fabH } = getFabSize();
+        fabDragStartRef.current = { px: e.clientX, py: e.clientY, fx: fabPos.x, fy: fabPos.y, pointerId: e.pointerId };
+        if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = window.setTimeout(() => {
+          // Long-press hit — вход в drag-mode
+          dragModeRef.current = true;
+          setDragMode(true);
+          try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch {}
+          try { (navigator as any).vibrate?.(10); } catch {}
+          // Юзер двигает руками — сбрасываем auto-move-back state
+          userPositionBeforeAutoMoveRef.current = null;
+        }, 350);
+        // Mark флаг что юзер сам поставил позицию (после drag сохраним)
+        void fabW; void fabH;
+      }}
+      onPointerMove={(e) => {
+        const start = fabDragStartRef.current;
+        if (!start) return;
+        const dx = e.clientX - start.px;
+        const dy = e.clientY - start.py;
+        const dist = Math.hypot(dx, dy);
+        if (!dragModeRef.current) {
+          // Не в drag-mode — если палец двинулся >8px ДО long-press, отменяем таймер.
+          // Дальше управляет существующий drag-to-expand на inner button.
+          if (dist > 8 && longPressTimerRef.current) {
+            window.clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+            fabDragStartRef.current = null;
+          }
+          return;
+        }
+        // Drag-mode — перемещаем Музу
+        e.stopPropagation();
+        e.preventDefault();
+        const { w: fabW, h: fabH } = getFabSize();
+        const clamped = clampToViewport(start.fx + dx, start.fy + dy, fabW, fabH);
+        setFabPos(clamped);
+      }}
+      onPointerUp={(e) => {
+        if (longPressTimerRef.current) {
+          window.clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
+        const wasDragging = dragModeRef.current;
+        if (wasDragging) {
+          dragModeRef.current = false;
+          setDragMode(false);
+          try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
+          // Сохраняем юзер-позицию в localStorage
+          writePos(FAB_DRAG_KEY, fabPos);
+          userPositionedRef.current = true;
+          e.stopPropagation();
+          e.preventDefault();
+        }
+        fabDragStartRef.current = null;
+      }}
+      onPointerCancel={() => {
+        if (longPressTimerRef.current) {
+          window.clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
+        if (dragModeRef.current) {
+          dragModeRef.current = false;
+          setDragMode(false);
+        }
+        fabDragStartRef.current = null;
+      }}
     >
       <div className="relative">
         {/* Eugene 2026-05-20 Босс: Музa зафиксирована справа внизу,
