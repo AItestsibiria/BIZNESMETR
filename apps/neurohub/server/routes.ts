@@ -9664,6 +9664,10 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       meta.plays = (meta.plays || 0) + 1;
       meta.lastPlayed = new Date().toISOString();
       db.update(generations).set({ style: JSON.stringify(meta) }).where(eq(generations.id, genId)).run();
+      // Eugene 2026-05-21 Босс «счётчик отражает реальные prosлушивания онлайн».
+      // Invalidate stats cache → следующий /api/playlist/stats запрос пересчитывает
+      // с актуальными данными. Без этого counter показывал stale до 30s.
+      _playsStatsCache = null;
       res.json({ ok: true, counted: true });
     } catch { res.json({ ok: false }); }
   });
@@ -10393,6 +10397,8 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
           meta.plays = (meta.plays || 0) + 1;
           meta.lastPlayed = new Date().toISOString();
           db.update(generations).set({ style: JSON.stringify(meta) }).where(eq(generations.id, genId)).run();
+          // Eugene 2026-05-21 Босс «счётчик отражает онлайн» — invalidate cache.
+          _playsStatsCache = null;
           return res.json({ ok: true, counted: true });
         } catch { return res.json({ ok: false }); }
       }
