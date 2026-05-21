@@ -17,17 +17,29 @@ interface Stats {
   totalTracks: number;
 }
 
-// Single rolling digit (Slot Machine effect)
+// Single rolling digit (Slot Machine effect). Eugene 2026-05-21 fix:
+// явный color (без gradient clip от родителя) — иначе цифры invisible когда
+// родитель использует -webkit-text-fill-color:transparent + background-clip:text.
 function RollingDigit({ value }: { value: number }) {
   const safeValue = Math.max(0, Math.min(9, value));
   return (
-    <span className="inline-block h-[1em] overflow-hidden align-middle relative" style={{ width: "0.65em" }}>
+    <span
+      className="inline-block overflow-hidden align-baseline relative"
+      style={{
+        width: "0.62em",
+        height: "1em",
+        lineHeight: "1em",
+        color: "#fde68a",
+        textShadow: "0 0 8px #f0abfc, 0 0 16px #67e8f9, 0 0 24px #c084fc",
+        WebkitTextFillColor: "#fde68a", // override gradient clip от родителя
+      }}
+    >
       <span
         className="block transition-transform duration-[1500ms] ease-[cubic-bezier(0.34,1.56,0.64,1)]"
-        style={{ transform: `translateY(-${safeValue}em)` }}
+        style={{ transform: `translateY(-${safeValue}em)`, willChange: "transform" }}
       >
         {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(d => (
-          <span key={d} className="block h-[1em] leading-[1em] text-center">{d}</span>
+          <span key={d} className="block text-center" style={{ height: "1em", lineHeight: "1em" }}>{d}</span>
         ))}
       </span>
     </span>
@@ -98,12 +110,12 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
           50% { transform: scaleY(1); }
         }
         @keyframes uc-flicker {
-          0%, 100% { opacity: 1; filter: drop-shadow(0 0 8px #d946ef) drop-shadow(0 0 16px #06b6d4); }
-          7% { opacity: 0.85; }
+          0%, 100% { opacity: 1; }
+          7% { opacity: 0.88; }
           11% { opacity: 1; }
-          19% { opacity: 0.92; }
+          19% { opacity: 0.94; }
           21% { opacity: 1; }
-          47% { opacity: 0.96; }
+          47% { opacity: 0.97; }
           50% { opacity: 1; }
         }
         @keyframes uc-electric {
@@ -204,7 +216,13 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
         {/* === Slot Machine number — Neon glow === */}
         <span className="relative inline-flex items-center gap-2">
           <span className="text-2xl" aria-hidden="true">🎧</span>
-          <span className="uc-neon-text font-mono text-2xl sm:text-3xl font-black tabular-nums tracking-tight leading-none">
+          {/* Eugene 2026-05-21 fix: NO -webkit-text-fill-color:transparent —
+              иначе RollingDigit children становятся invisible.
+              Neon glow через text-shadow в самих digit'ах. */}
+          <span
+            className="font-mono text-2xl sm:text-3xl font-black tracking-tight leading-none"
+            style={{ animation: "uc-flicker 4s ease-in-out infinite" }}
+          >
             <RollingNumber value={stats.totalPlays} />
           </span>
           {/* Electric underline */}

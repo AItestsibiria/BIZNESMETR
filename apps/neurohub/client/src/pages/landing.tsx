@@ -14,6 +14,7 @@ import { setupMediaSessionForTrack, setLockScreenPlaybackState, setLockScreenPos
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { PlaysCounter } from "@/components/plays-counter";
+import { RocketLaunch } from "@/components/rocket-launch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { createPortal } from "react-dom";
 import { motion, useAnimation, useDragControls } from "framer-motion";
@@ -1038,6 +1039,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     const handleEnded = () => {
       if (audioRef.current !== audio) return;
       if (timerRef.current) clearInterval(timerRef.current);
+      // Eugene 2026-05-21 Босс «при окончании трека — пролёт ракеты вверх».
+      // Dispatch event → RocketLaunch компонент ловит и spawn'ит 1-3 ракет
+      // с random траекторией. Listener в components/rocket-launch.tsx.
+      try { window.dispatchEvent(new CustomEvent("muza:track-finished")); } catch {}
       const mode = repeatModeRef.current;
       const cur = playingTrackRef.current;
       // Eugene 2026-05-19 «Playlist-strict-selection rule»: ТОЛЬКО filtered
