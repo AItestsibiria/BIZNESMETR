@@ -857,7 +857,9 @@ router.post("/webhook", async (req, res) => {
         const code = getOrCreatePairCode(sessionId);
         if (code) {
           markPairCodeOffered(sessionId);
-          pairInvite = `\n\n✨ Продолжим на сайте с подгрузкой нашей истории:\nhttps://muzaai.ru/?pair=${encodeURIComponent(code)}`;
+          // Hash-format URL: hash не отправляется на сервер → SPA fallback →
+          // wouter /pair/:code → auto-open chat. 100% работает.
+          pairInvite = `\n\n✨ Продолжим на сайте с подгрузкой нашей истории:\nhttps://muzaai.ru/#/pair/${encodeURIComponent(code)}`;
         }
       }
     } catch (e: any) {

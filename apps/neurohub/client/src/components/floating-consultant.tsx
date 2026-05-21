@@ -732,20 +732,28 @@ export function FloatingConsultant() {
   const initChatSession = useCallback(async () => {
     try {
       const sid = ensureClientSessionId();
-      // Eugene 2026-05-21 Босс: «из внешних мессенджеров ссылка на web Музa-чат».
-      // Читаем ?pair= из URL — TG-бот шлёт https://muzaai.ru/?pair=CODE.
-      // Server линкует session с TG history по pairCode.
+      // Eugene 2026-05-21 Босс «изучи документацию, реши 100%»:
+      // Через wouter hash-router URL формата https://muzaai.ru/#/pair/CODE
+      // (hash НЕ отправляется на сервер — 100% gardener'я от 404).
+      // Reading: window.location.hash → "#/pair/CODE" → match.
+      // Backward-compat: ?pair= в search тоже читаем (legacy ссылки).
       let pairCode: string | undefined;
       try {
-        const params = new URLSearchParams(window.location.search);
-        const p = params.get("pair");
-        if (p && p.length >= 3 && p.length <= 32) {
-          pairCode = p;
-          // Чистим query чтобы повторный F5 не дёргал pair заново
-          params.delete("pair");
-          const newQuery = params.toString();
-          const newUrl = window.location.pathname + (newQuery ? "?" + newQuery : "") + window.location.hash;
-          window.history.replaceState({}, "", newUrl);
+        const hashMatch = window.location.hash.match(/^#\/pair\/([\w-]{3,32})/);
+        if (hashMatch && hashMatch[1]) {
+          pairCode = hashMatch[1];
+          // Чистим hash чтобы повторный F5 не дёргал pair заново
+          window.history.replaceState({}, "", window.location.pathname + window.location.search + "#/");
+        } else {
+          const params = new URLSearchParams(window.location.search);
+          const p = params.get("pair");
+          if (p && p.length >= 3 && p.length <= 32) {
+            pairCode = p;
+            params.delete("pair");
+            const newQuery = params.toString();
+            const newUrl = window.location.pathname + (newQuery ? "?" + newQuery : "") + window.location.hash;
+            window.history.replaceState({}, "", newUrl);
+          }
         }
       } catch {}
       const r = await fetch("/api/muza/chat/init", {
@@ -820,15 +828,14 @@ export function FloatingConsultant() {
     await initChatSession();
   }, [initChatSession, chatOpen]);
 
-  // Eugene 2026-05-21 Босс: «из внешних мессенджеров ссылка на web Музa-чат».
-  // При detection ?pair= в URL — auto-open чат на mount. initChatSession сам
-  // прочитает pair и передаст на server для линковки TG/Max history.
+  // Eugene 2026-05-21 Босс: pair-link auto-open. Hash-format (primary) +
+  // query (legacy fallback). При detection — setVisible + openChat(200ms).
   useEffect(() => {
     try {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get("pair")) {
+      const hashHasPair = /^#\/pair\/[\w-]{3,32}/.test(window.location.hash);
+      const queryHasPair = !!new URLSearchParams(window.location.search).get("pair");
+      if (hashHasPair || queryHasPair) {
         setVisible(true);
-        // Задержка чтобы visible state применился до openChat
         setTimeout(() => { openChat(); }, 200);
       }
     } catch {}

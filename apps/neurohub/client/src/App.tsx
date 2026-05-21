@@ -58,6 +58,11 @@ function AppContent() {
         <Navbar />
         <Switch>
           <Route path="/" component={LandingPage} />
+          {/* Eugene 2026-05-21 Босс: pair-link из мессенджеров (TG/Max) →
+              открывается web Музa-чат с подгрузкой истории. Route рендерит
+              LandingPage — floating-consultant читает useParams().code и
+              auto-open chat с pairCode на /api/muza/chat/init. */}
+          <Route path="/pair/:code" component={LandingPage} />
           <Route path="/play/:id" component={TrackPage} />
           <Route path="/share/:id" component={TrackPage} />
           <Route path="/login" component={LoginPage} />

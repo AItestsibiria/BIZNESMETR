@@ -930,7 +930,10 @@ async function processIncomingText(chatId: string, fromId: string, sessionId: st
           // web Музa-чат» — кликабельная ссылка с pair=CODE в query.
           // Frontend (landing.tsx) при detection ?pair= → auto open chat +
           // POST /api/muza/chat/init {pairCode} → линкует session с TG history.
-          pairInvite = `\n\n✨ Кстати, у меня там на сайте уютнее — продолжим разговор там, я подтяну всё что мы обсуждали:\nhttps://muzaai.ru/?pair=${encodeURIComponent(code)}`;
+          // Eugene 2026-05-21 Босс «изучи документацию, реши 100%»: hash-format
+          // URL. Hash не отправляется на сервер → SPA fallback → wouter route
+          // /pair/:code → auto-open chat. Никаких 404 на любом routing-уровне.
+          pairInvite = `\n\n✨ Кстати, у меня там на сайте уютнее — продолжим разговор там, я подтяну всё что мы обсуждали:\nhttps://muzaai.ru/#/pair/${encodeURIComponent(code)}`;
         }
       }
     } catch (e) { bootRefs?.logger.warn?.("[telegram-bot] pair-code offer skipped", { error: String(e) }); }
