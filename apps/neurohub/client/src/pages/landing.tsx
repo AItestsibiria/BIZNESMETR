@@ -2071,11 +2071,14 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               <>
                                 <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCountries(v => !v); }} className="text-[10px] px-2 py-1 rounded-full bg-white/5 text-white/60 border border-white/10 hover:bg-white/10 hover:text-white/90 transition-colors cursor-pointer" title="Нас слушают">🌍 {countriesCount}</button>
                                 {showCountries && createPortal(
-                                  /* Eugene 2026-05-21 Босс: «верни режим возврата в исходное положение,
-                                     и не закрывается при нажатии» — spring-back back + click outside НЕ closes.
-                                     Закрыть только через крестик ✕. Scrollable body сохранён. */
+                                  /* Eugene 2026-05-21 Босс (final): spring-back + close на tap вне panel.
+                                     Backdrop transparent (видимости не надо) + onPointerDown/onClick с
+                                     target===currentTarget — закрывает только при касании самого backdrop,
+                                     не bubbled events от panel. */
                                   <div
-                                    style={{position:'fixed',inset:0,zIndex:99999,background:'transparent',pointerEvents:'none',display:'flex',alignItems:'flex-end',justifyContent:'center',padding:'16px'}}
+                                    onPointerDown={(e) => { if (e.target === e.currentTarget) { setShowCountries(false); setShowCitiesPanel(false); } }}
+                                    onClick={(e) => { if (e.target === e.currentTarget) { setShowCountries(false); setShowCitiesPanel(false); } }}
+                                    style={{position:'fixed',inset:0,zIndex:99999,background:'transparent',display:'flex',alignItems:'flex-end',justifyContent:'center',padding:'16px'}}
                                   >
                                     <motion.div
                                       drag

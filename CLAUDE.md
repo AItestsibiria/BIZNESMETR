@@ -1538,6 +1538,70 @@ Reference: subagent ad6390730 atom-level audit (root cause #3 с 40% — Safari 
 
 Применяется к: landing.tsx плейлист, dashboard.tsx «Мои треки», track.tsx, и любым будущим audio-listing страницам. Не применяется к: явному playTrack(specificTrack) — там пользователь сам указал id.
 
+### Layout-fit-no-overlap rule (Eugene 2026-05-21, **применяется ко всему проекту**)
+
+**Любой текст и UI-элемент ВСЕГДА вписывается в свои рамки и НЕ накладывается на смежные/параллельные элементы — на ЛЮБОМ устройстве и разрешении.**
+
+Это глобальное правило для всего UI кода. При создании / правке любого компонента, страницы, модалки, FAB-кнопки — обязательно проверяй:
+
+**1. Пропорции и размер шрифта:**
+- Текст не вылезает за padding контейнера (используй `truncate`, `line-clamp-N`, `break-words`, `word-break: break-word`)
+- Шрифт-size масштабируется по breakpoint'ам (`text-xs sm:text-sm md:text-base`)
+- Long-text fields (название трека, описание) — `min-w-0` на flex-1 контейнере чтобы truncate работал
+- Числа / IDs / timestamps — `font-mono` фиксированной ширины (не "прыгают" при изменении)
+
+**2. Нахлёсты со смежными зонами:**
+- Floating-элементы (Музa-FAB, FAB share, voice-button, S-кнопка) — проверь не перекрывают ли друг друга на конкретном breakpoint
+- Live-индикаторы (playing badge, status pill) — НЕ ставить в том же углу что и action-button (см. fix `b07ba15` — playing+S overlap'или в top-right, разведены top-3 left-3 vs top-3 right-3)
+- Modal/drawer/popup — `max-h-[calc(100vh - safe-area-top - safe-area-bottom)]` чтобы не вылезать за viewport
+- Z-index конфликты — следить за стэком (FAB=z-40, modal=z-50, alert=z-60)
+
+**3. Пересечение с параллельными элементами проекта:**
+- Музa-FAB не перекрывает: chat drawer (поднимается на 62vh при chatOpen — Persistent-audio-only rule), bottom-nav на mobile, FAB кнопки на других страницах
+- Cover details modal не перекрывается списком треков под ним (body.overflow:'hidden' + cleanup unmount — fix `3435351`)
+- Toast уведомления (sonner) — в углу противоположном FAB-кнопкам
+- Audio control panel — над bottom-nav, не под
+
+**4. Multi-step окна (multistep forms, swipe-modals):**
+- Каждый шаг укладывается в один viewport БЕЗ внутреннего scroll (если возможно)
+- Если нужен scroll — выделить scroll-container (`overflow-y-auto` на body, header sticky)
+- Stepper/progress-bar — фиксированный высотой, не "прыгает"
+- Кнопки навигации (← Назад / Далее →) — фиксированный footer
+
+**5. Разные гаджеты + разрешения (responsive):**
+- **Mobile portrait** (320-639px): single column, large touch targets ≥ 44px (iOS HIG)
+- **Mobile landscape** (640-767px): следить за вертикальной высотой — может не уместиться
+- **Tablet portrait** (768-1023px): -20% scale от mobile-base (Responsive-tablet-cap rule)
+- **Tablet landscape** (1024-1366px): desktop-like layout, но `max-w-` чтобы не растягивать слишком
+- **Desktop** (1280+): centered content `max-w-7xl mx-auto`, secondary sidebar если нужно
+- **iOS safe-area**: `env(safe-area-inset-top/bottom/left/right)` для notch + home indicator
+- **iPad Pro 1024-1366** портрет — особый ад (sm + md обе могут активироваться) — testить отдельно
+
+**6. Чек-лист перед commit'ом UI-фичи:**
+1. Mobile 375px (iPhone) — открыть → нет горизонтального scroll, текст не обрезан, кнопки не перекрывают
+2. Mobile 414px (iPhone Plus) — тот же тест
+3. Tablet 768px portrait — открыть → элементы пропорциональны, не разорваны
+4. Desktop 1280px — открыть → не вытянуто на весь экран, контент центрирован
+5. Rotate device (portrait ↔ landscape) — layout не ломается
+6. Откройте 2-3 modal'а / FAB одновременно (если возможно) — нет визуального стэка / overlap
+
+**Anti-pattern который правило закрывает:**
+- ❌ Hardcoded `w-[300px]` без responsive — на 320px-экране не помещается
+- ❌ `position:absolute top-2 right-2` для двух разных элементов на одной обложке (live-indicator + S-кнопка — overlap, fix `b07ba15`)
+- ❌ `<button>...long text without truncate...</button>` в flex row — push'ит другие элементы за viewport
+- ❌ Modal с `max-h-[100vh]` без `env(safe-area-inset-*)` — iOS home indicator закрывает content
+- ❌ Музa-FAB фиксированной позиции без recompute при chatOpen → перекрывает chat drawer
+
+**Применяется к:**
+- ВСЕМ новым / правленым UI компонентам (страницы, модалки, FAB, формы, кнопки, indicators)
+- ВСЕМ существующим компонентам — при следующей правке проверяй на эти 6 пунктов
+
+**Reference fixes:**
+- `b07ba15` — live-indicator vs S-кнопка overlap (top-3 right-3 → top-3 left-3)
+- `3435351` — cover-modal body.overflow cleanup (главная зажималась)
+- `90b83fc` — Музa universal positioning (real sizes + safe-area + chatOpen offset)
+- `34c30ce` — swipe modal responsive (safe-area + cover max-h по breakpoints)
+
 ### Player-tap-actions rule (Eugene 2026-05-21, **перекрывает Player-expand-no-restart rule**)
 
 **В плейлисте на главной два action'а разделены: маленькая обложка → ПУСКАЕТ воспроизведение, строка трека (title + author) → РАСКРЫВАЕТ обложку (inline под строкой).**
