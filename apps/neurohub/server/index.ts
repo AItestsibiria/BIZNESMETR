@@ -98,6 +98,7 @@ import feedbackAggregatorModule from "./plugins/feedback-aggregator/module";
 import escalationQueueModule from "./plugins/escalation-queue/module";
 import messageAnalysisModule from "./plugins/message-analysis/module";
 import playsAuditModule from "./plugins/plays-audit/module";
+import playsAnalyticsModule from "./plugins/plays-analytics/module";
 
 import * as fs from "node:fs";
 
@@ -511,6 +512,7 @@ app.post("/api/_client-error", express.json(), (req, res) => {
 
     { name: "image-gen", module: imageGenModule },
     { name: "plays-audit", module: playsAuditModule },
+    { name: "plays-analytics", module: playsAnalyticsModule },
 
     { name: "vps-sync", module: vpsSyncModule },
     { name: "operator-commands", module: operatorCommandsModule },
