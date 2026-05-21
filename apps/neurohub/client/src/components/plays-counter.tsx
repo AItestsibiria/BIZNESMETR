@@ -509,10 +509,10 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
 
   return (
     <section
-      // Eugene 2026-05-21 Босс «стилизуй счётчик под панель плеера». Player big
-      // card в landing.tsx: 'glass-card rounded-2xl p-5 border border-white/[0.06]'.
-      // glass-card утилита из index.css уже даёт rgba(18,18,22,0.72) + backdrop-blur.
-      className={`relative overflow-hidden glass-card rounded-2xl border border-white/[0.06] p-5 ${className}`}
+      // Eugene 2026-05-21 Босс «стилизуй под панель плеера + кнопка справа внизу
+      // включает подсветку как на основном плеере». glass-card + brand glow когда
+      // animEnabled=true (как btn-cosmic shimmer на CTA), off — простой glass.
+      className={`relative overflow-hidden glass-card rounded-2xl border ${animEnabled ? "border-purple-400/30 uc-active-glow" : "border-white/[0.06]"} p-5 transition-all duration-500 ${className}`}
     >
       <style>{`
         @keyframes uc-card-pulse {
@@ -534,6 +534,17 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
         @keyframes uc-live-ping {
           0% { transform: scale(1); opacity: 0.6; }
           100% { transform: scale(2.8); opacity: 0; }
+        }
+        /* Eugene 2026-05-21 Босс «кнопка справа внизу включает подсветку как
+           на основном плеере». Brand-glow violet+cyan, дышит 3s. Toggle через
+           animEnabled (✦/○ кнопка). */
+        @keyframes uc-active-glow {
+          0%, 100% { box-shadow: 0 0 20px rgba(139,92,246,0.25), 0 0 40px rgba(34,211,238,0.10), inset 0 1px 0 rgba(255,255,255,0.06); }
+          50% { box-shadow: 0 0 32px rgba(139,92,246,0.45), 0 0 60px rgba(34,211,238,0.22), inset 0 1px 0 rgba(255,255,255,0.10); }
+        }
+        .uc-active-glow { animation: uc-active-glow 3s ease-in-out infinite; }
+        @media (prefers-reduced-motion: reduce) {
+          .uc-active-glow { animation: none; }
         }
         @keyframes uc-eq-bar { 0%, 100% { transform: scaleY(0.3); } 50% { transform: scaleY(1); } }
         /* Активные цифры — цикл brand-цветов violet → gold → cyan → violet */
@@ -564,9 +575,11 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
 
       {/* ===== Main row: heading + number + planet ===== */}
       <div className="relative flex items-center justify-between gap-4">
-        <div className="flex-1 min-w-0">
-          {/* Eugene 2026-05-21 Босс «Прослушивания замени счётчик МузаАй» */}
-          <h3 className="text-sm font-sans font-medium tracking-wide text-white/70">Счётчик МузаАй</h3>
+        <div className="flex-1 min-w-0 flex flex-col items-center">
+          {/* Eugene 2026-05-21 Босс «слова Счётчик МузаАй строго по центру
+              между эквалайзерами». flex-col items-center → h3 + eq-row stacked,
+              h3 центрирован относительно ширины eq-row (left-eq + number + right-eq). */}
+          <h3 className="text-sm font-sans font-medium tracking-wide text-white/70 text-center">Счётчик МузаАй</h3>
 
           <div className="mt-2 flex items-end gap-2 relative">
             {/* Eugene 2026-05-21 Босс «счётчик 000000 + эквалайзеры слева и справа
@@ -701,15 +714,15 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
         <>
           <div className="fixed inset-0 bg-black/75 z-[10000] animate-in fade-in duration-200"
             onClick={() => setShowGeo(false)} aria-hidden="true" />
+          {/* Eugene 2026-05-21 Босс «все панели связанные со счётчиком используй
+              параметры панели» → glass-card + rounded-2xl + border-white/[0.06]
+              (как player panel). Inline background/shadow убран — glass-card дёт. */}
           <div
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-5 py-4 rounded-3xl text-[13px] text-white z-[10001] animate-in fade-in zoom-in-95 duration-200"
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-5 py-4 glass-card rounded-2xl border border-white/[0.06] text-[13px] text-white z-[10001] animate-in fade-in zoom-in-95 duration-200"
             style={{
               width: "min(440px, calc(100vw - 24px))",
               maxHeight: "calc(100vh - 40px)",
               overflowY: "auto",
-              background: "linear-gradient(135deg, rgba(7,8,18,0.92) 0%, rgba(20,16,44,0.88) 50%, rgba(12,30,76,0.92) 100%)",
-              border: "1px solid rgba(139,92,246,0.25)",
-              boxShadow: "0 32px 80px rgba(139,92,246,0.5), 0 0 60px rgba(34,211,238,0.18), inset 0 1px 0 rgba(255,255,255,0.10)",
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -801,18 +814,13 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
             onClick={() => setShowInfo(false)}
             aria-hidden="true"
           />
+          {/* Eugene 2026-05-21 Босс «все панели — параметры панели плеера» */}
           <div
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-5 py-4 rounded-3xl text-[13px] text-white z-[10001] animate-in fade-in zoom-in-95 duration-200"
+            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-5 py-4 glass-card rounded-2xl border border-white/[0.06] text-[13px] text-white z-[10001] animate-in fade-in zoom-in-95 duration-200"
             style={{
               width: "min(440px, calc(100vw - 24px))",
               maxHeight: "calc(100vh - 40px)",
               overflowY: "auto",
-              // Eugene 2026-05-21 Босс «при нажатии i расплывается» — убран
-              // backdropFilter blur 40px. Solid deep-space фон (без прозрачности
-              // = backdrop не виден → нечего размазывать).
-              background: "linear-gradient(135deg, #0F0A28 0%, #14102C 50%, #0A1834 100%)",
-              border: "1px solid rgba(139,92,246,0.35)",
-              boxShadow: "0 32px 80px rgba(139,92,246,0.5), 0 8px 24px rgba(0,0,0,0.6), 0 0 60px rgba(34,211,238,0.18), inset 0 1px 0 rgba(255,255,255,0.10)",
               position: "relative",
               overflow: "hidden",
             }}
