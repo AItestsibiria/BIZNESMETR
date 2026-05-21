@@ -64,12 +64,17 @@ function rocketFromPoint(px: number, py: number): Rocket {
 
 export function RocketLaunch() {
   const [rockets, setRockets] = useState<Rocket[]>([]);
-  // Eugene 2026-05-21 Босс «не больше 1 ракеты». Gate: если уже летит — skip.
+  // Eugene 2026-05-21 Босс «не накапливаются. Только одна за полное
+  // прослушивание трека юзером». Gate: если уже летит — skip.
   const inFlightRef = { current: 0 } as { current: number };
 
   useEffect(() => {
+    // Eugene 2026-05-21 Босс: ОДНА ракета на 1 завершённое прослушивание.
+    // track-finished dispatch'ится в landing.tsx handleEnded при natural
+    // audio.ended event (юзер дослушал до конца). counter-up НЕ триггерит
+    // ракету (раньше делал — теперь только blink digits, ракета не плодится).
     const onTrackFinished = () => {
-      if (inFlightRef.current > 0) return; // одна за раз
+      if (inFlightRef.current > 0) return;
       inFlightRef.current = 1;
       const newRockets: Rocket[] = [randomRocketFromBottom()];
       setRockets(prev => [...prev, ...newRockets]);
@@ -82,26 +87,9 @@ export function RocketLaunch() {
         try { window.dispatchEvent(new CustomEvent("muza:rocket-landed")); } catch {}
       }, maxLifetime);
     };
-    const onCounterUp = (ev: CustomEvent) => {
-      if (inFlightRef.current > 0) return; // одна за раз
-      const x = Number(ev.detail?.x);
-      const y = Number(ev.detail?.y);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-      inFlightRef.current = 1;
-      const r = rocketFromPoint(x, y);
-      setRockets(prev => [...prev, r]);
-      const lifetimeMs = Math.round(r.duration * 1000) + 500;
-      setTimeout(() => {
-        setRockets(prev => prev.filter(rr => rr.id !== r.id));
-        inFlightRef.current = 0;
-        try { window.dispatchEvent(new CustomEvent("muza:rocket-landed")); } catch {}
-      }, lifetimeMs);
-    };
     window.addEventListener("muza:track-finished", onTrackFinished as EventListener);
-    window.addEventListener("muza:counter-up", onCounterUp as EventListener);
     return () => {
       window.removeEventListener("muza:track-finished", onTrackFinished as EventListener);
-      window.removeEventListener("muza:counter-up", onCounterUp as EventListener);
     };
   }, []);
 
