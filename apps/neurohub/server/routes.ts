@@ -9682,6 +9682,42 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   // Request publication (author) or toggle (admin)
   // isPublic: 0=private, 1=published, 2=pending moderation
   // Eugene 2026-05-14 Босс: смена категории трека (Песня/Поздравление/Инструментальная).
+  // Eugene 2026-05-21 Босс: «проверяй продолжительность трека и отражай в плейлисте».
+  // Backfill duration: фронт при loadedmetadata вызывает этот endpoint когда duration=0
+  // (Suno вернул битый metadata, или трек загружен manually). Без auth — public
+  // (любой кто может слушать может уточнить duration). Idempotent: пишет только если в БД < 1.
+  app.post("/api/generations/:id/duration", (req: Request, res: Response) => {
+    try {
+      const id = parseInt(req.params.id || "0", 10);
+      const dur = parseInt(String(req.body?.duration || "0"), 10);
+      if (!id || !dur || dur < 1 || dur > 3600) {
+        res.json({ ok: false, error: "invalid args" });
+        return;
+      }
+      const gen = storage.getGeneration(id);
+      if (!gen || gen.type !== "music") {
+        res.json({ ok: false, error: "not found" });
+        return;
+      }
+      const data = JSON.parse((gen as any).resultData || "{}");
+      if (!Array.isArray(data.result) || !data.result[0]) {
+        res.json({ ok: false, error: "no result data" });
+        return;
+      }
+      const existing = Number(data.result[0].duration || 0);
+      if (existing >= 1) {
+        // Уже есть — не перезаписываем (защита от user-faked очень коротких значений)
+        res.json({ ok: true, skipped: true, existing });
+        return;
+      }
+      data.result[0].duration = dur;
+      db.update(generations).set({ resultData: JSON.stringify(data) }).where(eq(generations.id, id)).run();
+      res.json({ ok: true, duration: dur });
+    } catch (e: any) {
+      res.json({ ok: false, error: String(e?.message || e).slice(0, 150) });
+    }
+  });
+
   // Автор может менять свой трек, admin — любой. Категория хранится в
   // style.category. Для instrumental — синхронизируем voiceType колонку.
   app.post("/api/generations/:id/category", authMiddleware, (req: Request, res: Response) => {

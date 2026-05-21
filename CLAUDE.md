@@ -1538,6 +1538,44 @@ Reference: subagent ad6390730 atom-level audit (root cause #3 с 40% — Safari 
 
 Применяется к: landing.tsx плейлист, dashboard.tsx «Мои треки», track.tsx, и любым будущим audio-listing страницам. Не применяется к: явному playTrack(specificTrack) — там пользователь сам указал id.
 
+### Track-duration-backfill rule (Eugene 2026-05-21)
+
+**Продолжительность трека ВСЕГДА проверяется и отражается в плейлисте.** Если duration=0 (битый Suno metadata, broken result, ручная загрузка mp3) — автоматический backfill из audio metadata при первом воспроизведении.
+
+Pipeline:
+- При `audio.onloadedmetadata` в плеере, если `audio.duration > 0` И `track.duration < 1`:
+  → POST `/api/generations/:id/duration` `{duration: N}`
+- Сервер записывает в `generations.resultData.result[0].duration` (idempotent — только если existing < 1)
+- Следующий refresh плейлиста → row показывает корректное «3:32»
+
+Применяется к: landing.tsx playlist player (главная), dashboard.tsx player (личный кабинет), track.tsx player (страница трека), любым future плеерам. НЕ применяется к: streamonly preview без metadata loading.
+
+Также (опционально, не блокер): admin cron `/api/admin/v304/backfill-durations` для bulk-обработки старых треков с duration=0 — без воспроизведения юзером, через ffprobe или head-request к mp3.
+
+Reference: endpoint `/api/generations/:id/duration` в routes.ts:9687, frontend hook в landing.tsx audio.onloadedmetadata.
+
+### Volume-control-cross-platform rule (Eugene 2026-05-21)
+
+**Регулировка громкости в плеере ВСЕГДА работает на всех платформах** — desktop (Chrome/Safari/Firefox), Android Chrome, iOS Safari, iPad.
+
+**Проблема которую правило закрывает:** iOS Safari (и WebKit на iPad) ИГНОРИРУЕТ `HTMLMediaElement.volume` — это read-only swizzled на system volume. Программное `audio.volume = X` не действует. Юзер двигает slider — UI меняется, звук не меняется.
+
+**Решение по MDN/WebKit spec:** Web Audio API GainNode между `<audio>` source и destination — gain.value управляется независимо от system volume.
+
+Реализация:
+- `apps/neurohub/client/src/lib/lockscreen.ts` — `setPlayerVolume(audio, v)` + helpers
+- ВСЕ места установки volume идут через `setPlayerVolume()` — НЕ через `audio.volume = X` напрямую
+- AudioContext создаётся lazy (при первом setPlayerVolume) — `createMediaElementSource` можно вызвать ONLY ONCE на element, поэтому persistent singleton (по Persistent-audio-only rule)
+- При suspended state → `audioCtx.resume()` (iOS требует user gesture)
+
+Применяется к: всем VolumeSlider компонентам, всем audio плеерам. НЕ применяется к: TTS one-shot (там кратко без user volume control), background music modules (если будут).
+
+Anti-pattern:
+- ❌ `audio.volume = 0.5` напрямую → НЕ работает на iOS
+- ✅ `setPlayerVolume(audio, 0.5)` → работает везде
+
+Reference: lockscreen.ts `setPlayerVolume`, landing.tsx volume useEffect + playTrack.
+
 ### Layout-fit-no-overlap rule (Eugene 2026-05-21, **применяется ко всему проекту**)
 
 **Любой текст и UI-элемент ВСЕГДА вписывается в свои рамки и НЕ накладывается на смежные/параллельные элементы — на ЛЮБОМ устройстве и разрешении.**

@@ -162,6 +162,56 @@ export function getPersistentPlayerAudio(): HTMLAudioElement | null {
  * MUST call setupMediaSessionForTrack() SYNCHRONOUSLY after this and
  * BEFORE audio.play(), so iOS snapshot picks up fresh metadata.
  */
+// === Web Audio API gain node для volume control (Eugene 2026-05-21 Босс) ===
+// iOS Safari ИГНОРИРУЕТ HTMLMediaElement.volume — оно read-only, system volume only.
+// Решение по MDN/WebKit: создать AudioContext + GainNode между source и destination.
+// gain.value управляет громкостью независимо от system volume на ВСЕХ платформах.
+let _audioCtx: AudioContext | null = null;
+let _gainNode: GainNode | null = null;
+let _mediaSrc: MediaElementAudioSourceNode | null = null;
+
+function ensureAudioGraph(audio: HTMLAudioElement): GainNode | null {
+  if (_gainNode) return _gainNode;
+  if (typeof window === "undefined") return null;
+  try {
+    const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!Ctx) return null;
+    _audioCtx = new Ctx();
+    // createMediaElementSource можно вызвать ОДИН раз на element.
+    // После этого audio.volume может не работать — но gain работает.
+    _mediaSrc = _audioCtx.createMediaElementSource(audio);
+    _gainNode = _audioCtx.createGain();
+    _mediaSrc.connect(_gainNode);
+    _gainNode.connect(_audioCtx.destination);
+    return _gainNode;
+  } catch (e: any) {
+    console.warn("[lockscreen] AudioContext failed:", e?.message || e);
+    return null;
+  }
+}
+
+/**
+ * Устанавливает громкость плеера (0..1).
+ * Сначала пробует HTMLMediaElement.volume (работает на desktop + Android),
+ * потом Web Audio GainNode (iOS Safari + работает на всех).
+ */
+export function setPlayerVolume(audio: HTMLAudioElement, volume: number): void {
+  const v = Math.max(0, Math.min(1, volume));
+  // 1. HTMLMediaElement.volume — desktop / Android
+  try { audio.volume = v; } catch {}
+  // 2. Web Audio gain — iOS Safari, cross-platform
+  const gain = ensureAudioGraph(audio);
+  if (gain) {
+    try {
+      // resume context если suspended (iOS требует user gesture для start)
+      if (_audioCtx && _audioCtx.state === "suspended") {
+        _audioCtx.resume().catch(() => {});
+      }
+      gain.gain.value = v;
+    } catch {}
+  }
+}
+
 export function loadTrackIntoPlayer(url: string): HTMLAudioElement | null {
   const audio = getPersistentPlayerAudio();
   if (!audio) return null;

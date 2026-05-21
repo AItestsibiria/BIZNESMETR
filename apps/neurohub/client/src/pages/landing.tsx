@@ -10,7 +10,7 @@ import { ExpandToggleButton } from "@/components/expand-toggle-button";
 import { CoverDetailsModal } from "@/components/cover-details-modal";
 import { VolumeSlider } from "@/components/volume-slider";
 import { muteBgMusic, unmuteBgMusic } from "@/components/background-music";
-import { setupMediaSessionForTrack, setLockScreenPlaybackState, setLockScreenPosition, loadTrackIntoPlayer } from "@/lib/lockscreen";
+import { setupMediaSessionForTrack, setLockScreenPlaybackState, setLockScreenPosition, loadTrackIntoPlayer, setPlayerVolume } from "@/lib/lockscreen";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -578,9 +578,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // из стейта сразу после создания через этот effect).
   useEffect(() => {
     try { localStorage.setItem("muzaai-volume", String(volume)); } catch {}
-    if (audioRef.current) {
-      try { audioRef.current.volume = volume; } catch {}
-    }
+    // Eugene 2026-05-21 Босс: «регулировка громкости должна работать».
+    // setPlayerVolume использует HTMLAudio.volume + Web Audio GainNode fallback
+    // для iOS Safari (где audio.volume read-only system-only).
+    if (audioRef.current) setPlayerVolume(audioRef.current, volume);
   }, [volume]);
   // Eugene 2026-05-10: ref для отфильтрованного списка (category+search).
   // handleEnded и skip-кнопки должны использовать ИМЕННО видимый юзеру
@@ -957,7 +958,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       });
 
     registerAudio(audio);
-    audio.volume = volumeRef.current;
+    setPlayerVolume(audio, volumeRef.current);
     playingTrackRef.current = track;
     // Сохраняем в global для cross-page survival (Eugene 14:09)
     if (typeof window !== "undefined") {
@@ -993,6 +994,17 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     audio.onloadedmetadata = () => {
       if (audio.duration && isFinite(audio.duration)) {
         setTrackDuration(audio.duration);
+        // Eugene 2026-05-21 Босс: «проверяй продолжительность трека и отражай в плейлисте».
+        // Если у трека в БД duration=0 (битый Suno metadata) — backfill через server.
+        // Idempotent: сервер пишет только если existing < 1.
+        if (track && (!track.duration || track.duration < 1)) {
+          fetch(`/api/generations/${track.id}/duration`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ duration: Math.round(audio.duration) }),
+            keepalive: true,
+          }).catch(() => {});
+        }
       }
     };
 
