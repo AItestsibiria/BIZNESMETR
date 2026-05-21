@@ -354,9 +354,10 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
       .catch(() => {});
   };
   useEffect(() => {
-    // Eugene 2026-05-21 Босс «обновляй в реальном времени за месяц» —
-    // polling 30 сек для countriesCount + geoData. Server cache 20-60s
-    // → инвалидируется между запросами.
+    // Eugene 2026-05-21 Босс «количество визитов обновляй 1 раз в минуту на
+    // панели стран» — countries-count + geoData polling = 60s (было 30s).
+    // Real-time enough для «живой» панели, но не дёргаем БД каждые 30 сек
+    // (учитывая что P2 индексы ещё не применены и COUNT FROM visitors — full scan).
     const refresh = () => {
       fetch("/api/public/countries-count", { cache: "no-store" })
         .then(r => r.ok ? r.json() : null)
@@ -365,7 +366,7 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
       loadGeo();
     };
     refresh();
-    const interval = setInterval(refresh, 30_000);
+    const interval = setInterval(refresh, 60_000);
     return () => clearInterval(interval);
   }, []);
   // Когда любая модалка открыта — паузим walking-musa тур.
