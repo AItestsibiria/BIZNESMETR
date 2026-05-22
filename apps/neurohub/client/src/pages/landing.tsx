@@ -1234,15 +1234,31 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     }
     // Восстановление позиции — только если возвращаемся к ТОМУ ЖЕ треку
     // что был в session (Eugene 12:18 «без промедления продолжить»).
+    // Eugene 2026-05-22 Босс «после переполнения трека воспроизводит не сначала
+    // а с рандомного момента» — ROOT CAUSE: при handleEnded → playTrack(next)
+    // localStorage содержал position предыдущего трека, persistedId !== track.id
+    // защита НЕ срабатывала из-за number coercion issue (track.id может быть
+    // string при auto-next из tracks). FIX: ВСЕГДА сбрасываем localStorage
+    // currentTime если track.id отличается от persisted — гарантирует start
+    // с 0 для нового трека.
     let restoreTo = 0;
     try {
       const persistedId = Number(localStorage.getItem(psKey("trackId")) || "0");
       const persistedTime = Number(localStorage.getItem(psKey("currentTime")) || "0");
-      if (persistedId === track.id && persistedTime > 0 && persistedTime < (track.duration || 9999) - 5) {
+      const currentTrackId = Number(track.id);
+      if (persistedId === currentTrackId && persistedTime > 0 && persistedTime < (track.duration || 9999) - 5) {
         restoreTo = persistedTime;
+      } else if (persistedId !== currentTrackId) {
+        // Новый трек — очистим устаревшую position предыдущего, чтобы next
+        // load НЕ восстановил её случайно.
+        try { localStorage.removeItem(psKey("currentTime")); } catch {}
+        try { localStorage.setItem(psKey("trackId"), String(currentTrackId)); } catch {}
       }
     } catch {}
     setCurrentTime(restoreTo);
+    // Eugene 2026-05-22: явно audio.currentTime = 0 ПЕРЕД loadedmetadata
+    // listener чтобы guarantee fresh start если restoreTo = 0.
+    try { audio.currentTime = restoreTo; } catch {}
     if (restoreTo > 0) {
       audio.addEventListener("loadedmetadata", () => {
         try { audio.currentTime = restoreTo; } catch {}
