@@ -320,6 +320,22 @@ app.use(async (req, res, next) => {
       return next();
     }
 
+    // Public read-only endpoints — главная страница и контент должны быть
+    // доступны всем, включая IP/country/UA в blocked_entities (Босс 2026-05-22:
+    // у части юзеров пропадал плейлист из-за попадания их IP в blocked).
+    // Эти endpoints НЕ позволяют изменить состояние / списать деньги — read-only.
+    if (
+      p.startsWith("/api/playlist") ||
+      p.startsWith("/api/public/") ||
+      p.startsWith("/api/cover/") ||
+      p.startsWith("/api/stream/") ||
+      p.startsWith("/api/download/") ||
+      p === "/api/star-suggestions/top" ||
+      p === "/api/user-preferences/anim-state"
+    ) {
+      return next();
+    }
+
     // Динамические импорты избегают cycles с storage.ts при cold-start.
     const { isBlocked } = await import("./lib/blockedEntities");
     const { logUserActionFailure } = await import("./lib/userActionFailures");
