@@ -1969,7 +1969,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   <span className="text-[18px] shrink-0">{flagOf(c.country_code, c.country)}</span>
                                   <span className="flex-1 break-words bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent font-medium">{englishCountryName(c.country_code, c.country)}</span>
                                   {typeof c.n === "number" && c.n > 0 && (
-                                    <span className="text-[10px] tabular-nums font-bold bg-gradient-to-r from-amber-300 to-fuchsia-300 bg-clip-text text-transparent shrink-0">{c.n}</span>
+                                    <span className="text-[13px] tabular-nums font-bold bg-gradient-to-r from-blue-400 via-cyan-400 to-emerald-300 bg-clip-text text-transparent shrink-0">{c.n}</span>
                                   )}
                                 </li>
                               ))}
