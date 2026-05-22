@@ -671,22 +671,28 @@ function AdminStats() {
                 </div>
               </div>
 
-              {/* Страны — Eugene 2026-05-15 Босс «клик в любом месте панели страны/города закрывает». */}
+              {/* Eugene 2026-05-22 Босс «Применить решение панели стран в
+                  кабинете админа и автора 2». Glass-card + purple-500/30
+                  border (как player anchored panel). Sort visitors DESC.
+                  Top 10 видно сразу, остальные скроллятся. */}
               {visitorStats.byCountry?.length > 0 && (
                 <div
-                  className="mb-3 cursor-pointer"
+                  className="mb-3 cursor-pointer glass-card rounded-2xl border border-purple-500/30 shadow-2xl shadow-purple-500/20 overflow-hidden flex flex-col h-[320px] max-h-[60vh]"
                   onClick={() => setShowVisitors(false)}
                   title="Нажмите чтобы закрыть"
                   data-testid="panel-countries-close"
                 >
-                  <p className="text-[10px] uppercase text-muted-foreground mb-1">🌍 Страны <span className="text-white/30 normal-case">(клик закроет)</span></p>
-                  <div className="space-y-0.5 max-h-40 overflow-y-auto">
-                    {visitorStats.byCountry.map((c: any) => (
-                      <div key={c.country} className="flex items-center justify-between px-2 py-1 rounded bg-white/5 text-xs">
-                        <span className="truncate">{c.country || "Неизвестно"}</span>
-                        <span className="flex items-center gap-3 text-muted-foreground tabular-nums">
-                          <span><span className="text-blue-300">{c.visitors}</span> уник.</span>
-                          <span><span className="text-purple-300">{c.visits}</span> виз.</span>
+                  <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
+                    <p className="text-sm font-semibold text-white/95 m-0">🌍 Страны</p>
+                    <span className="text-[10px] text-white/40">клик закроет</span>
+                  </div>
+                  <div className="overflow-y-auto p-2 flex flex-col gap-1" style={{ touchAction: "pan-y", WebkitOverflowScrolling: "touch" }}>
+                    {[...visitorStats.byCountry].sort((a: any, b: any) => (b.visitors || 0) - (a.visitors || 0)).map((c: any) => (
+                      <div key={c.country} className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] text-[13px] transition-colors">
+                        <span className="truncate flex-1 text-white/85">{c.country || "Неизвестно"}</span>
+                        <span className="flex items-center gap-3 text-muted-foreground tabular-nums shrink-0">
+                          <span><span className="text-blue-300 font-bold">{c.visitors}</span> уник.</span>
+                          <span><span className="text-purple-300 font-bold">{c.visits}</span> виз.</span>
                         </span>
                       </div>
                     ))}
