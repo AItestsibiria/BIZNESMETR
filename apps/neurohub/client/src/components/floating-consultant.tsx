@@ -1282,6 +1282,11 @@ export function FloatingConsultant() {
   // - Базовый humanDelay в 2 раза медленнее (плавность).
   // - Если юзер пишет БЫСТРО (gap между сообщениями < 5 сек) — ускоряемся.
   const lastUserMsgAtRef = useRef<number>(0);
+  // Eugene 2026-05-22 Босс «Муза подряд 2 раза за 5 сек одно и то же сообщение».
+  // ROOT CAUSE: double-submit (Enter + click submit одновременно, или quick-reply
+  // tap twice) → 2 fetch'a /api/muza/chat → 2 одинаковых bot reply в истории.
+  // FIX: anti-duplication по (text, recent timestamp). Same text < 3 сек назад → skip.
+  const lastSentTextRef = useRef<{ text: string; at: number } | null>(null);
   const userPaceRef = useRef<"slow" | "fast">("slow");
   const humanDelay = useCallback((replyLen: number) => {
     // База 2400ms + 50ms на каждый символ, потолок 9000ms (медленно, плавно).
@@ -1299,6 +1304,15 @@ export function FloatingConsultant() {
   const doSendMessage = useCallback(async (textArg: string) => {
     const text = textArg.trim();
     if (!text) return;
+    // Eugene 2026-05-22 Босс: anti-duplication. Если same text был отправлен
+    // < 3 сек назад → skip (защита от double-click submit / Enter+click race).
+    const nowDup = Date.now();
+    if (lastSentTextRef.current &&
+        lastSentTextRef.current.text === text &&
+        nowDup - lastSentTextRef.current.at < 3000) {
+      return;
+    }
+    lastSentTextRef.current = { text, at: nowDup };
     // Eugene 2026-05-14 Босс «ускорять если человек ускоряется». Меряем gap.
     const now = Date.now();
     const gap = lastUserMsgAtRef.current ? now - lastUserMsgAtRef.current : 0;
