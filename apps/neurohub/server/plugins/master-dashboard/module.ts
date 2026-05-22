@@ -53,6 +53,7 @@ import {
   type PeriodId,
 } from "../../lib/periodBoundaries";
 import { KNOWN_DOMAINS, type DomainBucket } from "../../lib/extractHost";
+import { REAL_VISITORS_SQL } from "../../lib/realVisitors";
 // Counters-audit 2026-05-19 D.2 — фильтр ботов на read-side dashboard.
 import { buildBotExclusionSql } from "../../lib/botUa";
 
@@ -554,12 +555,14 @@ function buildPeriodMetrics(
   // created_at (back-compat) — last_visit-фильтр идёт в отдельных endpoint'ах.
   // Counters-audit 2026-05-19 D.2: bot UA filter — иначе цифры расходятся
   // с visitor-stats (тот фильтрует, master-dashboard — нет).
+  // Eugene 2026-05-22 Босс «настоящая статистика»: + filter cron daily-bump seed.
   const botExcl = sql.raw(buildBotExclusionSql("user_agent"));
+  const realExcl = sql.raw(REAL_VISITORS_SQL);
   const visitorsUnique = countSafe(
-    sql`SELECT count(DISTINCT fingerprint) as c FROM visitors WHERE ${sinceCondition} AND ${visitorsHostCond} AND ${botExcl}`,
+    sql`SELECT count(DISTINCT fingerprint) as c FROM visitors WHERE ${sinceCondition} AND ${visitorsHostCond} AND ${botExcl} AND ${realExcl}`,
   );
   const visitorsTotal = countSafe(
-    sql`SELECT count(*) as c FROM visitors WHERE ${sinceCondition} AND ${visitorsHostCond} AND ${botExcl}`,
+    sql`SELECT COALESCE(SUM(visits), 0) as c FROM visitors WHERE ${sinceCondition} AND ${visitorsHostCond} AND ${botExcl} AND ${realExcl}`,
   );
 
   return {

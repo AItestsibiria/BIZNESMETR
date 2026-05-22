@@ -181,7 +181,9 @@ function buildLocalStats(): LocalStats {
           COUNT(*) AS unique_fingerprints,
           COALESCE(SUM(visits), 0) AS total_visits,
           COUNT(DISTINCT country_code) AS countries
-        FROM visitors`,
+        FROM visitors
+        WHERE fingerprint NOT LIKE 'daily_%' AND ip != '0.0.0.0'
+          AND user_agent IS NOT NULL AND user_agent != ''`,
       );
     } catch {
       return null;

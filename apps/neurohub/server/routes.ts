@@ -1005,6 +1005,12 @@ export async function registerRoutes(
         ? `${combinedWhere} AND ${botExclSql}`
         : `WHERE ${botExclSql}`;
     }
+    // Eugene 2026-05-22 Босс «настоящая статистика» — добавляем filter для cron
+    // daily_country_bump seed-визитов в combinedWhere ВСЕГДА (нельзя override).
+    const realFilterSql = "fingerprint NOT LIKE 'daily_%' AND ip != '0.0.0.0' AND user_agent IS NOT NULL AND user_agent != ''";
+    combinedWhere = combinedWhere
+      ? `${combinedWhere} AND ${realFilterSql}`
+      : `WHERE ${realFilterSql}`;
     // Для запросов с дополнительным условием (AND country IS NOT NULL и т.п.) —
     // решаем нужен ли отдельный prefix.
     const wherePrefix = combinedWhere ? combinedWhere : "WHERE 1=1";
@@ -1013,7 +1019,9 @@ export async function registerRoutes(
 
     const raw = db.$client;
     // Быстрые сводки (для верхних карточек) — bot filter применяется ВЕЗДЕ.
-    const botExtra = botExclSql ? ` AND ${botExclSql}` : "";
+    // Eugene 2026-05-22 Босс «настоящая статистика» — + filter cron daily-bump.
+    const realFilter = " AND fingerprint NOT LIKE 'daily_%' AND ip != '0.0.0.0' AND user_agent IS NOT NULL AND user_agent != ''";
+    const botExtra = (botExclSql ? ` AND ${botExclSql}` : "") + realFilter;
     const today = new Date().toISOString().slice(0, 10);
     const week = new Date(Date.now() - 7 * 86400000).toISOString();
     const total = raw.prepare(`SELECT COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors WHERE 1=1${botExtra}`).get() as any;
@@ -12256,9 +12264,11 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const raw = (db as any).$client;
     try {
       const sqlQ = `
-        SELECT city, country, country_code, COUNT(*) AS n
+        SELECT city, country, country_code, COALESCE(SUM(visits),0) AS n
         FROM visitors
-        WHERE city IS NOT NULL AND city != '' AND ip != '0.0.0.0'
+        WHERE city IS NOT NULL AND city != ''
+          AND fingerprint NOT LIKE 'daily_%' AND ip != '0.0.0.0'
+          AND user_agent IS NOT NULL AND user_agent != ''
         GROUP BY city, country_code
         ORDER BY n DESC
         LIMIT 12`;
@@ -12271,7 +12281,12 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   });
 
   // Ежедневный прирост по странам (раз в сутки): по +1 записи на каждую известную страну
+  // Eugene 2026-05-22 Босс «настоящая статистика» — cron ОТКЛЮЧЁН (создавал
+  // seed-row daily_<country>_<date> которые завышали public-счётчики в 9×).
+  // Если потребуется включить обратно для admin country-reach — поменять
+  // DAILY_COUNTRY_BUMP_ENABLED env на "1". Default отключён.
   const dailyCountryBump = () => {
+    if (process.env.DAILY_COUNTRY_BUMP_ENABLED !== "1") return;
     try {
       const raw = (db as any).$client;
       const countries = raw.prepare("SELECT DISTINCT country, country_code FROM visitors WHERE country IS NOT NULL AND country != " + "\u0027\u0027").all();
