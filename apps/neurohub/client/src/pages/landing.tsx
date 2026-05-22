@@ -1733,7 +1733,14 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                       её закрывает, пропорции ширин уравновесь, не выходи за
                       границы плеера». Структура inline:
                       [🌍-button + 24] [эквалайзер fixed-w] [🎧 7916] */}
-                  <div className="flex items-center justify-between gap-2 ml-2 flex-1 min-w-0 max-w-[260px] sm:max-w-[300px] select-none" aria-label="Статистика плейлиста">
+                  {/* Eugene 2026-05-22 Босс «горизонтально условно выполни ось
+                      центра земли и центра наушников с цифрами». items-start
+                      на parent → все блоки выровнены ПО ВЕРХУ container →
+                      🌍 emoji и 🎧 emoji визуально на одной горизонтальной
+                      линии (their glyphs at top). Countries (24) уходят
+                      под 🌍 не влияя на горизонталь 🎧. Эквалайзер сохраняет
+                      self-end (bottom-align) для зоны над/под линией. */}
+                  <div className="flex items-start justify-between gap-2 ml-2 flex-1 min-w-0 max-w-[260px] sm:max-w-[300px] select-none" aria-label="Статистика плейлиста">
                     {/* Eugene 2026-05-22 Босс «нажатием на планетку либо цифры
                         стран раскрывает панель стран. Должна быть открыта снизу
                         вверх не перемещаться вниз плеера». Локальная панель
@@ -1815,7 +1822,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                         bars становятся compositor layer'ами, anim не throttled.
                         Также height: '100%' explicitly (вместо undefined) —
                         чтобы при switch на play не оставалось '30%' от паузы. */}
-                    <div className="flex-1 flex items-end gap-[2px] h-12 min-w-[60px] max-w-[130px]" aria-hidden="true" style={{ willChange: "transform" }}>
+                    <div className="flex-1 flex items-end gap-[2px] h-12 min-w-[60px] max-w-[130px] self-center" aria-hidden="true" style={{ willChange: "transform" }}>
                       {Array.from({ length: 12 }).map((_, i) => (
                         <div
                           key={i}
