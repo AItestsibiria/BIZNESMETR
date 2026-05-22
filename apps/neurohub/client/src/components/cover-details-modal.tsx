@@ -540,7 +540,7 @@ export function CoverDetailsModal({
             square aspect-ratio + 85vh высота заставлял container выходить
             за viewport (1024×1366 → square 1024 > 70% от 1366). */}
         <div
-          className="relative w-full aspect-square max-h-[55vh] sm:max-h-[60vh] md:max-h-[65vh] lg:max-h-[68vh] rounded-3xl overflow-hidden shadow-[0_8px_40px_rgba(124,58,237,0.18)] shrink-0"
+          className="relative w-full aspect-square max-h-[55vh] sm:max-h-[60vh] md:max-h-[65vh] lg:max-h-[68vh] rounded-3xl overflow-hidden shadow-lg shadow-purple-500/10 shrink-0 bg-gradient-to-br from-purple-500/30 to-blue-500/30"
           onClick={(e) => e.stopPropagation()}
         >
           <AnimatePresence mode="wait" initial={false}>
