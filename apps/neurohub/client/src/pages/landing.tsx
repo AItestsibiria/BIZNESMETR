@@ -1636,14 +1636,27 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                       <span className="text-base leading-none">🌍</span>
                       <span className="text-[10px] tabular-nums text-muted-foreground mt-0.5">{countriesCount}</span>
                     </div>
-                    {/* Маленький эквалайзер — 3 bars, спокойный мут-цвет.
-                        Используется existing .equalizer-bar (index.css 283-292)
-                        который меняет height 20→100% — нужны block-level
-                        контейнеры с fixed parent height. */}
-                    <div className="flex items-end gap-[2px] h-3.5" aria-hidden="true">
-                      <div className="w-[2px] rounded-full bg-muted-foreground/60 equalizer-bar" style={{ animationDelay: "0s" }} />
-                      <div className="w-[2px] rounded-full bg-muted-foreground/60 equalizer-bar" style={{ animationDelay: "0.2s" }} />
-                      <div className="w-[2px] rounded-full bg-muted-foreground/60 equalizer-bar" style={{ animationDelay: "0.4s" }} />
+                    {/* Eugene 2026-05-22 Босс «эквалайзер цветной как был на
+                        главной, расширь по ширине поля, в такт треку». Brand
+                        gradient purple→cyan (как EqualizerDecor в hero), flex-1
+                        чтобы занять всё свободное место между 🌍 и 🎧.
+                        animation-play-state синхронизируется с isPlayingState —
+                        играет = running, pause = paused. iOS-safe (никакого
+                        createMediaElementSource — это сломает lock-screen). */}
+                    <div className="flex-1 flex items-end gap-[2px] h-4 min-w-[40px] max-w-[160px]" aria-hidden="true">
+                      {Array.from({ length: 12 }).map((_, i) => (
+                        <div
+                          key={i}
+                          className="flex-1 rounded-full bg-gradient-to-t from-purple-500 via-fuchsia-500 to-cyan-400 equalizer-bar"
+                          style={{
+                            animationDelay: `${(i * 0.08).toFixed(2)}s`,
+                            animationDuration: `${(0.9 + (i % 3) * 0.15).toFixed(2)}s`,
+                            animationPlayState: isPlayingState ? "running" : "paused",
+                            height: isPlayingState ? undefined : "30%",
+                            opacity: isPlayingState ? 1 : 0.5,
+                          }}
+                        />
+                      ))}
                     </div>
                     {/* 🎧 + plays inline */}
                     <div className="flex items-center gap-1" title="Прослушиваний всего">
