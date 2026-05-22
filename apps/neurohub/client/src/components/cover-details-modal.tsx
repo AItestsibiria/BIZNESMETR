@@ -480,7 +480,7 @@ export function CoverDetailsModal({
           safe-area-inset-top/bottom (iOS notch + home indicator). Container
           flex-shrink чтобы cover + controls умещались без overflow. */}
       <div
-        className="w-[94vw] max-w-2xl md:max-w-[432px] md:w-[70vw] lg:max-w-2xl lg:w-[94vw] flex flex-col items-center justify-center gap-2 sm:gap-3 px-2 py-2 sm:py-4 relative overflow-hidden"
+        className="w-[94vw] max-w-2xl md:max-w-[432px] md:w-[70vw] lg:max-w-[504px] lg:w-[60vw] flex flex-col items-center justify-center gap-2 sm:gap-3 px-2 py-2 sm:py-4 relative overflow-hidden"
         style={{
           maxHeight: "calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 16px)",
         }}
