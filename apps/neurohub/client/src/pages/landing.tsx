@@ -2756,6 +2756,21 @@ export default function LandingPage() {
   const [, navigate] = useLocation();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showInstallGuide, setShowInstallGuide] = useState<"ios" | "android" | null>(null);
+  // Eugene 2026-05-22 Босс «скролл страницы вниз зависает». ROOT CAUSE:
+  // дубликат body.overflow=hidden в CoverDetailsModal оставлял body
+  // залоченным после закрытия swipe-modal. Safety net — при mount/visibility
+  // change LandingPage гарантирует что body.overflow сброшен.
+  useEffect(() => {
+    const reset = () => {
+      if (document.body.style.overflow === "hidden") {
+        document.body.style.overflow = "";
+        document.body.style.paddingRight = "";
+      }
+    };
+    reset();
+    document.addEventListener("visibilitychange", reset);
+    return () => document.removeEventListener("visibilitychange", reset);
+  }, []);
   // Eugene 2026-05-22 Босс: «блок 1 трек в подарок убран» — gift state и
   // модалка удалены, плеер поднят сразу под CTA «Создать трек».
   const [, playParams] = useRoute("/play/:id");

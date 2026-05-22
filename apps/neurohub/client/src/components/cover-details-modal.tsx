@@ -313,12 +313,13 @@ export function CoverDetailsModal({
       }
     };
     document.addEventListener("keydown", onKey);
-    // Lock body scroll while open
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    // Eugene 2026-05-22 — body.overflow=hidden УЖЕ установлен в первом
+    // useEffect (line 137-151) с правильной компенсацией scrollbar. Дубликат
+    // здесь убран — два конфликтующих cleanup'а оставляли body 'hidden'
+    // если cleanup'ы выполнялись в неправильном порядке. Скролл landing
+    // залипал. Теперь body.overflow управляется единственным effect выше.
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
     };
   }, [open, onClose, onNext, onPrev, showInfo, showHint]);
 
