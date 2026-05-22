@@ -1,0 +1,20 @@
+name: Deploy to VPS
+on:
+  push:
+    branches: [main]
+    paths: ["*.html"]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          echo "StrictHostKeyChecking no" >> ~/.ssh/config
+          rsync -avz *.html root@72.56.247.149:/var/www/biznesmetr/
+          ssh root@72.56.247.149 "systemctl reload nginx && echo deployed"
