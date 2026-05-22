@@ -1386,112 +1386,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   };
 
   return (<>
-    {/* News section */}
-    <section className="relative z-[1] py-10 px-4 border-t border-white/[0.04]">
-      <div className="max-w-2xl mx-auto space-y-4">
-        {/* 9 мая 2026 — Музыка под событие */}
-        {/* 12 мая 2026 — друг компании / помощница (Eugene 2026-05-12).
-            При клике скроллит к нижнему углу и открывает меню floating-
-            consultant. Никаких внешних ссылок — юзер сам выбирает что
-            делать через её меню. */}
-        <button
-          type="button"
-          onClick={() => {
-            try {
-              window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
-              setTimeout(() => window.dispatchEvent(new Event("open-consultant")), 500);
-            } catch {}
-          }}
-          className="block w-full text-left glass-card rounded-2xl p-6 border border-pink-500/30 hover:border-pink-500/50 transition-colors cursor-pointer"
-        >
-          <div className="flex items-start gap-3">
-            <div className="w-14 shrink-0 flex items-start justify-center">
-              {/* Eugene 2026-05-18: 3D-аватар через consultant-avatar.png
-                  (после approve в админке — hi-res 3D PNG), SVG fallback. */}
-              <img
-                src="/consultant-avatar.png"
-                alt="Муза"
-                className="w-14 h-20 sm:w-14 sm:h-20 object-contain"
-                draggable={false}
-                onError={(e) => { (e.target as HTMLImageElement).src = "/consultant-avatar.svg"; }}
-              />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-[10px] font-sans px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-300 font-medium">Новости</span>
-                <span className="text-[10px] font-sans text-muted-foreground">12 мая 2026</span>
-              </div>
-              <h3 className="text-lg font-sans font-bold text-white mb-2">У нас появилась <span className="bg-gradient-to-r from-pink-400 via-purple-400 to-blue-400 bg-clip-text text-transparent">Муза</span></h3>
-              <p className="text-sm font-sans text-muted-foreground leading-relaxed">
-                Пройдёт с вами весь путь — от идеи до готового трека. Поможет с регистрацией, поможет создать текст песни. <span className="text-pink-300 font-medium">Нажмите — поговорите →</span>
-              </p>
-            </div>
-          </div>
-        </button>
-
-        {/* Eugene 2026-05-17 Босс «убери новость про регистрацию по телефону» —
-            скрыто пока reverse-flashcall flow не до отшлифован. */}
-
-      </div>
-    </section>
-
-    {/* Contacts */}
-    <section className="relative z-[1] py-4 px-4">
-      <div className="max-w-2xl mx-auto text-center">
-        <p className="text-xs text-muted-foreground/40">
-          Контакты: <a href="#" onClick={openMail} className="hover:text-purple-300 transition-colors">написать нам</a>
-        </p>
-      </div>
-    </section>
-
-    {/* Eugene 2026-05-15 Босс «Музу в топ рейтинга до понедельника» —
-        большая Муза-секция в landing (SEO + visibility). H1/H2 содержит
-        «Муза», «MuzaAi», ключевики. Структурированная для Schema.org. */}
-    <section id="muza-section" className="relative z-[1] py-16 px-4 border-t border-white/[0.04] bg-gradient-to-b from-transparent via-purple-500/[0.03] to-transparent">
-      <div className="max-w-5xl mx-auto">
-        <div className="flex flex-col md:flex-row items-center gap-8">
-          <div className="w-32 h-32 sm:w-40 sm:h-40 shrink-0 rounded-2xl bg-gradient-to-br from-purple-500/30 via-violet-500/25 to-blue-500/25 border-2 border-purple-300/40 flex items-center justify-center shadow-[0_0_48px_rgba(168,85,247,0.3)] relative overflow-hidden">
-            <span className="absolute inset-0 bg-gradient-to-br from-purple-500/20 to-blue-500/20 blur-xl" aria-hidden="true" />
-            <div className="relative z-10 text-7xl">✨</div>
-          </div>
-          <div className="flex-1 text-center md:text-left">
-            <h2 className="text-3xl sm:text-4xl font-bold mb-3 leading-tight">
-              <span className="bg-gradient-to-r from-purple-300 via-violet-200 to-blue-300 bg-clip-text text-transparent">Муза</span>
-              {" "}— твой ИИ-помощник
-            </h2>
-            <p className="text-base sm:text-lg text-muted-foreground mb-4 leading-relaxed max-w-2xl">
-              Виртуальная Муза помогает создать песню, обложку и текст за минуту.
-              Опишите событие — Муза предложит стиль, голос, настроение и сгенерирует трек.
-              Поп, рок, рэп, классика, шансон, инди — все жанры на MuzaAi.
-            </p>
-            <div className="flex flex-wrap items-center gap-2 justify-center md:justify-start">
-              <span className="text-xs px-3 py-1.5 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-200">🎵 Музыка с ИИ</span>
-              <span className="text-xs px-3 py-1.5 rounded-full bg-pink-500/15 border border-pink-500/30 text-pink-200">🎉 Песня в подарок</span>
-              <span className="text-xs px-3 py-1.5 rounded-full bg-cyan-500/15 border border-cyan-500/30 text-cyan-200">📝 Текст и обложка</span>
-              <span className="text-xs px-3 py-1.5 rounded-full bg-amber-400/15 border border-amber-400/40 text-amber-200">🆓 Первый трек бесплатно</span>
-            </div>
-            <div className="mt-5 flex flex-wrap items-center gap-3 justify-center md:justify-start">
-              <button
-                onClick={() => { if (user) navigate("/music"); else navigate("/register-phone"); }}
-                className="btn-cosmic rounded-full px-7 py-3 text-base h-auto"
-              >
-                ♪ Создать с Музой
-              </button>
-              <a
-                href="https://t.me/Muziaipodari_bot"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm px-5 py-3 rounded-full border border-white/15 bg-white/[0.04] text-white/80 hover:bg-white/[0.08] hover:text-white inline-flex items-center gap-2"
-              >
-                📱 Муза в Telegram
-              </a>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section id="playlist-section" className="relative z-[1] py-20 px-4 border-t border-white/[0.04]">
+    {/* Eugene 2026-05-22 Босс: «при открытии главной юзер сразу видит основной
+        плеер». Новый порядок секций — Плейлист первым, под CTA «Создать трек».
+        Дальше: Муза (без gift-пилюль), Новости, Контакты. */}
+    <section id="playlist-section" className="relative z-[1] pt-14 pb-20 px-4 border-t border-white/[0.04]">
       {/* Eugene 2026-05-15 Босс «больше на 30% по высоте и ширине поля плейлиста».
           max-w-3xl (768px) → max-w-5xl (1024px) = +33% ширина.
           Внутри карточек треков высота увеличена через py-padding.
@@ -2544,9 +2442,8 @@ export default function LandingPage() {
   const [, navigate] = useLocation();
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showInstallGuide, setShowInstallGuide] = useState<"ios" | "android" | null>(null);
-  // Eugene 2026-05-16 Босс: hero badge «1 трек в подарок*» → модалка с
-  // регионами РФ/СНГ + пояснение что регистрация временно тестируется.
-  const [showGiftInfo, setShowGiftInfo] = useState(false);
+  // Eugene 2026-05-22 Босс: «блок 1 трек в подарок убран» — gift state и
+  // модалка удалены, плеер поднят сразу под CTA «Создать трек».
   const [, playParams] = useRoute("/play/:id");
   const autoPlayId = playParams?.id ? parseInt(playParams.id) : undefined;
 
@@ -2610,22 +2507,10 @@ export default function LandingPage() {
             Создай за 1 минуту уникальную Песню для себя или в Подарок
           </p>
 
-          {/* Eugene 2026-05-16 Босс: заметный gift-CTA «1 трек в подарок*».
-              Звёздочка — superscript, клик по badge или звёздочке открывает
-              модалку с пояснением про РФ/СНГ и временно тестируемую
-              регистрацию. Mobile-friendly: тач-target ≥44px. */}
-          <button
-            type="button"
-            onClick={() => setShowGiftInfo(true)}
-            data-testid="button-hero-gift-cta"
-            className="mb-8 inline-flex items-center gap-3 px-6 py-3 rounded-full border-2 border-amber-300/50 bg-gradient-to-r from-purple-500/25 via-fuchsia-500/20 to-amber-400/25 shadow-[0_0_24px_rgba(251,191,36,0.25)] hover:shadow-[0_0_32px_rgba(251,191,36,0.45)] hover:border-amber-300/80 transition-all animate-in fade-in duration-500 cursor-pointer"
-          >
-            <span className="text-xl" aria-hidden="true">🎁</span>
-            <span className="text-base sm:text-lg font-bold text-white">
-              1 трек в подарок
-              <sup className="text-amber-300 text-xs ml-0.5 font-semibold">*</sup>
-            </span>
-          </button>
+          {/* Eugene 2026-05-22 Босс: блок «1 трек в подарок» убран — плеер
+              поднят сразу под CTA «Создать трек». */}
+
+          <div className="mb-8" />
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Button
@@ -2847,57 +2732,6 @@ export default function LandingPage() {
           контакты, ссылки на оферту/политику/возврат). Данные подгружаются
           из /api/legal/config — обновляются через ENV без релиза. */}
       <LandingFooter onMail={openMail} />
-
-      {/* Eugene 2026-05-16 Босс: модалка с пояснением «1 трек в подарок*».
-          Открывается из hero-badge. Mobile-first: max-w-sm + overflow-y-auto
-          на случай узких экранов. */}
-      <Dialog open={showGiftInfo} onOpenChange={setShowGiftInfo}>
-        <DialogContent className="glass-card border-amber-300/30 max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-lg">
-              <span className="text-2xl">🎁</span>
-              <span className="bg-gradient-to-r from-amber-300 via-fuchsia-300 to-purple-300 bg-clip-text text-transparent">
-                1 трек в подарок
-              </span>
-            </DialogTitle>
-            <DialogDescription className="text-muted-foreground text-sm font-sans">
-              Где и кому доступен бесплатный трек
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 mt-2 text-sm font-sans">
-            <p className="text-white/85 leading-relaxed">
-              Подарок доступен зарегистрированным пользователям из{" "}
-              <span className="text-amber-200 font-semibold">России и стран ближнего зарубежья</span>.
-            </p>
-            <p className="text-white/75 leading-relaxed">
-              Бесплатный трек начисляется сразу после регистрации
-              <span className="text-amber-300/90"> *</span> (когда регистрация
-              откроется — она временно тестируется).
-            </p>
-          </div>
-          <div className="flex gap-2 mt-4">
-            <Button
-              variant="outline"
-              className="flex-1 font-sans"
-              onClick={() => setShowGiftInfo(false)}
-              data-testid="button-gift-modal-close"
-            >
-              Понятно
-            </Button>
-            <Button
-              className="flex-1 btn-cosmic font-sans"
-              onClick={() => {
-                setShowGiftInfo(false);
-                if (user) navigate("/music");
-                else navigate("/register-phone");
-              }}
-              data-testid="button-gift-modal-register"
-            >
-              {user ? "Создать трек" : "Регистрация"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       {/* Auth Required Modal */}
       <Dialog open={showAuthModal} onOpenChange={setShowAuthModal}>
