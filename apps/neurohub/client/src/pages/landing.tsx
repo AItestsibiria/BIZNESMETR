@@ -1154,6 +1154,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     // работал (двигался + был draggable). Без него — застывает в начале.
     // Throttle 500ms — iOS docs рекомендуют не чаще раза в полсекунды.
     let lastPosUpdate = 0;
+    // Eugene 2026-05-22 Босс «между треками задержку уменьши на 2 сек».
+    // Prefetch URL следующего трека когда текущий проигран >70% — браузер
+    // прогревает HTTP cache, при переключении audio.src = nextUrl стартует
+    // мгновенно из cache, не ждёт network. Экономит ~1-2 сек на switch.
+    let prefetchedForId: number | null = null;
     timerRef.current = window.setInterval(() => {
       if (audio && !audio.paused) {
         setCurrentTime(audio.currentTime);
@@ -1161,6 +1166,21 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         if (now - lastPosUpdate >= 500 && isFinite(audio.duration) && audio.duration > 0) {
           lastPosUpdate = now;
           setLockScreenPosition(audio.duration, audio.currentTime, audio.playbackRate || 1);
+        }
+        // Prefetch next track при >70% played (once per current track)
+        if (isFinite(audio.duration) && audio.duration > 0 && audio.currentTime / audio.duration > 0.7) {
+          const cur = playingTrackRef.current;
+          if (cur && prefetchedForId !== cur.id) {
+            const list = filteredMusicRef.current || [];
+            const idx = list.findIndex(t => t.id === cur.id);
+            const next = idx >= 0 ? list[(idx + 1) % list.length] : null;
+            if (next?.audioUrl && next.id !== cur.id) {
+              try {
+                fetch(next.audioUrl, { method: "GET", credentials: "include", cache: "force-cache" }).catch(() => {});
+                prefetchedForId = cur.id;
+              } catch {}
+            }
+          }
         }
       }
     }, 250);
@@ -1668,7 +1688,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               чтобы не выходила за viewport. Растёт ВВЕРХ
                               от позиции anchor. z-[150] выше backdrop. */}
                           <div
-                            className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-[150] min-w-[200px] max-w-[280px] max-h-[60vh] rounded-2xl border border-white/10 backdrop-blur-xl flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200"
+                            className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-[150] min-w-[200px] max-w-[280px] max-h-[60vh] rounded-2xl border border-white/10 backdrop-blur-xl flex flex-col overflow-hidden animate-in fade-in duration-100"
                             style={{ background: "rgba(15, 10, 35, 0.92)", boxShadow: "0 -8px 32px rgba(0,0,0,0.6)" }}
                             onClick={(e) => e.stopPropagation()}
                             onPointerDown={(e) => e.stopPropagation()}
