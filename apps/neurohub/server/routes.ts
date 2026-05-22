@@ -3642,14 +3642,33 @@ export async function registerRoutes(
   // Eugene 2026-05-15 Босс «log list problem»: регистр неудачных действий
   // юзера во всех каналах (web/telegram/max/email/...). Группировка по
   // group_key (action::error_code) — сколько раз, кого, последний раз.
-  // Eugene 2026-05-22 Босс «проверь статистику прослушиваний, чтобы не было
-  // ботов» — breakdown play vs play_rejected по причинам + top IP + top UA
-  // для выявления аномалий / pollution.
-  app.get("/api/admin/v304/play-stats", requireAdmin, (req: Request, res: Response) => {
+  // Eugene 2026-05-22 Босс «проверь статистику прослушиваний, сравни с админ-
+  // панелью. Если не равно — разбери на атомы и сделай правильно». Endpoint
+  // собирает ВСЕ источники plays-данных в один JSON для сравнения delta.
+  app.get("/api/admin/v304/play-stats", requireAdmin, (_req: Request, res: Response) => {
     try {
       const raw = (db as any).$client;
+      // === Source A: gen_activity COUNT(action='play') ===
+      const A_all = (raw.prepare("SELECT COUNT(*) AS n FROM gen_activity WHERE action='play'").get() as any)?.n || 0;
+      const A_24h = (raw.prepare("SELECT COUNT(*) AS n FROM gen_activity WHERE action='play' AND created_at >= strftime('%s','now','-24 hours')*1000").get() as any)?.n || 0;
+      const A_today_msk = (raw.prepare("SELECT COUNT(*) AS n FROM gen_activity WHERE action='play' AND date(created_at/1000, 'unixepoch', '+3 hours') = date('now', '+3 hours')").get() as any)?.n || 0;
+      // === Source B: SUM(meta.plays) из generations.style JSON (legacy cache) ===
+      const B_all = (() => {
+        try {
+          const rows = raw.prepare("SELECT style FROM generations WHERE type='music' AND deleted_at IS NULL").all() as any[];
+          let sum = 0;
+          for (const r of rows) {
+            try { const m = JSON.parse(r.style || "{}"); sum += Number(m.plays || 0); } catch {}
+          }
+          return sum;
+        } catch { return -1; }
+      })();
+      // === Breakdown action types ===
       const breakdown = raw.prepare(
         "SELECT action, COUNT(*) AS n FROM gen_activity WHERE action='play' OR action LIKE 'play_rejected:%' GROUP BY action ORDER BY n DESC"
+      ).all();
+      const last24h = raw.prepare(
+        "SELECT action, COUNT(*) AS n FROM gen_activity WHERE (action='play' OR action LIKE 'play_rejected:%') AND created_at >= strftime('%s','now','-24 hours')*1000 GROUP BY action ORDER BY n DESC"
       ).all();
       const topIps = raw.prepare(
         "SELECT ip, COUNT(*) AS plays, COUNT(DISTINCT gen_id) AS tracks FROM gen_activity WHERE action='play' GROUP BY ip ORDER BY plays DESC LIMIT 15"
@@ -3657,14 +3676,34 @@ export async function registerRoutes(
       const topUserAgents = raw.prepare(
         "SELECT substr(user_agent, 1, 80) AS ua_short, COUNT(*) AS plays FROM gen_activity WHERE action='play' AND user_agent IS NOT NULL GROUP BY ua_short ORDER BY plays DESC LIMIT 15"
       ).all();
-      const last24h = raw.prepare(
-        "SELECT action, COUNT(*) AS n FROM gen_activity WHERE (action='play' OR action LIKE 'play_rejected:%') AND created_at >= strftime('%s','now','-24 hours')*1000 GROUP BY action ORDER BY n DESC"
-      ).all();
-      // Heuristic: bot-like UAs which still passed (значит regex пропустил)
+      // Bot-like UAs которые прошли filter (regex bug indicator)
       const suspiciousUa = raw.prepare(
         "SELECT substr(user_agent, 1, 100) AS ua, COUNT(*) AS n FROM gen_activity WHERE action='play' AND (lower(user_agent) LIKE '%bot%' OR lower(user_agent) LIKE '%crawl%' OR lower(user_agent) LIKE '%spider%' OR lower(user_agent) LIKE '%scrape%' OR lower(user_agent) LIKE '%curl%' OR lower(user_agent) LIKE '%python%' OR lower(user_agent) LIKE '%axios%' OR lower(user_agent) LIKE '%httpie%') GROUP BY ua ORDER BY n DESC LIMIT 10"
       ).all();
-      res.json({ allTime: breakdown, last24h, topIps, topUserAgents, suspiciousUa });
+      // === Delta — насколько источники расходятся ===
+      const deltaBmA = B_all - A_all;
+      const deltaPct = A_all > 0 ? ((deltaBmA / A_all) * 100).toFixed(2) + "%" : "n/a";
+      res.json({
+        sources: {
+          A_genActivityCount_all: A_all,
+          A_genActivityCount_last24h: A_24h,
+          A_genActivityCount_today_msk: A_today_msk,
+          B_metaPlaysSum_all: B_all,
+          delta_BminusA: deltaBmA,
+          delta_pct: deltaPct,
+        },
+        notes: [
+          "A = COUNT(*) FROM gen_activity WHERE action='play' — реальные засчитанные плеи",
+          "B = SUM(meta.plays) из generations.style JSON — legacy cache, может быть stale",
+          "Если A != B → meta.plays не sync с gen_activity (нужен backfill)",
+          "Site counter (/api/playlist/stats) использует A → matches admin dashboard plays если те тоже A",
+          "Per-track rating sort (/api/playlist?sort=rating) использует B → mismatch если stale",
+        ],
+        breakdown: { allTime: breakdown, last24h },
+        topIps,
+        topUserAgents,
+        suspiciousUa,
+      });
     } catch (e: any) {
       res.status(500).json({ error: e?.message || String(e) });
     }
