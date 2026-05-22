@@ -647,16 +647,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       setPlayerTopTracksClosing(false);
     }, 200);
   }, [playerTopTracksClosing]);
-  // Eugene 2026-05-22 Босс «обложки слева от названия, при небольшом нажатии
-  // играют, при зажиме раскрывается для просмотра. Флаги также раскрываются».
-  // Long-press = 500ms hold → expand. Tap (release раньше 500ms) → playTrack.
-  const longPressTimerRef = useRef<number | null>(null);
-  const longPressTriggeredRef = useRef(false);
-  const [bigFlag, setBigFlag] = useState<string | null>(null);
-  // Cleanup timer on unmount
-  useEffect(() => () => {
-    if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
-  }, []);
   // Eugene 2026-05-22 Босс «верхняя часть листа подстраивается под гаджет и
   // не заходит выше нижней условной линии слова "минуту"». Вычисляем макс-
   // высоту panel: bottom-of-hero-h1 (где "минуту") ↔ top-of-headphones-button.
@@ -1674,42 +1664,17 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             <div className="text-[10px] uppercase tracking-wider text-purple-300/70 px-2 py-1 mb-1">Плейлист — листай вверх ↑</div>
             <div className="flex flex-col-reverse gap-1.5">
               {filteredMusic.slice(0, 6).map((track) => (
-                <div
+                <button
                   key={`rev-${track.id}`}
-                  role="button"
-                  tabIndex={0}
-                  onPointerDown={() => {
-                    longPressTriggeredRef.current = false;
-                    longPressTimerRef.current = window.setTimeout(() => {
-                      longPressTriggeredRef.current = true;
-                      setExpandedId(track.id);
-                      setDetailsOpen(true);
-                    }, 500);
-                  }}
-                  onPointerUp={() => {
-                    if (longPressTimerRef.current) { window.clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
-                  }}
-                  onPointerLeave={() => {
-                    if (longPressTimerRef.current) { window.clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
-                  }}
-                  onClick={() => {
-                    if (longPressTriggeredRef.current) { longPressTriggeredRef.current = false; return; }
-                    playTrack(track);
-                  }}
-                  className={`flex items-center gap-2 px-2 py-2 rounded-lg text-left transition-colors cursor-pointer ${
+                  type="button"
+                  onClick={() => playTrack(track)}
+                  className={`flex items-center gap-2 px-2 py-2 rounded-lg text-left transition-colors ${
                     playingId === track.id
                       ? "bg-gradient-to-r from-purple-500/30 to-blue-500/20 border border-purple-400/40"
                       : "bg-white/[0.02] border border-white/[0.04] hover:bg-white/[0.06] hover:border-purple-400/30"
                   }`}
                 >
                   <span className="text-xs font-mono text-white/40 w-5 tabular-nums">{filteredMusic.findIndex(t => t.id === track.id) + 1}</span>
-                  <img
-                    src={`/api/cover/${track.id}.jpg`}
-                    alt=""
-                    loading="lazy"
-                    className="w-9 h-9 rounded-md object-cover shrink-0 bg-gradient-to-br from-purple-500/30 to-blue-500/30"
-                    onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0"; }}
-                  />
                   <span className="flex-1 min-w-0 text-sm font-sans text-white/90 truncate">{track.displayTitle || (track.prompt || "").slice(0, 50) || "Без названия"}</span>
                   {playingId === track.id && (
                     <span className="flex items-end gap-[1.5px] h-3" aria-hidden="true">
@@ -1718,7 +1683,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                       <span className="w-[2px] rounded-full bg-purple-300 equalizer-bar" style={{ animationDelay: "0.4s" }} />
                     </span>
                   )}
-                </div>
+                </button>
               ))}
             </div>
           </div>
@@ -2013,21 +1978,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   className="flex items-center gap-2 text-[13px] py-1.5 px-2 rounded-lg hover:bg-white/[0.06] animate-in fade-in slide-in-from-bottom-2 duration-700"
                                 >
                                   <span className="flex-1 break-words bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent font-medium">{englishCountryName(c.country_code, c.country)}</span>
-                                  {/* Eugene 2026-05-22 Босс «флаги также раскрываются». Long-press → большой флаг overlay 2 сек. */}
-                                  <span
-                                    className="text-[18px] shrink-0 cursor-pointer"
-                                    onPointerDown={(e) => {
-                                      e.stopPropagation();
-                                      longPressTriggeredRef.current = false;
-                                      longPressTimerRef.current = window.setTimeout(() => {
-                                        longPressTriggeredRef.current = true;
-                                        setBigFlag(flagOf(c.country_code, c.country) + " " + englishCountryName(c.country_code, c.country));
-                                        window.setTimeout(() => setBigFlag(null), 2000);
-                                      }, 500);
-                                    }}
-                                    onPointerUp={() => { if (longPressTimerRef.current) { window.clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; } }}
-                                    onPointerLeave={() => { if (longPressTimerRef.current) { window.clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; } }}
-                                  >{flagOf(c.country_code, c.country)}</span>
+                                  <span className="text-[18px] shrink-0">{flagOf(c.country_code, c.country)}</span>
                                 </li>
                               ))}
                             </ul>
@@ -2120,28 +2071,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 return top.map((t: any, idx: number) => (
                                   <li
                                     key={`top-${t.id}`}
-                                    onPointerDown={(e) => {
-                                      e.stopPropagation();
-                                      longPressTriggeredRef.current = false;
-                                      longPressTimerRef.current = window.setTimeout(() => {
-                                        longPressTriggeredRef.current = true;
-                                        setExpandedId(t.id);
-                                        setDetailsOpen(true);
-                                        setShowPlayerTopTracks(false);
-                                      }, 500);
-                                    }}
-                                    onPointerUp={() => {
-                                      if (longPressTimerRef.current) { window.clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
-                                    }}
-                                    onPointerLeave={() => {
-                                      if (longPressTimerRef.current) { window.clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
-                                    }}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      if (longPressTriggeredRef.current) { longPressTriggeredRef.current = false; return; }
-                                      playTrack(t);
-                                    }}
+                                    onClick={(e) => { e.stopPropagation(); playTrack(t); }}
                                     style={{
+                                      // Eugene 2026-05-22: медленнее появляются (200ms между треками)
                                       animationDelay: `${Math.min(idx, 25) * 200}ms`,
                                       animationFillMode: "both",
                                     }}
@@ -2152,14 +2084,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                     }`}
                                   >
                                     <span className="text-xs font-mono text-white/40 w-6 tabular-nums shrink-0">{idx + 1}</span>
-                                    {/* Eugene 2026-05-22 Босс: cover слева, tap=play long-press=expand */}
-                                    <img
-                                      src={`/api/cover/${t.id}.jpg`}
-                                      alt=""
-                                      loading="lazy"
-                                      className="w-8 h-8 rounded-lg object-cover shrink-0 bg-gradient-to-br from-purple-500/30 to-blue-500/30"
-                                      onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0"; }}
-                                    />
                                     <span className="flex-1 min-w-0 text-[13px] font-sans font-medium bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent truncate">{t.displayTitle || (t.prompt || "").slice(0, 40) || "Без названия"}</span>
                                     <span className="text-[13px] tabular-nums font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent shrink-0">{(t.plays || 0).toLocaleString("ru-RU")}</span>
                                   </li>
@@ -3467,17 +3391,6 @@ export default function LandingPage() {
           </div>
         </DialogContent>
       </Dialog>
-
-      {/* Eugene 2026-05-22 Босс «флаги также раскрываются». Big flag overlay
-          2-сек fade-in/out при long-press на flag в countries panel. */}
-      {bigFlag && (
-        <div className="fixed inset-0 z-[300] flex items-center justify-center pointer-events-none animate-in fade-in duration-200">
-          <div className="bg-background/[0.85] backdrop-blur-xl border-2 border-purple-400/40 rounded-3xl px-8 py-6 shadow-2xl shadow-purple-500/30">
-            <div className="text-[80px] leading-none text-center">{bigFlag.split(" ")[0]}</div>
-            <div className="text-lg font-display font-bold text-center mt-3 bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent">{bigFlag.split(" ").slice(1).join(" ")}</div>
-          </div>
-        </div>
-      )}
 
       {/* Install guide modal */}
       <Dialog open={!!showInstallGuide} onOpenChange={() => setShowInstallGuide(null)}>
