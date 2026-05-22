@@ -1256,9 +1256,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       }
     } catch {}
     setCurrentTime(restoreTo);
-    // Eugene 2026-05-22: явно audio.currentTime = 0 ПЕРЕД loadedmetadata
-    // listener чтобы guarantee fresh start если restoreTo = 0.
-    try { audio.currentTime = restoreTo; } catch {}
+    // Eugene 2026-05-22 Босс «после next трек не идёт воспроизведение» —
+    // ROOT CAUSE: явный audio.currentTime = restoreTo (=0) ДО loadedmetadata
+    // мог установиться когда readyState < HAVE_METADATA → conflicting state
+    // с audio.play() который запускается чуть выше. Убрал прямой setter.
+    // currentTime сбрасывается loadTrackIntoPlayer в lockscreen.ts (audio.src
+    // = url + audio.load() → currentTime=0 by browser default). Restore логика
+    // через loadedmetadata listener срабатывает ТОЛЬКО если restoreTo > 0,
+    // то есть только для resume того же трека — bug 2 уже закрыт через
+    // Number() coercion + localStorage clear для new track.
     if (restoreTo > 0) {
       audio.addEventListener("loadedmetadata", () => {
         try { audio.currentTime = restoreTo; } catch {}
