@@ -654,6 +654,46 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     savePromptTimerRef.current = window.setTimeout(() => setShowSavePrompt(true), 10_000);
     return () => { if (savePromptTimerRef.current) window.clearTimeout(savePromptTimerRef.current); };
   }, [playlistBuilder]);
+  // Eugene 2026-05-22 Босс «лёгкие всплывающие подсказки для юзера о фишках
+  // за последние сутки — Муза рассказывает». Toast'ы с Музa-фразами,
+  // каждые 60 сек один. Dedup через localStorage seenFeatures[].
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const NEW_FEATURE_HINTS: Array<{ id: string; text: string }> = [
+      { id: "swipe-right-build", text: "✨ Свайпни любой трек вправо — соберу для тебя плейлист в зелёной панели справа" },
+      { id: "swipe-left-exclude", text: "🎵 Свайпни трек влево — выкину из подборки. Загорится красным" },
+      { id: "save-super-playlist", text: "💾 Когда соберёшь любимые треки — я предложу сохранить как супер-плейлист" },
+      { id: "load-saved", text: "🎧 Если ты залогинен — твой плейлист загрузится при следующем входе" },
+      { id: "swipe-musa-dismiss", text: "👋 Свайпни меня вправо — я уйду на часок. Тапни 2 раза по экрану — вернусь" },
+      { id: "click-globe", text: "🌍 Нажми на Землю — увидишь топ стран которые тебя слушают" },
+      { id: "click-headphones", text: "🎧 Нажми на наушники — открою топ-100 треков плейлиста" },
+      { id: "cover-tap", text: "🎨 Тапни на маленькую обложку трека — запустится. Тапни строку — раскроется большая" },
+    ];
+    const KEY = "muzaai-seen-features-v1";
+    const getSeen = (): string[] => {
+      try { return JSON.parse(localStorage.getItem(KEY) || "[]"); } catch { return []; }
+    };
+    const markSeen = (id: string) => {
+      try {
+        const s = getSeen();
+        if (!s.includes(id)) localStorage.setItem(KEY, JSON.stringify([...s, id]));
+      } catch {}
+    };
+    const showNext = () => {
+      // НЕ показываем при открытом чате с Музой (она там сама общается)
+      if ((window as any).__muzaChatOpen) return;
+      const seen = getSeen();
+      const unseen = NEW_FEATURE_HINTS.filter(f => !seen.includes(f.id));
+      if (unseen.length === 0) return;
+      const next = unseen[Math.floor(Math.random() * unseen.length)];
+      toast({ description: next.text, duration: 9000 });
+      markSeen(next.id);
+    };
+    // Первый показ через 15 сек после load, потом каждые 60 сек.
+    const firstTimer = window.setTimeout(showNext, 15_000);
+    const intervalTimer = window.setInterval(showNext, 60_000);
+    return () => { window.clearTimeout(firstTimer); window.clearInterval(intervalTimer); };
+  }, [toast]);
   // Eugene 2026-05-22 Босс «при следующей авторизации Муза предлагает
   // воспроизвести личный плейлист». На mount — проверяем localStorage.
   const [showLoadSavedPrompt, setShowLoadSavedPrompt] = useState<number[] | null>(null);
