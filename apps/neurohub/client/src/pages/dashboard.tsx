@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import GiftBadge from "@/components/gift-badge";
+import { PlaysCounter } from "@/components/plays-counter";
 import { useState, useEffect, useRef } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -3396,6 +3397,12 @@ export default function DashboardPage() {
           </>
         )}
 
+        {/* Eugene 2026-05-22 Босс «панель счётчик перенеси с главной в ЛК
+            автора». Раньше PlaysCounter был на landing.tsx между фильтрами
+            плейлиста — теперь сюда, перед Balance. */}
+        <div className="mb-6">
+          <PlaysCounter />
+        </div>
 
         {/* Balance Card */}
         <div className="gradient-border p-6 rounded-2xl mb-8">

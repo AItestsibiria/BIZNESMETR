@@ -13,7 +13,8 @@ import { muteBgMusic, unmuteBgMusic } from "@/components/background-music";
 import { setupMediaSessionForTrack, setLockScreenPlaybackState, setLockScreenPosition, loadTrackIntoPlayer, setPlayerVolume } from "@/lib/lockscreen";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
-import { PlaysCounter } from "@/components/plays-counter";
+// Eugene 2026-05-21 Босс «panel перенесён в ЛК автора» — import не нужен в landing
+// import { PlaysCounter } from "@/components/plays-counter";
 import { RocketLaunch } from "@/components/rocket-launch";
 import { Fireworks } from "@/components/fireworks";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -1853,14 +1854,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           )}
         </div>
 
-        {/* Eugene 2026-05-21 Босс «расположи гармонично между строк, изысканнее».
-            Изящный divider-блок: 2 тонкие линии brand-gradient слева/справа +
-            counter в центре. my-6 даёт воздух сверху/снизу. */}
-        <div className="flex items-center justify-center gap-3 my-6 px-4">
-          <span className="flex-1 max-w-[140px] h-px bg-gradient-to-r from-transparent via-purple-400/30 to-fuchsia-400/40" aria-hidden="true" />
-          <PlaysCounter />
-          <span className="flex-1 max-w-[140px] h-px bg-gradient-to-l from-transparent via-cyan-400/30 to-fuchsia-400/40" aria-hidden="true" />
-        </div>
+        {/* Eugene 2026-05-21 Босс «панель счётчик перенеси с главной в ЛК автора» —
+            PlaysCounter удалён из landing, перенесён в dashboard.tsx. */}
 
         {/* Eugene 2026-05-21 Босс «ракета при окончании трека вверх под углом».
             Listener в компоненте на window event 'muza:track-finished'. */}
