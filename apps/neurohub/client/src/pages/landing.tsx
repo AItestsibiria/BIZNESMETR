@@ -561,6 +561,31 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // должна быть открыта снизу вверх не перемещаться вниз плеера». Отдельный
   // state для player-anchored панели (не конфликтует с hero showCountries).
   const [showPlayerCountries, setShowPlayerCountries] = useState(false);
+  // Eugene 2026-05-22 Босс «в режиме планшета если юзер не спускается вниз
+  // плейлист раскрывается вверх с 1 трека внизу и 2 выше зеркальный порядок,
+  // если скроллит вниз верхний плейлист исчезает». Reverse-блок 6 треков
+  // НАД большим плеером только на tablet (768-1023) и в top scroll position.
+  const [reversePlaylistVisible, setReversePlaylistVisible] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    const w = window.innerWidth;
+    return w >= 768 && w < 1024; // tablet only, по умолчанию visible на mount (scroll=0)
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const recompute = () => {
+      const w = window.innerWidth;
+      const isTablet = w >= 768 && w < 1024;
+      const atTop = window.scrollY < 200;
+      setReversePlaylistVisible(isTablet && atTop);
+    };
+    recompute();
+    window.addEventListener("scroll", recompute, { passive: true });
+    window.addEventListener("resize", recompute, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", recompute);
+      window.removeEventListener("resize", recompute);
+    };
+  }, []);
   // Eugene 2026-05-22 Босс «закрывания панель стран от нажатия на любую её
   // точку задержку поставь, панель испаряется как обложка». isClosing =
   // animate-out fade phase + 500ms cooldown anti-accidental tap.
@@ -1543,6 +1568,42 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           <span className="gradient-text">Плейлист сообщества</span>
         </h2>
         <p className="text-center text-sm sm:text-base font-sans text-muted-foreground mb-8 flex items-center justify-center gap-2 flex-wrap">Треки, созданные авторами <span className="inline-flex items-center gap-1"><span className="inline-block w-4 h-4 rounded bg-gradient-to-br from-purple-600 via-violet-500 to-blue-500 flex items-center justify-center"><svg viewBox="0 0 24 24" className="w-2.5 h-2.5" fill="none"><path d="M3 12c1.5-3 3-5 4.5-3s2 4 3.5 2 2.5-5 4-3 2 4 3.5 2 2.5-4 3.5-2" stroke="white" strokeWidth="3" strokeLinecap="round" /></svg></span><span className="font-bold tracking-tight"><span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent">Muza</span><span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">Ai</span></span></span></p>
+
+        {/* Eugene 2026-05-22 Босс «в режиме планшета плейлист раскрывается
+            вверх с 1 трека внизу и 2 выше, зеркальный порядок, при scroll
+            вниз верхний плейлист исчезает». Reverse-блок 6 треков НАД большим
+            плеером. Только tablet (768-1023) + isAtTop (scrollY<200). При scroll
+            вниз reversePlaylistVisible=false → блок исчезает (animate-out fade).
+            Треки берутся из filteredMusic (с учётом category/sort/search). */}
+        {reversePlaylistVisible && filteredMusic.length > 0 && (
+          <div className="hidden md:block lg:hidden mb-4 glass-card rounded-2xl p-3 border border-purple-500/20 animate-in fade-in slide-in-from-top-2 duration-300" data-testid="reverse-playlist-tablet">
+            <div className="text-[10px] uppercase tracking-wider text-purple-300/70 px-2 py-1 mb-1">Плейлист — листай вверх ↑</div>
+            <div className="flex flex-col-reverse gap-1.5">
+              {filteredMusic.slice(0, 6).map((track) => (
+                <button
+                  key={`rev-${track.id}`}
+                  type="button"
+                  onClick={() => playTrack(track)}
+                  className={`flex items-center gap-2 px-2 py-2 rounded-lg text-left transition-colors ${
+                    playingId === track.id
+                      ? "bg-gradient-to-r from-purple-500/30 to-blue-500/20 border border-purple-400/40"
+                      : "bg-white/[0.02] border border-white/[0.04] hover:bg-white/[0.06] hover:border-purple-400/30"
+                  }`}
+                >
+                  <span className="text-xs font-mono text-white/40 w-5 tabular-nums">{filteredMusic.findIndex(t => t.id === track.id) + 1}</span>
+                  <span className="flex-1 min-w-0 text-sm font-sans text-white/90 truncate">{track.displayTitle || (track.prompt || "").slice(0, 50) || "Без названия"}</span>
+                  {playingId === track.id && (
+                    <span className="flex items-end gap-[1.5px] h-3" aria-hidden="true">
+                      <span className="w-[2px] rounded-full bg-purple-400 equalizer-bar" style={{ animationDelay: "0s" }} />
+                      <span className="w-[2px] rounded-full bg-cyan-400 equalizer-bar" style={{ animationDelay: "0.2s" }} />
+                      <span className="w-[2px] rounded-full bg-purple-300 equalizer-bar" style={{ animationDelay: "0.4s" }} />
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Big player — full-width, visible details */}
         {currentTrack && (
