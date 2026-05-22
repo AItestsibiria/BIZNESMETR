@@ -737,25 +737,29 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   });
   const [sortMode, setSortMode] = useState<"rating" | "date" | "random" | "top_month">(() => {
     const s = readInitial("sortMode");
-    return (s === "rating" || s === "date" || s === "random" || s === "top_month") ? s : "date";
-    // Initial — server default подгружается ниже useEffect'ом
+    // Eugene 2026-05-22 Босс «default Песни + Топ по прослушиваниям».
+    return (s === "rating" || s === "date" || s === "random" || s === "top_month") ? s : "rating";
   });
-  // Eugene 2026-05-19 Босс «правило по умолчанию: по дате → рейтинг → случайно
-  // (цикл по дням, админ меняет порядок)». При первой загрузке если у юзера
-  // нет своего выбора в localStorage — спрашиваем server какой сегодня default.
+  // Eugene 2026-05-22 Босс «default Песни + Топ по прослушиваниям». Server
+  // sort-default endpoint больше НЕ перебивает default — Босс хочет именно
+  // rating по умолчанию для песен. Сохраняем server fetch только для случая
+  // когда юзер сменил category и нет saved sortMode для НОВОЙ категории.
   useEffect(() => {
     try {
       const saved = localStorage.getItem("pl_v2:sortMode");
       if (saved) return; // у юзера уже свой выбор — не перебиваем
     } catch {}
-    // Eugene 2026-05-21 Босс «какой параметр юзеры выбирают в Песни —
-    // такой и по умолчанию». Передаём текущую категорию для frequency-default.
+    // Default = rating для категории song. Для других — server решит ротацией.
     const cat = (() => {
       try {
         const s = localStorage.getItem("pl_v2:category");
         return s || "song";
       } catch { return "song"; }
     })();
+    if (cat === "song") {
+      setSortMode("rating");
+      return;
+    }
     fetch(`/api/playlist/sort-default?category=${encodeURIComponent(cat)}`, { cache: "no-store" })
       .then(r => r.json())
       .then((j) => {
