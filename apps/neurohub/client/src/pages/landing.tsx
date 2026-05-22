@@ -1389,7 +1389,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     {/* Eugene 2026-05-22 Босс: «при открытии главной юзер сразу видит основной
         плеер». Новый порядок секций — Плейлист первым, под CTA «Создать трек».
         Дальше: Муза (без gift-пилюль), Новости, Контакты. */}
-    <section id="playlist-section" className="relative z-[1] pt-14 pb-20 px-4 border-t border-white/[0.04]">
+    <section id="playlist-section" className="relative z-[1] pt-4 sm:pt-6 pb-10 sm:pb-12 px-4 border-t border-white/[0.04]">
       {/* Eugene 2026-05-15 Босс «больше на 30% по высоте и ширине поля плейлиста».
           max-w-3xl (768px) → max-w-5xl (1024px) = +33% ширина.
           Внутри карточек треков высота увеличена через py-padding.
@@ -2391,7 +2391,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         большая Муза-секция в landing (SEO + visibility). H1/H2 содержит
         «Муза», «MuzaAi», ключевики. Структурированная для Schema.org.
         Eugene 2026-05-22 — секция переехала под плеер. */}
-    <section id="muza-section" className="relative z-[1] py-16 px-4 border-t border-white/[0.04] bg-gradient-to-b from-transparent via-purple-500/[0.03] to-transparent">
+    <section id="muza-section" className="relative z-[1] py-10 sm:py-12 px-4 border-t border-white/[0.04] bg-gradient-to-b from-transparent via-purple-500/[0.03] to-transparent">
       <div className="max-w-5xl mx-auto">
         <div className="flex flex-col md:flex-row items-center gap-8">
           <div className="w-32 h-32 sm:w-40 sm:h-40 shrink-0 rounded-2xl bg-gradient-to-br from-purple-500/30 via-violet-500/25 to-blue-500/25 border-2 border-purple-300/40 flex items-center justify-center shadow-[0_0_48px_rgba(168,85,247,0.3)] relative overflow-hidden">
@@ -2431,6 +2431,20 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               </a>
             </div>
           </div>
+        </div>
+
+        {/* Eugene 2026-05-22 Босс: «за 99₽» переехало из hero под Музу.
+            Pricing-pills row — компактный info-блок в brand-палитре. */}
+        <div className="mt-8 pt-6 border-t border-white/[0.05] flex flex-wrap items-center justify-center gap-3 text-xs sm:text-sm font-sans">
+          <span className="px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-200">
+            <span className="font-bold">от 99 ₽</span> за генерацию
+          </span>
+          <span className="px-3 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/30 text-purple-200">
+            3 AI-сервиса
+          </span>
+          <span className="px-3 py-1.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-200">
+            ~30 сек на трек
+          </span>
         </div>
       </div>
     </section>
@@ -2578,8 +2592,13 @@ export default function LandingPage() {
 
       {/* Hero Section.
           Eugene 2026-05-17 — добавлен scan-line класс: animated 2px cyan
-          scan-полоса сверху вниз раз в 4 сек, hi-tech акцент поверх hero. */}
-      <section className="relative z-[1] pt-32 pb-20 px-4 overflow-hidden hero-gradient scan-line" style={{ minHeight: "100vh" }}>
+          scan-полоса сверху вниз раз в 4 сек, hi-tech акцент поверх hero.
+          Eugene 2026-05-22 — Босс: «плеер сразу виден без скролла». Hero
+          компактнее: pt-20→pt-12 sm:pt-16, убран minHeight 100vh, убран
+          HeroEqualizer (mt-8 → 0), уменьшен h1, убран «Узнать больше»
+          (переехал под плеер), убран stats-блок с «от 99₽» (переехал под
+          Музу как pricing-pill). */}
+      <section className="relative z-[1] pt-12 sm:pt-16 pb-6 sm:pb-8 px-4 overflow-hidden hero-gradient scan-line">
 
         {/* Decorative equalizer elements */}
         <div className="absolute top-20 left-10 opacity-20 hidden lg:block z-[1]">
@@ -2588,48 +2607,33 @@ export default function LandingPage() {
         <div className="absolute top-40 right-16 opacity-20 hidden lg:block z-[1]">
           <EqualizerDecor />
         </div>
-        <div className="absolute bottom-32 left-20 opacity-15 hidden lg:block z-[1]">
-          <EqualizerDecor />
-        </div>
-        <div className="absolute bottom-20 right-10 opacity-15 hidden lg:block z-[1]">
-          <EqualizerDecor />
-        </div>
 
         <div className="max-w-4xl mx-auto text-center relative z-10">
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-purple-500/20 bg-purple-500/5 mb-6">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-purple-500/20 bg-purple-500/5 mb-4">
             <StudioMicEq size="xs" color="text-purple-400" eqColor="bg-purple-400" />
             <span className="text-sm text-purple-300 font-medium">Нейросети для музыки</span>
           </div>
 
           {/* Eugene 2026-05-15 Босс «Музу в топ рейтинга». H1 содержит
-              «Муза» + «MuzaAi» — критичный SEO-сигнал для Яндекс/Google. */}
-          {/* Eugene 2026-05-17 — neon-text акценты на "Muza" + "Ai" spans
-              (text-shadow glow currentColor поверх gradient clip — hi-tech). */}
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-display font-bold mb-6 leading-tight tracking-tight" data-testid="text-hero-title">
+              «Муза» + «MuzaAi» — критичный SEO-сигнал для Яндекс/Google.
+              Eugene 2026-05-22 — h1 уменьшен (text-3xl sm:text-4xl lg:text-5xl)
+              чтобы плеер влез в первый экран. */}
+          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-display font-bold mb-4 leading-tight tracking-tight" data-testid="text-hero-title">
             <span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent neon-text">Muza</span><span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent neon-text">Ai</span>
-            <span className="text-foreground"> · Муза</span>
-            <br />
-            <span className="text-foreground">создай песню с ИИ за минуту</span>
+            <span className="text-foreground"> · создай песню с ИИ за минуту</span>
           </h1>
 
-          {/* Hero Equalizer — the source of all music */}
-          <div className="my-8 opacity-80">
-            <HeroEqualizer />
-          </div>
-
-          <p className="text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto mb-6 leading-relaxed">
+          <p className="text-sm sm:text-base text-muted-foreground max-w-xl mx-auto mb-5 leading-relaxed">
             Создай за 1 минуту уникальную Песню для себя или в Подарок
           </p>
 
-          {/* Eugene 2026-05-22 Босс: блок «1 трек в подарок» убран — плеер
-              поднят сразу под CTA «Создать трек». */}
-
-          <div className="mb-8" />
-
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
+          {/* Eugene 2026-05-22 Босс: только основной CTA в hero. «Узнать
+              больше» переехало под плеер. Никаких stats/gift-блоков —
+              плеер ниже должен быть виден в первый экран. */}
+          <div className="flex items-center justify-center">
             <Button
               size="lg"
-              className="btn-cosmic rounded-full px-10 py-4 text-lg h-auto"
+              className="btn-cosmic rounded-full px-8 py-3 text-base sm:text-lg h-auto"
               onClick={() => {
                 if (user) navigate("/music");
                 else navigate("/register-phone");
@@ -2641,35 +2645,29 @@ export default function LandingPage() {
               Создать трек
               <ArrowRight className="w-5 h-5 ml-2" />
             </Button>
-            <button
-              onClick={() => {
-                document.getElementById("services")?.scrollIntoView({ behavior: "smooth" });
-              }}
-              className="text-muted-foreground hover:text-white text-sm transition-colors"
-              data-testid="button-learn-more"
-            >
-              Узнать больше ↓
-            </button>
-          </div>
-
-          {/* Stats */}
-          <div className="flex items-center justify-center gap-8 sm:gap-12 mt-16 pt-8 border-t border-white/[0.06]">
-            {[
-              { value: "от 99₽", label: "за генерацию" },
-              { value: "3", label: "AI сервиса" },
-              { value: "~30с", label: "время создания" },
-            ].map((stat) => (
-              <div key={stat.label} className="text-center">
-                <div className="text-xl sm:text-2xl font-bold gradient-text">{stat.value}</div>
-                <div className="text-xs sm:text-sm text-muted-foreground mt-1">{stat.label}</div>
-              </div>
-            ))}
           </div>
         </div>
       </section>
 
       {/* Community Playlist - right after price stats */}
       <PlaylistSection autoPlayId={autoPlayId} />
+
+      {/* Eugene 2026-05-22 Босс: «Узнать больше» сместить под плеер.
+          Secondary CTA в brand-стиле (border-purple-400/30 + glass) —
+          скроллит к Муза-секции. */}
+      <div className="flex justify-center mt-2 mb-8 px-4">
+        <button
+          type="button"
+          onClick={() => {
+            document.getElementById("muza-section")?.scrollIntoView({ behavior: "smooth" });
+          }}
+          className="text-sm font-sans px-6 py-2.5 rounded-full bg-white/5 border border-purple-400/30 text-white/80 hover:bg-white/10 hover:border-purple-400/50 hover:text-white transition-colors inline-flex items-center gap-2"
+          data-testid="button-learn-more"
+        >
+          Узнать больше
+          <span className="text-purple-300">↓</span>
+        </button>
+      </div>
 
       {/* Services Grid */}
       <section id="services" className="relative z-[1] py-20 px-4">
