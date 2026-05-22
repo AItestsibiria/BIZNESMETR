@@ -364,14 +364,23 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   }
   // Eugene 2026-05-22 Босс «оптимизируй загрузку с 0, плейлист на смартфоне
   // загружай когда появится плеер». На mobile (<768px) откладываем fresh fetch
-  // /api/playlist до момента когда юзер скроллит к плееру или взаимодействует.
-  // Это снижает first-load network traffic на VPN. Initial state читается из
-  // localStorage cache (если был) → юзер видит cached playlist мгновенно.
+  // ТОЛЬКО если есть localStorage cache (юзер видит cached UI мгновенно).
+  // При пустом кэше (первый визит) — fetch сразу, иначе плеер не появится.
   // Desktop / tablet — fetch immediately (там трафик не критичен).
   const [playlistFetchEnabled, setPlaylistFetchEnabled] = useState<boolean>(() => {
     if (typeof window === "undefined") return true;
-    // Mobile (<768) — wait for visibility. Bigger screens — instant.
-    return window.innerWidth >= 768;
+    if (window.innerWidth >= 768) return true;
+    // Mobile: gate ТОЛЬКО если cache не пустой
+    try {
+      const raw = localStorage.getItem("pl:tracks:cache");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.tracks) && parsed.tracks.length > 0) {
+          return false; // gate ON — есть cached UI чтобы показать
+        }
+      }
+    } catch {}
+    return true; // no cache → fetch immediately, не оставляем пустой плеер
   });
   useEffect(() => {
     if (playlistFetchEnabled) return;
@@ -382,11 +391,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       resolved = true;
       setPlaylistFetchEnabled(true);
     };
-    // 1. Первый scroll юзера → enable
     const onScroll = () => enable();
     window.addEventListener("scroll", onScroll, { once: true, passive: true });
     window.addEventListener("touchstart", onScroll, { once: true, passive: true });
-    // 2. Если playlist-section появилась в viewport (даже без scroll) → enable
     let io: IntersectionObserver | null = null;
     if ("IntersectionObserver" in window) {
       const target = document.getElementById("playlist-section");
@@ -397,8 +404,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         io.observe(target);
       }
     }
-    // 3. Backup timer — макс 4 сек после mount, потом fetch'нем что бы ни было
-    const timer = window.setTimeout(enable, 4000);
+    // Eugene 2026-05-22: уменьшил backup timer 4с → 1.5с чтобы юзер не ждал
+    // пустую зону долго если ничего не сработало (например в pre-render iframe).
+    const timer = window.setTimeout(enable, 1500);
     return () => {
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("touchstart", onScroll);
