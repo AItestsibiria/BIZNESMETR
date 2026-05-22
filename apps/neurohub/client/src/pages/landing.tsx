@@ -1791,7 +1791,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                 </p>
                 {/* Progress bar */}
                 <div className="flex items-center gap-2 mt-3">
-                  <span className="text-xs text-muted-foreground tabular-nums w-9">{formatDuration(currentTime)}</span>
+                  <span className="text-[13px] font-sans tabular-nums text-muted-foreground w-10">{formatDuration(currentTime)}</span>
                   <div className="flex-1 h-1.5 rounded-full bg-white/10 overflow-hidden cursor-pointer"
                     onClick={(e) => {
                       if (!audioRef.current || !trackDuration) return;
@@ -1803,7 +1803,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   >
                     <div className="h-full rounded-full bg-gradient-to-r from-purple-500 to-blue-500 transition-all duration-200" style={{ width: `${Math.min(progress, 100)}%` }} />
                   </div>
-                  <span className="text-xs text-muted-foreground tabular-nums w-9 text-right">{formatDuration(trackDuration)}</span>
+                  <span className="text-[13px] font-sans tabular-nums text-muted-foreground w-10 text-right">{formatDuration(trackDuration)}</span>
                 </div>
                 {/* Control buttons — Eugene 2026-05-18 Босс «кнопки вываливаются + громкость длинная» — flex-wrap + компактные icon-only + volume убран (остался в expanded modal + cover-details). */}
                 <div className="flex flex-wrap items-center gap-2 mt-3">
