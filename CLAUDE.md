@@ -1084,6 +1084,53 @@ Audit-сценарий перед коммитом UI-фичи:
 - `pages/landing.tsx` hero — `scan-line` overlay + `neon-text` на «MuzaAi»
 - `pages/login-phone.tsx` / `register-phone.tsx` — `holographic` + `cyber-grid` фон
 
+### Playlist-default-song-rating rule (Eugene 2026-05-22, **перекрывает Playlist-daily-rotation для category=song**)
+
+**Default плейлиста на главной = Категория «Песни» + Сортировка «Топ по прослушиваниям».**
+
+Применяется при первом заходе юзера (нет saved выбора в localStorage):
+- `categoryFilter = "song"` (Песни)
+- `sortMode = "rating"` (Топ по прослушиваниям, DESC by plays count)
+
+**При клике юзера на другой параметр** (категория/сортировка/направление):
+- State update мгновенно через setState
+- useEffect c deps `[sortMode, sortDir, playlistKind, playlistFetchEnabled]` re-runs
+- Fresh `fetch /api/playlist?sort=X&dir=Y&status=Z` → setTracks → **плейлист сразу обновляется** без F5
+- Юзер видит новый порядок мгновенно
+- Выбор persist в localStorage `pl_v2:sortMode` / `pl_v2:category` / etc
+
+**По окончании текущего трека** — auto-next по filteredMusic (`handleEnded` использует `filteredMusicRef.current`):
+- Следующий трек берётся **по списку** в том же sort order
+- НЕ random, НЕ из non-filtered, НЕ из другой категории
+- По Playlist-strict-selection rule (тот rule остаётся)
+
+**Перекрывает:**
+- `Playlist-daily-rotation rule` для category=song — для песен НИКОГДА ротация default, всегда rating. Для greeting/instrumental/all — ротация остаётся (через server `/api/playlist/sort-default`).
+
+**Применяется к:** `landing.tsx` главная плейлист-секция, dashboard.tsx «Мои треки», track.tsx — везде где есть category/sort выбор.
+
+**Реализация** (`landing.tsx`):
+```ts
+// useState initial fallback:
+const [sortMode, setSortMode] = useState(() => {
+  const s = readInitial("sortMode");
+  return validSortMode(s) ? s : "rating"; // ← rating вместо date
+});
+// useEffect — НЕ перебиваем для song:
+useEffect(() => {
+  if (saved) return;
+  if (cat === "song") { setSortMode("rating"); return; }
+  fetch(`/api/playlist/sort-default?category=${cat}`).then(...);
+}, []);
+```
+
+**Связано с:**
+- Playlist-strict-selection rule — auto-next из filteredMusic (без fallback на полный список)
+- Playlist-category-no-mix rule — category mutually exclusive
+- Playlist-daily-rotation rule — теперь только для не-song категорий
+
+---
+
 ### Playlist-daily-rotation rule (Eugene 2026-05-21)
 
 **Параметры сортировки плейлиста на главной ротируются автоматически — 1 раз в сутки в 00:00 МСК. По умолчанию категория «Песни» (`song`) выбрана. Применяется ко ВСЕМ юзерам (включая уже-зашедших) — через one-time migration reset localStorage.**
