@@ -1604,17 +1604,32 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   >
                     <Share2 className="w-3.5 h-3.5 text-muted-foreground" />
                   </button>
-                  {/* Eugene 2026-05-22 Босс «после кнопки поделиться количество
-                      прослушиваний и землю, в пропорциях места, без панели,
-                      🌍 первая потом счётчик». Inline values без обёртки. */}
-                  <div className="flex items-center gap-2 ml-1 text-[11px] font-mono select-none" aria-label="Статистика плейлиста">
-                    <span className="inline-flex items-center gap-1" title="Стран слушают">
+                  {/* Eugene 2026-05-22 Босс «цвет счётчиков спокойный, эквалайзер
+                      после земли, количество стран строго под центром земли,
+                      перед счётчиком прослушиваний наушники, тот же шрифт что
+                      у плеера, гармонично пропорционально». Структура:
+                      [🌍 над 24] [эквалайзер 3 bars] [🎧 7916]. Шрифт plyer'а —
+                      text-xs tabular-nums text-muted-foreground (font-sans Inter). */}
+                  <div className="flex items-center gap-2.5 ml-1.5 select-none" aria-label="Статистика плейлиста">
+                    {/* 🌍 + countries под ним по центру */}
+                    <div className="flex flex-col items-center leading-none" title="Стран слушают">
                       <span className="text-base leading-none">🌍</span>
-                      <span className="text-cyan-300 tabular-nums">{countriesCount}</span>
-                    </span>
-                    <span className="inline-flex items-center gap-1" title="Прослушиваний всего">
-                      <span className="text-fuchsia-300 tabular-nums">{totalPlays.toLocaleString("ru-RU")}</span>
-                    </span>
+                      <span className="text-[10px] tabular-nums text-muted-foreground mt-0.5">{countriesCount}</span>
+                    </div>
+                    {/* Маленький эквалайзер — 3 bars, спокойный мут-цвет.
+                        Используется existing .equalizer-bar (index.css 283-292)
+                        который меняет height 20→100% — нужны block-level
+                        контейнеры с fixed parent height. */}
+                    <div className="flex items-end gap-[2px] h-3.5" aria-hidden="true">
+                      <div className="w-[2px] rounded-full bg-muted-foreground/60 equalizer-bar" style={{ animationDelay: "0s" }} />
+                      <div className="w-[2px] rounded-full bg-muted-foreground/60 equalizer-bar" style={{ animationDelay: "0.2s" }} />
+                      <div className="w-[2px] rounded-full bg-muted-foreground/60 equalizer-bar" style={{ animationDelay: "0.4s" }} />
+                    </div>
+                    {/* 🎧 + plays inline */}
+                    <div className="flex items-center gap-1" title="Прослушиваний всего">
+                      <span className="text-base leading-none">🎧</span>
+                      <span className="text-xs tabular-nums text-muted-foreground">{totalPlays.toLocaleString("ru-RU")}</span>
+                    </div>
                   </div>
                   {/* Eugene 2026-05-18 Босс «S в правый нижний угол» —
                       перенесена на absolute bottom-3 right-3 main player card. */}
