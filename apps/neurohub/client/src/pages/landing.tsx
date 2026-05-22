@@ -1630,16 +1630,21 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                       границы плеера». Структура inline:
                       [🌍-button + 24] [эквалайзер fixed-w] [🎧 7916] */}
                   <div className="flex items-center justify-between gap-2 ml-2 flex-1 min-w-0 max-w-[260px] sm:max-w-[300px] select-none" aria-label="Статистика плейлиста">
-                    {/* 🌍 кликабельный → открывает панель стран (showCountries) */}
+                    {/* Eugene 2026-05-22 Босс «нажатием на планетку либо цифры
+                        стран раскрывает панель стран». Button обёртка покрывает
+                        и 🌍 и цифру → клик в любую часть открывает. p-1 -m-1
+                        расширяет touch-zone (iOS HIG ≥44px) без визуального
+                        размера. Дополнительно — :hover/:active feedback на
+                        обоих элементах для ясности что они кликабельны. */}
                     <button
                       type="button"
                       onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCountries(v => !v); }}
-                      className="flex flex-col items-center leading-none shrink-0 hover:scale-110 active:scale-95 transition-transform cursor-pointer"
+                      className="flex flex-col items-center leading-none shrink-0 p-1 -m-1 hover:scale-110 active:scale-95 transition-transform cursor-pointer group"
                       title="Нас слушают (нажмите для списка стран)"
                       aria-label={`Стран слушают: ${countriesCount}. Нажмите для списка.`}
                     >
-                      <span className="text-base leading-none pointer-events-none">🌍</span>
-                      <span className="text-[10px] tabular-nums text-muted-foreground mt-2 pointer-events-none">{countriesCount}</span>
+                      <span className="text-base leading-none pointer-events-none group-hover:opacity-90">🌍</span>
+                      <span className="text-[10px] tabular-nums text-muted-foreground mt-2 pointer-events-none group-hover:text-white/80 group-hover:underline underline-offset-2">{countriesCount}</span>
                     </button>
                     {/* Eugene 2026-05-22 Босс «зона эквалайзеров между нижней
                         точкой горизонта цифры стран и точкой горизонта над
