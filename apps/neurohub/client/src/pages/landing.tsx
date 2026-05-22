@@ -558,46 +558,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // кнопки «Поделиться» в большом плеере. Источник /api/playlist/stats,
   // обновление каждые 60 сек (как countriesCount).
   const [totalPlays, setTotalPlays] = useState<number>(0);
-  // Eugene 2026-05-22 Босс «счётчик не плавно растёт а резко» — animated
-  // count-up между actual updates. displayPlays/displayCountries — то что
-  // рендерится, totalPlays/countriesCount — true value (server). Easing
-  // cubic-out 1500ms интерполирует delta. Smooth UX вместо stepwise jump.
-  const [displayPlays, setDisplayPlays] = useState<number>(0);
-  useEffect(() => {
-    if (totalPlays === displayPlays) return;
-    const start = displayPlays;
-    const target = totalPlays;
-    const startT = performance.now();
-    const duration = 1500;
-    let raf = 0;
-    const tick = (t: number) => {
-      const elapsed = t - startT;
-      const p = Math.min(elapsed / duration, 1);
-      const eased = 1 - Math.pow(1 - p, 3);
-      setDisplayPlays(Math.round(start + (target - start) * eased));
-      if (p < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [totalPlays]);
-  const [displayCountries, setDisplayCountries] = useState<number>(0);
-  useEffect(() => {
-    if (countriesCount === displayCountries) return;
-    const start = displayCountries;
-    const target = countriesCount;
-    const startT = performance.now();
-    const duration = 1500;
-    let raf = 0;
-    const tick = (t: number) => {
-      const elapsed = t - startT;
-      const p = Math.min(elapsed / duration, 1);
-      const eased = 1 - Math.pow(1 - p, 3);
-      setDisplayCountries(Math.round(start + (target - start) * eased));
-      if (p < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [countriesCount]);
   // Eugene 2026-05-22 Босс «нажатием на планетку панель не появляется,
   // должна быть открыта снизу вверх не перемещаться вниз плеера». Отдельный
   // state для player-anchored панели (не конфликтует с hero showCountries).
@@ -2030,7 +1990,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                           <PlanetIcon size={32} />
                         </span>
                         {/* Countries ABS под h-8 row — не влияет на flex alignment */}
-                        <span className="absolute top-full left-1/2 -translate-x-1/2 mt-2 text-[13px] tabular-nums font-bold bg-gradient-to-r from-blue-300 via-cyan-300 to-emerald-200 bg-clip-text text-transparent pointer-events-none group-hover:underline underline-offset-2 whitespace-nowrap" title="Стран слушают">{displayCountries}</span>
+                        <span className="absolute top-full left-1/2 -translate-x-1/2 mt-2 text-[13px] tabular-nums font-bold bg-gradient-to-r from-blue-300 via-cyan-300 to-emerald-200 bg-clip-text text-transparent pointer-events-none group-hover:underline underline-offset-2 whitespace-nowrap" title="Стран слушают">{countriesCount}</span>
                       </button>
                       {showPlayerCountries && (
                         <>
@@ -2150,7 +2110,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                         aria-expanded={showPlayerTopTracks}
                       >
                         <span className="text-3xl leading-none pointer-events-none group-hover:opacity-90">🎧</span>
-                        <span className="absolute top-full left-1/2 -translate-x-1/2 mt-2 text-[13px] tabular-nums font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap pointer-events-none group-hover:underline underline-offset-2">{displayPlays.toLocaleString("ru-RU")}</span>
+                        <span className="absolute top-full left-1/2 -translate-x-1/2 mt-2 text-[13px] tabular-nums font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap pointer-events-none group-hover:underline underline-offset-2">{totalPlays.toLocaleString("ru-RU")}</span>
                       </button>
                       {showPlayerTopTracks && (
                         <>
