@@ -1030,7 +1030,23 @@ export async function registerRoutes(
 
     // Сводки с учётом фильтра периода + домена.
     const periodTotal = raw.prepare(`SELECT COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors ${combinedWhere}`).get() as any;
-    const periodVisits = raw.prepare(`SELECT COALESCE(SUM(visits), 0) as c FROM visitors ${combinedWhere}`).get() as any;
+    // Eugene 2026-05-22 Босс «1826 за сегодня от 1 чел из Праги — это БАГ».
+    // ROOT: visits column = total-всё-время per row. SUM(visits) WHERE last_visit=today
+    // включает historical totals тех кто зашёл сегодня (1826 у iCloud Private Relay
+    // юзера с 14 апр). FIX: считать реальные page_view events из user_journey_events
+    // в окне периода — это event-log с 1 row на visit.
+    let periodVisits: { c: number };
+    if (period && period !== "all") {
+      const r = getPeriodRange(period);
+      periodVisits = raw.prepare(`
+        SELECT COUNT(*) as c FROM user_journey_events
+        WHERE event_type='page_view' AND created_at >= ? AND created_at < ?
+      `).get(r.fromIso, r.toIso) as any;
+    } else {
+      periodVisits = raw.prepare(`
+        SELECT COUNT(*) as c FROM user_journey_events WHERE event_type='page_view'
+      `).get() as any;
+    }
 
     // Страны: GROUP BY country_code объединяет «Russia» и «Россия» в одну
     // запись (Eugene 2026-05-08: «страны объедини, по английски пиши»).
