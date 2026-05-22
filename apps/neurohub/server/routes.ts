@@ -12276,7 +12276,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
             AND fingerprint NOT LIKE 'daily_%' AND ip != '0.0.0.0'
             AND user_agent IS NOT NULL AND user_agent != ''
           GROUP BY canon, country_code
-        ) GROUP BY canon ORDER BY (canon = 'Russia') DESC, n DESC`;
+        ) GROUP BY canon ORDER BY n DESC`;
       const rows = (raw as any).prepare(sqlQ).all();
       res.json({ countries: rows.length, list: rows, period: "all-time" });
     } catch { res.json({ countries: 0, list: [] }); }
