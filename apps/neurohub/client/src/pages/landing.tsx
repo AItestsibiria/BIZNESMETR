@@ -922,12 +922,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // но трек НЕ найден в tracks после загрузки — сбрасываем. Иначе плеер-блок
   // не рендерится (currentTrack=undefined) → playTrack никогда не вызывается →
   // setLockScreenTrackSync не выставляет metadata → iOS показывает MuzaAi logo.
-  useEffect(() => {
-    if (!playingId || !tracks.length) return;
-    if (!tracks.find(t => t.id === playingId)) {
-      setPlayingId(null);
-    }
-  }, [playingId, tracks]);
+  // Eugene 2026-05-22 Босс «после нажатий верхнего плейлиста исчез плеер».
+  // ROOT CAUSE: при смене category/sort server возвращает другой набор tracks,
+  // playingId track выпадал из set → setPlayingId(null) → плеер исчезал.
+  // FIX: НЕ null'им playingId при tracks change — текущий играющий трек
+  // продолжает играть и виден через playingTrackRef fallback ниже.
+  // useEffect удалён.
 
   useEffect(() => {
     if (!playlistFetchEnabled) return; // mobile: gate до scroll/visibility
@@ -1591,7 +1591,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
 
   if (tracks.length === 0) return null;
 
-  const currentTrack = tracks.find(t => t.id === playingId);
+  // Eugene 2026-05-22 Босс: fallback на playingTrackRef.current если трек
+  // не найден в обновлённом tracks (после смены category/sort). Плеер
+  // continues отображать current track даже когда он не в filtered set.
+  const currentTrack = tracks.find(t => t.id === playingId) || playingTrackRef.current;
   const progress = trackDuration > 0 ? (currentTime / trackDuration) * 100 : 0;
 
   // Search filter
