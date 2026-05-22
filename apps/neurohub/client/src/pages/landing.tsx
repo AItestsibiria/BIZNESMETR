@@ -653,10 +653,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
   const [bigFlag, setBigFlag] = useState<string | null>(null);
-  // Eugene 2026-05-22 Босс «при нажиме на трек более 1 сек он выделяется как
-  // список плейлиста с подсказкой "выбери ещё для плейлиста"». Multi-select
-  // mode в top-100 panel. Hold ≥1s → toggle в selectedTrackIds.
-  const [selectedTrackIds, setSelectedTrackIds] = useState<Set<number>>(new Set());
   // Eugene 2026-05-22 Босс «при нажатии на планету более 3 сек она
   // увеличивается и кружится над плеером показывая флаги стран посетителей
   // с географической связкой по мере движения планеты». Long-press 3s = big planet.
@@ -2123,10 +2119,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             onClick={closePlayerTopTracks}
                           >
                             <div className="flex items-center justify-between px-4 py-2.5 border-b border-purple-400/20 bg-purple-500/5">
-                              <p className="text-sm font-semibold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent m-0">
-                                {selectedTrackIds.size > 0 ? `Выбери ещё для плейлиста — ${selectedTrackIds.size} ✓` : "Топ 100 плейлиста ↑"}
-                              </p>
-                              <button type="button" onClick={(e) => { e.stopPropagation(); if (selectedTrackIds.size > 0) { setSelectedTrackIds(new Set()); return; } closePlayerTopTracks(); }} className="text-white/50 hover:text-white text-xl leading-none px-1" aria-label={selectedTrackIds.size > 0 ? "Сбросить выбор" : "Закрыть"}>{selectedTrackIds.size > 0 ? "↺" : "×"}</button>
+                              <p className="text-sm font-semibold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent m-0">Топ 100 плейлиста ↑</p>
+                              <button type="button" onClick={(e) => { e.stopPropagation(); closePlayerTopTracks(); }} className="text-white/50 hover:text-white text-xl leading-none px-1" aria-label="Закрыть">×</button>
                             </div>
                             <ul className="overflow-y-auto p-2 m-0 list-none flex flex-col-reverse gap-1" style={{ touchAction: "pan-y", WebkitOverflowScrolling: "touch" }}>
                               {(() => {
@@ -2144,14 +2138,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                       e.stopPropagation();
                                       longPressTriggeredRef.current = false;
                                       longPressTimerRef.current = window.setTimeout(() => {
-                                        // Eugene 2026-05-22 Босс «при нажиме на трек более 1 сек он выделяется».
                                         longPressTriggeredRef.current = true;
-                                        setSelectedTrackIds(prev => {
-                                          const next = new Set(prev);
-                                          if (next.has(t.id)) next.delete(t.id); else next.add(t.id);
-                                          return next;
-                                        });
-                                      }, 1000);
+                                        setExpandedId(t.id);
+                                        setDetailsOpen(true);
+                                        setShowPlayerTopTracks(false);
+                                      }, 500);
                                     }}
                                     onPointerUp={() => {
                                       if (longPressTimerRef.current) { window.clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
@@ -2162,15 +2153,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       if (longPressTriggeredRef.current) { longPressTriggeredRef.current = false; return; }
-                                      // Если уже selection mode (≥1 selected) — toggle selection
-                                      if (selectedTrackIds.size > 0) {
-                                        setSelectedTrackIds(prev => {
-                                          const next = new Set(prev);
-                                          if (next.has(t.id)) next.delete(t.id); else next.add(t.id);
-                                          return next;
-                                        });
-                                        return;
-                                      }
                                       playTrack(t);
                                     }}
                                     style={{
@@ -2178,9 +2160,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                       animationFillMode: "both",
                                     }}
                                     className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors animate-in fade-in slide-in-from-bottom-2 duration-700 ${
-                                      selectedTrackIds.has(t.id)
-                                        ? "bg-gradient-to-r from-fuchsia-500/40 via-purple-500/30 to-cyan-500/30 border-2 border-fuchsia-400/70 shadow-[0_0_12px_rgba(217,70,239,0.4)]"
-                                        : playingId === t.id
+                                      playingId === t.id
                                         ? "bg-gradient-to-r from-purple-500/30 via-fuchsia-500/20 to-cyan-500/20 border border-purple-400/50"
                                         : "hover:bg-white/[0.06]"
                                     }`}
