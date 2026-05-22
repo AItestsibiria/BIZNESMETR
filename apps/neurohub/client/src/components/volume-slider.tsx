@@ -14,6 +14,7 @@
 // • Click на иконку → toggle mute (сохраняет prev volume, restore при unmute)
 import { useRef, useState, useEffect } from "react";
 import { Volume2, VolumeX, Volume1 } from "lucide-react";
+import { isVolumeControlSupported } from "@/lib/lockscreen";
 
 export interface VolumeSliderProps {
   volume: number;          // 0..1
@@ -26,6 +27,11 @@ export function VolumeSlider({ volume, onVolumeChange, className = "", showPerce
   // prevVolume — для restore при unmute
   const prevVolumeRef = useRef<number>(volume > 0 ? volume : 0.7);
   const [hovering, setHovering] = useState(false);
+  // Eugene 2026-05-22 Босс «регулировка громкости не работает, используй
+  // документацию». По Apple WebKit docs на iOS Safari audio.volume read-only
+  // (system volume). Показываем info-tooltip на iOS чтобы юзер знал что
+  // громкость регулируется физическими кнопками устройства.
+  const supported = isVolumeControlSupported();
 
   // Sync prevVolumeRef когда volume меняется в не-mute состоянии.
   useEffect(() => {
@@ -54,15 +60,17 @@ export function VolumeSlider({ volume, onVolumeChange, className = "", showPerce
 
   const pct = Math.round(volume * 100);
 
+  const iosTooltip = "Громкость регулируется кнопками устройства (iOS WebKit)";
   return (
     <div
-      className={`flex items-center gap-2 ${className}`}
+      className={`flex items-center gap-2 ${className} ${supported ? "" : "opacity-60"}`}
       data-testid="volume-slider"
+      title={supported ? undefined : iosTooltip}
     >
       <button
         type="button"
         onClick={toggleMute}
-        title={volume === 0 ? "Включить звук" : "Заглушить"}
+        title={!supported ? iosTooltip : volume === 0 ? "Включить звук" : "Заглушить"}
         aria-label={volume === 0 ? "Включить звук" : "Заглушить"}
         className="w-7 h-7 rounded-full bg-white/5 hover:bg-white/15 transition-colors flex items-center justify-center shrink-0"
         data-testid="volume-mute-toggle"

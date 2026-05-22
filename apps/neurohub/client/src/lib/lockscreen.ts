@@ -162,20 +162,30 @@ export function getPersistentPlayerAudio(): HTMLAudioElement | null {
  * MUST call setupMediaSessionForTrack() SYNCHRONOUSLY after this and
  * BEFORE audio.play(), so iOS snapshot picks up fresh metadata.
  */
-// === Web Audio API gain node для volume control (Eugene 2026-05-21 Босс) ===
-// iOS Safari ИГНОРИРУЕТ HTMLMediaElement.volume — оно read-only, system volume only.
-// Решение по MDN/WebKit: создать AudioContext + GainNode между source и destination.
-// gain.value управляет громкостью независимо от system volume на ВСЕХ платформах.
+// === Volume control (Eugene 2026-05-22 Босс «Регулировка громкости на плеерах
+// не работает. Используй документацию»). По W3C HTML5 spec + Apple WebKit docs:
 //
-// Eugene 2026-05-21 (вечер) Босс: «при lock screen воспроизведение прерывается».
-// ROOT CAUSE: на iOS Safari после createMediaElementSource() audio routes через
-// AudioContext. При lock screen iOS suspended'ит AudioContext → audio stops.
-// FIX: на iOS НЕ создаём AudioContext (volume slider не работает в iOS Safari всё
-// равно — system volume only). На desktop / Android — GainNode работает.
-let _audioCtx: AudioContext | null = null;
-let _gainNode: GainNode | null = null;
-let _mediaSrc: MediaElementAudioSourceNode | null = null;
-
+// • Desktop (Chrome/Firefox/Safari macOS) + Android Chrome:
+//     HTMLMediaElement.volume = v работает напрямую. Никакой Web Audio
+//     API не нужен — это стандартный read-write property.
+//
+// • iOS Safari / iPad WebKit (включая Capacitor WKWebView):
+//     HTMLMediaElement.volume READ-ONLY = system volume. Apple WebKit design,
+//     не баг. Юзер меняет громкость через физические кнопки устройства
+//     или Control Center. Web Audio API GainNode НЕ решение — он ломает
+//     background playback при lock screen (WebKit Bugzilla 237878).
+//
+// Раньше код пытался использовать AudioContext + createMediaElementSource +
+// GainNode для desktop, но это:
+//   1) Излишне — audio.volume и так работает на не-iOS
+//   2) Опасно — AudioContext suspended до user gesture (Chrome 73+
+//      autoplay policy), gain.gain.value = v НЕ применяется → громкость
+//      залочена визуально-неактивная
+//   3) Захватывает output — после createMediaElementSource весь audio
+//      идёт через AudioContext, если ctx suspend'нут → silence
+//
+// Решение по документации Apple: использовать ТОЛЬКО HTMLMediaElement.volume.
+// На iOS Safari это noop (by design), на остальных платформах работает.
 function isIOS(): boolean {
   if (typeof navigator === "undefined") return false;
   const ua = navigator.userAgent || "";
@@ -185,46 +195,25 @@ function isIOS(): boolean {
   return false;
 }
 
-function ensureAudioGraph(audio: HTMLAudioElement): GainNode | null {
-  if (_gainNode) return _gainNode;
-  if (typeof window === "undefined") return null;
-  // На iOS Safari НЕ создаём AudioContext — он ломает background playback при lock screen.
-  if (isIOS()) return null;
-  try {
-    const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
-    if (!Ctx) return null;
-    _audioCtx = new Ctx();
-    _mediaSrc = _audioCtx.createMediaElementSource(audio);
-    _gainNode = _audioCtx.createGain();
-    _mediaSrc.connect(_gainNode);
-    _gainNode.connect(_audioCtx.destination);
-    return _gainNode;
-  } catch (e: any) {
-    console.warn("[lockscreen] AudioContext failed:", e?.message || e);
-    return null;
-  }
+/**
+ * Устанавливает громкость плеера (0..1).
+ * - Desktop / Android: audio.volume = v (стандартный HTML5 path)
+ * - iOS Safari: audio.volume = v (noop — system volume by Apple design)
+ *
+ * Возвращает true если применилось (non-iOS), false если iOS (by design).
+ */
+export function setPlayerVolume(audio: HTMLAudioElement, volume: number): boolean {
+  const v = Math.max(0, Math.min(1, volume));
+  try { audio.volume = v; } catch {}
+  return !isIOS();
 }
 
 /**
- * Устанавливает громкость плеера (0..1).
- * Desktop / Android — Web Audio GainNode + HTMLMediaElement.volume.
- * iOS Safari — только HTMLMediaElement.volume (даже если read-only, не ломаем
- * background playback через AudioContext).
+ * iOS detection helper для UI компонентов — чтобы показать infomessage
+ * «На iOS громкость регулируется кнопками устройства».
  */
-export function setPlayerVolume(audio: HTMLAudioElement, volume: number): void {
-  const v = Math.max(0, Math.min(1, volume));
-  try { audio.volume = v; } catch {}
-  // iOS — НЕ трогаем AudioContext (ломает lock-screen playback)
-  if (isIOS()) return;
-  const gain = ensureAudioGraph(audio);
-  if (gain) {
-    try {
-      if (_audioCtx && _audioCtx.state === "suspended") {
-        _audioCtx.resume().catch(() => {});
-      }
-      gain.gain.value = v;
-    } catch {}
-  }
+export function isVolumeControlSupported(): boolean {
+  return !isIOS();
 }
 
 export function loadTrackIntoPlayer(url: string): HTMLAudioElement | null {
