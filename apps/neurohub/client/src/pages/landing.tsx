@@ -1757,9 +1757,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                         aria-label={`Стран слушают: ${countriesCount}. Нажмите для списка.`}
                         aria-expanded={showPlayerCountries}
                       >
-                        <span className="text-base leading-none pointer-events-none group-hover:opacity-90">🌍</span>
+                        <span className="text-3xl leading-none pointer-events-none group-hover:opacity-90">🌍</span>
                         {/* Countries ABS под h-8 row — не влияет на flex alignment */}
-                        <span className="absolute top-full left-1/2 -translate-x-1/2 mt-0.5 text-[10px] tabular-nums font-bold bg-gradient-to-r from-blue-400 via-cyan-400 to-emerald-300 bg-clip-text text-transparent pointer-events-none group-hover:underline underline-offset-2 whitespace-nowrap" title="Стран слушают">{countriesCount}</span>
+                        <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 text-[10px] tabular-nums font-bold bg-gradient-to-r from-blue-400 via-cyan-400 to-emerald-300 bg-clip-text text-transparent pointer-events-none group-hover:underline underline-offset-2 whitespace-nowrap" title="Стран слушают">{countriesCount}</span>
                       </button>
                       {showPlayerCountries && (
                         <>
@@ -1845,8 +1845,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                         в h-8 row → совпадает с center Share button (тоже h-8).
                         Plays — abs ниже, brand gradient purple→violet→cyan. */}
                     <div className="relative h-8 w-8 flex items-center justify-center shrink-0" title="Прослушиваний всего">
-                      <span className="text-base leading-none">🎧</span>
-                      <span className="absolute top-full left-1/2 -translate-x-1/2 mt-0.5 text-[10px] tabular-nums font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap">{totalPlays.toLocaleString("ru-RU")}</span>
+                      <span className="text-3xl leading-none">🎧</span>
+                      <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 text-[10px] tabular-nums font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap">{totalPlays.toLocaleString("ru-RU")}</span>
                     </div>
                   </div>
                   {/* Eugene 2026-05-18 Босс «S в правый нижний угол» —
