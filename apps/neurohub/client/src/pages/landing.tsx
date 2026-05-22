@@ -2069,7 +2069,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   >
                                     <span className="text-xs font-mono text-white/40 w-6 tabular-nums shrink-0">{idx + 1}</span>
                                     <span className="flex-1 min-w-0 text-[13px] font-sans font-medium bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent truncate">{t.displayTitle || (t.prompt || "").slice(0, 40) || "Без названия"}</span>
-                                    <span className="text-[10px] tabular-nums font-bold bg-gradient-to-r from-amber-300 to-fuchsia-300 bg-clip-text text-transparent shrink-0">{(t.plays || 0).toLocaleString("ru-RU")}</span>
+                                    <span className="text-[13px] tabular-nums font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent shrink-0">{(t.plays || 0).toLocaleString("ru-RU")}</span>
                                   </li>
                                 ));
                               })()}
