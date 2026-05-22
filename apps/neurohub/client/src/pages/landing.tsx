@@ -635,6 +635,13 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const [showPlayerTopTracks, setShowPlayerTopTracks] = useState(false);
   const [playerTopTracksClosing, setPlayerTopTracksClosing] = useState(false);
   const playerTopTracksOpenedAtRef = useRef<number>(0);
+  // Eugene 2026-05-22 Босс «сделай возможность собрать плейлист если нажим
+  // на трек и вправо — появляется панель куда падают треки, контур зелёный».
+  // Swipe-right gesture (≥60px) на row → add to playlistBuilder.
+  // Visual feedback: green flash на row + fly animation в side panel.
+  const [playlistBuilder, setPlaylistBuilder] = useState<number[]>([]);
+  const swipeStartRef = useRef<{ id: number; startX: number; el: HTMLElement } | null>(null);
+  const [swipeOffsetMap, setSwipeOffsetMap] = useState<Record<number, number>>({});
   useEffect(() => {
     if (showPlayerTopTracks) playerTopTracksOpenedAtRef.current = Date.now();
   }, [showPlayerTopTracks]);
@@ -2054,8 +2061,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             </div>
                             <ul className="overflow-y-auto p-2 m-0 list-none flex flex-col-reverse gap-1" style={{ touchAction: "pan-y", WebkitOverflowScrolling: "touch" }}>
                               {(() => {
+                                // Eugene 2026-05-22 Босс «из большого плейлиста трек убирается
+                                // а появляется справа» — filter out треки уже в playlistBuilder.
                                 const top = [...tracks]
-                                  .filter((t: any) => t.type !== "cover")
+                                  .filter((t: any) => t.type !== "cover" && !playlistBuilder.includes(t.id))
                                   .sort((a: any, b: any) => (b.plays || 0) - (a.plays || 0))
                                   .slice(0, 100);
                                 if (top.length === 0) return (
@@ -2064,14 +2073,50 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 return top.map((t: any, idx: number) => (
                                   <li
                                     key={`top-${t.id}`}
-                                    onClick={(e) => { e.stopPropagation(); playTrack(t); }}
+                                    onPointerDown={(e) => {
+                                      e.stopPropagation();
+                                      swipeStartRef.current = { id: t.id, startX: e.clientX, el: e.currentTarget as HTMLElement };
+                                      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                                    }}
+                                    onPointerMove={(e) => {
+                                      if (!swipeStartRef.current || swipeStartRef.current.id !== t.id) return;
+                                      const delta = Math.max(0, e.clientX - swipeStartRef.current.startX);
+                                      if (delta > 0) setSwipeOffsetMap(prev => ({ ...prev, [t.id]: Math.min(delta, 120) }));
+                                    }}
+                                    onPointerUp={(e) => {
+                                      if (!swipeStartRef.current || swipeStartRef.current.id !== t.id) return;
+                                      const delta = e.clientX - swipeStartRef.current.startX;
+                                      swipeStartRef.current = null;
+                                      try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
+                                      if (delta > 60) {
+                                        // Swipe-right threshold reached → add to playlistBuilder
+                                        setPlaylistBuilder(prev => prev.includes(t.id) ? prev : [...prev, t.id]);
+                                        e.stopPropagation();
+                                      }
+                                      // Reset visual offset (slide-back animation)
+                                      setSwipeOffsetMap(prev => { const next = { ...prev }; delete next[t.id]; return next; });
+                                    }}
+                                    onPointerCancel={() => {
+                                      swipeStartRef.current = null;
+                                      setSwipeOffsetMap(prev => { const next = { ...prev }; delete next[t.id]; return next; });
+                                    }}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      // Skip click если был swipe (offset был > 5px)
+                                      if (swipeOffsetMap[t.id]) return;
+                                      playTrack(t);
+                                    }}
                                     style={{
-                                      // Eugene 2026-05-22: медленнее появляются (200ms между треками)
                                       animationDelay: `${Math.min(idx, 25) * 200}ms`,
                                       animationFillMode: "both",
+                                      transform: swipeOffsetMap[t.id] ? `translateX(${swipeOffsetMap[t.id]}px)` : undefined,
+                                      transition: swipeOffsetMap[t.id] ? "none" : "transform 0.3s ease-out",
+                                      backgroundColor: swipeOffsetMap[t.id] && swipeOffsetMap[t.id] > 60 ? "rgba(34, 197, 94, 0.2)" : undefined,
                                     }}
-                                    className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors animate-in fade-in slide-in-from-bottom-2 duration-700 ${
-                                      playingId === t.id
+                                    className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors animate-in fade-in slide-in-from-bottom-2 duration-700 touch-pan-y ${
+                                      playlistBuilder.includes(t.id)
+                                        ? "border-2 border-green-400/70 bg-green-500/10"
+                                        : playingId === t.id
                                         ? "bg-gradient-to-r from-purple-500/30 via-fuchsia-500/20 to-cyan-500/20 border border-purple-400/50"
                                         : "hover:bg-white/[0.06]"
                                     }`}
@@ -3393,6 +3438,64 @@ export default function LandingPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Eugene 2026-05-22 Босс «нажим на трек и вправо появляется панель куда
+          поочередно падают треки контур зелёный. Соответственно из большого
+          плейлиста трек убирается а появляется справа». */}
+      {playlistBuilder.length > 0 && (() => {
+        const builderTracks = playlistBuilder
+          .map(id => tracks.find((t: any) => t.id === id))
+          .filter(Boolean);
+        if (builderTracks.length === 0) return null;
+        return (
+          <div className="fixed bottom-20 right-3 sm:bottom-6 sm:right-6 z-[180] w-[240px] max-w-[80vw] max-h-[60vh] flex flex-col rounded-2xl border-2 border-green-400/70 bg-background/[0.85] backdrop-blur-md shadow-2xl shadow-green-500/30 overflow-hidden animate-in fade-in slide-in-from-right-4 duration-300">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-green-400/30 bg-green-500/10">
+              <p className="text-sm font-semibold text-green-200 m-0">▶ Мой плейлист · {builderTracks.length}</p>
+              <button
+                type="button"
+                onClick={() => setPlaylistBuilder([])}
+                className="text-white/50 hover:text-white text-xl leading-none px-1"
+                aria-label="Очистить"
+              >×</button>
+            </div>
+            <ul className="overflow-y-auto p-2 m-0 list-none flex flex-col gap-1" style={{ touchAction: "pan-y", WebkitOverflowScrolling: "touch" }}>
+              {builderTracks.map((t: any, idx: number) => (
+                <li
+                  key={`builder-${t.id}`}
+                  onClick={() => playTrack(t)}
+                  className="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer hover:bg-white/[0.06] animate-in fade-in slide-in-from-right-4 duration-400"
+                  style={{ animationDelay: `${idx * 80}ms`, animationFillMode: "both" }}
+                >
+                  <span className="text-xs font-mono text-green-300/70 w-5 tabular-nums shrink-0">{idx + 1}</span>
+                  <img
+                    src={`/api/cover/${t.id}.jpg`}
+                    alt=""
+                    loading="lazy"
+                    className="w-7 h-7 rounded object-cover shrink-0 bg-gradient-to-br from-green-500/30 to-cyan-500/30"
+                    onError={(e) => { (e.target as HTMLImageElement).style.opacity = "0"; }}
+                  />
+                  <span className="flex-1 min-w-0 text-[12px] font-sans text-white/85 truncate">{t.displayTitle || (t.prompt || "").slice(0, 30) || "Без названия"}</span>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setPlaylistBuilder(prev => prev.filter(id => id !== t.id)); }}
+                    className="text-white/30 hover:text-red-400 text-sm leading-none shrink-0"
+                    aria-label="Убрать"
+                  >×</button>
+                </li>
+              ))}
+            </ul>
+            <div className="px-2 py-2 border-t border-green-400/20 bg-green-500/5">
+              <button
+                type="button"
+                onClick={() => { const first = builderTracks[0]; if (first) playTrack(first as any); }}
+                className="w-full py-1.5 rounded-lg bg-gradient-to-r from-green-500/40 to-emerald-500/40 text-green-100 text-xs font-medium hover:from-green-500/60 hover:to-emerald-500/60 transition-colors"
+              >
+                ▶ Запустить плейлист
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Install guide modal */}
       <Dialog open={!!showInstallGuide} onOpenChange={() => setShowInstallGuide(null)}>
