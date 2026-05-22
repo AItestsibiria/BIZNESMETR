@@ -640,8 +640,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // Swipe-right gesture (≥60px) на row → add to playlistBuilder.
   // Visual feedback: green flash на row + fly animation в side panel.
   const [playlistBuilder, setPlaylistBuilder] = useState<number[]>([]);
-  // Eugene 2026-05-22 Босс «2 вариант — swipe влево красным = выкинуть».
-  const [excludedTrackIds, setExcludedTrackIds] = useState<number[]>([]);
   const swipeStartRef = useRef<{ id: number; startX: number; el: HTMLElement } | null>(null);
   const [swipeOffsetMap, setSwipeOffsetMap] = useState<Record<number, number>>({});
   useEffect(() => {
@@ -2063,10 +2061,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             </div>
                             <ul className="overflow-y-auto p-2 m-0 list-none flex flex-col-reverse gap-1" style={{ touchAction: "pan-y", WebkitOverflowScrolling: "touch" }}>
                               {(() => {
-                                // Eugene 2026-05-22 Босс «трек убирается появляется справа +
-                                // swipe-left выкидывается из списка». Filter and builder и excluded.
+                                // Eugene 2026-05-22 Босс «из большого плейлиста трек убирается
+                                // а появляется справа» — filter out треки уже в playlistBuilder.
                                 const top = [...tracks]
-                                  .filter((t: any) => t.type !== "cover" && !playlistBuilder.includes(t.id) && !excludedTrackIds.includes(t.id))
+                                  .filter((t: any) => t.type !== "cover" && !playlistBuilder.includes(t.id))
                                   .sort((a: any, b: any) => (b.plays || 0) - (a.plays || 0))
                                   .slice(0, 100);
                                 if (top.length === 0) return (
@@ -2082,10 +2080,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                     }}
                                     onPointerMove={(e) => {
                                       if (!swipeStartRef.current || swipeStartRef.current.id !== t.id) return;
-                                      const delta = e.clientX - swipeStartRef.current.startX;
-                                      // Eugene 2026-05-22 Босс: allow обе стороны (left negative + right positive)
-                                      const clamped = Math.max(-120, Math.min(delta, 120));
-                                      setSwipeOffsetMap(prev => ({ ...prev, [t.id]: clamped }));
+                                      const delta = Math.max(0, e.clientX - swipeStartRef.current.startX);
+                                      if (delta > 0) setSwipeOffsetMap(prev => ({ ...prev, [t.id]: Math.min(delta, 120) }));
                                     }}
                                     onPointerUp={(e) => {
                                       if (!swipeStartRef.current || swipeStartRef.current.id !== t.id) return;
@@ -2093,12 +2089,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                       swipeStartRef.current = null;
                                       try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
                                       if (delta > 60) {
-                                        // Swipe-right → add to playlistBuilder (зелёный)
+                                        // Swipe-right threshold reached → add to playlistBuilder
                                         setPlaylistBuilder(prev => prev.includes(t.id) ? prev : [...prev, t.id]);
-                                        e.stopPropagation();
-                                      } else if (delta < -60) {
-                                        // Eugene 2026-05-22 Босс «swipe влево красный = выкинуть»
-                                        setExcludedTrackIds(prev => prev.includes(t.id) ? prev : [...prev, t.id]);
                                         e.stopPropagation();
                                       }
                                       // Reset visual offset (slide-back animation)
@@ -2119,15 +2111,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                       animationFillMode: "both",
                                       transform: swipeOffsetMap[t.id] ? `translateX(${swipeOffsetMap[t.id]}px)` : undefined,
                                       transition: swipeOffsetMap[t.id] ? "none" : "transform 0.3s ease-out",
-                                      // Eugene 2026-05-22 Босс: green при swipe-right (>20px),
-                                      // red при swipe-left (<-20px). Intensity proportional к |offset|.
-                                      backgroundColor: swipeOffsetMap[t.id]
-                                        ? swipeOffsetMap[t.id] > 20
-                                          ? `rgba(34, 197, 94, ${Math.min(0.45, swipeOffsetMap[t.id] / 200)})`
-                                          : swipeOffsetMap[t.id] < -20
-                                            ? `rgba(239, 68, 68, ${Math.min(0.45, -swipeOffsetMap[t.id] / 200)})`
-                                            : undefined
-                                        : undefined,
+                                      backgroundColor: swipeOffsetMap[t.id] && swipeOffsetMap[t.id] > 60 ? "rgba(34, 197, 94, 0.2)" : undefined,
                                     }}
                                     className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors animate-in fade-in slide-in-from-bottom-2 duration-700 touch-pan-y ${
                                       playlistBuilder.includes(t.id)
