@@ -1693,7 +1693,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               {/* Eugene 2026-05-18 Босс «desktop: возможность менять размер
                   отображения обложки». 3 кнопки S/M/L под S-свайпом, скрыты на
                   mobile. */}
-              {!coverExpanded && (
+              {/* Eugene 2026-05-22 Босс «убери +/- у обложки плеера на смартфоне».
+                  Полностью скрываем cover-size-toggle (—/○/+) на всех viewports —
+                  редко используется, мешает чистоте плеера. Юзер всегда может
+                  expand через ExpandToggleButton (top-right corner). */}
+              {false && !coverExpanded && (
                 <div className="hidden md:flex mt-2 gap-1 self-center" data-testid="cover-size-toggle">
                   {[
                     { v: "sm", label: "—", size: "75%" },
@@ -1968,7 +1972,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   <li
                                     key={`top-${t.id}`}
                                     onClick={(e) => { e.stopPropagation(); playTrack(t); }}
-                                    className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${
+                                    style={{
+                                      animationDelay: `${idx * 100}ms`,
+                                      animationFillMode: "both",
+                                    }}
+                                    className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors animate-in fade-in slide-in-from-bottom-2 duration-500 ${
                                       playingId === t.id
                                         ? "bg-gradient-to-r from-purple-500/30 to-cyan-500/20 border border-purple-400/40"
                                         : "hover:bg-white/[0.06]"
