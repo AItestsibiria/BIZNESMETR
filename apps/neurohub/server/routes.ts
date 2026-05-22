@@ -3642,6 +3642,34 @@ export async function registerRoutes(
   // Eugene 2026-05-15 Босс «log list problem»: регистр неудачных действий
   // юзера во всех каналах (web/telegram/max/email/...). Группировка по
   // group_key (action::error_code) — сколько раз, кого, последний раз.
+  // Eugene 2026-05-22 Босс «проверь статистику прослушиваний, чтобы не было
+  // ботов» — breakdown play vs play_rejected по причинам + top IP + top UA
+  // для выявления аномалий / pollution.
+  app.get("/api/admin/v304/play-stats", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const raw = (db as any).$client;
+      const breakdown = raw.prepare(
+        "SELECT action, COUNT(*) AS n FROM gen_activity WHERE action='play' OR action LIKE 'play_rejected:%' GROUP BY action ORDER BY n DESC"
+      ).all();
+      const topIps = raw.prepare(
+        "SELECT ip, COUNT(*) AS plays, COUNT(DISTINCT gen_id) AS tracks FROM gen_activity WHERE action='play' GROUP BY ip ORDER BY plays DESC LIMIT 15"
+      ).all();
+      const topUserAgents = raw.prepare(
+        "SELECT substr(user_agent, 1, 80) AS ua_short, COUNT(*) AS plays FROM gen_activity WHERE action='play' AND user_agent IS NOT NULL GROUP BY ua_short ORDER BY plays DESC LIMIT 15"
+      ).all();
+      const last24h = raw.prepare(
+        "SELECT action, COUNT(*) AS n FROM gen_activity WHERE (action='play' OR action LIKE 'play_rejected:%') AND created_at >= strftime('%s','now','-24 hours')*1000 GROUP BY action ORDER BY n DESC"
+      ).all();
+      // Heuristic: bot-like UAs which still passed (значит regex пропустил)
+      const suspiciousUa = raw.prepare(
+        "SELECT substr(user_agent, 1, 100) AS ua, COUNT(*) AS n FROM gen_activity WHERE action='play' AND (lower(user_agent) LIKE '%bot%' OR lower(user_agent) LIKE '%crawl%' OR lower(user_agent) LIKE '%spider%' OR lower(user_agent) LIKE '%scrape%' OR lower(user_agent) LIKE '%curl%' OR lower(user_agent) LIKE '%python%' OR lower(user_agent) LIKE '%axios%' OR lower(user_agent) LIKE '%httpie%') GROUP BY ua ORDER BY n DESC LIMIT 10"
+      ).all();
+      res.json({ allTime: breakdown, last24h, topIps, topUserAgents, suspiciousUa });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+
   app.get("/api/admin/v304/user-failures", requireAdmin, (req: Request, res: Response) => {
     const limit = Math.min(500, Math.max(10, Number(req.query.limit) || 200));
     const channel = req.query.channel ? String(req.query.channel) : null;
