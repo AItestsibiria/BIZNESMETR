@@ -378,7 +378,7 @@ export function CoverDetailsModal({
       /* Eugene 2026-05-20 Босс «текст сайта не должен быть в Swipe»: bg /96
          → solid bg-[#08081a] (без прозрачности). Раньше через 4% landing
          («Три мощных инструмента») просачивался сквозь backdrop. */
-      className="fixed inset-0 z-[200] flex items-center justify-center bg-[#08081a] backdrop-blur-2xl animate-in fade-in duration-200 cursor-zoom-out"
+      className="fixed inset-0 z-[200] flex items-end justify-center pb-4 sm:pb-6 bg-[#08081a] backdrop-blur-2xl animate-in fade-in duration-200 cursor-zoom-out"
       data-testid="cover-details-modal"
     >
       {/* Eugene 2026-05-17 — hi-tech holographic overlay поверх backdrop
