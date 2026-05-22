@@ -1397,10 +1397,19 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           масштабирование под другие гаджеты». md (≥768px tablet/iPad) — scale 0.8;
           lg (≥1024px desktop) — обратно 100%. Mobile (<768) — без изменений. */}
       <div className="max-w-5xl mx-auto md:scale-[0.8] md:origin-top lg:scale-100">
-        <h2 className="text-2xl font-bold text-center mb-2">
+        {/* Eugene 2026-05-22 Босс: «скомпонуй по-дизайнерски». Заголовок плеера
+            подсвечен: маленький pill «✦ Live» сверху, font-display h2 +
+            gradient-text, под ним подзаголовок с MuzaAi-логотипом. */}
+        <div className="flex justify-center mb-3">
+          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-fuchsia-500/30 bg-fuchsia-500/10 text-[11px] font-sans font-medium text-fuchsia-200 uppercase tracking-wider">
+            <span className="w-1.5 h-1.5 rounded-full bg-fuchsia-400 animate-pulse" />
+            Live · Плейлист
+          </span>
+        </div>
+        <h2 className="text-2xl sm:text-3xl font-display font-bold text-center mb-3 tracking-tight">
           <span className="gradient-text">Плейлист сообщества</span>
         </h2>
-        <p className="text-center text-muted-foreground mb-8 flex items-center justify-center gap-2">Треки, созданные авторами <span className="inline-flex items-center gap-1"><span className="inline-block w-4 h-4 rounded bg-gradient-to-br from-purple-600 via-violet-500 to-blue-500 flex items-center justify-center"><svg viewBox="0 0 24 24" className="w-2.5 h-2.5" fill="none"><path d="M3 12c1.5-3 3-5 4.5-3s2 4 3.5 2 2.5-5 4-3 2 4 3.5 2 2.5-4 3.5-2" stroke="white" strokeWidth="3" strokeLinecap="round" /></svg></span><span className="font-bold tracking-tight"><span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent">Muza</span><span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">Ai</span></span></span></p>
+        <p className="text-center text-sm sm:text-base font-sans text-muted-foreground mb-8 flex items-center justify-center gap-2 flex-wrap">Треки, созданные авторами <span className="inline-flex items-center gap-1"><span className="inline-block w-4 h-4 rounded bg-gradient-to-br from-purple-600 via-violet-500 to-blue-500 flex items-center justify-center"><svg viewBox="0 0 24 24" className="w-2.5 h-2.5" fill="none"><path d="M3 12c1.5-3 3-5 4.5-3s2 4 3.5 2 2.5-5 4-3 2 4 3.5 2 2.5-4 3.5-2" stroke="white" strokeWidth="3" strokeLinecap="round" /></svg></span><span className="font-bold tracking-tight"><span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent">Muza</span><span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">Ai</span></span></span></p>
 
         {/* Big player — full-width, visible details */}
         {currentTrack && (
@@ -2378,6 +2387,111 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       </div>
     </section>
 
+    {/* Eugene 2026-05-15 Босс «Музу в топ рейтинга до понедельника» —
+        большая Муза-секция в landing (SEO + visibility). H1/H2 содержит
+        «Муза», «MuzaAi», ключевики. Структурированная для Schema.org.
+        Eugene 2026-05-22 — секция переехала под плеер. */}
+    <section id="muza-section" className="relative z-[1] py-16 px-4 border-t border-white/[0.04] bg-gradient-to-b from-transparent via-purple-500/[0.03] to-transparent">
+      <div className="max-w-5xl mx-auto">
+        <div className="flex flex-col md:flex-row items-center gap-8">
+          <div className="w-32 h-32 sm:w-40 sm:h-40 shrink-0 rounded-2xl bg-gradient-to-br from-purple-500/30 via-violet-500/25 to-blue-500/25 border-2 border-purple-300/40 flex items-center justify-center shadow-[0_0_48px_rgba(168,85,247,0.3)] relative overflow-hidden">
+            <span className="absolute inset-0 bg-gradient-to-br from-purple-500/20 to-blue-500/20 blur-xl" aria-hidden="true" />
+            <div className="relative z-10 text-7xl">✨</div>
+          </div>
+          <div className="flex-1 text-center md:text-left">
+            <h2 className="text-3xl sm:text-4xl font-bold mb-3 leading-tight">
+              <span className="bg-gradient-to-r from-purple-300 via-violet-200 to-blue-300 bg-clip-text text-transparent">Муза</span>
+              {" "}— твой ИИ-помощник
+            </h2>
+            <p className="text-base sm:text-lg text-muted-foreground mb-4 leading-relaxed max-w-2xl">
+              Виртуальная Муза помогает создать песню, обложку и текст за минуту.
+              Опишите событие — Муза предложит стиль, голос, настроение и сгенерирует трек.
+              Поп, рок, рэп, классика, шансон, инди — все жанры на MuzaAi.
+            </p>
+            {/* Eugene 2026-05-22 Босс: gift-пилюли убраны вместе с блоком «1 трек в подарок». */}
+            <div className="flex flex-wrap items-center gap-2 justify-center md:justify-start">
+              <span className="text-xs px-3 py-1.5 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-200">🎵 Музыка с ИИ</span>
+              <span className="text-xs px-3 py-1.5 rounded-full bg-cyan-500/15 border border-cyan-500/30 text-cyan-200">📝 Текст и обложка</span>
+              <span className="text-xs px-3 py-1.5 rounded-full bg-fuchsia-500/15 border border-fuchsia-500/30 text-fuchsia-200">✨ Жанры на любой вкус</span>
+            </div>
+            <div className="mt-5 flex flex-wrap items-center gap-3 justify-center md:justify-start">
+              <button
+                onClick={() => { if (user) navigate("/music"); else navigate("/register-phone"); }}
+                className="btn-cosmic rounded-full px-7 py-3 text-base h-auto"
+              >
+                ♪ Создать с Музой
+              </button>
+              <a
+                href="https://t.me/Muziaipodari_bot"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm px-5 py-3 rounded-full border border-white/15 bg-white/[0.04] text-white/80 hover:bg-white/[0.08] hover:text-white inline-flex items-center gap-2"
+              >
+                📱 Муза в Telegram
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    {/* News section — Eugene 2026-05-22 переехала под Музу */}
+    <section className="relative z-[1] py-10 px-4 border-t border-white/[0.04]">
+      <div className="max-w-2xl mx-auto space-y-4">
+        {/* 9 мая 2026 — Музыка под событие */}
+        {/* 12 мая 2026 — друг компании / помощница (Eugene 2026-05-12).
+            При клике скроллит к нижнему углу и открывает меню floating-
+            consultant. Никаких внешних ссылок — юзер сам выбирает что
+            делать через её меню. */}
+        <button
+          type="button"
+          onClick={() => {
+            try {
+              window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+              setTimeout(() => window.dispatchEvent(new Event("open-consultant")), 500);
+            } catch {}
+          }}
+          className="block w-full text-left glass-card rounded-2xl p-6 border border-pink-500/30 hover:border-pink-500/50 transition-colors cursor-pointer"
+        >
+          <div className="flex items-start gap-3">
+            <div className="w-14 shrink-0 flex items-start justify-center">
+              {/* Eugene 2026-05-18: 3D-аватар через consultant-avatar.png
+                  (после approve в админке — hi-res 3D PNG), SVG fallback. */}
+              <img
+                src="/consultant-avatar.png"
+                alt="Муза"
+                className="w-14 h-20 sm:w-14 sm:h-20 object-contain"
+                draggable={false}
+                onError={(e) => { (e.target as HTMLImageElement).src = "/consultant-avatar.svg"; }}
+              />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[10px] font-sans px-2 py-0.5 rounded-full bg-pink-500/20 text-pink-300 font-medium">Новости</span>
+                <span className="text-[10px] font-sans text-muted-foreground">12 мая 2026</span>
+              </div>
+              <h3 className="text-lg font-sans font-bold text-white mb-2">У нас появилась <span className="bg-gradient-to-r from-pink-400 via-purple-400 to-blue-400 bg-clip-text text-transparent">Муза</span></h3>
+              <p className="text-sm font-sans text-muted-foreground leading-relaxed">
+                Пройдёт с вами весь путь — от идеи до готового трека. Поможет с регистрацией, поможет создать текст песни. <span className="text-pink-300 font-medium">Нажмите — поговорите →</span>
+              </p>
+            </div>
+          </div>
+        </button>
+
+        {/* Eugene 2026-05-17 Босс «убери новость про регистрацию по телефону» —
+            скрыто пока reverse-flashcall flow не до отшлифован. */}
+
+      </div>
+    </section>
+
+    {/* Contacts */}
+    <section className="relative z-[1] py-4 px-4">
+      <div className="max-w-2xl mx-auto text-center">
+        <p className="text-xs text-muted-foreground/40">
+          Контакты: <a href="#" onClick={openMail} className="hover:text-purple-300 transition-colors">написать нам</a>
+        </p>
+      </div>
+    </section>
 
   </>);
 }
@@ -2644,29 +2758,27 @@ export default function LandingPage() {
       {/* Share QR */}
       <ShareQRSection />
 
-      {/* CTA */}
+      {/* CTA — Eugene 2026-05-22 Босс: «блок 1 трек в подарок убран».
+          Оставляем generic CTA + установочные кнопки iPhone/Android. */}
       <section className="relative z-[1] py-20 px-4 border-t border-white/[0.04]">
         <div className="max-w-2xl mx-auto text-center">
           <h2 className="text-2xl sm:text-3xl font-bold mb-4">
             <span className="gradient-text">Готовы создать свой первый трек?</span>
           </h2>
-          <div className="mb-6 inline-flex items-center gap-3 px-5 py-2.5 rounded-full border border-purple-500/20 bg-purple-500/5">
-            <span className="text-lg">🚀</span>
-            <span className="text-sm text-purple-200"><span className="font-bold text-white">1 трек в подарок</span> при регистрации 🎁</span>
-          </div>
           <p className="text-muted-foreground mb-8">
-            Зарегистрируйтесь и получите подарок
+            Откройте Музу — она поможет с идеей, текстом и обложкой
           </p>
           <Button
             size="lg"
-            className="btn-gradient rounded-full px-10 py-3 text-base h-auto"
+            className="btn-cosmic rounded-full px-10 py-3 text-base h-auto"
             onClick={() => {
               if (user) navigate("/music");
-              else navigate("/register");
+              else navigate("/register-phone");
             }}
             data-testid="button-cta-bottom"
           >
-            Получить трек в подарок
+            <span className="text-lg mr-2">♪</span>
+            Создать трек
             <ArrowRight className="w-4 h-4 ml-2" />
           </Button>
 
