@@ -10424,7 +10424,17 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         recent.sort((a, b) => sortDir * (b.plays - a.plays));
         scored.length = 0; scored.push(...recent, ...older);
       } else if (sortMode === "random") {
-        for (let i = scored.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [scored[i], scored[j]] = [scored[j], scored[i]]; }
+        // Eugene 2026-05-22 Босс «воспроизведение плейлиста не по правилам —
+        // скачет на случайные». ROOT CAUSE: Math.random() shuffle → каждый
+        // fetch разный порядок → handleEnded next непредсказуем.
+        // FIX: seeded shuffle через ?seed=<N>. Client держит stable seed на
+        // сессию → server возвращает один и тот же порядок при каждом fetch.
+        const seedRaw = String(req.query.seed || "");
+        let seed = seedRaw ? 0 : Date.now() & 0xffffff;
+        for (let i = 0; i < seedRaw.length; i++) seed = ((seed << 5) - seed + seedRaw.charCodeAt(i)) | 0;
+        // LCG random — детерминирован для одного seed
+        const rng = () => { seed = (seed * 9301 + 49297) % 233280; return Math.abs(seed) / 233280; };
+        for (let i = scored.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [scored[i], scored[j]] = [scored[j], scored[i]]; }
       } else {
         scored.sort((a, b) => sortDir * (b.plays - a.plays));
       }

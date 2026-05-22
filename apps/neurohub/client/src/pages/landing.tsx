@@ -354,6 +354,14 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
+  // Eugene 2026-05-22 Босс «воспроизведение плейлиста не по правилам — скачет
+  // на случайные». ROOT CAUSE: server при sort=random шафлил Math.random()
+  // на каждом fetch → разный порядок → handleEnded next непредсказуем.
+  // FIX: stable seed на сессию + server seeded shuffle через ?seed=N.
+  const playlistSeedRef = useRef<string>("");
+  if (!playlistSeedRef.current) {
+    playlistSeedRef.current = String(Math.floor(Math.random() * 1_000_000));
+  }
   // Eugene 2026-05-22 Босс: «при загрузке появляется загрузка фишек MuzaAi,
   // надо чтобы плеер сразу появлялся». ROOT CAUSE: initial tracks=[] до fetch.
   // FIX: instant render из localStorage cache (TTL 30 min, любая категория/sort
@@ -757,7 +765,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   }, [playingId, tracks]);
 
   useEffect(() => {
-    fetch(`/api/playlist?status=${playlistKind}&sort=${sortMode}&dir=${sortDir}&_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).then(data => {
+    fetch(`/api/playlist?status=${playlistKind}&sort=${sortMode}&dir=${sortDir}&seed=${playlistSeedRef.current}&_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).then(data => {
       setTracks(data);
       // Eugene 2026-05-22 — кешируем для instant-paint при следующем визите.
       try {
@@ -807,7 +815,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     // mergePlaylist, чтобы для random сохранять текущий порядок.
     // Eugene 2026-05-20: r.ok + Array.isArray guard (frontend-audit fix).
     const safeMergeRefresh = () => {
-      fetch(`/api/playlist?sort=${sortModeRef.current}&dir=${sortDir}&_=${Date.now()}`, { cache: 'no-store' })
+      fetch(`/api/playlist?sort=${sortModeRef.current}&dir=${sortDir}&seed=${playlistSeedRef.current}&_=${Date.now()}`, { cache: 'no-store' })
         .then(r => {
           if (!r.ok) throw new Error(`playlist HTTP ${r.status}`);
           return r.json();
@@ -875,7 +883,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // guard. Раньше при 500-ответе с {error: "..."} setTracks(data) ставил объект
   // → .map() ниже падал runtime'ом.
   useEffect(() => {
-    fetch(`/api/playlist?status=${playlistKind}&sort=${sortMode}&dir=${sortDir}&_=${Date.now()}`, { cache: 'no-store' })
+    fetch(`/api/playlist?status=${playlistKind}&sort=${sortMode}&dir=${sortDir}&seed=${playlistSeedRef.current}&_=${Date.now()}`, { cache: 'no-store' })
       .then(r => {
         if (!r.ok) throw new Error(`playlist HTTP ${r.status}`);
         return r.json();
