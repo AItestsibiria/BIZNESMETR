@@ -1844,7 +1844,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                         Та же h-8 структура что 🌍-button → glyph 🎧 centered
                         в h-8 row → совпадает с center Share button (тоже h-8).
                         Plays — abs ниже, brand gradient purple→violet→cyan. */}
-                    <div className="relative h-8 flex items-center justify-center shrink-0" title="Прослушиваний всего">
+                    <div className="relative h-8 w-8 flex items-center justify-center shrink-0" title="Прослушиваний всего">
                       <span className="text-base leading-none">🎧</span>
                       <span className="absolute top-full left-1/2 -translate-x-1/2 mt-0.5 text-[10px] tabular-nums font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap">{totalPlays.toLocaleString("ru-RU")}</span>
                     </div>
