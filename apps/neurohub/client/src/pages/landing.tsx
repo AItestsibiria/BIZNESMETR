@@ -1688,8 +1688,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               чтобы не выходила за viewport. Растёт ВВЕРХ
                               от позиции anchor. z-[150] выше backdrop. */}
                           <div
-                            className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-[150] min-w-[200px] max-w-[280px] max-h-[60vh] rounded-2xl border border-white/10 backdrop-blur-xl flex flex-col overflow-hidden animate-in fade-in duration-100"
-                            style={{ background: "rgba(15, 10, 35, 0.92)", boxShadow: "0 -8px 32px rgba(0,0,0,0.6)" }}
+                            className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-[150] min-w-[200px] max-w-[280px] max-h-[60vh] glass-card rounded-2xl border border-purple-500/30 shadow-2xl shadow-purple-500/20 flex flex-col overflow-hidden animate-in fade-in duration-100"
                             onClick={(e) => e.stopPropagation()}
                             onPointerDown={(e) => e.stopPropagation()}
                           >
@@ -2307,7 +2306,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                       onDragEnd={() => countriesDragControls.start({ x: 0, y: 0, transition: { type: "spring", stiffness: 300, damping: 25 } })}
                                       onPointerDown={(e) => { e.stopPropagation(); }}
                                       onClick={(e) => e.stopPropagation()}
-                                      style={{width:'auto',minWidth:'200px',maxWidth:'min(400px,calc(100vw-32px))',maxHeight:'70vh',display:'flex',flexDirection:'column',borderRadius:'16px',background:'rgba(255,255,255,0.05)',backdropFilter:'blur(24px)',WebkitBackdropFilter:'blur(24px)',border:'1px solid rgba(255,255,255,0.1)',boxShadow:'0 20px 60px rgba(0,0,0,0.5)',pointerEvents:'auto'}}>
+                                      style={{width:'auto',minWidth:'200px',maxWidth:'min(400px,calc(100vw-32px))',maxHeight:'70vh',display:'flex',flexDirection:'column',borderRadius:'16px',background:'rgba(18,18,22,0.72)',backdropFilter:'blur(40px) saturate(180%)',WebkitBackdropFilter:'blur(40px) saturate(180%)',border:'1px solid rgba(168,85,247,0.3)',boxShadow:'0 2px 16px rgba(0,0,0,0.3), 0 25px 50px -12px rgba(124,58,237,0.25), inset 0 0.5px 0 rgba(255,255,255,0.06)',pointerEvents:'auto'}}>
                                       {/* Drag-handle: header. PointerDown активирует drag panel.
                                           Eugene 2026-05-21 Босс: «скроллим список пальцем, panel на месте».
                                           Скролл — отдельно ниже, drag — только тут. */}
