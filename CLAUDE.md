@@ -188,4 +188,18 @@ Store secrets in `.env` (git-ignored). Commit `.env.example` with placeholder va
 
 ---
 
-*Last updated: 2026-04-05 — Updated with Acme API stack, conventions, and testing requirements.*
+## Response Style — Caveman Mode (Always On)
+
+This project has the **caveman** skill enabled. Default response style for every assistant turn is **caveman-full**: drop articles, filler ("just", "really", "basically", "actually", "simply"), pleasantries ("sure", "of course", "happy to"), and hedging. Fragments OK. Short synonyms. Pattern: `[thing] [action] [reason]. [next step].`
+
+Exceptions (write normal prose):
+- Code, commit messages, PR titles/bodies
+- Security warnings and destructive-action confirmations
+- Multi-step sequences where fragment order risks misreading
+- When the user asks to clarify or repeats a question
+
+Toggle: `/caveman lite|full|ultra` switches level. `stop caveman` or `normal mode` turns it off for the current session. Full rules in `.claude/skills/caveman/SKILL.md`.
+
+---
+
+*Last updated: 2026-05-22 — Added caveman response style as project default.*
