@@ -8,6 +8,7 @@ import { ShareQRSection, TrackShareQR } from "@/components/share-qr";
 import { KaraokeLyrics } from "@/components/karaoke-lyrics";
 import { ExpandToggleButton } from "@/components/expand-toggle-button";
 import { CoverDetailsModal } from "@/components/cover-details-modal";
+import { PlanetIcon } from "@/components/plays-counter";
 import { VolumeSlider } from "@/components/volume-slider";
 import { muteBgMusic, unmuteBgMusic } from "@/components/background-music";
 import { setupMediaSessionForTrack, setLockScreenPlaybackState, setLockScreenPosition, loadTrackIntoPlayer, setPlayerVolume } from "@/lib/lockscreen";
@@ -1905,7 +1906,13 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                         aria-label={`Стран слушают: ${countriesCount}. Нажмите для списка.`}
                         aria-expanded={showPlayerCountries}
                       >
-                        <span className="text-3xl leading-none pointer-events-none group-hover:opacity-90">🌍</span>
+                        {/* Eugene 2026-05-22 Босс «3D крутящуюся Землю вместо
+                            emoji, нажатие сохрани». PlanetIcon — equirectangular
+                            SVG + SMIL animateTransform 60s/оборот. Сохраняет
+                            click-handler родительского button. */}
+                        <span className="pointer-events-none group-hover:opacity-90 inline-flex items-center justify-center">
+                          <PlanetIcon size={32} />
+                        </span>
                         {/* Countries ABS под h-8 row — не влияет на flex alignment */}
                         <span className="absolute top-full left-1/2 -translate-x-1/2 mt-2 text-[13px] tabular-nums font-bold bg-gradient-to-r from-blue-300 via-cyan-300 to-emerald-200 bg-clip-text text-transparent pointer-events-none group-hover:underline underline-offset-2 whitespace-nowrap" title="Стран слушают">{countriesCount}</span>
                       </button>

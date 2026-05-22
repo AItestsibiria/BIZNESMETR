@@ -43,7 +43,7 @@ import { Sparkles } from "lucide-react";
 // Europe (Iberia/France/Scand), Africa+Sahara, Madagascar, Arabian peninsula,
 // India, Russia top-strip, China, Indonesia, Japan, Australia, Antarctica.
 // Static overlays (specular, terminator, Fresnel) поверх — observer-fixed.
-function PlanetIcon({ size = 80 }: { size?: number }) {
+export function PlanetIcon({ size = 80 }: { size?: number }) {
   const uid = String(Math.random()).slice(2, 8);
   const earthSize = Math.round(size * 0.92);
   const prefersReduced = typeof window !== "undefined" &&
