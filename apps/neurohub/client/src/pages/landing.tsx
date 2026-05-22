@@ -1859,7 +1859,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               onClick на panel триггерит closePlayerCountries
                               (с cooldown), animate-out fade-out при isClosing. */}
                           <div
-                            className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-[150] min-w-[200px] max-w-[280px] max-h-[60vh] glass-card rounded-2xl border border-purple-500/30 shadow-2xl shadow-purple-500/20 flex flex-col overflow-hidden ${playerCountriesClosing ? "animate-out fade-out duration-200" : "animate-in fade-in duration-150"}`}
+                            className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-[150] w-[260px] max-w-[80vw] h-[320px] max-h-[60vh] glass-card rounded-2xl border border-purple-500/30 shadow-2xl shadow-purple-500/20 flex flex-col overflow-hidden ${playerCountriesClosing ? "animate-out fade-out duration-200" : "animate-in fade-in duration-150"}`}
                             onClick={closePlayerCountries}
                           >
                             <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
@@ -1948,7 +1948,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                         <>
                           <div className="fixed inset-0 z-[140]" onClick={closePlayerTopTracks} onPointerDown={closePlayerTopTracks} aria-hidden="true" />
                           <div
-                            className={`absolute bottom-full right-0 mb-2 z-[150] min-w-[260px] max-w-[320px] max-h-[60vh] glass-card rounded-2xl border border-purple-500/30 shadow-2xl shadow-purple-500/20 flex flex-col overflow-hidden ${playerTopTracksClosing ? "animate-out fade-out duration-200" : "animate-in fade-in duration-150"}`}
+                            className={`absolute bottom-full right-0 mb-2 z-[150] w-[260px] max-w-[80vw] h-[320px] max-h-[60vh] glass-card rounded-2xl border border-purple-500/30 shadow-2xl shadow-purple-500/20 flex flex-col overflow-hidden ${playerTopTracksClosing ? "animate-out fade-out duration-200" : "animate-in fade-in duration-150"}`}
                             onClick={closePlayerTopTracks}
                           >
                             <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
