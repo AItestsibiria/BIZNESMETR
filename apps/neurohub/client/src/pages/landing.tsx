@@ -622,6 +622,35 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       setPlayerTopTracksClosing(false);
     }, 200);
   }, [playerTopTracksClosing]);
+  // Eugene 2026-05-22 Босс «верхняя часть листа подстраивается под гаджет и
+  // не заходит выше нижней условной линии слова "минуту"». Вычисляем макс-
+  // высоту panel: bottom-of-hero-h1 (где "минуту") ↔ top-of-headphones-button.
+  // При resize / open / scroll recompute. min 200px чтобы видны хотя бы 5 строк.
+  const [topPanelMaxHeight, setTopPanelMaxHeight] = useState<number>(400);
+  useEffect(() => {
+    if (!showPlayerTopTracks) return;
+    if (typeof window === "undefined") return;
+    const recompute = () => {
+      const heroEl = document.querySelector('[data-testid="text-hero-title"]') as HTMLElement | null;
+      const headEl = document.querySelector('[data-testid="topplays-anchor"]') as HTMLElement | null;
+      if (!heroEl || !headEl) return;
+      const heroBottom = heroEl.getBoundingClientRect().bottom;
+      const headTop = headEl.getBoundingClientRect().top;
+      // panel сидит над headphones (bottom-full mb-3 = 12px gap). Её bottom =
+      // headTop - 12. Её top допустим = heroBottom + 4 (запас под линией).
+      // height = (headTop - 12) - (heroBottom + 4) = headTop - heroBottom - 16.
+      const available = Math.floor(headTop - heroBottom - 16);
+      const clamped = Math.max(200, Math.min(available, 600));
+      setTopPanelMaxHeight(clamped);
+    };
+    recompute();
+    window.addEventListener("resize", recompute, { passive: true });
+    window.addEventListener("scroll", recompute, { passive: true });
+    return () => {
+      window.removeEventListener("resize", recompute);
+      window.removeEventListener("scroll", recompute);
+    };
+  }, [showPlayerTopTracks]);
   useEffect(() => {
     const load = () => fetch("/api/playlist/stats", { cache: "no-store" }).then(r => r.json()).then(d => { if (typeof d?.totalPlays === "number") setTotalPlays(d.totalPlays); }).catch(() => {});
     load();
@@ -1936,13 +1965,13 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                     {/* Eugene 2026-05-22 Босс «нажатие на наушники выводит топ 10
                         с 1 внизу, 2 выше, с результатами прослушиваний». 🎧 теперь
                         button + anchored panel reverse (1-й внизу near 🎧, 10-й вверху). */}
-                    <div className="relative shrink-0">
+                    <div className="relative shrink-0" data-testid="topplays-anchor">
                       <button
                         type="button"
                         onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowPlayerTopTracks(v => !v); }}
                         className="relative h-8 w-8 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform cursor-pointer group"
-                        title="Топ-10 прослушиваний"
-                        aria-label="Топ прослушиваемых треков"
+                        title="Топ-100 плейлиста"
+                        aria-label="Топ-100 плейлиста"
                         aria-expanded={showPlayerTopTracks}
                       >
                         <span className="text-3xl leading-none pointer-events-none group-hover:opacity-90">🎧</span>
@@ -1956,11 +1985,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               стиле MuzaAi, плейлист содержит топ 100, медленнее
                               появляются». */}
                           <div
-                            className={`absolute bottom-full right-0 mb-2 z-[150] w-[280px] max-w-[80vw] h-[400px] max-h-[70vh] bg-background/[0.28] backdrop-blur-md border-2 border-purple-400/40 rounded-2xl shadow-2xl shadow-purple-500/20 flex flex-col overflow-hidden ${playerTopTracksClosing ? "animate-out fade-out duration-200" : "animate-in fade-in duration-150"}`}
+                            style={{ maxHeight: `${topPanelMaxHeight}px` }}
+                            className={`absolute bottom-full right-0 mb-3 z-[150] w-[280px] max-w-[80vw] bg-background/[0.28] backdrop-blur-md border-2 border-purple-400/40 rounded-2xl shadow-2xl shadow-purple-500/20 flex flex-col overflow-hidden ${playerTopTracksClosing ? "animate-out fade-out duration-200" : "animate-in fade-in duration-150"}`}
                             onClick={closePlayerTopTracks}
                           >
                             <div className="flex items-center justify-between px-4 py-2.5 border-b border-purple-400/20 bg-purple-500/5">
-                              <p className="text-sm font-semibold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent m-0">Топ-100 прослушиваний ↑</p>
+                              <p className="text-sm font-semibold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent m-0">Топ 100 плейлиста ↑</p>
                               <button type="button" onClick={(e) => { e.stopPropagation(); closePlayerTopTracks(); }} className="text-white/50 hover:text-white text-xl leading-none px-1" aria-label="Закрыть">×</button>
                             </div>
                             <ul className="overflow-y-auto p-2 m-0 list-none flex flex-col-reverse gap-1" style={{ touchAction: "pan-y", WebkitOverflowScrolling: "touch" }}>
