@@ -15,6 +15,13 @@ jobs:
           mkdir -p ~/.ssh
           echo "$SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          echo "StrictHostKeyChecking no" >> ~/.ssh/config
-          rsync -avz *.html root@72.56.247.149:/var/www/biznesmetr/
-          ssh root@72.56.247.149 "systemctl reload nginx && echo deployed"
+          cat >> ~/.ssh/config << 'SSHEOF'
+          Host 72.56.247.149
+            IdentityFile ~/.ssh/id_ed25519
+            StrictHostKeyChecking no
+            UserKnownHostsFile /dev/null
+          SSHEOF
+          rsync -avz -e "ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no" \
+            *.html root@72.56.247.149:/var/www/biznesmetr/
+          ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no \
+            root@72.56.247.149 "systemctl reload nginx && echo '✓ deployed'"
