@@ -10020,9 +10020,11 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         return res.json(_geoTopCache.data);
       }
       const rawSql: any = (db as any).$client || sqliteDb;
-      // Eugene 2026-05-21 Босс «статистика в кабинете и на сайте разнятся» —
-      // FIX: visits теперь = SUM(visits column) как в админ-панели (31793 visits
-      // total, не 722 unique fingerprints). Cities + countries — same.
+      // Eugene 2026-05-21 Босс «32К визитов завышен в 9x cron seed». FIX:
+      // фильтр daily-bump (fingerprint LIKE 'daily_%' OR ip='0.0.0.0' OR
+      // user_agent NULL/empty). Реальные визиты = только браузерные.
+      const realVisitors = `fingerprint NOT LIKE 'daily_%' AND ip != '0.0.0.0'
+        AND user_agent IS NOT NULL AND user_agent != ''`;
       const countries: Array<{ countryCode: string; country: string; visits: number }> = rawSql.prepare(`
         SELECT COALESCE(country_code, '??') AS countryCode,
                CASE country
@@ -10060,6 +10062,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
                COALESCE(SUM(visits), 0) AS visits
         FROM visitors
         WHERE country_code IS NOT NULL AND country_code != ''
+          AND ${realVisitors}
         GROUP BY country_code
         ORDER BY visits DESC
         LIMIT 10
@@ -10068,14 +10071,16 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         SELECT city, COALESCE(country_code, '??') AS countryCode, COALESCE(SUM(visits), 0) AS visits
         FROM visitors
         WHERE city IS NOT NULL AND city != ''
+          AND ${realVisitors}
         GROUP BY city, country_code
         ORDER BY visits DESC
         LIMIT 10
       `).all() as any[];
-      const totalRow = rawSql.prepare(`SELECT COALESCE(SUM(visits), 0) AS total FROM visitors`).get() as { total: number };
+      const totalRow = rawSql.prepare(`SELECT COALESCE(SUM(visits), 0) AS total FROM visitors WHERE ${realVisitors}`).get() as { total: number };
       const totalCountriesRow = rawSql.prepare(`
         SELECT COUNT(DISTINCT country_code) AS cnt FROM visitors
         WHERE country_code IS NOT NULL AND country_code != ''
+          AND ${realVisitors}
       `).get() as { cnt: number };
       const data = {
         countries: countries.map(r => ({ code: String(r.countryCode), name: r.country || r.countryCode, visits: Number(r.visits) })),
@@ -12234,6 +12239,8 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
               ELSE country
             END AS canon, country_code, COUNT(*) AS n
           FROM visitors WHERE country IS NOT NULL AND country != ''
+            AND fingerprint NOT LIKE 'daily_%' AND ip != '0.0.0.0'
+            AND user_agent IS NOT NULL AND user_agent != ''
           GROUP BY canon, country_code
         ) GROUP BY canon ORDER BY (canon = 'Russia') DESC, n DESC`;
       const rows = (raw as any).prepare(sqlQ).all();
