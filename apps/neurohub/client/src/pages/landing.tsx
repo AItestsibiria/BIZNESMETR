@@ -1705,7 +1705,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                         снизу-вверх. parent items-center → child эквалайзер
                         и 🌍-block оба центрированы по vertical → top of bars
                         max = top of 🌍, bottom of bars = bottom of countries. */}
-                    <div className="flex-1 flex items-end gap-[2px] h-12 min-w-[60px] max-w-[130px]" aria-hidden="true">
+                    {/* Eugene 2026-05-22 Босс «после скролла эквалайзеры без
+                        движения». ROOT CAUSE: browser-ы (особенно WebKit/Safari)
+                        throttle CSS animations на off-screen элементах — после
+                        скролла back animation не resume'ится сама. FIX:
+                        will-change: transform + GPU layer (translateZ(0)) —
+                        bars становятся compositor layer'ами, anim не throttled.
+                        Также height: '100%' explicitly (вместо undefined) —
+                        чтобы при switch на play не оставалось '30%' от паузы. */}
+                    <div className="flex-1 flex items-end gap-[2px] h-12 min-w-[60px] max-w-[130px]" aria-hidden="true" style={{ willChange: "transform" }}>
                       {Array.from({ length: 12 }).map((_, i) => (
                         <div
                           key={i}
@@ -1714,8 +1722,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             animationDelay: `${(i * 0.08).toFixed(2)}s`,
                             animationDuration: `${(0.9 + (i % 3) * 0.15).toFixed(2)}s`,
                             animationPlayState: isPlayingState ? "running" : "paused",
-                            height: isPlayingState ? undefined : "30%",
+                            height: isPlayingState ? "100%" : "30%",
                             opacity: isPlayingState ? 1 : 0.5,
+                            willChange: "height, opacity",
+                            transform: "translateZ(0)",
                           }}
                         />
                       ))}
