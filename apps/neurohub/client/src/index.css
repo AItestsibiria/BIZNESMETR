@@ -1027,6 +1027,18 @@
   transform-origin: center;
 }
 
+/* Eugene 2026-05-22 Босс «3D планета с флагами вращается». Кольцо флагов вокруг
+   планеты — rotate 60s synced с continent rotation внутри planet. Counter-rotate
+   каждого flag компенсирует rotation чтобы flags остались upright. */
+@keyframes rotate-360 {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes rotate-360-reverse {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to { transform: translate(-50%, -50%) rotate(-360deg); }
+}
+
 /* Reduced motion — отключаем шевелящиеся эффекты для accessibility */
 @media (prefers-reduced-motion: reduce) {
   .scan-line::before,

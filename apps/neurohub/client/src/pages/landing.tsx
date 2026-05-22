@@ -653,6 +653,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const longPressTimerRef = useRef<number | null>(null);
   const longPressTriggeredRef = useRef(false);
   const [bigFlag, setBigFlag] = useState<string | null>(null);
+  // Eugene 2026-05-22 Босс «при нажатии на планету более 3 сек она
+  // увеличивается и кружится над плеером показывая флаги стран посетителей
+  // с географической связкой по мере движения планеты». Long-press 3s = big planet.
+  const [bigPlanet, setBigPlanet] = useState(false);
+  const planetHoldTimerRef = useRef<number | null>(null);
   // Cleanup timer on unmount
   useEffect(() => () => {
     if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
@@ -1935,9 +1940,18 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                     <div className="relative shrink-0" data-testid="earth-anchor">
                       <button
                         type="button"
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowPlayerCountries(v => !v); }}
+                        onPointerDown={(e) => {
+                          // Eugene 2026-05-22 Босс «нажатие на планету более 3 сек =
+                          // big planet с флагами стран». 3-sec hold.
+                          planetHoldTimerRef.current = window.setTimeout(() => {
+                            setBigPlanet(true);
+                          }, 3000);
+                        }}
+                        onPointerUp={() => { if (planetHoldTimerRef.current) { window.clearTimeout(planetHoldTimerRef.current); planetHoldTimerRef.current = null; } }}
+                        onPointerLeave={() => { if (planetHoldTimerRef.current) { window.clearTimeout(planetHoldTimerRef.current); planetHoldTimerRef.current = null; } }}
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (bigPlanet) return; setShowPlayerCountries(v => !v); }}
                         className="relative h-8 w-8 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform cursor-pointer group"
-                        title="Нас слушают (нажмите для списка стран)"
+                        title="Нас слушают (нажмите для списка стран, держи 3 сек для большой планеты)"
                         aria-label={`Стран слушают: ${countriesCount}. Нажмите для списка.`}
                         aria-expanded={showPlayerCountries}
                       >
@@ -3467,6 +3481,68 @@ export default function LandingPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Eugene 2026-05-22 Босс «при нажатии на планету более 3 сек —
+          увеличивается и кружится над плеером, показывая флаги стран
+          посетителей с географической связкой по мере движения планеты».
+          Big rotating planet + флаги в circular ring (вращаются synchronized
+          через CSS keyframe rotate 60s — same speed что и planet inside). */}
+      {bigPlanet && (
+        <div
+          className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-md animate-in fade-in duration-300"
+          onClick={() => setBigPlanet(false)}
+        >
+          <div className="relative w-[320px] h-[320px] sm:w-[480px] sm:h-[480px]">
+            {/* Большая планета по центру (та же PlanetIcon с continent rotation 60s) */}
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="w-[60%] h-[60%] flex items-center justify-center">
+                <PlanetIcon size={typeof window !== "undefined" && window.innerWidth < 640 ? 200 : 300} />
+              </div>
+            </div>
+            {/* Кольцо флагов вокруг планеты — географическая связка.
+                Каждый flag размещён по кругу с angle = (idx / N) * 360°,
+                contra-rotated indeed — рендерим в circle на radius = 45% от container,
+                и весь ring crутится через CSS keyframe rotate 60s. */}
+            <div
+              className="absolute inset-0"
+              style={{
+                animation: typeof window !== "undefined" && !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "rotate-360 60s linear infinite" : "none",
+              }}
+            >
+              {countriesList.slice(0, 16).map((c, idx, arr) => {
+                const angle = (idx / arr.length) * 360;
+                const rad = (angle * Math.PI) / 180;
+                const radius = 48; // % от container
+                const x = 50 + radius * Math.cos(rad);
+                const y = 50 + radius * Math.sin(rad);
+                return (
+                  <div
+                    key={c.country_code || c.country}
+                    className="absolute -translate-x-1/2 -translate-y-1/2 text-2xl sm:text-3xl drop-shadow-[0_0_8px_rgba(168,85,247,0.6)]"
+                    style={{
+                      left: `${x}%`,
+                      top: `${y}%`,
+                      // Counter-rotate each flag так чтобы они остались upright
+                      animation: typeof window !== "undefined" && !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "rotate-360-reverse 60s linear infinite" : "none",
+                    }}
+                    title={englishCountryName(c.country_code, c.country)}
+                  >
+                    {flagOf(c.country_code, c.country)}
+                  </div>
+                );
+              })}
+            </div>
+            {/* Label сверху */}
+            <div className="absolute -top-8 left-0 right-0 text-center text-sm font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent">
+              {countriesCount} стран слушают MuzaAi
+            </div>
+            {/* Hint снизу */}
+            <div className="absolute -bottom-8 left-0 right-0 text-center text-xs text-white/50">
+              Нажми, чтобы закрыть
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Eugene 2026-05-22 Босс «флаги также раскрываются». Big flag overlay
           2-сек fade-in/out при long-press на flag в countries panel. */}
