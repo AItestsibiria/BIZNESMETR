@@ -604,6 +604,24 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       setPlayerCountriesClosing(false);
     }, 200);
   }, [playerCountriesClosing]);
+  // Eugene 2026-05-22 Босс «нажатие на наушники выводит топ 10 с 1 внизу
+  // 2 выше». Аналог 🌍-panel для top-tracks. Reverse order — самый
+  // прослушиваемый внизу (рядом с кнопкой 🎧), top-10 вверху.
+  const [showPlayerTopTracks, setShowPlayerTopTracks] = useState(false);
+  const [playerTopTracksClosing, setPlayerTopTracksClosing] = useState(false);
+  const playerTopTracksOpenedAtRef = useRef<number>(0);
+  useEffect(() => {
+    if (showPlayerTopTracks) playerTopTracksOpenedAtRef.current = Date.now();
+  }, [showPlayerTopTracks]);
+  const closePlayerTopTracks = useCallback(() => {
+    if (Date.now() - playerTopTracksOpenedAtRef.current < 500) return;
+    if (playerTopTracksClosing) return;
+    setPlayerTopTracksClosing(true);
+    setTimeout(() => {
+      setShowPlayerTopTracks(false);
+      setPlayerTopTracksClosing(false);
+    }, 200);
+  }, [playerTopTracksClosing]);
   useEffect(() => {
     const load = () => fetch("/api/playlist/stats", { cache: "no-store" }).then(r => r.json()).then(d => { if (typeof d?.totalPlays === "number") setTotalPlays(d.totalPlays); }).catch(() => {});
     load();
@@ -1853,13 +1871,19 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 aria-label="Закрыть"
                               >×</button>
                             </div>
+                            {/* Eugene 2026-05-22 Босс «топ из 10 стран видно при
+                                скроле можно увидеть все». Sort by n (count) DESC,
+                                первые 10 в viewport, остальные при scroll. */}
                             <ul className="overflow-y-auto p-3 m-0 list-none flex flex-col gap-1.5" style={{ touchAction: "pan-y", WebkitOverflowScrolling: "touch" }}>
                               {countriesList.length === 0 && (
                                 <li className="text-xs text-white/40 text-center py-2">Пока нет данных</li>
                               )}
-                              {countriesList.map(c => (
+                              {[...countriesList].sort((a, b) => (b.n || 0) - (a.n || 0)).map(c => (
                                 <li key={c.country_code || c.country} className="flex items-center gap-2 text-[13px] text-white/85 py-1">
                                   <span className="flex-1 break-words">{c.country}</span>
+                                  {typeof c.n === "number" && c.n > 0 && (
+                                    <span className="text-[10px] tabular-nums text-white/40 shrink-0">{c.n}</span>
+                                  )}
                                   <span className="text-[18px] shrink-0">{flagOf(c.country_code, c.country)}</span>
                                 </li>
                               ))}
@@ -1905,9 +1929,61 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                         Та же h-8 структура что 🌍-button → glyph 🎧 centered
                         в h-8 row → совпадает с center Share button (тоже h-8).
                         Plays — abs ниже, brand gradient purple→violet→cyan. */}
-                    <div className="relative h-8 w-8 flex items-center justify-center shrink-0" title="Прослушиваний всего">
-                      <span className="text-3xl leading-none">🎧</span>
-                      <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 text-[10px] tabular-nums font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap">{totalPlays.toLocaleString("ru-RU")}</span>
+                    {/* Eugene 2026-05-22 Босс «нажатие на наушники выводит топ 10
+                        с 1 внизу, 2 выше, с результатами прослушиваний». 🎧 теперь
+                        button + anchored panel reverse (1-й внизу near 🎧, 10-й вверху). */}
+                    <div className="relative shrink-0">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowPlayerTopTracks(v => !v); }}
+                        className="relative h-8 w-8 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform cursor-pointer group"
+                        title="Топ-10 прослушиваний"
+                        aria-label="Топ прослушиваемых треков"
+                        aria-expanded={showPlayerTopTracks}
+                      >
+                        <span className="text-3xl leading-none pointer-events-none group-hover:opacity-90">🎧</span>
+                        <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 text-[10px] tabular-nums font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap pointer-events-none group-hover:underline underline-offset-2">{totalPlays.toLocaleString("ru-RU")}</span>
+                      </button>
+                      {showPlayerTopTracks && (
+                        <>
+                          <div className="fixed inset-0 z-[140]" onClick={closePlayerTopTracks} onPointerDown={closePlayerTopTracks} aria-hidden="true" />
+                          <div
+                            className={`absolute bottom-full right-0 mb-2 z-[150] min-w-[260px] max-w-[320px] max-h-[60vh] glass-card rounded-2xl border border-purple-500/30 shadow-2xl shadow-purple-500/20 flex flex-col overflow-hidden ${playerTopTracksClosing ? "animate-out fade-out duration-200" : "animate-in fade-in duration-150"}`}
+                            onClick={closePlayerTopTracks}
+                          >
+                            <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
+                              <p className="text-sm font-semibold text-white/95 m-0">Топ прослушиваний ↑</p>
+                              <button type="button" onClick={(e) => { e.stopPropagation(); closePlayerTopTracks(); }} className="text-white/50 hover:text-white text-xl leading-none px-1" aria-label="Закрыть">×</button>
+                            </div>
+                            <ul className="overflow-y-auto p-2 m-0 list-none flex flex-col-reverse gap-1" style={{ touchAction: "pan-y", WebkitOverflowScrolling: "touch" }}>
+                              {(() => {
+                                const top = [...tracks]
+                                  .filter((t: any) => t.type !== "cover")
+                                  .sort((a: any, b: any) => (b.plays || 0) - (a.plays || 0))
+                                  .slice(0, 10);
+                                if (top.length === 0) return (
+                                  <li className="text-xs text-white/40 text-center py-3">Пока нет данных о прослушиваниях</li>
+                                );
+                                return top.map((t: any, idx: number) => (
+                                  <li
+                                    key={`top-${t.id}`}
+                                    onClick={(e) => { e.stopPropagation(); playTrack(t); }}
+                                    className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${
+                                      playingId === t.id
+                                        ? "bg-gradient-to-r from-purple-500/30 to-cyan-500/20 border border-purple-400/40"
+                                        : "hover:bg-white/[0.06]"
+                                    }`}
+                                  >
+                                    <span className="text-xs font-mono text-white/40 w-5 tabular-nums shrink-0">{idx + 1}</span>
+                                    <span className="flex-1 min-w-0 text-[13px] font-sans text-white/85 truncate">{t.displayTitle || (t.prompt || "").slice(0, 40) || "Без названия"}</span>
+                                    <span className="text-[10px] tabular-nums font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent shrink-0">{(t.plays || 0).toLocaleString("ru-RU")}</span>
+                                  </li>
+                                ));
+                              })()}
+                            </ul>
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
                   {/* Eugene 2026-05-18 Босс «S в правый нижний угол» —
