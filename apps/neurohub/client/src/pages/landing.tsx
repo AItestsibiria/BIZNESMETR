@@ -662,27 +662,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // с географической связкой по мере движения планеты». Long-press 3s = big planet.
   const [bigPlanet, setBigPlanet] = useState(false);
   const planetHoldTimerRef = useRef<number | null>(null);
-  // Eugene 2026-05-22 Босс «планета если скроллить влево/вправо она в такт
-  // поворачивается соблюдая флаги стран посетителей». Manual rotation через
-  // pointer drag + auto-rotate когда нет drag. Speed 6deg/sec = 60s/оборот.
-  const [planetRot, setPlanetRot] = useState(0);
-  const planetDragRef = useRef<{ startX: number; startRot: number } | null>(null);
-  useEffect(() => {
-    if (!bigPlanet) return;
-    if (typeof window === "undefined") return;
-    let raf = 0;
-    let lastT = performance.now();
-    const tick = (t: number) => {
-      const dt = t - lastT;
-      lastT = t;
-      if (!planetDragRef.current) {
-        setPlanetRot(r => r + (dt / 1000) * 6); // 6deg/sec = 60s/full
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [bigPlanet]);
   // Cleanup timer on unmount
   useEffect(() => () => {
     if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
@@ -3533,44 +3512,27 @@ export default function LandingPage() {
           className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 backdrop-blur-md animate-in fade-in duration-300"
           onClick={() => setBigPlanet(false)}
         >
-          <div
-            className="relative w-[320px] h-[320px] sm:w-[480px] sm:h-[480px] touch-none"
-            onClick={(e) => e.stopPropagation()}
-            onPointerDown={(e) => {
-              planetDragRef.current = { startX: e.clientX, startRot: planetRot };
-              (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-            }}
-            onPointerMove={(e) => {
-              if (!planetDragRef.current) return;
-              const delta = e.clientX - planetDragRef.current.startX;
-              // 0.5 deg/px = swipe full width даёт ~120-240° rotation
-              setPlanetRot(planetDragRef.current.startRot + delta * 0.5);
-            }}
-            onPointerUp={(e) => {
-              planetDragRef.current = null;
-              try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
-            }}
-            onPointerCancel={(e) => {
-              planetDragRef.current = null;
-              try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
-            }}
-          >
-            {/* Planet center + rotate by planetRot (rotation applies to whole
-                container — both planet и ring синхронны). */}
-            <div
-              className="absolute inset-0 flex items-center justify-center"
-              style={{ transform: `rotate(${planetRot}deg)`, transition: planetDragRef.current ? "none" : "transform 0.05s linear" }}
-            >
+          <div className="relative w-[320px] h-[320px] sm:w-[480px] sm:h-[480px]">
+            {/* Большая планета по центру (та же PlanetIcon с continent rotation 60s) */}
+            <div className="absolute inset-0 flex items-center justify-center">
               <div className="w-[60%] h-[60%] flex items-center justify-center">
                 <PlanetIcon size={typeof window !== "undefined" && window.innerWidth < 640 ? 200 : 300} />
               </div>
-              {/* Кольцо флагов — geographically linked. Каждый flag на radius=48%
-                  относительно planet center, angle = idx/N × 360. Counter-rotate
-                  чтобы flag emojis остались upright (не вращались головой). */}
+            </div>
+            {/* Кольцо флагов вокруг планеты — географическая связка.
+                Каждый flag размещён по кругу с angle = (idx / N) * 360°,
+                contra-rotated indeed — рендерим в circle на radius = 45% от container,
+                и весь ring crутится через CSS keyframe rotate 60s. */}
+            <div
+              className="absolute inset-0"
+              style={{
+                animation: typeof window !== "undefined" && !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "rotate-360 60s linear infinite" : "none",
+              }}
+            >
               {countriesList.slice(0, 16).map((c, idx, arr) => {
                 const angle = (idx / arr.length) * 360;
                 const rad = (angle * Math.PI) / 180;
-                const radius = 48;
+                const radius = 48; // % от container
                 const x = 50 + radius * Math.cos(rad);
                 const y = 50 + radius * Math.sin(rad);
                 return (
@@ -3580,8 +3542,8 @@ export default function LandingPage() {
                     style={{
                       left: `${x}%`,
                       top: `${y}%`,
-                      // Counter-rotate каждого flag relative to ring rotation
-                      transform: `translate(-50%, -50%) rotate(${-planetRot}deg)`,
+                      // Counter-rotate each flag так чтобы они остались upright
+                      animation: typeof window !== "undefined" && !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "rotate-360-reverse 60s linear infinite" : "none",
                     }}
                     title={englishCountryName(c.country_code, c.country)}
                   >
@@ -3590,13 +3552,13 @@ export default function LandingPage() {
                 );
               })}
             </div>
-            {/* Label сверху (НЕ вращается) */}
-            <div className="absolute -top-8 left-0 right-0 text-center text-sm font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent pointer-events-none">
+            {/* Label сверху */}
+            <div className="absolute -top-8 left-0 right-0 text-center text-sm font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent">
               {countriesCount} стран слушают MuzaAi
             </div>
-            {/* Hint снизу (НЕ вращается) */}
-            <div className="absolute -bottom-8 left-0 right-0 text-center text-xs text-white/50 pointer-events-none">
-              Свайп для вращения · Нажми вне, чтобы закрыть
+            {/* Hint снизу */}
+            <div className="absolute -bottom-8 left-0 right-0 text-center text-xs text-white/50">
+              Нажми, чтобы закрыть
             </div>
           </div>
         </div>
