@@ -1951,12 +1951,16 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                       {showPlayerTopTracks && (
                         <>
                           <div className="fixed inset-0 z-[140]" onClick={closePlayerTopTracks} onPointerDown={closePlayerTopTracks} aria-hidden="true" />
+                          {/* Eugene 2026-05-22 Босс «панель в стиле чата Музы и
+                              прозрачность, написание треков в звёздном цветовом
+                              стиле MuzaAi, плейлист содержит топ 100, медленнее
+                              появляются». */}
                           <div
-                            className={`absolute bottom-full right-0 mb-2 z-[150] w-[260px] max-w-[80vw] h-[320px] max-h-[60vh] glass-card rounded-2xl border border-purple-500/30 shadow-2xl shadow-purple-500/20 flex flex-col overflow-hidden ${playerTopTracksClosing ? "animate-out fade-out duration-200" : "animate-in fade-in duration-150"}`}
+                            className={`absolute bottom-full right-0 mb-2 z-[150] w-[280px] max-w-[80vw] h-[400px] max-h-[70vh] bg-background/[0.28] backdrop-blur-md border-2 border-purple-400/40 rounded-2xl shadow-2xl shadow-purple-500/20 flex flex-col overflow-hidden ${playerTopTracksClosing ? "animate-out fade-out duration-200" : "animate-in fade-in duration-150"}`}
                             onClick={closePlayerTopTracks}
                           >
-                            <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
-                              <p className="text-sm font-semibold text-white/95 m-0">Топ прослушиваний ↑</p>
+                            <div className="flex items-center justify-between px-4 py-2.5 border-b border-purple-400/20 bg-purple-500/5">
+                              <p className="text-sm font-semibold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent m-0">Топ-100 прослушиваний ↑</p>
                               <button type="button" onClick={(e) => { e.stopPropagation(); closePlayerTopTracks(); }} className="text-white/50 hover:text-white text-xl leading-none px-1" aria-label="Закрыть">×</button>
                             </div>
                             <ul className="overflow-y-auto p-2 m-0 list-none flex flex-col-reverse gap-1" style={{ touchAction: "pan-y", WebkitOverflowScrolling: "touch" }}>
@@ -1964,7 +1968,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 const top = [...tracks]
                                   .filter((t: any) => t.type !== "cover")
                                   .sort((a: any, b: any) => (b.plays || 0) - (a.plays || 0))
-                                  .slice(0, 10);
+                                  .slice(0, 100);
                                 if (top.length === 0) return (
                                   <li className="text-xs text-white/40 text-center py-3">Пока нет данных о прослушиваниях</li>
                                 );
@@ -1973,18 +1977,19 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                     key={`top-${t.id}`}
                                     onClick={(e) => { e.stopPropagation(); playTrack(t); }}
                                     style={{
-                                      animationDelay: `${idx * 100}ms`,
+                                      // Eugene 2026-05-22: медленнее появляются (200ms между треками)
+                                      animationDelay: `${Math.min(idx, 25) * 200}ms`,
                                       animationFillMode: "both",
                                     }}
-                                    className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors animate-in fade-in slide-in-from-bottom-2 duration-500 ${
+                                    className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors animate-in fade-in slide-in-from-bottom-2 duration-700 ${
                                       playingId === t.id
-                                        ? "bg-gradient-to-r from-purple-500/30 to-cyan-500/20 border border-purple-400/40"
+                                        ? "bg-gradient-to-r from-purple-500/30 via-fuchsia-500/20 to-cyan-500/20 border border-purple-400/50"
                                         : "hover:bg-white/[0.06]"
                                     }`}
                                   >
-                                    <span className="text-xs font-mono text-white/40 w-5 tabular-nums shrink-0">{idx + 1}</span>
-                                    <span className="flex-1 min-w-0 text-[13px] font-sans text-white/85 truncate">{t.displayTitle || (t.prompt || "").slice(0, 40) || "Без названия"}</span>
-                                    <span className="text-[10px] tabular-nums font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent shrink-0">{(t.plays || 0).toLocaleString("ru-RU")}</span>
+                                    <span className="text-xs font-mono text-white/40 w-6 tabular-nums shrink-0">{idx + 1}</span>
+                                    <span className="flex-1 min-w-0 text-[13px] font-sans font-medium bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent truncate">{t.displayTitle || (t.prompt || "").slice(0, 40) || "Без названия"}</span>
+                                    <span className="text-[10px] tabular-nums font-bold bg-gradient-to-r from-amber-300 to-fuchsia-300 bg-clip-text text-transparent shrink-0">{(t.plays || 0).toLocaleString("ru-RU")}</span>
                                   </li>
                                 ));
                               })()}
