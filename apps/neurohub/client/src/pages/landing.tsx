@@ -3535,6 +3535,7 @@ export default function LandingPage() {
         >
           <div
             className="relative w-[320px] h-[320px] sm:w-[480px] sm:h-[480px] touch-none"
+            style={{ perspective: "1200px" }}
             onClick={(e) => e.stopPropagation()}
             onPointerDown={(e) => {
               planetDragRef.current = { startX: e.clientX, startRot: planetRot };
@@ -3543,7 +3544,6 @@ export default function LandingPage() {
             onPointerMove={(e) => {
               if (!planetDragRef.current) return;
               const delta = e.clientX - planetDragRef.current.startX;
-              // 0.5 deg/px = swipe full width даёт ~120-240° rotation
               setPlanetRot(planetDragRef.current.startRot + delta * 0.5);
             }}
             onPointerUp={(e) => {
@@ -3555,33 +3555,37 @@ export default function LandingPage() {
               try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
             }}
           >
-            {/* Planet center + rotate by planetRot (rotation applies to whole
-                container — both planet и ring синхронны). */}
+            {/* Eugene 2026-05-22 Босс «крутится по оси» — 3D rotateY вокруг
+                вертикальной оси (как real Earth). Flags скрываются за сферу
+                по мере rotation. preserve-3d позволяет flags висеть в 3D space. */}
             <div
               className="absolute inset-0 flex items-center justify-center"
-              style={{ transform: `rotate(${planetRot}deg)`, transition: planetDragRef.current ? "none" : "transform 0.05s linear" }}
+              style={{
+                transform: `rotateY(${planetRot}deg)`,
+                transformStyle: "preserve-3d",
+                transition: planetDragRef.current ? "none" : "transform 0.05s linear",
+              }}
             >
-              <div className="w-[60%] h-[60%] flex items-center justify-center">
+              {/* Planet center — НЕ counter-rotate (она крутится по своей оси
+                  через SMIL внутри PlanetIcon). RotateY container даёт sphere look. */}
+              <div className="w-[60%] h-[60%] flex items-center justify-center" style={{ transform: "translateZ(0)" }}>
                 <PlanetIcon size={typeof window !== "undefined" && window.innerWidth < 640 ? 200 : 300} />
               </div>
-              {/* Кольцо флагов — geographically linked. Каждый flag на radius=48%
-                  относительно planet center, angle = idx/N × 360. Counter-rotate
-                  чтобы flag emojis остались upright (не вращались головой). */}
+              {/* Кольцо флагов в 3D — позиционированы по lat/lon: angle = idx/N×360°
+                  для lon (X-Z плоскость), Y фикс. Каждый flag в своей 3D позиции,
+                  через translate3d. backfaceVisibility hidden — флаги задней стороны
+                  скрыты. Counter-rotateY -planetRot чтобы flag emoji всегда смотрел на юзера. */}
               {countriesList.slice(0, 16).map((c, idx, arr) => {
                 const angle = (idx / arr.length) * 360;
-                const rad = (angle * Math.PI) / 180;
-                const radius = 48;
-                const x = 50 + radius * Math.cos(rad);
-                const y = 50 + radius * Math.sin(rad);
+                const radius = 130; // px от центра в 3D
                 return (
                   <div
                     key={c.country_code || c.country}
-                    className="absolute -translate-x-1/2 -translate-y-1/2 text-2xl sm:text-3xl drop-shadow-[0_0_8px_rgba(168,85,247,0.6)]"
+                    className="absolute top-1/2 left-1/2 text-2xl sm:text-3xl drop-shadow-[0_0_8px_rgba(168,85,247,0.6)]"
                     style={{
-                      left: `${x}%`,
-                      top: `${y}%`,
-                      // Counter-rotate каждого flag relative to ring rotation
-                      transform: `translate(-50%, -50%) rotate(${-planetRot}deg)`,
+                      transform: `translate(-50%, -50%) rotateY(${angle}deg) translateZ(${radius}px) rotateY(${-planetRot - angle}deg)`,
+                      transformStyle: "preserve-3d",
+                      backfaceVisibility: "hidden",
                     }}
                     title={englishCountryName(c.country_code, c.country)}
                   >
