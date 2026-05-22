@@ -479,6 +479,16 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     const id = setInterval(load, 60_000);
     return () => clearInterval(id);
   }, []);
+  // Eugene 2026-05-22 Босс: inline счётчик прослушиваний рядом с 🌍 после
+  // кнопки «Поделиться» в большом плеере. Источник /api/playlist/stats,
+  // обновление каждые 60 сек (как countriesCount).
+  const [totalPlays, setTotalPlays] = useState<number>(0);
+  useEffect(() => {
+    const load = () => fetch("/api/playlist/stats", { cache: "no-store" }).then(r => r.json()).then(d => { if (typeof d?.totalPlays === "number") setTotalPlays(d.totalPlays); }).catch(() => {});
+    load();
+    const id = setInterval(load, 60_000);
+    return () => clearInterval(id);
+  }, []);
   useEffect(() => {
     const load = () => fetch("/api/public/top-cities", { cache: "no-store" }).then(r => r.json()).then(d => setTopCities(d.list || [])).catch(() => {});
     load();
@@ -1594,6 +1604,18 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   >
                     <Share2 className="w-3.5 h-3.5 text-muted-foreground" />
                   </button>
+                  {/* Eugene 2026-05-22 Босс «после кнопки поделиться количество
+                      прослушиваний и землю, в пропорциях места, без панели,
+                      🌍 первая потом счётчик». Inline values без обёртки. */}
+                  <div className="flex items-center gap-2 ml-1 text-[11px] font-mono select-none" aria-label="Статистика плейлиста">
+                    <span className="inline-flex items-center gap-1" title="Стран слушают">
+                      <span className="text-base leading-none">🌍</span>
+                      <span className="text-cyan-300 tabular-nums">{countriesCount}</span>
+                    </span>
+                    <span className="inline-flex items-center gap-1" title="Прослушиваний всего">
+                      <span className="text-fuchsia-300 tabular-nums">{totalPlays.toLocaleString("ru-RU")}</span>
+                    </span>
+                  </div>
                   {/* Eugene 2026-05-18 Босс «S в правый нижний угол» —
                       перенесена на absolute bottom-3 right-3 main player card. */}
                 </div>
@@ -1661,6 +1683,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             Все/Песни/Поздравления/Инструментальная».
             Соседний category-filter: text-xs px-3 py-1.5 (~28px высота).
             Эти: text-sm px-3 py-2.5 (~36px = +25%). */}
+        {/* Eugene 2026-05-22 Босс «плейлист часть попадает на обзор видимой
+            части, смести чуть ниже плеера». Spacer между currentTrack big
+            player и списком треков — чтобы список не лип к плееру и был
+            явно ниже viewport-fold. */}
+        <div className="mt-8 sm:mt-10" aria-hidden="true" />
         {/* Eugene 2026-05-16 Босс «убери из меню Новые авторы» — временно
             оставляем только основной плейлист. Backend endpoint остаётся,
             вернём когда исправим UI bug с пустым плейлистом. */}
