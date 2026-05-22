@@ -1858,8 +1858,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             PlaysCounter удалён из landing, перенесён в dashboard.tsx. */}
 
         {/* Eugene 2026-05-21 Босс «ракета при окончании трека вверх под углом».
-            Listener в компоненте на window event 'muza:track-finished'. */}
-        <RocketLaunch />
+            Listener в компоненте на window event 'muza:track-finished'.
+            Eugene 2026-05-22 Босс «убери ракету после воспроизведения» — disabled. */}
+        {/* <RocketLaunch /> */}
         {/* Eugene 2026-05-21 Босс «на +1000 prosлушиваний фейерверк в стиле MuzaAi».
             Listener на 'muza:milestone-1000' — 8 brand ракет с brust искрами. */}
         <Fireworks />
