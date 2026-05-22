@@ -1957,6 +1957,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               {countriesList.length === 0 && (
                                 <li className="text-xs text-white/40 text-center py-3">Пока нет данных</li>
                               )}
+                              {/* Eugene 2026-05-22 Босс «название слева флаг справа,
+                                  цифр нет». Порядок: name (gradient) → flag. */}
                               {[...countriesList].sort((a, b) => (b.n || 0) - (a.n || 0)).map((c, idx) => (
                                 <li
                                   key={c.country_code || c.country}
@@ -1966,11 +1968,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   }}
                                   className="flex items-center gap-2 text-[13px] py-1.5 px-2 rounded-lg hover:bg-white/[0.06] animate-in fade-in slide-in-from-bottom-2 duration-700"
                                 >
-                                  <span className="text-[18px] shrink-0">{flagOf(c.country_code, c.country)}</span>
                                   <span className="flex-1 break-words bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent font-medium">{englishCountryName(c.country_code, c.country)}</span>
-                                  {typeof c.n === "number" && c.n > 0 && (
-                                    <span className="text-[13px] tabular-nums font-bold bg-gradient-to-r from-blue-400 via-cyan-400 to-emerald-300 bg-clip-text text-transparent shrink-0">{c.n}</span>
-                                  )}
+                                  <span className="text-[18px] shrink-0">{flagOf(c.country_code, c.country)}</span>
                                 </li>
                               ))}
                             </ul>
@@ -2651,7 +2650,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                           drag panel (горизонталь+вертикаль через handle) уже отключён здесь. */}
                                       <div style={{flex:1,overflowY:'auto',padding:'12px 16px 16px',touchAction:'pan-y',WebkitOverflowScrolling:'touch'}}>
                                       <ul style={{listStyle:'none',padding:0,margin:0,display:'flex',flexDirection:'column',gap:'6px'}}>
-                                        {countriesList.map(c => <li key={c.country_code || c.country} style={{display:'flex',alignItems:'center',gap:'8px',fontSize:'13px',color:'rgba(255,255,255,0.85)',padding:'4px 0'}}><span style={{fontSize:'18px',flexShrink:0}}>{flagOf(c.country_code, c.country)}</span><span style={{flex:1,wordBreak:'break-word'}}>{englishCountryName(c.country_code, c.country)}</span></li>)}
+                                        {countriesList.map(c => <li key={c.country_code || c.country} style={{display:'flex',alignItems:'center',gap:'8px',fontSize:'13px',color:'rgba(255,255,255,0.85)',padding:'4px 0'}}><span style={{flex:1,wordBreak:'break-word'}}>{englishCountryName(c.country_code, c.country)}</span><span style={{fontSize:'18px',flexShrink:0}}>{flagOf(c.country_code, c.country)}</span></li>)}
                                         {countriesList.length === 0 && <li style={{fontSize:'12px',color:'rgba(255,255,255,0.4)'}}>Пока нет данных</li>}
                                       </ul>
                                       {/* Eugene 2026-05-15 Босс: «панель городов раздвигается
