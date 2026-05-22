@@ -1641,13 +1641,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                       <span className="text-base leading-none pointer-events-none">🌍</span>
                       <span className="text-[10px] tabular-nums text-muted-foreground mt-2 pointer-events-none">{countriesCount}</span>
                     </button>
-                    {/* Eugene 2026-05-22 Босс «высота рядов эквалайзера не
-                        выше Земли, по верхней её границе». 🌍 text-base = 16px
-                        font-size, реальная visible глифа ≈ 12px. Bars при
-                        100% animation = h-3 (12px) — точно по верху эмодзи.
-                        align-self-start чтобы bars шли от верхнего края 🌍
-                        вниз (а не центрировано). */}
-                    <div className="flex-1 flex items-end gap-[2px] h-3 min-w-[60px] max-w-[130px] self-start mt-[2px]" aria-hidden="true">
+                    {/* Eugene 2026-05-22 Босс «нижняя точка эквалайзеров
+                        начинается по нижней горизонтальной условной линии
+                        круга кнопки Поделиться, верхняя граница — верх Земли».
+                        Share button: w-8 h-8 (32px). Stats row vertically
+                        centered с share. Эквалайзер self-end (прижат к низу
+                        ряда controls = низ Share circle), h-[26px] (макс top
+                        совпадает с верхом 🌍 glyph). items-end на bars —
+                        растут снизу-вверх до max height. */}
+                    <div className="flex-1 flex items-end gap-[2px] h-[26px] min-w-[60px] max-w-[130px] self-end" aria-hidden="true">
                       {Array.from({ length: 12 }).map((_, i) => (
                         <div
                           key={i}
