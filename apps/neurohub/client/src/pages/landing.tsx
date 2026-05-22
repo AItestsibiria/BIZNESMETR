@@ -1639,7 +1639,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                       aria-label={`Стран слушают: ${countriesCount}. Нажмите для списка.`}
                     >
                       <span className="text-base leading-none pointer-events-none">🌍</span>
-                      <span className="text-[10px] tabular-nums text-muted-foreground mt-1 pointer-events-none">{countriesCount}</span>
+                      <span className="text-[10px] tabular-nums text-muted-foreground mt-2 pointer-events-none">{countriesCount}</span>
                     </button>
                     {/* Eugene 2026-05-22 Босс «высота рядов эквалайзера не
                         выше Земли, по верхней её границе». 🌍 text-base = 16px
