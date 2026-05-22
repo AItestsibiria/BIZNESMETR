@@ -487,7 +487,7 @@ export function CoverDetailsModal({
           safe-area-inset-top/bottom (iOS notch + home indicator). Container
           flex-shrink чтобы cover + controls умещались без overflow. */}
       <div
-        className="w-[94vw] max-w-2xl md:max-w-[432px] md:w-[70vw] lg:max-w-[504px] lg:w-[60vw] flex flex-col items-center justify-center gap-2 sm:gap-3 px-2 py-2 sm:py-4 relative overflow-hidden"
+        className="w-[94vw] max-w-2xl md:max-w-[500px] md:w-[80vw] lg:max-w-[580px] lg:w-[70vw] flex flex-col items-center justify-center gap-2 sm:gap-3 px-2 py-2 sm:py-4 relative overflow-hidden"
         style={{
           maxHeight: "calc(100vh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 16px)",
         }}
@@ -540,7 +540,7 @@ export function CoverDetailsModal({
             square aspect-ratio + 85vh высота заставлял container выходить
             за viewport (1024×1366 → square 1024 > 70% от 1366). */}
         <div
-          className="relative w-full aspect-square max-h-[55vh] sm:max-h-[60vh] md:max-h-[65vh] lg:max-h-[68vh] rounded-3xl overflow-hidden shadow-lg shadow-purple-500/10 shrink-0 bg-gradient-to-br from-purple-500/30 to-blue-500/30"
+          className="relative w-full aspect-square max-h-[63vh] sm:max-h-[69vh] md:max-h-[75vh] lg:max-h-[78vh] rounded-3xl overflow-hidden shadow-lg shadow-purple-500/10 shrink-0 bg-gradient-to-br from-purple-500/30 to-blue-500/30"
           onClick={(e) => e.stopPropagation()}
         >
           <AnimatePresence mode="wait" initial={false}>
