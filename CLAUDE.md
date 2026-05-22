@@ -1784,6 +1784,75 @@ Reference: subagent ad6390730 atom-level audit (root cause #3 с 40% — Safari 
 
 Связано с Playlist-strict-selection rule (тот говорит «играем только filtered», этот говорит «как именно строится filtered»).
 
+### Swipe-row-spring-back rule (Eugene 2026-05-22)
+
+**После любого swipe-движения row плейлиста влево/вправо (горизонтальный drag), при release пальца — row плавно возвращается в исходное положение (translate = 0).** Если threshold НЕ перейден (action не trigger'нулся) — row возвращается полностью. Если threshold перейден (например ≥60px) и action сработал — row тоже возвращается в исходное (потому что после action визуальный state меняется через другие state-changes).
+
+**Применяется к:**
+- Track rows в top-100 panel (если когда-то будут swipe gestures)
+- Track rows в countries panel (long-press на flag)
+- Track rows в reverse-tablet playlist
+- Любые future swipe-enabled rows в плеере / dashboard / track list
+
+**Реализация (эталон):**
+
+```jsx
+<li
+  onPointerDown={(e) => {
+    swipeStartRef.current = { id: t.id, startX: e.clientX };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }}
+  onPointerMove={(e) => {
+    if (!swipeStartRef.current) return;
+    const delta = e.clientX - swipeStartRef.current.startX;
+    setSwipeOffsetMap(prev => ({ ...prev, [t.id]: Math.max(-120, Math.min(delta, 120)) }));
+  }}
+  onPointerUp={(e) => {
+    const delta = e.clientX - swipeStartRef.current.startX;
+    swipeStartRef.current = null;
+    // Trigger action если threshold (≥60 / ≤-60)
+    if (delta > 60) { /* swipe-right action */ }
+    else if (delta < -60) { /* swipe-left action */ }
+    // ВСЕГДА reset offset — spring-back через CSS transition
+    setSwipeOffsetMap(prev => { const next = { ...prev }; delete next[t.id]; return next; });
+  }}
+  onPointerCancel={() => {
+    // Pointer cancel (например юзер свернул app) → тоже reset
+    swipeStartRef.current = null;
+    setSwipeOffsetMap(prev => { const next = { ...prev }; delete next[t.id]; return next; });
+  }}
+  style={{
+    transform: swipeOffsetMap[t.id] ? `translateX(${swipeOffsetMap[t.id]}px)` : undefined,
+    transition: swipeOffsetMap[t.id] ? "none" : "transform 0.3s ease-out",
+  }}
+>
+```
+
+**Жёсткие требования:**
+
+1. **`transition: "none"`** во время drag (offset > 0) → real-time follow finger без lag
+2. **`transition: "transform 0.3s ease-out"`** при release → smooth spring-back ~300ms
+3. **`onPointerCancel` обязателен** — освобождает state если pointer interrupted (system suspend, multi-touch confusion, browser context switch). Иначе row залипает в transformed состоянии.
+4. **`setPointerCapture` обязателен** — гарантирует full drag tracking даже если finger вышел за element bounds
+5. **`releasePointerCapture` при onPointerUp** — освобождает (try/catch wrapping для safety)
+
+**Анти-паттерны (что НЕЛЬЗЯ):**
+
+- ❌ `transition: "transform 0.3s ease-out"` ВСЕГДА (включая во время drag) — row тормозит за пальцем, не follow
+- ❌ `style={{ transform }}` без transition reset — после release row резко прыгает в 0 (jerk)
+- ❌ Опускать `onPointerCancel` — pointer interrupt оставляет row в transformed state
+- ❌ Использовать `setState({swipeOffset: 0})` для return-to-zero вместо `delete` from map — лишний render
+
+**iOS / Mobile safety:**
+
+- `touch-pan-y` Tailwind class на row (или container) → vertical scroll работает параллельно с horizontal swipe
+- `setPointerCapture` важен на iOS Safari (pointer events могут drop'аться)
+- Threshold 60px достаточен чтобы не triggernuть случайно при пальце которые слегка дрожит
+
+**Применяется к:** ВСЕМ horizontal swipe row-based interactions в проекте. Не применяется к: vertical scroll (естественный browser behavior), pinch (multi-touch), pan-2-finger.
+
+---
+
 ### Playlist-strict-selection rule (Eugene 2026-05-19, **ПРИОРИТЕТ #1 для плеера** — Eugene 2026-05-21 reinforce)
 
 **Воспроизведение плейлиста идёт СТРОГО по выбранным параметрам сессии — какой плейлист выбран, тот и играет. Никаких sneaky fallback'ов на полный список треков. ЭТО ГЛАВНОЕ ОБЕЩАНИЕ ПЛЕЕРА ЮЗЕРУ: «нажал play в этом плейлисте → следующий трек из этого же плейлиста».**
