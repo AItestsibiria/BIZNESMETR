@@ -1855,7 +1855,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                 {/* Создай в том же стиле */}
                 {currentTrack.styleInfo && (
                   <button
-                    className="w-full mt-2 py-1.5 rounded-lg bg-gradient-to-r from-purple-600/60 to-blue-600/60 text-white text-[10px] font-medium hover:from-purple-500/80 hover:to-blue-500/80 transition-all flex items-center justify-center gap-1.5"
+                    className="w-full mt-7 py-1.5 rounded-lg bg-gradient-to-r from-purple-600/60 to-blue-600/60 text-white text-[10px] font-medium hover:from-purple-500/80 hover:to-blue-500/80 transition-all flex items-center justify-center gap-1.5"
                     onClick={() => {
                       (window as any).__styleTransfer = currentTrack.styleInfo?.split(' \u00b7 ')[0]?.toLowerCase() || 'pop';
                       (window as any).__lyricsTransfer = null;
