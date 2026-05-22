@@ -1950,7 +1950,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 флаг потом название на английском». Staggered
                                 fade-in slide-in-from-bottom-2 duration-700,
                                 delay 200ms (как top-tracks). Flag → English name → n. */}
-                            <ul className="overflow-y-auto p-2 m-0 list-none flex flex-col gap-1" style={{ touchAction: "pan-y", WebkitOverflowScrolling: "touch" }}>
+                            {/* Eugene 2026-05-22 Босс «появление стран вверху так же
+                                снизу вверх» — flex-col-reverse как top-tracks panel.
+                                Первая страна (с макс visitors) внизу near 🌍, последняя вверху. */}
+                            <ul className="overflow-y-auto p-2 m-0 list-none flex flex-col-reverse gap-1" style={{ touchAction: "pan-y", WebkitOverflowScrolling: "touch" }}>
                               {countriesList.length === 0 && (
                                 <li className="text-xs text-white/40 text-center py-3">Пока нет данных</li>
                               )}
