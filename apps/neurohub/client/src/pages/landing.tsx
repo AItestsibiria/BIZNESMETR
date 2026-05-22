@@ -497,6 +497,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // кнопки «Поделиться» в большом плеере. Источник /api/playlist/stats,
   // обновление каждые 60 сек (как countriesCount).
   const [totalPlays, setTotalPlays] = useState<number>(0);
+  // Eugene 2026-05-22 Босс «нажатием на планетку панель не появляется,
+  // должна быть открыта снизу вверх не перемещаться вниз плеера». Отдельный
+  // state для player-anchored панели (не конфликтует с hero showCountries).
+  const [showPlayerCountries, setShowPlayerCountries] = useState(false);
   useEffect(() => {
     const load = () => fetch("/api/playlist/stats", { cache: "no-store" }).then(r => r.json()).then(d => { if (typeof d?.totalPlays === "number") setTotalPlays(d.totalPlays); }).catch(() => {});
     load();
@@ -1631,21 +1635,68 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                       [🌍-button + 24] [эквалайзер fixed-w] [🎧 7916] */}
                   <div className="flex items-center justify-between gap-2 ml-2 flex-1 min-w-0 max-w-[260px] sm:max-w-[300px] select-none" aria-label="Статистика плейлиста">
                     {/* Eugene 2026-05-22 Босс «нажатием на планетку либо цифры
-                        стран раскрывает панель стран». Button обёртка покрывает
-                        и 🌍 и цифру → клик в любую часть открывает. p-1 -m-1
-                        расширяет touch-zone (iOS HIG ≥44px) без визуального
-                        размера. Дополнительно — :hover/:active feedback на
-                        обоих элементах для ясности что они кликабельны. */}
-                    <button
-                      type="button"
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCountries(v => !v); }}
-                      className="flex flex-col items-center leading-none shrink-0 p-1 -m-1 hover:scale-110 active:scale-95 transition-transform cursor-pointer group"
-                      title="Нас слушают (нажмите для списка стран)"
-                      aria-label={`Стран слушают: ${countriesCount}. Нажмите для списка.`}
-                    >
-                      <span className="text-base leading-none pointer-events-none group-hover:opacity-90">🌍</span>
-                      <span className="text-[10px] tabular-nums text-muted-foreground mt-2 pointer-events-none group-hover:text-white/80 group-hover:underline underline-offset-2">{countriesCount}</span>
-                    </button>
+                        стран раскрывает панель стран. Должна быть открыта снизу
+                        вверх не перемещаться вниз плеера». Локальная панель
+                        для player'а — anchored к 🌍-кнопке через relative
+                        position + absolute panel (bottom-full = над кнопкой,
+                        растёт вверх). НЕ общий с hero showCountries чтобы
+                        две панели не конфликтовали. */}
+                    <div className="relative shrink-0">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowPlayerCountries(v => !v); }}
+                        className="flex flex-col items-center leading-none p-1 -m-1 hover:scale-110 active:scale-95 transition-transform cursor-pointer group"
+                        title="Нас слушают (нажмите для списка стран)"
+                        aria-label={`Стран слушают: ${countriesCount}. Нажмите для списка.`}
+                        aria-expanded={showPlayerCountries}
+                      >
+                        <span className="text-base leading-none pointer-events-none group-hover:opacity-90">🌍</span>
+                        <span className="text-[10px] tabular-nums text-muted-foreground mt-2 pointer-events-none group-hover:text-white/80 group-hover:underline underline-offset-2">{countriesCount}</span>
+                      </button>
+                      {showPlayerCountries && (
+                        <>
+                          {/* Backdrop — invisible, click closes */}
+                          <div
+                            className="fixed inset-0 z-[140]"
+                            onClick={() => setShowPlayerCountries(false)}
+                            onPointerDown={() => setShowPlayerCountries(false)}
+                            aria-hidden="true"
+                          />
+                          {/* Panel anchored к 🌍 button. bottom-full + mb-2 =
+                              над кнопкой с отступом 8px. left-1/2 -translate-x-1/2
+                              = центрирована по кнопке. max-h-[60vh] + overflow-y-auto
+                              чтобы не выходила за viewport. Растёт ВВЕРХ
+                              от позиции anchor. z-[150] выше backdrop. */}
+                          <div
+                            className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-[150] min-w-[200px] max-w-[280px] max-h-[60vh] rounded-2xl border border-white/10 backdrop-blur-xl flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200"
+                            style={{ background: "rgba(15, 10, 35, 0.92)", boxShadow: "0 -8px 32px rgba(0,0,0,0.6)" }}
+                            onClick={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => e.stopPropagation()}
+                          >
+                            <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
+                              <p className="text-sm font-semibold text-white/95 m-0">Нас слушают</p>
+                              <button
+                                type="button"
+                                onClick={() => setShowPlayerCountries(false)}
+                                className="text-white/50 hover:text-white text-xl leading-none px-1"
+                                aria-label="Закрыть"
+                              >×</button>
+                            </div>
+                            <ul className="overflow-y-auto p-3 m-0 list-none flex flex-col gap-1.5" style={{ touchAction: "pan-y", WebkitOverflowScrolling: "touch" }}>
+                              {countriesList.length === 0 && (
+                                <li className="text-xs text-white/40 text-center py-2">Пока нет данных</li>
+                              )}
+                              {countriesList.map(c => (
+                                <li key={c.country_code || c.country} className="flex items-center gap-2 text-[13px] text-white/85 py-1">
+                                  <span className="flex-1 break-words">{c.country}</span>
+                                  <span className="text-[18px] shrink-0">{flagOf(c.country_code, c.country)}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        </>
+                      )}
+                    </div>
                     {/* Eugene 2026-05-22 Босс «зона эквалайзеров между нижней
                         точкой горизонта цифры стран и точкой горизонта над
                         землёй». 🌍-block: 🌍 (16px) + mt-2 (8px) + countries
