@@ -1839,10 +1839,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                         />
                       ))}
                     </div>
-                    {/* 🎧 + plays inline */}
-                    <div className="flex items-center gap-1 shrink-0" title="Прослушиваний всего">
+                    {/* Eugene 2026-05-22 Босс «выполни наушники по оси земли,
+                        цифры прослушиваний сделай в градиентах логотипа».
+                        Та же flex-col структура что 🌍-button + p-1 -m-1 →
+                        top-of-glyph 🎧 точно на одной горизонтальной оси
+                        с 🌍. Цифры — brand gradient purple→violet→cyan
+                        (как Muza+Ai wordmark). */}
+                    <div className="flex flex-col items-center leading-none p-1 -m-1 shrink-0" title="Прослушиваний всего">
                       <span className="text-base leading-none">🎧</span>
-                      <span className="text-xs tabular-nums text-muted-foreground">{totalPlays.toLocaleString("ru-RU")}</span>
+                      <span className="text-[10px] tabular-nums mt-2 font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent">{totalPlays.toLocaleString("ru-RU")}</span>
                     </div>
                   </div>
                   {/* Eugene 2026-05-18 Босс «S в правый нижний угол» —
