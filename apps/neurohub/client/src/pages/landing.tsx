@@ -1907,7 +1907,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                       >
                         <span className="text-3xl leading-none pointer-events-none group-hover:opacity-90">🌍</span>
                         {/* Countries ABS под h-8 row — не влияет на flex alignment */}
-                        <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 text-[10px] tabular-nums font-bold bg-gradient-to-r from-blue-400 via-cyan-400 to-emerald-300 bg-clip-text text-transparent pointer-events-none group-hover:underline underline-offset-2 whitespace-nowrap" title="Стран слушают">{countriesCount}</span>
+                        <span className="absolute top-full left-1/2 -translate-x-1/2 mt-2 text-[13px] tabular-nums font-bold bg-gradient-to-r from-blue-400 via-cyan-400 to-emerald-300 bg-clip-text text-transparent pointer-events-none group-hover:underline underline-offset-2 whitespace-nowrap" title="Стран слушают">{countriesCount}</span>
                       </button>
                       {showPlayerCountries && (
                         <>
@@ -2025,7 +2025,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                         aria-expanded={showPlayerTopTracks}
                       >
                         <span className="text-3xl leading-none pointer-events-none group-hover:opacity-90">🎧</span>
-                        <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 text-[13px] tabular-nums font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap pointer-events-none group-hover:underline underline-offset-2">{totalPlays.toLocaleString("ru-RU")}</span>
+                        <span className="absolute top-full left-1/2 -translate-x-1/2 mt-2 text-[13px] tabular-nums font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap pointer-events-none group-hover:underline underline-offset-2">{totalPlays.toLocaleString("ru-RU")}</span>
                       </button>
                       {showPlayerTopTracks && (
                         <>
