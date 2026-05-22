@@ -19,7 +19,10 @@ import { clampToViewport, readPos, writePos } from "@/lib/clampViewport";
 // Eugene 2026-05-14 Босс: «после 1 dismiss через 1 мин, если ещё раз — 1 час».
 const REAPPEAR_MS_FIRST = 60_000;     // 1 минута после первого dismiss
 const REAPPEAR_MS_SECOND = 3_600_000; // 1 час после второго
-const APPEAR_DELAY_MS = 2500;
+// Eugene 2026-05-22 Босс «Муза появляется через 60 секунд» —
+// initial delay 2500ms → 0 (мгновенно при загрузке).
+// Reappear после dismiss (60s/1ч) остаётся как было — это by-design UX.
+const APPEAR_DELAY_MS = 0;
 const MAX_DISMISS = 3;
 const SS_KEY = "_helperDismissed";
 const SCROLL_VELOCITY_THRESHOLD = 60; // px между двумя scroll-events за <100ms = «резкий»
