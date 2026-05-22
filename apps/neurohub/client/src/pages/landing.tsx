@@ -1624,26 +1624,29 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   >
                     <Share2 className="w-3.5 h-3.5 text-muted-foreground" />
                   </button>
-                  {/* Eugene 2026-05-22 Босс «цвет счётчиков спокойный, эквалайзер
-                      после земли, количество стран строго под центром земли,
-                      перед счётчиком прослушиваний наушники, тот же шрифт что
-                      у плеера, гармонично пропорционально». Структура:
-                      [🌍 над 24] [эквалайзер 3 bars] [🎧 7916]. Шрифт plyer'а —
-                      text-xs tabular-nums text-muted-foreground (font-sans Inter). */}
-                  <div className="flex items-center gap-2.5 ml-1.5 select-none" aria-label="Статистика плейлиста">
-                    {/* 🌍 + countries под ним по центру */}
-                    <div className="flex flex-col items-center leading-none" title="Стран слушают">
-                      <span className="text-base leading-none">🌍</span>
-                      <span className="text-[10px] tabular-nums text-muted-foreground mt-0.5">{countriesCount}</span>
-                    </div>
+                  {/* Eugene 2026-05-22 Босс «цифры стран чуть ниже при нажатии
+                      на глобус панель со странами и флагами, нажатие на панель
+                      её закрывает, пропорции ширин уравновесь, не выходи за
+                      границы плеера». Структура inline:
+                      [🌍-button + 24] [эквалайзер fixed-w] [🎧 7916] */}
+                  <div className="flex items-center justify-between gap-2 ml-2 flex-1 min-w-0 max-w-[260px] sm:max-w-[300px] select-none" aria-label="Статистика плейлиста">
+                    {/* 🌍 кликабельный → открывает панель стран (showCountries) */}
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCountries(v => !v); }}
+                      className="flex flex-col items-center leading-none shrink-0 hover:scale-110 active:scale-95 transition-transform cursor-pointer"
+                      title="Нас слушают (нажмите для списка стран)"
+                      aria-label={`Стран слушают: ${countriesCount}. Нажмите для списка.`}
+                    >
+                      <span className="text-base leading-none pointer-events-none">🌍</span>
+                      <span className="text-[10px] tabular-nums text-muted-foreground mt-1 pointer-events-none">{countriesCount}</span>
+                    </button>
                     {/* Eugene 2026-05-22 Босс «эквалайзер цветной как был на
-                        главной, расширь по ширине поля, в такт треку». Brand
-                        gradient purple→cyan (как EqualizerDecor в hero), flex-1
-                        чтобы занять всё свободное место между 🌍 и 🎧.
-                        animation-play-state синхронизируется с isPlayingState —
-                        играет = running, pause = paused. iOS-safe (никакого
-                        createMediaElementSource — это сломает lock-screen). */}
-                    <div className="flex-1 flex items-end gap-[2px] h-4 min-w-[40px] max-w-[160px]" aria-hidden="true">
+                        главной, в такт треку, пропорции уравновесь, не выходи
+                        за границы плеера». Brand gradient purple→cyan,
+                        flex-1 в balance row, min/max ограничивают разлёт.
+                        animation-play-state синхронизируется с isPlayingState. */}
+                    <div className="flex-1 flex items-end gap-[2px] h-4 min-w-[60px] max-w-[130px]" aria-hidden="true">
                       {Array.from({ length: 12 }).map((_, i) => (
                         <div
                           key={i}
@@ -1659,7 +1662,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                       ))}
                     </div>
                     {/* 🎧 + plays inline */}
-                    <div className="flex items-center gap-1" title="Прослушиваний всего">
+                    <div className="flex items-center gap-1 shrink-0" title="Прослушиваний всего">
                       <span className="text-base leading-none">🎧</span>
                       <span className="text-xs tabular-nums text-muted-foreground">{totalPlays.toLocaleString("ru-RU")}</span>
                     </div>
