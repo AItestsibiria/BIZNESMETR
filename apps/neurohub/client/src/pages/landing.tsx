@@ -1939,11 +1939,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               Стиль chat-pane Музы (bg-background/[0.28] +
                               backdrop-blur-md + border-2 border-purple-400/40),
                               auto-max-height до hero h1, staggered fade-in. */}
-                          {/* Eugene 2026-05-22: mobile fixed bottom sheet,
-                              sm+ absolute anchored centered above 🌍. */}
                           <div
                             style={{ maxHeight: `${countriesPanelMaxHeight}px` }}
-                            className={`fixed bottom-20 left-3 right-3 sm:absolute sm:bottom-full sm:left-1/2 sm:right-auto sm:-translate-x-1/2 sm:mb-3 sm:w-[280px] sm:max-w-[420px] z-[150] bg-background/[0.28] backdrop-blur-md border-2 border-purple-400/40 rounded-2xl shadow-2xl shadow-purple-500/20 flex flex-col overflow-hidden ${playerCountriesClosing ? "animate-out fade-out duration-200" : "animate-in fade-in duration-150"}`}
+                            className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-3 z-[150] w-[280px] max-w-[80vw] bg-background/[0.28] backdrop-blur-md border-2 border-purple-400/40 rounded-2xl shadow-2xl shadow-purple-500/20 flex flex-col overflow-hidden ${playerCountriesClosing ? "animate-out fade-out duration-200" : "animate-in fade-in duration-150"}`}
                             onClick={closePlayerCountries}
                           >
                             <div className="flex items-center justify-between px-4 py-2.5 border-b border-purple-400/20 bg-purple-500/5">
@@ -2045,14 +2043,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               прозрачность, написание треков в звёздном цветовом
                               стиле MuzaAi, плейлист содержит топ 100, медленнее
                               появляются». */}
-                          {/* Eugene 2026-05-22 Босс «на смартфоне применить те же
-                              решения с учётом размеров экрана». На mobile (<sm)
-                              panel = fixed bottom sheet (центрирован в viewport,
-                              w = full width minus margins). На sm+ — обычный
-                              absolute anchored right-0 от 🎧 button. */}
                           <div
                             style={{ maxHeight: `${topPanelMaxHeight}px` }}
-                            className={`fixed bottom-20 left-3 right-3 sm:absolute sm:bottom-full sm:mb-3 sm:left-auto sm:right-0 sm:w-[280px] sm:max-w-[420px] z-[150] bg-background/[0.28] backdrop-blur-md border-2 border-purple-400/40 rounded-2xl shadow-2xl shadow-purple-500/20 flex flex-col overflow-hidden ${playerTopTracksClosing ? "animate-out fade-out duration-200" : "animate-in fade-in duration-150"}`}
+                            className={`absolute bottom-full right-0 mb-3 z-[150] w-[280px] max-w-[80vw] bg-background/[0.28] backdrop-blur-md border-2 border-purple-400/40 rounded-2xl shadow-2xl shadow-purple-500/20 flex flex-col overflow-hidden ${playerTopTracksClosing ? "animate-out fade-out duration-200" : "animate-in fade-in duration-150"}`}
                             onClick={closePlayerTopTracks}
                           >
                             <div className="flex items-center justify-between px-4 py-2.5 border-b border-purple-400/20 bg-purple-500/5">
