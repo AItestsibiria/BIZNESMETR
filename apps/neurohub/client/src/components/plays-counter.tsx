@@ -676,27 +676,8 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
                 {countriesCount}
               </span>
             )}
-            {geoData && geoData.totalVisits > 0 && (() => {
-              const n = geoData.totalVisits;
-              const mod10 = n % 10;
-              const mod100 = n % 100;
-              let word: string;
-              if (mod100 >= 11 && mod100 <= 14) word = "визитов";
-              else if (mod10 === 1) word = "визит";
-              else if (mod10 >= 2 && mod10 <= 4) word = "визита";
-              else word = "визитов";
-              return (
-                <span className="whitespace-nowrap">
-                  <span
-                    className="text-sm font-display font-bold bg-gradient-to-r from-purple-400 via-fuchsia-400 to-cyan-300 bg-clip-text text-transparent"
-                    style={{ fontVariantNumeric: "tabular-nums" }}
-                  >
-                    {n.toLocaleString("ru-RU")}
-                  </span>
-                  <span className="text-white/40 text-[10px] font-normal ml-1">{word}</span>
-                </span>
-              );
-            })()}
+            {/* Eugene 2026-05-22 Босс «убери статистику посещений из всех мест» —
+                visits-under-planet удалён. Остался только countriesCount. */}
           </div>
         </div>
       </div>
@@ -736,11 +717,9 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
                 <h3 className="text-[15px] font-display font-bold flex items-center gap-2">
                   🌍 <span className="bg-gradient-to-r from-[#A78BFA] to-[#22D3EE] bg-clip-text text-transparent">Откуда слушают</span>
                 </h3>
-                {/* Eugene 2026-05-21 Босс «в панели стран общее количество визитов».
-                    period теперь all-time, заголовок отражает это. */}
-                <p className="text-[11px] text-white/55 mt-1">
-                  Всё время · <span className="text-white/80 font-semibold">{geoData ? geoData.totalVisits.toLocaleString("ru-RU") : "—"}</span> визитов
-                </p>
+                {/* Eugene 2026-05-22 Босс «убери статистику посещений» —
+                    visit count из header модалки убран, только период. */}
+                <p className="text-[11px] text-white/55 mt-1">Всё время</p>
               </div>
               <button onClick={() => setShowGeo(false)} className="text-white/70 hover:text-white text-[20px] leading-none">×</button>
             </div>
