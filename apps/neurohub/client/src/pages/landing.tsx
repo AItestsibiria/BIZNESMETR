@@ -354,7 +354,21 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const { user } = useAuth();
-  const [tracks, setTracks] = useState<any[]>([]);
+  // Eugene 2026-05-22 Босс: «при загрузке появляется загрузка фишек MuzaAi,
+  // надо чтобы плеер сразу появлялся». ROOT CAUSE: initial tracks=[] до fetch.
+  // FIX: instant render из localStorage cache (TTL 30 min, любая категория/sort
+  // подойдёт для первого paint), потом fetch обновит свежими.
+  const [tracks, setTracks] = useState<any[]>(() => {
+    try {
+      const raw = localStorage.getItem("pl:tracks:cache");
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!parsed || !Array.isArray(parsed.tracks)) return [];
+      // TTL 30 мин — после fetch перерисует свежими данными
+      if (Date.now() - (parsed.savedAt || 0) > 30 * 60 * 1000) return [];
+      return parsed.tracks;
+    } catch { return []; }
+  });
   // Eugene 2026-05-20 Босс «при login/logout choice плейлиста теряется».
   // ROOT CAUSE: pl_v2:<userId|guest>:<k> переключался по user.id —
   // на логин stale pl_v2:<id>:<k> перебивал свежий guest-выбор; на
@@ -723,6 +737,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   useEffect(() => {
     fetch(`/api/playlist?status=${playlistKind}&sort=${sortMode}&dir=${sortDir}&_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).then(data => {
       setTracks(data);
+      // Eugene 2026-05-22 — кешируем для instant-paint при следующем визите.
+      try {
+        if (Array.isArray(data) && data.length > 0) {
+          localStorage.setItem("pl:tracks:cache", JSON.stringify({ tracks: data, savedAt: Date.now() }));
+        }
+      } catch {}
 
       // Auto-play shared track from /play/:id route
       const autoTrack = autoPlayId ? data.find((t: any) => t.id === autoPlayId && t.type === 'music' && t.audioUrl) : null;
