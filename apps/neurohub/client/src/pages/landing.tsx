@@ -501,6 +501,24 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // должна быть открыта снизу вверх не перемещаться вниз плеера». Отдельный
   // state для player-anchored панели (не конфликтует с hero showCountries).
   const [showPlayerCountries, setShowPlayerCountries] = useState(false);
+  // Eugene 2026-05-22 Босс «закрывания панель стран от нажатия на любую её
+  // точку задержку поставь, панель испаряется как обложка». isClosing =
+  // animate-out fade phase + 500ms cooldown anti-accidental tap.
+  const [playerCountriesClosing, setPlayerCountriesClosing] = useState(false);
+  const playerCountriesOpenedAtRef = useRef<number>(0);
+  useEffect(() => {
+    if (showPlayerCountries) playerCountriesOpenedAtRef.current = Date.now();
+  }, [showPlayerCountries]);
+  const closePlayerCountries = useCallback(() => {
+    // Accidental-tap-protection rule (CLAUDE.md): 500ms cooldown после open
+    if (Date.now() - playerCountriesOpenedAtRef.current < 500) return;
+    if (playerCountriesClosing) return;
+    setPlayerCountriesClosing(true);
+    setTimeout(() => {
+      setShowPlayerCountries(false);
+      setPlayerCountriesClosing(false);
+    }, 200);
+  }, [playerCountriesClosing]);
   useEffect(() => {
     const load = () => fetch("/api/playlist/stats", { cache: "no-store" }).then(r => r.json()).then(d => { if (typeof d?.totalPlays === "number") setTotalPlays(d.totalPlays); }).catch(() => {});
     load();
@@ -1675,28 +1693,31 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                       </button>
                       {showPlayerCountries && (
                         <>
-                          {/* Backdrop — invisible, click closes */}
+                          {/* Backdrop — invisible. Click triggers closePlayerCountries
+                              (с 500ms anti-tap cooldown + fade-out анимацией). */}
                           <div
                             className="fixed inset-0 z-[140]"
-                            onClick={() => setShowPlayerCountries(false)}
-                            onPointerDown={() => setShowPlayerCountries(false)}
+                            onClick={closePlayerCountries}
+                            onPointerDown={closePlayerCountries}
                             aria-hidden="true"
                           />
                           {/* Panel anchored к 🌍 button. bottom-full + mb-2 =
                               над кнопкой с отступом 8px. left-1/2 -translate-x-1/2
                               = центрирована по кнопке. max-h-[60vh] + overflow-y-auto
-                              чтобы не выходила за viewport. Растёт ВВЕРХ
-                              от позиции anchor. z-[150] выше backdrop. */}
+                              чтобы не выходила за viewport. Растёт ВВЕРХ от anchor.
+                              Eugene 2026-05-22 Босс «от нажатия на любую её точку
+                              задержку поставь, панель испаряется как обложка»:
+                              onClick на panel триггерит closePlayerCountries
+                              (с cooldown), animate-out fade-out при isClosing. */}
                           <div
-                            className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-[150] min-w-[200px] max-w-[280px] max-h-[60vh] glass-card rounded-2xl border border-purple-500/30 shadow-2xl shadow-purple-500/20 flex flex-col overflow-hidden animate-in fade-in duration-100"
-                            onClick={(e) => e.stopPropagation()}
-                            onPointerDown={(e) => e.stopPropagation()}
+                            className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-[150] min-w-[200px] max-w-[280px] max-h-[60vh] glass-card rounded-2xl border border-purple-500/30 shadow-2xl shadow-purple-500/20 flex flex-col overflow-hidden ${playerCountriesClosing ? "animate-out fade-out duration-200" : "animate-in fade-in duration-150"}`}
+                            onClick={closePlayerCountries}
                           >
                             <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
                               <p className="text-sm font-semibold text-white/95 m-0">Нас слушают</p>
                               <button
                                 type="button"
-                                onClick={() => setShowPlayerCountries(false)}
+                                onClick={(e) => { e.stopPropagation(); closePlayerCountries(); }}
                                 className="text-white/50 hover:text-white text-xl leading-none px-1"
                                 aria-label="Закрыть"
                               >×</button>
