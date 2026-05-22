@@ -1641,15 +1641,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                       <span className="text-base leading-none pointer-events-none">🌍</span>
                       <span className="text-[10px] tabular-nums text-muted-foreground mt-2 pointer-events-none">{countriesCount}</span>
                     </button>
-                    {/* Eugene 2026-05-22 Босс «нижняя точка эквалайзеров
-                        начинается по нижней горизонтальной условной линии
-                        круга кнопки Поделиться, верхняя граница — верх Земли».
-                        Share button: w-8 h-8 (32px). Stats row vertically
-                        centered с share. Эквалайзер self-end (прижат к низу
-                        ряда controls = низ Share circle), h-[26px] (макс top
-                        совпадает с верхом 🌍 glyph). items-end на bars —
-                        растут снизу-вверх до max height. */}
-                    <div className="flex-1 flex items-end gap-[2px] h-[26px] min-w-[60px] max-w-[130px] self-end" aria-hidden="true">
+                    {/* Eugene 2026-05-22 Босс «зона эквалайзеров между нижней
+                        точкой горизонта цифры стран и точкой горизонта над
+                        землёй». 🌍-block: 🌍 (16px) + mt-2 (8px) + countries
+                        text-[10px] (~12px) = ~36px total. Эквалайзер h-9 (36px)
+                        = равна высоте 🌍-block. items-end на bars — растут
+                        снизу-вверх. parent items-center → child эквалайзер
+                        и 🌍-block оба центрированы по vertical → top of bars
+                        max = top of 🌍, bottom of bars = bottom of countries. */}
+                    <div className="flex-1 flex items-end gap-[2px] h-9 min-w-[60px] max-w-[130px]" aria-hidden="true">
                       {Array.from({ length: 12 }).map((_, i) => (
                         <div
                           key={i}
