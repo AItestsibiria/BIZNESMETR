@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CRMNedv AI Аналитик</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f5f0;min-height:100vh;display:flex;flex-direction:column}
+:root{
+  --bg:#ffffff;--bg2:#f5f5f0;--bg3:#eeeee8;
+  --text:#1a1a1a;--text2:#555;--text3:#999;
+  --border:#d8d8d0;--border2:#c0c0b8;
+  --blue:#1a6fc4;--blue-bg:#e8f0fb;--blue-light:#f0f5fd;
+  --green:#1a7a4a;--green-bg:#e8f5ee;
+  --amber:#a06010;--amber-bg:#fdf5e8;
+  --red:#b83030;--red-bg:#fceaea;
+  --purple:#5b3fb8;--purple-bg:#f0eeff;
+  --radius:10px;--radius-sm:6px;
+}
+@media(prefers-color-scheme:dark){
+  :root{
+    --bg:#1c1c1e;--bg2:#111110;--bg3:#2a2a28;
+    --text:#f0f0ec;--text2:#aaa;--text3:#666;
+    --border:#333330;--border2:#444440;
+    --blue:#5a9fe8;--blue-bg:#1a2a3a;--blue-light:#1a2535;
+    --green:#4aaa70;--green-bg:#1a2a20;
+    --amber:#d08020;--amber-bg:#2a2010;
+    --red:#e06060;--red-bg:#2a1a1a;
+    --purple:#9070e0;--purple-bg:#201a35;
+  }
+}
+
+.app{display:flex;flex-direction:column;height:100vh;max-width:900px;margin:0 auto}
+.topbar{background:var(--bg);border-bottom:1px solid var(--border);padding:0 20px;display:flex;align-items:center;gap:12px;height:52px;flex-shrink:0}
+.topbar-logo{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:600;color:var(--text)}
+.topbar-logo i{font-size:18px;color:var(--blue)}
+.conn-badge{display:none;align-items:center;gap:5px;font-size:12px;padding:3px 10px;border-radius:20px;background:var(--green-bg);color:var(--green);margin-left:auto}
+.demo-badge{display:none;align-items:center;gap:5px;font-size:12px;padding:3px 10px;border-radius:20px;background:var(--amber-bg);color:var(--amber)}
+
+.setup-panel{background:var(--bg);border-bottom:1px solid var(--border);padding:16px 20px}
+.setup-title{font-size:13px;font-weight:500;color:var(--text2);margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.fields-row{display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-bottom:10px}
+.btn-row{display:flex;gap:8px;align-items:center}
+input{height:36px;padding:0 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg2);color:var(--text);font-size:13px;width:100%;outline:none;transition:border .15s}
+input:focus{border-color:var(--blue)}
+.btn{height:34px;padding:0 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;transition:background .15s}
+.btn:hover{background:var(--bg3)}
+.btn.primary{background:var(--blue);color:#fff;border-color:var(--blue)}
+.btn.primary:hover{opacity:.9}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.err-msg{font-size:12px;color:var(--red)}
+
+.msgs{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:12px;background:var(--bg2)}
+
+.msg-user{display:flex;justify-content:flex-end}
+.msg-user-bubble{background:var(--blue);color:#fff;padding:10px 14px;border-radius:var(--radius) var(--radius-sm) var(--radius-sm) var(--radius);font-size:14px;max-width:75%;line-height:1.5}
+
+.msg-ai{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm) var(--radius) var(--radius) var(--radius);padding:16px}
+.msg-ai-header{display:flex;align-items:flex-start;gap:10px;margin-bottom:12px}
+.ai-avatar{width:28px;height:28px;border-radius:50%;background:var(--purple-bg);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.ai-avatar i{font-size:14px;color:var(--purple)}
+
+.metrics-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;margin-bottom:12px}
+.metric-card{background:var(--bg2);border-radius:var(--radius-sm);padding:10px;text-align:center}
+.metric-label{font-size:11px;color:var(--text3);margin-bottom:4px}
+.metric-value{font-size:22px;font-weight:600;color:var(--text);line-height:1.2}
+.metric-trend{font-size:12px;margin-top:2px}
+.trend-up{color:var(--green)}
+.trend-down{color:var(--red)}
+.trend-neutral{color:var(--text3)}
+
+.insights-list{list-style:none;margin-bottom:12px}
+.insights-list li{font-size:13px;color:var(--text2);padding:5px 0;border-bottom:1px solid var(--border);display:flex;gap:6px;align-items:flex-start;line-height:1.5}
+.insights-list li:last-child{border-bottom:none}
+.insights-list li i{font-size:10px;color:var(--blue);margin-top:4px;flex-shrink:0}
+
+.rec-box{background:var(--blue-light);border-left:3px solid var(--blue);border-radius:0 var(--radius-sm) var(--radius-sm) 0;padding:10px 12px;margin-bottom:12px;font-size:13px;color:var(--blue);line-height:1.5}
+.rec-box i{vertical-align:-2px;margin-right:4px}
+
+.data-table-wrap{overflow-x:auto;margin-top:4px;border-radius:var(--radius-sm);border:1px solid var(--border)}
+table{width:100%;border-collapse:collapse;font-size:12px;min-width:400px}
+th{background:var(--bg2);padding:7px 10px;text-align:left;font-weight:500;color:var(--text2);white-space:nowrap;font-size:11px;border-bottom:1px solid var(--border)}
+td{padding:7px 10px;color:var(--text);border-bottom:1px solid var(--border);white-space:nowrap}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:var(--bg2)}
+.status-badge{font-size:11px;padding:2px 8px;border-radius:20px;white-space:nowrap}
+.s-active{background:var(--green-bg);color:var(--green)}
+.s-new{background:var(--blue-bg);color:var(--blue)}
+.s-warn{background:var(--amber-bg);color:var(--amber)}
+.s-done{background:var(--bg3);color:var(--text3)}
+.more-hint{font-size:11px;color:var(--text3);padding:6px 10px;font-style:italic}
+
+.loading-msg{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px}
+.loading-top{display:flex;align-items:center;gap:10px}
+.spinner{width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-text{font-size:13px;color:var(--text2)}
+.steps-bar{display:flex;gap:5px;margin-top:10px}
+.step-seg{height:3px;flex:1;border-radius:2px;background:var(--border);transition:background .4s}
+.step-done{background:var(--green)}
+.step-active{background:var(--blue)}
+
+.system-note{text-align:center;font-size:12px;color:var(--text3);padding:4px}
+
+.welcome-card{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:16px}
+.welcome-title{font-size:14px;font-weight:500;color:var(--text);margin-bottom:4px;display:flex;align-items:center;gap:6px}
+.welcome-title i{color:var(--blue)}
+.welcome-sub{font-size:13px;color:var(--text2);margin-bottom:12px}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font-size:12px;padding:5px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:20px;cursor:pointer;color:var(--text2);transition:border-color .15s,color .15s}
+.chip:hover{border-color:var(--blue);color:var(--blue)}
+
+.err-card{background:var(--red-bg);border-radius:var(--radius);padding:12px 14px;font-size:13px;color:var(--red);display:flex;gap:8px;align-items:flex-start}
+.err-card i{margin-top:1px;flex-shrink:0}
+
+.cors-notice{background:var(--amber-bg);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;font-size:12px;color:var(--amber);line-height:1.6;display:none}
+.cors-notice strong{font-weight:600}
+
+.input-area{background:var(--bg);border-top:1px solid var(--border);padding:12px 20px;flex-shrink:0}
+.input-wrap{display:flex;gap:8px;align-items:flex-end;border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;background:var(--bg2);transition:border .15s}
+.input-wrap:focus-within{border-color:var(--blue)}
+textarea{flex:1;min-height:44px;max-height:180px;font-size:14px;border:none;background:transparent;resize:none;outline:none;color:var(--text);font-family:inherit;line-height:1.5}
+textarea::placeholder{color:var(--text3)}
+.send-btn{width:36px;height:36px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--blue);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:opacity .15s}
+.send-btn:hover{opacity:.88}
+.send-btn:disabled{opacity:.4;cursor:not-allowed}
+.input-hint{font-size:11px;color:var(--text3);margin-top:6px;text-align:center}
+
+.endpoint-chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--text3);background:var(--bg2);padding:2px 8px;border-radius:20px;font-family:monospace}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Top bar -->
+  <div class="topbar">
+    <div class="topbar-logo">
+      <i class="ti ti-building-skyscraper"></i>
+      CRMNedv AI Аналитик
+    </div>
+    <div class="conn-badge" id="conn-badge">
+      <i class="ti ti-circle-check"></i> Подключено
+    </div>
+    <div class="demo-badge" id="demo-badge">
+      <i class="ti ti-test-pipe"></i> Демо-режим
+    </div>
+  </div>
+
+  <!-- Setup panel -->
+  <div class="setup-panel" id="setup-panel">
+    <div class="setup-title">
+      <i class="ti ti-plug"></i> Подключение к вашей CRM
+    </div>
+    <div class="fields-row">
+      <input type="text" id="crm-domain" placeholder="ваш-домен.ru (без https://)" autocomplete="off">
+      <input type="text" id="crm-login" placeholder="Логин" autocomplete="off">
+      <input type="password" id="crm-pass" placeholder="Пароль">
+    </div>
+    <div class="btn-row">
+      <button class="btn primary" id="connect-btn" onclick="connect()">
+        <i class="ti ti-plug"></i> Подключиться
+      </button>
+      <button class="btn" onclick="enableDemo()">
+        <i class="ti ti-test-pipe"></i> Демо без CRM
+      </button>
+      <span class="err-msg" id="conn-err"></span>
+    </div>
+  </div>
+
+  <!-- Messages -->
+  <div class="msgs" id="msgs">
+    <div class="welcome-card">
+      <div class="welcome-title"><i class="ti ti-sparkles"></i> Задайте вопрос о данных вашей CRM</div>
+      <div class="welcome-sub">Спрашивайте на обычном русском языке — система сама построит запрос, получит данные и проанализирует результат.</div>
+      <div class="chips">
+        <div class="chip" onclick="ask(this)">Сколько объектов добавлено за неделю?</div>
+        <div class="chip" onclick="ask(this)">Статистика по категориям недвижимости</div>
+        <div class="chip" onclick="ask(this)">Последние 10 объектов в системе</div>
+        <div class="chip" onclick="ask(this)">Сколько клиентов зарегистрировано?</div>
+        <div class="chip" onclick="ask(this)">Активные заявки за этот месяц</div>
+        <div class="chip" onclick="ask(this)">Средняя цена коммерческих объектов</div>
+      </div>
+    </div>
+
+    <div class="cors-notice" id="cors-notice">
+      <strong><i class="ti ti-alert-triangle"></i> CORS-ограничение браузера:</strong> Прямые запросы к стороннему домену заблокированы политикой безопасности. Решения: 1) Настройте заголовок <code>Access-Control-Allow-Origin</code> в конфиге вашей CRM; 2) Разверните простой proxy-сервер (nginx 3 строки); 3) Используйте демо-режим для тестирования интерфейса.
+    </div>
+  </div>
+
+  <!-- Input area -->
+  <div class="input-area">
+    <div class="input-wrap">
+      <textarea id="q-input" placeholder="Спросите что угодно о данных в CRM... (Enter — отправить, Shift+Enter — перенос строки)"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();submitQuery()}"></textarea>
+      <button class="send-btn" id="send-btn" onclick="submitQuery()" aria-label="Отправить">
+        <i class="ti ti-send" style="font-size:16px"></i>
+      </button>
+    </div>
+    <div class="input-hint">Powered by Claude AI · CRMNedv REST API</div>
+  </div>
+</div>
+
+<script>
+const S = { token:null, domain:null, connected:false, demo:false, busy:false };
+
+/* ── AUTH ─────────────────────────────────────────────── */
+async function connect() {
+  let domain = document.getElementById('crm-domain').value.trim().replace(/^https?:\/\//,'').replace(/\/$/,'');
+  const login = document.getElementById('crm-login').value.trim();
+  const pass  = document.getElementById('crm-pass').value.trim();
+  if (!domain||!login||!pass) { showErr('Заполните все три поля'); return; }
+
+  const btn = document.getElementById('connect-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner" style="display:inline-block"></span> Подключение...';
+
+  try {
+    const r = await fetch(`https://${domain}/rest_api/rest_api/token.json`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({User:{username:login, password:pass}})
+    });
+    const d = await r.json();
+    if (d?.data?.token) {
+      S.token = d.data.token; S.domain = domain; S.connected = true;
+      onConnected(); sysNote('Подключено к '+domain);
+    } else { showErr('Неверные данные или отказ сервера'); }
+  } catch(e) {
+    if (String(e).includes('fetch')) {
+      document.getElementById('cors-notice').style.display = 'block';
+      showErr('CORS-ошибка — см. подсказку ниже');
+    } else { showErr('Ошибка: '+e.message); }
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="ti ti-plug"></i> Подключиться';
+  }
+}
+
+function enableDemo() {
+  S.demo = true; S.connected = true; S.domain = 'demo.crmnedv.ru';
+  document.getElementById('crm-domain').value='demo.crmnedv.ru';
+  document.getElementById('crm-login').value='demo';
+  document.getElementById('crm-pass').value='••••••';
+  onConnected(); sysNote('Демо-режим активирован — используются смоделированные данные');
+}
+
+function onConnected() {
+  document.getElementById('setup-panel').style.display='none';
+  document.getElementById('conn-badge').style.display = S.demo ? 'none':'flex';
+  document.getElementById('demo-badge').style.display = S.demo ? 'flex':'none';
+}
+
+/* ── QUERY FLOW ───────────────────────────────────────── */
+function ask(chip) { submitQuery(chip.textContent); }
+
+async function submitQuery(text) {
+  if (!S.connected) { sysNote('Сначала подключитесь к CRM или выберите демо-режим'); return; }
+  const inp = document.getElementById('q-input');
+  const q = text || inp.value.trim();
+  if (!q || S.busy) return;
+  inp.value = '';
+  S.busy = true;
+
+  addUserMsg(q);
+  const loader = addLoader();
+
+  try {
+    setStep(loader,1,'Интерпретирую запрос...');
+    const plan = await interpretQuery(q);
+
+    setStep(loader,2,'Запрашиваю данные из CRM...');
+    const raw = await fetchCRM(plan);
+
+    setStep(loader,3,'Анализирую результаты...');
+    const analysis = await analyzeData(q, plan, raw);
+
+    removeEl(loader);
+    addResult(plan, raw, analysis);
+  } catch(e) {
+    removeEl(loader);
+    addErrMsg(e.message||String(e));
+  } finally { S.busy=false; }
+}
+
+/* ── CLAUDE: interpret ────────────────────────────────── */
+async function interpretQuery(q) {
+  const r = await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      model:'claude-sonnet-4-20250514', max_tokens:600,
+      system:`Ты конвертер запросов для CRMNedv — CRM агентства недвижимости.
+Пользователь спрашивает на русском. Ты возвращаешь JSON с параметрами нужного API-вызова.
+
+API CRMNedv:
+• Объекты/листинги: /admin/agency/realty/index.json
+  params: sort(updated/created/price), category_id(1=продажа,2=аренда,3=коммерческая), page, limit
+• Заявки клиентов: /admin/agency/request/index.json
+  params: sort(updated/created), status_id, page
+• Пользователи/клиенты: /admin/dictionaries/dictionaries/index/Users.User.json
+  params: page
+• Словари (статусы, типы): /admin/dictionaries/dictionaries/index/Dictionary.json
+
+Верни ТОЛЬКО валидный JSON (без markdown):
+{"endpoint":"/admin/agency/realty/index.json","params":{"sort":"updated","page":"1"},"dataType":"listings","description":"Краткое описание","label":"Что ищем"}
+dataType: listings | requests | users | dictionary`,
+      messages:[{role:'user',content:q}]
+    })
+  });
+  const d = await r.json();
+  const txt = d.content?.[0]?.text||'{}';
+  try { return JSON.parse(txt.replace(/```json|```/g,'').trim()); }
+  catch { return {endpoint:'/admin/agency/realty/index.json',params:{sort:'updated'},dataType:'listings',description:q,label:'Объекты'}; }
+}
+
+/* ── CRM FETCH or DEMO ────────────────────────────────── */
+async function fetchCRM(plan) {
+  if (S.demo) return demoData(plan.dataType, plan.params);
+  const p = new URLSearchParams({api_token:S.token, ...plan.params});
+  try {
+    const r = await fetch(`https://${S.domain}${plan.endpoint}?${p}`);
+    return await r.json();
+  } catch(e) {
+    document.getElementById('cors-notice').style.display='block';
+    throw new Error('Не удалось обратиться к CRM. CORS не настроен. Попробуйте демо-режим.');
+  }
+}
+
+/* ── CLAUDE: analyze ──────────────────────────────────── */
+async function analyzeData(q, plan, raw) {
+  const snippet = JSON.stringify(raw).substring(0,2500);
+  const r = await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      model:'claude-sonnet-4-20250514', max_tokens:900,
+      system:`Ты аналитик данных агентства коммерческой недвижимости.
+Анализируй данные из CRM кратко и по делу. Только русский язык. Без воды.
+Верни ТОЛЬКО валидный JSON (без markdown):
+{"summary":"Одно предложение-резюме","keyMetrics":[{"label":"Название","value":"Значение","trend":"up|down|neutral"}],"insights":["Инсайт 1","Инсайт 2","Инсайт 3"],"recommendation":"Одна конкретная рекомендация"}
+keyMetrics: 2-4 метрики. insights: 2-4 наблюдения. Будь конкретным с числами из данных.`,
+      messages:[{role:'user',content:`Запрос: "${q}"\nЭндпоинт: ${plan.endpoint}\nДанные: ${snippet}`}]
+    })
+  });
+  const d = await r.json();
+  const txt = d.content?.[0]?.text||'{}';
+  try { return JSON.parse(txt.replace(/```json|```/g,'').trim()); }
+  catch { return {summary:'Данные получены',keyMetrics:[{label:'Записей',value:raw?.data?.length||0,trend:'neutral'}],insights:['Данные успешно загружены'],recommendation:'Уточните запрос для детального анализа'}; }
+}
+
+/* ── DEMO DATA ─────────────────────────────────────────── */
+function demoData(type, params) {
+  const now = new Date();
+  const ago = (d) => new Date(now-d*86400000).toISOString().slice(0,10);
+  
+  if (type==='users') {
+    const rows = [{id:101,name:'Иванов Иван Сергеевич',phone:'+7 (925) 100-10-01',email:'ivanov@mail.ru',role:'Агент',created:ago(45)},{id:102,name:'Петрова Мария Вл.',phone:'+7 (916) 200-20-02',email:'petrova@gmail.com',role:'Агент',created:ago(32)},{id:103,name:'Сидоров А.П.',phone:'+7 (903) 300-30-03',email:'sid@yandex.ru',role:'Менеджер',created:ago(12)},{id:104,name:'Козлова Елена',phone:'+7 (985) 400-40-04',email:'kozlova@mail.ru',role:'Агент',created:ago(8)},{id:105,name:'Новиков Д.Р.',phone:'+7 (967) 500-50-05',email:'novikov@bk.ru',role:'Агент',created:ago(3)}];
+    return {data:rows,count:rows.length,total:87,page:1};
+  }
+  if (type==='requests') {
+    const rows = [{id:201,client:'Иванов И.С.',type:'Покупка',budget:'8 500 000 ₽',area:'от 60 м²',status:'В работе',agent:'Петрова М.',created:ago(1)},{id:202,client:'ООО Ромашка',type:'Аренда',budget:'150 000 ₽/мес',area:'от 200 м²',status:'Новая',agent:'Сидоров А.',created:ago(2)},{id:203,client:'Козлов А.',type:'Продажа',budget:'12 000 000 ₽',area:'120 м²',status:'Закрыта',agent:'Новиков Д.',created:ago(5)},{id:204,client:'ИП Соколов',type:'Аренда',budget:'80 000 ₽/мес',area:'от 100 м²',status:'В работе',agent:'Иванов И.',created:ago(7)},{id:205,client:'Михайлова С.',type:'Покупка',budget:'5 200 000 ₽',area:'от 45 м²',status:'Новая',agent:'Петрова М.',created:ago(8)}];
+    return {data:rows,count:rows.length,total:54,page:1};
+  }
+  // default: listings
+  const cats=['Квартира','Офис','Склад','Торговое','Участок'];
+  const cities=['Москва','Москва','Москва','СПб','Казань'];
+  const statuses=['Активный','В работе','Резерв','Новый','Активный'];
+  const areas=[45,120,280,55,800,38,160,350,90,1200,72,200,500,65,300];
+  const prices=[5200000,18000000,32000000,8500000,95000000,4800000,22000000,41000000,11000000,140000000,7300000,25000000,55000000,9000000,36000000];
+  const rows = Array.from({length:15},(_,i)=>({
+    id:3000+i,
+    title:`${cats[i%5]}, ${areas[i%areas.length]} м², ${cities[i%5]}`,
+    category:cats[i%5],
+    area:areas[i%areas.length],
+    price:prices[i%prices.length],
+    status:statuses[i%statuses.length],
+    agent:['Петрова М.','Сидоров А.','Новиков Д.','Иванов И.'][i%4],
+    updated:ago(i),created:ago(i+5)
+  }));
+  const newThisWeek = rows.filter(r=>new Date(r.created)>=new Date(now-7*86400000)).length;
+  const avgP = Math.round(rows.reduce((s,r)=>s+r.price,0)/rows.length);
+  return {data:rows,count:rows.length,total:147,page:1,
+    stats:{newThisWeek,avgPrice:avgP,
+      byCategory:Object.fromEntries(cats.map(c=>[c,rows.filter(r=>r.category===c).length]))}};
+}
+
+/* ── UI BUILDERS ───────────────────────────────────────── */
+function addUserMsg(txt) {
+  add(`<div class="msg-user"><div class="msg-user-bubble">${esc(txt)}</div></div>`);
+}
+function sysNote(txt) {
+  add(`<div class="system-note">${esc(txt)}</div>`);
+}
+function addLoader() {
+  const el = document.createElement('div');
+  el.className='loading-msg';
+  el.innerHTML=`<div class="loading-top"><div class="spinner"></div><span class="loading-text" id="lt">Обрабатываю...</span></div>
+  <div class="steps-bar"><div class="step-seg" id="s1"></div><div class="step-seg" id="s2"></div><div class="step-seg" id="s3"></div></div>`;
+  document.getElementById('msgs').appendChild(el);
+  scrollBottom(); return el;
+}
+function setStep(el,n,txt) {
+  const lt=el.querySelector('#lt'); if(lt) lt.textContent=txt;
+  for(let i=1;i<=3;i++){
+    const s=el.querySelector('#s'+i); if(!s) continue;
+    s.className='step-seg'+(i<n?' step-done':i===n?' step-active':'');
+  }
+}
+function removeEl(el){ if(el&&el.parentNode) el.parentNode.removeChild(el); }
+function addErrMsg(msg) {
+  add(`<div class="err-card"><i class="ti ti-alert-circle"></i><span>${esc(msg)}</span></div>`);
+}
+
+function addResult(plan, raw, an) {
+  const items = raw?.data||[];
+  const trendCls = t=>t==='up'?'trend-up':t==='down'?'trend-down':'trend-neutral';
+  const trendSym = t=>t==='up'?'↑':t==='down'?'↓':'—';
+
+  const metrics = (an.keyMetrics||[]).map(m=>`
+    <div class="metric-card">
+      <div class="metric-label">${esc(m.label)}</div>
+      <div class="metric-value">${esc(String(m.value))}</div>
+      <div class="metric-trend ${trendCls(m.trend)}">${trendSym(m.trend)}</div>
+    </div>`).join('');
+
+  const insights = (an.insights||[]).map(i=>`
+    <li><i class="ti ti-point-filled"></i>${esc(i)}</li>`).join('');
+
+  // Table
+  let tableHtml = '';
+  if (items.length) {
+    const keys = Object.keys(items[0]).slice(0,6);
+    const labels = {id:'ID',title:'Объект',category:'Кат.',area:'Пл. м²',price:'Цена',status:'Статус',name:'Имя',phone:'Телефон',email:'Email',role:'Роль',created:'Создан',updated:'Обновлён',client:'Клиент',type:'Тип',budget:'Бюджет',agent:'Агент',city:'Город'};
+    const statusClass = v=>{const m={Активный:'s-active',Новый:'s-new','В работе':'s-warn',Новая:'s-new',Резерв:'s-warn',Закрыта:'s-done'};return m[v]||'s-done';};
+    
+    const shown = items.slice(0,10);
+    const ths = keys.map(k=>`<th>${labels[k]||k}</th>`).join('');
+    const trs = shown.map(row=>{
+      const tds = keys.map(k=>{
+        let v = row[k];
+        if(k==='price'&&typeof v==='number') v=(v/1000000).toFixed(1)+' млн ₽';
+        if(k==='status') return `<td><span class="status-badge ${statusClass(v)}">${esc(String(v))}</span></td>`;
+        return `<td>${esc(String(v??'—'))}</td>`;
+      }).join('');
+      return `<tr>${tds}</tr>`;
+    }).join('');
+    const more = items.length>10?`<div class="more-hint">+ ещё ${items.length-10} записей (всего в системе: ${raw.total||'?'})</div>`:'';
+    tableHtml = `<div class="data-table-wrap"><table><thead><tr>${ths}</tr></thead><tbody>${trs}</tbody></table>${more}</div>`;
+  }
+
+  const demoTag = S.demo?'<span style="font-size:11px;padding:2px 8px;background:var(--amber-bg);color:var(--amber);border-radius:20px;margin-left:auto;flex-shrink:0">Демо</span>':'';
+
+  add(`<div class="msg-ai">
+    <div class="msg-ai-header">
+      <div class="ai-avatar"><i class="ti ti-robot"></i></div>
+      <div style="flex:1">
+        <div style="font-size:14px;font-weight:500;color:var(--text);margin-bottom:3px">${esc(an.summary||'Результаты')}</div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <span class="endpoint-chip"><i class="ti ti-api" style="font-size:11px"></i>${esc(plan.endpoint)}</span>
+          <span style="font-size:11px;color:var(--text3)">${esc(plan.description||'')}</span>
+        </div>
+      </div>
+      ${demoTag}
+    </div>
+    ${metrics?`<div class="metrics-grid">${metrics}</div>`:''}
+    ${insights?`<ul class="insights-list">${insights}</ul>`:''}
+    ${an.recommendation?`<div class="rec-box"><i class="ti ti-bulb"></i>${esc(an.recommendation)}</div>`:''}
+    ${tableHtml}
+  </div>`);
+}
+
+function add(html) {
+  const wrap = document.createElement('div');
+  wrap.innerHTML = html;
+  document.getElementById('msgs').appendChild(wrap.firstChild||wrap);
+  scrollBottom();
+}
+function scrollBottom() {
+  const m = document.getElementById('msgs');
+  setTimeout(()=>m.scrollTop=m.scrollHeight, 50);
+}
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+</script>
+</body>
+</html>
