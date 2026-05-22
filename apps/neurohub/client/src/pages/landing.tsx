@@ -362,6 +362,50 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   if (!playlistSeedRef.current) {
     playlistSeedRef.current = String(Math.floor(Math.random() * 1_000_000));
   }
+  // Eugene 2026-05-22 Босс «оптимизируй загрузку с 0, плейлист на смартфоне
+  // загружай когда появится плеер». На mobile (<768px) откладываем fresh fetch
+  // /api/playlist до момента когда юзер скроллит к плееру или взаимодействует.
+  // Это снижает first-load network traffic на VPN. Initial state читается из
+  // localStorage cache (если был) → юзер видит cached playlist мгновенно.
+  // Desktop / tablet — fetch immediately (там трафик не критичен).
+  const [playlistFetchEnabled, setPlaylistFetchEnabled] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    // Mobile (<768) — wait for visibility. Bigger screens — instant.
+    return window.innerWidth >= 768;
+  });
+  useEffect(() => {
+    if (playlistFetchEnabled) return;
+    if (typeof window === "undefined") return;
+    let resolved = false;
+    const enable = () => {
+      if (resolved) return;
+      resolved = true;
+      setPlaylistFetchEnabled(true);
+    };
+    // 1. Первый scroll юзера → enable
+    const onScroll = () => enable();
+    window.addEventListener("scroll", onScroll, { once: true, passive: true });
+    window.addEventListener("touchstart", onScroll, { once: true, passive: true });
+    // 2. Если playlist-section появилась в viewport (даже без scroll) → enable
+    let io: IntersectionObserver | null = null;
+    if ("IntersectionObserver" in window) {
+      const target = document.getElementById("playlist-section");
+      if (target) {
+        io = new IntersectionObserver((entries) => {
+          if (entries.some((e) => e.isIntersecting)) enable();
+        }, { rootMargin: "300px" });
+        io.observe(target);
+      }
+    }
+    // 3. Backup timer — макс 4 сек после mount, потом fetch'нем что бы ни было
+    const timer = window.setTimeout(enable, 4000);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("touchstart", onScroll);
+      io?.disconnect();
+      window.clearTimeout(timer);
+    };
+  }, [playlistFetchEnabled]);
   // Eugene 2026-05-22 Босс: «при загрузке появляется загрузка фишек MuzaAi,
   // надо чтобы плеер сразу появлялся». ROOT CAUSE: initial tracks=[] до fetch.
   // FIX: instant render из localStorage cache (TTL 30 min, любая категория/sort
@@ -765,6 +809,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   }, [playingId, tracks]);
 
   useEffect(() => {
+    if (!playlistFetchEnabled) return; // mobile: gate до scroll/visibility
     fetch(`/api/playlist?status=${playlistKind}&sort=${sortMode}&dir=${sortDir}&seed=${playlistSeedRef.current}&_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).then(data => {
       setTracks(data);
       // Eugene 2026-05-22 — кешируем для instant-paint при следующем визите.
@@ -883,6 +928,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // guard. Раньше при 500-ответе с {error: "..."} setTracks(data) ставил объект
   // → .map() ниже падал runtime'ом.
   useEffect(() => {
+    if (!playlistFetchEnabled) return; // mobile: gate до scroll/visibility
     fetch(`/api/playlist?status=${playlistKind}&sort=${sortMode}&dir=${sortDir}&seed=${playlistSeedRef.current}&_=${Date.now()}`, { cache: 'no-store' })
       .then(r => {
         if (!r.ok) throw new Error(`playlist HTTP ${r.status}`);
@@ -897,7 +943,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         setCurrentPage(1);
       })
       .catch((e) => { console.warn("[playlist] fetch failed:", e?.message || e); });
-  }, [sortMode, sortDir, playlistKind]);
+  }, [sortMode, sortDir, playlistKind, playlistFetchEnabled]);
 
   // Eugene 2026-05-15: persist playlistKind. Skip-first — см. комментарий
   // у других persist-эффектов (избегаем default-pollution до migration).

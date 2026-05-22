@@ -1,76 +1,129 @@
 // MuzaAi PWA Service Worker
-// Eugene 2026-05-21 Босс: «изменения на сайте автоматически отправляются в
-// приложение которое для сохранения домой». Strategy:
-//   - HTML (navigate requests) → network-first (всегда последняя версия)
-//   - JS/CSS с hash в имени → cache-first (immutable build artifacts)
-//   - Images (cover, avatar) → cache-first с network fallback
-//   - API (/api/*) → НЕ кэшируем (always live)
-// Auto-update: при появлении нового SW версии — skipWaiting + clients.claim
-// → новые requests идут через новую версию без ручного обновления.
+// Eugene 2026-05-22 Босс: «В режиме VPN тормозит всё, зависает. Реши
+// кардинально». Стратегия — cache-first для HTML + stale-while-revalidate
+// для read-only API → юзер видит контент МГНОВЕННО из cache, fresh приходит
+// в фоне через VPN не блокируя UI.
+//
+// Стратегия:
+//   - HTML (navigate) → cache-first + background revalidate
+//                       (раньше было network-first — VPN latency блокировала)
+//   - JS/CSS/woff hash-named → cache-first (immutable build artifacts)
+//   - Images → cache-first + stale-while-revalidate
+//   - API GET (whitelist) → stale-while-revalidate (playlist, stats, countries)
+//   - API остальные (POST, auth, etc) → network-only (не кэшируем)
+//
+// При появлении новой версии SW → skipWaiting + clients.claim → новые
+// requests идут через новую версию без ручного обновления страницы.
 
-const CACHE_VERSION = "muzaai-v1";
-const RUNTIME_CACHE = "muzaai-runtime";
+const CACHE_VERSION = "muzaai-v2";
+const RUNTIME_CACHE = "muzaai-runtime-v2";
+const API_CACHE = "muzaai-api-v2";
 
-// При install — skipWaiting сразу, не ждём пока юзер закроет все вкладки.
-self.addEventListener("install", (event) => {
+// Whitelist GET endpoints для stale-while-revalidate.
+// Никаких user-specific / auth-affected данных — только public reads.
+const API_SWR_PATHS = [
+  "/api/playlist",
+  "/api/playlist/stats",
+  "/api/playlist/sort-default",
+  "/api/playlist/geo-top",
+  "/api/public/countries-count",
+  "/api/star-suggestions/top",
+];
+
+self.addEventListener("install", () => {
   self.skipWaiting();
 });
 
-// При activate — claim всех клиентов + удалить старые caches.
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     (async () => {
-      const cacheNames = await caches.keys();
+      const names = await caches.keys();
       await Promise.all(
-        cacheNames
-          .filter((name) => name !== CACHE_VERSION && name !== RUNTIME_CACHE)
-          .map((name) => caches.delete(name))
+        names
+          .filter((n) => n !== CACHE_VERSION && n !== RUNTIME_CACHE && n !== API_CACHE)
+          .map((n) => caches.delete(n))
       );
       await self.clients.claim();
     })()
   );
 });
 
+function isApiSwrPath(pathname) {
+  return API_SWR_PATHS.some((p) => pathname === p || pathname.startsWith(p + "?") || pathname === p + "/");
+}
+
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Игнорируем не-GET и cross-origin (другие домены)
   if (request.method !== "GET") return;
   if (url.origin !== self.location.origin) return;
 
-  // /api/* — НЕ кэшируем (live data)
-  if (url.pathname.startsWith("/api/")) return;
-
-  // HTML navigation requests — network-first (свежий index.html)
-  const isNavigation = request.mode === "navigate" ||
-    (request.headers.get("accept") || "").includes("text/html");
-
-  if (isNavigation) {
+  // === API ===
+  if (url.pathname.startsWith("/api/")) {
+    if (!isApiSwrPath(url.pathname)) {
+      // POST/auth/stream/payment — network-only, не кэшируем
+      return;
+    }
+    // Stale-while-revalidate для whitelisted reads
     event.respondWith(
       (async () => {
-        try {
-          const fresh = await fetch(request, { cache: "no-store" });
-          // Кэшируем последний валидный HTML на случай оффлайна
-          const cache = await caches.open(RUNTIME_CACHE);
-          cache.put(request, fresh.clone());
+        const cache = await caches.open(API_CACHE);
+        const cached = await cache.match(request);
+        // Background revalidate (fire-and-forget)
+        const networkP = fetch(request).then((fresh) => {
+          if (fresh && fresh.ok) {
+            try { cache.put(request, fresh.clone()); } catch {}
+          }
           return fresh;
-        } catch (e) {
-          // Оффлайн — отдаём из cache
-          const cached = await caches.match(request);
-          if (cached) return cached;
-          // Совсем нет — fallback на корень
-          const root = await caches.match("/");
-          if (root) return root;
-          throw e;
-        }
+        }).catch(() => null);
+        // Если есть cached — отдаём мгновенно. Иначе ждём network.
+        if (cached) return cached;
+        const fresh = await networkP;
+        if (fresh) return fresh;
+        // Сетевой fail + нет cache → возвращаем синтетический 503 JSON
+        return new Response(JSON.stringify({ error: "offline" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        });
       })()
     );
     return;
   }
 
-  // JS/CSS с hash (immutable build artifacts) — cache-first
-  // Vite добавляет hash в filename → URL меняется при build → новый файл.
+  // === HTML navigation ===
+  const isNavigation = request.mode === "navigate" ||
+    (request.headers.get("accept") || "").includes("text/html");
+
+  if (isNavigation) {
+    // Cache-first + background revalidate. Юзер видит страницу мгновенно
+    // даже на медленном VPN. Fresh HTML обновляет cache в фоне для next load.
+    event.respondWith(
+      (async () => {
+        const cache = await caches.open(RUNTIME_CACHE);
+        const cached = await cache.match(request);
+        const networkP = fetch(request, { cache: "no-store" }).then((fresh) => {
+          if (fresh && fresh.ok) {
+            try { cache.put(request, fresh.clone()); } catch {}
+          }
+          return fresh;
+        }).catch(() => null);
+        if (cached) {
+          // background revalidate, не ждём
+          return cached;
+        }
+        const fresh = await networkP;
+        if (fresh) return fresh;
+        // Совсем нет — fallback на корневой index из CACHE_VERSION
+        const root = await caches.match("/");
+        if (root) return root;
+        throw new Error("No cached HTML and no network");
+      })()
+    );
+    return;
+  }
+
+  // === Static assets (JS/CSS/fonts) — cache-first (immutable hash-named) ===
   const isAsset = url.pathname.startsWith("/assets/") ||
     url.pathname.match(/\.(js|css|woff2?|ttf|otf)$/);
 
@@ -90,14 +143,13 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Images / static (cover, avatar, favicon) — cache-first
+  // === Images — cache-first + stale-while-revalidate ===
   const isImage = url.pathname.match(/\.(svg|png|jpg|jpeg|webp|gif|ico)$/);
   if (isImage) {
     event.respondWith(
       (async () => {
         const cached = await caches.match(request);
         if (cached) {
-          // Background refresh — stale-while-revalidate
           fetch(request).then((fresh) => {
             if (fresh.ok) caches.open(RUNTIME_CACHE).then((c) => c.put(request, fresh));
           }).catch(() => {});
@@ -114,7 +166,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Остальное — network-first с fallback на cache
+  // === Остальное — network-first с fallback на cache ===
   event.respondWith(
     (async () => {
       try {
@@ -128,7 +180,6 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
-// Listener для message events (от клиента) — например принудительное skipWaiting
 self.addEventListener("message", (event) => {
   if (event.data && event.data.type === "SKIP_WAITING") {
     self.skipWaiting();
