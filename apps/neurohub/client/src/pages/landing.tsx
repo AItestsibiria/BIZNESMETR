@@ -1390,13 +1390,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         плеер». Новый порядок секций — Плейлист первым, под CTA «Создать трек».
         Дальше: Муза (без gift-пилюль), Новости, Контакты. */}
     <section id="playlist-section" className="relative z-[1] pt-4 sm:pt-6 pb-10 sm:pb-12 px-4 border-t border-white/[0.04]">
-      {/* Eugene 2026-05-15 Босс «больше на 30% по высоте и ширине поля плейлиста».
-          max-w-3xl (768px) → max-w-5xl (1024px) = +33% ширина.
-          Внутри карточек треков высота увеличена через py-padding.
-          Eugene 2026-05-21 Босс «уменьши плейлист на айпеде на 20%, сохрани
-          масштабирование под другие гаджеты». md (≥768px tablet/iPad) — scale 0.8;
-          lg (≥1024px desktop) — обратно 100%. Mobile (<768) — без изменений. */}
-      <div className="max-w-5xl mx-auto md:scale-[0.8] md:origin-top lg:scale-100">
+      {/* Eugene 2026-05-22 Босс «на планшете и десктопе сократи ширину
+          плейлиста за счёт пустого места, -25%». Mobile (<sm) — без изменений
+          (max-w-5xl, clamps viewport ≤640). Tablet+desktop (sm+) — max-w-3xl
+          (768px ≈ -25% от 1024). scale-jumps убраны — одинаковая ширина на
+          всех breakpoint'ах ≥640px. */}
+      <div className="max-w-5xl sm:max-w-3xl mx-auto">
         {/* Eugene 2026-05-22 Босс: «скомпонуй по-дизайнерски». Заголовок плеера
             подсвечен: маленький pill «✦ Live» сверху, font-display h2 +
             gradient-text, под ним подзаголовок с MuzaAi-логотипом. */}
