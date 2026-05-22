@@ -2066,16 +2066,6 @@ export function FloatingConsultant() {
             const dx = expandDragStartRef.current.x - e.clientX;
             const dy = expandDragStartRef.current.y - e.clientY;
             const dist = Math.sqrt(dx * dx + dy * dy);
-            // Eugene 2026-05-22 Босс «Музу свайпают вправо — она исчезает».
-            // deltaX = currentX - startX (positive = swipe right).
-            const deltaX = e.clientX - expandDragStartRef.current.x;
-            const deltaY = Math.abs(dy);
-            if (deltaX > 60 && Math.abs(deltaX) > deltaY) {
-              dismiss();
-              expandDragStartRef.current = null;
-              dragExpandedRef.current = true; // prevent click
-              return;
-            }
             if (dist > 60 && !expanded) {
               try { playMuzaChime(); } catch {}
               setExpanded(true);
