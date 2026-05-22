@@ -677,22 +677,18 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
         {/* Eugene 2026-05-21 Босс «страны над планетой, визиты под планетой».
             Layout: [N стран] / 🌍 / [M визитов] — flex-col items-center. */}
         <div className="relative flex flex-col items-center flex-shrink-0 z-10">
-          {/* Сверху над планетой: страны (countriesCount из /api/public/countries-count) */}
-          {countriesCount > 0 && (() => {
-            const mod10 = countriesCount % 10;
-            const mod100 = countriesCount % 100;
-            let word: string;
-            if (mod100 >= 11 && mod100 <= 14) word = "стран";
-            else if (mod10 === 1) word = "страна";
-            else if (mod10 >= 2 && mod10 <= 4) word = "страны";
-            else word = "стран";
-            return (
-              <div className="mb-1 text-[10px] text-white/65 font-sans whitespace-nowrap">
-                <span className="text-[#22D3EE] font-semibold" style={{ fontVariantNumeric: "tabular-nums" }}>{countriesCount}</span>
-                <span className="text-white/45"> {word}</span>
-              </div>
-            );
-          })()}
+          {/* Eugene 2026-05-21 Босс «убери слово стран после 24, цифру отцентруй».
+              Только цифра, без слова, центрировано (parent flex items-center). */}
+          {countriesCount > 0 && (
+            <div className="mb-1 text-center font-sans whitespace-nowrap">
+              <span
+                className="text-[#22D3EE] font-semibold text-sm"
+                style={{ fontVariantNumeric: "tabular-nums" }}
+              >
+                {countriesCount}
+              </span>
+            </div>
+          )}
 
           <button
             type="button"
