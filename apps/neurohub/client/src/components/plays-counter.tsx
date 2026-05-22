@@ -673,7 +673,7 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
             {countriesCount > 0 && (
               <span className="text-[#22D3EE] font-semibold text-sm whitespace-nowrap"
                 style={{ fontVariantNumeric: "tabular-nums" }}>
-                {countriesCount} <span className="text-white/40 text-[10px] font-normal">стран</span>
+                {countriesCount}
               </span>
             )}
             {geoData && geoData.totalVisits > 0 && (() => {
