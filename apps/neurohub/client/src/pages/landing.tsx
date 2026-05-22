@@ -1733,14 +1733,14 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                       её закрывает, пропорции ширин уравновесь, не выходи за
                       границы плеера». Структура inline:
                       [🌍-button + 24] [эквалайзер fixed-w] [🎧 7916] */}
-                  {/* Eugene 2026-05-22 Босс «горизонтально условно выполни ось
-                      центра земли и центра наушников с цифрами». items-start
-                      на parent → все блоки выровнены ПО ВЕРХУ container →
-                      🌍 emoji и 🎧 emoji визуально на одной горизонтальной
-                      линии (their glyphs at top). Countries (24) уходят
-                      под 🌍 не влияя на горизонталь 🎧. Эквалайзер сохраняет
-                      self-end (bottom-align) для зоны над/под линией. */}
-                  <div className="flex items-start justify-between gap-2 ml-2 flex-1 min-w-0 max-w-[260px] sm:max-w-[300px] select-none" aria-label="Статистика плейлиста">
+                  {/* Eugene 2026-05-22 Босс «полученную ось земли с наушниками
+                      совмести с осью кнопки Поделиться». Stats container
+                      items-center → каждый child centered vertically на row
+                      center. 🌍-button и 🎧-block — h-8 (= Share w-8 h-8)
+                      flex items-center → glyph centered в box того же размера
+                      что Share. Centers совпадают точно. Countries / plays
+                      рендерятся ниже через absolute top-full. */}
+                  <div className="flex items-center justify-between gap-2 ml-2 flex-1 min-w-0 max-w-[260px] sm:max-w-[300px] select-none" aria-label="Статистика плейлиста">
                     {/* Eugene 2026-05-22 Босс «нажатием на планетку либо цифры
                         стран раскрывает панель стран. Должна быть открыта снизу
                         вверх не перемещаться вниз плеера». Локальная панель
@@ -1752,13 +1752,14 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                       <button
                         type="button"
                         onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowPlayerCountries(v => !v); }}
-                        className="flex flex-col items-center leading-none p-1 -m-1 hover:scale-110 active:scale-95 transition-transform cursor-pointer group"
+                        className="relative h-8 w-8 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform cursor-pointer group"
                         title="Нас слушают (нажмите для списка стран)"
                         aria-label={`Стран слушают: ${countriesCount}. Нажмите для списка.`}
                         aria-expanded={showPlayerCountries}
                       >
                         <span className="text-base leading-none pointer-events-none group-hover:opacity-90">🌍</span>
-                        <span className="text-[10px] tabular-nums text-muted-foreground mt-2 pointer-events-none group-hover:text-white/80 group-hover:underline underline-offset-2">{countriesCount}</span>
+                        {/* Countries ABS под h-8 row — не влияет на flex alignment */}
+                        <span className="absolute top-full left-1/2 -translate-x-1/2 mt-0.5 text-[10px] tabular-nums text-muted-foreground pointer-events-none group-hover:text-white/80 group-hover:underline underline-offset-2 whitespace-nowrap">{countriesCount}</span>
                       </button>
                       {showPlayerCountries && (
                         <>
@@ -1839,15 +1840,13 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                         />
                       ))}
                     </div>
-                    {/* Eugene 2026-05-22 Босс «выполни наушники по оси земли,
-                        цифры прослушиваний сделай в градиентах логотипа».
-                        Та же flex-col структура что 🌍-button + p-1 -m-1 →
-                        top-of-glyph 🎧 точно на одной горизонтальной оси
-                        с 🌍. Цифры — brand gradient purple→violet→cyan
-                        (как Muza+Ai wordmark). */}
-                    <div className="flex flex-col items-center leading-none p-1 -m-1 shrink-0" title="Прослушиваний всего">
+                    {/* Eugene 2026-05-22 Босс «совмести ось с кнопкой Поделиться».
+                        Та же h-8 структура что 🌍-button → glyph 🎧 centered
+                        в h-8 row → совпадает с center Share button (тоже h-8).
+                        Plays — abs ниже, brand gradient purple→violet→cyan. */}
+                    <div className="relative h-8 flex items-center justify-center shrink-0" title="Прослушиваний всего">
                       <span className="text-base leading-none">🎧</span>
-                      <span className="text-[10px] tabular-nums mt-2 font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent">{totalPlays.toLocaleString("ru-RU")}</span>
+                      <span className="absolute top-full left-1/2 -translate-x-1/2 mt-0.5 text-[10px] tabular-nums font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap">{totalPlays.toLocaleString("ru-RU")}</span>
                     </div>
                   </div>
                   {/* Eugene 2026-05-18 Босс «S в правый нижний угол» —
