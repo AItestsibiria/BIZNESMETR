@@ -542,7 +542,7 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
       // Eugene 2026-05-21 Босс «стилизуй под панель плеера + кнопка справа внизу
       // включает подсветку как на основном плеере». glass-card + brand glow когда
       // animEnabled=true (как btn-cosmic shimmer на CTA), off — простой glass.
-      className={`relative overflow-hidden glass-card rounded-2xl border ${animEnabled ? "border-purple-400/30 uc-active-glow" : "border-white/[0.06]"} p-5 transition-all duration-500 ${className}`}
+      className={`relative overflow-hidden glass-card rounded-2xl border ${animEnabled ? "border-purple-400/30 uc-active-glow" : "border-white/[0.06]"} px-4 py-3 transition-all duration-500 ${className}`}
     >
       <style>{`
         @keyframes uc-card-pulse {
@@ -590,140 +590,114 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
         }
       `}</style>
 
-      {/* Glow blobs — violet (top-right) + cyan (bottom-left) */}
-      <div className="pointer-events-none absolute -right-16 -top-16 h-44 w-44 rounded-full bg-violet-500/20 blur-3xl" aria-hidden="true" />
-      <div className="pointer-events-none absolute -bottom-20 -left-10 h-48 w-48 rounded-full bg-cyan-400/10 blur-3xl" aria-hidden="true" />
+      {/* Eugene 2026-05-21 Босс «компактнее, растянуть по строке, уменьшить
+          высоту». Single horizontal row, p-3 (было p-5), planet 50px (было 80),
+          digits text-2xl (было 4xl), 🎧 text-base (было 2xl). Badge inline-right. */}
+      <div className="relative flex items-center justify-between gap-3 flex-wrap">
 
-      {/* Eugene 2026-05-21 Босс «Live отцентруй» — badge на отдельной строке,
-          центр всей card'ы (а не left-aligned в первой колонке). */}
-      <div className="relative flex justify-center mb-3">
-        <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs font-sans text-white/60">
-          <Sparkles className="h-3.5 w-3.5 text-[#FBBF24]" />
-          Live pulse MuzaAi
-        </div>
-      </div>
+        {/* LEFT: equalizer + 🎧 + digits + всего */}
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          {/* Equalizer left */}
+          <div className="flex items-end gap-[2px] h-5 pb-0.5" aria-hidden="true">
+            {[0, 1, 2, 3].map(i => {
+              const playingAnim = animEnabled && audioState.playing && eqBaseSec > 0;
+              return (
+                <span
+                  key={`eql-${i}`}
+                  className="w-[2px] bg-gradient-to-t from-[#8B5CF6] via-[#A78BFA] to-[#22D3EE] rounded-full origin-bottom"
+                  style={{
+                    height: animEnabled ? "100%" : "40%",
+                    animation: playingAnim
+                      ? `uc-eq-bar ${eqBaseSec + i * 0.04}s ease-in-out infinite`
+                      : animEnabled
+                        ? `uc-eq-bar ${0.9 + i * 0.12}s ease-in-out infinite`
+                        : "none",
+                    animationDelay: `${i * 0.08}s`,
+                  }}
+                />
+              );
+            })}
+          </div>
 
-      {/* ===== Main row: heading + number + planet ===== */}
-      <div className="relative flex items-center justify-between gap-4">
-        <div className="flex-1 min-w-0 flex flex-col items-center">
-          <div className="flex items-end gap-2 relative">
-            <div className="flex items-end gap-2">
-              {/* Equalizer left */}
-              <div className="flex items-end gap-[2px] h-7 pb-1" aria-hidden="true">
-                {[0, 1, 2, 3].map(i => {
-                  const playingAnim = animEnabled && audioState.playing && eqBaseSec > 0;
-                  return (
-                    <span
-                      key={`eql-${i}`}
-                      className="w-[2px] bg-gradient-to-t from-[#8B5CF6] via-[#A78BFA] to-[#22D3EE] rounded-full origin-bottom"
-                      style={{
-                        height: animEnabled ? "100%" : "40%",
-                        animation: playingAnim
-                          ? `uc-eq-bar ${eqBaseSec + i * 0.04}s ease-in-out infinite`
-                          : animEnabled
-                            ? `uc-eq-bar ${0.9 + i * 0.12}s ease-in-out infinite`
-                            : "none",
-                        animationDelay: `${i * 0.08}s`,
-                      }}
-                    />
-                  );
-                })}
-              </div>
-
-              {/* Eugene 2026-05-21 Босс «наушники отценируй над цифрами».
-                  flex-col items-center + цифры теперь uniform color = 🎧
-                  строго над центром визуально-симметричной digit-row. */}
-              <div className="flex flex-col items-center">
-                <span className="text-2xl leading-none mb-1" aria-hidden="true">🎧</span>
-                <div
-                  key={`bump-${bumped}`}
-                  className={`font-display font-bold text-4xl tracking-tight ${bumped > 0 ? "uc-num-bump" : ""}`}
-                  style={{ fontVariantNumeric: "tabular-nums" }}
-                >
-                  <RollingNumber value={total} />
-                </div>
-              </div>
-
-              {/* Equalizer right (mirror) */}
-              <div className="flex items-end gap-[2px] h-7 pb-1" aria-hidden="true">
-                {[3, 2, 1, 0].map(i => (
-                  <span
-                    key={`eqr-${i}`}
-                    className="w-[2px] bg-gradient-to-t from-[#8B5CF6] via-[#A78BFA] to-[#22D3EE] rounded-full origin-bottom"
-                    style={{
-                      height: animEnabled ? "100%" : "40%",
-                      animation: animEnabled ? `uc-eq-bar ${0.6 + i * 0.12}s ease-in-out infinite` : "none",
-                      animationDelay: `${i * 0.1}s`,
-                    }}
-                  />
-                ))}
-              </div>
+          {/* 🎧 + Digits stacked но компактнее */}
+          <div className="flex flex-col items-center relative">
+            <span className="text-base leading-none mb-0.5" aria-hidden="true">🎧</span>
+            <div
+              key={`bump-${bumped}`}
+              className={`font-display font-bold text-2xl tracking-tight leading-none ${bumped > 0 ? "uc-num-bump" : ""}`}
+              style={{ fontVariantNumeric: "tabular-nums" }}
+            >
+              <RollingNumber value={total} />
             </div>
-            <div className="mb-1 text-xs font-sans text-white/40">всего</div>
-            {/* Growth arrow — fires on counter bump */}
             {bumped > 0 && animEnabled && (
               <span
                 key={`arrow-${bumped}`}
-                className="absolute -top-2 left-0 text-[#FBBF24] text-sm font-bold pointer-events-none"
-                style={{ animation: "uc-growth-arrow 1.8s ease-out forwards", textShadow: "0 0 8px #FBBF24" }}
+                className="absolute -top-1 -right-3 text-[#FBBF24] text-xs font-bold pointer-events-none"
+                style={{ animation: "uc-growth-arrow 1.8s ease-out forwards", textShadow: "0 0 6px #FBBF24" }}
                 aria-hidden="true"
-              >
-                ↑
-              </span>
+              >↑</span>
             )}
           </div>
+
+          {/* Equalizer right */}
+          <div className="flex items-end gap-[2px] h-5 pb-0.5" aria-hidden="true">
+            {[3, 2, 1, 0].map(i => (
+              <span
+                key={`eqr-${i}`}
+                className="w-[2px] bg-gradient-to-t from-[#8B5CF6] via-[#A78BFA] to-[#22D3EE] rounded-full origin-bottom"
+                style={{
+                  height: animEnabled ? "100%" : "40%",
+                  animation: animEnabled ? `uc-eq-bar ${0.6 + i * 0.12}s ease-in-out infinite` : "none",
+                  animationDelay: `${i * 0.1}s`,
+                }}
+              />
+            ))}
+          </div>
+
+          <span className="text-[10px] font-sans text-white/40 ml-1">всего</span>
         </div>
 
-        {/* Eugene 2026-05-21 Босс «страны над планетой, визиты под планетой».
-            Layout: [N стран] / 🌍 / [M визитов] — flex-col items-center. */}
-        <div className="relative flex flex-col items-center flex-shrink-0 z-10">
-          {/* Eugene 2026-05-21 Босс «убери слово стран после 24, цифру отцентруй».
-              Только цифра, без слова, центрировано (parent flex items-center). */}
-          {countriesCount > 0 && (
-            <div className="mb-1 text-center font-sans whitespace-nowrap">
-              <span
-                className="text-[#22D3EE] font-semibold text-sm"
-                style={{ fontVariantNumeric: "tabular-nums" }}
-              >
-                {countriesCount}
-              </span>
-            </div>
-          )}
-
+        {/* RIGHT: planet + countries (cyan) / visits (gradient) horizontal */}
+        <div className="flex items-center gap-2 flex-shrink-0">
           <button
             type="button"
             onClick={() => { setShowGeo(true); loadGeo(); }}
-            aria-label="Откуда слушают — страны и города"
+            aria-label="Откуда слушают"
             title="Откуда слушают"
-            className="relative flex h-20 w-20 items-center justify-center rounded-full hover:scale-105 active:scale-95 transition-transform"
+            className="relative flex h-[50px] w-[50px] items-center justify-center rounded-full hover:scale-105 active:scale-95 transition-transform flex-shrink-0"
           >
-            <PlanetIcon size={80} />
+            <PlanetIcon size={50} />
           </button>
 
-          {/* Eugene 2026-05-21 Босс «количество визитов в стиле логотипа,
-              переменный цвет слева направо, цифры по центру планеты».
-              Logo gradient (MuzaAi style): purple→fuchsia→cyan bg-clip-text. */}
-          {geoData && geoData.totalVisits > 0 && (() => {
-            const n = geoData.totalVisits;
-            const mod10 = n % 10;
-            const mod100 = n % 100;
-            let word: string;
-            if (mod100 >= 11 && mod100 <= 14) word = "визитов";
-            else if (mod10 === 1) word = "визит";
-            else if (mod10 >= 2 && mod10 <= 4) word = "визита";
-            else word = "визитов";
-            return (
-              <div className="mt-1 text-center font-sans">
-                <div
-                  className="text-base font-display font-bold tracking-tight bg-gradient-to-r from-purple-400 via-fuchsia-400 to-cyan-300 bg-clip-text text-transparent leading-tight"
-                  style={{ fontVariantNumeric: "tabular-nums" }}
-                >
-                  {n.toLocaleString("ru-RU")}
-                </div>
-                <div className="text-[9px] text-white/45 leading-none -mt-0.5">{word}</div>
-              </div>
-            );
-          })()}
+          <div className="flex flex-col leading-tight font-sans">
+            {countriesCount > 0 && (
+              <span className="text-[#22D3EE] font-semibold text-sm whitespace-nowrap"
+                style={{ fontVariantNumeric: "tabular-nums" }}>
+                {countriesCount} <span className="text-white/40 text-[10px] font-normal">стран</span>
+              </span>
+            )}
+            {geoData && geoData.totalVisits > 0 && (() => {
+              const n = geoData.totalVisits;
+              const mod10 = n % 10;
+              const mod100 = n % 100;
+              let word: string;
+              if (mod100 >= 11 && mod100 <= 14) word = "визитов";
+              else if (mod10 === 1) word = "визит";
+              else if (mod10 >= 2 && mod10 <= 4) word = "визита";
+              else word = "визитов";
+              return (
+                <span className="whitespace-nowrap">
+                  <span
+                    className="text-sm font-display font-bold bg-gradient-to-r from-purple-400 via-fuchsia-400 to-cyan-300 bg-clip-text text-transparent"
+                    style={{ fontVariantNumeric: "tabular-nums" }}
+                  >
+                    {n.toLocaleString("ru-RU")}
+                  </span>
+                  <span className="text-white/40 text-[10px] font-normal ml-1">{word}</span>
+                </span>
+              );
+            })()}
+          </div>
         </div>
       </div>
 
