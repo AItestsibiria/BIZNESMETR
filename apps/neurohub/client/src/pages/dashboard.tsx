@@ -687,15 +687,37 @@ function AdminStats() {
                     <span className="text-[10px] text-white/40">клик закроет</span>
                   </div>
                   <div className="overflow-y-auto p-2 flex flex-col gap-1" style={{ touchAction: "pan-y", WebkitOverflowScrolling: "touch" }}>
-                    {[...visitorStats.byCountry].sort((a: any, b: any) => (b.visitors || 0) - (a.visitors || 0)).map((c: any) => (
-                      <div key={c.country} className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] text-[13px] transition-colors">
-                        <span className="truncate flex-1 text-white/85">{c.country || "Неизвестно"}</span>
-                        <span className="flex items-center gap-3 text-muted-foreground tabular-nums shrink-0">
-                          <span><span className="text-blue-300 font-bold">{c.visitors}</span> уник.</span>
-                          <span><span className="text-purple-300 font-bold">{c.visits}</span> виз.</span>
-                        </span>
-                      </div>
-                    ))}
+                    {(() => {
+                      // Eugene 2026-05-22 Босс «флаг потом название на английском».
+                      const flagOf = (cc: string) => {
+                        if (!cc || cc.length !== 2) return "🌐";
+                        return String.fromCodePoint(...cc.toUpperCase().split('').map(c => 0x1F1E6 + c.charCodeAt(0) - 65));
+                      };
+                      const enName = (cc: string, fallback?: string) => {
+                        if (cc && cc.length === 2) {
+                          try {
+                            const dn = new (Intl as any).DisplayNames(["en"], { type: "region" });
+                            const n = dn?.of?.(cc.toUpperCase());
+                            if (n) return n;
+                          } catch {}
+                        }
+                        return fallback || cc || "Unknown";
+                      };
+                      return [...visitorStats.byCountry].sort((a: any, b: any) => (b.visitors || 0) - (a.visitors || 0)).map((c: any, idx: number) => (
+                        <div
+                          key={c.country_code || c.country}
+                          style={{ animationDelay: `${Math.min(idx, 25) * 200}ms`, animationFillMode: "both" }}
+                          className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] text-[13px] transition-colors animate-in fade-in slide-in-from-bottom-2 duration-700"
+                        >
+                          <span className="text-[18px] shrink-0">{flagOf(c.country_code || "")}</span>
+                          <span className="flex-1 truncate bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent font-medium">{enName(c.country_code, c.country || "Unknown")}</span>
+                          <span className="flex items-center gap-3 text-muted-foreground tabular-nums shrink-0">
+                            <span><span className="text-blue-300 font-bold">{c.visitors}</span> уник.</span>
+                            <span><span className="text-purple-300 font-bold">{c.visits}</span> виз.</span>
+                          </span>
+                        </div>
+                      ));
+                    })()}
                   </div>
                 </div>
               )}

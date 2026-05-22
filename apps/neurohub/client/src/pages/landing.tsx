@@ -604,6 +604,30 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       setPlayerCountriesClosing(false);
     }, 200);
   }, [playerCountriesClosing]);
+  // Eugene 2026-05-22 Босс «появление панели стран такое же как и топ 100».
+  // Auto-max-height — не залезает выше hero h1 «минуту».
+  const [countriesPanelMaxHeight, setCountriesPanelMaxHeight] = useState<number>(320);
+  useEffect(() => {
+    if (!showPlayerCountries) return;
+    if (typeof window === "undefined") return;
+    const recompute = () => {
+      const heroEl = document.querySelector('[data-testid="text-hero-title"]') as HTMLElement | null;
+      const earthEl = document.querySelector('[data-testid="earth-anchor"]') as HTMLElement | null;
+      if (!heroEl || !earthEl) return;
+      const heroBottom = heroEl.getBoundingClientRect().bottom;
+      const earthTop = earthEl.getBoundingClientRect().top;
+      const available = Math.floor(earthTop - heroBottom - 16);
+      const clamped = Math.max(200, Math.min(available, 600));
+      setCountriesPanelMaxHeight(clamped);
+    };
+    recompute();
+    window.addEventListener("resize", recompute, { passive: true });
+    window.addEventListener("scroll", recompute, { passive: true });
+    return () => {
+      window.removeEventListener("resize", recompute);
+      window.removeEventListener("scroll", recompute);
+    };
+  }, [showPlayerCountries]);
   // Eugene 2026-05-22 Босс «нажатие на наушники выводит топ 10 с 1 внизу
   // 2 выше». Аналог 🌍-panel для top-tracks. Reverse order — самый
   // прослушиваемый внизу (рядом с кнопкой 🎧), top-10 вверху.
@@ -665,6 +689,18 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   }, []);
   const NAME_TO_CC: Record<string,string> = { "United States":"US","США":"US","Russia":"RU","Россия":"RU","Germany":"DE","Германия":"DE","United Kingdom":"GB","Великобритания":"GB","Netherlands":"NL","Нидерланды":"NL","Ukraine":"UA","Украина":"UA","Saudi Arabia":"SA","Молдова":"MD","Moldova":"MD","France":"FR","Франция":"FR","Italy":"IT","Италия":"IT","Spain":"ES","Испания":"ES","Poland":"PL","Польша":"PL","Belarus":"BY","Беларусь":"BY","Kazakhstan":"KZ","Казахстан":"KZ","Turkey":"TR","Турция":"TR","China":"CN","Китай":"CN","Japan":"JP","Япония":"JP","Korea":"KR","India":"IN","Индия":"IN","Brazil":"BR","Бразилия":"BR","Canada":"CA","Канада":"CA","Australia":"AU","Австралия":"AU","Israel":"IL","Израиль":"IL","UAE":"AE","ОАЭ":"AE","Georgia":"GE","Грузия":"GE","Armenia":"AM","Армения":"AM","Azerbaijan":"AZ","Азербайджан":"AZ","Uzbekistan":"UZ","Узбекистан":"UZ","Latvia":"LV","Lithuania":"LT","Estonia":"EE","Czech Republic":"CZ","Czechia":"CZ","Switzerland":"CH","Sweden":"SE","Norway":"NO","Finland":"FI","Denmark":"DK","Austria":"AT","Belgium":"BE","Greece":"GR","Portugal":"PT","Hungary":"HU","Romania":"RO","Bulgaria":"BG","Serbia":"RS","Croatia":"HR" };
   const flagOf = (cc: string, name?: string) => { const code = (cc && cc.length === 2 ? cc : (name && NAME_TO_CC[name])) || ""; return code ? String.fromCodePoint(...code.toUpperCase().split('').map(c => 0x1F1E6 + c.charCodeAt(0) - 65)) : "🌐"; };
+  // Eugene 2026-05-22 Босс «во всех панелях страны флаг потом название
+  // страны на английском». English name via Intl.DisplayNames (modern).
+  const englishCountryName = (cc: string | null | undefined, fallback?: string): string => {
+    if (cc && cc.length === 2) {
+      try {
+        const dn = new (Intl as any).DisplayNames(["en"], { type: "region" });
+        const name = dn?.of?.(cc.toUpperCase());
+        if (name) return name;
+      } catch {}
+    }
+    return fallback || cc || "Unknown";
+  };
   // ТЗ Eugene 2026-05-07 12:18: фильтры плейлиста должны жёстко
   // удерживаться через сессии и навигацию. Используем localStorage.
   // Eugene 2026-05-15 Босс «2 плейлиста на главной + кнопки заметные».
@@ -1860,7 +1896,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                         position + absolute panel (bottom-full = над кнопкой,
                         растёт вверх). НЕ общий с hero showCountries чтобы
                         две панели не конфликтовали. */}
-                    <div className="relative shrink-0">
+                    <div className="relative shrink-0" data-testid="earth-anchor">
                       <button
                         type="button"
                         onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowPlayerCountries(v => !v); }}
@@ -1891,12 +1927,18 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               задержку поставь, панель испаряется как обложка»:
                               onClick на panel триггерит closePlayerCountries
                               (с cooldown), animate-out fade-out при isClosing. */}
+                          {/* Eugene 2026-05-22 Босс «появление панели стран
+                              такое же как и топ 100 и цвет панели такой же».
+                              Стиль chat-pane Музы (bg-background/[0.28] +
+                              backdrop-blur-md + border-2 border-purple-400/40),
+                              auto-max-height до hero h1, staggered fade-in. */}
                           <div
-                            className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-[150] w-[260px] max-w-[80vw] h-[320px] max-h-[60vh] glass-card rounded-2xl border border-purple-500/30 shadow-2xl shadow-purple-500/20 flex flex-col overflow-hidden ${playerCountriesClosing ? "animate-out fade-out duration-200" : "animate-in fade-in duration-150"}`}
+                            style={{ maxHeight: `${countriesPanelMaxHeight}px` }}
+                            className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-3 z-[150] w-[280px] max-w-[80vw] bg-background/[0.28] backdrop-blur-md border-2 border-purple-400/40 rounded-2xl shadow-2xl shadow-purple-500/20 flex flex-col overflow-hidden ${playerCountriesClosing ? "animate-out fade-out duration-200" : "animate-in fade-in duration-150"}`}
                             onClick={closePlayerCountries}
                           >
-                            <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
-                              <p className="text-sm font-semibold text-white/95 m-0">Нас слушают</p>
+                            <div className="flex items-center justify-between px-4 py-2.5 border-b border-purple-400/20 bg-purple-500/5">
+                              <p className="text-sm font-semibold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent m-0">Нас слушают 🌍</p>
                               <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); closePlayerCountries(); }}
@@ -1904,20 +1946,28 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 aria-label="Закрыть"
                               >×</button>
                             </div>
-                            {/* Eugene 2026-05-22 Босс «топ из 10 стран видно при
-                                скроле можно увидеть все». Sort by n (count) DESC,
-                                первые 10 в viewport, остальные при scroll. */}
-                            <ul className="overflow-y-auto p-3 m-0 list-none flex flex-col gap-1.5" style={{ touchAction: "pan-y", WebkitOverflowScrolling: "touch" }}>
+                            {/* Eugene 2026-05-22 Босс «появление как топ-100,
+                                флаг потом название на английском». Staggered
+                                fade-in slide-in-from-bottom-2 duration-700,
+                                delay 200ms (как top-tracks). Flag → English name → n. */}
+                            <ul className="overflow-y-auto p-2 m-0 list-none flex flex-col gap-1" style={{ touchAction: "pan-y", WebkitOverflowScrolling: "touch" }}>
                               {countriesList.length === 0 && (
-                                <li className="text-xs text-white/40 text-center py-2">Пока нет данных</li>
+                                <li className="text-xs text-white/40 text-center py-3">Пока нет данных</li>
                               )}
-                              {[...countriesList].sort((a, b) => (b.n || 0) - (a.n || 0)).map(c => (
-                                <li key={c.country_code || c.country} className="flex items-center gap-2 text-[13px] text-white/85 py-1">
-                                  <span className="flex-1 break-words">{c.country}</span>
-                                  {typeof c.n === "number" && c.n > 0 && (
-                                    <span className="text-[10px] tabular-nums text-white/40 shrink-0">{c.n}</span>
-                                  )}
+                              {[...countriesList].sort((a, b) => (b.n || 0) - (a.n || 0)).map((c, idx) => (
+                                <li
+                                  key={c.country_code || c.country}
+                                  style={{
+                                    animationDelay: `${Math.min(idx, 25) * 200}ms`,
+                                    animationFillMode: "both",
+                                  }}
+                                  className="flex items-center gap-2 text-[13px] py-1.5 px-2 rounded-lg hover:bg-white/[0.06] animate-in fade-in slide-in-from-bottom-2 duration-700"
+                                >
                                   <span className="text-[18px] shrink-0">{flagOf(c.country_code, c.country)}</span>
+                                  <span className="flex-1 break-words bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent font-medium">{englishCountryName(c.country_code, c.country)}</span>
+                                  {typeof c.n === "number" && c.n > 0 && (
+                                    <span className="text-[10px] tabular-nums font-bold bg-gradient-to-r from-amber-300 to-fuchsia-300 bg-clip-text text-transparent shrink-0">{c.n}</span>
+                                  )}
                                 </li>
                               ))}
                             </ul>
@@ -2598,7 +2648,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                           drag panel (горизонталь+вертикаль через handle) уже отключён здесь. */}
                                       <div style={{flex:1,overflowY:'auto',padding:'12px 16px 16px',touchAction:'pan-y',WebkitOverflowScrolling:'touch'}}>
                                       <ul style={{listStyle:'none',padding:0,margin:0,display:'flex',flexDirection:'column',gap:'6px'}}>
-                                        {countriesList.map(c => <li key={c.country_code || c.country} style={{display:'flex',alignItems:'center',gap:'8px',fontSize:'13px',color:'rgba(255,255,255,0.85)',padding:'4px 0'}}><span style={{flex:1,wordBreak:'break-word'}}>{c.country}</span><span style={{fontSize:'18px',flexShrink:0}}>{flagOf(c.country_code, c.country)}</span></li>)}
+                                        {countriesList.map(c => <li key={c.country_code || c.country} style={{display:'flex',alignItems:'center',gap:'8px',fontSize:'13px',color:'rgba(255,255,255,0.85)',padding:'4px 0'}}><span style={{fontSize:'18px',flexShrink:0}}>{flagOf(c.country_code, c.country)}</span><span style={{flex:1,wordBreak:'break-word'}}>{englishCountryName(c.country_code, c.country)}</span></li>)}
                                         {countriesList.length === 0 && <li style={{fontSize:'12px',color:'rgba(255,255,255,0.4)'}}>Пока нет данных</li>}
                                       </ul>
                                       {/* Eugene 2026-05-15 Босс: «панель городов раздвигается
