@@ -642,6 +642,33 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const [playlistBuilder, setPlaylistBuilder] = useState<number[]>([]);
   // Eugene 2026-05-22 Босс «2 вариант — swipe влево красным = выкинуть».
   const [excludedTrackIds, setExcludedTrackIds] = useState<number[]>([]);
+  // Eugene 2026-05-22 Босс «через 10 сек Муза предлагает сохранить супер
+  // плейлист». State + timer ref + saved flag.
+  const [showSavePrompt, setShowSavePrompt] = useState(false);
+  const savePromptTimerRef = useRef<number | null>(null);
+  // Авторизованный — saved через localStorage пер-userId. Анонимный — guest key.
+  const playlistStorageKey = user?.id ? `muzaai-super-playlist-${user.id}` : "muzaai-super-playlist-guest";
+  useEffect(() => {
+    if (savePromptTimerRef.current) { window.clearTimeout(savePromptTimerRef.current); savePromptTimerRef.current = null; }
+    if (playlistBuilder.length === 0) { setShowSavePrompt(false); return; }
+    savePromptTimerRef.current = window.setTimeout(() => setShowSavePrompt(true), 10_000);
+    return () => { if (savePromptTimerRef.current) window.clearTimeout(savePromptTimerRef.current); };
+  }, [playlistBuilder]);
+  // Eugene 2026-05-22 Босс «при следующей авторизации Муза предлагает
+  // воспроизвести личный плейлист». На mount — проверяем localStorage.
+  const [showLoadSavedPrompt, setShowLoadSavedPrompt] = useState<number[] | null>(null);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(playlistStorageKey);
+      if (raw) {
+        const ids = JSON.parse(raw);
+        if (Array.isArray(ids) && ids.length > 0) {
+          // Show prompt через 3 сек после load
+          window.setTimeout(() => setShowLoadSavedPrompt(ids), 3000);
+        }
+      }
+    } catch {}
+  }, [playlistStorageKey]);
   const swipeStartRef = useRef<{ id: number; startX: number; el: HTMLElement } | null>(null);
   const [swipeOffsetMap, setSwipeOffsetMap] = useState<Record<number, number>>({});
   useEffect(() => {
@@ -3509,9 +3536,64 @@ export default function LandingPage() {
                 ▶ Запустить плейлист
               </button>
             </div>
+            {/* Eugene 2026-05-22 Босс «по итогу через 10 сек Муза предлагает
+                сохранить супер плейлист». Prompt bubble прижат сверху-снаружи
+                panel чтобы Муза «появлялась у выбранной панели». */}
+            {showSavePrompt && (
+              <div className="absolute -top-24 right-0 w-[260px] glass-card border-2 border-purple-400/50 rounded-2xl p-3 shadow-2xl shadow-purple-500/30 animate-in fade-in slide-in-from-top-2 duration-300">
+                <p className="text-xs font-sans text-white/90 mb-2">
+                  ✨ Сохраню как супер плейлист? {user ? "В твоём кабинете будет на следующий заход" : "Сохраню в браузер"}
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      try { localStorage.setItem(playlistStorageKey, JSON.stringify(playlistBuilder)); } catch {}
+                      toast({ title: "Плейлист сохранён 🎵", description: user ? "Загрузится при следующем входе" : "Сохранён в этом браузере" });
+                      setShowSavePrompt(false);
+                    }}
+                    className="flex-1 py-1.5 rounded-lg bg-gradient-to-r from-purple-500/50 to-cyan-500/50 text-white text-xs font-medium hover:from-purple-500/70 hover:to-cyan-500/70 transition-colors"
+                  >Да, сохрани</button>
+                  <button
+                    type="button"
+                    onClick={() => setShowSavePrompt(false)}
+                    className="flex-1 py-1.5 rounded-lg bg-white/5 text-white/70 text-xs hover:bg-white/10 transition-colors"
+                  >Не надо</button>
+                </div>
+              </div>
+            )}
           </div>
         );
       })()}
+
+      {/* Eugene 2026-05-22 Босс «при следующей авторизации Муза предлагает
+          воспроизвести Личный плейлист». Prompt при load page если saved. */}
+      {showLoadSavedPrompt && (
+        <div className="fixed bottom-24 right-3 z-[200] w-[280px] glass-card border-2 border-purple-400/50 rounded-2xl p-3 shadow-2xl shadow-purple-500/30 animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <p className="text-sm font-sans text-white/90 mb-2">
+            ✨ Привет! У тебя есть личный плейлист на {showLoadSavedPrompt.length} треков. Включить?
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const first = tracks.find((t: any) => t.id === showLoadSavedPrompt[0]);
+                if (first) {
+                  setPlaylistBuilder(showLoadSavedPrompt);
+                  playTrack(first);
+                }
+                setShowLoadSavedPrompt(null);
+              }}
+              className="flex-1 py-1.5 rounded-lg bg-gradient-to-r from-purple-500/50 to-cyan-500/50 text-white text-xs font-medium hover:from-purple-500/70 hover:to-cyan-500/70 transition-colors"
+            >▶ Да, включить</button>
+            <button
+              type="button"
+              onClick={() => setShowLoadSavedPrompt(null)}
+              className="flex-1 py-1.5 rounded-lg bg-white/5 text-white/70 text-xs hover:bg-white/10 transition-colors"
+            >Не сейчас</button>
+          </div>
+        </div>
+      )}
 
       {/* Install guide modal */}
       <Dialog open={!!showInstallGuide} onOpenChange={() => setShowInstallGuide(null)}>
