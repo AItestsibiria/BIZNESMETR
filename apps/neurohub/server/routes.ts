@@ -1793,6 +1793,14 @@ export async function registerRoutes(
           }).returning().get();
           storage.createTransaction({ userId: user.id, type: "bonus", amount: 100000, description: "Приветственный бонус 1000 ₽" });
           console.log(`[TG AUTH] Force-created user #${user.id}: ${tgName} (tg:${tgId})`);
+          // Eugene 2026-05-23 Босс «TG регистрация — выдай welcome gift»: вызываем
+          // tryGiveWelcomeGift для CIS users (правило 1000 первых из РФ + ближнее
+          // зарубежье). countryCode пока null — userMemory/geo подтянет позже.
+          try {
+            const { tryGiveWelcomeGift } = await import("./lib/welcomeGift");
+            const giftRes = tryGiveWelcomeGift({ userId: user.id, countryCode: user.countryCode || null });
+            if (giftRes.gifted) console.log(`[TG AUTH] Welcome gift #${giftRes.position}/1000 → user #${user.id}`);
+          } catch (e) { console.warn("[TG AUTH] welcome gift skip:", e); }
         } else {
           // No link data — show linking form
           res.json({ needLink: true, tgId, tgName });
@@ -1875,6 +1883,12 @@ export async function registerRoutes(
             referralCode,
           }).returning().get();
           console.log(`[TG DEEP-LINK] Created user #${user.id}: ${tgName} (tg:${tgId})`);
+          // Eugene 2026-05-23 Босс «TG регистрация — выдай welcome gift».
+          try {
+            const { tryGiveWelcomeGift } = await import("./lib/welcomeGift");
+            const giftRes = tryGiveWelcomeGift({ userId: user.id, countryCode: user.countryCode || null });
+            if (giftRes.gifted) console.log(`[TG DEEP-LINK] Welcome gift #${giftRes.position}/1000 → user #${user.id}`);
+          } catch (e) { console.warn("[TG DEEP-LINK] welcome gift skip:", e); }
         }
       }
 
@@ -1945,6 +1959,12 @@ export async function registerRoutes(
           referralCode,
         }).returning().get();
         console.log(`[TG LOGIN-URL] Created user #${user.id}: ${tgName} (tg:${tgId})`);
+        // Eugene 2026-05-23 Босс «TG регистрация — выдай welcome gift».
+        try {
+          const { tryGiveWelcomeGift } = await import("./lib/welcomeGift");
+          const giftRes = tryGiveWelcomeGift({ userId: user.id, countryCode: user.countryCode || null });
+          if (giftRes.gifted) console.log(`[TG LOGIN-URL] Welcome gift #${giftRes.position}/1000 → user #${user.id}`);
+        } catch (e) { console.warn("[TG LOGIN-URL] welcome gift skip:", e); }
       } else {
         console.log(`[TG LOGIN-URL] Login user #${user.id}: ${user.name}`);
       }
@@ -4173,6 +4193,239 @@ export async function registerRoutes(
     } catch (e: any) {
       console.error("[BILLING-AUDIT] error:", e);
       res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+
+  // Eugene 2026-05-23 Босс «Сопоставление баланс с генерациями — уведоми».
+  // POST /api/admin/v304/billing/notify-findings
+  //   Запускает runBillingAudit() + отправляет Telegram alert админу со сводкой.
+  //   Никаких автоматических фиксов — только notification.
+  app.post("/api/admin/v304/billing/notify-findings", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const report = runBillingAudit();
+      const recRefundsTotal = report.recommendedRefunds.reduce((s, r) => s + (r.cost || 0), 0);
+      const recRub = (recRefundsTotal / 100).toFixed(2);
+      const lines: string[] = [];
+      lines.push("🧮 <b>Billing audit — сводка</b>");
+      lines.push("");
+      lines.push(`Всего проблем: <b>${report.issues.length}</b>`);
+      lines.push(`• 🔴 critical: <b>${report.buckets.critical}</b>`);
+      lines.push(`• 🟡 medium:   <b>${report.buckets.medium}</b>`);
+      lines.push(`• 🟢 low:      <b>${report.buckets.low}</b>`);
+      lines.push("");
+      lines.push(`Free generations bypass: <b>${report.freeGenerationsBypass.length}</b>`);
+      lines.push(`Orphan charges:          <b>${report.orphanCharges.length}</b>`);
+      lines.push(`Cost mismatches:         <b>${report.costMismatches.length}</b>`);
+      lines.push(`Unrefunded errored gens: <b>${report.unrefundedErroredGens.length}</b>`);
+      lines.push(`Balance mismatches:      <b>${report.balanceMismatches.length}</b>`);
+      lines.push(`Unbooked payments:       <b>${report.unbookedPayments.length}</b>`);
+      lines.push(`Premium без sub:         <b>${report.premiumWithoutSub.length}</b>`);
+      lines.push("");
+      lines.push(`Рекомендованных refund: <b>${report.recommendedRefunds.length}</b> на сумму <b>${recRub} ₽</b>`);
+      lines.push("");
+      lines.push(`📋 Detail: /admin/v304 → 💰 Billing audit`);
+      const text = lines.join("\n");
+
+      const token = process.env.TELEGRAM_BOT_TOKEN;
+      const adminId = process.env.ADMIN_TELEGRAM_ID;
+      let telegramSent = false;
+      let telegramErr: string | null = null;
+      if (token && adminId) {
+        try {
+          const r = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: adminId,
+              text,
+              parse_mode: "HTML",
+              disable_web_page_preview: true,
+            }),
+            signal: AbortSignal.timeout(8000),
+          });
+          telegramSent = r.ok;
+          if (!r.ok) telegramErr = `HTTP ${r.status}`;
+        } catch (e: any) {
+          telegramErr = String(e?.message || e);
+        }
+      } else {
+        telegramErr = "TELEGRAM_BOT_TOKEN / ADMIN_TELEGRAM_ID not set";
+      }
+
+      try {
+        recordAuditEntry({
+          req,
+          action: "create",
+          entity: "billing_notify",
+          entityKey: `run-${Date.now()}`,
+          after: {
+            issues: report.issues.length,
+            telegramSent,
+            recommendedRefundsCount: report.recommendedRefunds.length,
+            recommendedRefundsKopecks: recRefundsTotal,
+          },
+        });
+      } catch {}
+
+      res.json({
+        ok: true,
+        telegramSent,
+        telegramErr,
+        summary: {
+          totalIssues: report.issues.length,
+          critical: report.buckets.critical,
+          medium: report.buckets.medium,
+          low: report.buckets.low,
+          recommendedRefundsCount: report.recommendedRefunds.length,
+          recommendedRefundsKopecks: recRefundsTotal,
+        },
+      });
+    } catch (e: any) {
+      console.error("[BILLING-NOTIFY] error:", e);
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  // Eugene 2026-05-23 Босс: ручной trigger refund для конкретной gen.
+  // POST /api/admin/v304/billing/refund/:userId/:genId
+  //   body: { cost?, type?, reason? }
+  //   Если cost не передан — берётся из gen.cost (с type-aware fallback).
+  app.post("/api/admin/v304/billing/refund/:userId/:genId", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const userId = parseInt(String(req.params.userId || ""));
+      const genId = parseInt(String(req.params.genId || ""));
+      if (!Number.isFinite(userId) || !Number.isFinite(genId)) {
+        return res.status(400).json({ ok: false, error: "Invalid userId or genId" });
+      }
+      const reason = String(req.body?.reason || "manual_admin_refund");
+      const gen = db.select().from(generations).where(eq(generations.id, genId)).get() as any;
+      if (!gen) return res.status(404).json({ ok: false, error: "Generation not found" });
+      if (Number(gen.userId) !== userId) {
+        return res.status(400).json({ ok: false, error: "Generation belongs to different user" });
+      }
+      const type = String(req.body?.type || gen.type || "music");
+      const fallback = PRICES[type] || 9900;
+      const cost = Number(req.body?.cost) || Number(gen.cost) || fallback;
+      if (cost <= 0) return res.status(400).json({ ok: false, error: "Cost must be > 0" });
+
+      const ok = storage.refundGeneration({
+        genId,
+        userId,
+        cost,
+        type,
+        description: `Возврат (admin manual): ${reason} #${genId}`,
+      });
+
+      try {
+        recordAuditEntry({
+          req,
+          action: "update",
+          entity: "billing_refund",
+          entityKey: `gen-${genId}`,
+          after: { genId, userId, type, cost, reason, ok },
+        });
+      } catch {}
+
+      if (!ok) {
+        return res.json({ ok: false, error: "Refund failed (claimRefund returned false — возможно уже refundnut). Verify через style.refunded flag." });
+      }
+      const user = storage.getUser(userId);
+      res.json({ ok: true, refundedKopecks: cost, newBalance: user?.balance });
+    } catch (e: any) {
+      console.error("[BILLING-REFUND] error:", e);
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  // Eugene 2026-05-23 Босс: auto-fix script. dry_run=1 by default.
+  // POST /api/admin/v304/billing/auto-fix?dry_run=1
+  //   На каждого юзера в recommendedRefunds[] — если gen.id > 0 (true gen)
+  //   и cost > 0 → refundGeneration. Orphan charges (genId<0) пропускаются
+  //   (нужно вручную, потому что нет генерации для claimRefund).
+  app.post("/api/admin/v304/billing/auto-fix", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const dryRun = String(req.query.dry_run ?? "1") !== "0";
+      const report = runBillingAudit();
+      const ops: Array<{
+        genId: number;
+        userId: number;
+        cost: number;
+        reason: string;
+        action: "would_refund" | "refunded" | "skipped_orphan" | "skipped_zero_cost" | "failed";
+        error?: string;
+      }> = [];
+      let totalRefunded = 0;
+      let totalSkipped = 0;
+      let totalErrors = 0;
+
+      for (const r of report.recommendedRefunds) {
+        if (r.cost <= 0) {
+          ops.push({ ...r, action: "skipped_zero_cost" });
+          totalSkipped++;
+          continue;
+        }
+        if (r.genId < 0) {
+          // Orphan charge — не можем безопасно сделать refund через
+          // claimRefund (нет gen.style flag). Пропускаем — Босс делает вручную.
+          ops.push({ ...r, action: "skipped_orphan" });
+          totalSkipped++;
+          continue;
+        }
+        if (dryRun) {
+          ops.push({ ...r, action: "would_refund" });
+          totalRefunded += r.cost;
+          continue;
+        }
+        // Real refund
+        try {
+          const gen = db.select().from(generations).where(eq(generations.id, r.genId)).get() as any;
+          if (!gen) {
+            ops.push({ ...r, action: "failed", error: "gen not found" });
+            totalErrors++;
+            continue;
+          }
+          const ok = storage.refundGeneration({
+            genId: r.genId,
+            userId: r.userId,
+            cost: r.cost,
+            type: String(gen.type || "music"),
+            description: `Возврат (auto-fix billing audit): ${r.reason}`,
+          });
+          if (ok) {
+            ops.push({ ...r, action: "refunded" });
+            totalRefunded += r.cost;
+            try {
+              recordAuditEntry({
+                req,
+                action: "update",
+                entity: "billing_auto_fix",
+                entityKey: `gen-${r.genId}`,
+                after: { genId: r.genId, userId: r.userId, cost: r.cost, reason: r.reason },
+              });
+            } catch {}
+          } else {
+            ops.push({ ...r, action: "failed", error: "claimRefund=false (already refunded?)" });
+            totalErrors++;
+          }
+        } catch (e: any) {
+          ops.push({ ...r, action: "failed", error: String(e?.message || e) });
+          totalErrors++;
+        }
+      }
+
+      res.json({
+        ok: true,
+        dryRun,
+        processedCount: ops.length,
+        totalRefundedKopecks: totalRefunded,
+        totalSkipped,
+        totalErrors,
+        ops: ops.slice(0, 500),
+        opsTotalCount: ops.length,
+      });
+    } catch (e: any) {
+      console.error("[BILLING-AUTO-FIX] error:", e);
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
     }
   });
 
@@ -13662,7 +13915,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       if (!taskId) {
         storage.updateGeneration(newGen.id, { status: "error", errorReason: "MuzaAi не вернул task_id" });
         if (!charge.isFree) {
-          storage.refundGeneration({ genId: newGen.id, userId, cost: newGen.cost || 9900, type: "music", description: `Возврат: нет task_id при регенерации #${newGen.id}` });
+          storage.refundGeneration({ genId: newGen.id, userId, cost: newGen.cost || PRICES["music"] || 39900, type: "music", description: `Возврат: нет task_id при регенерации #${newGen.id}` });
         }
         res.status(500).json({ message: "Не удалось запустить регенерацию" });
         return;
