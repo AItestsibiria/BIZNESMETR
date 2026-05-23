@@ -41,7 +41,42 @@ export type AgentRole =
   | "moderator"    // фильтры / pre-flight / yars-detect
   | "broadcaster"  // outbound notifications
   | "diagnostic"   // health/probe сервисы
+  | "marketing"    // marketing-orchestrator (cross-channel campaigns, retargeting)
   | "tool";        // утилитарные internal сервисы
+
+/**
+ * Тип связи между agents. Описывает КАК один agent взаимодействует с другим.
+ *
+ *  - `pair-link`     — handoff context (web ↔ TG cross-channel session continuation)
+ *  - `broadcast`     — marketing рассылка контента в каналы
+ *  - `webhook`       — outbound HTTP call от agent A к каналу agent B
+ *  - `notify`        — transactional notification (verify email / push)
+ *  - `event`         — listen на event от agent A (EventBus subscription)
+ *  - `campaign`      — marketing-orchestrator → channel agent (поставить контент)
+ *  - `data-sync`     — обмен memory / user context между agents
+ */
+export type EdgeType =
+  | "pair-link"
+  | "broadcast"
+  | "webhook"
+  | "notify"
+  | "event"
+  | "campaign"
+  | "data-sync";
+
+export interface AgentEdge {
+  from: string;
+  to: string;
+  type: EdgeType;
+  /** Опциональный конфиг — например event-name, campaign-template, retry-policy. */
+  config?: Record<string, unknown>;
+  /** Когда edge зафиксирован (millis). */
+  createdAt: number;
+  /** Когда edge последний раз сработал (millis). */
+  lastUsedAt?: number;
+  /** Сколько раз сработал (debug counter). */
+  usageCount?: number;
+}
 
 export type AgentStatus =
   | "active"          // запущен, ENV в порядке, ходит трафик
@@ -79,9 +114,20 @@ export interface HealthCheckResult {
   checkedAt: number;
 }
 
+/**
+ * Lightweight внутренний event-emitter — НЕ заменяет EventBus из core/.
+ * EventBus (core/eventBus.ts) — для cross-plugin pub/sub с persisted events
+ * в БД. Здесь — оrchestrator-only listeners для marketing/edge triggers
+ * (например marketing-orchestrator слушает payment.succeeded чтобы запустить
+ * post-purchase кампанию). Sync, in-memory, никаких side effects на disk.
+ */
+type OrchestratorListener = (payload: unknown) => void | Promise<void>;
+
 export class AgentOrchestrator {
   private agents = new Map<string, AgentDescriptor>();
   private healthCache = new Map<string, HealthCheckResult>();
+  private edges = new Map<string, AgentEdge>(); // key = `${from}::${to}::${type}`
+  private listeners = new Map<string, OrchestratorListener[]>();
 
   /** Регистрирует agent. Повторный register с тем же id — обновляет (idempotent). */
   register(agent: AgentDescriptor): void {
@@ -224,6 +270,143 @@ export class AgentOrchestrator {
   /** Последний закешированный результат healthCheck. */
   getLastHealth(agentId: string): HealthCheckResult | undefined {
     return this.healthCache.get(agentId);
+  }
+
+  // ========== EDGES (agent ↔ agent relationships) ==========
+
+  /**
+   * Регистрирует связь между двумя agents. Idempotent — повторный addEdge
+   * с тем же (from, to, type) обновляет config + createdAt.
+   *
+   * Edge — описание ВОЗМОЖНОЙ связи, не RPC. Реальный трафик идёт через
+   * существующие endpoints / EventBus / webhook handlers. Это для visualization
+   * и admin observability — кто с кем общается, какие потоки данных есть.
+   */
+  addEdge(from: string, to: string, type: EdgeType, config?: Record<string, unknown>): void {
+    if (!from || !to || !type) return;
+    const key = `${from}::${to}::${type}`;
+    const existing = this.edges.get(key);
+    const edge: AgentEdge = {
+      from,
+      to,
+      type,
+      config: config ?? existing?.config,
+      createdAt: existing?.createdAt ?? Date.now(),
+      lastUsedAt: existing?.lastUsedAt,
+      usageCount: existing?.usageCount ?? 0,
+    };
+    this.edges.set(key, edge);
+  }
+
+  /** Удалить edge. Возвращает true если был. */
+  removeEdge(from: string, to: string, type: EdgeType): boolean {
+    return this.edges.delete(`${from}::${to}::${type}`);
+  }
+
+  /**
+   * Touch edge при реальном использовании — обновляет lastUsedAt + usageCount.
+   * Never throws. Можно вызывать из любого hook'a.
+   */
+  recordEdgeUsage(from: string, to: string, type: EdgeType): void {
+    try {
+      const key = `${from}::${to}::${type}`;
+      const edge = this.edges.get(key);
+      if (!edge) return;
+      edge.lastUsedAt = Date.now();
+      edge.usageCount = (edge.usageCount || 0) + 1;
+    } catch {}
+  }
+
+  /** Все edges (для admin UI graph view). */
+  listEdges(): AgentEdge[] {
+    return Array.from(this.edges.values());
+  }
+
+  /** Все edges связанные с agent (incoming + outgoing). */
+  getEdges(agentId: string): { outgoing: AgentEdge[]; incoming: AgentEdge[] } {
+    const all = Array.from(this.edges.values());
+    return {
+      outgoing: all.filter(e => e.from === agentId),
+      incoming: all.filter(e => e.to === agentId),
+    };
+  }
+
+  /**
+   * Visualization — JSON-граф для admin UI. nodes = agents, links = edges.
+   * Может рендериться как force-directed graph, как Mermaid diagram, или
+   * как просто list (как в orchestrator-tab.tsx).
+   */
+  visualize(): {
+    nodes: Array<{ id: string; name: string; channel: AgentChannel; role: AgentRole; status: AgentStatus }>;
+    links: Array<{ source: string; target: string; type: EdgeType; usageCount: number }>;
+  } {
+    const nodes = Array.from(this.agents.values()).map(a => ({
+      id: a.id,
+      name: a.name,
+      channel: a.channel,
+      role: a.role,
+      status: a.status,
+    }));
+    const links = Array.from(this.edges.values()).map(e => ({
+      source: e.from,
+      target: e.to,
+      type: e.type,
+      usageCount: e.usageCount || 0,
+    }));
+    return { nodes, links };
+  }
+
+  // ========== INTERNAL EVENT EMITTER (orchestrator-only) ==========
+
+  /**
+   * Подписаться на orchestrator-local событие. НЕ заменяет core/eventBus.ts —
+   * это для marketing-orchestrator и edge-triggered hook'ов внутри agent layer.
+   * Sync invoke. Errors swallowed (logged через console).
+   */
+  on(eventName: string, listener: OrchestratorListener): void {
+    const arr = this.listeners.get(eventName) || [];
+    arr.push(listener);
+    this.listeners.set(eventName, arr);
+  }
+
+  /** Удалить listener. Идемпотентен. */
+  off(eventName: string, listener: OrchestratorListener): void {
+    const arr = this.listeners.get(eventName);
+    if (!arr) return;
+    const filtered = arr.filter(l => l !== listener);
+    if (filtered.length === 0) this.listeners.delete(eventName);
+    else this.listeners.set(eventName, filtered);
+  }
+
+  /**
+   * Emit orchestrator-local событие. Fire-and-forget — listeners выполняются
+   * async, errors не propagate'ятся. Если listener throw'ит — логирует в console
+   * и идёт дальше.
+   *
+   * Standard event names (consumed by marketing-orchestrator):
+   *  - `payment.succeeded`        { userId, amount, item, paymentId }
+   *  - `generation.published`     { genId, userId, title, category }
+   *  - `user.churned`             { userId, daysInactive }
+   *  - `referral.bonus.given`     { referrerId, refereeId, amount }
+   *  - `subscription.expired`     { userId, tier, expiredAt }
+   *  - `user.registered`          { userId, channel }
+   *  - `generation.milestone`     { userId, count }   (5-й, 10-й, 25-й трек etc.)
+   */
+  emitEvent(eventName: string, payload: unknown): void {
+    const arr = this.listeners.get(eventName);
+    if (!arr || arr.length === 0) return;
+    for (const listener of arr) {
+      try {
+        const r = listener(payload);
+        if (r && typeof (r as Promise<void>).then === "function") {
+          (r as Promise<void>).catch(e => {
+            console.warn(`[orchestrator] listener for ${eventName} failed:`, (e as Error)?.message || e);
+          });
+        }
+      } catch (e) {
+        console.warn(`[orchestrator] listener for ${eventName} threw:`, (e as Error)?.message || e);
+      }
+    }
   }
 
   /** Сводка для admin UI — counters по channel / role / status. */
@@ -385,6 +568,126 @@ export function bootstrapDefaultAgents(): void {
     status: "active",
     capabilities: ["metrics", "alert", "probe"],
   });
+
+  // Eugene 2026-05-23 marketing-orchestrator. Cross-channel campaigns +
+  // retargeting + content calendar + auto-triggers по event'ам. Связано с
+  // существующими channels через edges (см. registerMarketingEdges ниже).
+  orchestrator.register({
+    id: "marketing-orchestrator",
+    name: "Маркетинг-оркестратор",
+    channel: "internal",
+    role: "marketing",
+    status: "active",
+    capabilities: [
+      "broadcast",            // cross-channel post (VK+TG+email+landing)
+      "retargeting",          // segmentation + targeted campaigns
+      "content-calendar",     // schedule
+      "ab-testing",           // split-test variants
+      "metrics",              // unified KPI dashboard
+      "auto-trigger",         // event-driven campaigns (payment.succeeded etc)
+      "channel-allocation",   // CAC/LTV-based budget distribution
+    ],
+    metadata: { brief: "Управляет cross-channel кампаниями MuzaAi" },
+  });
+
+  // Регистрируем edges между marketing-orchestrator и channels (см. matrix
+  // в docs/AGENT-ORCHESTRATOR-PROPOSALS.md и Agent-orchestrator rule).
+  registerDefaultEdges();
+}
+
+/**
+ * Регистрация default edges (relationships). Idempotent — повторный вызов
+ * перезаписывает config. См. matrix в docs/AGENT-ORCHESTRATOR-PROPOSALS.md.
+ */
+function registerDefaultEdges(): void {
+  // ===== Marketing-orchestrator → channels (broadcast / campaign) =====
+  orchestrator.addEdge("marketing-orchestrator", "channel-email", "broadcast", {
+    purpose: "transactional + newsletter + re-engagement",
+  });
+  orchestrator.addEdge("marketing-orchestrator", "muza-tg", "broadcast", {
+    purpose: "TG community post + DM auto-campaigns",
+  });
+  orchestrator.addEdge("marketing-orchestrator", "muza-vk", "broadcast", {
+    purpose: "VK community wall post + DM",
+  });
+  orchestrator.addEdge("marketing-orchestrator", "muza-max", "broadcast", {
+    purpose: "Max channel post + targeted DM",
+  });
+  orchestrator.addEdge("marketing-orchestrator", "muza-web", "campaign", {
+    purpose: "Landing CMS news cards + in-chat sales triggers",
+  });
+
+  // ===== Marketing listens на events (auto-trigger campaigns) =====
+  orchestrator.addEdge("muza-web", "marketing-orchestrator", "event", {
+    purpose: "payment.succeeded, generation.published, generation.milestone",
+  });
+  orchestrator.addEdge("muza-tg", "marketing-orchestrator", "event", {
+    purpose: "user.registered (TG channel), referral.bonus.given",
+  });
+
+  // ===== Cross-channel pair-link (user history) =====
+  orchestrator.addEdge("muza-tg", "muza-web", "pair-link", {
+    purpose: "TG → web magic-link с подгрузкой истории",
+  });
+  orchestrator.addEdge("muza-web", "muza-tg", "data-sync", {
+    purpose: "Cross-channel conversation linking (один userId, один thread)",
+  });
+  orchestrator.addEdge("muza-max", "muza-web", "pair-link", {
+    purpose: "Max → web cross-session",
+  });
+
+  // ===== Email notifications =====
+  orchestrator.addEdge("muza-web", "channel-email", "notify", {
+    purpose: "Email verification, password reset, payment receipts",
+  });
+  orchestrator.addEdge("watchdog-suno", "channel-email", "notify", {
+    purpose: "Refund notifications, generation completion",
+  });
+
+  // ===== Watchdogs → admin notifications =====
+  orchestrator.addEdge("watchdog-suno", "muza-admin", "webhook", {
+    purpose: "Suno fail alerts, refund pipeline notifications",
+  });
+  orchestrator.addEdge("watchdog-api-health", "muza-admin", "webhook", {
+    purpose: "API key health alerts (nightly 03:00 МСК)",
+  });
+  orchestrator.addEdge("watchdog-channels", "muza-admin", "webhook", {
+    purpose: "Channel down alerts (TG/Max/VK)",
+  });
+
+  // ===== Voice ↔ channels =====
+  orchestrator.addEdge("muza-voice", "muza-web", "webhook", {
+    purpose: "TTS playback в web FAB",
+  });
+  orchestrator.addEdge("muza-voice", "muza-admin", "webhook", {
+    purpose: "Admin voice commands STT",
+  });
+
+  // ===== Yars moderator =====
+  orchestrator.addEdge("moderator-yars", "muza-admin", "event", {
+    purpose: "Yars-command detection → admin queue",
+  });
+}
+
+/**
+ * Helper для emit orchestrator-local события. Используется в hook'ах из
+ * routes.ts / plugins после успешного processing. Never throws.
+ *
+ * Стандартные events:
+ *  - emitOrchestratorEvent("payment.succeeded", { userId, amount, item, paymentId })
+ *  - emitOrchestratorEvent("generation.published", { genId, userId, title })
+ *  - emitOrchestratorEvent("user.registered", { userId, channel })
+ *  - emitOrchestratorEvent("generation.milestone", { userId, count })
+ *  - emitOrchestratorEvent("user.churned", { userId, daysInactive })
+ *  - emitOrchestratorEvent("subscription.expired", { userId, tier })
+ *  - emitOrchestratorEvent("referral.bonus.given", { referrerId, refereeId, amount })
+ */
+export function emitOrchestratorEvent(eventName: string, payload: unknown): void {
+  try {
+    orchestrator.emitEvent(eventName, payload);
+  } catch (e) {
+    console.warn(`[orchestrator] emit ${eventName} failed:`, (e as Error)?.message || e);
+  }
 }
 
 /**
