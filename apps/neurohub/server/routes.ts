@@ -8000,18 +8000,27 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
         console.error(`[cover-serve] remote fallback failed id=${genId}:`, e instanceof Error ? e.message : e);
       }
 
-      // Final fallback — MuzaAi artwork
-      const artworkPath = path.join(process.cwd(), "dist", "public", "artwork-512.png");
-      if (fs.existsSync(artworkPath)) {
+      // Final fallback — MuzaAi artwork. Eugene 2026-05-22 Босс «lock screen»
+      // — artwork-512.png может отсутствовать на проде → iOS подбирает
+      // apple-touch-icon (purple waveform) как fallback на lock-screen.
+      // Try artwork-512.png первым, затем apple-touch-icon.png, затем favicon.svg.
+      const fallbackCandidates = [
+        path.join(process.cwd(), "dist", "public", "artwork-512.png"),
+        path.join(process.cwd(), "dist", "public", "apple-touch-icon.png"),
+        path.join(process.cwd(), "dist", "public", "favicon.svg"),
+      ];
+      const artworkPath = fallbackCandidates.find(p => fs.existsSync(p));
+      if (artworkPath) {
         try {
-          if (targetSize > 0 && targetSize <= 512) {
+          const isPng = artworkPath.endsWith(".png");
+          if (targetSize > 0 && targetSize <= 512 && isPng) {
             const sharp = require("sharp");
             const buf = await sharp(fs.readFileSync(artworkPath)).resize(targetSize, targetSize, { fit: "cover" }).jpeg({ quality: 85 }).toBuffer();
             res.setHeader("Content-Type", "image/jpeg");
             res.setHeader("Cache-Control", "public, max-age=604800");
             return res.send(buf);
           }
-          res.setHeader("Content-Type", "image/png");
+          res.setHeader("Content-Type", isPng ? "image/png" : "image/svg+xml");
           res.setHeader("Cache-Control", "public, max-age=604800");
           return res.sendFile(artworkPath, (err) => {
             if (err) console.error(`[cover-serve] artwork sendFile failed id=${genId}:`, err.message || err);
@@ -8021,7 +8030,7 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
           return res.status(500).end();
         }
       }
-      console.warn(`[cover-serve] no artwork file id=${genId} expectedPath=${artworkPath}`);
+      console.warn(`[cover-serve] no artwork file id=${genId} tried=${fallbackCandidates.join(",")}`);
       return res.status(404).end();
     } catch (e) {
       console.error(`[cover-serve] unexpected id=${genId}:`, e instanceof Error ? e.message : e);
