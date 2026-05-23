@@ -3461,6 +3461,56 @@ ssh root@31.130.148.107 'awk -F= "/^КЛЮЧ/{print \"length:\", length(\$2), \"
 **Анти-паттерн который правило закрывает (real-world пример 2026-05-23):**
 Фикс «плеер исчез» (commit `441ab5b`) применил валидацию ТОЛЬКО в `fetch().then()` callback. На mobile fetch GATED — initial render шёл из cached LS, мой фикс не выполнялся. Юзер опять видел «плеера нет». Если бы прошёл чек-лист (пункт 3 «mobile-gated paths» + пункт 8 «mental dry-run сценарии») — поймал бы это до push. Реальный фикс `bf2bf99` потребовался следующим коммитом.
 
+### Agent-orchestrator rule (Eugene 2026-05-23)
+
+**Каждый новый channel / bot / persona / watchdog / cron / utility AI-сервис ОБЯЗАН register'ить себя в orchestrator на старте.** Это даёт Боссу и админам один единый view «кто живой, кто молчит, кто не настроен» в `/admin/v304 → 🤖 Оркестратор`.
+
+Reference: `apps/neurohub/server/lib/agentOrchestrator.ts` + полная документация в `docs/AGENT-ORCHESTRATOR.md`.
+
+**3 шага при добавлении нового agent:**
+
+1. **Register** в `bootstrapDefaultAgents()` (или в plugin's `onLoad`):
+   ```ts
+   import { orchestrator } from "@/lib/agentOrchestrator";
+   orchestrator.register({
+     id: "muza-newchannel",
+     name: "Музa (NewChannel)",
+     channel: "internal", // или extend AgentChannel
+     role: "consultant",
+     persona_key: "muza",
+     status: process.env.NEWCHANNEL_TOKEN ? "active" : "not_configured",
+     capabilities: ["chat", "voice"],
+   });
+   ```
+
+2. **recordActivity** (one-line hook) в webhook handler / endpoint / cron tick после success:
+   ```ts
+   import { recordAgentActivity } from "@/lib/agentOrchestrator";
+   recordAgentActivity("muza-newchannel", { sessionId });
+   ```
+
+3. **healthCheck** (опционально, recommended) — функция-probe при register, запускается из admin UI кнопкой «🔬 Запустить health check»:
+   ```ts
+   healthCheck: async () => ({ ok: !!(process.env.NEWCHANNEL_TOKEN), details: "env-check" }),
+   ```
+
+**Жёсткие правила:**
+
+1. **Persona vs Agent** — Один agent = одна логическая роль в одном channel. Persona — маска. TG-Музa = 1 agent с persona_key="anya|tatyana|maria|olga". Web-Музa = другой agent (другой channel) с persona_key="muza".
+2. **Никаких секретов в response.** Endpoints `/orchestrator/agents` и `/orchestrator/health` возвращают только status, capabilities, lastSeenAt, persona_key. Никогда — values секретных ENV.
+3. **recordActivity sync + never-throws.** Если orchestrator упадёт — не должно ломать calling code. Wrap в `try { } catch {}`.
+4. **Не дублировать tracking.** Если уже есть api-key health (plugin api-health) — НЕ переписывать там. Orchestrator — extends visibility, не replaces.
+5. **Не использовать как RPC.** Для cross-plugin communication используй существующий `EventBus` из `core/`. Orchestrator — registry + observability layer, не bus.
+6. **Lightweight bootstrap.** `bootstrapDefaultAgents()` вызывается ОДИН раз на boot до `registerRoutes`. Никаких side effects (network calls / БД writes) — только in-memory register.
+
+**Применяется к:** всем новым каналам (WhatsApp / Instagram / SIP-calls / Email-inbound / future), всем новым watchdog/cron'ам, всем новым AI-tools. НЕ применяется к: разовым REST endpoints без long-running operation.
+
+**Связано с:**
+- Single-persona-across-channels rule — persona_key field в descriptor
+- No-duplicates rule — orchestrator не дублирует api-health / channel-watchdog
+- Reuse-working-solutions rule — каналы продолжают использовать existing endpoints
+- Brand-style consistency rule — admin UI следует brand palette
+
 ### Timestamp footer rule (Eugene 2026-05-07)
 
 **В конце каждого ответа в чате — мелким шрифтом (HTML `<sub>` или markdown с эмодзи `🕐`) дата + время с точностью до минуты, по часам сервера.** Формат: `🕐 2026-05-07 08:34 MSK`. Цель — Евгений видит хронологию всей переписки и может ссылаться на конкретную запись по времени.

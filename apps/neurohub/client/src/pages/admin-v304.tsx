@@ -48,6 +48,7 @@ import EscalationsTab from "@/pages/admin/escalations-tab";
 import PlaysAuditTab from "@/pages/admin/plays-audit-tab";
 import PlaysAnalyticsTab from "@/pages/admin/plays-analytics-tab";
 import { FeatureTogglesAdminTab } from "@/pages/admin/feature-toggles-admin-tab";
+import OrchestratorTab from "@/pages/admin/orchestrator-tab";
 import { MusaVoiceFab } from "@/components/musa-voice-fab";
 
 // Lazy-load SecondBrain3D — three.js + 3d-force-graph весят ~500KB,
@@ -769,6 +770,9 @@ export default function AdminV304Page() {
           <TabsTrigger value="bot-stats" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🤖 Бот</TabsTrigger>
           <TabsTrigger value="ai-keys" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🤖 Ключи AI</TabsTrigger>
           <TabsTrigger value="api-health" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🔑 API ключи</TabsTrigger>
+          {/* Eugene 2026-05-23 Босс Agent-orchestrator rule: central registry
+              всех agents (каналы, персоны, watchdog'и, cron'ы). */}
+          <TabsTrigger value="orchestrator" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🤖 Оркестратор</TabsTrigger>
           <TabsTrigger value="bot-channels" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🔌 Каналы</TabsTrigger>
           <TabsTrigger value="delegates" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🤝 Заместители</TabsTrigger>
           <TabsTrigger value="secrets" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🔑 Секреты</TabsTrigger>
@@ -832,6 +836,7 @@ export default function AdminV304Page() {
         <TabsContent value="bot-stats"><BotStatsTab toast={toast} /></TabsContent>
         <TabsContent value="ai-keys"><AiKeysTab toast={toast} /></TabsContent>
         <TabsContent value="api-health"><ApiHealthTab toast={toast} /></TabsContent>
+        <TabsContent value="orchestrator"><OrchestratorTab /></TabsContent>
         <TabsContent value="bot-channels"><BotChannelsTab toast={toast} /></TabsContent>
         <TabsContent value="delegates"><DelegatesTab toast={toast} /></TabsContent>
         <TabsContent value="secrets"><SecretsTab toast={toast} /></TabsContent>

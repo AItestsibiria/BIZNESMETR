@@ -809,6 +809,19 @@ export const MUZA_TOOLS: ToolDef[] = [
     description: "Показать активные подписки автора (premium voice messages и т.д.). БЕЗ параметров — userId из контекста.",
     input_schema: { type: "object", properties: {}, required: [] },
   },
+  {
+    name: "post_to_vk",
+    description: "[ADMIN-ONLY] Опубликовать пост в VK community MuzaAi (на стене группы от имени сообщества). content — текст поста (1-4000 chars). asset_id (опционально) — id трека MuzaAi для прикрепления через VK attachment. confirm_publish обязателен — без него возвращает approval_required (защита от LLM-инициатив). Audit-trail в admin_audit_log.",
+    input_schema: {
+      type: "object",
+      properties: {
+        content: { type: "string", description: "Текст поста (1-4000 chars)" },
+        asset_id: { type: "number", description: "ID трека для прикрепления (опционально)" },
+        confirm_publish: { type: "boolean", description: "Подтверждение публикации — обязательно true для выполнения" },
+      },
+      required: ["content"],
+    },
+  },
 ];
 
 // === Email 2FA wrapper helper (Eugene 2026-05-17 Босс) ===
@@ -2870,6 +2883,95 @@ const HANDLERS: Record<string, ToolHandler> = {
       return `Подписки: ${active.length} активных из ${rows.length}.\n${lines.join("\n")}`;
     } catch (e: any) {
       return `Ошибка get_my_subscriptions: ${e?.message || e}`;
+    }
+  },
+
+  // === VK community posting (Eugene 2026-05-23, subagent vk-channel) ===
+  // [ADMIN-ONLY] Музa может постить в VK community wall MuzaAi только при
+  // role=admin/super_admin (Musa-knowledge-governance rule). Чат-tool-calling
+  // rule: confirm_publish обязателен — без него approval_required JSON.
+  async post_to_vk(input, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: post_to_vk admin-only (Musa-knowledge-governance rule).";
+
+    const content = String(input?.content || "").trim();
+    if (!content || content.length < 1) return "Пустой content — нечего постить.";
+    if (content.length > 4000) return "content > 4000 chars — слишком длинно для VK поста (limit). Сократи.";
+
+    const assetId = input?.asset_id != null ? Number(input.asset_id) : null;
+    const confirmPublish = input?.confirm_publish === true;
+
+    // Approval flow (Chat-tool-calling rule)
+    if (!confirmPublish) {
+      return JSON.stringify({
+        ok: false,
+        approval_required: true,
+        tool: "post_to_vk",
+        params_preview: {
+          content: content.length > 200 ? content.slice(0, 200) + "…" : content,
+          asset_id: assetId,
+          content_length: content.length,
+        },
+        message: `Опубликовать пост в VK community MuzaAi (${content.length} символов${assetId ? `, с прикреплённым треком #${assetId}` : ""})?`,
+      });
+    }
+
+    // Ownership check для asset_id — admin может постить любой публичный трек
+    let attachments: string | undefined;
+    if (assetId && Number.isFinite(assetId) && assetId > 0) {
+      try {
+        const gen = db.select().from(generations).where(eq(generations.id, assetId)).get() as any;
+        if (!gen) return `Трек #${assetId} не найден.`;
+        if (gen.status !== "done") return `Трек #${assetId} ещё не готов (status=${gen.status}).`;
+        // VK attachment не поддерживает прямые URL-аудио из external storage без
+        // upload через VK API (audio.add). Пока пишем track URL в content вместо
+        // attachment — рабочий путь. TODO для следующих итераций:
+        // upload через docs.add/wall.uploadServer для нативного аудио в VK.
+        const trackUrl = `https://muzaai.ru/track/${gen.publicId || gen.id}`;
+        const lyricsHint = gen.displayTitle ? `\n\n🎵 «${gen.displayTitle}»\n${trackUrl}` : `\n\n🎵 ${trackUrl}`;
+        // append если не уже в content
+        if (!content.includes(trackUrl)) {
+          // append в final message (см. ниже)
+          (input as any).__trackUrl = trackUrl;
+          (input as any).__lyricsHint = lyricsHint;
+        }
+      } catch (e: any) {
+        return `Ошибка чтения трека #${assetId}: ${e?.message || e}`;
+      }
+    }
+
+    const finalContent = (input as any).__lyricsHint
+      ? content + (input as any).__lyricsHint
+      : content;
+
+    try {
+      const { vkPostWallGroup } = await import("./vkApi");
+      const r = await vkPostWallGroup({ message: finalContent, attachments, fromGroup: true });
+      if (!r.ok) return `Ошибка публикации VK: ${r.error}`;
+
+      // Audit-trail (CLAUDE.md rule)
+      try {
+        recordAuditEntry({
+          adminUserId: ctx.userId ?? null,
+          adminEmail: "muza-self-service",
+          action: "create",
+          entity: "vk_wall_post",
+          entityKey: String(r.data.post_id),
+          after: {
+            post_id: r.data.post_id,
+            content_length: finalContent.length,
+            asset_id: assetId,
+            triggered_by: "post_to_vk tool",
+          },
+        });
+      } catch {}
+
+      const postUrl = process.env.VK_GROUP_USERNAME
+        ? `https://vk.com/${process.env.VK_GROUP_USERNAME}?w=wall-${process.env.VK_GROUP_ID}_${r.data.post_id}`
+        : `https://vk.com/wall-${process.env.VK_GROUP_ID}_${r.data.post_id}`;
+
+      return `✅ Опубликовано в VK MuzaAi: ${postUrl}`;
+    } catch (e: any) {
+      return `Исключение при публикации VK: ${e?.message || e}`;
     }
   },
 };

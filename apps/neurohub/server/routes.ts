@@ -37,6 +37,7 @@ import {
 import { detectMuzaToolIntent } from "./lib/muzaIntentRouter";
 import { smsProviderLogs, smsOtp } from "@shared/schema";
 import { logUserActionFailure } from "./lib/userActionFailures";
+import { orchestrator as agentOrchestrator } from "./lib/agentOrchestrator";
 import {
   initiateAction,
   confirmAction,
@@ -2979,6 +2980,9 @@ export async function registerRoutes(
       res.status(429).json({ ok: false, error: "Слишком много сообщений за минуту" });
       return;
     }
+    // Eugene 2026-05-23 Agent-orchestrator rule: lightweight activity touch.
+    // Не дублирует state, не задерживает request — просто обновляет lastSeenAt.
+    try { agentOrchestrator.recordActivity("muza-web", { ip }); } catch {}
     // Eugene 2026-05-20 (I15 fix): body size cap. rawBody — express.json verify
     // сохраняет Buffer. Cap 64KB чтобы юзер не мог через массивные сообщения
     // забить LLM context / DoS.
@@ -3795,6 +3799,129 @@ export async function registerRoutes(
         },
       ],
     });
+  });
+
+  // ==================== VK community (Eugene 2026-05-23) ====================
+  // Admin diagnostics + manual posting для VK Community Callback API.
+  // Plugin: server/plugins/vk-channel/module.ts. Library: server/lib/vkApi.ts.
+
+  // GET /api/admin/v304/vk/status — конфиг + group info + last 24h activity
+  app.get("/api/admin/v304/vk/status", requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const { vkConfigStatus, vkGroupInfo } = await import("./lib/vkApi");
+      const config = vkConfigStatus();
+
+      let groupInfo: any = null;
+      let groupError: string | null = null;
+      if (config.hasAccessToken && config.groupId) {
+        const r = await vkGroupInfo();
+        if (r.ok) groupInfo = r.data;
+        else groupError = r.error;
+      }
+
+      // Last 24h messages/replies/errors из chatbot_messages + user_action_failures
+      let last24h = { messages: 0, replies: 0, errors: 0 };
+      try {
+        const sinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+        const sqlite: any = (db as any).$client;
+        const r1 = sqlite.prepare(`
+          SELECT
+            (SELECT COUNT(*) FROM chatbot_messages m JOIN chatbot_sessions s ON s.id = m.session_id
+              WHERE s.channel = 'vk' AND m.role = 'user' AND m.created_at > ?) AS msgs,
+            (SELECT COUNT(*) FROM chatbot_messages m JOIN chatbot_sessions s ON s.id = m.session_id
+              WHERE s.channel = 'vk' AND m.role = 'bot' AND m.created_at > ?) AS replies,
+            (SELECT COUNT(*) FROM user_action_failures
+              WHERE channel = 'vk' AND created_at > ?) AS errs
+        `).get(sinceIso, sinceIso, sinceIso) as any;
+        last24h = {
+          messages: r1?.msgs ?? 0,
+          replies: r1?.replies ?? 0,
+          errors: r1?.errs ?? 0,
+        };
+      } catch {}
+
+      res.json({
+        ok: true,
+        configured: config.configured,
+        env: {
+          VK_GROUP_ID: config.groupId,
+          VK_ACCESS_TOKEN: config.accessTokenMask,
+          VK_CONFIRMATION_CODE: config.hasConfirmationCode ? "present" : "MISSING",
+          VK_SECRET: config.hasSecret ? "present" : "MISSING (recommended for prod)",
+        },
+        group: groupInfo,
+        groupError,
+        last24h,
+        webhookUrl: `${process.env.PUBLIC_BASE_URL || "https://muzaai.ru"}/api/vk/callback`,
+        hints: !config.configured ? [
+          "Заполнить .env: VK_GROUP_ID, VK_ACCESS_TOKEN, VK_CONFIRMATION_CODE, VK_SECRET",
+          "В VK Admin: Управление → Работа с API → Callback API → URL + Confirmation + Secret",
+          "Подписаться на events: message_new, group_join, group_leave",
+          "См. docs/VK-INTEGRATION-SETUP.md",
+        ] : [],
+      });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
+  });
+
+  // POST /api/admin/v304/vk/test-post — тестовая публикация на стену community
+  // body: {content: string, confirm: boolean}
+  app.post("/api/admin/v304/vk/test-post", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const content = String(req.body?.content || "").trim();
+      const confirm = req.body?.confirm === true;
+      if (!content) return res.status(400).json({ ok: false, error: "content required" });
+      if (content.length > 4000) return res.status(400).json({ ok: false, error: "content > 4000 chars" });
+      if (!confirm) {
+        return res.json({
+          ok: false,
+          approval_required: true,
+          message: `Опубликовать тестовый пост (${content.length} символов)? Передай confirm: true.`,
+        });
+      }
+      const { vkPostWallGroup } = await import("./lib/vkApi");
+      const r = await vkPostWallGroup({ message: content, fromGroup: true });
+      if (!r.ok) return res.status(502).json({ ok: false, error: r.error });
+
+      try {
+        recordAuditEntry({
+          req,
+          action: "create",
+          entity: "vk_wall_post",
+          entityKey: String(r.data.post_id),
+          after: { post_id: r.data.post_id, content_length: content.length, source: "admin_test_post" },
+        });
+      } catch {}
+
+      const url = process.env.VK_GROUP_USERNAME
+        ? `https://vk.com/${process.env.VK_GROUP_USERNAME}?w=wall-${process.env.VK_GROUP_ID}_${r.data.post_id}`
+        : `https://vk.com/wall-${process.env.VK_GROUP_ID}_${r.data.post_id}`;
+
+      res.json({ ok: true, postId: r.data.post_id, url });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
+  });
+
+  // GET /api/admin/v304/vk/messages?limit=50 — последние VK сообщения
+  app.get("/api/admin/v304/vk/messages", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const limit = Math.max(1, Math.min(200, Number(req.query.limit) || 50));
+      const sqlite: any = (db as any).$client;
+      const rows = sqlite.prepare(`
+        SELECT m.id, m.session_id, m.role, m.text, m.created_at,
+               s.external_id AS vk_user_id, s.user_id AS linked_user_id
+        FROM chatbot_messages m
+        JOIN chatbot_sessions s ON s.id = m.session_id
+        WHERE s.channel = 'vk'
+        ORDER BY m.id DESC
+        LIMIT ?
+      `).all(limit) as any[];
+      res.json({ ok: true, total: rows.length, messages: rows });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
   });
 
   // Eugene 2026-05-23 marketing/SEO: ручной trigger для sitemap ping +
@@ -6588,6 +6715,68 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
       res.json({ ok: true });
     } catch (e: any) {
       res.status(500).json({ ok: false, error: String(e) });
+    }
+  });
+
+  // Eugene 2026-05-23 Босс «Оркестратор нужен всеми компаниями агентами
+  // начать в проекте — коде». Central registry visibility endpoints.
+  //
+  // GET  /api/admin/v304/orchestrator/agents — list зарегистрированных
+  // GET  /api/admin/v304/orchestrator/health — run healthCheckAll + summary
+  //
+  // Auth: requireAdmin (Босс / super_admin). Никаких секретов в ответе —
+  // только status, capabilities, lastSeenAt, persona_key.
+  app.get("/api/admin/v304/orchestrator/agents", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const channel = typeof req.query.channel === "string" ? req.query.channel : undefined;
+      const role = typeof req.query.role === "string" ? req.query.role : undefined;
+      const status = typeof req.query.status === "string" ? req.query.status : undefined;
+      const items = agentOrchestrator.list({
+        channel: channel as any,
+        role: role as any,
+        status: status as any,
+      });
+      const summary = agentOrchestrator.summary();
+      // Map agents без healthCheck function (нельзя serialize) + добавляем
+      // lastHealth из кеша если есть.
+      const data = items.map(a => ({
+        id: a.id,
+        name: a.name,
+        channel: a.channel,
+        role: a.role,
+        persona_key: a.persona_key || null,
+        status: a.status,
+        capabilities: a.capabilities,
+        lastSeenAt: a.lastSeenAt || null,
+        lastSeenAgo: a.lastSeenAt ? Date.now() - a.lastSeenAt : null,
+        metadata: a.metadata || null,
+        hasHealthProbe: typeof a.healthCheck === "function",
+        lastHealth: agentOrchestrator.getLastHealth(a.id) || null,
+      }));
+      res.json({ data: { agents: data, summary }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  app.get("/api/admin/v304/orchestrator/health", requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const results = await agentOrchestrator.healthCheckAll();
+      const summary = agentOrchestrator.summary();
+      const failing = Object.entries(results)
+        .filter(([_, r]) => !r.ok)
+        .map(([id, r]) => ({ id, details: r.details }));
+      res.json({
+        data: {
+          results,
+          summary,
+          failing,
+          checkedAt: new Date().toISOString(),
+        },
+        error: null,
+      });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
     }
   });
 

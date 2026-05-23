@@ -72,6 +72,7 @@ import audioUploadModule from "./plugins/audio-upload/module";
 import maxChannelModule from "./plugins/max-channel/module";
 import telegramBotModule from "./plugins/telegram-bot/module";
 import maxBotModule from "./plugins/max-bot/module";
+import vkChannelModule from "./plugins/vk-channel/module";
 import generationAgentModule from "./plugins/generation-agent/module";
 import sunoWatchdogModule from "./plugins/suno-watchdog/module";
 import authSmsModule from "./plugins/auth-sms/module";
@@ -100,6 +101,10 @@ import messageAnalysisModule from "./plugins/message-analysis/module";
 import playsAuditModule from "./plugins/plays-audit/module";
 import playsAnalyticsModule from "./plugins/plays-analytics/module";
 import giftCertificatesModule from "./plugins/gift-certificates/module";
+
+// Eugene 2026-05-23 Босс «Оркестратор нужен всеми компаниями агентами начать
+// в проекте — коде». Central agent registry — bootstrap на старте.
+import { bootstrapDefaultAgents } from "./lib/agentOrchestrator";
 
 import * as fs from "node:fs";
 
@@ -470,6 +475,14 @@ app.post("/api/_client-error", express.json(), (req, res) => {
 (globalThis as any).__clientErrorsRing = CLIENT_ERRORS_RING;
 
 (async () => {
+  // Eugene 2026-05-23 — bootstrap agent orchestrator ДО registerRoutes,
+  // чтобы admin endpoints видели зарегистрированных default agents сразу.
+  try {
+    bootstrapDefaultAgents();
+  } catch (e) {
+    console.warn("[orchestrator] bootstrap failed:", e instanceof Error ? e.message : String(e));
+  }
+
   await registerRoutes(httpServer, app);
 
   const bootLogger = createLogger("boot");
@@ -516,6 +529,7 @@ app.post("/api/_client-error", express.json(), (req, res) => {
     { name: "max-channel", module: maxChannelModule },
     { name: "telegram-bot", module: telegramBotModule },
     { name: "max-bot", module: maxBotModule },
+    { name: "vk-channel", module: vkChannelModule },
     { name: "generation-agent", module: generationAgentModule },
     { name: "suno-watchdog", module: sunoWatchdogModule },
     { name: "auth-sms", module: authSmsModule },
