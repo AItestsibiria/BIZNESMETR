@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3D Земля · Плейлист континентов</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header id="hud">
+    <h1>🌍 3D плейлист континентов</h1>
+    <p class="subtitle">
+      Научно точные форма, размер и расположение материков (текстура — NASA Blue Marble,
+      ось наклона 23.5°, центроиды по геокоординатам).
+      Кликни на пульсирующий маркер континента — откроется его плейлист.
+    </p>
+    <div class="legend" id="legend"></div>
+  </header>
+
+  <main id="canvas-container"></main>
+
+  <aside id="panel" class="panel hidden" aria-hidden="true">
+    <button id="close-panel" aria-label="Закрыть">×</button>
+    <div class="panel-head">
+      <span id="panel-flag" class="flag"></span>
+      <div>
+        <h2 id="panel-name"></h2>
+        <p id="panel-coords" class="coords"></p>
+        <p id="panel-area" class="coords"></p>
+      </div>
+    </div>
+    <ol id="track-list" class="tracks"></ol>
+    <p class="hint">Нажми ▶ чтобы открыть трек в YouTube</p>
+  </aside>
+
+  <footer id="footer">
+    <span>Перетащи — повернуть · колесо — приблизить · двойной клик — авто-вращение</span>
+  </footer>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
