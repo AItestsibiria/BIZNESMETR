@@ -851,6 +851,11 @@ export function FloatingConsultant() {
   const CHAT_SIZE_KEY = "muza-chat-size";
   const CHAT_SIZE_TTL_MS = 30 * 24 * 3_600_000;
   const [chatSize, setChatSize] = useState<{ w: number; h: number } | null>(null);
+  // Eugene 2026-05-23 Босс «возможно расширение уменьшение пальцами» —
+  // pinch-to-resize двумя пальцами на любом устройстве. Pinch-out
+  // увеличивает, pinch-in уменьшает размер chat drawer. Минимум 280×360,
+  // максимум 96vw × 86vh. Persist в chatSize.
+  const drawerPinchRef = useRef<{ dist: number; w: number; h: number } | null>(null);
   const [isResizing, setIsResizing] = useState(false);
   // visible snap-target during resize (для glow на handle при близости к 30/50/70%)
   const [resizeSnapTarget, setResizeSnapTarget] = useState<number | null>(null);
@@ -2391,12 +2396,42 @@ export function FloatingConsultant() {
             </>
           )}
           <div
+            onTouchStart={(e) => {
+              // Eugene 2026-05-23 Босс «расширение уменьшение пальцами» —
+              // pinch-to-resize двумя пальцами. Не блокирует одно-пальцевые
+              // touches (scroll/tap внутри чата работают нормально).
+              if (e.touches.length === 2) {
+                const dx = e.touches[0].clientX - e.touches[1].clientX;
+                const dy = e.touches[0].clientY - e.touches[1].clientY;
+                const dist = Math.hypot(dx, dy);
+                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                drawerPinchRef.current = { dist, w: rect.width, h: rect.height };
+                if (chatFullscreen) setChatFullscreen(false);
+              }
+            }}
+            onTouchMove={(e) => {
+              if (e.touches.length !== 2 || !drawerPinchRef.current) return;
+              e.preventDefault();
+              const dx = e.touches[0].clientX - e.touches[1].clientX;
+              const dy = e.touches[0].clientY - e.touches[1].clientY;
+              const dist = Math.hypot(dx, dy);
+              const scale = dist / drawerPinchRef.current.dist;
+              const minW = 280, minH = 360;
+              const maxW = Math.floor(window.innerWidth * 0.96);
+              const maxH = Math.floor(window.innerHeight * 0.86);
+              const newW = Math.max(minW, Math.min(maxW, drawerPinchRef.current.w * scale));
+              const newH = Math.max(minH, Math.min(maxH, drawerPinchRef.current.h * scale));
+              setChatSize({ w: Math.round(newW), h: Math.round(newH) });
+            }}
+            onTouchEnd={() => { drawerPinchRef.current = null; }}
+            onTouchCancel={() => { drawerPinchRef.current = null; }}
             className={`absolute flex flex-col backdrop-blur-md border-2 rounded-2xl border-purple-400/40 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in fade-in duration-300 ${
               isResizing ? "" : "transition-all"
             } ${
-              // Mobile (sm:hidden break) — фиксированные responsive ширины как раньше.
-              // Desktop/iPad без chatSize — тоже CSS-default; с chatSize — inline width/height.
-              isMobile || !chatSize ? "w-[92vw] max-w-[420px] sm:w-[380px] sm:!h-[460px]" : ""
+              // Eugene 2026-05-23 Босс «на планшете не позволяет сократить» —
+              // pinch может задать chatSize на ЛЮБОМ устройстве. Если задан
+              // → inline width/height (override default). Иначе default.
+              !chatSize ? "w-[92vw] max-w-[420px] sm:w-[380px] sm:!h-[460px]" : ""
             } ${
               // Eugene 2026-05-20 Босс: чат не перекрывает Музу (bottom-right).
               // br/bl смещены выше на высоту Музы (80px) + gap.
@@ -2411,8 +2446,8 @@ export function FloatingConsultant() {
               // override приоритет — 92vw × 86vh.
               ...(chatFullscreen
                 ? { width: "92vw", height: "86vh", maxWidth: "92vw" }
-                : !isMobile && chatSize
-                  ? { width: `${chatSize.w}px`, height: `${chatSize.h}px` }
+                : chatSize
+                  ? { width: `${chatSize.w}px`, height: `${chatSize.h}px`, maxWidth: "96vw" }
                   : { height: "min(60vh, calc(100vh - 96px - env(safe-area-inset-bottom, 0px)))" }),
               marginBottom: drawerSnap === "br" || drawerSnap === "bl" ? "env(safe-area-inset-bottom, 0px)" : undefined,
               // Eugene 2026-05-23 Босс «прозрачность 3 режима». 0=плотно, 1=полупрозрачно, 2=стекло.
@@ -2604,11 +2639,25 @@ export function FloatingConsultant() {
                   soundEnabled ? "text-fuchsia-300 hover:text-fuchsia-200 rotate-0" : "text-white/40 hover:text-white/70 -rotate-12"
                 }`}
               >{soundEnabled ? "🔔" : "🔕"}</button>
+              {/* Eugene 2026-05-23 Босс «нет кнопки свернуть — классические
+                  решения по управлению окнами». Triple control: — / ⛶ / ×
+                  (minimize / maximize / close) как Windows/macOS window
+                  chrome. minimize и close оба setChatOpen(false), но
+                  visually различимы — minimize обещает «вернёшь быстро»,
+                  close — «закрываешь окно». */}
+              <button
+                type="button"
+                onClick={() => { setChatOpen(false); setShareMenuOpen(false); }}
+                aria-label="Свернуть чат"
+                title="Свернуть"
+                className="w-9 h-9 sm:w-7 sm:h-7 rounded-full hover:bg-white/[0.08] text-white/70 hover:text-white text-xl font-bold flex items-center justify-center shrink-0 leading-none pb-1"
+              >−</button>
               <button
                 type="button"
                 onClick={() => { setChatOpen(false); setShareMenuOpen(false); }}
                 aria-label="Закрыть чат"
-                className="w-9 h-9 sm:w-7 sm:h-7 rounded-full hover:bg-white/[0.08] text-white/70 hover:text-white text-xl flex items-center justify-center shrink-0"
+                title="Закрыть"
+                className="w-9 h-9 sm:w-7 sm:h-7 rounded-full hover:bg-red-500/20 text-white/70 hover:text-red-200 text-xl flex items-center justify-center shrink-0"
               >×</button>
               {/* Share dropdown */}
               {shareMenuOpen && (
