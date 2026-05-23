@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useLocation } from "wouter";
 import { playMuzaChime, playMuzaTick, playMuzaSparkle } from "../lib/muza-sounds";
 import { useFeatureEnabled } from "@/lib/featureToggles";
 import { onJourneyEvent } from "../lib/user-journey";
@@ -429,6 +430,9 @@ export function FloatingConsultant() {
   // ВАЖНО: hook вызываем безусловно (React hooks rule), а ранний return
   // делаем после остальных state — иначе порядок hooks меняется между renders.
   const featureEnabled = useFeatureEnabled("floating-consultant");
+  // Eugene 2026-05-23 Босс «99% генерации через чат» — wouter navigate для
+  // [PANEL_ACTION:*] markers. Музa открывает /music, /lyrics, /covers etc.
+  const [, navigate] = useLocation();
   // Eugene 2026-05-19 Босс «не должно быть 2 одновременно». Когда маленькая
   // Муза-mouse-follow активна — большая FAB прячется.
   const [mouseFollowActive, setMouseFollowActive] = useState(false);
@@ -1460,6 +1464,56 @@ export function FloatingConsultant() {
           // quickReplies подадим отдельной перезаписью через ещё одну паузу
         }]);
         setChatSending(false);
+
+        // Eugene 2026-05-23 Босс «99% генерации через чат» — dispatch player +
+        // navigate panel actions из tool-результатов Музы. Markers уже стрипнуты
+        // на сервере, здесь получаем готовые arrays.
+        try {
+          if (Array.isArray(j.playerActions)) {
+            for (const pa of j.playerActions) {
+              if (pa && typeof pa.action === "string") {
+                window.dispatchEvent(new CustomEvent("muza-player-action", {
+                  detail: { action: pa.action, payload: pa.payload || null },
+                }));
+              }
+            }
+          }
+          if (Array.isArray(j.panelActions)) {
+            // Берём ПОСЛЕДНИЙ panel (если Музa вызвала несколько open_panel
+            // подряд — что неестественно, но защита). Префиксы wouter hash router.
+            const PANEL_TO_PATH: Record<string, string> = {
+              music: "/music", music_audio: "/music", music_text: "/music",
+              lyrics: "/lyrics", cover: "/covers", dashboard: "/dashboard",
+              tracks: "/tracks", billing: "/billing", landing: "/",
+            };
+            const last = j.panelActions[j.panelActions.length - 1];
+            if (last && typeof last.panel === "string" && PANEL_TO_PATH[last.panel]) {
+              // Decode prefill и сохранить в sessionStorage для целевой страницы.
+              let prefill: any = null;
+              if (last.prefillB64) {
+                try {
+                  const json = atob(String(last.prefillB64));
+                  prefill = JSON.parse(json);
+                } catch {}
+              }
+              if (prefill) {
+                try { sessionStorage.setItem(`muza_panel_prefill:${last.panel}`, JSON.stringify(prefill)); } catch {}
+              }
+              // Навигация через wouter (hash-router). Закрываем чат если открыт —
+              // чтобы юзер видел открытую страницу. Через 300ms (после humanDelay).
+              window.setTimeout(() => {
+                try {
+                  navigate(PANEL_TO_PATH[last.panel]);
+                  setChatOpen(false);
+                } catch (e) {
+                  console.warn("[FloatingConsultant] navigate failed:", e);
+                }
+              }, 250);
+            }
+          }
+        } catch (e) {
+          console.warn("[FloatingConsultant] player/panel dispatch failed:", e);
+        }
         if (j.paired) setChatPaired({ channel: j.pairedFromChannel });
         if (j.memo) setChatMemo(j.memo);
         // Через 1800-2800ms добавляем quickReplies — юзер успел прочитать.

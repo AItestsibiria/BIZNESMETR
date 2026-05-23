@@ -502,6 +502,49 @@ export const MUZA_TOOLS: ToolDef[] = [
     },
   },
 
+  // === Panel opener (Eugene 2026-05-23 Босс «99% генерации через чат —
+  // вызов панелей / окна генерации»). Возвращает marker [PANEL_ACTION:<panel>]
+  // → frontend (floating-consultant) парсит и навигирует через wouter setLocation.
+  // Доступен всем — открыть форму не destructive. Реальная генерация дальше
+  // через create_music_job / generate_lyrics с confirm_spend.
+  {
+    name: "open_panel",
+    description: "Открыть UI-панель проекта. Используй когда юзер говорит «открой кабинет», «давай создадим трек», «покажи форму обложки», «хочу записать аудио». Опц. prefill — предзаполнение полей (для form'ов). После открытия — НЕ запускай генерацию сам, дождись подтверждения юзера.",
+    input_schema: {
+      type: "object",
+      properties: {
+        panel: {
+          type: "string",
+          enum: [
+            "music",         // /music — форма генерации трека
+            "music_audio",   // /music — режим аудио-запись
+            "music_text",    // /music — режим текст
+            "lyrics",        // /lyrics — форма генерации текста
+            "cover",         // /covers — форма обложки
+            "dashboard",     // /dashboard — личный кабинет
+            "tracks",        // /tracks — мои треки
+            "billing",       // /billing — оплата / пополнение баланса
+            "landing",       // /  — на главную (плейлист)
+          ],
+          description: "Какую панель открыть",
+        },
+        prefill: {
+          type: "object",
+          description: "Опц. поля для предзаполнения формы (title, prompt, style, voice, lyrics, mood)",
+          properties: {
+            title: { type: "string" },
+            prompt: { type: "string" },
+            style: { type: "string" },
+            voice: { type: "string" },
+            lyrics: { type: "string" },
+            mood: { type: "string" },
+          },
+        },
+      },
+      required: ["panel"],
+    },
+  },
+
   // === Save-lyrics tools (Eugene 2026-05-18 Босс) ===
   // Муза сохраняет готовые тексты в личном кабинете — спрашивает название и
   // сохраняет. Заменяет действия клиента, но он подтверждает.
@@ -1412,6 +1455,40 @@ const HANDLERS: Record<string, ToolHandler> = {
     }
     const label = t === "main" ? "основной" : t === "new" ? "новые авторы" : "мои треки";
     return `[PLAYER_ACTION:filter:${t}] Показываю плейлист «${label}».`;
+  },
+
+  // Eugene 2026-05-23 Босс «99% генерации через чат — открытие панелей».
+  // Frontend (floating-consultant.tsx) парсит [PANEL_ACTION:<panel>:<prefillBase64>]
+  // и навигирует через wouter setLocation. Prefill кодируется base64-json чтобы
+  // marker не имел спец-символов мешающих regex.
+  async open_panel({ panel, prefill }) {
+    try {
+      const p = String(panel || "").toLowerCase();
+      const ROUTES: Record<string, { url: string; label: string; mode?: string }> = {
+        music: { url: "/music", label: "форма генерации трека" },
+        music_audio: { url: "/music", label: "режим Аудио (запись голоса)", mode: "audio" },
+        music_text: { url: "/music", label: "режим Текст (по описанию)", mode: "text" },
+        lyrics: { url: "/lyrics", label: "форма генерации текста песни" },
+        cover: { url: "/covers", label: "форма генерации обложки" },
+        dashboard: { url: "/dashboard", label: "личный кабинет" },
+        tracks: { url: "/tracks", label: "мои треки" },
+        billing: { url: "/billing", label: "пополнение баланса" },
+        landing: { url: "/", label: "главная страница" },
+      };
+      const route = ROUTES[p];
+      if (!route) return `Не знаю панель «${panel}». Доступно: music, music_audio, music_text, lyrics, cover, dashboard, tracks, billing, landing.`;
+      let prefillEncoded = "";
+      if (prefill && typeof prefill === "object") {
+        const payload: any = { ...prefill };
+        if (route.mode) payload.mode = route.mode;
+        try { prefillEncoded = Buffer.from(JSON.stringify(payload), "utf8").toString("base64"); } catch {}
+      } else if (route.mode) {
+        try { prefillEncoded = Buffer.from(JSON.stringify({ mode: route.mode }), "utf8").toString("base64"); } catch {}
+      }
+      return `[PANEL_ACTION:${p}${prefillEncoded ? ":" + prefillEncoded : ""}] Открываю ${route.label}. Дай знать что подставить — title, стиль, голос?`;
+    } catch (e: any) {
+      return `Ошибка open_panel: ${e?.message || e}`;
+    }
   },
 
   // Eugene 2026-05-20 Босс «мини-плеер в чате». Поиск по публичным трекам с

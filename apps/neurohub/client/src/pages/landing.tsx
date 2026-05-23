@@ -963,7 +963,31 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         // для отображения большого плеера. Audio создаётся при первом
         // клике (в свежем gesture) — playTrack гарантированно работает.
         const hasGlobalAudio = typeof window !== "undefined" && (window as any).__muziaiAudio;
-        if (!playingId && !hasGlobalAudio) {
+        // Eugene 2026-05-23 Босс «плеер исчез верни» — stale playingId fix.
+        // ROOT CAUSE: playingId восстановлен из localStorage, но трек больше
+        // не в feed (админ скрыл / категорий не совпало / refresh playlist
+        // вытолкнул из последних 53). currentTrack = tracks.find(...) = undefined
+        // → big player не рендерится. playingTrackRef.current тоже null
+        // потому что auto-init блокировался `if (!playingId)`.
+        // FIX: проверяем restored playingId на наличие в data; если нет —
+        // сбрасываем и берём firstMusic как для свежего захода.
+        let effectivePlayingId = playingId;
+        const restoredInData = effectivePlayingId
+          ? data.some((t: any) => t.id === effectivePlayingId && t.type === "music" && t.audioUrl)
+          : false;
+        if (effectivePlayingId && !restoredInData) {
+          // Stale ID — track больше не доступен. Очищаем + fallback на firstMusic ниже.
+          try { localStorage.removeItem(psKey("trackId")); } catch {}
+          try { localStorage.removeItem(psKey("currentTime")); } catch {}
+          setPlayingId(null);
+          effectivePlayingId = null;
+        } else if (effectivePlayingId && restoredInData) {
+          // Restored ID валиден — установим ref чтобы плеер сразу отрисовался
+          // даже если повторный фильтр выкинул из tracks state в будущем.
+          const restoredTrack = data.find((t: any) => t.id === effectivePlayingId);
+          if (restoredTrack) playingTrackRef.current = restoredTrack;
+        }
+        if (!effectivePlayingId && !hasGlobalAudio) {
           const firstMusic = data.find((t: any) => t.type === "music" && t.audioUrl);
           if (firstMusic) {
             setPlayingId(firstMusic.id);

@@ -203,6 +203,10 @@ export async function callTimeWebGateway(opts: {
     model: tmwModel,
     messages,
     max_tokens: opts.maxTokens,
+    // Eugene 2026-05-23 Босс «Музa повторяет» — anti-repeat sampling.
+    temperature: 0.85,
+    frequency_penalty: 0.5,
+    presence_penalty: 0.4,
   });
 
   const endpoints = TIMEWEB_GATEWAY_URL_CACHE
@@ -297,7 +301,11 @@ export async function callDeepSeek(opts: {
         model,
         messages,
         max_tokens: Math.min(opts.maxTokens, 4000),
-        temperature: 0.7,
+        // Eugene 2026-05-23 Босс «Музa тупит, повторы каждые 3 сек» —
+        // OpenAI-compat penalties + умеренная temp дают разнообразие.
+        temperature: 0.85,
+        frequency_penalty: 0.5,
+        presence_penalty: 0.4,
         stream: false,
       }),
       signal: AbortSignal.timeout(30_000),
@@ -440,6 +448,12 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
     system: systemBlocks,
     messages,
     tools: toolsForCall,
+    // Eugene 2026-05-23 Босс «повторы каждые 3 сек» — Anthropic поддерживает
+    // temperature (default 1.0 = max variance). Снижаем до 0.85 + top_p 0.92
+    // — даёт большее разнообразие лексики при сохранении coherence.
+    // Anthropic НЕ поддерживает frequency_penalty/presence_penalty (это OpenAI).
+    temperature: 0.85,
+    top_p: 0.92,
   });
 
   let prevFailed: { name: string; status: number | string; reason?: string } | null = null;
@@ -734,7 +748,10 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
           model: process.env.GPTUNNEL_LLM_MODEL || "gpt-4o-mini",
           messages,
           max_tokens: Math.min(maxTokens, 2000),
-          temperature: 0.7,
+          // Eugene 2026-05-23: anti-repeat sampling (см. fix DeepSeek/TimeWeb).
+          temperature: 0.85,
+          frequency_penalty: 0.5,
+          presence_penalty: 0.4,
         }),
         signal: AbortSignal.timeout(45_000),
       });

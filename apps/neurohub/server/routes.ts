@@ -3182,6 +3182,21 @@ export async function registerRoutes(
         }
       }
 
+      // Eugene 2026-05-23 Босс «Музa тупит — повторы каждые 3 сек». Server-side
+      // anti-repeat: инжектим ТРИ последних ответа Музы в dynamic context с
+      // explicit инструкцией «НЕ повторяй». В сочетании с frequency_penalty
+      // и temperature 0.85 в LLM-call закрывает root causes #1,#3,#5 аудита.
+      try {
+        const recentBot = llmHistory
+          .filter(h => h.role === "assistant")
+          .slice(-3)
+          .map((h, i) => `${i + 1}) «${String(h.content || "").slice(0, 240).replace(/\s+/g, " ")}»`)
+          .join("\n");
+        if (recentBot) {
+          systemDynamic += "\n\n[ANTI-REPEAT — 3 твоих последних ответа Музы в этой сессии]\n" + recentBot + "\n\n⚠ КРИТИЧНО: НЕ повторяй ни единой фразы / идеи / факта / структуры из этих ответов. Используй ДРУГИЕ слова, ДРУГИЕ примеры, ДРУГУЮ тему. Если выбора нет — задай вопрос юзеру вместо повтора. Чередуй: возможности MuzaAi ↔ музыкальная энциклопедия (стиль/исполнитель/история).";
+        }
+      } catch {}
+
       // Eugene 2026-05-18 Босс «администратору выдаёт всю информацию» —
       // если authUser = admin/super_admin, role пробрасывается в LLM core,
       // там filterToolsForRole откроет admin-tools и buildPersonaSystem
@@ -3306,6 +3321,59 @@ export async function registerRoutes(
         role: muzaRole,
         onToolResult,
       });
+
+      // Eugene 2026-05-23 Босс «Музa тупит» — server-side dedup: если LLM
+      // вернул ответ ≥80% похожий на любой из 3 последних bot-replies —
+      // retry один раз с УСИЛЕННОЙ инструкцией «ты только что это написала».
+      // Trigram similarity (быстрый, не Levenshtein) — для коротких replies хорошо.
+      try {
+        if (reply && reply.trim().length > 20) {
+          const trigrams = (s: string) => {
+            const norm = String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+            const out = new Set<string>();
+            for (let i = 0; i < norm.length - 2; i++) out.add(norm.slice(i, i + 3));
+            return out;
+          };
+          const sim = (a: Set<string>, b: Set<string>) => {
+            if (a.size === 0 || b.size === 0) return 0;
+            let inter = 0;
+            a.forEach(x => { if (b.has(x)) inter++; });
+            return inter / Math.max(a.size, b.size);
+          };
+          const currentTri = trigrams(reply);
+          const recentBots = llmHistory.filter(h => h.role === "assistant").slice(-3);
+          let maxSim = 0;
+          for (const prev of recentBots) {
+            const s = sim(currentTri, trigrams(String(prev.content || "")));
+            if (s > maxSim) maxSim = s;
+          }
+          if (maxSim >= 0.8) {
+            console.warn(`[MUZA-DEDUP] reply ${(maxSim * 100).toFixed(0)}% похож на prev — retry с усилением`);
+            const retryDynamic = systemDynamic + "\n\n[RETRY-NUDGE] Твой только что сгенерированный ответ слишком похож на предыдущий. Полностью переформулируй ДРУГИМИ словами и ДРУГОЙ темой. Запрещено повторять структуру и ключевые фразы предыдущих ответов.";
+            const retry = await callUnifiedMuzaLLM({
+              sessionId: session.id,
+              userId: authUserId,
+              channel: session.channel === "web" ? "web" : String(session.channel || "web"),
+              userText: text,
+              history: llmHistory,
+              dynamicContext: retryDynamic,
+              maxTokens: 400,
+              role: muzaRole,
+              onToolResult,
+            });
+            if (retry && retry.trim().length > 20) {
+              const newSim = sim(trigrams(retry), currentTri);
+              if (newSim < 0.7) {
+                console.log(`[MUZA-DEDUP] retry успешен (sim ${(newSim * 100).toFixed(0)}%)`);
+                reply = retry;
+              }
+            }
+          }
+        }
+      } catch (e: any) {
+        console.warn("[MUZA-DEDUP] check error:", e?.message || e);
+      }
+
       let usedFallback = false;
       if (!reply) {
         usedFallback = true;
@@ -3350,6 +3418,34 @@ export async function registerRoutes(
           reply = pool[Math.floor(Math.random() * pool.length)];
         }
       }
+      // Eugene 2026-05-23 Босс «99% генерации через чат». Player + Panel
+      // markers — server extracts ВСЕ из reply (Музa могла вызвать несколько
+      // tools), strip из текста, отдаёт frontend'у массивом для dispatch.
+      // Pattern скопирован с musa-voice-fab.tsx (там работает через tool result),
+      // но в текстовом chat'е маркеры в самом reply — поэтому здесь.
+      const playerActions: Array<{ action: string; payload: string | null }> = [];
+      const panelActions: Array<{ panel: string; prefillB64: string | null }> = [];
+      try {
+        const playerRe = /\[PLAYER_ACTION:([a-z_]+)(?::([^\]]+))?\]/gi;
+        let pm: RegExpExecArray | null;
+        while ((pm = playerRe.exec(reply)) !== null) {
+          playerActions.push({ action: pm[1], payload: pm[2] || null });
+        }
+        const panelRe = /\[PANEL_ACTION:([a-z_]+)(?::([A-Za-z0-9+/=]+))?\]/gi;
+        let qm: RegExpExecArray | null;
+        while ((qm = panelRe.exec(reply)) !== null) {
+          panelActions.push({ panel: qm[1], prefillB64: qm[2] || null });
+        }
+        // Strip обоих типов маркеров из текста ответа.
+        reply = reply
+          .replace(/\[PLAYER_ACTION:[^\]]+\]/g, "")
+          .replace(/\[PANEL_ACTION:[^\]]+\]/g, "")
+          .replace(/\s{2,}/g, " ")
+          .trim();
+      } catch (e: any) {
+        console.warn("[MUZA-CHAT marker extract]", e?.message || e);
+      }
+
       // Eugene 2026-05-18 Босс «чат → окно генерации с 3 кнопками».
       // Парсим [PROPOSE_GEN:...] ДО QR — маркеры независимы, но порядок
       // не критичен. Strip из текста, передаём отдельным полем.
@@ -3600,6 +3696,11 @@ export async function registerRoutes(
         // chat-tool. Frontend рендерит карточку с polling статусом (для music
         // в processing) или сразу плеер если done.
         attachedJob,
+        // Eugene 2026-05-23 Босс «99% генерации через чат» — стрипнутые маркеры
+        // [PLAYER_ACTION:*] и [PANEL_ACTION:*] из reply. Frontend dispatch'нет
+        // 'muza-player-action' и/или навигирует через wouter setLocation.
+        playerActions: playerActions.length > 0 ? playerActions : undefined,
+        panelActions: panelActions.length > 0 ? panelActions : undefined,
       });
     } catch (e: any) {
       console.error("[MUZA-CHAT send]", e);
