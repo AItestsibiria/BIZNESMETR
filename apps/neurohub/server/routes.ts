@@ -5077,6 +5077,100 @@ export async function registerRoutes(
     }
   });
 
+  // Eugene 2026-05-23 Босс «интерактивный дизайн писем от Музы».
+  // Endpoints для template registry / preview / test send / log в admin UI:
+  //   GET  /api/admin/v304/email-templates             — list всех templates + labels
+  //   GET  /api/admin/v304/email-templates/log         — last N отправленных + stats
+  //   GET  /api/admin/v304/email-templates/:name/preview — render HTML preview (sample ctx)
+  //   POST /api/admin/v304/email-templates/:name/test  — отправить admin'у test
+  app.get("/api/admin/v304/email-templates", requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const { EMAIL_TEMPLATE_NAMES, EMAIL_TEMPLATE_LABELS } = await import("./lib/emailTemplates");
+      res.json({
+        ok: true,
+        templates: EMAIL_TEMPLATE_NAMES.map((name) => ({
+          name,
+          label: EMAIL_TEMPLATE_LABELS[name] || name,
+        })),
+      });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  app.get("/api/admin/v304/email-templates/log", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { getEmailSendLog, getEmailSendStats } = await import("./lib/emailSend");
+      const limit = Math.min(Math.max(1, parseInt(String(req.query.limit || "100"), 10) || 100), 500);
+      const template = req.query.template ? String(req.query.template) : undefined;
+      const statusRaw = String(req.query.status || "");
+      const status = statusRaw === "sent" || statusRaw === "failed" ? (statusRaw as "sent" | "failed") : undefined;
+      const sinceMs = req.query.sinceMs ? parseInt(String(req.query.sinceMs), 10) : undefined;
+      const log = getEmailSendLog({ limit, template, status, sinceMs });
+      const stats = getEmailSendStats();
+      res.json({ ok: true, log, stats });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  app.get("/api/admin/v304/email-templates/:name/preview", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { renderEmailTemplate, getSampleContext, EMAIL_TEMPLATE_NAMES } =
+        await import("./lib/emailTemplates");
+      const name = String(req.params.name || "") as any;
+      if (!EMAIL_TEMPLATE_NAMES.includes(name)) {
+        return res.status(400).json({ ok: false, error: `Unknown template: ${name}` });
+      }
+      // Контекст: sample + override из query (JSON-string)
+      let ctx = getSampleContext(name);
+      if (req.query.ctx && typeof req.query.ctx === "string") {
+        try {
+          const parsed = JSON.parse(req.query.ctx);
+          ctx = { ...ctx, ...parsed };
+        } catch {
+          /* ignore — используем default sample */
+        }
+      }
+      const rendered = renderEmailTemplate(name, ctx);
+      res.json({
+        ok: true,
+        template: name,
+        subject: rendered.subject,
+        html: rendered.html,
+        text: rendered.text,
+        context: ctx,
+      });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  app.post("/api/admin/v304/email-templates/:name/test", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { sendTemplatedEmail } = await import("./lib/emailSend");
+      const { getSampleContext, EMAIL_TEMPLATE_NAMES } = await import("./lib/emailTemplates");
+      const name = String(req.params.name || "") as any;
+      if (!EMAIL_TEMPLATE_NAMES.includes(name)) {
+        return res.status(400).json({ ok: false, error: `Unknown template: ${name}` });
+      }
+      const to = String(req.body?.to || "").trim();
+      if (!to || !to.includes("@")) {
+        return res.status(400).json({ ok: false, error: "invalid 'to' email" });
+      }
+      const ctx = { ...getSampleContext(name), ...(req.body?.context || {}) };
+      const r = await sendTemplatedEmail({
+        to,
+        template: name,
+        context: ctx,
+        noAttachments: true, // test emails — без attachments
+      });
+      res.json({ ok: r.ok, ...r });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
   // Eugene 2026-05-17 Босс «архив и текущие диалоги бота по любому каналу».
   // Список chatbot-сессий с фильтрами channel/status/q + pagination.
   // - channel: 'all' | 'web' | 'telegram' | 'max'
