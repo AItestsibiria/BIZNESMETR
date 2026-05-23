@@ -48,6 +48,10 @@ export async function setupVite(server: Server, app: Express) {
         `src="/src/main.tsx"`,
         `src="/src/main.tsx?v=${nanoid()}"`,
       );
+      // Eugene 2026-05-23 marketing/SEO: server-side substitution YM counter
+      // в noscript-fallback. Если YM_COUNTER_ID нет в env — "0" → IMG no-op.
+      const ymId = String(process.env.YM_COUNTER_ID || "0");
+      template = template.replaceAll("__YM_COUNTER_ID__", ymId);
       const page = await vite.transformIndexHtml(url, template);
       res.status(200).set({ "Content-Type": "text/html" }).end(page);
     } catch (e) {

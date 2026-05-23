@@ -459,16 +459,27 @@ export const MUZA_TOOLS: ToolDef[] = [
   // attachedTrack к ответу /api/muza/chat. Frontend рендерит inline-карточку
   // с persistent <audio>.
   //
-  // Использовать когда юзер просит послушать конкретный трек:
-  //   «поставь песню про маму», «включи Луну», «хочу послушать про звёзды»,
-  //   «давай тот трек где про дождь». Доступен всем (анон + клиент + админ).
+  // Eugene 2026-05-23 Босс «найди и запусти по попаданию букв» — substring
+  // поиск по display_title (case-insensitive). Параметры:
+  //   - q/query — обязательно, 2-100 символов
+  //   - category — опц. фильтр (song / greeting / instrumental / all)
+  //   - limit — опц., 1-10, default 5
+  //   - mine_only — опц., true только для авторизованных (свои треки)
+  //
+  // Использовать когда юзер просит послушать / найти конкретный трек:
+  //   «найди слон», «найди песню про маму», «поставь маме», «включи Луну»,
+  //   «у тебя есть трек про дождь», «найди в моих маме».
+  // Доступен всем (анон + клиент + админ). mine_only=true требует auth.
   {
     name: "find_public_track",
-    description: "ВКЛЮЧАЕТ трек прямо в чате. Используй когда юзер просит послушать конкретное: «поставь X», «включи Y», «хочу послушать про маму», «давай тот где про дождь», «найди трек про звёзды». Поиск в публичных треках сайта (одобренные + новые авторы). Возвращает 0-5 матчей с audio_url. Если exactCount=1 → песня АВТОМАТИЧЕСКИ прикрепляется к твоему ответу и проигрывается у юзера (просто скажи «Включаю: <название>»). Если несколько — спроси у юзера какой включить (1, 2, 3). Если 0 — попроси переформулировать.",
+    description: "НАХОДИТ + ВКЛЮЧАЕТ трек прямо в чате по подстроке названия. Используй когда юзер: «найди X», «поставь X», «включи X», «у тебя есть трек про Y», «найди в моих маме», «давай тот где про дождь». Поиск substring case-insensitive по названию / тексту / автору. Возвращает 0-5 матчей. Если ровно 1 → трек АВТОМАТИЧЕСКИ прикрепляется к ответу и играет (просто скажи «Включаю: <название>»). Если несколько — перечисли 1/2/3, спроси какой. Если 0 — попроси переформулировать. Для авторизованных: mine_only=true ищет только в треках юзера.",
     input_schema: {
       type: "object",
       properties: {
-        query: { type: "string", description: "Поисковая фраза (название трека, часть текста, тема, имя автора). 1-100 символов." },
+        query: { type: "string", description: "Поисковая подстрока (название трека, часть текста, тема, имя автора). 2-100 символов." },
+        category: { type: "string", enum: ["all", "song", "greeting", "instrumental"], description: "Опц. фильтр по категории трека. default=all" },
+        limit: { type: "number", description: "Опц. лимит результатов. 1-10, default 5" },
+        mine_only: { type: "boolean", description: "Опц. искать только в треках текущего юзера (нужна auth). default=false" },
       },
       required: ["query"],
     },
@@ -1495,13 +1506,32 @@ const HANDLERS: Record<string, ToolHandler> = {
   // ranked scoring. Backend (routes.ts /api/muza/chat) парсит tool-result —
   // если есть hint:"playNow:<id>" → прикрепляет attachedTrack к ответу,
   // фронт рендерит inline ChatTrackCard с persistent audio singleton.
-  async find_public_track({ query }) {
+  //
+  // Eugene 2026-05-23 Босс «найди и запусти по попаданию букв». Расширено
+  // параметрами: category (фильтр song/greeting/instrumental), limit (1-10),
+  // mine_only (только треки текущего юзера — требует auth). Two-playlist rule
+  // соблюдается: is_public IN (1,2) для public; для mine_only — любые свои
+  // (включая is_public=0 приваты).
+  async find_public_track({ query, category, limit, mine_only }, { userId }) {
     try {
       const raw = String(query || "").trim();
       if (!raw) {
         return JSON.stringify({ matches: [], exactCount: 0, total: 0, hint: "noMatch", message: "Пустой запрос." });
       }
+      if (raw.length < 2) {
+        return JSON.stringify({ matches: [], exactCount: 0, total: 0, hint: "noMatch", message: "Поисковая строка слишком короткая (минимум 2 символа)." });
+      }
       const q = raw.toLowerCase().slice(0, 100);
+      // Normalize optional params
+      const allowedCats = new Set(["all", "song", "greeting", "instrumental"]);
+      const cat = (typeof category === "string" && allowedCats.has(category.toLowerCase()))
+        ? category.toLowerCase()
+        : "all";
+      const lim = Math.max(1, Math.min(10, Number(limit) || 5));
+      const mineOnly = mine_only === true;
+      if (mineOnly && !userId) {
+        return JSON.stringify({ matches: [], exactCount: 0, total: 0, hint: "noMatch", message: "Чтобы искать в твоих треках — войди в аккаунт." });
+      }
       // Слова длиной ≥3 (служебные «как», «где», «то» игнорируем)
       const words = q.split(/\s+/).filter((w) => w.length >= 3);
       if (words.length === 0) {
@@ -1521,16 +1551,40 @@ const HANDLERS: Record<string, ToolHandler> = {
         params.push(pat, pat, pat, pat);
       }
       const orSql = orClauses.length > 0 ? `AND (${orClauses.join(" OR ")})` : "";
+      // Scope: mine_only → only userId; иначе public (is_public IN 1,2).
+      // Two-playlist rule: 1=main, 2=new authors — оба показываем.
+      const scopeSql = mineOnly
+        ? `AND user_id = ?`
+        : `AND is_public IN (1,2)`;
+      const scopeParams: any[] = mineOnly ? [userId] : [];
+      // Category filter: category хранится в style JSON как meta.category (см.
+      // routes.ts /api/playlist line 10264). Voice 'instrumental' эквивалентен
+      // category='instrumental'. Фильтруем в JS после SELECT — на уровне SQL
+      // нет надёжного JSON access без json_extract (требует SQLite ≥3.38).
       const sqlText = `
-        SELECT id, display_title, prompt, author_name, style, result_data, cover_gen_id, created_at
+        SELECT id, display_title, prompt, author_name, style, result_data, cover_gen_id, created_at, voice_type, is_public
         FROM generations
-        WHERE type='music' AND status='done' AND is_public IN (1,2)
+        WHERE type='music' AND status='done'
           AND deleted_at IS NULL AND result_url IS NOT NULL
+          ${scopeSql}
           ${orSql}
         ORDER BY id DESC
         LIMIT 60
       `;
-      const rows = ((db as any).$client.prepare(sqlText).all(...params) || []) as any[];
+      const allParams = [...scopeParams, ...params];
+      let rows = ((db as any).$client.prepare(sqlText).all(...allParams) || []) as any[];
+      // JS-level фильтр по category (если задан)
+      if (cat !== "all") {
+        rows = rows.filter((r: any) => {
+          let trackCat = "song";
+          try {
+            const m = JSON.parse(r.style || "{}");
+            if (typeof m.category === "string") trackCat = m.category;
+          } catch {}
+          if (r.voice_type === "instrumental") trackCat = "instrumental";
+          return trackCat === cat;
+        });
+      }
       if (rows.length === 0) {
         return JSON.stringify({ matches: [], exactCount: 0, total: 0, hint: "noMatch", message: `По «${raw}» в публичных треках ничего не нашлось.` });
       }
@@ -1592,7 +1646,7 @@ const HANDLERS: Record<string, ToolHandler> = {
         };
       });
       scored.sort((a, b) => (b.score - a.score) || (b.plays - a.plays));
-      const top = scored.filter((s) => s.score > 0).slice(0, 5);
+      const top = scored.filter((s) => s.score > 0).slice(0, lim);
       if (top.length === 0) {
         return JSON.stringify({ matches: [], exactCount: 0, total: 0, hint: "noMatch", message: `По «${raw}» ничего конкретного не нашла.` });
       }
@@ -1600,7 +1654,16 @@ const HANDLERS: Record<string, ToolHandler> = {
       let hint = "askChoice";
       if (exactCount === 1 && top.length === 1) hint = `playNow:${top[0].id}`;
       else if (exactCount === 1) hint = `playNow:${top[0].id}`; // 1 точное совпадение даже из нескольких — включаем
+      else if (top.length === 1) hint = `playNow:${top[0].id}`; // ровно 1 результат (хоть и не exact) — играем
       else if (top.length === 0) hint = "noMatch";
+      else hint = `tracksFound:${top.map((t) => t.id).join(",")}`;
+      // Read-op — без audit-log записи (Backup-before-edit rule только для
+      // write-операций). Лёгкий info-log для диагностики при необходимости.
+      try {
+        console.info?.(
+          `[MUZA-TOOL find_public_track] q=«${raw}» cat=${cat} mine=${mineOnly ? 1 : 0} → ${top.length} matches (exact=${exactCount}) hint=${hint}`,
+        );
+      } catch {}
       return JSON.stringify({
         matches: top.map((m) => ({
           id: m.id,

@@ -128,8 +128,22 @@ export default function TrackPage() {
         setPlaying(true);
         setLockScreenPlaybackState("playing");
       } catch {}
-      // log activity
-      fetch(`/api/gen-activity/${track?.id}/play`, { method: "POST" }).catch(() => {});
+      // Eugene 2026-05-22 Play-counting rule: засчитываем play только после
+      // 5 сек реального воспроизведения с elapsedSec=5 — backend
+      // shouldCountPlay() применяет правило «5+ сек». Раньше fetch без body
+      // → backend разрешал backward-compat → каждый клик засчитывался.
+      const _playTrackId = track?.id;
+      const _audio = audioRef.current;
+      window.setTimeout(() => {
+        if (_audio && !_audio.paused && _audio.currentTime >= 5 && _playTrackId) {
+          fetch(`/api/playlist/play/${_playTrackId}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ elapsedSec: 5 }),
+            keepalive: true,
+          }).catch(() => {});
+        }
+      }, 5000);
     }
   };
 

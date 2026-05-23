@@ -162,6 +162,11 @@ app.use((req, res, next) => {
   if (isStaging) {
     res.setHeader("X-Robots-Tag", "noindex, nofollow, noarchive, nosnippet");
   }
+  // Eugene 2026-05-23 marketing/SEO: Referrer-Policy header защищает от
+  // UTM-leak — cross-site Referer теряет path+query, same-origin сохраняет
+  // всё. Дублирует <meta name="referrer"> в index.html (header сильнее
+  // для не-HTML ответов и старых браузеров).
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   next();
 });
 
@@ -205,6 +210,8 @@ app.get("/sitemap.xml", (_req, res) => {
     const staticUrls = [
       { loc: `${PUBLIC_URL}/`, priority: "1.0", changefreq: "daily" },
       { loc: `${PUBLIC_URL}/#/music`, priority: "0.9", changefreq: "daily" },
+      { loc: `${PUBLIC_URL}/#/covers`, priority: "0.8", changefreq: "weekly" },
+      { loc: `${PUBLIC_URL}/#/lyrics`, priority: "0.8", changefreq: "weekly" },
       { loc: `${PUBLIC_URL}/#/templates`, priority: "0.8", changefreq: "weekly" },
       { loc: `${PUBLIC_URL}/#/register-phone`, priority: "0.7", changefreq: "monthly" },
       { loc: `${PUBLIC_URL}/#/login-phone`, priority: "0.7", changefreq: "monthly" },
