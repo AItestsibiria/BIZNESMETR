@@ -53,6 +53,7 @@ Bootstrap происходит в `apps/neurohub/server/index.ts` через `bo
 | `watchdog-api-health` | Watchdog API-keys | cron | diagnostic | — |
 | `watchdog-channels` | Channel watchdog | cron | watchdog | — |
 | `moderator-yars` | Yars-детектор | internal | moderator | — |
+| `marketing-orchestrator` | Маркетинг-оркестратор | internal | marketing | — |
 
 Status каждого вычисляется при bootstrap по presence ENV-ключей. Нет ключа → `not_configured`.
 
@@ -155,7 +156,9 @@ Auth: `requireAdmin` (Босс / super_admin only). Никаких секрет�
 
 ## Code reference
 
-- `apps/neurohub/server/lib/agentOrchestrator.ts` — singleton + types + bootstrap
-- `apps/neurohub/server/routes.ts` — admin endpoints (search `orchestrator/agents`)
-- `apps/neurohub/client/src/pages/admin/orchestrator-tab.tsx` — admin UI
-- `apps/neurohub/server/index.ts` — `bootstrapDefaultAgents()` call
+- `apps/neurohub/server/lib/agentOrchestrator.ts` — singleton + types + bootstrap + edges + emitter
+- `apps/neurohub/server/lib/marketingAgent.ts` — marketing campaigns / segments / calendar
+- `apps/neurohub/server/routes.ts` — admin endpoints (search `orchestrator/agents`, `marketing/`)
+- `apps/neurohub/client/src/pages/admin/orchestrator-tab.tsx` — admin UI (3 sub-tabs)
+- `apps/neurohub/server/index.ts` — `bootstrapDefaultAgents()` + `installMarketingHandlers()` calls
+- `docs/AGENT-ORCHESTRATOR-PROPOSALS.md` — edge matrix + 15 marketing предложений

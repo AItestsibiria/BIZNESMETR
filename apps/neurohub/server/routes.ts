@@ -4646,6 +4646,19 @@ export async function registerRoutes(
       before,
       after: { isPublic: newIsPublic, requestedStatus: status, publishedAt: updatePatch.publishedAt ?? gen.publishedAt },
     });
+    // Eugene 2026-05-23 Marketing hook: при первой публикации (0→1/2) emit
+    // generation.published → marketing-orchestrator создаст broadcast campaign.
+    if (shouldSetPublishedAt && newIsPublic >= 1) {
+      try {
+        emitOrchestratorEvent("generation.published", {
+          genId,
+          userId: gen.userId,
+          title: gen.displayTitle || `Track #${genId}`,
+          category: gen.category || "song",
+        });
+        agentOrchestrator.recordEdgeUsage("muza-web", "marketing-orchestrator", "event");
+      } catch {}
+    }
     res.json({ ok: true, id: genId, status, isPublic: newIsPublic, publishedAt: updatePatch.publishedAt ?? gen.publishedAt });
   });
 
@@ -13144,6 +13157,19 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
 
       console.log(`[PAYMENT RESULT] SUCCESS! User ${userId} paid ${OutSum} ₽${invoiceIdForFulfillment ? ` (invoice #${invoiceIdForFulfillment})` : ""}`);
 
+      // Eugene 2026-05-23 Marketing-orchestrator hook. Emit для marketing-agent
+      // (post-purchase thank-you, social proof). Fire-and-forget — никаких
+      // side-effects на payment flow.
+      try {
+        emitOrchestratorEvent("payment.succeeded", {
+          userId,
+          amount: amountKopecks,
+          paymentId: invIdNum,
+          item: invoiceIdForFulfillment ? "invoice" : "topup",
+        });
+        agentOrchestrator.recordEdgeUsage("muza-web", "marketing-orchestrator", "event");
+      } catch {}
+
       // BACKEND-14 fix Eugene 14:27: atomic flag-set чтобы parallel webhooks
       // не дали бонус дважды. UPDATE WHERE referralBonusGiven=0 — changes=1
       // только у того кто первым успел.
@@ -13164,6 +13190,14 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
             storage.createTransaction({ userId: referrer.id, type: "topup", amount: 0, description: `🎁 Бонус: автор ${payer.name} сделал первую оплату: +1 трек` });
           }
           console.log(`[REFERRAL BONUS] First payment by #${userId}, bonus to referrer #${payer.referredBy}`);
+          // Eugene 2026-05-23 Marketing hook: referral.bonus.given → social proof
+          try {
+            emitOrchestratorEvent("referral.bonus.given", {
+              referrerId: payer.referredBy,
+              refereeId: userId,
+              amount: 0, // bonus tracks, not money
+            });
+          } catch {}
         }
       }
 

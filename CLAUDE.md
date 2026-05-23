@@ -3538,6 +3538,29 @@ Reference: `apps/neurohub/server/lib/agentOrchestrator.ts` + полная док
 - Reuse-working-solutions rule — каналы продолжают использовать existing endpoints
 - Brand-style consistency rule — admin UI следует brand palette
 
+### Marketing-orchestrator + edges extension (Eugene 2026-05-23)
+
+**Подсистема `marketing-orchestrator` живёт ВНУТРИ Agent-orchestrator infrastructure.** Все правила выше распространяются (один register, lightweight, no secrets, idempotent).
+
+Расширения:
+
+1. **`AgentRole = "marketing"`** добавлена для marketing-агентов.
+2. **`AgentEdge`** + методы `addEdge / getEdges / removeEdge / recordEdgeUsage / visualize` — описывают связи agent ↔ agent (pair-link / broadcast / webhook / notify / event / campaign / data-sync).
+3. **Orchestrator-local event emitter** (`on / off / emitEvent`) — отдельно от core/eventBus.ts. Для marketing auto-triggers (payment.succeeded → thank-you campaign etc).
+4. **`lib/marketingAgent.ts`** — campaigns / segments / calendar / A/B split / channel allocation. Никаких новых таблиц — in-memory state.
+5. **Admin endpoints** `/api/admin/v304/orchestrator/edges`, `/api/admin/v304/marketing/*`.
+6. **Hooks в payment-result + publish endpoints** emit'ят events; marketing-orchestrator создаёт auto-campaigns (draft со scheduledAt).
+
+Жёсткие правила (дополнительно к existing Agent-orchestrator rule):
+
+1. **Marketing campaigns не отправляют сообщения сами.** Они описывают что+когда+кому. Реальный dispatch — через существующие channel endpoints (Reuse-working-solutions rule).
+2. **Никаких PII в campaign meta.** UserId — да. Email / phone / payment-tokens — НЕ хранить (Secrets-admin-only rule).
+3. **`emitOrchestratorEvent()` fire-and-forget.** Errors swallowed. НЕ ломать payment flow.
+4. **Все variants A/B split deterministic по userId** через hash — один и тот же юзер всегда видит один и тот же variant.
+5. **Segments описаны в `SEGMENT_REGISTRY`** — централизованно. Реальный resolve через SQL делает routes.ts (Reuse-working-solutions rule).
+
+Reference: `docs/AGENT-ORCHESTRATOR-PROPOSALS.md` (edge matrix + 15 предложений + API контракт).
+
 ### Timestamp footer rule (Eugene 2026-05-07)
 
 **В конце каждого ответа в чате — мелким шрифтом (HTML `<sub>` или markdown с эмодзи `🕐`) дата + время с точностью до минуты, по часам сервера.** Формат: `🕐 2026-05-07 08:34 MSK`. Цель — Евгений видит хронологию всей переписки и может ссылаться на конкретную запись по времени.
