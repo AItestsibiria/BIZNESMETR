@@ -520,11 +520,16 @@ export function FloatingConsultant() {
       safeBottom = Math.max(16, pad + 8);
       document.body.removeChild(probe);
     } catch {}
-    // chatOpen+mobile: chat drawer занимает ~60vh снизу — поднимаем Музу над ним
+    // Eugene 2026-05-23 Босс «размести Музу сверху справа над чатом».
+    // При открытом чате Музa всегда top-right (раньше только mobile
+    // поднималась). Так FAB-меню НАД chat drawer, не перекрывает.
     const isChatOpen = (window as any).__muzaChatOpen === true;
-    const chatLifted = isChatOpen && isMobile ? Math.round(window.innerHeight * 0.62) : 0;
     const x = Math.max(8, window.innerWidth - fabW - 8);
-    const y = Math.max(8, window.innerHeight - fabH - safeBottom - chatLifted);
+    // Top-right при chatOpen: y отступом 80px от верха (под top-bar nav).
+    // Иначе обычная позиция bottom-right.
+    const y = isChatOpen
+      ? 80
+      : Math.max(8, window.innerHeight - fabH - safeBottom);
     return { x, y };
   };
   const [fabPos, setFabPos] = useState(computeFabPos);
@@ -699,6 +704,16 @@ export function FloatingConsultant() {
   // юзер может слать любое количество сообщений, они отправляются по очереди
   // после ответа на предыдущее (backend session_id race-safe одновременно).
   const [pendingMessages, setPendingMessages] = useState<string[]>([]);
+  // Eugene 2026-05-23 Босс «растянуть чат надо проще и понятнее» — одна
+  // явная кнопка ⛶ в header вместо неочевидного drag-handle/snap-кнопки.
+  // Toggle между обычным размером и fullscreen (92vw × 86vh).
+  const [chatFullscreen, setChatFullscreen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try { return localStorage.getItem("muza-chat-fullscreen") === "1"; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("muza-chat-fullscreen", chatFullscreen ? "1" : "0"); } catch {}
+  }, [chatFullscreen]);
   // Eugene 2026-05-18 Босс «убери облака с подсказками, но оставь в чате
   // кнопку с возможностью их появления». Default false — пустой чат без
   // подсказок. Юзер нажимает «💡 Подсказки» — появляются 4-5 chips.
@@ -1574,7 +1589,9 @@ export function FloatingConsultant() {
               window.setTimeout(() => {
                 try {
                   navigate(PANEL_TO_PATH[last.panel]);
-                  setChatOpen(false);
+                  // Eugene 2026-05-23 Босс «чат закрывается только × вверху» —
+                  // авто-close при navigate убран. Юзер сам закроет когда
+                  // увидит результат на странице.
                   if (prefill) {
                     window.dispatchEvent(new CustomEvent("muza-panel-prefill", {
                       detail: { group, panel: last.panel, prefill },
@@ -2182,11 +2199,11 @@ export function FloatingConsultant() {
             Pastel MuzaAi gradient. */}
         <button
           type="button"
-          onDoubleClick={() => {
-            // Eugene 2026-05-14 Босс «двойное нажатие на Музу — она плавно
-            // уходит». Используем dismiss (с REAPPEAR cooldown).
-            dismiss();
-          }}
+          /* Eugene 2026-05-23 Босс «Ухожу сворачиваться сейчас при случайном
+             нажатии на зону контура» — onDoubleClick dismiss удалён.
+             Double-tap на iPad случайно срабатывал. Свернуть Музу теперь
+             только через explicit кнопку под силуэтом или Скрыть в expanded
+             меню (или triple-tap в любом месте экрана). */
           onClick={() => {
             // Если только что раскрыли через drag — не toggle.
             if (dragExpandedRef.current) {
@@ -2344,11 +2361,13 @@ export function FloatingConsultant() {
               "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
             }`}
             style={{
-              // На mobile или без кастомного chatSize — старая высота через CSS clamp.
-              // С chatSize (desktop/iPad) — inline width/height (приоритет над w-/sm:w-/sm:h-).
-              ...(!isMobile && chatSize
-                ? { width: `${chatSize.w}px`, height: `${chatSize.h}px` }
-                : { height: "min(60vh, calc(100vh - 96px - env(safe-area-inset-bottom, 0px)))" }),
+              // Eugene 2026-05-23 Босс «растянуть проще». chatFullscreen
+              // override приоритет — 92vw × 86vh.
+              ...(chatFullscreen
+                ? { width: "92vw", height: "86vh", maxWidth: "92vw" }
+                : !isMobile && chatSize
+                  ? { width: `${chatSize.w}px`, height: `${chatSize.h}px` }
+                  : { height: "min(60vh, calc(100vh - 96px - env(safe-area-inset-bottom, 0px)))" }),
               marginBottom: drawerSnap === "br" || drawerSnap === "bl" ? "env(safe-area-inset-bottom, 0px)" : undefined,
               // Eugene 2026-05-23 Босс «прозрачность 3 режима». 0=плотно, 1=полупрозрачно, 2=стекло.
               backgroundColor: `hsl(var(--background) / ${[0.95, 0.6, 0.28][chatOpacity]})`,
@@ -2459,6 +2478,14 @@ export function FloatingConsultant() {
                 title={`Прозрачность: ${["плотно", "полупрозрачно", "стекло"][chatOpacity]} (тап для смены)`}
                 className="w-9 h-9 sm:w-7 sm:h-7 rounded-full hover:bg-white/[0.08] text-white/70 hover:text-white text-[14px] flex items-center justify-center shrink-0"
               >{["▓", "▒", "░"][chatOpacity]}</button>
+              {/* Eugene 2026-05-23 Босс «растянуть чат надо проще и понятнее». */}
+              <button
+                type="button"
+                onClick={() => setChatFullscreen(f => !f)}
+                aria-label={chatFullscreen ? "Свернуть чат" : "Развернуть на весь экран"}
+                title={chatFullscreen ? "Свернуть" : "Развернуть на весь экран"}
+                className="w-9 h-9 sm:w-7 sm:h-7 rounded-full hover:bg-white/[0.08] text-white/70 hover:text-white text-[14px] flex items-center justify-center shrink-0"
+              >{chatFullscreen ? "⊟" : "⛶"}</button>
               {/* Eugene 2026-05-14 Босс: новый разговор — чистый sessionId,
                   устраняет остатки старой истории в БД. */}
               <button
@@ -2676,7 +2703,7 @@ export function FloatingConsultant() {
                         }, 20);
                       }}
                       title="Нажми чтобы скопировать в поле ввода"
-                      className={`max-w-[80%] px-3 py-2 rounded-2xl text-[length:var(--muza-msg-fs,13px)] leading-relaxed whitespace-pre-wrap break-words cursor-pointer hover:brightness-110 transition-all ${
+                      className={`max-w-[min(85%,38ch)] px-3 py-2 rounded-2xl text-[length:var(--muza-msg-fs,13px)] leading-relaxed whitespace-pre-wrap break-words cursor-pointer hover:brightness-110 transition-all ${
                       m.role === "user"
                         ? "bg-gradient-to-br from-purple-500/30 to-blue-500/25 text-white border border-purple-400/30"
                         : "bg-white/[0.06] text-white/90 border border-white/[0.08]"
@@ -3175,13 +3202,9 @@ export function FloatingConsultant() {
                 )}
               </button>
             </form>
-            {/* Eugene 2026-05-14 Босс «кнопку ухожу и вернусь — внизу».
-                Человечнее чем X в header — обещает возврат, Муза «помнит». */}
-            <button
-              type="button"
-              onClick={() => setChatOpen(false)}
-              className="w-full py-2.5 text-[12px] text-white/60 hover:text-white bg-white/[0.02] hover:bg-white/[0.05] border-t border-white/[0.04] transition-colors shrink-0"
-            >👋 Ухожу, скоро вернусь</button>
+            {/* Eugene 2026-05-23 Босс «чат окно должно закрываться только при
+                нажатии на крестик вверху». Footer кнопка удалена — × в header
+                остаётся единственным explicit close trigger. */}
           </div>
         </div>,
         document.body
