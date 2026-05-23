@@ -2596,9 +2596,23 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   const eDateStr = eDateSource ? new Date(eDateSource).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" }) : "";
                   return (
                     <div className="px-2 pb-2 pt-1">
-                      <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-purple-500/20 animate-in fade-in zoom-in-95 duration-300">
+                      {/* Eugene 2026-05-23 Босс «раскрытая обложка подсветка
+                          с обратной стороны должна быть такая же как на
+                          обложке основного плеера с учётом размеров».
+                          Brand conic-gradient aura (purple/pink/cyan/amber)
+                          с slow rotation. Размер пропорциональный: -inset-4
+                          (mobile, base ≈ 320-380px cover → +16px halo) →
+                          -inset-6 (sm tablet 600px+ → +24px) → -inset-8
+                          (md desktop большой → +32px). blur-3xl bigger чем
+                          у main player (-inset-2 + blur-2xl) пропорционально. */}
+                      <div className="relative">
                         <div
-                          className="w-full aspect-square bg-gradient-to-br from-purple-900 via-blue-900 to-black relative cursor-pointer"
+                          aria-hidden="true"
+                          className="absolute -inset-4 sm:-inset-6 md:-inset-8 rounded-3xl opacity-70 blur-3xl pointer-events-none cover-aura"
+                        />
+                        <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-purple-500/20 animate-in fade-in zoom-in-95 duration-300">
+                          <div
+                            className="w-full aspect-square bg-gradient-to-br from-purple-900 via-blue-900 to-black relative cursor-pointer"
                           /* Eugene 2026-05-21 Босс «замедли чувствительность —
                              хочу промотать, она закрывается». Раньше collapse
                              на onPointerDown — любое касание прогресс-бара
@@ -2871,6 +2885,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                           )}
 
 
+                        </div>
                         </div>
                       </div>
                     </div>
