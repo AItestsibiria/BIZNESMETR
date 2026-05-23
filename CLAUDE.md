@@ -3414,6 +3414,53 @@ ssh root@31.130.148.107 'awk -F= "/^КЛЮЧ/{print \"length:\", length(\$2), \"
 
 Это правило сильнее «working rhythm rule» — рывок без анализа стоит дороже, чем минута на проверку.
 
+### Pre-push critical review rule (Eugene 2026-05-23, **сильнее Working rhythm + Auto-resume**)
+
+**Перед КАЖДЫМ `git push` — критически перепроверяю свою же правку свежим взглядом, нахожу скрытые ошибки/нарушения, фиксю всё что обнаружил, и только при ПОЛНОЙ уверенности — push.** Применяется ко всем pushes без исключений: code / docs / migrations / любые ветки.
+
+Анти-паттерн который правило закрывает: пушу «вроде ок» → юзер видит регрессию → следующий коммит фиксит мой же недосмотр → серия итераций где Босс ждёт. Один лишний цикл review-перед-push экономит 2-3 цикла фикс-после-push.
+
+**Чек-лист обязательный к выполнению перед каждым push:**
+
+1. **`git diff HEAD`** — перечитать ВСЕ свои изменения свежим взглядом (как если бы это была чужая PR на review). Не пропустить ни одну строку.
+2. **Взаимосвязи** — для каждой изменённой функции / state / hook / endpoint:
+   - Кто еще пишет в эти переменные/ref/LS keys?
+   - Кто еще читает их?
+   - Все ли writer-paths согласованы с моей логикой?
+3. **Data race / dual-loading paths**:
+   - Если работаю с state который грузится из cache LS + fetch — фикс работает на ОБОИХ путях?
+   - Mobile-gated paths (playlistFetchEnabled, IntersectionObserver, throttles) — фикс не зависит от того что gate откроется?
+   - `useState(initializer)` vs `useEffect` timing — гарантируется ли что инвариант держится с момента mount, а не только после fetch?
+4. **Stale state**: если читаю из LS / sessionStorage / cache — есть ли валидация что значение всё ещё актуально (не указывает на удалённый ID / истёкший TTL)?
+5. **Pre-existing CLAUDE.md rules** — НЕ нарушает ли правка ни одного rule? Особенно risk:
+   - Persistent-audio-only / iOS-lock-screen-audio / Apple-audio-best-practices
+   - Single-audio / Playlist-strict-selection / Playlist-category-no-mix
+   - Pricing-single-source / Secrets-admin-only / Never-leak-secrets
+   - Reuse-working-solutions / No-duplicates
+6. **TypeScript baseline**: `npx tsc --noEmit` → диff с pre-change baseline. Допускается +0 новых errors. Pre-existing errors — не моя проблема.
+7. **Loop / infinite re-render**: если useEffect вызывает setState — есть ли guard который ломает цикл? Deps включают всё что нужно?
+8. **Mental dry-run** — пройти минимум 3 сценария руками:
+   - (a) свежий юзер / state без LS
+   - (b) restored юзер / state с **валидным** LS
+   - (c) restored юзер / state со **stale** LS (значение указывает на удалённое/несуществующее)
+9. **Деструктив / необратимое** — если в diff есть DELETE / DROP / TRUNCATE / force-push / схема migration без backup / удаление env-ключа — STOP. Спрашиваю Босса явно ДО push.
+10. **TODO/комментарии-залипалки** — `console.log`, `// TODO`, `// FIXME`, `debugger`, hardcoded `localhost:5000` — удалить.
+
+**После всех ✓ — push разрешён.** Если хоть один пункт не пройден — фикшу и повторяю чек-лист с пункта 1.
+
+**Сильнее `Working rhythm rule`** (автоматический переход к следующему шагу) и **`Auto-resume rule`** (продолжаю незавершённое) — даже если задача в потоке, перед push — пауза на чек-лист.
+
+**Сильнее `Autonomous-execution rule`** в части apply сразу — даже 🟢 low-risk правки идут через чек-лист перед push.
+
+**Связано с:**
+- Self-review-before-output rule — про ответ Боссу. Этот — про коммит/push.
+- Pre-edit analysis rule — про ДО правки. Этот — про ДО push.
+- Pitfalls registry rule — анти-паттерны найденные на чек-листе → запись в PITFALLS.md.
+- Влёт-результат rule — один push решает на 100%. Этот rule гарантирует.
+
+**Анти-паттерн который правило закрывает (real-world пример 2026-05-23):**
+Фикс «плеер исчез» (commit `441ab5b`) применил валидацию ТОЛЬКО в `fetch().then()` callback. На mobile fetch GATED — initial render шёл из cached LS, мой фикс не выполнялся. Юзер опять видел «плеера нет». Если бы прошёл чек-лист (пункт 3 «mobile-gated paths» + пункт 8 «mental dry-run сценарии») — поймал бы это до push. Реальный фикс `bf2bf99` потребовался следующим коммитом.
+
 ### Timestamp footer rule (Eugene 2026-05-07)
 
 **В конце каждого ответа в чате — мелким шрифтом (HTML `<sub>` или markdown с эмодзи `🕐`) дата + время с точностью до минуты, по часам сервера.** Формат: `🕐 2026-05-07 08:34 MSK`. Цель — Евгений видит хронологию всей переписки и может ссылаться на конкретную запись по времени.
