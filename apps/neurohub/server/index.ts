@@ -106,6 +106,7 @@ import giftCertificatesModule from "./plugins/gift-certificates/module";
 // Eugene 2026-05-23 Босс «Оркестратор нужен всеми компаниями агентами начать
 // в проекте — коде». Central agent registry — bootstrap на старте.
 import { bootstrapDefaultAgents } from "./lib/agentOrchestrator";
+import { installEventHandlers as installMarketingHandlers } from "./lib/marketingAgent";
 
 import * as fs from "node:fs";
 
@@ -482,6 +483,14 @@ app.post("/api/_client-error", express.json(), (req, res) => {
     bootstrapDefaultAgents();
   } catch (e) {
     console.warn("[orchestrator] bootstrap failed:", e instanceof Error ? e.message : String(e));
+  }
+
+  // Marketing-orchestrator listeners — auto-campaigns по orchestrator events
+  // (payment.succeeded, generation.published, user.churned, etc).
+  try {
+    installMarketingHandlers();
+  } catch (e) {
+    console.warn("[marketing] install handlers failed:", e instanceof Error ? e.message : String(e));
   }
 
   await registerRoutes(httpServer, app);

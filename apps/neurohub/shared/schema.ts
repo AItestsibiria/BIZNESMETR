@@ -1010,6 +1010,24 @@ export const muzaInfoSections = sqliteTable("muza_info_sections", {
 
 export type MuzaInfoSection = typeof muzaInfoSections.$inferSelect;
 
+// Eugene 2026-05-23 Босс «интерактивный дизайн писем от Музы».
+// Каждое отправленное письмо логируется здесь — для admin UI просмотра,
+// отладки failed отправок, статистики по templates.
+export const emailSendLog = sqliteTable("email_send_log", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id"),                       // null для admin/system писем
+  template: text("template").notNull(),             // EmailTemplateName: welcome | track_ready | ...
+  toEmail: text("to_email").notNull(),
+  subject: text("subject").notNull(),
+  status: text("status").notNull().default("sent"), // 'sent' | 'failed'
+  error: text("error"),                             // если failed — текст ошибки
+  provider: text("provider"),                       // 'gmail' | 'custom-smtp' | 'console-noop'
+  messageId: text("message_id"),                    // nodemailer messageId
+  sentAt: integer("sent_at").notNull(),             // unix ms
+});
+
+export type EmailSendLog = typeof emailSendLog.$inferSelect;
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;

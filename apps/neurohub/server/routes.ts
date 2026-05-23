@@ -47,6 +47,10 @@ import {
   type ProtectedAction,
 } from "./lib/adminTwoFactor";
 import { recordAuditEntry, queryAuditLog } from "./lib/adminAuditLog";
+// Eugene 2026-05-23 Босс «явно там ошибки — найди»: atom-level billing audit.
+// Read-only — никаких UPDATE/INSERT/DELETE. См. lib/billingAudit.ts +
+// docs/BILLING-AUDIT-2026-05-23.md.
+import { runBillingAudit, renderMarkdownReport } from "./lib/billingAudit";
 // Eugene 2026-05-20: User-memory-context rule — Музa держит контекст общения
 // с авторизованным юзером. См. lib/userMemory.ts + CLAUDE.md.
 import {
@@ -1307,9 +1311,44 @@ export async function registerRoutes(
               description: `🎁 Подарочный трек: первые 1000 авторов из РФ и ближнего зарубежья (#${giftResult.position} из 1000)`,
             });
             console.log(`[WELCOME-GIFT] User #${user.id} (${geo.countryCode}) received gift track #${giftResult.position}/1000`);
+            // Eugene 2026-05-23 Босс «интерактивный дизайн писем от Музы».
+            // Праздничное welcome_gift письмо — после подарочного трека.
+            try {
+              const { sendTemplatedEmail } = await import("./lib/emailSend");
+              sendTemplatedEmail({
+                to: email,
+                userId: user.id,
+                template: "welcome_gift",
+                context: { userName: name, userEmail: email, bonusTracksRemaining: 1 },
+                noAttachments: true,
+              }).catch((e: any) => console.warn("[email welcome_gift] failed:", e?.message || e));
+            } catch { /* never block flow */ }
           } else {
             console.log(`[WELCOME-GIFT] Limit reached (${giftResult.position}/1000) — User #${user.id} (${geo.countryCode}) NOT gifted`);
+            // Лимит исчерпан — отправляем спокойное welcome
+            try {
+              const { sendTemplatedEmail } = await import("./lib/emailSend");
+              sendTemplatedEmail({
+                to: email,
+                userId: user.id,
+                template: "welcome",
+                context: { userName: name, userEmail: email },
+                noAttachments: true,
+              }).catch((e: any) => console.warn("[email welcome] failed:", e?.message || e));
+            } catch { /* never block flow */ }
           }
+        } else {
+          // Не СНГ — спокойное welcome без подарка
+          try {
+            const { sendTemplatedEmail } = await import("./lib/emailSend");
+            sendTemplatedEmail({
+              to: email,
+              userId: user.id,
+              template: "welcome",
+              context: { userName: name, userEmail: email },
+              noAttachments: true,
+            }).catch((e: any) => console.warn("[email welcome] failed:", e?.message || e));
+          } catch { /* never block flow */ }
         }
       } catch (e) {
         console.error("[WELCOME-GIFT] Error checking eligibility:", e);
@@ -4097,6 +4136,46 @@ export async function registerRoutes(
     }
   });
 
+  // Eugene 2026-05-23 Босс «явно там ошибки — найди»: billing audit endpoint.
+  // GET /api/admin/v304/billing/audit?format=json|md
+  //   json (default) — структурированный отчёт
+  //   md             — markdown для копирования в doc
+  // Read-only. Запускает все проверки целостности денег: double-charge,
+  // missed refund, cost mismatch, balance integrity, unbooked payments,
+  // premium fulfillment, expired-but-active subs.
+  app.get("/api/admin/v304/billing/audit", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const report = runBillingAudit();
+      const fmt = String(req.query.format || "json").toLowerCase();
+      // Audit log запуска — фиксируем как 'create' с empty before (read-only,
+      // но используем 'create' чтобы пройти AuditAction type constraint).
+      try {
+        recordAuditEntry({
+          req,
+          action: "create",
+          entity: "billing_audit",
+          entityKey: `run-${Date.now()}`,
+          after: {
+            issues: report.issues.length,
+            critical: report.buckets.critical,
+            medium: report.buckets.medium,
+            low: report.buckets.low,
+            format: fmt,
+          },
+        });
+      } catch {}
+      if (fmt === "md" || fmt === "markdown") {
+        res.setHeader("Content-Type", "text/markdown; charset=utf-8");
+        res.send(renderMarkdownReport(report));
+        return;
+      }
+      res.json(report);
+    } catch (e: any) {
+      console.error("[BILLING-AUDIT] error:", e);
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+
   app.get("/api/admin/v304/user-failures", requireAdmin, (req: Request, res: Response) => {
     const limit = Math.min(500, Math.max(10, Number(req.query.limit) || 200));
     const channel = req.query.channel ? String(req.query.channel) : null;
@@ -6775,6 +6854,249 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
         },
         error: null,
       });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  // Eugene 2026-05-23 Edges + visualization. Граф связей agent ↔ agent.
+  app.get("/api/admin/v304/orchestrator/edges", requireAdmin, (_req: Request, res: Response) => {
+    try {
+      const edges = agentOrchestrator.listEdges();
+      const visualization = agentOrchestrator.visualize();
+      res.json({ data: { edges, visualization }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  app.get("/api/admin/v304/orchestrator/edges/:agentId", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const { agentId } = req.params;
+      const e = agentOrchestrator.getEdges(agentId);
+      res.json({ data: e, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  // =============================================================
+  // Eugene 2026-05-23 Marketing-orchestrator endpoints.
+  // Auth: requireAdmin. Никаких user PII в response.
+  // Hooks в payment-result + publish endpoints emit'ят orchestrator events
+  // → marketing-orchestrator создаёт auto-campaigns (в memory).
+  // =============================================================
+
+  // GET stats — campaigns + calendar + performance metrics
+  app.get("/api/admin/v304/marketing/stats", requireAdmin, (_req: Request, res: Response) => {
+    try {
+      res.json({ data: mktGetStats(), error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  // GET segments — список доступных сегментов аудитории
+  app.get("/api/admin/v304/marketing/segments", requireAdmin, (_req: Request, res: Response) => {
+    try {
+      res.json({ data: { segments: mktListSegments() }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  // GET campaigns — список + фильтры
+  app.get("/api/admin/v304/marketing/campaigns", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const status = typeof req.query.status === "string" ? req.query.status : undefined;
+      const channel = typeof req.query.channel === "string" ? req.query.channel : undefined;
+      const items = mktListCampaigns({
+        status: status as any,
+        channel: channel as CampaignChannel | undefined,
+      });
+      res.json({ data: { campaigns: items, count: items.length }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  // GET campaign details
+  app.get("/api/admin/v304/marketing/campaigns/:id", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const c = mktGetCampaign(req.params.id);
+      if (!c) return res.status(404).json({ data: null, error: "campaign not found" });
+      res.json({ data: { campaign: c }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  // POST create campaign manually from admin UI
+  app.post("/api/admin/v304/marketing/campaigns", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).userId;
+      const adminUser = userId ? storage.getUser(userId) : null;
+      const body = req.body || {};
+      const draft: CampaignDraft = {
+        name: String(body.name || "").trim() || "Untitled",
+        channels: Array.isArray(body.channels) ? body.channels : [],
+        segment: (body.segment as SegmentKind) || "all_users",
+        variants: Array.isArray(body.variants) && body.variants.length > 0
+          ? body.variants
+          : [{ key: "A", content: String(body.content || ""), share: 1 }],
+        scheduledAt: body.scheduledAt ? Number(body.scheduledAt) : undefined,
+        createdBy: adminUser?.email || "admin",
+        meta: body.meta || undefined,
+      };
+      if (!draft.channels || draft.channels.length === 0) {
+        return res.status(400).json({ data: null, error: "channels required" });
+      }
+      const campaign = mktCreateCampaign(draft);
+      recordAuditEntry({
+        req,
+        action: "create",
+        entity: "marketing_campaign",
+        entityKey: campaign.id,
+        after: { name: campaign.name, channels: campaign.channels, segment: campaign.segment },
+      });
+      res.json({ data: { campaign }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  // POST update status (pause / resume / complete)
+  app.post("/api/admin/v304/marketing/campaigns/:id/status", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const status = String(req.body?.status || "");
+      const validStatuses = ["draft", "scheduled", "running", "completed", "paused", "failed"];
+      if (!validStatuses.includes(status)) {
+        return res.status(400).json({ data: null, error: "invalid status" });
+      }
+      const ok = mktUpdateCampaignStatus(req.params.id, status as any);
+      if (!ok) return res.status(404).json({ data: null, error: "campaign not found" });
+      recordAuditEntry({
+        req,
+        action: "update",
+        entity: "marketing_campaign",
+        entityKey: req.params.id,
+        after: { status },
+      });
+      res.json({ data: { id: req.params.id, status }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  // POST record metric для tracking pixels / channel webhooks
+  app.post("/api/admin/v304/marketing/campaigns/:id/metric", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const variantKey = String(req.body?.variantKey || "A");
+      const metric = String(req.body?.metric || "");
+      const delta = Number(req.body?.delta || 1);
+      const revenue = Number(req.body?.revenue || 0);
+      if (!["sent", "opened", "clicked", "converted"].includes(metric)) {
+        return res.status(400).json({ data: null, error: "invalid metric" });
+      }
+      const ok = mktRecordMetric(req.params.id, variantKey, metric as any, delta, revenue);
+      if (!ok) return res.status(404).json({ data: null, error: "campaign or variant not found" });
+      res.json({ data: { id: req.params.id, metric, variantKey, delta }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  // GET variant for user (channel handler split-test routing)
+  app.get("/api/admin/v304/marketing/campaigns/:id/variant", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const userId = Number(req.query.userId);
+      const c = mktGetCampaign(req.params.id);
+      if (!c) return res.status(404).json({ data: null, error: "campaign not found" });
+      if (!Number.isFinite(userId)) return res.status(400).json({ data: null, error: "userId required" });
+      const v = mktSelectVariant(c, userId);
+      res.json({ data: { campaignId: c.id, userId, variant: { key: v.key, content: v.content, share: v.share } }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  // GET calendar
+  app.get("/api/admin/v304/marketing/calendar", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const from = req.query.from ? Number(req.query.from) : undefined;
+      const to = req.query.to ? Number(req.query.to) : undefined;
+      const items = mktListCalendar({ from, to });
+      res.json({ data: { entries: items, count: items.length }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  // POST schedule entry
+  app.post("/api/admin/v304/marketing/calendar", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).userId;
+      const adminUser = userId ? storage.getUser(userId) : null;
+      const body = req.body || {};
+      const channel = body.channel as CampaignChannel;
+      const validChannels: CampaignChannel[] = ["email", "telegram", "vk", "max", "landing", "web-chat"];
+      if (!validChannels.includes(channel)) {
+        return res.status(400).json({ data: null, error: "invalid channel" });
+      }
+      const scheduledFor = Number(body.scheduledFor);
+      if (!Number.isFinite(scheduledFor) || scheduledFor <= Date.now()) {
+        return res.status(400).json({ data: null, error: "scheduledFor must be future timestamp" });
+      }
+      const entry = mktScheduleEntry({
+        channel,
+        scheduledFor,
+        contentTemplate: String(body.contentTemplate || ""),
+        campaignId: body.campaignId ? String(body.campaignId) : undefined,
+        createdBy: adminUser?.email || "admin",
+      });
+      res.json({ data: { entry }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  // DELETE calendar entry
+  app.delete("/api/admin/v304/marketing/calendar/:id", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const ok = mktCancelCalendar(req.params.id);
+      if (!ok) return res.status(404).json({ data: null, error: "entry not found" });
+      res.json({ data: { id: req.params.id, status: "cancelled" }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  // GET allocation suggestion
+  app.get("/api/admin/v304/marketing/allocation", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const budget = Number(req.query.budget) || 100000;
+      const allocation = mktSuggestAllocation(budget);
+      res.json({ data: { budget, allocation }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  // POST trigger event manually (admin testing)
+  app.post("/api/admin/v304/marketing/trigger-event", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const eventName = String(req.body?.eventName || "");
+      const payload = req.body?.payload || {};
+      const validEvents = [
+        "payment.succeeded", "generation.published", "user.churned",
+        "generation.milestone", "subscription.expired", "referral.bonus.given",
+        "user.registered",
+      ];
+      if (!validEvents.includes(eventName)) {
+        return res.status(400).json({ data: null, error: `invalid event. allowed: ${validEvents.join(", ")}` });
+      }
+      emitOrchestratorEvent(eventName, payload);
+      res.json({ data: { eventName, payload, triggered: true }, error: null });
     } catch (e: any) {
       res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
     }
