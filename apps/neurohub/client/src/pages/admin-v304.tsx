@@ -40,7 +40,9 @@ import { SecondBrainTab } from "@/pages/admin/second-brain-tab";
 import ImageGeneratorTab from "@/pages/admin/image-generator-tab";
 import FilesArchiveTab from "@/pages/admin/files-archive-tab";
 import VpsSyncTab from "@/pages/admin/vps-sync-tab";
-import OperatorCommandsTab from "@/pages/admin/operator-commands-tab";
+// Eugene 2026-05-23 Босс «правило ярс в админке дублируется оставь одно
+// прокачай его навык». OperatorCommandsTab убран как дубль — вся очередь
+// Yars/operator команд теперь в едином YarsQueueTab.
 import YarsQueueTab from "@/pages/admin/yars-queue-tab";
 import SuggestionsTab from "@/pages/admin/suggestions-tab";
 import NpsTab from "@/pages/admin/nps-tab";
@@ -759,8 +761,9 @@ export default function AdminV304Page() {
           <TabsTrigger value="image-generator" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🎨 Генератор</TabsTrigger>
           <TabsTrigger value="files-archive" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">📁 Архив</TabsTrigger>
           <TabsTrigger value="vps-sync" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🖥 VPS Sync</TabsTrigger>
-          <TabsTrigger value="operator-commands" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🔐 Operator</TabsTrigger>
-          <TabsTrigger value="yars-queue" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-red-500 data-[state=active]:via-amber-500 data-[state=active]:to-purple-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(217,70,239,0.45)] data-[state=active]:border-red-300/40">🚨 Ярс-очередь</TabsTrigger>
+          {/* Eugene 2026-05-23 Босс: единая вкладка Ярс — operator-tab и
+              inline yars-rules слиты сюда. См. Yars-admin-unified rule. */}
+          <TabsTrigger value="yars-queue" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-red-500 data-[state=active]:via-amber-500 data-[state=active]:to-purple-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(217,70,239,0.45)] data-[state=active]:border-red-300/40">🚨 Ярс</TabsTrigger>
           <TabsTrigger value="suggestions" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">💡 Идеи</TabsTrigger>
           <TabsTrigger value="nps" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">💬 NPS</TabsTrigger>
           <TabsTrigger value="escalations" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">😠 Жалобы</TabsTrigger>
@@ -825,7 +828,6 @@ export default function AdminV304Page() {
         <TabsContent value="image-generator"><ImageGeneratorTab toast={toast} /></TabsContent>
         <TabsContent value="files-archive"><FilesArchiveTab toast={toast} /></TabsContent>
         <TabsContent value="vps-sync"><VpsSyncTab toast={toast} /></TabsContent>
-        <TabsContent value="operator-commands"><OperatorCommandsTab toast={toast} /></TabsContent>
         <TabsContent value="yars-queue"><YarsQueueTab toast={toast} /></TabsContent>
         <TabsContent value="suggestions"><SuggestionsTab toast={toast} /></TabsContent>
         <TabsContent value="nps"><NpsTab toast={toast} /></TabsContent>
@@ -2041,11 +2043,8 @@ function BotStatsTab({ toast }: { toast: any }) {
     queryKey: ["/api/admin/v304/bot-stats"],
     refetchInterval: 30_000,
   });
-  // Eugene 2026-05-14 Босс «отчёт по Ярс — собирай и анализируй».
-  const { data: yarsData } = useQuery<any>({
-    queryKey: ["/api/admin/v304/yars-rules"],
-    refetchInterval: 60_000,
-  });
+  // Eugene 2026-05-23 Босс: yarsData query переехал в YarsQueueTab (единая
+  // Ярс-вкладка). Здесь больше не дублируем — см. Yars-admin-unified rule.
   // Eugene 2026-05-14 Босс «в админке указывай сколько токенов обошелся чат».
   const { data: tokenStats } = useQuery<any>({
     queryKey: ["/api/admin/v304/muza-token-stats"],
@@ -2209,40 +2208,8 @@ function BotStatsTab({ toast }: { toast: any }) {
         </div>
       )}
 
-      {/* Правила от Ярса — Eugene 2026-05-14 Босс «отчёт по Ярс». */}
-      {yarsData?.ok && yarsData.total > 0 && (
-        <div className="rounded-xl p-4 bg-gradient-to-br from-purple-500/[0.08] via-blue-500/[0.05] to-cyan-500/[0.05] border border-purple-500/30">
-          <div className="flex items-baseline justify-between mb-3">
-            <h3 className="text-[15px] font-bold text-white">🎯 Правила от Ярса <span className="text-[11px] text-purple-300/70 font-normal">({fmt(yarsData.total)})</span></h3>
-            <span className="text-[10px] text-white/40">из user-сообщений по ключу «Ярс»</span>
-          </div>
-          <div className="flex items-center gap-2 mb-3 text-[10px]">
-            {Object.entries(yarsData.byChannel || {}).map(([ch, n]: any) => (
-              <span key={ch} className="px-2 py-0.5 rounded-full bg-white/[0.06] text-white/70 border border-white/[0.08]">
-                {ch}: {fmt(n)}
-              </span>
-            ))}
-          </div>
-          <div className="space-y-1.5 max-h-80 overflow-y-auto">
-            {yarsData.rules.slice(0, 30).map((r: any) => (
-              <div key={r.id} className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.05]">
-                <div className="flex items-baseline gap-2 mb-1">
-                  <span className="text-[9px] text-purple-300/60 uppercase tracking-wider">{r.channel}</span>
-                  <span className="text-[9px] text-white/30">{r.sessionId}</span>
-                  <span className="text-[9px] text-white/30 ml-auto">{new Date(r.createdAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
-                </div>
-                <div className="text-[12px] text-white/90 leading-relaxed whitespace-pre-wrap">{r.rule}</div>
-              </div>
-            ))}
-            {yarsData.rules.length > 30 && (
-              <div className="text-[10px] text-white/40 text-center py-2">... ещё {yarsData.rules.length - 30}</div>
-            )}
-          </div>
-          <p className="text-[10px] text-white/40 mt-3 leading-relaxed">
-            💡 {yarsData.hint}
-          </p>
-        </div>
-      )}
+      {/* Eugene 2026-05-23 Босс: блок «🎯 Правила от Ярса» переехал в
+          единую Ярс-вкладку (🚨 Ярс). Здесь больше не дублируем. */}
 
       {/* Latest 5 sessions */}
       {data.latest.length > 0 && (

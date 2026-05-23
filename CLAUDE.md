@@ -326,6 +326,33 @@ ssh root@72.56.1.149 'sed -i "/^ИМЯ_КЛЮЧА=/d" /var/www/neurohub/.env \
 
 ---
 
+### Yars-admin-unified rule (Eugene 2026-05-23, **источник правды UI = одна вкладка**)
+
+**В админ-панели `/admin/v304` есть ровно ОДНА вкладка для всех Ярс/operator-команд — `🚨 Ярс` (`yars-queue` tab, `apps/neurohub/client/src/pages/admin/yars-queue-tab.tsx`). Все прежние дубли удалены.**
+
+Что было удалено (Eugene 2026-05-23):
+- ❌ `🔐 Operator` (`OperatorCommandsTab` / `operator-commands-tab.tsx`) — отдельная очередь `operator_commands` table. Файл удалён, тэб снят.
+- ❌ Встроенный блок «🎯 Правила от Ярса» в master-dashboard (admin-v304.tsx:2212-2245) — переехал внутрь `🚨 Ярс` как нижняя секция.
+
+Что осталось:
+- ✅ Единая вкладка `🚨 Ярс` (`yars-queue`) с прокачанным набором фич:
+  - KPI карточки: pending / applied / auto-applied / rejected / avg-time-to-apply / safe-share
+  - Фильтры: status (5 значений) · risk · channel (web/TG/Max) · date range (24h/7d/30d/all) · sort (created/risk/category) · category chips · free-text search
+  - Inline-context для каждой записи: risk + category + safe badge + channel + decision + #id + userId + timestamp + SHA + reviewed-at + notes
+  - Actions: refresh · copy report (markdown) · export CSV (BOM utf-8)
+  - Аналитика: counts по decision + среднее время до apply (в минутах)
+  - Нижняя секция «🎯 Правила от Ярса» (агрегат из user-сообщений по ключу «Ярс») — read-only
+
+Источник правды — `chatbot_messages WHERE is_yars_command=1` (см. Yars-admin-confirmation rule + Yars-messenger-no-autoapply rule). Backend endpoints не тронуты:
+- `GET /api/admin/v304/yars-queue` — основная очередь (с summary)
+- `POST /api/admin/v304/yars-queue/:msgId/mark-decision` — Claude отмечает applied/rejected (вне UI)
+- `GET /api/admin/v304/yars-rules` — агрегат правил
+- Legacy `/api/admin/v304/operator-commands*` endpoints — остаются для совместимости (внешние webhooks могут писать туда), но в UI больше не отображаются. Если нужно — добавить вторую секцию в `yars-queue-tab.tsx` (отдельный fetch + render), не плодить новые tabs.
+
+Применяется к: всем будущим правкам Ярс-функционала. НЕ создавать новые admin tabs для Yars/operator команд — расширять `yars-queue-tab.tsx`. См. No-duplicates rule.
+
+---
+
 ### Yars-admin-confirmation rule (Eugene 2026-05-20, **сильнее Autonomous-execution rule в части code-changes**)
 
 **Все Ярс-сообщения админа (Босса), которые касаются ПРАВОК В КОД — приходят в этот chat и требуют моего явного подтверждения «да» / «применяй» / «1 ok» перед commit'ом.** Auto-apply в проде НЕ применяет code-changes без подтверждения здесь.
