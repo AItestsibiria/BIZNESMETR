@@ -511,25 +511,28 @@ Workflow когда Босс приносит Ярс-команду в этот 
 - POST /api/account/confirm-delete/:token → автор подтверждает → меняет status='confirmed' → cron / event-handler выполняет фактическое удаление
 - Admin UI: кнопка «Удалить» вместо мгновенного действия запускает request flow + показывает «Ждём подтверждения автора»
 
-### Play-counting rule (Eugene 2026-05-15)
+### Play-counting rule (Eugene 2026-05-15, **обновлено 2026-05-22 — 3 условия**)
 
-**Прослушивание трека засчитывается при выполнении ВСЕХ 5 условий.** Применяется в `/api/playlist/play/:id` и `/api/gen-activity/:id/play` (server/routes.ts → `shouldCountPlay()`).
+**Прослушивание трека засчитывается при выполнении ВСЕХ 3 условий.** Применяется в `/api/playlist/play/:id` и `/api/gen-activity/:id/play` (server/routes.ts → `shouldCountPlay()` line 9771-9803).
 
 Условия:
 1. **5+ секунд воспроизведения.** Frontend плеер передаёт `elapsedSec` в body POST после первых 5 сек play. Если поле отсутствует — считаем (backward-compat для старых плееров).
-2. **Dedup IP/час.** Один IP не может прибавить больше 1 play на трек за 60 мин. Проверка через `gen_activity` WHERE ip=? AND action='play' AND created_at > now-1h.
-3. **Author-self исключён.** Если `gen.userId == authedUserId` — НЕ считаем (плеи автора собственного трека идут в `play_rejected:author-self`, не в `play`).
-4. **Admin исключён** (правило Босса «кроме админа»). Если `user.role IN ('admin', 'super_admin')` — НЕ считаем.
-5. **Bot UA исключён.** User-Agent matching `/bot|crawler|spider|slurp|curl|wget|httpie|python-requests|java-http|axios|fetch|head/i` → НЕ считаем.
+2. **Dedup IP / 10 мин.** Один IP не может прибавить больше 1 play на трек за 10 минут. Проверка через `gen_activity` WHERE ip=? AND action='play' AND created_at > now-10min. **Раньше было 60 мин** — сужено для NAT mobile-операторов РФ (МТС/Билайн/Мегафон выдают один IP тысячам юзеров через NAT → блокировались valid'ные plays).
+3. **Bot UA исключён.** User-Agent matching `/bot|crawler|spider|slurp|curl|wget|httpie|python-requests|java-http|axios|fetch|head/i` → НЕ считаем.
 
-При неудаче пишется в `gen_activity.action='play_rejected:<reason>'` для аналитики (можно посмотреть сколько накруток отбрасывается). В `meta.plays` (JSON в `generations.style`) пишется только реальный play.
+**Удалённые условия** (Eugene 2026-05-22 после правила обновления):
+- ~~Author-self exclusion~~ — авторы могут слушать свои треки и play засчитывается. Прежняя логика отбрасывала эти plays в `play_rejected:author-self`. Сейчас обычный play.
+- ~~Admin exclusion~~ — admin плеи тоже засчитываются. Если нужно отделить — фильтровать по `user.role` в analytics layer (master-dashboard), не на write side.
+
+При неудаче пишется в `gen_activity.action='play_rejected:<reason>'` для аналитики. В `meta.plays` (JSON в `generations.style`) пишется только реальный play.
 
 Применяется к: счётчику `meta.plays`, челофильтру для перевода новых авторов в основной плейлист (>50 за 24ч), таблице top-tracks. Не применяется к: download / copy / share — они без anti-fraud (плотность ниже).
 
 Tuning параметров (если нужно ужесточить):
-- IP-window: 60 мин (можно 24ч для жёсткости)
+- IP-window: 10 мин (можно 24ч для жёсткости, но сломает NAT mobile)
 - Min duration: 5 сек (можно 15-30 сек как у Spotify)
 - Bot list: можно расширить через ENV `BOT_UA_REGEX`
+- Author-self / admin: можно вернуть фильтрацию если accuracy важнее inclusivity
 
 ### Two-playlist rule (Eugene 2026-05-15)
 

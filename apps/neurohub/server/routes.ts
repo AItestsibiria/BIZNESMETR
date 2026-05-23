@@ -10937,9 +10937,10 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
           return res.status(403).json({ ok: false, error: "private-track" });
         }
       }
-      // Eugene 2026-05-15 Босс «правило прослушиваний» — для action=play
-      // применяется shouldCountPlay (5+ сек, IP-dedup, author-self, admin,
-      // bot-UA исключаются). Для copy/share/download — без фильтрации.
+      // Eugene 2026-05-22 Босс «правило прослушиваний» (обновлено) — для
+      // action=play применяется shouldCountPlay (5+ сек, IP-dedup 10 мин,
+      // bot-UA исключается). Author-self и admin БОЛЬШЕ НЕ исключаются.
+      // Для copy/share/download — без фильтрации.
       if (action === 'play') {
         try {
           const decision = shouldCountPlay(req, gen);
