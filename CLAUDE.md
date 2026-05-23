@@ -262,6 +262,70 @@ ssh root@72.56.1.149 'sed -i "/^ИМЯ_КЛЮЧА=/d" /var/www/neurohub/.env \
 
 Для **критических операций** (миграции, удаление таблиц, ротация ключей) — отдельный manual snapshot вне auto-deploy цикла.
 
+### Yars-messenger-no-autoapply rule (Eugene 2026-05-22, **сильнее Yars-admin-confirmation rule**)
+
+**Ярс-команды из мессенджеров (Telegram, Max, web-chat сторонних виджетов) — ЗАПРЕТ на изменение любых ключевых элементов проекта без явного подтверждения Босса в Claude chat (claude.ai/code).**
+
+Цитата Босса 2026-05-22: «Ярс запрет на изменение любых ключевых элементов проекта через мессенджеры, анализируй предлагай подтверждаю только здесь их правило запомни».
+
+**Что значит «здесь» = claude.ai/code session** (где Босс общается с Claude напрямую через CLI/web). **НЕ** мессенджеры Музы (TG bot, Max bot, web-chat Музы на muzaai.ru).
+
+**Что запрещено auto-apply из мессенджеров (вне зависимости от risk-level):**
+
+- ❌ Любые code-changes (commits / push / file edits)
+- ❌ Schema migrations (ALTER TABLE, CREATE, DROP)
+- ❌ Endpoint add/remove / change в `routes.ts`
+- ❌ Изменения payments (`/api/payment/*`, Robokassa logic)
+- ❌ Изменения auth / security (`requireAdmin`, session secrets)
+- ❌ Ротация секретов / API keys
+- ❌ Удаление юзеров / транзакций / БД-данных
+- ❌ Изменения CI/CD / deploy scripts
+- ❌ Force-push, rebase published commits
+- ❌ Включение/отключение security middleware
+- ❌ Bulk операции которые стоят денег провайдерам (массовая Suno/SMS)
+- ❌ `npm install` / dependency-changes
+- ❌ Любые **«code_change», «db_migration», «schema_change», «secret_change», «prod_deploy», «plugin_install», «dependency_change»** category
+
+**Что МОЖНО auto-apply из мессенджеров (low-risk content)** — после явной фиксации этого списка в правиле:
+
+- ✅ News post / news-card в landing-CMS
+- ✅ KB update (Knowledge Base текст для Музы)
+- ✅ Persona tweak (текстовые правки в consultantPersona.ts если не структурные)
+- ✅ UI text (toast'ы / button labels / copywriting)
+- ✅ Feature toggle on/off (через `feature_toggles` table)
+
+Эти категории обрабатываются через **`yarsExecutor.ts`** auto-apply pipeline (см. `Admin-Muza-message base + auto-apply rule`). Всё остальное — **строго pending → ждёт Claude review здесь**.
+
+**Workflow при Yars-команде из мессенджера:**
+
+1. Юзер (Босс) пишет в TG/Max/web-chat: «Ярс: ...»
+2. `yarsAutoTag.ts` детектит → set `is_yars_command=1`, `yars_category`, `yars_risk_level`
+3. **Если category в whitelist (low-risk content)** → `yarsExecutor.ts` выполняет (см. Admin-Muza-message rule) + ставит `claude_review_decision='auto_applied'`
+4. **Если category НЕ в whitelist** → запись остаётся `pending`. Claude (я) увидит её в next session через `GET /api/admin/v304/yars-queue` или Босс/я обнаружим через UI tab `🚨 Ярс-очередь`
+5. Claude анализирует, предлагает фикс в claude.ai/code chat → Босс **здесь** даёт явное «да» → Claude apply + `POST /yars-queue/:id/mark-decision {decision:'applied', commitSha}`
+
+**Защита от обхода:**
+
+- `yarsAutoTag.ts` `categoryToRiskLevel()` мапит **destructive** categories в `risk_level='high'` (delete/secret/deploy)
+- `yarsExecutor.ts` НЕ выполняет high-risk даже если запись была пришедшая из admin IP (`ADMIN_TRUSTED_IPS` whitelist не обходит этого правила)
+- UI tab `yars-queue-tab.tsx` warning banner с пояснением workflow
+
+**UI визуализация** (`admin/v304 → 🚨 Ярс-очередь`):
+- Filter: status (pending / applied / rejected / all) + risk (low/medium/high)
+- Summary: byRisk + byCategory counts
+- Каждая запись: risk badge + category + channel (web/TG/Max) + decision status + SHA если applied
+- Read-only — НЕ apply/reject отсюда (это только через Claude chat)
+
+**Применяется к:** всем Yars-командам из любых каналов которые НЕ являются claude.ai/code. НЕ применяется к: правкам прямо через Claude CLI/chat (там Yars-admin-confirmation rule).
+
+**Связано с:**
+- Yars-admin-confirmation rule — базовый flow Claude→commit, теперь требует confirm Босса ЗДЕСЬ
+- Admin-Muza-message base + auto-apply rule — whitelist content categories для auto-apply
+- Autonomous-execution rule — Claude может делать non-risky изменения сам, но Yars из мессенджеров не считается «non-risky»
+- Secrets-admin-only rule — secrets никогда через Yars (даже через Claude chat — только прямой SSH)
+
+---
+
 ### Yars-admin-confirmation rule (Eugene 2026-05-20, **сильнее Autonomous-execution rule в части code-changes**)
 
 **Все Ярс-сообщения админа (Босса), которые касаются ПРАВОК В КОД — приходят в этот chat и требуют моего явного подтверждения «да» / «применяй» / «1 ok» перед commit'ом.** Auto-apply в проде НЕ применяет code-changes без подтверждения здесь.

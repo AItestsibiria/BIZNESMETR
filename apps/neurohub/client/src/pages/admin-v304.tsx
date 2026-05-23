@@ -41,6 +41,7 @@ import ImageGeneratorTab from "@/pages/admin/image-generator-tab";
 import FilesArchiveTab from "@/pages/admin/files-archive-tab";
 import VpsSyncTab from "@/pages/admin/vps-sync-tab";
 import OperatorCommandsTab from "@/pages/admin/operator-commands-tab";
+import YarsQueueTab from "@/pages/admin/yars-queue-tab";
 import SuggestionsTab from "@/pages/admin/suggestions-tab";
 import NpsTab from "@/pages/admin/nps-tab";
 import EscalationsTab from "@/pages/admin/escalations-tab";
@@ -758,6 +759,7 @@ export default function AdminV304Page() {
           <TabsTrigger value="files-archive" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">📁 Архив</TabsTrigger>
           <TabsTrigger value="vps-sync" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🖥 VPS Sync</TabsTrigger>
           <TabsTrigger value="operator-commands" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🔐 Operator</TabsTrigger>
+          <TabsTrigger value="yars-queue" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-red-500 data-[state=active]:via-amber-500 data-[state=active]:to-purple-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(217,70,239,0.45)] data-[state=active]:border-red-300/40">🚨 Ярс-очередь</TabsTrigger>
           <TabsTrigger value="suggestions" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">💡 Идеи</TabsTrigger>
           <TabsTrigger value="nps" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">💬 NPS</TabsTrigger>
           <TabsTrigger value="escalations" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">😠 Жалобы</TabsTrigger>
@@ -820,6 +822,7 @@ export default function AdminV304Page() {
         <TabsContent value="files-archive"><FilesArchiveTab toast={toast} /></TabsContent>
         <TabsContent value="vps-sync"><VpsSyncTab toast={toast} /></TabsContent>
         <TabsContent value="operator-commands"><OperatorCommandsTab toast={toast} /></TabsContent>
+        <TabsContent value="yars-queue"><YarsQueueTab toast={toast} /></TabsContent>
         <TabsContent value="suggestions"><SuggestionsTab toast={toast} /></TabsContent>
         <TabsContent value="nps"><NpsTab toast={toast} /></TabsContent>
         <TabsContent value="escalations"><EscalationsTab toast={toast} /></TabsContent>
