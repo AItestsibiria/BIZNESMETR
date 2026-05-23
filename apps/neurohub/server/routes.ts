@@ -3797,6 +3797,109 @@ export async function registerRoutes(
     });
   });
 
+  // Eugene 2026-05-23 marketing/SEO: ручной trigger для sitemap ping +
+  // IndexNow notification. Используется Боссом одной кнопкой в админке
+  // после большого деплоя / контентного апдейта.
+  //
+  // GET /api/admin/v304/sitemap/ping — пингует Yandex sitemap endpoint.
+  // Google/Bing endpoint'ы устарели в 2023 — отдаём informational ответ.
+  app.get("/api/admin/v304/sitemap/ping", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { pingSitemap } = await import("./lib/indexNow");
+      const results = await pingSitemap();
+      try {
+        recordAuditEntry({
+          req,
+          action: "update",
+          entity: "sitemap-ping",
+          entityKey: "all",
+          after: { results },
+        });
+      } catch {}
+      res.json({ ok: true, results });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
+  });
+
+  // POST /api/admin/v304/indexnow/notify — мгновенное уведомление поисковиков
+  // (Bing, Yandex, Seznam, Naver) об обновлении пачки URL'ов через IndexNow
+  // protocol. Body: { urls: string[] } — массив абсолютных URL на нашем host.
+  // No-op если INDEXNOW_KEY env не настроен (см. lib/indexNow.ts setup).
+  app.post("/api/admin/v304/indexnow/notify", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const urls = Array.isArray((req.body as any)?.urls) ? ((req.body as any).urls as string[]) : [];
+      if (urls.length === 0) {
+        return res.status(400).json({ ok: false, error: "urls должен быть непустым массивом" });
+      }
+      const { submitIndexNow } = await import("./lib/indexNow");
+      const result = await submitIndexNow(urls);
+      try {
+        recordAuditEntry({
+          req,
+          action: "update",
+          entity: "indexnow-notify",
+          entityKey: `batch:${urls.length}`,
+          after: { urlsCount: urls.length, result },
+        });
+      } catch {}
+      res.json({ ok: result.ok, result });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
+  });
+
+  // GET /api/admin/v304/seo/verification-status — диагностика какие
+  // verification meta-tags заполнены в build'е (index.html). Помогает Боссу
+  // быстро увидеть какие поисковики ещё не подключены.
+  app.get("/api/admin/v304/seo/verification-status", requireAdmin, (_req: Request, res: Response) => {
+    try {
+      const fs = require("fs");
+      const path = require("path");
+      // Сначала пробуем dist/public/index.html (production build), потом
+      // client/index.html (dev fallback).
+      const candidates = [
+        path.resolve(process.cwd(), "dist", "public", "index.html"),
+        path.resolve(process.cwd(), "client", "index.html"),
+        path.resolve(process.cwd(), "apps", "neurohub", "client", "index.html"),
+      ];
+      let html = "";
+      let source = "";
+      for (const p of candidates) {
+        try {
+          if (fs.existsSync(p)) {
+            html = fs.readFileSync(p, "utf-8");
+            source = p;
+            break;
+          }
+        } catch {}
+      }
+      const extract = (name: string) => {
+        const re = new RegExp(`<meta\\s+name=["']${name}["'][^>]*content=["']([^"']*)["']`, "i");
+        const m = html.match(re);
+        return m ? m[1] : null;
+      };
+      const yandex = extract("yandex-verification");
+      const google = extract("google-site-verification");
+      const bing = extract("msvalidate.01");
+      const mailru = extract("wmail-verification");
+      const indexNowKey = process.env.INDEXNOW_KEY ? "set" : "missing";
+      res.json({
+        ok: true,
+        source,
+        engines: {
+          yandex: { token: yandex, configured: !!(yandex && yandex.length > 4) },
+          google: { token: google, configured: !!(google && google.length > 4) },
+          bing: { token: bing, configured: !!(bing && bing.length > 4) },
+          mailru: { token: mailru, configured: !!(mailru && mailru.length > 4) },
+        },
+        indexNow: { key: indexNowKey },
+      });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
+  });
+
   // Eugene 2026-05-15 Босс «log list problem»: регистр неудачных действий
   // юзера во всех каналах (web/telegram/max/email/...). Группировка по
   // group_key (action::error_code) — сколько раз, кого, последний раз.
