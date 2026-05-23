@@ -99,6 +99,7 @@ import escalationQueueModule from "./plugins/escalation-queue/module";
 import messageAnalysisModule from "./plugins/message-analysis/module";
 import playsAuditModule from "./plugins/plays-audit/module";
 import playsAnalyticsModule from "./plugins/plays-analytics/module";
+import giftCertificatesModule from "./plugins/gift-certificates/module";
 
 import * as fs from "node:fs";
 
@@ -543,6 +544,8 @@ app.post("/api/_client-error", express.json(), (req, res) => {
     { name: "feedback-aggregator", module: feedbackAggregatorModule },
     { name: "escalation-queue", module: escalationQueueModule },
     { name: "message-analysis", module: messageAnalysisModule },
+
+    { name: "gift-certificates", module: giftCertificatesModule },
 
   ];
 
