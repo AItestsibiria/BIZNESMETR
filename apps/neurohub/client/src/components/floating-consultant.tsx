@@ -3322,9 +3322,17 @@ export function FloatingConsultant() {
                 )}
               </button>
             </form>
-            {/* Eugene 2026-05-23 Босс «чат окно должно закрываться только при
-                нажатии на крестик вверху». Footer кнопка удалена — × в header
-                остаётся единственным explicit close trigger. */}
+            {/* Eugene 2026-05-23 Босс «на окне чат бота пропало окно уходу
+                но скоро вернусь» — возвращаю footer-кнопку. Это
+                человечнее × в header (обещает возврат Музы). По действию
+                = minimize: setChatOpen(false), session сохраняется,
+                Музa-FAB остаётся в top-right (можно вернуть). */}
+            <button
+              type="button"
+              onClick={() => setChatOpen(false)}
+              className="w-full py-2.5 text-[12px] text-white/60 hover:text-white bg-white/[0.02] hover:bg-white/[0.05] border-t border-white/[0.04] transition-colors shrink-0"
+              aria-label="Свернуть чат — Музa скоро вернётся"
+            >👋 Ухожу, скоро вернусь</button>
           </div>
         </div>,
         document.body
