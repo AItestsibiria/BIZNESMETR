@@ -415,6 +415,22 @@ function saveMaxMessage(
           text,
         });
       }).catch(() => {});
+
+      // Eugene 2026-05-23 Yars auto-pull pipeline (см. yarsAutoTag.ts).
+      // Admin сообщения через Max-канал тоже попадают в очередь.
+      const linkedUserId = opts?.userId ?? null;
+      if (linkedUserId && inserted?.id) {
+        try {
+          const u = db.select({ role: users.role }).from(users)
+            .where(eq(users.id, linkedUserId)).get() as any;
+          const r = String(u?.role || "").toLowerCase();
+          if (r === "admin" || r === "super_admin") {
+            import("../../lib/yarsAutoTag").then(({ tagYarsCommand }) => {
+              tagYarsCommand({ messageId: inserted.id, text, role: r });
+            }).catch(() => {});
+          }
+        } catch {}
+      }
     }
   } catch {}
 }

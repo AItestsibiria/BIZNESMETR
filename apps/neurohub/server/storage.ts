@@ -182,6 +182,22 @@ try {
     // hint=playNow:<id> backend пишет attached_track_id в bot-message; frontend
     // рендерит inline track-card с persistent audio singleton (Persistent-audio-only rule).
     if (!cmcn.includes("attached_track_id")) sqlite.exec("ALTER TABLE chatbot_messages ADD COLUMN attached_track_id INTEGER");
+
+    // Eugene 2026-05-23 Yars-admin-confirmation rule auto-pull pipeline.
+    // При INSERT chatbot_messages с author role IN ('admin','super_admin')
+    // И text matching /(ярс|yars|оператор)/i → пометить is_yars_command=1,
+    // auto-categorize через classifyOperatorCommand, проставить risk-level.
+    // Claude pull'ит queue через GET /api/admin/v304/yars-queue, обрабатывает,
+    // помечает решением через POST /api/admin/v304/yars-queue/:id/mark-decision.
+    if (!cmcn.includes("is_yars_command")) sqlite.exec("ALTER TABLE chatbot_messages ADD COLUMN is_yars_command INTEGER NOT NULL DEFAULT 0");
+    if (!cmcn.includes("yars_category")) sqlite.exec("ALTER TABLE chatbot_messages ADD COLUMN yars_category TEXT");
+    if (!cmcn.includes("yars_risk_level")) sqlite.exec("ALTER TABLE chatbot_messages ADD COLUMN yars_risk_level TEXT");
+    if (!cmcn.includes("claude_review_decision")) sqlite.exec("ALTER TABLE chatbot_messages ADD COLUMN claude_review_decision TEXT");
+    if (!cmcn.includes("claude_review_at")) sqlite.exec("ALTER TABLE chatbot_messages ADD COLUMN claude_review_at INTEGER");
+    if (!cmcn.includes("claude_review_commit_sha")) sqlite.exec("ALTER TABLE chatbot_messages ADD COLUMN claude_review_commit_sha TEXT");
+    if (!cmcn.includes("claude_review_notes")) sqlite.exec("ALTER TABLE chatbot_messages ADD COLUMN claude_review_notes TEXT");
+    // Композитный индекс для быстрого pull-queue: WHERE is_yars_command=1 AND claude_review_decision IS NULL
+    try { sqlite.exec("CREATE INDEX IF NOT EXISTS idx_chatbot_yars ON chatbot_messages(is_yars_command, claude_review_decision)"); } catch {}
   } catch (e) {
     console.warn("[BOOTSTRAP] chatbot_messages audio alter failed:", (e as Error).message);
   }

@@ -601,6 +601,23 @@ function saveMessage(sessionId: string, role: "user" | "bot", text: string, user
           text,
         });
       }).catch(() => {});
+
+      // Eugene 2026-05-23 Yars auto-pull pipeline. Если linked-юзер этого
+      // Telegram-сообщения — admin/super_admin, и text содержит «ярс|yars|
+      // оператор» — пометим row как Yars-команду pending. Подробнее см.
+      // server/lib/yarsAutoTag.ts.
+      if (userId && inserted?.id) {
+        try {
+          const u = db.select({ role: users.role }).from(users)
+            .where(eq(users.id, userId)).get() as any;
+          const r = String(u?.role || "").toLowerCase();
+          if (r === "admin" || r === "super_admin") {
+            import("../../lib/yarsAutoTag").then(({ tagYarsCommand }) => {
+              tagYarsCommand({ messageId: inserted.id, text, role: r });
+            }).catch(() => {});
+          }
+        } catch {}
+      }
     }
   } catch {}
 }
