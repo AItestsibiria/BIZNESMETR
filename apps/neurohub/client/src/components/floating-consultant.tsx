@@ -668,6 +668,19 @@ export function FloatingConsultant() {
   const [chatMsgs, setChatMsgs] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatSending, setChatSending] = useState(false);
+  // Eugene 2026-05-23 Босс «окно чата шрифт надо поставить вверху изменять
+  // больше меньше». A−/A+ кнопки в header чата меняют размер сообщений.
+  // Range 11-22px, default 13 (текущий). Persist в localStorage.
+  const [chatFontSize, setChatFontSize] = useState<number>(() => {
+    if (typeof window === "undefined") return 13;
+    try {
+      const saved = Number(localStorage.getItem("muza-chat-font-size"));
+      return Number.isFinite(saved) && saved >= 11 && saved <= 22 ? saved : 13;
+    } catch { return 13; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("muza-chat-font-size", String(chatFontSize)); } catch {}
+  }, [chatFontSize]);
   // Eugene 2026-05-18 Босс «убери облака с подсказками, но оставь в чате
   // кнопку с возможностью их появления». Default false — пустой чат без
   // подсказок. Юзер нажимает «💡 Подсказки» — появляются 4-5 chips.
@@ -2375,6 +2388,27 @@ export function FloatingConsultant() {
                 </div>
                 <div className="text-[10px] text-white/50 truncate">Подскажу с песней, темой, регистрацией</div>
               </div>
+              {/* Eugene 2026-05-23 Босс «окно чата шрифт надо поставить вверху
+                  изменять больше меньше». A−/A+ кнопки рядом — компактные,
+                  shrink-0, persist в localStorage. Range 11-22px. */}
+              <div className="flex items-center gap-0.5 shrink-0 rounded-full bg-white/[0.04] border border-white/[0.08] px-0.5">
+                <button
+                  type="button"
+                  onClick={() => setChatFontSize(s => Math.max(11, s - 1))}
+                  disabled={chatFontSize <= 11}
+                  aria-label="Уменьшить шрифт"
+                  title="Уменьшить шрифт"
+                  className="w-7 h-7 sm:w-6 sm:h-6 rounded-full text-white/70 hover:text-white hover:bg-white/[0.08] text-[12px] font-semibold flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
+                >A−</button>
+                <button
+                  type="button"
+                  onClick={() => setChatFontSize(s => Math.min(22, s + 1))}
+                  disabled={chatFontSize >= 22}
+                  aria-label="Увеличить шрифт"
+                  title="Увеличить шрифт"
+                  className="w-7 h-7 sm:w-6 sm:h-6 rounded-full text-white/70 hover:text-white hover:bg-white/[0.08] text-[14px] font-semibold flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
+                >A+</button>
+              </div>
               {/* Eugene 2026-05-14 Босс: новый разговор — чистый sessionId,
                   устраняет остатки старой истории в БД. */}
               <button
@@ -2532,7 +2566,7 @@ export function FloatingConsultant() {
                  событие body когда достигнут край скролл-контейнера.
                  touch-action: pan-y — разрешаем только вертикальный pan,
                  блокируем горизонтальный zoom/swipe-back на iOS. */
-              style={{ overscrollBehavior: "contain", touchAction: "pan-y", WebkitOverflowScrolling: "touch" }}
+              style={{ overscrollBehavior: "contain", touchAction: "pan-y", WebkitOverflowScrolling: "touch", "--muza-msg-fs": `${chatFontSize}px` } as React.CSSProperties}
             >
               {chatMsgs.length === 0 && (
                 <div className="text-[11px] text-white/40 text-center py-4">Загружаю…</div>
@@ -2592,7 +2626,7 @@ export function FloatingConsultant() {
                         }, 20);
                       }}
                       title="Нажми чтобы скопировать в поле ввода"
-                      className={`max-w-[80%] px-3 py-2 rounded-2xl text-[13px] leading-relaxed whitespace-pre-wrap break-words cursor-pointer hover:brightness-110 transition-all ${
+                      className={`max-w-[80%] px-3 py-2 rounded-2xl text-[length:var(--muza-msg-fs,13px)] leading-relaxed whitespace-pre-wrap break-words cursor-pointer hover:brightness-110 transition-all ${
                       m.role === "user"
                         ? "bg-gradient-to-br from-purple-500/30 to-blue-500/25 text-white border border-purple-400/30"
                         : "bg-white/[0.06] text-white/90 border border-white/[0.08]"
