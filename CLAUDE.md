@@ -1417,6 +1417,8 @@ Rate-limit alert'ов:
 | `apps/neurohub/client/index.html` | HTML | `<title>`, `<meta og:image>`, link icons |
 | `apps/neurohub/client/public/manifest.json` | PWA | name, short_name |
 | `apps/neurohub/client/public/favicon.svg` | SVG | Логотип (purple waveform) |
+| `apps/neurohub/client/public/artwork-512.png` | PNG 512×512 | **Lock-screen fallback artwork (v7 — Eugene 2026-05-22)** |
+| `apps/neurohub/client/public/artwork-512-source.svg` | SVG source | Source для re-generation через sharp |
 | `apps/neurohub/client/src/lib/branding.ts` | Constants | `BRAND.name`, `BRAND.url` |
 | `apps/neurohub/server/lib/branding.ts` | Server constants | то же |
 | `apps/neurohub/server/lib/publicUrl.ts` | URL config | `PUBLIC_URL` |
@@ -1425,6 +1427,21 @@ Rate-limit alert'ов:
 | `apps/neurohub/server/plugins/telegram-bot/module.ts` | TG footer | подпись «— Муза · MuzaAi» |
 | `apps/neurohub/server/plugins/max-bot/module.ts` | Max footer | то же |
 | `apps/neurohub/server/plugins/notifications/module.ts` | Email/push templates | то же |
+
+**artwork-512.png финальная версия (v7, Eugene 2026-05-22):**
+- Lock-screen fallback (применяется когда нет реальной обложки трека через `/api/cover/<id>.jpg`)
+- Background: vibrant purple radial gradient `#3B2563 → #1E1B4B → #0F1230`
+- Central hero-glow: `#A78BFA` 55% opacity + `#D946EF` 35%
+- 14 звёзд varied opacity 0.4-0.9
+- Wordmark MuzaAi font-size 116px font-weight 900 letter-spacing -3 (вписан в рамки)
+- Тройной glow рендер (background blur 22px + soft blur 6px + main solid)
+- Точные hero gradients (landing.tsx:3164):
+  · Muza: `from-purple-400 #a78bfa via-violet-300 #c4b5fd to-blue-400 #60a5fa`
+  · Ai: `from-blue-400 #60a5fa to-cyan-300 #67e8f9`
+- 12 эквалайзер бары снизу brand-gradient `purple-fuchsia-cyan` vertical
+- Source SVG: `artwork-512-source.svg` (committed)
+- Re-generate: `node -e "const sharp=require('sharp'); sharp('client/public/artwork-512-source.svg',{density:300}).resize(512,512).png({quality:95}).toFile('client/public/artwork-512.png');"`
+
 
 **При замене бренда:**
 1. Grep `MuziAi\|МузиАй\|muziai\.ru` по всему репо
