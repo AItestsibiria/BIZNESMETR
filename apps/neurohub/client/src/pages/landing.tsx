@@ -929,6 +929,45 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // продолжает играть и виден через playingTrackRef fallback ниже.
   // useEffect удалён.
 
+  // Eugene 2026-05-23 Босс «Плеера нет» (повторное обращение). Mobile-fix:
+  // на mobile fetch GATED (см. playlistFetchEnabled). На initial render
+  // tracks = cached LS data, playingId = stored LS. Если playingId не в
+  // cached tracks (или cached empty) И playingTrackRef.current пуст —
+  // big player не рендерится ДО завершения fetch (1.5-3 сек на mobile).
+  // Это и есть «плеера нет» при заходе.
+  // FIX: useEffect watch [tracks] — каждый раз когда tracks обновились
+  // (cache → fetch → category change → refresh), валидируем playingId
+  // и выставляем playingTrackRef.current на firstMusic как fallback.
+  useEffect(() => {
+    if (!Array.isArray(tracks) || tracks.length === 0) return;
+    const musicTracksList = tracks.filter((t: any) => t.type === "music" && t.audioUrl);
+    if (musicTracksList.length === 0) return;
+    // 1) playingId есть и валиден → синкаем ref на найденный трек (страховка).
+    if (playingId) {
+      const found = tracks.find((t: any) => t.id === playingId);
+      if (found) {
+        playingTrackRef.current = found;
+        return;
+      }
+      // playingId stale (трек выпал из feed) — clear LS и fallback ниже.
+      try { localStorage.removeItem(psKey("trackId")); } catch {}
+      try { localStorage.removeItem(psKey("currentTime")); } catch {}
+    }
+    // 2) Нет playingId ИЛИ stale — берём firstMusic для отображения большого
+    // плеера. Аудио НЕ создаём (требует gesture).
+    const firstMusic = musicTracksList[0];
+    if (!firstMusic) return;
+    // НЕ перетираем playingId если уже что-то играет (hasGlobalAudio)
+    const hasGlobalAudio = typeof window !== "undefined" && (window as any).__muziaiAudio;
+    if (!hasGlobalAudio) {
+      playingTrackRef.current = firstMusic;
+      if (!playingId) {
+        setPlayingId(firstMusic.id);
+        setTrackDuration(firstMusic.duration || 0);
+      }
+    }
+  }, [tracks, playingId, psKey]);
+
   useEffect(() => {
     if (!playlistFetchEnabled) return; // mobile: gate до scroll/visibility
     fetch(`/api/playlist?status=${playlistKind}&sort=${sortMode}&dir=${sortDir}&seed=${playlistSeedRef.current}&_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).then(data => {
