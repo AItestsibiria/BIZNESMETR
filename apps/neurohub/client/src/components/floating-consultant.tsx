@@ -187,6 +187,28 @@ type SituationTile = {
 // строк на отдельных линиях (см. consultantPersona.ts), это правило —
 // fallback для legacy reply / других провайдеров (DeepSeek / TimeWeb).
 const LYRICS_SECTION_RE = /(\[(?:Куплет|Припев|Бридж|Концовка|Вступление|Verse|Chorus|Bridge|Outro|Intro|Pre-?Chorus|Solo)\b[^\]]*\])/gi;
+// Eugene 2026-05-23 Босс «после первых строк кнопка Re:Текст». Detection
+// возвращает true если bot-message содержит черновик песни (явные section
+// markers или 3+ строки 15-80 chars без терминальной точки).
+function hasLyricsDraft(text: string): boolean {
+  if (LYRICS_SECTION_RE.test(text)) {
+    LYRICS_SECTION_RE.lastIndex = 0;
+    return true;
+  }
+  LYRICS_SECTION_RE.lastIndex = 0;
+  const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+  if (lines.length < 4) return false;
+  let poeticCount = 0;
+  for (const line of lines) {
+    if (line.length < 15 || line.length > 80) continue;
+    if (/[.!?]\s*$/.test(line)) continue;       // строки с точкой/восклицанием в конце пропускаем
+    if (line.startsWith("—") || line.startsWith("-") || line.startsWith("•")) continue;
+    if (/^\d+[.)]\s/.test(line)) continue;      // пронумерованные списки
+    poeticCount += 1;
+  }
+  return poeticCount >= 3;
+}
+
 function normalizeLyricsBlocks(text: string): string {
   if (!LYRICS_SECTION_RE.test(text)) {
     LYRICS_SECTION_RE.lastIndex = 0;
@@ -2748,6 +2770,28 @@ export function FloatingConsultant() {
                         </span>
                       );
                     })()}</div>
+                    {/* Eugene 2026-05-23 Босс «после первых строк кнопка
+                        Re:Текст». Show под последним bot-message содержащим
+                        lyrics draft. Click → seed message Музе «расширь × 2
+                        + спроси ключевые слова → вставь в текст». Скрывается
+                        пока chatSending (избегаем double-click) и когда
+                        message не последний. */}
+                    {m.role === "bot" && i === arr.length - 1 && !chatSending && hasLyricsDraft(m.text) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          try { playMuzaTick(); } catch {}
+                          trackEngagement("consultant_action", { kind: "re_text_expand" });
+                          void doSendMessage("Re:Текст — прочитай этот текст ещё раз. Точно ли он передаёт смысл который я хотел? Если да — давай нарастим объём в 2 раза. Сначала спроси какие 3-5 ключевых слов должны прозвучать в песне (имена, места, занятия, важные детали для меня). Потом вставь их естественно в расширенный текст.");
+                        }}
+                        className="mt-1.5 self-start text-[11px] px-3 py-1.5 rounded-full bg-gradient-to-r from-amber-500/20 via-fuchsia-500/20 to-purple-500/20 hover:from-amber-500/30 hover:via-fuchsia-500/30 hover:to-purple-500/30 text-white border border-amber-400/40 hover:border-amber-300/70 transition-all flex items-center gap-1.5 shrink-0 active:scale-95"
+                        aria-label="Расширить текст и спросить ключевые слова"
+                        title="Расширить текст ×2 и собрать ключевые слова"
+                      >
+                        <span aria-hidden>🔄</span>
+                        <span>Re:Текст — расширь ×2 + ключевые слова</span>
+                      </button>
+                    )}
                     {/* Eugene 2026-05-20 Босс «мини-плеер в чате».
                         Когда Муза вызвала find_public_track и tool вернул
                         hint=playNow:<id> — backend прикрепил attachedTrack.
