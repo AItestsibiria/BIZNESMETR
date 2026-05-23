@@ -2565,6 +2565,30 @@ Reference: `apps/neurohub/client/src/lib/lockscreen.ts` (getPersistentPlayerAudi
 
 5. **Artwork размеры — multiple, минимум 256×256 и 512×512.** По web.dev: «target 512×512 for Chrome Android, 256×256 for low-end». iOS 16.4 исправил artwork bug, iOS 18 наконец использует 512×512 (раньше pixellated upscale до 16.4). Recommended sizes: `96,128,192,256,384,512` — в одном `artwork[]` массиве. Type `image/jpeg` или `image/png`. URL должен быть доступен без auth (Suno covers — public yandexcloud URLs OK).
 
+   **Fallback chain для cover endpoint** (Eugene 2026-05-22 — закрывает «lock screen показывает purple waveform вместо обложки трека»):
+   - Endpoint `/api/cover/<id>.jpg?size=<N>` должен **гарантированно** возвращать image даже когда:
+     · localFile отсутствует (saveGenFiles не выполнился)
+     · remote Suno URL exp48h истёк
+     · gen.status !== 'done' (для production должны быть только done)
+   - **Цепочка fallback в `routes.ts:7910+`** (file order matters):
+     1. `dist/public/artwork-512.png` — **обязан существовать на проде**. 512×512 brand-gradient PNG с MuzaAi wordmark. Создан 2026-05-22 commit b35eaaf через sharp+SVG.
+     2. `dist/public/apple-touch-icon.png` — 180×180 brand icon (если artwork-512 reshape failed)
+     3. `dist/public/favicon.svg` — последний resort (без resize, исходный SVG)
+   - Sharp resize применяется только к PNG (SVG отдаётся как `image/svg+xml`)
+   - Без этих fallback'ов iOS native code подбирал `<link rel="apple-touch-icon">` сам → юзер видел brand-icon вместо обложки трека на lock-screen
+   - **Audit при code review:** `ls dist/public/artwork-512.png` — файл должен быть в build output. `client/public/artwork-512.png` копируется в `dist/public/` через Vite build.
+
+   **Создание artwork-512.png** (если нужно обновить brand):
+   ```bash
+   cd apps/neurohub
+   node -e "const sharp = require('sharp');
+   sharp('/tmp/source.svg', { density: 300 })
+     .resize(512, 512, { fit: 'cover' })
+     .png({ quality: 95, compressionLevel: 9 })
+     .toFile('client/public/artwork-512.png');"
+   ```
+   SVG source — brand gradient (#7C3AED → #D946EF → #00D4FF) + wordmark + опционально эквалайзер/звёзды. Применить Brand-style consistency rule (палитра + шрифты).
+
 6. **`navigator.mediaSession.playbackState`** обновлять в `play`/`pause` event listeners audio element — иначе iOS NowPlaying не знает что трек играет / на паузе:
    ```ts
    audio.addEventListener('play', () => { navigator.mediaSession.playbackState = 'playing'; });
