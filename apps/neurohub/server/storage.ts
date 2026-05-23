@@ -1358,6 +1358,32 @@ try {
   } catch (e) {
     console.error("[MIGRATION] muza_info_sections failed:", e);
   }
+
+  // Eugene 2026-05-23 Босс «интерактивный дизайн писем от Музы».
+  // email_send_log — лог каждой отправки email (template, recipient, status,
+  // provider, errors). Источник для admin UI «✉️ Письма Музы» — preview,
+  // статистика, last 100 sends с фильтром по template / status.
+  try {
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS email_send_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        template TEXT NOT NULL,
+        to_email TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'sent',
+        error TEXT,
+        provider TEXT,
+        message_id TEXT,
+        sent_at INTEGER NOT NULL
+      );
+    `);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_email_send_log_sent_at ON email_send_log(sent_at DESC)`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_email_send_log_template ON email_send_log(template, sent_at DESC)`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_email_send_log_user ON email_send_log(user_id, sent_at DESC)`);
+  } catch (e) {
+    console.error("[MIGRATION] email_send_log failed:", e);
+  }
 } catch (e) {
   console.error("[MIGRATION] Error:", e);
 }
