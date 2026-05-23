@@ -2179,8 +2179,14 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             </div>
                             <ul className="overflow-y-auto p-2 m-0 list-none flex flex-col-reverse gap-1" style={{ touchAction: "pan-y", WebkitOverflowScrolling: "touch" }}>
                               {(() => {
-                                const top = [...tracks]
-                                  .filter((t: any) => t.type !== "cover")
+                                // Eugene 2026-05-23 Босс «верхний плей-лист содержит
+                                // треки которые отсутствуют в основном — устрани баг».
+                                // ROOT CAUSE: top-100 брал ВСЕ tracks (включая отфильтрованные
+                                // category/search), показывал треки которых нет в visible main.
+                                // FIX: source = filteredMusic (уже filtered by category +
+                                // search). Top-100 теперь = «топ ОТОБРАЖАЕМОГО плейлиста».
+                                // Sort by plays DESC, slice(0, 100).
+                                const top = [...filteredMusic]
                                   .sort((a: any, b: any) => (b.plays || 0) - (a.plays || 0))
                                   .slice(0, 100);
                                 if (top.length === 0) return (
