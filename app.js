@@ -156,7 +156,8 @@ const camera = new THREE.PerspectiveCamera(
   0.1,
   2000,
 );
-camera.position.set(0, 1.2, 7);
+camera.position.set(0, 3, 6);
+camera.lookAt(0, 0, 0);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -208,6 +209,13 @@ const earthTex = loader.load(
 earthTex.colorSpace = THREE.SRGBColorSpace;
 earthTex.anisotropy = 8;
 
+// Группа-наклон: ось вращения Земли наклонена на 23.5° (как в реальности).
+// Сама Земля вращается вокруг своей локальной оси Y внутри этой группы —
+// так наклон остаётся фиксированным относительно мира при любом спине.
+const earthTilt = new THREE.Group();
+earthTilt.rotation.z = THREE.MathUtils.degToRad(23.5);
+scene.add(earthTilt);
+
 const earthGeom = new THREE.SphereGeometry(EARTH_RADIUS, 96, 96);
 const earthMat = new THREE.MeshPhongMaterial({
   map: earthTex,
@@ -215,7 +223,12 @@ const earthMat = new THREE.MeshPhongMaterial({
   specular: new THREE.Color(0x224466),
 });
 const earth = new THREE.Mesh(earthGeom, earthMat);
-scene.add(earth);
+earthTilt.add(earth);
+
+// Стартовый разворот: долгота ~30° (Восточная Европа / западная Россия)
+// смотрит на камеру. По формуле latLonToVector3 и Three.js Ry-конвенции
+// это требует поворота на 240°.
+earth.rotation.y = THREE.MathUtils.degToRad(240);
 
 // Облачный слой
 const cloudsTex = loader.load(
@@ -258,9 +271,6 @@ const atmosphere = new THREE.Mesh(
   atmosphereMat,
 );
 earth.add(atmosphere);
-
-// Реалистичный наклон оси — 23.5°
-earth.rotation.z = THREE.MathUtils.degToRad(23.5);
 
 // --- Маркеры континентов ----------------------------------------------------
 const markers = [];
@@ -326,7 +336,7 @@ controls.maxDistance = 14;
 controls.rotateSpeed = 0.5;
 controls.zoomSpeed = 0.6;
 
-let autoRotate = true;
+let autoRotate = false;
 renderer.domElement.addEventListener('dblclick', () => {
   autoRotate = !autoRotate;
 });
