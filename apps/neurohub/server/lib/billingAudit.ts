@@ -100,6 +100,30 @@ export interface AuditReport {
     cost: number;
     reason: string;
   }>;
+  // Eugene 2026-05-23 — Reconciliation generation ↔ transaction (Check #11/12/13)
+  freeGenerationsBypass: Array<{
+    genId: number;
+    userId: number;
+    type: string;
+    cost: number;
+    createdAt: string;
+  }>;
+  orphanCharges: Array<{
+    txnId: number;
+    userId: number;
+    type: string;
+    amount: number;
+    description: string;
+    createdAt: string;
+  }>;
+  costMismatches: Array<{
+    genId: number;
+    userId: number;
+    type: string;
+    genCost: number;
+    charged: number;
+    delta: number;
+  }>;
 }
 
 function rawDb(): any {

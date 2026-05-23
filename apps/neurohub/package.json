@@ -8,7 +8,13 @@
     "build": "node script/build.mjs",
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "ios:add": "cap add ios",
+    "ios:copy": "cap copy ios",
+    "ios:sync": "cap sync ios",
+    "ios:open": "cap open ios",
+    "ios:assets": "capacitor-assets generate --ios --iconBackgroundColor \"#0a0a17\" --splashBackgroundColor \"#0a0a17\"",
+    "ios:build": "npm run build && cap copy ios && cap sync ios"
   },
   "dependencies": {
     "@capacitor/app": "^7.1.2",

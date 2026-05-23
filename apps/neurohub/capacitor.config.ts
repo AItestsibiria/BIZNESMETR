@@ -42,6 +42,12 @@ const config: CapacitorConfig = {
     scrollEnabled: true,
     // Limit JS console только для дебага (production build скроет автоматически)
     limitsNavigationsToAppBoundDomains: false,
+    // Mobile content mode — даже iPad показывает mobile layout (вписывается в адаптивный
+    // landing/dashboard/music. Если когда-то захотим pure-tablet UI — поменять на 'recommended').
+    preferredContentMode: "mobile",
+    // Custom URL scheme для universal links / deep links когда подключим.
+    // В Info.plist Xcode добавит запись CFBundleURLTypes автоматически.
+    scheme: "MuzaAi",
   },
 
   plugins: {
