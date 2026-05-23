@@ -555,27 +555,17 @@ export function FloatingConsultant() {
     // Если юзер уже двигал в ТЕКУЩЕЙ session — используем её позицию.
     const saved = readSessionPos();
     if (saved) return clampToViewport(saved.x, saved.y, fabW, fabH);
-    const isMobile = window.innerWidth < 640;
-    // iOS safe-area через probe-element + env(safe-area-inset-bottom)
-    let safeBottom = 16;
-    try {
-      const probe = document.createElement("div");
-      probe.style.cssText = "position:fixed;bottom:0;padding-bottom:env(safe-area-inset-bottom);visibility:hidden;pointer-events:none;";
-      document.body.appendChild(probe);
-      const pad = parseInt(getComputedStyle(probe).paddingBottom, 10) || 0;
-      safeBottom = Math.max(16, pad + 8);
-      document.body.removeChild(probe);
-    } catch {}
-    // Eugene 2026-05-23 Босс «размести Музу сверху справа над чатом».
-    // При открытом чате Музa всегда top-right (раньше только mobile
-    // поднималась). Так FAB-меню НАД chat drawer, не перекрывает.
-    const isChatOpen = (window as any).__muzaChatOpen === true;
-    const x = Math.max(8, window.innerWidth - fabW - 8);
-    // Top-right при chatOpen: y отступом 80px от верха (под top-bar nav).
-    // Иначе обычная позиция bottom-right.
-    const y = isChatOpen
-      ? 80
-      : Math.max(8, window.innerHeight - fabH - safeBottom);
+    // Eugene 2026-05-23 Босс «расположение музы в зависимости от размера
+    // окна придумай пусть будет правее вверх». Музa ВСЕГДА top-right
+    // (не только при chatOpen). Адаптивный отступ от верха: на mobile
+    // ближе к навбару (76px), на tablet — 92px, на desktop — 108px.
+    // Так FAB не перекрывает chat drawer + не теряется в шапке +
+    // визуально «правее вверх» на любом размере экрана. iOS safe-area-top
+    // обрабатывается padding-top родительского контейнера, не нужен здесь.
+    const vw = window.innerWidth;
+    const safeTop = vw < 640 ? 76 : vw < 1024 ? 92 : 108;
+    const x = Math.max(8, vw - fabW - 8);
+    const y = safeTop;
     return { x, y };
   };
   const [fabPos, setFabPos] = useState(computeFabPos);
