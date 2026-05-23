@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 // import { PlaysCounter } from "@/components/plays-counter";
 import { RocketLaunch } from "@/components/rocket-launch";
 import { Fireworks } from "@/components/fireworks";
+import { MuzaInfoMenu } from "@/components/muza-info-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { createPortal } from "react-dom";
 import { motion, useAnimation, useDragControls } from "framer-motion";
@@ -3617,6 +3618,13 @@ function LandingFooter({ onMail }: { onMail: (e: any) => void }) {
   return (
     <footer className="relative z-[1] border-t border-white/[0.06] py-8 px-4">
       <div className="max-w-6xl mx-auto space-y-5">
+        {/* Eugene 2026-05-23 Босс — публичное меню «Информация о Музе»:
+            brand-styled trigger + modal с разделами + загруженными файлами.
+            Сверху над footer-навигацией чтобы заметно, но не перекрывало
+            FAB-кнопки (Музa, плеер). */}
+        <div className="flex justify-center">
+          <MuzaInfoMenu />
+        </div>
         {/* Top row — лого + основные ссылки */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">

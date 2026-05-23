@@ -51,6 +51,7 @@ import PlaysAuditTab from "@/pages/admin/plays-audit-tab";
 import PlaysAnalyticsTab from "@/pages/admin/plays-analytics-tab";
 import { FeatureTogglesAdminTab } from "@/pages/admin/feature-toggles-admin-tab";
 import OrchestratorTab from "@/pages/admin/orchestrator-tab";
+import MuzaInfoTab from "@/pages/admin/muza-info-tab";
 import { MusaVoiceFab } from "@/components/musa-voice-fab";
 
 // Lazy-load SecondBrain3D — three.js + 3d-force-graph весят ~500KB,
@@ -796,6 +797,9 @@ export default function AdminV304Page() {
           {/* Eugene 2026-05-20 Босс User-memory-context rule: память Музы по
               юзерам — list / view / edit / recompress / delete. */}
           <TabsTrigger value="user-memory" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🧠 Память юзеров</TabsTrigger>
+          {/* Eugene 2026-05-23 Босс: публичное меню «Информация о Музе» —
+              CRUD разделов + upload файлов. См. plugin muza-info. */}
+          <TabsTrigger value="muza-info" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">📖 Информация о Музе</TabsTrigger>
         </TabsList>
         <TabsContent value="master-dashboard"><MasterDashboardTab /></TabsContent>
         <TabsContent value="brain-3d">
@@ -855,6 +859,7 @@ export default function AdminV304Page() {
         <TabsContent value="user-profiles"><UserProfilesTab toast={toast} /></TabsContent>
         <TabsContent value="blocks"><BlocksTab toast={toast} /></TabsContent>
         <TabsContent value="user-memory"><MusaMemoryAdminTab toast={toast} /></TabsContent>
+        <TabsContent value="muza-info"><MuzaInfoTab toast={toast} /></TabsContent>
       </Tabs>
 
       {/* 🎤 FAB «Сказать Музе» — доступна со всех admin-вкладок (Eugene 2026-05-17). */}
