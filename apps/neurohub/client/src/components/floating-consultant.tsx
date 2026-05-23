@@ -228,6 +228,11 @@ function normalizeLyricsBlocks(text: string): string {
 }
 
 const SITUATION_TILES: SituationTile[] = [
+  // Eugene 2026-05-23 Босс «фишку добавь именная песня с характером» —
+  // вдохновение от @nastya_muzic Instagram Reels (23K+ likes). Юзер пишет
+  // имя + 3-4 черты характера → Музa собирает personalized текст с
+  // natural упоминанием имени. Первая позиция = highlight.
+  { id: "named",        emoji: "🌟", label: "Именная — с характером", seed: "Хочу именную песню — про конкретного человека с характером. Спроси имя, 3-4 черты характера (тёплый/весёлый/упрямый/мечтатель и т.д.), 2-3 важные детали (профессия, любимое дело, особые моменты). Потом накидай сразу 8-12 строк начала где имя звучит естественно 2-3 раза и характер раскрывается через образы.", accent: "from-amber-400/30 via-fuchsia-500/30 to-purple-500/30 border-amber-400/50 hover:border-amber-300/80" },
   { id: "mom",          emoji: "🎂", label: "Маме на юбилей",       seed: "Хочу подарить песню маме на юбилей. Накидай сразу 8-12 строк трогательного начала и спроси что подчеркнуть.", accent: "from-pink-500/25 to-fuchsia-500/25 border-pink-400/40 hover:border-pink-300/70" },
   { id: "love",         emoji: "❤️", label: "Любимой / любимому",   seed: "Хочу песню для любимого человека. Накидай сразу 8-12 строк начала и спроси какое настроение.",                        accent: "from-rose-500/25 to-pink-500/25 border-rose-400/40 hover:border-rose-300/70" },
   { id: "dad",          emoji: "👨", label: "Папе на ДР",           seed: "Хочу песню папе на день рождения. Накидай сразу 8-12 строк начала и спроси о его профессии и характере.",            accent: "from-blue-500/25 to-cyan-500/25 border-blue-400/40 hover:border-blue-300/70" },
@@ -3155,7 +3160,7 @@ export function FloatingConsultant() {
                 <div className="text-[10px] text-white/50 mb-2 font-medium tracking-wide uppercase">
                   Для кого песня?
                 </div>
-                <div className="grid grid-cols-4 gap-1.5">
+                <div className="grid grid-cols-3 gap-1.5">
                   {SITUATION_TILES.map((tile) => (
                     <button
                       key={tile.id}
