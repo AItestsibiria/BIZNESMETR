@@ -1385,11 +1385,25 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         return;
       }
       const curIdx = cur ? musicTracks.findIndex(t => t.id === cur.id) : -1;
-      const safeIdx = curIdx < 0 ? 0 : curIdx;
+      // Eugene 2026-05-23 Player audit BUG #2: если current playingId
+      // больше не в filtered (юзер сменил category/sort после play) —
+      // НЕ прыгаем на первый трек новой filtered (это и было «переключение
+      // не работает» — играл случайный трек новой категории). Останавливаемся.
+      // Playlist-strict-selection rule: юзер сменил view = его выбор, не
+      // навязываем next.
+      if (curIdx < 0) {
+        setPlayingId(null);
+        unmuteBgMusic();
+        return;
+      }
       // mode="all" И mode="off" — continuous loop в рамках filtered подборки.
-      const nextIdx = (safeIdx + 1) % musicTracks.length;
+      const nextIdx = (curIdx + 1) % musicTracks.length;
       playTrack(musicTracks[nextIdx]);
     };
+    // Eugene 2026-05-23 Player audit BUG #1: removeEventListener перед re-add,
+    // иначе после N skip'ов копится N дублей handleEnded → callback fires N
+    // раз → playTrack вызывается N раз → переключение глючит.
+    try { audio.removeEventListener('ended', handleEnded); } catch {}
     audio.addEventListener('ended', handleEnded);
     audio.addEventListener('error', () => {
       if (audioRef.current !== audio) return;
@@ -1699,10 +1713,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // категории/поиска.
   // Eugene 2026-05-19 «Playlist-strict-selection rule»: expandPrev/Next тоже
   // только filtered подборка. Никакого fallback на musicTracks (full).
+  // Eugene 2026-05-23 Player audit BUG #3: lookup идёт по playingId, не
+  // expandedId. Раньше — divergence: юзер свайпом смотрел другую обложку
+  // (expandedId изменился) но НЕ играл — кнопки ▶◀ в expanded переключали
+  // на основе expandedId → skipNext снизу переключал на основе playingId
+  // → разные результаты. Унифицируем: всё на playingId как источник истины.
   const expandPrev = () => {
     const list = filteredMusicRef.current || [];
     if (list.length === 0) return;
-    const idx = list.findIndex(t => t.id === expandedId);
+    const idx = list.findIndex(t => t.id === playingId);
     if (idx < 0) return;
     const prev = (idx - 1 + list.length) % list.length;
     const prevTrack = list[prev];
@@ -1712,7 +1731,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const expandNext = () => {
     const list = filteredMusicRef.current || [];
     if (list.length === 0) return;
-    const idx = list.findIndex(t => t.id === expandedId);
+    const idx = list.findIndex(t => t.id === playingId);
     if (idx < 0) return;
     const next = (idx + 1) % list.length;
     const nextTrack = list[next];
