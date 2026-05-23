@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2732" height="2732" viewBox="0 0 2732 2732">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#1a0f2e"/>
+      <stop offset="50%" stop-color="#0F1230"/>
+      <stop offset="100%" stop-color="#0A0A17"/>
+    </radialGradient>
+    <radialGradient id="centerGlow" cx="50%" cy="50%" r="35%">
+      <stop offset="0%" stop-color="#A78BFA" stop-opacity="0.30"/>
+      <stop offset="50%" stop-color="#D946EF" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#0F1230" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="muzaGrad" x1="0%" y1="20%" x2="100%" y2="80%">
+      <stop offset="0%" stop-color="#a78bfa"/>
+      <stop offset="50%" stop-color="#c4b5fd"/>
+      <stop offset="100%" stop-color="#60a5fa"/>
+    </linearGradient>
+    <linearGradient id="aiGrad" x1="0%" y1="20%" x2="100%" y2="80%">
+      <stop offset="0%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#67e8f9"/>
+    </linearGradient>
+    <linearGradient id="barGrad" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#7C3AED"/>
+      <stop offset="50%" stop-color="#D946EF"/>
+      <stop offset="100%" stop-color="#22d3ee"/>
+    </linearGradient>
+    <filter id="glow1" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="60"/>
+    </filter>
+    <filter id="glow2" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="16"/>
+    </filter>
+  </defs>
+
+  <rect width="2732" height="2732" fill="#0a0a17"/>
+  <rect width="2732" height="2732" fill="url(#bg)"/>
+  <rect width="2732" height="2732" fill="url(#centerGlow)"/>
+
+  <!-- Звёзды, разбросанные по всему квадрату 2732×2732 -->
+  <g opacity="0.55" fill="#ffffff">
+    <circle cx="240" cy="360" r="3.5"/>
+    <circle cx="560" cy="280" r="2.8" opacity="0.6"/>
+    <circle cx="900" cy="420" r="3.5" opacity="0.5"/>
+    <circle cx="1480" cy="320" r="3.5" opacity="0.7"/>
+    <circle cx="1900" cy="440" r="2.8"/>
+    <circle cx="2260" cy="560" r="2.4" opacity="0.6"/>
+    <circle cx="180" cy="900" r="2.8" opacity="0.5"/>
+    <circle cx="2340" cy="1040" r="3.5" opacity="0.7"/>
+    <circle cx="160" cy="1400" r="2.4" opacity="0.4"/>
+    <circle cx="2320" cy="1600" r="3.5" opacity="0.6"/>
+    <circle cx="360" cy="2080" r="3.5" opacity="0.5"/>
+    <circle cx="780" cy="2280" r="2.8" opacity="0.6"/>
+    <circle cx="1820" cy="2280" r="3.5" opacity="0.7"/>
+    <circle cx="2200" cy="2200" r="2.4" opacity="0.5"/>
+    <circle cx="1200" cy="200" r="2.4" opacity="0.5"/>
+    <circle cx="1366" cy="80" r="3" opacity="0.6"/>
+    <circle cx="100" cy="1366" r="3" opacity="0.5"/>
+    <circle cx="2632" cy="1366" r="3" opacity="0.5"/>
+  </g>
+
+  <!-- Wordmark MuzaAi центрирован на canvas (точка 1366×1366), смещён вверх для эквалайзера -->
+  <g transform="translate(1366 1366)">
+    <!-- Background glow -->
+    <text font-family="Verdana, Helvetica, sans-serif" font-size="280" font-weight="900" text-anchor="middle" letter-spacing="-7" filter="url(#glow1)" opacity="0.55">
+      <tspan fill="#a78bfa">Muza</tspan><tspan fill="#60a5fa">Ai</tspan>
+    </text>
+    <!-- Soft blur -->
+    <text font-family="Verdana, Helvetica, sans-serif" font-size="280" font-weight="900" text-anchor="middle" letter-spacing="-7" filter="url(#glow2)">
+      <tspan fill="url(#muzaGrad)">Muza</tspan><tspan fill="url(#aiGrad)">Ai</tspan>
+    </text>
+    <!-- Main solid -->
+    <text font-family="Verdana, Helvetica, sans-serif" font-size="280" font-weight="900" text-anchor="middle" letter-spacing="-7">
+      <tspan fill="url(#muzaGrad)">Muza</tspan><tspan fill="url(#aiGrad)">Ai</tspan>
+    </text>
+  </g>
+
+  <!-- Эквалайзер ниже wordmark -->
+  <g transform="translate(1366 1620)">
+    <rect x="-258" y="-7" width="18" height="14" rx="4" fill="url(#barGrad)" opacity="0.8"/>
+    <rect x="-216" y="-21" width="18" height="42" rx="4" fill="url(#barGrad)" opacity="0.85"/>
+    <rect x="-174" y="-38" width="18" height="76" rx="4" fill="url(#barGrad)"/>
+    <rect x="-132" y="-52" width="18" height="104" rx="4" fill="url(#barGrad)"/>
+    <rect x="-90" y="-43" width="18" height="86" rx="4" fill="url(#barGrad)"/>
+    <rect x="-48" y="-62" width="18" height="124" rx="4" fill="url(#barGrad)"/>
+    <rect x="-6" y="-52" width="18" height="104" rx="4" fill="url(#barGrad)"/>
+    <rect x="36" y="-67" width="18" height="134" rx="4" fill="url(#barGrad)"/>
+    <rect x="78" y="-47" width="18" height="94" rx="4" fill="url(#barGrad)"/>
+    <rect x="120" y="-57" width="18" height="114" rx="4" fill="url(#barGrad)"/>
+    <rect x="162" y="-33" width="18" height="66" rx="4" fill="url(#barGrad)"/>
+    <rect x="204" y="-19" width="18" height="38" rx="4" fill="url(#barGrad)" opacity="0.85"/>
+  </g>
+</svg>
