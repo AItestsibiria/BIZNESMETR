@@ -2092,14 +2092,27 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                         bars становятся compositor layer'ами, anim не throttled.
                         Также height: '100%' explicitly (вместо undefined) —
                         чтобы при switch на play не оставалось '30%' от паузы. */}
-                    <div className="flex-1 flex items-end gap-[2px] h-12 min-w-[60px] max-w-[130px] self-center" aria-hidden="true" style={{ willChange: "transform" }}>
-                      {Array.from({ length: 12 }).map((_, i) => (
+                    {/* Eugene 2026-05-23 Босс «На плеере эквалайзеры по стилю
+                        возьми отсюда» — spectrum-analyzer стиль из music.tsx:65-94.
+                        Низкие частоты (слева) — тёплые red→orange→yellow,
+                        середина — emerald, верхние частоты — cyan→violet.
+                        20 баров (было 12) — гуще для DJ-look. */}
+                    <div className="flex-1 flex items-end gap-[2px] h-12 min-w-[60px] max-w-[140px] self-center" aria-hidden="true" style={{ willChange: "transform" }}>
+                      {Array.from({ length: 20 }).map((_, i) => {
+                        const r = i / 19;
+                        const colorClass =
+                          r < 0.20 ? "from-red-500 via-orange-400 to-amber-300"
+                          : r < 0.40 ? "from-orange-500 via-amber-400 to-yellow-300"
+                          : r < 0.60 ? "from-emerald-500 via-emerald-300 to-emerald-100"
+                          : r < 0.80 ? "from-cyan-500 via-cyan-300 to-cyan-100"
+                          : "from-violet-500 via-violet-300 to-violet-100";
+                        return (
                         <div
                           key={i}
-                          className="flex-1 rounded-full bg-gradient-to-t from-purple-500 via-fuchsia-500 to-cyan-400 equalizer-bar"
+                          className={`flex-1 rounded-full bg-gradient-to-t ${colorClass} equalizer-bar`}
                           style={{
-                            animationDelay: `${(i * 0.08).toFixed(2)}s`,
-                            animationDuration: `${(0.9 + (i % 3) * 0.15).toFixed(2)}s`,
+                            animationDelay: `${(i * 0.05).toFixed(2)}s`,
+                            animationDuration: `${(0.6 + (i % 5) * 0.15).toFixed(2)}s`,
                             animationPlayState: isPlayingState ? "running" : "paused",
                             height: isPlayingState ? "100%" : "30%",
                             opacity: isPlayingState ? 1 : 0.5,
@@ -2107,7 +2120,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             transform: "translateZ(0)",
                           }}
                         />
-                      ))}
+                        );
+                      })}
                     </div>
                     {/* Eugene 2026-05-22 Босс «совмести ось с кнопкой Поделиться».
                         Та же h-8 структура что 🌍-button → glyph 🎧 centered
