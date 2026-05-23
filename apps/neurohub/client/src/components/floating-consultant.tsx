@@ -166,6 +166,32 @@ const CHAT_SUGGESTIONS = [
   "Покажи примеры",
 ];
 
+// Eugene 2026-05-23 Босс «организовать взаимодействие с Музой, чтобы Музa
+// прямо как будто встречала и по всем ситуациям, прямо консультантом высшего
+// уровня цепляла, рассказывала, предлагала сразу варианты на 8-12 строк, почти
+// сразу в печку на генерацию». Визуальные tiles вместо text-chips —
+// показываются AUTO при пустой history (без toggle). Клик → seed message
+// → LLM подхватывает (consultantPersona 4-stage onboarding) → выдаёт пример
+// 8-12 строк + уточняющие вопросы → [PROPOSE_GEN] → handoff на /music.
+// Brand colors из палитры (Brand-style consistency rule).
+type SituationTile = {
+  id: string;
+  emoji: string;
+  label: string;
+  seed: string;
+  accent: string;
+};
+const SITUATION_TILES: SituationTile[] = [
+  { id: "mom",          emoji: "🎂", label: "Маме на юбилей",       seed: "Хочу подарить песню маме на юбилей. Накидай сразу 8-12 строк трогательного начала и спроси что подчеркнуть.", accent: "from-pink-500/25 to-fuchsia-500/25 border-pink-400/40 hover:border-pink-300/70" },
+  { id: "love",         emoji: "❤️", label: "Любимой / любимому",   seed: "Хочу песню для любимого человека. Накидай сразу 8-12 строк начала и спроси какое настроение.",                        accent: "from-rose-500/25 to-pink-500/25 border-rose-400/40 hover:border-rose-300/70" },
+  { id: "dad",          emoji: "👨", label: "Папе на ДР",           seed: "Хочу песню папе на день рождения. Накидай сразу 8-12 строк начала и спроси о его профессии и характере.",            accent: "from-blue-500/25 to-cyan-500/25 border-blue-400/40 hover:border-blue-300/70" },
+  { id: "kid",          emoji: "👶", label: "Ребёнку",              seed: "Хочу песню моему ребёнку. Накидай сразу 8-12 строк милого начала и спроси имя и возраст.",                            accent: "from-amber-500/25 to-yellow-500/25 border-amber-400/40 hover:border-amber-300/70" },
+  { id: "friend",       emoji: "🤝", label: "Другу",                seed: "Хочу песню в подарок другу. Накидай сразу 8-12 строк начала и спроси что в нём ценю больше всего.",                  accent: "from-emerald-500/25 to-cyan-500/25 border-emerald-400/40 hover:border-emerald-300/70" },
+  { id: "wedding",      emoji: "💍", label: "Свадьба",              seed: "Хочу песню на свадьбу или годовщину. Накидай сразу 8-12 строк начала и спроси о паре.",                              accent: "from-fuchsia-500/25 to-purple-500/25 border-fuchsia-400/40 hover:border-fuchsia-300/70" },
+  { id: "professional", emoji: "🎓", label: "Профессиональный",     seed: "Хочу песню на профессиональный праздник коллеге. Накидай сразу 8-12 строк начала и спроси о профессии.",             accent: "from-violet-500/25 to-indigo-500/25 border-violet-400/40 hover:border-violet-300/70" },
+  { id: "other",        emoji: "✨", label: "Другой повод",         seed: "У меня особый повод для песни. Расскажи коротко что ты умеешь и спроси для кого и о чём песня.",                     accent: "from-purple-500/25 to-cyan-500/25 border-purple-400/40 hover:border-purple-300/70" },
+];
+
 // Сериализация диалога для share-переслать другу.
 function serializeChatForShare(msgs: ChatMessage[]): string {
   const lines = msgs.map(m => {
@@ -2883,31 +2909,63 @@ export function FloatingConsultant() {
                 </div>
               )}
             </div>
-            {/* Quick-reply chips — Eugene 2026-05-18 Босс «убери облака с
-                подсказками по умолчанию, оставь кнопку для появления».
-                Показываются ТОЛЬКО по клику на «💡 Подсказки» в input area. */}
-            {showSuggestions && chatMsgs.filter(m => m.role === "user").length === 0 && (
-              <div className="px-3 py-2 border-t border-white/[0.04] shrink-0 bg-white/[0.015] animate-in fade-in slide-in-from-bottom-2 duration-200">
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="text-[10px] text-white/40">Можно начать так:</div>
-                  <button
-                    type="button"
-                    onClick={() => setShowSuggestions(false)}
-                    className="text-[10px] text-white/40 hover:text-white/70 px-1"
-                    aria-label="Скрыть подсказки"
-                  >
-                    ×
-                  </button>
+            {/* Eugene 2026-05-23 Босс «прямо как будто встречала и по всем
+                ситуациям сразу накидывала варианты на 8-12 строк, почти сразу
+                в печку на генерацию». Tiles AUTO-show при пустой history
+                (если ещё нет user-msg). Клик → seed → LLM → draft + [PROPOSE_GEN].
+                CHAT_SUGGESTIONS оставлены как fallback под toggle «💡 Подсказки»
+                на случай если юзер хочет text-chip альтернативу. */}
+            {chatMsgs.filter(m => m.role === "user").length === 0 && (
+              <div className="px-3 py-2.5 border-t border-white/[0.04] shrink-0 bg-gradient-to-b from-white/[0.025] to-transparent animate-in fade-in slide-in-from-bottom-2 duration-200">
+                <div className="text-[10px] text-white/50 mb-2 font-medium tracking-wide uppercase">
+                  Для кого песня?
                 </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {CHAT_SUGGESTIONS.map((s) => (
-                    <button key={s} type="button"
-                            onClick={() => { setChatInput(s); setShowSuggestions(false); }}
-                            className="text-[11px] px-2.5 py-1 rounded-full bg-white/[0.06] hover:bg-white/[0.12] text-white/80 border border-white/[0.10]">
-                      {s}
+                <div className="grid grid-cols-4 gap-1.5">
+                  {SITUATION_TILES.map((tile) => (
+                    <button
+                      key={tile.id}
+                      type="button"
+                      disabled={chatSending}
+                      onClick={() => {
+                        if (chatSending) return;
+                        try { playMuzaTick(); } catch {}
+                        trackEngagement("consultant_action", { kind: "situation_tile", id: tile.id });
+                        void doSendMessage(tile.seed);
+                      }}
+                      className={`flex flex-col items-center justify-center gap-0.5 aspect-square rounded-xl bg-gradient-to-br ${tile.accent} border transition-all hover:scale-105 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100`}
+                      aria-label={`Запустить диалог: ${tile.label}`}
+                    >
+                      <span className="text-2xl leading-none" aria-hidden>{tile.emoji}</span>
+                      <span className="text-[9px] leading-tight text-white/90 font-medium text-center px-0.5 line-clamp-2 mt-0.5">
+                        {tile.label}
+                      </span>
                     </button>
                   ))}
                 </div>
+                {showSuggestions && (
+                  <div className="mt-2.5 pt-2 border-t border-white/[0.04]">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="text-[10px] text-white/40">Или напиши сам:</div>
+                      <button
+                        type="button"
+                        onClick={() => setShowSuggestions(false)}
+                        className="text-[10px] text-white/40 hover:text-white/70 px-1"
+                        aria-label="Скрыть подсказки"
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {CHAT_SUGGESTIONS.map((s) => (
+                        <button key={s} type="button"
+                                onClick={() => { setChatInput(s); setShowSuggestions(false); }}
+                                className="text-[11px] px-2.5 py-1 rounded-full bg-white/[0.06] hover:bg-white/[0.12] text-white/80 border border-white/[0.10]">
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
             {/* Pair-code hint (top of input area) */}
