@@ -518,6 +518,192 @@ export function runBillingAudit(): AuditReport {
   // Если cost=0 + status=done + не было welcomeGift = подозрительно.
   // Пропустим — это OK если admin отключил оплату ручным флагом.
 
+  // ---- Check #11: Generation done, NO charge transaction (free track bypass) -----
+  // Eugene 2026-05-23 Босс «найти rows-mismatches: списано но трек не создан,
+  // трек создан без списания, неверная сумма».
+  //
+  // Логика: если gen.cost > 0, status='done', НЕ был использован bonus_track
+  // (style.bonus_used != true), И нет negative transaction с #<genId> того же
+  // type — то юзер получил трек бесплатно (bug в pipeline списания).
+  //
+  // Excluded: bonus tracks (cost=0 или style.bonus_used=true), promo discounts
+  // (style.promo_applied=true). Только подозрительные «бесплатные» треки.
+  const doneGens: any[] = db.prepare(`
+    SELECT id, user_id, type, cost, status, created_at, style
+    FROM generations
+    WHERE status = 'done'
+      AND deleted_at IS NULL
+      AND cost > 0
+  `).all();
+
+  // Pre-index charges by user_id + type → set of genIds
+  const chargedGenIds = new Set<string>(); // key: `${userId}::${type}::${genId}`
+  for (const t of negativeTxns) {
+    if (t.type === "topup") continue;
+    const genId = extractGenIdFromDescription(t.description);
+    if (genId === null) continue;
+    chargedGenIds.add(`${t.user_id}::${t.type}::${genId}`);
+  }
+
+  const freeGenerationsBypass: AuditReport["freeGenerationsBypass"] = [];
+  for (const gen of doneGens) {
+    let style: any = {};
+    try { style = gen.style ? JSON.parse(gen.style) : {}; } catch {}
+    // Skip if bonus used (free gift) or promo applied (discount)
+    if (style?.bonus_used === true || style?.bonus === true) continue;
+    if (style?.promo_applied === true || style?.promo_code) continue;
+    // Check if charge exists
+    const key = `${gen.user_id}::${gen.type}::${gen.id}`;
+    if (chargedGenIds.has(key)) continue;
+    // Also accept «counter-charge» (extend / cover) с same description pattern
+    // Check ALSO charges с любым type (например cover может списываться как
+    // music) — broader check
+    let foundAny = false;
+    for (const t of negativeTxns) {
+      if (extractGenIdFromDescription(t.description) === gen.id && Number(t.user_id) === Number(gen.user_id)) {
+        foundAny = true; break;
+      }
+    }
+    if (foundAny) continue;
+
+    freeGenerationsBypass.push({
+      genId: gen.id,
+      userId: gen.user_id,
+      type: gen.type,
+      cost: Number(gen.cost) || 0,
+      createdAt: gen.created_at,
+    });
+    issues.push({
+      severity: "critical",
+      category: "free_generation_bypass",
+      description: `Gen #${gen.id} (${gen.type}, cost=${gen.cost}) status=done — НЕТ списания и НЕ bonus`,
+      userId: gen.user_id,
+      amountKopecks: Number(gen.cost) || 0,
+      genId: gen.id,
+      meta: { type: gen.type, createdAt: gen.created_at },
+    });
+  }
+
+  // ---- Check #12: Charge transaction exists BUT generation missing/orphan ----
+  // Списано (negative tx с type music/lyrics/cover + #genId), но
+  // generations row не найден ИЛИ deleted. Refund тоже не сделан.
+  // Это CRITICAL — деньги списаны, юзер получил ничего.
+  const orphanCharges: AuditReport["orphanCharges"] = [];
+
+  // Pre-build generations index by id
+  const allGenIds = new Set<number>();
+  const allGenIdsToUserAndDeleted: Map<number, { userId: number; deleted: boolean }> = new Map();
+  const allGensRows: any[] = db.prepare(`SELECT id, user_id, deleted_at FROM generations`).all();
+  for (const g of allGensRows) {
+    allGenIds.add(Number(g.id));
+    allGenIdsToUserAndDeleted.set(Number(g.id), {
+      userId: Number(g.user_id),
+      deleted: !!g.deleted_at,
+    });
+  }
+
+  // Pre-build refund index by (userId + type + amount)
+  const refundsByUserTypeAmount = new Map<string, number>(); // key: `${userId}::${type}::${absAmount}` → count
+  for (const t of txnRows) {
+    const amt = Number(t.amount);
+    if (amt <= 0) continue;
+    if (t.type === "topup") continue;
+    const k = `${t.user_id}::${t.type}::${amt}`;
+    refundsByUserTypeAmount.set(k, (refundsByUserTypeAmount.get(k) || 0) + 1);
+  }
+
+  // Track charges «consumed» by refunds (so duplicate refunds don't cover
+  // multiple charges).
+  const refundConsumed = new Map<string, number>();
+
+  for (const t of negativeTxns) {
+    if (t.type === "topup") continue;
+    const genId = extractGenIdFromDescription(t.description);
+    if (genId === null) continue;
+    const absAmt = Math.abs(Number(t.amount));
+    const refundKey = `${t.user_id}::${t.type}::${absAmt}`;
+    const refundsAvail = refundsByUserTypeAmount.get(refundKey) || 0;
+    const consumed = refundConsumed.get(refundKey) || 0;
+    const hasRefund = consumed < refundsAvail;
+
+    const genInfo = allGenIdsToUserAndDeleted.get(genId);
+    const genExists = !!genInfo && !genInfo.deleted && genInfo.userId === Number(t.user_id);
+
+    if (!genExists && !hasRefund) {
+      orphanCharges.push({
+        txnId: Number(t.id),
+        userId: Number(t.user_id),
+        type: String(t.type),
+        amount: Number(t.amount),
+        description: String(t.description || ""),
+        createdAt: String(t.created_at),
+      });
+      issues.push({
+        severity: "critical",
+        category: "orphan_charge",
+        description: `Списано #${t.id} (${t.type}, ${formatRub(absAmt)}) за gen #${genId} — generation не существует/удалён, refund не сделан`,
+        userId: Number(t.user_id),
+        amountKopecks: absAmt,
+        genId,
+        meta: { txnId: t.id, description: t.description, createdAt: t.created_at },
+      });
+    }
+    if (hasRefund) refundConsumed.set(refundKey, consumed + 1);
+  }
+
+  // ---- Check #13: Charged amount != gen.cost (type-aware) ----
+  // Generation существует со cost=X. В transactions есть negative charge с
+  // #<genId> того же user, того же type, amount=-Y. Если |X - Y| > 10 (10 коп
+  // допуск на rounding) — flag.
+  const costMismatches: AuditReport["costMismatches"] = [];
+
+  for (const t of negativeTxns) {
+    if (t.type === "topup") continue;
+    const genId = extractGenIdFromDescription(t.description);
+    if (genId === null) continue;
+    const genRow = db.prepare(`SELECT id, user_id, cost, type FROM generations WHERE id = ?`).get(genId) as any;
+    if (!genRow) continue;
+    if (Number(genRow.user_id) !== Number(t.user_id)) continue;
+    // Type должен совпадать (charge type == gen type)
+    if (String(genRow.type) !== String(t.type)) continue;
+    const genCost = Number(genRow.cost) || 0;
+    if (genCost <= 0) continue; // free / bonus gen — skip
+    const absAmt = Math.abs(Number(t.amount));
+    const delta = absAmt - genCost;
+    if (Math.abs(delta) > 10) {
+      // Skip if это refund-matched (т.е. charge=29900 при gen.cost=39900 = legacy
+      // pricing — accepted). Check: gen.created_at < 2026-05-19 + absAmt=29900
+      // + gen.type=music → OK.
+      const genCreated = String(genRow.created_at || "");
+      if (
+        absAmt === 29900 &&
+        genCost === 39900 &&
+        genRow.type === "music" &&
+        genCreated &&
+        genCreated < "2026-05-19"
+      ) {
+        continue; // legacy 299₽ price — accepted
+      }
+      costMismatches.push({
+        genId,
+        userId: Number(t.user_id),
+        type: String(t.type),
+        genCost,
+        charged: absAmt,
+        delta,
+      });
+      issues.push({
+        severity: delta < 0 ? "medium" : "low", // списали меньше = critical-ish, списали больше = легче но всё равно ошибка
+        category: "cost_mismatch",
+        description: `Gen #${genId} (${t.type}) cost=${genCost} BUT charged=${absAmt} (delta=${delta} коп)`,
+        userId: Number(t.user_id),
+        amountKopecks: Math.abs(delta),
+        genId,
+        meta: { genCost, charged: absAmt, type: t.type, txnId: t.id },
+      });
+    }
+  }
+
   // ---- Assemble report ------------------------------------------------
   const buckets = {
     critical: issues.filter((i) => i.severity === "critical").length,
@@ -551,7 +737,23 @@ export function runBillingAudit(): AuditReport {
     premiumWithoutSub,
     expiredButActiveSubs,
     recommendedRefunds,
+    freeGenerationsBypass,
+    orphanCharges,
+    costMismatches,
   };
+
+  // Eugene 2026-05-23: добавляем «orphan charges» в recommendedRefunds —
+  // списано но трека нет → refund очевиден. Используем negative t.id как
+  // signal-marker для downstream auto-fix-script (он различает gen-based vs
+  // orphan-charge).
+  for (const orphan of orphanCharges) {
+    report.recommendedRefunds.push({
+      genId: -orphan.txnId, // negative marker — это orphan-tx, не настоящая gen
+      userId: orphan.userId,
+      cost: Math.abs(orphan.amount),
+      reason: `orphan charge: списано но gen не существует (txn #${orphan.txnId}, type=${orphan.type})`,
+    });
+  }
 
   return report;
 }
@@ -629,6 +831,54 @@ export function renderMarkdownReport(report: AuditReport): string {
       lines.push(`- **${i.category}** — ${i.description}`);
     }
     if (lowIssues.length > 20) lines.push(`- … ещё ${lowIssues.length - 20}`);
+    lines.push("");
+  }
+
+  if (report.freeGenerationsBypass.length) {
+    lines.push("## 🔴 Free generations bypass (треки получены без списания)");
+    lines.push("");
+    lines.push("Generation status=done, cost>0, не bonus / не promo — НО списания нет.");
+    lines.push("");
+    lines.push("| genId | userId | type | cost | createdAt |");
+    lines.push("|---|---|---|---|---|");
+    for (const g of report.freeGenerationsBypass.slice(0, 100)) {
+      lines.push(`| ${g.genId} | ${g.userId} | ${g.type} | ${formatRub(g.cost)} | ${g.createdAt} |`);
+    }
+    if (report.freeGenerationsBypass.length > 100) {
+      lines.push(`| … | ещё ${report.freeGenerationsBypass.length - 100} строк | | | |`);
+    }
+    lines.push("");
+  }
+
+  if (report.orphanCharges.length) {
+    lines.push("## 🔴 Orphan charges (списано но генерация отсутствует)");
+    lines.push("");
+    lines.push("Negative transaction с #genId есть, но generation row не существует/удалён. Refund тоже не сделан.");
+    lines.push("");
+    lines.push("| txnId | userId | type | amount | createdAt |");
+    lines.push("|---|---|---|---|---|");
+    for (const o of report.orphanCharges.slice(0, 100)) {
+      lines.push(`| ${o.txnId} | ${o.userId} | ${o.type} | ${formatRub(Math.abs(o.amount))} | ${o.createdAt} |`);
+    }
+    if (report.orphanCharges.length > 100) {
+      lines.push(`| … | ещё ${report.orphanCharges.length - 100} строк | | | |`);
+    }
+    lines.push("");
+  }
+
+  if (report.costMismatches.length) {
+    lines.push("## 🟡 Cost mismatches (charged != gen.cost)");
+    lines.push("");
+    lines.push("Generation cost и сумма charge не совпадают (delta > 10 коп). Legacy music=29900 до 2026-05-19 исключены.");
+    lines.push("");
+    lines.push("| genId | userId | type | gen.cost | charged | delta |");
+    lines.push("|---|---|---|---|---|---|");
+    for (const c of report.costMismatches.slice(0, 100)) {
+      lines.push(`| ${c.genId} | ${c.userId} | ${c.type} | ${formatRub(c.genCost)} | ${formatRub(c.charged)} | ${formatRub(c.delta)} |`);
+    }
+    if (report.costMismatches.length > 100) {
+      lines.push(`| … | ещё ${report.costMismatches.length - 100} строк | | | | |`);
+    }
     lines.push("");
   }
 

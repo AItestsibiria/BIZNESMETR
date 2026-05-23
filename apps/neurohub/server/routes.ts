@@ -9909,7 +9909,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       if (!resp.ok) {
         storage.updateGeneration(gen.id, { status: "error" });
         if (!charge.isFree) {
-          storage.refundGeneration({ genId: gen.id, userId, cost: gen.cost || 9900, type: "lyrics", description: `Возврат: ошибка генерации #${gen.id}` });
+          storage.refundGeneration({ genId: gen.id, userId, cost: gen.cost || PRICES["lyrics"] || 9900, type: "lyrics", description: `Возврат: ошибка генерации #${gen.id}` });
         }
         res.status(500).json({ message: data.error?.message || "Ошибка API" });
         return;
@@ -10145,7 +10145,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         const apiErrText = data.error?.message || data.message || `HTTP ${resp.status}`;
         storage.updateGeneration(gen.id, { status: "error", errorReason: `MuzaAi отклонил запрос: ${apiErrText}` });
         if (!charge.isFree) {
-          storage.refundGeneration({ genId: gen.id, userId, cost: gen.cost || 9900, type: "music", description: `Возврат: ошибка генерации #${gen.id}` });
+          storage.refundGeneration({ genId: gen.id, userId, cost: gen.cost || PRICES["music"] || 39900, type: "music", description: `Возврат: ошибка генерации #${gen.id}` });
         }
         // Extract detailed validation error (GPTunnel/Suno schema issues)
         let userMsg = data.error?.message || data.message || "Ошибка API";
@@ -10181,7 +10181,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         console.error(`[MUSIC] No taskId from GPTunnel for gen #${gen.id} — refunding immediately`);
         storage.updateGeneration(gen.id, { status: "error", errorReason: "Не получили task_id от MuzaAi. Это редкая сетевая проблема. Баланс возвращён, попробуйте ещё раз." });
         if (!charge.isFree) {
-          storage.refundGeneration({ genId: gen.id, userId, cost: gen.cost || 9900, type: "music", description: `Возврат: нет task_id #${gen.id}` });
+          storage.refundGeneration({ genId: gen.id, userId, cost: gen.cost || PRICES["music"] || 39900, type: "music", description: `Возврат: нет task_id #${gen.id}` });
         }
         res.status(500).json({ message: "Ошибка создания трека. Попробуйте снова." });
         return;
@@ -10479,7 +10479,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       if (!data || !data.id || data.status === "failed") {
         storage.updateGeneration(gen.id, { status: "error", errorReason: "Режим Кавер сейчас недоступен. Баланс возвращён, попробуйте через пару минут." });
         if (!charge.isFree) {
-          storage.refundGeneration({ genId: gen.id, userId, cost: gen.cost || 9900, type: "music", description: `Возврат: режим Кавер недоступен #${gen.id}` });
+          storage.refundGeneration({ genId: gen.id, userId, cost: gen.cost || PRICES["music"] || 39900, type: "music", description: `Возврат: режим Кавер недоступен #${gen.id}` });
         }
         res.status(503).json({
           message: "Режим Кавер временно недоступен — ждём формат API от GPTunnel. Баланс возвращён.",
@@ -10614,7 +10614,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       if (!data || !data.id || data.status === "failed") {
         storage.updateGeneration(gen.id, { status: "error", errorReason: "Режим Продление сейчас недоступен. Баланс возвращён, попробуйте через пару минут." });
         if (!charge.isFree) {
-          storage.refundGeneration({ genId: gen.id, userId, cost: gen.cost || 9900, type: "music", description: `Возврат: режим Продление недоступен #${gen.id}` });
+          storage.refundGeneration({ genId: gen.id, userId, cost: gen.cost || PRICES["music"] || 39900, type: "music", description: `Возврат: режим Продление недоступен #${gen.id}` });
         }
         res.status(503).json({
           message: "Режим Продление временно недоступен — ждём формат API от GPTunnel. Баланс возвращён.",
@@ -10678,7 +10678,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       if (!resp.ok) {
         const apiErrText = data.error?.message || data.message || `HTTP ${resp.status}`;
         storage.updateGeneration(gen.id, { status: "error", errorReason: `Не удалось создать обложку: ${apiErrText}. Баланс возвращён.` });
-        storage.refundGeneration({ genId: gen.id, userId, cost: gen.cost || 9900, type: "cover", description: `Возврат: ошибка генерации #${gen.id}` });
+        storage.refundGeneration({ genId: gen.id, userId, cost: gen.cost || PRICES["cover"] || 9900, type: "cover", description: `Возврат: ошибка генерации #${gen.id}` });
         res.status(500).json({ message: data.error?.message || "Ошибка API" });
         return;
       }
@@ -13653,7 +13653,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       if (!resp.ok || data.error || (data.code && data.code !== 0)) {
         storage.updateGeneration(newGen.id, { status: "error", errorReason: data.error?.message || data.message || "Ошибка API" });
         if (!charge.isFree) {
-          storage.refundGeneration({ genId: newGen.id, userId, cost: newGen.cost || 9900, type: "music", description: `Возврат: ошибка регенерации #${newGen.id}` });
+          storage.refundGeneration({ genId: newGen.id, userId, cost: newGen.cost || PRICES["music"] || 39900, type: "music", description: `Возврат: ошибка регенерации #${newGen.id}` });
         }
         res.status(400).json({ message: data.error?.message || data.message || "Ошибка повторной генерации" });
         return;
