@@ -181,6 +181,30 @@ type SituationTile = {
   seed: string;
   accent: string;
 };
+// Eugene 2026-05-23 Босс «текст песни выдавать столбиком». Safety net на
+// случай если LLM выдаёт лирику в одну строку (через `/`, `|`, или подряд
+// после маркеров [Куплет]/[Припев]). Persona prompt теперь явно требует
+// строк на отдельных линиях (см. consultantPersona.ts), это правило —
+// fallback для legacy reply / других провайдеров (DeepSeek / TimeWeb).
+const LYRICS_SECTION_RE = /(\[(?:Куплет|Припев|Бридж|Концовка|Вступление|Verse|Chorus|Bridge|Outro|Intro|Pre-?Chorus|Solo)\b[^\]]*\])/gi;
+function normalizeLyricsBlocks(text: string): string {
+  if (!LYRICS_SECTION_RE.test(text)) {
+    LYRICS_SECTION_RE.lastIndex = 0;
+    return text;
+  }
+  LYRICS_SECTION_RE.lastIndex = 0;
+  let out = text;
+  // Маркеры [Куплет]/[Припев]/... — на отдельной строке (между ними и
+  // текстом — \n).
+  out = out.replace(LYRICS_SECTION_RE, "\n$1\n");
+  // " / " и " | " separators (LLM иногда так делит строки) → \n
+  out = out.replace(/\s+\/\s+/g, "\n");
+  out = out.replace(/\s+\|\s+/g, "\n");
+  // Collapse 3+ \n до \n\n (max blank line)
+  out = out.replace(/\n{3,}/g, "\n\n");
+  return out.trim();
+}
+
 const SITUATION_TILES: SituationTile[] = [
   { id: "mom",          emoji: "🎂", label: "Маме на юбилей",       seed: "Хочу подарить песню маме на юбилей. Накидай сразу 8-12 строк трогательного начала и спроси что подчеркнуть.", accent: "from-pink-500/25 to-fuchsia-500/25 border-pink-400/40 hover:border-pink-300/70" },
   { id: "love",         emoji: "❤️", label: "Любимой / любимому",   seed: "Хочу песню для любимого человека. Накидай сразу 8-12 строк начала и спроси какое настроение.",                        accent: "from-rose-500/25 to-pink-500/25 border-rose-400/40 hover:border-rose-300/70" },
@@ -2707,10 +2731,23 @@ export function FloatingConsultant() {
                       m.role === "user"
                         ? "bg-gradient-to-br from-purple-500/30 to-blue-500/25 text-white border border-purple-400/30"
                         : "bg-white/[0.06] text-white/90 border border-white/[0.08]"
-                    }`}>{linkify(m.text).map((p, j) => p.href
-                        ? <a key={j} href={p.href} target="_blank" rel="noopener noreferrer" className="underline text-cyan-300 hover:text-cyan-200" onClick={(e) => e.stopPropagation()}>{p.text}</a>
-                        : <span key={j}>{p.text}</span>
-                      )}</div>
+                    }`}>{(() => {
+                      // Eugene 2026-05-23 Босс «текст песни столбиком». Если
+                      // в сообщении есть lyrics-маркеры — нормализуем (\n
+                      // между секциями, разбиваем на строки) + увеличенный
+                      // line-height через стиль leading-loose effect.
+                      const hasLyrics = m.role === "bot" && LYRICS_SECTION_RE.test(m.text);
+                      LYRICS_SECTION_RE.lastIndex = 0;
+                      const displayText = hasLyrics ? normalizeLyricsBlocks(m.text) : m.text;
+                      return (
+                        <span className={hasLyrics ? "block [&]:leading-loose" : ""}>
+                          {linkify(displayText).map((p, j) => p.href
+                            ? <a key={j} href={p.href} target="_blank" rel="noopener noreferrer" className="underline text-cyan-300 hover:text-cyan-200" onClick={(e) => e.stopPropagation()}>{p.text}</a>
+                            : <span key={j}>{p.text}</span>
+                          )}
+                        </span>
+                      );
+                    })()}</div>
                     {/* Eugene 2026-05-20 Босс «мини-плеер в чате».
                         Когда Муза вызвала find_public_track и tool вернул
                         hint=playNow:<id> — backend прикрепил attachedTrack.
