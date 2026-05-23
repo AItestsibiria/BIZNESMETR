@@ -7141,6 +7141,203 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     }
   });
 
+  // Eugene 2026-05-23 Босс «Жёсткий upgrade Yars system — auto-pull pipeline».
+  //
+  // GET /api/admin/v304/yars-queue — список Yars-команд из chatbot_messages
+  // которые ждут review/apply (claude_review_decision IS NULL OR 'pending').
+  //
+  // Query params:
+  //   - since=<ISO>    — только сообщения после этого момента (created_at)
+  //   - limit=<N>      — max rows (default 20, cap 100)
+  //   - channel=web|telegram|max — фильтр по каналу
+  //   - risk=low|medium|high     — фильтр по риск-уровню
+  //   - status=pending|applied|rejected|auto_applied — фильтр по решению
+  //                                                    (default: pending)
+  //
+  // Возвращает: { ok, queue: [{ id, sessionId, channel, text, role,
+  //   yarsCategory, yarsRiskLevel, claudeReviewDecision, createdAt }],
+  //   summary: { byRisk, byCategory, total } }.
+  app.get("/api/admin/v304/yars-queue", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const raw = (db as any).$client;
+      const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
+      const since = String(req.query.since || "").trim();
+      const channel = String(req.query.channel || "").trim().toLowerCase();
+      const risk = String(req.query.risk || "").trim().toLowerCase();
+      // status=pending — default; 'all' — все
+      const status = String(req.query.status || "pending").trim().toLowerCase();
+
+      const where: string[] = ["m.is_yars_command = 1"];
+      const params: any[] = [];
+      if (status === "pending") {
+        // pending = ещё не processed (NULL или 'pending')
+        where.push("(m.claude_review_decision IS NULL OR m.claude_review_decision = 'pending')");
+      } else if (status && status !== "all") {
+        where.push("m.claude_review_decision = ?");
+        params.push(status);
+      }
+      if (since) {
+        where.push("m.created_at >= ?");
+        params.push(since);
+      }
+      if (channel && ["web", "telegram", "max"].includes(channel)) {
+        where.push("cs.channel = ?");
+        params.push(channel);
+      }
+      if (risk && ["low", "medium", "high"].includes(risk)) {
+        where.push("m.yars_risk_level = ?");
+        params.push(risk);
+      }
+
+      const whereSql = where.join(" AND ");
+      const rows = raw.prepare(`
+        SELECT m.id, m.session_id, m.text, m.created_at,
+               m.yars_category, m.yars_risk_level, m.claude_review_decision,
+               m.claude_review_at, m.claude_review_commit_sha, m.claude_review_notes,
+               m.role,
+               cs.channel, cs.user_id
+        FROM chatbot_messages m
+        LEFT JOIN chatbot_sessions cs ON cs.id = m.session_id
+        WHERE ${whereSql}
+        ORDER BY m.id DESC
+        LIMIT ?
+      `).all(...params, limit);
+
+      // Summary across the FULL queue (для UI badge'ей)
+      const summary: any = { byRisk: {}, byCategory: {}, total: 0 };
+      try {
+        const summaryRows = raw.prepare(`
+          SELECT yars_risk_level AS risk, yars_category AS category, COUNT(*) AS n
+          FROM chatbot_messages
+          WHERE is_yars_command = 1
+            AND (claude_review_decision IS NULL OR claude_review_decision = 'pending')
+          GROUP BY yars_risk_level, yars_category
+        `).all();
+        for (const r of summaryRows as any[]) {
+          summary.total += Number(r.n) || 0;
+          if (r.risk) summary.byRisk[r.risk] = (summary.byRisk[r.risk] || 0) + Number(r.n);
+          if (r.category) summary.byCategory[r.category] = (summary.byCategory[r.category] || 0) + Number(r.n);
+        }
+      } catch {}
+
+      const queue = rows.map((r: any) => ({
+        id: r.id,
+        sessionId: r.session_id,
+        userId: r.user_id ?? null,
+        channel: r.channel || "unknown",
+        role: r.role,
+        text: String(r.text || "").slice(0, 4000),
+        yarsCategory: r.yars_category,
+        yarsRiskLevel: r.yars_risk_level,
+        claudeReviewDecision: r.claude_review_decision,
+        claudeReviewAt: r.claude_review_at,
+        claudeReviewCommitSha: r.claude_review_commit_sha,
+        claudeReviewNotes: r.claude_review_notes,
+        createdAt: r.created_at,
+      }));
+
+      res.json({
+        ok: true,
+        queue,
+        summary,
+        hint: "Yars-команды от Босса. status=pending — ждут review Claude'ом. POST /api/admin/v304/yars-queue/:id/mark-decision чтобы отметить applied/rejected.",
+      });
+    } catch (e: any) {
+      console.error("[YARS-QUEUE]", e);
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  // POST /api/admin/v304/yars-queue/:msgId/mark-decision
+  // body: { decision: 'applied'|'rejected'|'auto_applied'|'pending',
+  //         commitSha?: string, notes?: string }
+  //
+  // Обновляет claude_review_* колонки в chatbot_messages. Audit-log пишется
+  // через admin_audit_log (см. backup-before-edit rule).
+  app.post("/api/admin/v304/yars-queue/:msgId/mark-decision", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const msgId = Number(req.params.msgId);
+      if (!Number.isFinite(msgId) || msgId <= 0) {
+        return res.status(400).json({ ok: false, error: "invalid msgId" });
+      }
+      const body = (req.body || {}) as any;
+      const decisionRaw = String(body.decision || "").trim().toLowerCase();
+      const validDecisions = new Set(["applied", "rejected", "auto_applied", "pending"]);
+      if (!validDecisions.has(decisionRaw)) {
+        return res.status(400).json({
+          ok: false,
+          error: "decision must be one of: applied, rejected, auto_applied, pending",
+        });
+      }
+      const commitSha = body.commitSha ? String(body.commitSha).slice(0, 80) : null;
+      const notes = body.notes ? String(body.notes).slice(0, 2000) : null;
+
+      const raw = (db as any).$client;
+      // Проверяем что row существует и это Yars-команда
+      const before = raw.prepare(`
+        SELECT id, is_yars_command, claude_review_decision, yars_category,
+               yars_risk_level, claude_review_commit_sha, claude_review_notes
+        FROM chatbot_messages
+        WHERE id = ?
+      `).get(msgId) as any;
+      if (!before) {
+        return res.status(404).json({ ok: false, error: "message not found" });
+      }
+      if (!before.is_yars_command) {
+        return res.status(400).json({ ok: false, error: "message is not a Yars command" });
+      }
+
+      const nowMs = Date.now();
+      raw.prepare(`
+        UPDATE chatbot_messages
+        SET claude_review_decision = ?,
+            claude_review_at = ?,
+            claude_review_commit_sha = COALESCE(?, claude_review_commit_sha),
+            claude_review_notes = COALESCE(?, claude_review_notes)
+        WHERE id = ?
+      `).run(decisionRaw, nowMs, commitSha, notes, msgId);
+
+      // Audit-log
+      try {
+        const adminUserId = (req as any).userId ?? null;
+        const adminEmail = ((req as any).adminUser?.email ?? "admin").toString().toLowerCase();
+        const beforeJson = JSON.stringify({
+          claudeReviewDecision: before.claude_review_decision,
+          claudeReviewCommitSha: before.claude_review_commit_sha,
+          claudeReviewNotes: before.claude_review_notes,
+        });
+        const afterJson = JSON.stringify({
+          claudeReviewDecision: decisionRaw,
+          claudeReviewCommitSha: commitSha,
+          claudeReviewNotes: notes,
+        });
+        raw.prepare(`
+          INSERT INTO admin_audit_log (admin_user_id, admin_email, action, entity, entity_key,
+                                       before_json, after_json, via_email_confirm, ip, user_agent)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+        `).run(
+          adminUserId, adminEmail, "update", "yars_queue", String(msgId),
+          beforeJson, afterJson, req.ip || null,
+          req.headers["user-agent"] ? String(req.headers["user-agent"]).slice(0, 300) : null,
+        );
+      } catch (e) {
+        console.warn("[YARS-QUEUE-DECISION] audit write failed:", (e as Error).message);
+      }
+
+      res.json({
+        ok: true,
+        msgId,
+        decision: decisionRaw,
+        claudeReviewAt: nowMs,
+        commitSha: commitSha ?? before.claude_review_commit_sha ?? null,
+        notes: notes ?? before.claude_review_notes ?? null,
+      });
+    } catch (e: any) {
+      console.error("[YARS-QUEUE-DECISION]", e);
+      res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
   // Eugene 2026-05-14 Босс «в дашборде количество и тех и других»:
   // отчёт по регистрациям с разбивкой СНГ vs не-СНГ + welcome-gift counter
   // (правило 1000 первых из РФ + ближнего зарубежья).
