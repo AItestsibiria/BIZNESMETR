@@ -1957,7 +1957,7 @@ export function FloatingConsultant() {
             кнопку чат ближе к скрыть, мини-облачко светлее, ближе кликать
             на смартфоне». p-4 → p-2.5, w-60 (компактнее), Чат+Скрыть в
             самом низу парой, Чат как яркое мини-облачко. */}
-        {expanded && (
+        {expanded && !chatOpen && (
           <div
             className="absolute bottom-full right-0 mb-3 w-72 sm:w-80 p-4 bg-gradient-to-br from-violet-400/25 via-fuchsia-300/18 to-sky-400/18 backdrop-blur-2xl border border-white/15 shadow-lg shadow-purple-400/15 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-hidden"
             style={{
@@ -2142,6 +2142,10 @@ export function FloatingConsultant() {
               return;
             }
             // Single-click: меню expanded. Double-click intercept выше.
+            // Eugene 2026-05-23 Босс «облако наложение блокирует чат» — пока
+            // чат открыт, single-click на Музу НЕ раскрывает меню каналов
+            // (оно накладывается на правую часть chat drawer на iPad).
+            if (chatOpen) return;
             try { playMuzaChime(); } catch {}
             const phrase = CLICK_REACTIONS[reactionIdxRef.current % CLICK_REACTIONS.length];
             reactionIdxRef.current += 1;
@@ -2164,7 +2168,7 @@ export function FloatingConsultant() {
             const dx = expandDragStartRef.current.x - e.clientX;
             const dy = expandDragStartRef.current.y - e.clientY;
             const dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist > 60 && !expanded) {
+            if (dist > 60 && !expanded && !chatOpen) {
               try { playMuzaChime(); } catch {}
               setExpanded(true);
               trackEngagement("consultant_open", { via: "drag" });
@@ -2190,7 +2194,7 @@ export function FloatingConsultant() {
               const dy = e.touches[0].clientY - e.touches[1].clientY;
               const dist = Math.sqrt(dx * dx + dy * dy);
               const delta = dist - pinchStartDistRef.current;
-              if (delta > 50 && !expanded) {
+              if (delta > 50 && !expanded && !chatOpen) {
                 try { playMuzaChime(); } catch {}
                 setExpanded(true);
                 trackEngagement("consultant_open", { via: "pinch" });
