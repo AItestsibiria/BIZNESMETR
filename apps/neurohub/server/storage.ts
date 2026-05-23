@@ -1268,6 +1268,96 @@ try {
   } catch (e) {
     console.error("[MIGRATION] user_memory failed:", e);
   }
+
+  // Eugene 2026-05-23 Босс «Информация о Музе» — публичные разделы продукта
+  // + admin CMS + file uploads. См. plugin muza-info/module.ts.
+  try {
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS muza_info_sections (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        slug TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL,
+        emoji TEXT,
+        position INTEGER NOT NULL DEFAULT 0,
+        body_markdown TEXT NOT NULL DEFAULT '',
+        attachments_json TEXT NOT NULL DEFAULT '[]',
+        is_published INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+    `);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS muza_info_sections_pub_idx
+      ON muza_info_sections(is_published, position ASC, id ASC)`);
+
+    // Seed initial sections если таблица пустая (one-time on first boot).
+    const count = sqlite.prepare(`SELECT COUNT(*) AS c FROM muza_info_sections`).get() as { c: number };
+    if (count.c === 0) {
+      const now = Date.now();
+      const seed = [
+        {
+          slug: "about", emoji: "🎵", position: 10,
+          title: "Что такое MuzaAi",
+          body: "**MuzaAi** — платформа для создания музыки с искусственным интеллектом.\n\nЛюбая идея превращается в готовую песню за минуту. Поздравление маме на 70 лет, гимн вашей команде, романтический трек для свадьбы — MuzaAi подхватит сюжет, имена, события и сделает из них настоящую песню.\n\nАвтор — ты. Музa — помощница, которая ведёт тебя от идеи до готового трека.",
+        },
+        {
+          slug: "how-it-works", emoji: "⚙️", position: 20,
+          title: "Как работает",
+          body: "Три режима генерации:\n\n- **Аудио** — наговори голосом 30-60 секунд → распознаём текст → AI пишет песню\n- **Текст · Простой** — тема + жанр → AI сочиняет полный текст и музыку\n- **Текст · Расширенный** — свой текст + выбор стиля, голоса, настроения\n\nГенерация занимает 30-90 секунд. Получаешь mp3 + обложку.",
+        },
+        {
+          slug: "pricing", emoji: "💰", position: 30,
+          title: "Сколько стоит",
+          body: "- **Песня** — 399 ₽\n- **Текст песни** — 99 ₽\n- **Обложка** — 99 ₽\n\nПервым 1000 авторам — **1 трек бесплатно** (подарочный, страны РФ + СНГ).\n\nОплата через Робокассу: карты Visa/MC/МИР, СБП.",
+        },
+        {
+          slug: "bonus-program", emoji: "🎁", position: 40,
+          title: "Подарочные треки",
+          body: "Первые **1000 авторов** получают **один бесплатный трек** при регистрации.\n\nДоступно для РФ и стран СНГ. Активируется автоматически в личном кабинете. Списывается до денежного баланса — деньги тратятся только когда подарок использован.",
+        },
+        {
+          slug: "referral", emoji: "🤝", position: 50,
+          title: "Реферальная программа",
+          body: "Приведи друга — оба получаете бонусные треки.\n\nТвоя реферальная ссылка — в личном кабинете. Друг регистрируется по ней → ты и он получаете бонус.\n\nЧем больше друзей — тем больше треков. Без лимита.",
+        },
+        {
+          slug: "voices", emoji: "🎤", position: 60,
+          title: "Голоса",
+          body: "Четыре варианта вокала:\n\n- **Женский** — мягкий, эмоциональный\n- **Мужской** — глубокий, харизматичный\n- **Дуэт** — мужской + женский в диалоге\n- **Инструментальная** — без вокала, только музыка\n\nЯзыки: русский (основной), английский, любой европейский. Стиль выбирай через жанр (поп, рок, рэп, шансон, классика и сотни других).",
+        },
+        {
+          slug: "payment", emoji: "💳", position: 70,
+          title: "Оплата и возврат",
+          body: "Принимаем карты RU и СНГ (Visa, MasterCard, МИР), СБП — через Робокассу.\n\nПосле оплаты трек генерируется 30-90 секунд. Деньги списываются с баланса в кабинете.\n\nЕсли генерация не удалась по нашей вине — деньги возвращаются на баланс автоматически (refund pipeline).\n\nДля возврата средств на карту — обратись в поддержку.",
+        },
+        {
+          slug: "muza-assistant", emoji: "🤖", position: 80,
+          title: "Музa — твой помощник",
+          body: "**Музa** — 25-летняя девушка-консультант. Помогает тебе пройти от идеи до готового трека.\n\nОна помнит твой контекст между сессиями: какие треки ты делал, какие жанры любишь, для кого писал. При следующем заходе встречает тебя как менеджер, который помнит клиента.\n\nДоступна 24/7 в чате на сайте и в мессенджерах.",
+        },
+        {
+          slug: "channels", emoji: "📱", position: 90,
+          title: "Каналы общения",
+          body: "Музa отвечает везде:\n\n- **Web** — [muzaai.ru](https://muzaai.ru)\n- **Telegram** — [@Muziaipodari_bot](https://t.me/Muziaipodari_bot)\n- **Max-мессенджер** — поиск «MuzaAi»\n- **ВКонтакте** — сообщество MuzaAi\n\nОдин аккаунт — один разговор. Начал в Telegram, продолжил на сайте — Музa помнит контекст.",
+        },
+        {
+          slug: "support", emoji: "📞", position: 100,
+          title: "Поддержка",
+          body: "Мы на связи:\n\n- Email: [hello@muziai.ru](mailto:hello@muziai.ru)\n- Чат с Музой — кнопка в правом нижнем углу 24/7\n- Telegram-бот — [@Muziaipodari_bot](https://t.me/Muziaipodari_bot)\n\nОтвечаем в течение часа в рабочее время (10:00-22:00 МСК), в остальное — в течение суток.",
+        },
+      ];
+      const stmt = sqlite.prepare(`
+        INSERT INTO muza_info_sections (slug, title, emoji, position, body_markdown, attachments_json, is_published, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, '[]', 1, ?, ?)
+      `);
+      for (const s of seed) {
+        try { stmt.run(s.slug, s.title, s.emoji, s.position, s.body, now, now); }
+        catch { /* idempotent — slug может уже существовать */ }
+      }
+      console.log(`[MIGRATION] muza_info_sections: seeded ${seed.length} initial sections`);
+    }
+  } catch (e) {
+    console.error("[MIGRATION] muza_info_sections failed:", e);
+  }
 } catch (e) {
   console.error("[MIGRATION] Error:", e);
 }

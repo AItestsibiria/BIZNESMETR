@@ -78,6 +78,7 @@ import sunoWatchdogModule from "./plugins/suno-watchdog/module";
 import authSmsModule from "./plugins/auth-sms/module";
 import apiHealthModule from "./plugins/api-health/module";
 import landingCmsModule from "./plugins/landing-cms/module";
+import muzaInfoModule from "./plugins/muza-info/module";
 import masterDashboardModule from "./plugins/master-dashboard/module";
 import multiDomainStatsModule from "./plugins/multi-domain-stats/module";
 import botChannelsHealthModule from "./plugins/bot-channels-health/module";
@@ -535,6 +536,7 @@ app.post("/api/_client-error", express.json(), (req, res) => {
     { name: "auth-sms", module: authSmsModule },
     { name: "api-health", module: apiHealthModule },
     { name: "landing-cms", module: landingCmsModule },
+    { name: "muza-info", module: muzaInfoModule },
     { name: "master-dashboard", module: masterDashboardModule },
     { name: "multi-domain-stats", module: multiDomainStatsModule },
     { name: "bot-channels-health", module: botChannelsHealthModule },

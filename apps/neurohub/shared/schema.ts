@@ -984,6 +984,32 @@ export const tariffHistory = sqliteTable("tariff_history", {
 
 export type TariffHistory = typeof tariffHistory.$inferSelect;
 
+// Eugene 2026-05-23 Босс «Информация о Музе» — публичное меню разделов
+// о продукте (что такое MuzaAi, как работает, цены, голоса, поддержка)
+// + admin CMS для CRUD пунктов + загрузка файлов к каждому разделу.
+// Контент hot-updateable, без redeploy. См. plugin muza-info/module.ts.
+export const muzaInfoSections = sqliteTable("muza_info_sections", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  // Уникальный slug для URL и для cross-reference (например "pricing")
+  slug: text("slug").notNull().unique(),
+  // Видимое название раздела ("Сколько стоит")
+  title: text("title").notNull(),
+  // Emoji-иконка для меню (🎵 💰 📖 …). 1-2 символа.
+  emoji: text("emoji"),
+  // Порядок отображения в меню (ASC). 0 = вверху.
+  position: integer("position").notNull().default(0),
+  // Контент в Markdown. Renderer на клиенте — `marked` (уже в deps).
+  bodyMarkdown: text("body_markdown").notNull().default(""),
+  // Список загруженных файлов: [{filename, url, size, mime, uploadedAt}]
+  attachmentsJson: text("attachments_json").notNull().default("[]"),
+  // 1 = публикуется, 0 = черновик (виден только админу)
+  isPublished: integer("is_published").notNull().default(1),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export type MuzaInfoSection = typeof muzaInfoSections.$inferSelect;
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
