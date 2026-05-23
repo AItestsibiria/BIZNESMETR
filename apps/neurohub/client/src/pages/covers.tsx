@@ -65,6 +65,32 @@ export default function CoversPage() {
   const [showInlineAuth, setShowInlineAuth] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval>>();
 
+  // Eugene 2026-05-23 Risk #9 fix: consumer prefill из Музa-чата. Mount read +
+  // event listener (corner-case когда юзер уже на /covers — wouter не remount).
+  useEffect(() => {
+    const applyPrefill = (prefill: any) => {
+      if (!prefill || typeof prefill !== "object") return;
+      if (typeof prefill.prompt === "string" && prefill.prompt) setPrompt(prefill.prompt);
+      if (typeof prefill.details === "string" && prefill.details) setDetails(prefill.details);
+      if (typeof prefill.style === "string" && prefill.style) setStyle(prefill.style);
+    };
+    let raw: string | null = null;
+    try { raw = sessionStorage.getItem("muza_panel_prefill:covers"); } catch {}
+    if (raw) {
+      try { sessionStorage.removeItem("muza_panel_prefill:covers"); } catch {}
+      try { applyPrefill(JSON.parse(raw)); } catch {}
+    }
+    const onPrefill = (e: Event) => {
+      const ce = e as CustomEvent<{ group: string; prefill: any }>;
+      if (ce.detail?.group === "covers") {
+        try { sessionStorage.removeItem("muza_panel_prefill:covers"); } catch {}
+        applyPrefill(ce.detail.prefill);
+      }
+    };
+    window.addEventListener("muza-panel-prefill", onPrefill);
+    return () => window.removeEventListener("muza-panel-prefill", onPrefill);
+  }, []);
+
   const pollStatus = useCallback(async (taskId: string) => {
     try {
       const res = await apiRequest("GET", `/api/covers/status/${taskId}`);

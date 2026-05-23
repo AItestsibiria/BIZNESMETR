@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { HelpBuddy } from "@/components/help-buddy";
 import { useAuth } from "@/lib/auth";
 import { startBgMusic, stopBgMusic } from "@/components/background-music";
@@ -46,6 +46,35 @@ export default function LyricsPage() {
   const [result, setResult] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [showInlineAuth, setShowInlineAuth] = useState(false);
+
+  // Eugene 2026-05-23 Risk #9 fix: consumer prefill из Музa-чата. Mount read +
+  // event listener (corner-case когда юзер уже на /lyrics — wouter не remount).
+  useEffect(() => {
+    const applyPrefill = (prefill: any) => {
+      if (!prefill || typeof prefill !== "object") return;
+      if (typeof prefill.prompt === "string" && prefill.prompt) setPrompt(prefill.prompt);
+      if (typeof prefill.topic === "string" && prefill.topic) setPrompt(prefill.topic);
+      if (typeof prefill.genre === "string" && prefill.genre) setGenre(prefill.genre);
+      if (typeof prefill.style === "string" && prefill.style) setGenre(prefill.style);
+      if (typeof prefill.mood === "string" && prefill.mood) setMood(prefill.mood);
+      if (typeof prefill.language === "string" && prefill.language) setLanguage(prefill.language);
+    };
+    let raw: string | null = null;
+    try { raw = sessionStorage.getItem("muza_panel_prefill:lyrics"); } catch {}
+    if (raw) {
+      try { sessionStorage.removeItem("muza_panel_prefill:lyrics"); } catch {}
+      try { applyPrefill(JSON.parse(raw)); } catch {}
+    }
+    const onPrefill = (e: Event) => {
+      const ce = e as CustomEvent<{ group: string; prefill: any }>;
+      if (ce.detail?.group === "lyrics") {
+        try { sessionStorage.removeItem("muza_panel_prefill:lyrics"); } catch {}
+        applyPrefill(ce.detail.prefill);
+      }
+    };
+    window.addEventListener("muza-panel-prefill", onPrefill);
+    return () => window.removeEventListener("muza-panel-prefill", onPrefill);
+  }, []);
 
   const handleGenerate = async () => {
     if (!user) {

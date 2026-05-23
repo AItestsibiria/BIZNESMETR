@@ -34,6 +34,7 @@ import {
   getMuzaTokenStats,
   getTokenPrice,
 } from "./lib/llmCore";
+import { detectMuzaToolIntent } from "./lib/muzaIntentRouter";
 import { smsProviderLogs, smsOtp } from "@shared/schema";
 import { logUserActionFailure } from "./lib/userActionFailures";
 import {
@@ -3310,6 +3311,15 @@ export async function registerRoutes(
         } catch {}
       };
 
+      // Eugene 2026-05-23 Risk #12 fix: если у юзера есть player/panel/generation
+      // intent — нужны MUZA_TOOLS, которые работают ТОЛЬКО на Anthropic-шаге.
+      // Иначе DeepSeek (primary, cheaper) вернёт text без вызова tool → плеер
+      // не реагирует на «постав трек про маму». См. muzaIntentRouter.ts.
+      const forceAnthropic = detectMuzaToolIntent(text);
+      if (forceAnthropic) {
+        console.log(`[MUZA-INTENT-ROUTER] tool-intent detected → forceAnthropic for sess=${session.id.slice(0, 12)}`);
+      }
+
       let reply = await callUnifiedMuzaLLM({
         sessionId: session.id,
         userId: authUserId,
@@ -3320,6 +3330,7 @@ export async function registerRoutes(
         maxTokens: 400,
         role: muzaRole,
         onToolResult,
+        forceAnthropic,
       });
 
       // Eugene 2026-05-23 Босс «Музa тупит» — server-side dedup: если LLM
@@ -3360,6 +3371,7 @@ export async function registerRoutes(
               maxTokens: 400,
               role: muzaRole,
               onToolResult,
+              forceAnthropic,
             });
             if (retry && retry.trim().length > 20) {
               const newSim = sim(trigrams(retry), currentTri);

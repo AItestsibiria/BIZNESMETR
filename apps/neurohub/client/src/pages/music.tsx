@@ -497,6 +497,48 @@ export default function MusicPage() {
   const [copiedPrompt, setCopiedPrompt] = useState(false);
   const [highlightStyles, setHighlightStyles] = useState(!!transferred?.style);
   const [showTransferBanner, setShowTransferBanner] = useState(!!transferred?.fullStyle);
+
+  // Eugene 2026-05-23 Risk #9 fix: consumer для prefill из Музa-чата.
+  // floating-consultant.tsx после `open_panel` tool пишет
+  // sessionStorage["muza_panel_prefill:music"] = JSON.stringify({mode, prompt,
+  // style, voice, bpm, mood, title, lyrics}) И диспатчит "muza-panel-prefill"
+  // event. Здесь оба триггера: mount-read (свежая навигация) + event-listen
+  // (юзер уже на /music — wouter не remount).
+  useEffect(() => {
+    const applyPrefill = (prefill: any) => {
+      if (!prefill || typeof prefill !== "object") return;
+      if (prefill.mode === "basic" || prefill.mode === "audio" || prefill.mode === "advanced") setMode(prefill.mode);
+      if (typeof prefill.prompt === "string" && prefill.prompt) setPrompt(prefill.prompt);
+      if (typeof prefill.style === "string" && prefill.style) {
+        setStyle(prefill.style);
+        setSelectedStyles([prefill.style]);
+      }
+      if (typeof prefill.lyrics === "string" && prefill.lyrics) setLyrics(prefill.lyrics);
+      if (typeof prefill.title === "string" && prefill.title) setTitle(prefill.title);
+      if (prefill.voice === "female" || prefill.voice === "male") setVoice(prefill.voice);
+      if (prefill.instrumental === true || prefill.instrumental === false) setInstrumental(prefill.instrumental);
+      if (typeof prefill.bpm === "string" || typeof prefill.bpm === "number") setBpm(String(prefill.bpm));
+      if (typeof prefill.mood === "string" && prefill.mood) setMood(prefill.mood);
+    };
+    // Mount read — для случая когда юзер пришёл на /music с другой страницы.
+    let raw: string | null = null;
+    try { raw = sessionStorage.getItem("muza_panel_prefill:music"); } catch {}
+    if (raw) {
+      try { sessionStorage.removeItem("muza_panel_prefill:music"); } catch {}
+      try { applyPrefill(JSON.parse(raw)); } catch {}
+    }
+    // Event listener — для случая когда юзер уже был на /music и Музa
+    // переоткрыла форму с новым prefill (wouter не remount same-path).
+    const onPrefill = (e: Event) => {
+      const ce = e as CustomEvent<{ group: string; prefill: any }>;
+      if (ce.detail?.group === "music") {
+        try { sessionStorage.removeItem("muza_panel_prefill:music"); } catch {}
+        applyPrefill(ce.detail.prefill);
+      }
+    };
+    window.addEventListener("muza-panel-prefill", onPrefill);
+    return () => window.removeEventListener("muza-panel-prefill", onPrefill);
+  }, []);
   const pollRef = useRef<ReturnType<typeof setInterval>>();
 
   const pollStatus = useCallback(async (taskId: string) => {

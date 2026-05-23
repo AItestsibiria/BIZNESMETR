@@ -71,6 +71,15 @@ export interface UnifiedLLMOpts {
    * attachedTrack к финальному ответу. Sync, не throw'ит.
    */
   onToolResult?: (toolName: string, input: any, result: string) => void;
+  /**
+   * Eugene 2026-05-23 Risk #12 fix. Если true — пропускаем DeepSeek и TimeWeb
+   * (они БЕЗ tools, не могут вызвать find_public_track/play_now/open_panel/
+   * create_music_job/...) и идём сразу на Anthropic chain с MUZA_TOOLS.
+   * Caller детектит tool-intent через muzaIntentRouter.detectMuzaToolIntent()
+   * и передаёт сюда. Без этого флага LLM-цепочка обрывается на DeepSeek-text-
+   * ответе, и юзеру с командой «постав трек про маму» музыка не воспроизводится.
+   */
+  forceAnthropic?: boolean;
 }
 
 export type KeySwitchEvent = {
@@ -461,7 +470,11 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
   // === [PRIMARY] DeepSeek (Eugene 2026-05-21 Босс «DeepSeek primary, TimeWeb fallback,
   // далее по имени sort») === OpenAI-compatible, БЕЗ tools.
   // Дешёвый ($0.27/1M input, $1.10/1M output для deepseek-chat).
-  if (process.env.DEEPSEEK_API_KEY) {
+  // Eugene 2026-05-23 Risk #12: если forceAnthropic — пропускаем (DeepSeek
+  // не поддерживает MUZA_TOOLS, а юзер просил player/panel/generation action).
+  if (opts.forceAnthropic) {
+    console.log("[MUZA-LLM] forceAnthropic=true — skip DeepSeek (no-tools), goto Anthropic");
+  } else if (process.env.DEEPSEEK_API_KEY) {
     try {
       const sysText = systemBlocks.map(b => (typeof b === "string" ? b : (b?.text || ""))).join("\n\n");
       const ds = await callDeepSeek({
@@ -493,7 +506,11 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
 
   // === [FALLBACK 1] TimeWeb Gateway === OpenAI-compatible, БЕЗ tools.
   // Anthropic-models через api.timeweb.ai gateway.
-  if (process.env.TIMEWEB_GATEWAY_KEY) {
+  // Eugene 2026-05-23 Risk #12: если forceAnthropic — пропускаем (TimeWeb
+  // gateway тоже не маршрутизирует tools на upstream Anthropic).
+  if (opts.forceAnthropic) {
+    console.log("[MUZA-LLM] forceAnthropic=true — skip TimeWeb (no-tools), goto Anthropic direct");
+  } else if (process.env.TIMEWEB_GATEWAY_KEY) {
     try {
       const sysText = systemBlocks.map(b => (typeof b === "string" ? b : (b?.text || ""))).join("\n\n");
       const tw = await callTimeWebGateway({

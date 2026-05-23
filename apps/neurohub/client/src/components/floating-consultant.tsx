@@ -1482,9 +1482,17 @@ export function FloatingConsultant() {
             // Берём ПОСЛЕДНИЙ panel (если Музa вызвала несколько open_panel
             // подряд — что неестественно, но защита). Префиксы wouter hash router.
             const PANEL_TO_PATH: Record<string, string> = {
-              music: "/music", music_audio: "/music", music_text: "/music",
+              music: "/music", music_audio: "/music", music_text: "/music", music_lyrics: "/music",
               lyrics: "/lyrics", cover: "/covers", dashboard: "/dashboard",
               tracks: "/tracks", billing: "/billing", landing: "/",
+            };
+            // Eugene 2026-05-23 Risk #9 fix: группировка по target page для
+            // одного ключа prefill (вместо 4 разных music_*). Reader в pages/
+            // читает один ключ независимо от sub-panel.
+            const PANEL_TO_GROUP: Record<string, string> = {
+              music: "music", music_audio: "music", music_text: "music", music_lyrics: "music",
+              lyrics: "lyrics", cover: "covers", dashboard: "dashboard",
+              tracks: "tracks", billing: "billing", landing: "landing",
             };
             const last = j.panelActions[j.panelActions.length - 1];
             if (last && typeof last.panel === "string" && PANEL_TO_PATH[last.panel]) {
@@ -1496,15 +1504,25 @@ export function FloatingConsultant() {
                   prefill = JSON.parse(json);
                 } catch {}
               }
+              const group = PANEL_TO_GROUP[last.panel] || last.panel;
               if (prefill) {
-                try { sessionStorage.setItem(`muza_panel_prefill:${last.panel}`, JSON.stringify(prefill)); } catch {}
+                try { sessionStorage.setItem(`muza_panel_prefill:${group}`, JSON.stringify(prefill)); } catch {}
               }
               // Навигация через wouter (hash-router). Закрываем чат если открыт —
               // чтобы юзер видел открытую страницу. Через 300ms (после humanDelay).
+              // Eugene 2026-05-23 Risk #9 corner-case: если юзер уже на target page,
+              // wouter navigate не remount компонент → useEffect prefill consumer
+              // не выполнится. Решение: dispatch event "muza-panel-prefill" —
+              // pages слушают и применяют prefill на лету.
               window.setTimeout(() => {
                 try {
                   navigate(PANEL_TO_PATH[last.panel]);
                   setChatOpen(false);
+                  if (prefill) {
+                    window.dispatchEvent(new CustomEvent("muza-panel-prefill", {
+                      detail: { group, panel: last.panel, prefill },
+                    }));
+                  }
                 } catch (e) {
                   console.warn("[FloatingConsultant] navigate failed:", e);
                 }
