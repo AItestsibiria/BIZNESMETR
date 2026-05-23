@@ -681,6 +681,24 @@ export function FloatingConsultant() {
   useEffect(() => {
     try { localStorage.setItem("muza-chat-font-size", String(chatFontSize)); } catch {}
   }, [chatFontSize]);
+  // Eugene 2026-05-23 Босс «прозрачность изменение нажатием 3 режима».
+  // 0=плотно (95%), 1=полупрозрачно (60%), 2=стекло (28%, текущий default).
+  const [chatOpacity, setChatOpacity] = useState<0 | 1 | 2>(() => {
+    if (typeof window === "undefined") return 2;
+    try {
+      const saved = Number(localStorage.getItem("muza-chat-opacity"));
+      return saved === 0 || saved === 1 || saved === 2 ? (saved as 0 | 1 | 2) : 2;
+    } catch { return 2; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("muza-chat-opacity", String(chatOpacity)); } catch {}
+  }, [chatOpacity]);
+  // Eugene 2026-05-23 Босс «после первого сообщения глюк с отправкой кнопка
+  // не реагирует» — раньше кнопка submit была disabled пока LLM отвечает
+  // (до 45 сек fallback chain). Юзер думал что глюк. Теперь — очередь:
+  // юзер может слать любое количество сообщений, они отправляются по очереди
+  // после ответа на предыдущее (backend session_id race-safe одновременно).
+  const [pendingMessages, setPendingMessages] = useState<string[]>([]);
   // Eugene 2026-05-18 Босс «убери облака с подсказками, но оставь в чате
   // кнопку с возможностью их появления». Default false — пустой чат без
   // подсказок. Юзер нажимает «💡 Подсказки» — появляются 4-5 chips.
@@ -1605,9 +1623,30 @@ export function FloatingConsultant() {
   }, [humanDelay]);
 
   const sendChat = useCallback(async () => {
-    if (!chatInput.trim() || chatSending) return;
-    await doSendMessage(chatInput);
+    const text = chatInput.trim();
+    if (!text) return;
+    // Eugene 2026-05-23 Босс «после первого сообщения глюк с отправкой».
+    // Если ждём ответ — ставим в очередь, input очищается мгновенно (юзер
+    // видит «отправлено»). После завершения предыдущего request useEffect
+    // ниже вытянет следующее сообщение из очереди.
+    if (chatSending) {
+      setPendingMessages(q => [...q, text]);
+      setChatInput("");
+      try { playMuzaTick(); } catch {}
+      return;
+    }
+    await doSendMessage(text);
   }, [chatInput, chatSending, doSendMessage]);
+
+  // Eugene 2026-05-23 Auto-flush очереди: когда chatSending false-ится и есть
+  // pending, отправляем следующее сообщение из очереди.
+  useEffect(() => {
+    if (chatSending) return;
+    if (pendingMessages.length === 0) return;
+    const [next, ...rest] = pendingMessages;
+    setPendingMessages(rest);
+    void doSendMessage(next);
+  }, [chatSending, pendingMessages, doSendMessage]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2289,7 +2328,7 @@ export function FloatingConsultant() {
             </>
           )}
           <div
-            className={`absolute flex flex-col bg-background/[0.28] backdrop-blur-md border-2 rounded-2xl border-purple-400/40 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in fade-in duration-300 ${
+            className={`absolute flex flex-col backdrop-blur-md border-2 rounded-2xl border-purple-400/40 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in fade-in duration-300 ${
               isResizing ? "" : "transition-all"
             } ${
               // Mobile (sm:hidden break) — фиксированные responsive ширины как раньше.
@@ -2311,6 +2350,8 @@ export function FloatingConsultant() {
                 ? { width: `${chatSize.w}px`, height: `${chatSize.h}px` }
                 : { height: "min(60vh, calc(100vh - 96px - env(safe-area-inset-bottom, 0px)))" }),
               marginBottom: drawerSnap === "br" || drawerSnap === "bl" ? "env(safe-area-inset-bottom, 0px)" : undefined,
+              // Eugene 2026-05-23 Босс «прозрачность 3 режима». 0=плотно, 1=полупрозрачно, 2=стекло.
+              backgroundColor: `hsl(var(--background) / ${[0.95, 0.6, 0.28][chatOpacity]})`,
             }}
           >
             {/* Eugene 2026-05-18 Босс: диагональная стрелка resize в верхне-левом
@@ -2409,6 +2450,15 @@ export function FloatingConsultant() {
                   className="w-7 h-7 sm:w-6 sm:h-6 rounded-full text-white/70 hover:text-white hover:bg-white/[0.08] text-[14px] font-semibold flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
                 >A+</button>
               </div>
+              {/* Eugene 2026-05-23 Босс «прозрачность изменение нажатием 3
+                  режима». Cycle: плотно → полупрозрачно → стекло. */}
+              <button
+                type="button"
+                onClick={() => setChatOpacity(o => ((o + 1) % 3) as 0 | 1 | 2)}
+                aria-label="Прозрачность чата"
+                title={`Прозрачность: ${["плотно", "полупрозрачно", "стекло"][chatOpacity]} (тап для смены)`}
+                className="w-9 h-9 sm:w-7 sm:h-7 rounded-full hover:bg-white/[0.08] text-white/70 hover:text-white text-[14px] flex items-center justify-center shrink-0"
+              >{["▓", "▒", "░"][chatOpacity]}</button>
               {/* Eugene 2026-05-14 Босс: новый разговор — чистый sessionId,
                   устраняет остатки старой истории в БД. */}
               <button
@@ -3097,11 +3147,33 @@ export function FloatingConsultant() {
                 className="flex-1 min-w-0 bg-white/[0.07] text-[16px] text-white placeholder:text-white/40 px-4 py-3 rounded-xl border-2 border-purple-400/25 focus:border-purple-400/60 focus:outline-none disabled:opacity-50 font-medium resize-none leading-[1.4] min-h-[3.25rem] max-h-[8.25rem] overflow-y-auto"
                 autoFocus
               />
+              {/* Eugene 2026-05-23 Босс «кнопку побольше + графический элемент
+                  со смыслом нажать». 56×56, paper plane SVG, hover scale,
+                  pulse glow когда есть текст. При chatSending клик → queue
+                  (не disabled). Badge с количеством pending справа сверху. */}
               <button
                 type="submit"
-                disabled={!chatInput.trim() || chatSending}
-                className="px-5 py-3.5 rounded-xl bg-gradient-to-r from-purple-500 to-blue-500 text-white text-[16px] font-bold disabled:opacity-40 disabled:cursor-not-allowed hover:from-purple-600 hover:to-blue-600 transition-colors shrink-0 shadow-lg shadow-purple-500/20"
-              >➤</button>
+                disabled={!chatInput.trim()}
+                className="relative w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-500 via-fuchsia-500 to-blue-500 text-white shadow-lg shadow-purple-500/40 hover:shadow-xl hover:shadow-purple-500/60 hover:scale-105 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:scale-100 transition-all flex items-center justify-center shrink-0"
+                title={chatSending ? "Музa отвечает — следующее в очереди" : "Отправить"}
+                aria-label="Отправить сообщение"
+              >
+                {chatSending ? (
+                  <svg className="w-7 h-7 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" strokeOpacity="0.25" />
+                    <path d="M12 3 A9 9 0 0 1 21 12" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+                  </svg>
+                ) : (
+                  <svg className="w-7 h-7 -translate-x-px translate-y-px drop-shadow-[0_2px_4px_rgba(0,0,0,0.3)]" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                    <path d="M3.4 20.4l17.45-7.48a1 1 0 0 0 0-1.84L3.4 3.6a1 1 0 0 0-1.4 1.07l1.55 7.05a1 1 0 0 0 .78.77L13 14l-8.67 1.51a1 1 0 0 0-.78.77L2 23.33a1 1 0 0 0 1.4 1.07z" />
+                  </svg>
+                )}
+                {pendingMessages.length > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1 rounded-full bg-fuchsia-400 text-[10px] font-bold text-purple-950 flex items-center justify-center border-2 border-background shadow-lg" aria-label={`В очереди: ${pendingMessages.length}`}>
+                    {pendingMessages.length}
+                  </span>
+                )}
+              </button>
             </form>
             {/* Eugene 2026-05-14 Босс «кнопку ухожу и вернусь — внизу».
                 Человечнее чем X в header — обещает возврат, Муза «помнит». */}
