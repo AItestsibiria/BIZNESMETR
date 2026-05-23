@@ -511,6 +511,33 @@ function buildSunoCallbackUrl(req: Request | null, genId: number): string {
 }
 
 // Price per service type (in kopecks)
+// Eugene 2026-05-22 Босс «cutoff bug при initial generation» — helper для
+// определения is_public при создании трека. Применяет Two-playlist rule:
+// established author (createdAt < 2026-05-20) → main (1)
+// new author → new-authors-playlist (2) (ждёт челофильтра или admin approve)
+// isPublic === false → private (0)
+// Закрывает exploit: new author создавал трек isPublic:true → сразу обходил
+// модерацию в main playlist. См. CLAUDE.md → Two-playlist rule.
+const NEW_AUTHORS_CUTOFF_ISO = "2026-05-20T00:00:00.000Z";
+function resolveInitialIsPublic(user: any, wantedIsPublic: any): 0 | 1 | 2 {
+  if (wantedIsPublic === false) return 0; // explicit private
+  if (!user) return 2; // anon — should never happen here, defensive
+  // Admin создаёт треки сразу в main
+  const role = String(user.role || "").toLowerCase();
+  if (role === "admin" || role === "super_admin") return 1;
+  // Established author (registered before cutoff) → main
+  const created = String(user.createdAt || "");
+  if (created) {
+    try {
+      if (new Date(created).getTime() < new Date(NEW_AUTHORS_CUTOFF_ISO).getTime()) {
+        return 1;
+      }
+    } catch {}
+  }
+  // New author → new-authors playlist (is_public=2), ждёт челофильтра/админа
+  return 2;
+}
+
 const PRICES: Record<string, number> = {
   lyrics: 9900,   // 99 ₽
   music: 39900,   // 399 ₽ (Eugene 2026-05-19: было 299 → 399)
@@ -3165,6 +3192,24 @@ export async function registerRoutes(
           const authedUser = storage.getUser(authUserId);
           const roleLower = String((authedUser as any)?.role || "").toLowerCase();
           if (roleLower === "admin" || roleLower === "super_admin") muzaRole = roleLower;
+        } catch {}
+      }
+
+      // Eugene 2026-05-23 Босс «Жёсткий upgrade Yars system». Auto-tag
+      // свежевставленного user-message — если muzaRole admin + text matches
+      // /(ярс|yars|оператор)/i, UPDATE'ит yars-колонки в chatbot_messages:
+      //   is_yars_command=1, yars_category, yars_risk_level,
+      //   claude_review_decision='pending'.
+      // Дальше Claude pull'ит queue через GET /api/admin/v304/yars-queue.
+      // Sync, не throw'ит — auto-tag failure не блокирует chat.
+      if (muzaRole) {
+        try {
+          const { tagYarsCommand } = await import("./lib/yarsAutoTag");
+          tagYarsCommand({
+            messageId: insertedUserMsg?.id,
+            text,
+            role: muzaRole,
+          });
         } catch {}
       }
 
@@ -8936,7 +8981,8 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         }),
         cost: charge.isFree ? 0 : PRICES.music,
         status: "processing",
-        isPublic: isPublic === false ? 0 : 1,
+        // Eugene 2026-05-22 Босс: cutoff fix — Two-playlist rule (established→1, new→2)
+        isPublic: resolveInitialIsPublic(user, isPublic),
         authorName: authorName || user.name || "Аноним",
       });
 
@@ -9360,7 +9406,8 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         }),
         cost: charge.isFree ? 0 : PRICES.music,
         status: "processing",
-        isPublic: isPublic === false ? 0 : 1,
+        // Eugene 2026-05-22 Босс: cutoff fix — Two-playlist rule (established→1, new→2)
+        isPublic: resolveInitialIsPublic(user, isPublic),
         authorName: authorName || user.name || "Аноним",
       });
 
@@ -9472,7 +9519,8 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         }),
         cost: charge.isFree ? 0 : PRICES.music,
         status: "processing",
-        isPublic: isPublic === false ? 0 : 1,
+        // Eugene 2026-05-22 Босс: cutoff fix — Two-playlist rule (established→1, new→2)
+        isPublic: resolveInitialIsPublic(user, isPublic),
         authorName: authorName || user.name || "Аноним",
       });
 
