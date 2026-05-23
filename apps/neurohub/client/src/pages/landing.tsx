@@ -4,6 +4,7 @@ import { useAuth } from "@/lib/auth";
 import { useFeatureEnabled } from "@/lib/featureToggles";
 import { PenLine, Music, Image, Sparkles, ArrowRight, Zap, Download, Mic, Play, Pause, SkipForward, SkipBack, ChevronDown, ChevronUp, Share2, Repeat, Repeat1, Maximize } from "lucide-react";
 import { StudioMicEq } from "@/components/studio-mic-eq";
+import { LiveBetaBanner } from "@/components/live-beta-banner";
 import { ShareQRSection, TrackShareQR } from "@/components/share-qr";
 import { KaraokeLyrics } from "@/components/karaoke-lyrics";
 import { ExpandToggleButton } from "@/components/expand-toggle-button";
@@ -1741,6 +1742,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   };
 
   return (<>
+    {/* Eugene 2026-05-23 Босс «добавь место live на главной — Live плейлист,
+        ДВД-логот. Платформа находится на тестировании на английском тоже».
+        Bouncing MuzaAi-logo (DVD-screensaver style) + bilingual LIVE/beta badge. */}
+    <section className="relative z-[1] pt-2 sm:pt-3 pb-2 sm:pb-3 px-4">
+      <LiveBetaBanner />
+    </section>
     {/* Eugene 2026-05-22 Босс: «при открытии главной юзер сразу видит основной
         плеер». Новый порядок секций — Плейлист первым, под CTA «Создать трек».
         Дальше: Муза (без gift-пилюль), Новости, Контакты. */}
