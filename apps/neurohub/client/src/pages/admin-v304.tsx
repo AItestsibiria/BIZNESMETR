@@ -54,6 +54,9 @@ import OrchestratorTab from "@/pages/admin/orchestrator-tab";
 import GenErrorsTab from "@/pages/admin/gen-errors-tab";
 import MuzaInfoTab from "@/pages/admin/muza-info-tab";
 import EmailTemplatesTab from "@/pages/admin/email-templates-tab";
+// Eugene 2026-05-24 Босс «заведи агента по учёту затрат... Отчёт в админке —
+// Агент Деньга». См. lib/dengaAgent.ts + Denga-agent rule в CLAUDE.md.
+import DengaTab from "@/pages/admin/denga-tab";
 import { MusaVoiceFab } from "@/components/musa-voice-fab";
 
 // Lazy-load SecondBrain3D — three.js + 3d-force-graph весят ~500KB,
@@ -780,6 +783,9 @@ export default function AdminV304Page() {
               всех agents (каналы, персоны, watchdog'и, cron'ы). */}
           <TabsTrigger value="orchestrator" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🤖 Оркестратор</TabsTrigger>
           <TabsTrigger value="gen-errors" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-red-500 data-[state=active]:via-amber-500 data-[state=active]:to-fuchsia-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(239,68,68,0.45)] data-[state=active]:border-red-300/40">🚨 Ошибки генерации</TabsTrigger>
+          {/* Eugene 2026-05-24 Босс «заведи агента по учёту затрат... Отчёт в
+              админке — Агент Деньга». Cost/profit per user/track. */}
+          <TabsTrigger value="denga" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-amber-500 data-[state=active]:via-orange-500 data-[state=active]:to-fuchsia-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(245,158,11,0.45)] data-[state=active]:border-amber-300/40">💰 Деньга</TabsTrigger>
           {/* Eugene 2026-05-23 Босс «интерактивный дизайн писем от Музы» —
               templates registry, preview, send-test, log. */}
           <TabsTrigger value="email-templates" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">✉️ Письма Музы</TabsTrigger>
@@ -850,6 +856,7 @@ export default function AdminV304Page() {
         <TabsContent value="api-health"><ApiHealthTab toast={toast} /></TabsContent>
         <TabsContent value="orchestrator"><OrchestratorTab /></TabsContent>
         <TabsContent value="gen-errors"><GenErrorsTab /></TabsContent>
+        <TabsContent value="denga"><DengaTab /></TabsContent>
         <TabsContent value="email-templates"><EmailTemplatesTab toast={toast} /></TabsContent>
         <TabsContent value="bot-channels"><BotChannelsTab toast={toast} /></TabsContent>
         <TabsContent value="delegates"><DelegatesTab toast={toast} /></TabsContent>

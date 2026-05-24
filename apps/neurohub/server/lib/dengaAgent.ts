@@ -380,7 +380,7 @@ function attributeChatCostToTracks(
     gensByUser.get(g.userId)!.push(g);
   }
   // Ensure sorted ASC (already from loadGenerations, but defensive)
-  for (const [, list] of gensByUser) list.sort((a, b) => a.createdAtMillis - b.createdAtMillis);
+  gensByUser.forEach((list: GenRow[]) => list.sort((a, b) => a.createdAtMillis - b.createdAtMillis));
 
   // Group messages by userId
   const msgsByUser = new Map<number | null, ChatMsgRow[]>();
@@ -390,19 +390,13 @@ function attributeChatCostToTracks(
     msgsByUser.get(key)!.push(m);
   }
 
-  for (const [userKey, list] of msgsByUser) {
+  msgsByUser.forEach((list: ChatMsgRow[], userKey: number | null) => {
     list.sort((a, b) => a.createdAtMillis - b.createdAtMillis);
 
     if (userKey == null) {
       // Anonymous: separate bucket per session via channel grouping
       for (const m of list) {
-        if (m.role !== "bot" && m.role !== "user") continue; // skip system
-        // Cost estimate — для anonymous предполагаем provider=deepseek (default chain).
-        // input — все user messages до этого момента; output — assistant reply length.
-        // Чтобы не reconstruct'ить full history — простое приближение: каждое
-        // assistant reply «стоит» себя + accumulated prior user msgs в эту session.
-        // Для простоты считаем only bot messages cost (output) + предыдущее user msg (input).
-        if (m.role !== "bot") continue;
+        if (m.role !== "bot") continue; // считаем cost только bot-replies (output side)
         const cost = estimateChatCallCost({
           inputChars: m.textLen * 2,  // rough: input ≈ 2× of output for typical chat
           outputChars: m.textLen,
@@ -417,7 +411,7 @@ function attributeChatCostToTracks(
         perAnonymousChannel[m.channel].messages += 1;
         perAnonymousChannel[m.channel].cost += cost;
       }
-      continue;
+      return; // continue для forEach
     }
 
     const userGens = gensByUser.get(userKey) || [];
@@ -449,7 +443,7 @@ function attributeChatCostToTracks(
       }
       perGen.set(target.id, (perGen.get(target.id) || 0) + cost);
     }
-  }
+  });
 
   return { perGen, anonymous, perAnonymousChannel };
 }
