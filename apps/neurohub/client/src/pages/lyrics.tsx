@@ -46,6 +46,17 @@ export default function LyricsPage() {
   const [result, setResult] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [showInlineAuth, setShowInlineAuth] = useState(false);
+  // Eugene 2026-05-24 Premium-lyrics rule: toggle для 4-step refinement.
+  // hasSubscription === true → free, иначе one-off 149 ₽.
+  const [premiumEnabled, setPremiumEnabled] = useState(false);
+  const [premiumInfoOpen, setPremiumInfoOpen] = useState(false);
+  const [premiumStatus, setPremiumStatus] = useState<{
+    hasSubscription: boolean;
+    expiresAt: string | null;
+    oneoffPriceLabel: string;
+    subscriptionMonthlyLabel: string;
+  } | null>(null);
+  const [premiumSteps, setPremiumSteps] = useState<string[] | null>(null);
 
   // Eugene 2026-05-23 Risk #9 fix: consumer prefill из Музa-чата. Mount read +
   // event listener (corner-case когда юзер уже на /lyrics — wouter не remount).
@@ -76,6 +87,34 @@ export default function LyricsPage() {
     return () => window.removeEventListener("muza-panel-prefill", onPrefill);
   }, []);
 
+  // Eugene 2026-05-24 Premium-lyrics rule: load premium status (subscription + price).
+  useEffect(() => {
+    if (!user) { setPremiumStatus(null); return; }
+    let cancelled = false;
+    apiRequest("GET", "/api/lyrics/premium-status")
+      .then(r => r.json())
+      .then(d => {
+        if (cancelled) return;
+        setPremiumStatus({
+          hasSubscription: !!d.hasSubscription,
+          expiresAt: d.expiresAt || null,
+          oneoffPriceLabel: d.oneoffPriceLabel || "149 ₽",
+          subscriptionMonthlyLabel: d.subscriptionMonthlyLabel || "299 ₽/мес",
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // Silent fallback — UI просто покажет дефолтные лейблы.
+        setPremiumStatus({
+          hasSubscription: false,
+          expiresAt: null,
+          oneoffPriceLabel: "149 ₽",
+          subscriptionMonthlyLabel: "299 ₽/мес",
+        });
+      });
+    return () => { cancelled = true; };
+  }, [user?.id]);
+
   const handleGenerate = async () => {
     if (!user) {
       setShowInlineAuth(true);
@@ -86,18 +125,30 @@ export default function LyricsPage() {
       return;
     }
     setLoading(true);
+    setPremiumSteps(null);
     startBgMusic();
     setResult(null);
     try {
-      const res = await apiRequest("POST", "/api/lyrics/generate", { prompt, genre, mood, language });
+      // Eugene 2026-05-24: premium endpoint при premiumEnabled, иначе обычный.
+      const endpoint = premiumEnabled ? "/api/lyrics/premium-generate" : "/api/lyrics/generate";
+      const res = await apiRequest("POST", endpoint, { prompt, genre, style: genre, mood, language });
       const data = await res.json();
       setResult(data.lyrics);
+      if (premiumEnabled && Array.isArray(data.steps_used)) {
+        setPremiumSteps(data.steps_used);
+      }
       await refreshUser();
-      toast({ title: "Текст создан!" });
+      toast({
+        title: premiumEnabled ? "Премиум-текст готов!" : "Текст создан!",
+        description: premiumEnabled && data.viaSubscription
+          ? "Использована подписка «Премиум-качество текста»"
+          : undefined,
+      });
     } catch (err: any) {
+      const msg = String(err?.message || "");
       toast({
         title: "Ошибка",
-        description: err.message?.includes("402") ? "Недостаточно средств. Пополните баланс." : err.message,
+        description: msg.includes("402") ? "Недостаточно средств. Пополните баланс." : msg,
         variant: "destructive",
       });
     } finally {
@@ -204,6 +255,59 @@ export default function LyricsPage() {
             </div>
           </div>
 
+          {/* Eugene 2026-05-24 Premium-lyrics rule: toggle для 4-step refinement.
+              Brand-style consistency rule: glass-card + purple/fuchsia gradient.
+              Layout-fit-no-overlap rule: flex-col mobile, flex-row sm+. */}
+          <div
+            className={`glass-card rounded-xl p-4 border transition-all cursor-pointer ${
+              premiumEnabled
+                ? "border-fuchsia-500/50 shadow-[0_0_24px_rgba(217,70,239,0.25)]"
+                : "border-purple-400/20 hover:border-fuchsia-500/30"
+            }`}
+            onClick={() => setPremiumEnabled(v => !v)}
+            data-testid="premium-lyrics-toggle"
+          >
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 mt-0.5">
+                <div
+                  className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${
+                    premiumEnabled
+                      ? "border-fuchsia-400 bg-gradient-to-br from-purple-500 to-fuchsia-500"
+                      : "border-purple-400/40 bg-transparent"
+                  }`}
+                >
+                  {premiumEnabled && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
+                </div>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-sans font-semibold text-white">
+                    ✨ Премиум-качество текста
+                  </span>
+                  {premiumStatus?.hasSubscription ? (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-medium">
+                      Включено в подписку
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-fuchsia-500/20 text-fuchsia-300 font-bold">
+                      +{premiumStatus?.oneoffPriceLabel || "149 ₽"}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setPremiumInfoOpen(true); }}
+                    className="text-[11px] text-purple-300 hover:text-fuchsia-300 underline-offset-2 hover:underline"
+                  >
+                    как работает
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1 leading-snug">
+                  4-этапное улучшение: Draft → Critique → Refine → Polish. Ярче метафоры, точнее под настроение, без штампов.
+                </p>
+              </div>
+            </div>
+          </div>
+
           <Button
             className="w-full btn-gradient rounded-xl h-12 text-base"
             onClick={handleGenerate}
@@ -213,7 +317,14 @@ export default function LyricsPage() {
             {loading ? (
               <span className="flex items-center gap-2">
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Генерация текста...
+                {premiumEnabled ? "Premium-pipeline (4 шага)..." : "Генерация текста..."}
+              </span>
+            ) : premiumEnabled ? (
+              <span className="flex items-center gap-2">
+                <PenLine className="w-4 h-4" />
+                {premiumStatus?.hasSubscription
+                  ? "Создать премиум-текст (подписка)"
+                  : `✨ Создать премиум-текст — ${premiumStatus?.oneoffPriceLabel || "149 ₽"}`}
               </span>
             ) : (
               <span className="flex items-center gap-2">
@@ -222,6 +333,63 @@ export default function LyricsPage() {
               </span>
             )}
           </Button>
+
+          {/* Premium info modal — что даёт 4-step pipeline */}
+          <Dialog open={premiumInfoOpen} onOpenChange={setPremiumInfoOpen}>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle className="font-display gradient-text">✨ Премиум-качество текста</DialogTitle>
+                <DialogDescription className="text-muted-foreground">
+                  4-этапное улучшение через несколько LLM-вызовов
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3 text-sm">
+                <div className="space-y-2">
+                  <div className="flex items-start gap-2">
+                    <span className="text-purple-300 font-bold">1.</span>
+                    <div>
+                      <div className="font-semibold text-white">Draft</div>
+                      <div className="text-muted-foreground text-xs">Первый набросок 12-16 строк по описанию</div>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-fuchsia-300 font-bold">2.</span>
+                    <div>
+                      <div className="font-semibold text-white">Critique</div>
+                      <div className="text-muted-foreground text-xs">Поиск 3 слабых мест — клише, рваный ритм, плоские эмоции</div>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-cyan-300 font-bold">3.</span>
+                    <div>
+                      <div className="font-semibold text-white">Refine</div>
+                      <div className="text-muted-foreground text-xs">Переписываем слабые места — ярче, точнее, эмоциональнее</div>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-emerald-300 font-bold">4.</span>
+                    <div>
+                      <div className="font-semibold text-white">Polish</div>
+                      <div className="text-muted-foreground text-xs">Финальная проверка размера, рифмы, структуры</div>
+                    </div>
+                  </div>
+                </div>
+                <div className="pt-3 border-t border-purple-500/20 space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">Один premium-текст:</span>
+                    <span className="font-mono text-fuchsia-300 font-bold">{premiumStatus?.oneoffPriceLabel || "149 ₽"}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">Подписка (безлимит):</span>
+                    <span className="font-mono text-emerald-300 font-bold">{premiumStatus?.subscriptionMonthlyLabel || "299 ₽/мес"}</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground pt-1">
+                    Подписку можно оформить через Музу в чате — попроси «оформи мне подписку на премиум-тексты».
+                  </p>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {/* Inline auth form */}
           {showInlineAuth && !user && (
@@ -233,7 +401,14 @@ export default function LyricsPage() {
         {result && (
           <div className="gradient-border p-6 rounded-2xl" data-testid="lyrics-result">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-semibold gradient-text">Результат</h3>
+              <h3 className="text-base font-semibold gradient-text">
+                Результат
+                {premiumSteps && premiumSteps.length > 0 && (
+                  <span className="ml-2 text-[10px] font-mono px-2 py-0.5 rounded-full bg-fuchsia-500/20 text-fuchsia-300 font-medium">
+                    ✨ premium: {premiumSteps.join("→")}
+                  </span>
+                )}
+              </h3>
               <div className="flex gap-2">
                 <Button
                   variant="ghost"

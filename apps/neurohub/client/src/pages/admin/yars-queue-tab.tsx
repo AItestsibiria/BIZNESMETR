@@ -115,7 +115,8 @@ export default function YarsQueueTab({ toast }: { toast?: any }) {
   const [riskFilter, setRiskFilter] = useState<"" | "low" | "medium" | "high">("");
   const [categoryFilter, setCategoryFilter] = useState<string>("");
   const [channelFilter, setChannelFilter] = useState<string>("");
-  const [dateRange, setDateRange] = useState<DateRange>("all");
+  // Eugene 2026-05-24 Босс «По умолчанию все данные в админ-панели — сегодня».
+  const [dateRange, setDateRange] = useState<DateRange>("24h");
   const [sortMode, setSortMode] = useState<SortMode>("created_desc");
   const [search, setSearch] = useState<string>("");
 

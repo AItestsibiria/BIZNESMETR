@@ -1826,25 +1826,25 @@ export function FloatingConsultant() {
           : `${Math.round(reappearMs / 60_000)} мин`;
         const toastDiv = document.createElement("div");
         toastDiv.textContent = `Тапни на экран 2 раза и я вернусь · иначе через ${dur}`;
-        // Position — над FAB (bottom-right): bottom = fab.y отсчитывается от низа.
-        // Используем bottom = 200px чтобы bubble сидел над силуэтом FAB ≈ 144-192px.
+        // Position — TOP-RIGHT под status bar. НЕ накладывается на player
+        // controls внизу (download / share / counter). Минималистично.
         toastDiv.style.cssText = [
           "position:fixed",
-          "bottom:210px",
+          "top:max(72px, env(safe-area-inset-top, 16px))",
           "right:16px",
-          "background:rgba(10,10,23,0.85)",
-          "backdrop-filter:blur(8px)",
-          "-webkit-backdrop-filter:blur(8px)",
-          "color:rgba(255,255,255,0.82)",
-          "padding:8px 14px",
-          "border-radius:18px 18px 4px 18px",
-          "font-size:12px",
+          "background:rgba(10,10,23,0.75)",
+          "backdrop-filter:blur(6px)",
+          "-webkit-backdrop-filter:blur(6px)",
+          "color:rgba(255,255,255,0.75)",
+          "padding:7px 12px",
+          "border-radius:14px",
+          "font-size:11px",
           "font-weight:500",
           "z-index:99999",
-          "border:1px solid rgba(124,58,237,0.40)",
-          "box-shadow:0 4px 16px rgba(0,0,0,0.35)",
-          "max-width:260px",
-          "line-height:1.4",
+          "border:1px solid rgba(124,58,237,0.25)",
+          "box-shadow:0 2px 12px rgba(0,0,0,0.25)",
+          "max-width:240px",
+          "line-height:1.35",
           "animation:fadeIn 0.3s ease-out",
           "pointer-events:none",
         ].join(";");

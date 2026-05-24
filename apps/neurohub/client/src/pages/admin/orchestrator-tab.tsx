@@ -1,12 +1,18 @@
 // Eugene 2026-05-23 Босс «Оркестратор нужен всеми компаниями агентами начать
 // в проекте — коде».
 //
-// Admin-вкладка «🤖 Оркестратор» — единая визуализация всех зарегистрированных
-// agents (channels / personas / watchdogs / cron / internal).
+// Eugene 2026-05-24 Босс «Оркестратор переименуем Музa Директор. Он контролирует
+// всех агентов, собирает всю информацию, итоговую докладывает через аудио».
+// Display name: «🎬 Музa Директор». Технический термин «orchestrator» остаётся
+// в endpoint URLs / file names (backward compat).
+//
+// Admin-вкладка «🎬 Музa Директор» — единая визуализация всех зарегистрированных
+// agents (channels / personas / watchdogs / cron / internal) + voice report.
 //
 // Источник данных:
 //   GET /api/admin/v304/orchestrator/agents — list + summary
 //   GET /api/admin/v304/orchestrator/health — run healthCheckAll
+//   GET /api/admin/v304/director/voice-report?period=today — итоговый аудио-доклад
 //
 // Управление start/stop/restart НЕ предоставляется — info-only panel.
 // Brand-style: glass-card + brand gradient palette из CLAUDE.md.
@@ -257,19 +263,24 @@ export default function OrchestratorTab() {
       {/* Header + summary */}
       <div className="glass-card rounded-2xl p-4 border border-purple-500/30">
         <div className="flex items-start gap-3">
-          <span className="text-3xl">🤖</span>
+          <span className="text-3xl">🎬</span>
           <div className="flex-1">
             <h2 className="text-lg font-sans font-bold text-white mb-1">
               <span className="bg-gradient-to-r from-purple-400 via-fuchsia-400 to-cyan-300 bg-clip-text text-transparent">
-                Оркестратор агентов
+                Музa Директор
               </span>
             </h2>
             <p className="text-sm font-sans text-muted-foreground leading-relaxed">
-              Реестр всех agents проекта — каналы, персоны, watchdog'и, cron'ы. Один логический agent
-              может маскироваться разными persona по каналам (Single-persona-across-channels rule).
+              Контролирует всех агентов, собирает всю информацию, докладывает итоги голосом.
+              Реестр каналов, персон, watchdog'ов и cron'ов. Один логический agent может
+              маскироваться разными persona по каналам (Single-persona-across-channels rule).
             </p>
           </div>
         </div>
+
+        {/* Voice report block */}
+        <DirectorVoiceReport />
+
 
         {summary && (
           <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -699,4 +710,157 @@ export default function OrchestratorTab() {
       )}
     </div>
   );
+}
+
+// ============================================================
+// DirectorVoiceReport — Eugene 2026-05-24
+// «Музa Директор контролирует всех агентов, собирает всю информацию,
+//  итоговую докладывает через аудио».
+//
+// Большая brand-gradient кнопка «🎤 Доложи итоги». Click → POST
+// /api/admin/v304/director/voice-report → играет mp3 (Yandex TTS) или
+// fallback на browser SpeechSynthesis API. Под кнопкой transcript.
+// Auto-refresh каждые 5 минут (опциональный toggle).
+// ============================================================
+interface DirectorReport {
+  textSummary: string;
+  audioBase64?: string;
+  audioContentType?: string;
+  ttsError?: string;
+  generatedAt: string;
+  period: { id: string; label: string; fromIso: string; toIso: string };
+}
+
+function DirectorVoiceReport() {
+  const [report, setReport] = useState<DirectorReport | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [period, setPeriod] = useState<string>("today");
+  const [err, setErr] = useState<string | null>(null);
+
+  async function generateReport() {
+    setLoading(true);
+    setErr(null);
+    try {
+      const r = await fetch(
+        `/api/admin/v304/director/voice-report?period=${encodeURIComponent(period)}`,
+        { credentials: "include" },
+      );
+      if (!r.ok) throw new Error(`${r.status}`);
+      const j = await r.json();
+      const rep: DirectorReport = j.data;
+      setReport(rep);
+
+      // Play audio: Yandex TTS mp3 (base64) preferred, fallback на browser SpeechSynthesis
+      if (rep.audioBase64 && rep.audioContentType) {
+        try {
+          const blob = base64ToBlob(rep.audioBase64, rep.audioContentType);
+          const url = URL.createObjectURL(blob);
+          const audio = new Audio(url);
+          audio.play().catch(() => {
+            speakViaBrowser(rep.textSummary);
+          });
+        } catch {
+          speakViaBrowser(rep.textSummary);
+        }
+      } else {
+        // Yandex TTS не доступен — fallback на browser SpeechSynthesis
+        speakViaBrowser(rep.textSummary);
+      }
+    } catch (e: any) {
+      setErr(String(e?.message || e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const t = setInterval(generateReport, 5 * 60_000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRefresh, period]);
+
+  return (
+    <div className="mt-4 rounded-xl border border-fuchsia-500/30 bg-gradient-to-br from-purple-900/20 via-fuchsia-900/15 to-cyan-900/15 p-3">
+      <div className="flex flex-wrap items-center gap-2 mb-2">
+        <button
+          onClick={generateReport}
+          disabled={loading}
+          className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 via-fuchsia-500 to-cyan-500 text-white text-sm font-bold shadow-[0_0_24px_rgba(217,70,239,0.45)] hover:shadow-[0_0_32px_rgba(124,58,237,0.55)] transition-shadow disabled:opacity-50"
+        >
+          {loading ? "⏳ Собираю..." : "🎤 Доложи итоги"}
+        </button>
+        <select
+          value={period}
+          onChange={e => setPeriod(e.target.value)}
+          className="bg-white/5 border border-fuchsia-400/20 text-white rounded-lg px-2 py-1.5 text-xs"
+        >
+          <option value="today">сегодня</option>
+          <option value="yesterday">вчера</option>
+          <option value="7d">7 дней</option>
+          <option value="30d">30 дней</option>
+        </select>
+        <label className="flex items-center gap-1 text-xs text-white/70 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={autoRefresh}
+            onChange={e => setAutoRefresh(e.target.checked)}
+            className="accent-fuchsia-500"
+          />
+          auto 5 мин
+        </label>
+        {report && (
+          <button
+            onClick={() => setTranscriptOpen(o => !o)}
+            className="text-xs text-cyan-300 hover:text-cyan-200 underline"
+          >
+            {transcriptOpen ? "скрыть текст" : "показать текст"}
+          </button>
+        )}
+      </div>
+
+      {err && (
+        <div className="text-xs text-red-300 mt-1">⚠ {err}</div>
+      )}
+
+      {report && report.ttsError && (
+        <div className="text-[10px] text-amber-300 mt-1">
+          ⚠ TTS: {report.ttsError} — играю через браузерный голос
+        </div>
+      )}
+
+      {report && transcriptOpen && (
+        <div className="mt-2 p-3 rounded-lg bg-black/30 border border-white/10 text-xs text-white/80 leading-relaxed whitespace-pre-wrap">
+          {report.textSummary}
+          <div className="mt-2 text-[10px] text-white/40 font-mono">
+            {report.period.label} · {new Date(report.generatedAt).toLocaleString("ru-RU")}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function base64ToBlob(base64: string, contentType: string): Blob {
+  const byteChars = atob(base64);
+  const byteNumbers = new Array(byteChars.length);
+  for (let i = 0; i < byteChars.length; i++) {
+    byteNumbers[i] = byteChars.charCodeAt(i);
+  }
+  return new Blob([new Uint8Array(byteNumbers)], { type: contentType });
+}
+
+function speakViaBrowser(text: string) {
+  try {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "ru-RU";
+    u.rate = 1.05;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+  } catch {
+    // ignore — TTS просто не сработает
+  }
 }

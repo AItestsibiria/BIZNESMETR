@@ -2821,6 +2821,11 @@ const HANDLERS: Record<string, ToolHandler> = {
     const TARIFFS: Record<string, { amountRub: number; tariffKey: string }> = {
       track_399: { amountRub: 399, tariffKey: "track_399" },
       premium_voice_msg: { amountRub: 199, tariffKey: "premium_voice_msg" },
+      // Eugene 2026-05-24 Premium-lyrics rule: подписка text_quality (299₽/мес)
+      // и one-off draft (149₽). Активация подписки — через Robokassa Result
+      // callback (см. routes.ts TARIFF_TO_TIER → 'text_quality').
+      premium_text_quality: { amountRub: 299, tariffKey: "premium_text_quality" },
+      premium_lyrics_oneoff: { amountRub: 149, tariffKey: "premium_lyrics_oneoff" },
       topup_500: { amountRub: 500, tariffKey: "topup_500" },
       topup_1000: { amountRub: 1000, tariffKey: "topup_1000" },
       topup_2000: { amountRub: 2000, tariffKey: "topup_2000" },

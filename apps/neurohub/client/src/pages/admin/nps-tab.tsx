@@ -50,7 +50,8 @@ function fetchNps(period: string): Promise<Resp> {
 }
 
 export default function NpsTab(_props: { toast?: any }) {
-  const [period, setPeriod] = useState<string>("month");
+  // Eugene 2026-05-24 Босс «По умолчанию все данные в админ-панели — сегодня».
+  const [period, setPeriod] = useState<string>("today");
 
   const { data, isLoading } = useQuery({
     queryKey: ["/api/admin/v304/nps", period],

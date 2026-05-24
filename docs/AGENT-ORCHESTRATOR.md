@@ -1,8 +1,13 @@
-# Agent Orchestrator — central registry
+# Музa Директор — central agent registry
 
 **Eugene 2026-05-23** «Оркестратор нужен всеми компаниями агентами начать в проекте — коде».
+**Eugene 2026-05-24** «Оркестратор переименуем Музa Директор. Он контролирует всех агентов, собирает всю информацию, итоговую докладывает через аудио».
 
-Central in-memory registry для всех AI-agents / channels / personas / watchdog'ов / cron'ов MuzaAi. Один файл-source-of-truth, lightweight tracking, admin visualization.
+Central in-memory registry для всех AI-agents / channels / personas / watchdog'ов / cron'ов MuzaAi. Один файл-source-of-truth, lightweight tracking, admin visualization + voice report.
+
+Display name везде в UI — **«Музa Директор»** (`DIRECTOR_NAME` exported из `agentOrchestrator.ts`). Технический термин «orchestrator» остаётся в файлах / endpoint URLs (`/api/admin/v304/orchestrator/*`) для backward compat.
+
+**Аудио-доклад:** `POST /api/admin/v304/director/voice-report?period=today` (`lib/directorVoiceReport.ts`) — кнопка «🎤 Доложи итоги» в `/admin/v304 → 🎬 Музa Директор`. Yandex SpeechKit TTS, fallback на browser SpeechSynthesis API. Auto-refresh 5 мин (toggle).
 
 ## Что такое «agent»
 

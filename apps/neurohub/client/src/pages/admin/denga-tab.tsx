@@ -832,7 +832,8 @@ function OverrideSubTab() {
 // Main tab
 // ============================================================
 export default function DengaTab() {
-  const [period, setPeriod] = useState<Period>("30d");
+  // Eugene 2026-05-24 Босс «По умолчанию все данные в админ-панели — сегодня».
+  const [period, setPeriod] = useState<Period>("today");
   const [subTab, setSubTab] = useState<SubTab>("summary");
 
   const agg = useQuery({

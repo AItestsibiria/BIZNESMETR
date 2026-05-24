@@ -70,6 +70,10 @@ import {
   invalidateDengaCache,
 } from "./lib/dengaAgent";
 import { getCurrentTariffs as getDengaCurrentTariffs, TARIFF_HISTORY as DENGA_TARIFF_HISTORY } from "./lib/providerTariffs";
+// Eugene 2026-05-24: Premium-lyrics rule — 4-step refinement pipeline
+// (Draft → Critique → Refine → Polish) для подписки tier='text_quality'
+// или one-off оплаты 149 ₽. См. lib/premiumLyrics.ts + CLAUDE.md.
+import { generatePremiumDraft, isPremiumTextQualityActive } from "./lib/premiumLyrics";
 // Eugene 2026-05-20: User-memory-context rule — Музa держит контекст общения
 // с авторизованным юзером. См. lib/userMemory.ts + CLAUDE.md.
 import {
@@ -574,11 +578,25 @@ const PRICES: Record<string, number> = {
   lyrics: 9900,   // 99 ₽
   music: 39900,   // 399 ₽ (Eugene 2026-05-19: было 299 → 399)
   cover: 9900,    // 99 ₽
+  // Eugene 2026-05-24: Premium-lyrics rule — 4-step refinement pipeline.
+  // One-off 149 ₽ (≈3x normal lyrics cost — 4 LLM calls vs 1). Подписка
+  // tier='text_quality' (299 ₽/мес) даёт безлимит на эти драфты.
+  premium_lyrics_oneoff: 14900,
 };
 const PRICE_LABELS: Record<string, string> = {
   lyrics: "99 ₽",
   music: "399 ₽",
   cover: "99 ₽",
+  premium_lyrics_oneoff: "149 ₽",
+};
+
+// Eugene 2026-05-24: Premium-lyrics rule — monthly subscription tier.
+// Хранится в премиум-tier 'text_quality' таблицы premium_subscriptions.
+// Активация — через issue_invoice (Музa в чате) + Robokassa payment Result
+// callback ниже (поиск по TARIFF_TO_TIER).
+const PREMIUM_TIERS: Record<string, { monthly_kopecks: number; days: number }> = {
+  text_quality: { monthly_kopecks: 29900, days: 30 },   // 299 ₽/мес
+  voice_messages: { monthly_kopecks: 19900, days: 30 }, // 199 ₽/мес (legacy)
 };
 
 // Check if user can generate: free first use OR sufficient balance
@@ -7721,11 +7739,8 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
       });
       // Audit-log (без audio payload — слишком жирно)
       try {
-        const userId = (req as any).user?.id ?? null;
-        const email = (req as any).user?.email ?? null;
         recordAuditEntry({
-          userId: userId ?? 0,
-          adminEmail: email ?? "system",
+          req: req as any,
           action: "create",
           entity: "director:voice-report",
           entityKey: report.period.id,
@@ -7756,11 +7771,8 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
         skipTts,
       });
       try {
-        const userId = (req as any).user?.id ?? null;
-        const email = (req as any).user?.email ?? null;
         recordAuditEntry({
-          userId: userId ?? 0,
-          adminEmail: email ?? "system",
+          req: req as any,
           action: "create",
           entity: "director:voice-report",
           entityKey: report.period.id,
@@ -11044,6 +11056,183 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     }
   });
 
+  // Eugene 2026-05-24 Premium-lyrics rule: 4-step refinement pipeline.
+  // Draft → Critique → Refine → Polish. 149 ₽ one-off ИЛИ безлимит для
+  // подписчиков tier='text_quality' (299 ₽/мес). Reuse-working-solutions:
+  // та же storage.createGeneration + refundGeneration + saveGenFiles обвязка
+  // что у обычного /api/lyrics/generate. Pricing-single-source: PRICES.premium_lyrics_oneoff.
+  // Backup-before-edit rule: audit-log per operation.
+  app.post("/api/lyrics/premium-generate", authMiddleware, async (req: Request, res: Response) => {
+    const userId = (req as any).userId;
+    const user = storage.getUser(userId);
+    if (!user) { res.status(404).json({ message: "Пользователь не найден" }); return; }
+    const { prompt, genre, style, mood, language, important_words } = req.body || {};
+    if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
+      res.status(400).json({ message: "Опишите тему песни" });
+      return;
+    }
+
+    const subscriptionActive = isPremiumTextQualityActive((db as any).$client, userId);
+    let chargedKopecks = 0;
+    let gen: any = null;
+
+    try {
+      if (subscriptionActive) {
+        // Подписка активна — без списания, audit-log
+        gen = storage.createGeneration({
+          userId,
+          type: "lyrics",
+          prompt,
+          style: JSON.stringify({ genre: genre || style, mood, language, premium: true, via: "subscription" }),
+          cost: 0,
+          status: "processing",
+        });
+        try {
+          recordAuditEntry({
+            adminUserId: userId,
+            adminEmail: "user-self-service",
+            action: "create",
+            entity: "premium_lyrics_subscription",
+            entityKey: String(gen.id),
+            before: null,
+            after: { tier: "text_quality", prompt: prompt.slice(0, 100) },
+          });
+        } catch {}
+      } else {
+        // One-off оплата 149 ₽ из balance.
+        const price = PRICES.premium_lyrics_oneoff || 14900;
+        if ((user.balance || 0) < price) {
+          res.status(402).json({
+            message: `Premium-текст стоит ${PRICE_LABELS.premium_lyrics_oneoff || "149 ₽"}. Ваш баланс: ${(user.balance || 0) / 100} ₽. Пополните или оформите подписку «Премиум-качество текста» (299 ₽/мес — безлимит).`,
+            needsTopup: true,
+            tariff: "premium_lyrics_oneoff",
+            priceKopecks: price,
+          });
+          return;
+        }
+        db.update(users).set({ balance: sql`${users.balance} - ${price}` }).where(eq(users.id, userId)).run();
+        storage.createTransaction({
+          userId,
+          type: "lyrics_premium",
+          amount: -price,
+          description: `Премиум-текст (4-step refinement) #pending`,
+        });
+        chargedKopecks = price;
+
+        gen = storage.createGeneration({
+          userId,
+          type: "lyrics",
+          prompt,
+          style: JSON.stringify({ genre: genre || style, mood, language, premium: true, via: "oneoff" }),
+          cost: price,
+          status: "processing",
+        });
+        try {
+          recordAuditEntry({
+            adminUserId: userId,
+            adminEmail: "user-self-service",
+            action: "create",
+            entity: "premium_lyrics_oneoff",
+            entityKey: String(gen.id),
+            before: null,
+            after: { priceKopecks: price, prompt: prompt.slice(0, 100) },
+          });
+        } catch {}
+      }
+
+      // === 4-step pipeline ===
+      const result = await generatePremiumDraft({
+        prompt: String(prompt).trim(),
+        style: typeof style === "string" ? style : (typeof genre === "string" ? genre : undefined),
+        mood: typeof mood === "string" ? mood : undefined,
+        important_words: Array.isArray(important_words) ? important_words : undefined,
+        language: language === "en" ? "en" : "ru",
+      });
+
+      if (!result.ok || !result.lyrics) {
+        storage.updateGeneration(gen.id, { status: "error", errorReason: result.error || "premium pipeline failed" } as any);
+        // Refund — критически важно по правилу «Refund при ошибке».
+        if (chargedKopecks > 0) {
+          storage.refundGeneration({
+            genId: gen.id,
+            userId,
+            cost: chargedKopecks,
+            type: "lyrics_premium",
+            description: `Возврат: ошибка premium-текста #${gen.id}`,
+          });
+        }
+        res.status(500).json({
+          message: result.error || "Premium-pipeline временно недоступен. Баланс возвращён.",
+          refunded: chargedKopecks > 0,
+        });
+        return;
+      }
+
+      storage.updateGeneration(gen.id, {
+        status: "done",
+        resultUrl: result.lyrics,
+        errorReason: result.steps_used ? `premium:${result.steps_used.join("→")}` : undefined,
+      } as any);
+      console.log(`[PREMIUM-LYRICS] gen #${gen.id} done | steps=${(result.steps_used || []).join("→")} | iter=${result.iterations} | chars=${result.lyrics.length}`);
+      saveGenFiles(gen.id).catch(() => {});
+
+      const updatedUser = storage.getUser(userId);
+      res.json({
+        id: gen.id,
+        lyrics: result.lyrics,
+        balance: updatedUser?.balance,
+        iterations: result.iterations,
+        steps_used: result.steps_used,
+        viaSubscription: subscriptionActive,
+        chargedKopecks,
+      });
+    } catch (e: any) {
+      console.error("[POST /api/lyrics/premium-generate]", e);
+      if (gen) {
+        try {
+          storage.updateGeneration(gen.id, { status: "error", errorReason: String(e?.message || e).slice(0, 200) } as any);
+        } catch {}
+      }
+      if (chargedKopecks > 0 && gen) {
+        try {
+          storage.refundGeneration({
+            genId: gen.id,
+            userId,
+            cost: chargedKopecks,
+            type: "lyrics_premium",
+            description: `Возврат: исключение в premium-текст #${gen.id}`,
+          });
+        } catch {}
+      }
+      res.status(500).json({ message: "Ошибка premium-pipeline: " + String(e?.message || e), refunded: chargedKopecks > 0 });
+    }
+  });
+
+  // Eugene 2026-05-24 Premium-lyrics rule: status-check endpoint для UI.
+  // Возвращает { hasSubscription, expiresAt, oneoffPriceKopecks, oneoffPriceLabel }.
+  app.get("/api/lyrics/premium-status", authMiddleware, (req: Request, res: Response) => {
+    const userId = (req as any).userId;
+    try {
+      const row: any = (db as any).$client.prepare(`
+        SELECT id, expires_at, status FROM premium_subscriptions
+        WHERE user_id = ? AND tier = 'text_quality' AND status = 'active'
+        ORDER BY id DESC LIMIT 1
+      `).get(userId);
+      const active = !!(row && (!row.expires_at || new Date(row.expires_at).getTime() > Date.now()));
+      res.json({
+        hasSubscription: active,
+        expiresAt: row?.expires_at || null,
+        oneoffPriceKopecks: PRICES.premium_lyrics_oneoff || 14900,
+        oneoffPriceLabel: PRICE_LABELS.premium_lyrics_oneoff || "149 ₽",
+        subscriptionMonthlyKopecks: PREMIUM_TIERS.text_quality.monthly_kopecks,
+        subscriptionMonthlyLabel: `${PREMIUM_TIERS.text_quality.monthly_kopecks / 100} ₽/мес`,
+      });
+    } catch (e: any) {
+      console.error("[GET /api/lyrics/premium-status]", e);
+      res.status(500).json({ message: "Не удалось загрузить статус подписки" });
+    }
+  });
+
   // ==================== MUSIC (SUNO) ====================
   app.post("/api/music/generate", authMiddleware, async (req: Request, res: Response) => {
     const userId = (req as any).userId;
@@ -14244,6 +14433,9 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
             // Tariff → subscription mapping. 30 дней дефолт для всех premium-tier.
             const TARIFF_TO_TIER: Record<string, { tier: string; days: number }> = {
               premium_voice_msg: { tier: "voice_messages", days: 30 },
+              // Eugene 2026-05-24 Premium-lyrics rule: monthly subscription tier
+              // 299 ₽/мес — даёт безлимит на /api/lyrics/premium-generate.
+              premium_text_quality: { tier: "text_quality", days: 30 },
               // Будущие: premium_pro → { tier: 'pro', days: 30 }
             };
             const subSpec = TARIFF_TO_TIER[String(inv.tariff_key || "")];

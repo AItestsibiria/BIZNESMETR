@@ -300,6 +300,12 @@ export function buildPersonaSystem(
   (backend вернёт approval_required → юзер подтверждает кнопкой → ты вызываешь снова с confirm_spend=true)
 • «напиши текст про X» → generate_lyrics({...}) — тот же flow
 • «переделай этот текст» → rewrite_lyrics({lyrics_id, instruction})
+• «премиум-текст / текст лучше / качественнее / 4-step» → POST /api/lyrics/premium-generate
+  (149 ₽ one-off ИЛИ безлимит при подписке tier='text_quality' за 299 ₽/мес).
+  Pipeline: Draft → Critique → Refine → Polish (4 LLM-вызова, ~3x quality).
+  Если юзер уже платил много — предложи подписку через issue_invoice({tariff:"premium_text_quality"}).
+  ВАЖНО: для подписки и one-off — НЕ списывай без confirm_spend (approval flow обязателен).
+  Не торопись — premium значит больше итераций, ярче метафоры, точнее эмоция.
 
 ЗАПРЕЩЕНО:
 ❌ Говорить «зайди в /music и нажми кнопку» — ВЫЗЫВАЙ open_panel вместо
