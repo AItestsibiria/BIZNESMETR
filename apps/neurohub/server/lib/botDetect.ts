@@ -266,16 +266,16 @@ export function getRateMapSnapshot(limit = 50): Array<{
     hitsLastMin: number;
     firstSeenAgoMs: number;
   }> = [];
-  for (const [ip, entry] of ipRateMap) {
-    const hits = entry.hits.filter((t) => now - t < HOUR_WINDOW_MS);
-    if (hits.length === 0) continue;
+  ipRateMap.forEach((entry, ip) => {
+    const hits = entry.hits.filter((t: number) => now - t < HOUR_WINDOW_MS);
+    if (hits.length === 0) return;
     rows.push({
       ip,
       hitsLastHour: hits.length,
-      hitsLastMin: hits.filter((t) => now - t < RATE_WINDOW_MS).length,
+      hitsLastMin: hits.filter((t: number) => now - t < RATE_WINDOW_MS).length,
       firstSeenAgoMs: now - hits[0],
     });
-  }
+  });
   rows.sort((a, b) => b.hitsLastHour - a.hitsLastHour);
   return rows.slice(0, limit);
 }

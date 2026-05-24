@@ -965,15 +965,23 @@ export async function registerRoutes(
       const { device, browser, os } = parseUA(ua);
       const geo = await getGeo(ip);
 
-      // Datacenter ASN check (через ipGeo asn). Если IP из hosting/datacenter
-      // ASN — почти наверняка bot/скрипт, не real юзер. Записываем (для аудита)
-      // но помечаем is_bot=1.
+      // Datacenter ASN check (через ipGeo asn) — soft signal, не auto-block.
+      // Reason: many legit users on Cloudflare WARP / Yandex CDN / corp VPNs
+      // show "hosting" ASN. ТОЛЬКО mark is_bot=1 если combined с другим
+      // подозрительным signal (no fingerprint + datacenter ASN = high confidence).
       let isFromDatacenter = false;
       try {
         const enrichedGeo = await getIpGeo(ip, req.headers as any);
         if (isDatacenterAsn(enrichedGeo.asn)) {
-          isFromDatacenter = true;
-          detectedBotReason = detectedBotReason || "datacenter_asn";
+          // Strong signal: НИ fingerprint, НИ session → headless script / curl.
+          // Legit visitors всегда отправляют fingerprint (PWA или brand-fingerprint).
+          if (!fingerprint && !sessionId) {
+            isFromDatacenter = true;
+            detectedBotReason = detectedBotReason || "datacenter_asn_no_fp";
+          }
+          // Weak signal: ASN matches но fingerprint есть → admin-review tag,
+          // не auto-bot (хранится в bot_reason="datacenter_asn_hint" для разбора).
+          // Запись остаётся is_bot=0, но admin суspicious endpoint её увидит.
         }
       } catch { /* graceful */ }
 
@@ -7487,6 +7495,324 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
       const { agentId } = req.params;
       const e = agentOrchestrator.getEdges(agentId);
       res.json({ data: e, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  // =============================================================
+  // Eugene 2026-05-24 Босс «В админке его пропиши, собирай туда ошибки
+  // генерации + отчёт агента + возможность дожать в ручном режиме».
+  // Gen-lifecycle agent admin endpoints.
+  // Auth: requireAdmin. Audit-log через recordAuditEntry для destructive ops.
+  // =============================================================
+
+  // GET /api/admin/v304/gen-errors — список ошибок генерации (last N)
+  // Filters: period (today/yesterday/week/month/all), type (music/lyrics/cover),
+  //          status (pending/escalated/recovered/all), limit (default 100)
+  app.get("/api/admin/v304/gen-errors", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const limit = Math.min(parseInt(String(req.query.limit || "100"), 10) || 100, 500);
+      const type = typeof req.query.type === "string" ? req.query.type : "";
+      const period = typeof req.query.period === "string" ? req.query.period : "today";
+      const statusFilter = typeof req.query.status === "string" ? req.query.status : "all";
+
+      // Period filter: created_at в БД хранится как text CURRENT_TIMESTAMP
+      let sinceMs = 0;
+      const now = Date.now();
+      if (period === "today") sinceMs = now - 24 * 3600_000;
+      else if (period === "yesterday") sinceMs = now - 48 * 3600_000;
+      else if (period === "week") sinceMs = now - 7 * 24 * 3600_000;
+      else if (period === "month") sinceMs = now - 30 * 24 * 3600_000;
+      else if (period === "all") sinceMs = 0;
+
+      const typeFilter = type && ["music", "lyrics", "cover"].includes(type) ? type : null;
+      const rows = db.all<{
+        id: number; userId: number; type: string; status: string;
+        cost: number; errorReason: string | null; createdAt: string;
+        displayTitle: string | null; style: string | null;
+      }>(sql`SELECT g.id, g.user_id as userId, g.type, g.status, g.cost,
+                    g.error_reason as errorReason, g.created_at as createdAt,
+                    g.display_title as displayTitle, g.style
+             FROM generations g
+             WHERE g.status = 'error'
+               ${typeFilter ? sql`AND g.type = ${typeFilter}` : sql``}
+               AND (${sinceMs === 0 ? 1 : 0} = 1 OR strftime('%s', g.created_at) * 1000 > ${sinceMs})
+             ORDER BY g.created_at DESC
+             LIMIT ${limit}`);
+
+      // Для каждой gen — последнее событие из gen_lifecycle_log + attempt count
+      const enriched = rows.map(row => {
+        let attemptCount = 0;
+        let lastEvent: string | null = null;
+        let isEscalated = false;
+        let isRefunded = false;
+        let adminResolved = false;
+        try {
+          const events = db.all<{ event_type: string; created_at: number }>(
+            sql`SELECT event_type, created_at FROM gen_lifecycle_log
+                WHERE gen_id = ${row.id} ORDER BY created_at DESC LIMIT 20`,
+          );
+          attemptCount = events.filter(e => e.event_type === "retrying" || e.event_type === "manual_retry").length;
+          lastEvent = events[0]?.event_type || null;
+          isEscalated = events.some(e => e.event_type === "escalated");
+          isRefunded = events.some(e => e.event_type === "refunded");
+        } catch {}
+        try {
+          const meta = JSON.parse(row.style || "{}");
+          adminResolved = meta.adminResolved === true;
+          if (meta.refunded === true) isRefunded = true;
+        } catch {}
+        const cls = genLifecycleAgent.classifyError(row.errorReason || "");
+        return {
+          id: row.id,
+          userId: row.userId,
+          type: row.type,
+          status: row.status,
+          cost: row.cost,
+          errorReason: row.errorReason,
+          errorClass: cls,
+          createdAt: row.createdAt,
+          displayTitle: row.displayTitle,
+          attemptCount,
+          lastEvent,
+          isEscalated,
+          isRefunded,
+          adminResolved,
+          canRetry: genLifecycleAgent.canRetry(row.errorReason || ""),
+        };
+      });
+
+      // status filter в JS (по computed fields)
+      const filtered = enriched.filter(r => {
+        if (statusFilter === "all") return true;
+        if (statusFilter === "pending") return !r.adminResolved && !r.isRefunded && !r.isEscalated;
+        if (statusFilter === "escalated") return r.isEscalated;
+        if (statusFilter === "recovered") return r.adminResolved || r.isRefunded;
+        return true;
+      });
+
+      res.json({ data: { items: filtered, total: filtered.length }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  // GET /api/admin/v304/gen-errors/stats — counts для top-cards UI
+  app.get("/api/admin/v304/gen-errors/stats", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const period = typeof req.query.period === "string" ? req.query.period : "today";
+      let sinceMs = 0;
+      const now = Date.now();
+      if (period === "today") sinceMs = now - 24 * 3600_000;
+      else if (period === "week") sinceMs = now - 7 * 24 * 3600_000;
+      else if (period === "month") sinceMs = now - 30 * 24 * 3600_000;
+
+      const totalErrors = db.get<{ c: number }>(sql`SELECT count(*) as c FROM generations
+        WHERE status = 'error' AND strftime('%s', created_at) * 1000 > ${sinceMs}`)?.c ?? 0;
+
+      const recovered = db.get<{ c: number }>(sql`SELECT count(DISTINCT gen_id) as c FROM gen_lifecycle_log
+        WHERE event_type = 'done' AND created_at > ${sinceMs}
+          AND gen_id IN (SELECT gen_id FROM gen_lifecycle_log WHERE event_type IN ('retrying', 'manual_retry'))`)?.c ?? 0;
+
+      const escalated = db.get<{ c: number }>(sql`SELECT count(DISTINCT gen_id) as c FROM gen_lifecycle_log
+        WHERE event_type = 'escalated' AND created_at > ${sinceMs}`)?.c ?? 0;
+
+      const pendingManual = Math.max(0, totalErrors - recovered - escalated);
+      const agentStats = genLifecycleAgent.getStats();
+
+      res.json({
+        data: {
+          period,
+          totalErrors,
+          recovered,
+          escalated,
+          pendingManual,
+          agentStats,
+        },
+        error: null,
+      });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  // GET /api/admin/v304/gen-errors/:id/report — full timeline для одной gen
+  app.get("/api/admin/v304/gen-errors/:id/report", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const genId = parseInt(req.params.id, 10);
+      if (!Number.isFinite(genId)) {
+        res.status(400).json({ data: null, error: "Invalid gen id" });
+        return;
+      }
+      const inMemory = genLifecycleAgent.getReport(genId);
+      const persisted = genLifecycleAgent.getReportFromDb(genId);
+      const events = persisted.length > 0 ? persisted : inMemory.events;
+      const gen = storage.getGeneration(genId);
+      res.json({
+        data: {
+          genId,
+          status: inMemory.status,
+          attemptCount: inMemory.attemptCount,
+          events,
+          generation: gen ? {
+            id: gen.id, type: gen.type, status: gen.status, cost: gen.cost,
+            errorReason: gen.errorReason, createdAt: gen.createdAt,
+            displayTitle: gen.displayTitle, userId: gen.userId,
+            taskId: gen.taskId,
+          } : null,
+        },
+        error: null,
+      });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  // POST /api/admin/v304/gen-errors/:id/retry — manual retry («дожать»)
+  app.post("/api/admin/v304/gen-errors/:id/retry", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const genId = parseInt(req.params.id, 10);
+      if (!Number.isFinite(genId)) {
+        res.status(400).json({ data: null, error: "Invalid gen id" });
+        return;
+      }
+      const gen = storage.getGeneration(genId);
+      if (!gen) {
+        res.status(404).json({ data: null, error: "Generation not found" });
+        return;
+      }
+
+      const beforeStatus = gen.status;
+      genLifecycleAgent.trackEvent({
+        type: "manual_retry", genId, userId: gen.userId,
+        payload: { adminUserId: (req as any).userId, beforeStatus },
+      });
+
+      const inMemory = genLifecycleAgent.getReport(genId);
+      const result = await genLifecycleAgent.retrySuno(genId, inMemory.attemptCount + 1);
+
+      recordAuditEntry({
+        req: req as any,
+        action: "update",
+        entity: "generation",
+        entityKey: String(genId),
+        before: { status: beforeStatus, errorReason: gen.errorReason },
+        after: { action: "manual_retry", result },
+      });
+
+      res.json({ data: { genId, result, attempt: result.attempt }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  // POST /api/admin/v304/gen-errors/:id/refund — manual refund (с body {confirm:true})
+  app.post("/api/admin/v304/gen-errors/:id/refund", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const genId = parseInt(req.params.id, 10);
+      if (!Number.isFinite(genId)) {
+        res.status(400).json({ data: null, error: "Invalid gen id" });
+        return;
+      }
+      const gen = storage.getGeneration(genId);
+      if (!gen) {
+        res.status(404).json({ data: null, error: "Generation not found" });
+        return;
+      }
+      if (gen.cost <= 0) {
+        res.status(400).json({ data: null, error: "No cost to refund (free generation)" });
+        return;
+      }
+      const confirm = req.body?.confirm === true;
+      if (!confirm) {
+        res.status(400).json({ data: null, error: "Refund требует body {confirm: true}" });
+        return;
+      }
+
+      const refunded = storage.refundGeneration({
+        genId, userId: gen.userId, cost: gen.cost, type: gen.type || "music",
+        description: `Manual refund admin: gen #${genId}`,
+      });
+      if (!refunded) {
+        res.status(400).json({ data: null, error: "Already refunded or refund claim lost" });
+        return;
+      }
+      if (gen.status !== "error" && gen.status !== "done") {
+        storage.updateGeneration(genId, { status: "error", errorReason: "Refunded by admin manually" });
+      }
+      genLifecycleAgent.trackEvent({
+        type: "manual_refund", genId, userId: gen.userId,
+        payload: { adminUserId: (req as any).userId, cost: gen.cost },
+      });
+      genLifecycleAgent.trackEvent({
+        type: "refunded", genId, userId: gen.userId,
+        payload: { cost: gen.cost, by: "manual_admin" },
+      });
+      recordAuditEntry({
+        req: req as any,
+        action: "update",
+        entity: "generation",
+        entityKey: String(genId),
+        before: { status: gen.status, cost: gen.cost },
+        after: { action: "manual_refund", refundedKopecks: gen.cost },
+      });
+      res.json({ data: { genId, refundedKopecks: gen.cost }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  // POST /api/admin/v304/gen-errors/:id/resolve — mark as resolved (без refund)
+  app.post("/api/admin/v304/gen-errors/:id/resolve", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const genId = parseInt(req.params.id, 10);
+      if (!Number.isFinite(genId)) {
+        res.status(400).json({ data: null, error: "Invalid gen id" });
+        return;
+      }
+      const gen = storage.getGeneration(genId);
+      if (!gen) {
+        res.status(404).json({ data: null, error: "Generation not found" });
+        return;
+      }
+      let meta: any = {};
+      try { meta = JSON.parse(gen.style || "{}"); } catch {}
+      meta.adminResolved = true;
+      meta.adminResolvedAt = new Date().toISOString();
+      meta.adminResolvedBy = (req as any).userId;
+      storage.updateGeneration(genId, { style: JSON.stringify(meta) });
+
+      genLifecycleAgent.trackEvent({
+        type: "manual_resolve", genId, userId: gen.userId,
+        payload: { adminUserId: (req as any).userId, notes: req.body?.notes },
+      });
+      recordAuditEntry({
+        req: req as any,
+        action: "update",
+        entity: "generation",
+        entityKey: String(genId),
+        before: { adminResolved: false },
+        after: { action: "manual_resolve", adminResolved: true, notes: req.body?.notes },
+      });
+      res.json({ data: { genId, resolved: true }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  // POST /api/admin/v304/gen-errors/scan-stuck — manual trigger scan stuck gens
+  app.post("/api/admin/v304/gen-errors/scan-stuck", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const result = await genLifecycleAgent.scanStuckGenerations();
+      recordAuditEntry({
+        req: req as any,
+        action: "update",
+        entity: "gen-lifecycle-agent",
+        entityKey: "scan-stuck",
+        after: result,
+      });
+      res.json({ data: result, error: null });
     } catch (e: any) {
       res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
     }
