@@ -197,15 +197,60 @@ function isIOS(): boolean {
 
 /**
  * Устанавливает громкость плеера (0..1).
- * - Desktop / Android: audio.volume = v (стандартный HTML5 path)
- * - iOS Safari: audio.volume = v (noop — system volume by Apple design)
+ * - Desktop / Android: Web Audio GainNode pipeline (W3C MDN spec) +
+ *   audio.volume fallback (двойная защита)
+ * - iOS Safari: ТОЛЬКО audio.volume = v (noop — system volume by Apple
+ *   design). createMediaElementSource ЗАПРЕЩЁН на iOS — ломает lock-
+ *   screen background playback (см. iOS-lock-screen-audio rule).
  *
- * Возвращает true если применилось (non-iOS), false если iOS (by design).
+ * Возвращает true если применилось (non-iOS), false если iOS.
  */
+let _audioCtx: AudioContext | null = null;
+let _gainNode: GainNode | null = null;
+let _mediaSource: MediaElementAudioSourceNode | null = null;
+let _wiredFor: HTMLAudioElement | null = null;
+
+function ensureAudioGraph(audio: HTMLAudioElement): GainNode | null {
+  if (typeof window === "undefined") return null;
+  if (isIOS()) return null; // iOS-lock-screen-audio rule: forbidden
+  if (_wiredFor === audio && _gainNode) return _gainNode;
+  if (_wiredFor && _wiredFor !== audio) {
+    // Different audio element — createMediaElementSource can be called
+    // ONLY ONCE per element. Persistent-audio-only rule guarantees one
+    // singleton, but if somehow different — bail.
+    return _gainNode;
+  }
+  try {
+    const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!Ctx) return null;
+    if (!_audioCtx) _audioCtx = new Ctx();
+    _mediaSource = _audioCtx.createMediaElementSource(audio);
+    _gainNode = _audioCtx.createGain();
+    _mediaSource.connect(_gainNode);
+    _gainNode.connect(_audioCtx.destination);
+    _wiredFor = audio;
+    return _gainNode;
+  } catch (e) {
+    console.warn("[lockscreen] AudioContext init failed:", e);
+    return null;
+  }
+}
+
 export function setPlayerVolume(audio: HTMLAudioElement, volume: number): boolean {
   const v = Math.max(0, Math.min(1, volume));
+  // audio.volume — works on desktop/Android, noop on iOS (system volume)
   try { audio.volume = v; } catch {}
-  return !isIOS();
+  if (isIOS()) return false;
+  // Desktop / Android: augment через GainNode для reliable control
+  // (некоторые browser variants игнорируют audio.volume — GainNode robust)
+  const gain = ensureAudioGraph(audio);
+  if (gain && _audioCtx) {
+    if (_audioCtx.state === "suspended") {
+      _audioCtx.resume().catch(() => {});
+    }
+    try { gain.gain.value = v; } catch {}
+  }
+  return true;
 }
 
 /**

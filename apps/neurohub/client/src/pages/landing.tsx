@@ -2618,7 +2618,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                       <div className="relative">
                         <div
                           aria-hidden="true"
-                          className="absolute -inset-4 sm:-inset-6 md:-inset-8 rounded-3xl opacity-45 blur-3xl pointer-events-none cover-aura"
+                          className="absolute -inset-4 sm:-inset-6 md:-inset-8 rounded-3xl opacity-35 blur-3xl pointer-events-none cover-aura"
                           style={{ animationDuration: "12.3s" }}
                         />
                         <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-purple-500/20 animate-in fade-in zoom-in-95 duration-300">
