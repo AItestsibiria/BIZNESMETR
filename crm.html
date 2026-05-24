@@ -1,0 +1,737 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Бизнесметр CRM · Рабочий стол</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#09090A;--bg1:#111113;--bg2:#18181C;--bg3:#222228;
+  --border:#2A2A32;--border2:#38383F;
+  --gold:#C8A040;--gold-dim:#6A5420;--gold-glow:rgba(200,160,64,.1);
+  --text:#F0EFE8;--text2:#A0A09A;--text3:#555;
+  --green:#3AA870;--red:#CC5555;--blue:#5087B8;
+  --r:10px;--rs:6px;
+}
+html,body{height:100%;overflow:hidden;font-family:'Golos Text',sans-serif;background:var(--bg);color:var(--text)}
+body::before{content:'';position:fixed;inset:0;background-image:radial-gradient(circle at 1px 1px,var(--border) 1px,transparent 0);background-size:32px 32px;opacity:.25;pointer-events:none;z-index:0}
+.syne{font-family:'Syne',sans-serif}
+.mono{font-family:'JetBrains Mono',monospace}
+input,button,textarea,select{font-family:'Golos Text',sans-serif}
+input,select{height:40px;padding:0 12px;background:var(--bg2);border:1px solid var(--border2);border-radius:var(--rs);color:var(--text);font-size:14px;outline:none;width:100%;transition:border .2s}
+input:focus,select:focus{border-color:var(--gold-dim)}
+input::placeholder{color:var(--text3)}
+.btn{height:40px;padding:0 18px;border:1px solid var(--border);border-radius:var(--rs);background:var(--bg2);color:var(--text2);font-size:14px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all .2s;white-space:nowrap}
+.btn:hover{border-color:var(--border2);color:var(--text)}
+.btn.gold{background:var(--gold);color:#09090A;border-color:var(--gold);font-weight:600}
+.btn.gold:hover{opacity:.88}
+.btn.sm{height:32px;padding:0 12px;font-size:13px}
+.btn.icon{width:40px;padding:0;justify-content:center}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+
+/* ── LOGIN ── */
+#login-view{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;background:var(--bg);padding:20px}
+.login-card{background:var(--bg1);border:1px solid var(--border);border-radius:14px;padding:36px;width:100%;max-width:400px;position:relative;z-index:1}
+.login-logo{display:flex;align-items:center;gap:10px;margin-bottom:28px;justify-content:center}
+.llogo-mark{width:40px;height:40px;background:var(--gold);border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:20px;color:#09090A;font-family:'Syne',sans-serif}
+.login-title{font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:var(--text)}
+.login-sub{font-size:13px;color:var(--text3);text-align:center;margin-bottom:24px}
+.form-group{margin-bottom:14px}
+.form-label{font-size:12px;color:var(--text3);margin-bottom:6px;display:block;font-family:'JetBrains Mono',monospace}
+.login-err{background:rgba(204,85,85,.1);border:1px solid rgba(204,85,85,.3);border-radius:var(--rs);padding:10px 12px;font-size:13px;color:var(--red);display:none;margin-bottom:14px}
+.login-demo{text-align:center;margin-top:14px;font-size:12px;color:var(--text3)}
+.login-demo a{color:var(--gold);cursor:pointer;text-decoration:none}
+
+/* ── APP ── */
+#app-view{display:none;flex-direction:column;height:100%;position:relative;z-index:1}
+
+/* TOPBAR */
+.topbar{background:rgba(9,9,10,.95);border-bottom:1px solid var(--border);padding:0 16px;height:52px;display:flex;align-items:center;gap:10px;flex-shrink:0;backdrop-filter:blur(12px)}
+.topbar-logo{display:flex;align-items:center;gap:8px;font-family:'Syne',sans-serif;font-weight:700;font-size:15px;color:var(--text);flex-shrink:0}
+.topbar-logo-mark{width:28px;height:28px;background:var(--gold);border-radius:5px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;color:#09090A}
+.topbar-tabs{display:flex;gap:2px;margin-left:16px}
+.tab{height:36px;padding:0 14px;border-radius:var(--rs);border:none;background:transparent;color:var(--text3);font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .2s}
+.tab:hover{background:var(--bg2);color:var(--text2)}
+.tab.active{background:var(--bg2);color:var(--text);border:1px solid var(--border)}
+.tab i{font-size:15px}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+.user-badge{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text2)}
+.user-dot{width:28px;height:28px;border-radius:50%;background:var(--gold-glow);border:1px solid var(--gold-dim);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--gold);font-family:'Syne',sans-serif}
+.crm-domain-badge{font-size:11px;padding:3px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:20px;color:var(--text3);font-family:'JetBrains Mono',monospace}
+
+/* CONTENT */
+.content{flex:1;overflow:hidden;display:flex}
+.panel{flex:1;overflow-y:auto;padding:20px;display:none}
+.panel.active{display:block}
+.panel::-webkit-scrollbar{width:4px}
+.panel::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+
+/* SEARCH PANEL */
+.search-layout{display:grid;grid-template-columns:240px 1fr;gap:16px;height:100%;align-items:start}
+.filters-card{background:var(--bg1);border:1px solid var(--border);border-radius:var(--r);padding:16px;position:sticky;top:0}
+.filter-title{font-family:'Syne',sans-serif;font-size:13px;font-weight:600;color:var(--text);margin-bottom:14px;display:flex;align-items:center;gap:6px}
+.filter-group{margin-bottom:14px}
+.filter-label{font-size:11px;color:var(--text3);margin-bottom:6px;display:block;font-family:'JetBrains Mono',monospace}
+.range-row{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.results-section{}
+.results-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.results-count{font-size:13px;color:var(--text3);font-family:'JetBrains Mono',monospace}
+.results-count strong{color:var(--gold);font-family:'Syne',sans-serif;font-size:16px}
+.results-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.load-more{width:100%;height:44px;margin-top:16px;border:1px dashed var(--border);border-radius:var(--r);background:transparent;color:var(--text3);font-size:13px;cursor:pointer;transition:all .2s}
+.load-more:hover{border-color:var(--gold-dim);color:var(--gold)}
+
+/* PROPERTY CARD */
+.prop-card{background:var(--bg1);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;cursor:pointer;transition:all .2s}
+.prop-card:hover{border-color:var(--border2);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.prop-img{height:120px;background:var(--bg3);display:flex;align-items:center;justify-content:center;position:relative;font-size:36px;color:var(--text3)}
+.prop-badge-wrap{position:absolute;top:8px;right:8px;display:flex;flex-direction:column;gap:4px;align-items:flex-end}
+.badge{font-size:10px;padding:3px 8px;border-radius:20px;font-family:'JetBrains Mono',monospace;font-weight:500;white-space:nowrap}
+.badge-cat{background:var(--bg2);color:var(--text2);border:1px solid var(--border)}
+.badge-status{background:rgba(58,168,112,.15);color:var(--green);border:1px solid rgba(58,168,112,.3)}
+.badge-status.archive{background:rgba(80,135,184,.1);color:var(--blue);border:1px solid rgba(80,135,184,.25)}
+.prop-body{padding:12px}
+.prop-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:'Syne',sans-serif}
+.prop-price{font-size:16px;font-weight:700;color:var(--gold);font-family:'Syne',sans-serif;margin-bottom:6px}
+.prop-meta{display:flex;flex-wrap:wrap;gap:6px}
+.meta-tag{font-size:11px;color:var(--text3);display:flex;align-items:center;gap:3px}
+.meta-tag i{font-size:12px}
+.prop-footer{padding:8px 12px;border-top:1px solid var(--border);display:flex;gap:6px}
+.prop-footer button{flex:1;height:28px;border:1px solid var(--border);border-radius:var(--rs);background:transparent;color:var(--text2);font-size:11px;cursor:pointer;transition:all .2s}
+.prop-footer button:hover{border-color:var(--gold-dim);color:var(--gold)}
+.prop-footer button.gold{background:var(--gold);color:#09090A;border-color:var(--gold);font-weight:600}
+
+/* CHAT PANEL */
+.chat-layout{display:flex;flex-direction:column;height:calc(100vh - 52px);margin:-20px}
+.chat-messages{flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:14px}
+.chat-messages::-webkit-scrollbar{width:4px}
+.chat-messages::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.msg-user{display:flex;justify-content:flex-end}
+.msg-user-bubble{background:var(--gold);color:#09090A;padding:10px 16px;border-radius:16px 4px 16px 16px;font-size:14px;max-width:70%;line-height:1.55;font-weight:500}
+.msg-ai{display:flex;gap:10px;align-items:flex-start;max-width:85%}
+.ai-ava{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--gold-dim),var(--gold));display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-weight:800;font-size:13px;color:#09090A;flex-shrink:0;margin-top:2px}
+.ai-bubble{background:var(--bg1);border:1px solid var(--border);border-radius:4px 16px 16px 16px;padding:12px 16px;font-size:14px;color:var(--text2);line-height:1.65}
+.ai-bubble strong{color:var(--text)}
+.typing{display:inline-flex;gap:4px;align-items:center;padding:4px 0}
+.typing span{width:6px;height:6px;background:var(--gold);border-radius:50%;animation:typing 1.2s infinite}
+.typing span:nth-child(2){animation-delay:.2s}
+.typing span:nth-child(3){animation-delay:.4s}
+@keyframes typing{0%,80%,100%{opacity:.3;transform:translateY(0)}40%{opacity:1;transform:translateY(-4px)}}
+.chat-input-area{padding:12px 20px;background:rgba(9,9,10,.95);border-top:1px solid var(--border);flex-shrink:0}
+.chat-input-row{display:flex;gap:8px;align-items:flex-end}
+.chat-input-wrap{flex:1;background:var(--bg1);border:1px solid var(--border2);border-radius:var(--r);padding:10px 14px;display:flex;gap:8px;align-items:flex-end;transition:border .2s}
+.chat-input-wrap:focus-within{border-color:var(--gold-dim)}
+.chat-input{flex:1;background:transparent;border:none;outline:none;font-size:14px;color:var(--text);resize:none;min-height:24px;max-height:80px;line-height:1.5}
+.chat-input::placeholder{color:var(--text3)}
+.chat-send-btn{width:40px;height:40px;background:var(--gold);border:none;border-radius:var(--rs);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:opacity .2s}
+.chat-send-btn:hover{opacity:.85}
+.chat-send-btn:disabled{opacity:.4;cursor:not-allowed}
+.audio-btn{width:40px;height:40px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--rs);cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .2s;color:var(--text2)}
+.audio-btn:hover{border-color:var(--gold-dim);color:var(--gold)}
+.audio-btn.recording{background:rgba(204,85,85,.15);border-color:var(--red);color:var(--red);animation:rec-pulse 1s infinite}
+@keyframes rec-pulse{0%,100%{opacity:1}50%{opacity:.6}}
+.quick-replies{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.qr-btn{font-size:12px;padding:6px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:20px;color:var(--text2);cursor:pointer;transition:all .2s}
+.qr-btn:hover{border-color:var(--gold-dim);color:var(--gold)}
+.sys-note{text-align:center;font-size:11px;color:var(--text3);font-family:'JetBrains Mono',monospace;padding:4px 0}
+
+/* MINI CARDS IN CHAT */
+.chat-cards{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.chat-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rs);padding:10px 12px;display:flex;gap:10px;align-items:center;cursor:pointer;transition:all .2s}
+.chat-card:hover{border-color:var(--gold-dim)}
+.chat-card-icon{width:36px;height:36px;background:var(--bg3);border-radius:var(--rs);display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--text3);flex-shrink:0}
+.chat-card-info{flex:1;min-width:0}
+.chat-card-title{font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-card-sub{font-size:11px;color:var(--text3)}
+.chat-card-price{font-size:14px;font-weight:700;color:var(--gold);font-family:'Syne',sans-serif;flex-shrink:0}
+
+/* DASHBOARD */
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+.stat-card{background:var(--bg1);border:1px solid var(--border);border-radius:var(--r);padding:16px}
+.stat-icon{font-size:24px;margin-bottom:8px;color:var(--gold)}
+.stat-val{font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--text);line-height:1}
+.stat-lbl{font-size:12px;color:var(--text3);margin-top:4px}
+.stat-chg{font-size:12px;margin-top:6px}
+.chg-up{color:var(--green)}.chg-dn{color:var(--red)}
+.section-title{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:var(--text);margin-bottom:14px;display:flex;align-items:center;gap:8px}
+
+/* LOADING */
+.loading-spinner{display:inline-block;width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--gold);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-overlay{display:flex;align-items:center;justify-content:center;height:200px;flex-direction:column;gap:12px;color:var(--text3);font-size:13px}
+
+/* AUDIO STATUS */
+.audio-status{font-size:12px;color:var(--red);display:none;align-items:center;gap:6px;margin-top:6px;font-family:'JetBrains Mono',monospace}
+.audio-status.show{display:flex}
+
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.msg-user,.msg-ai,.sys-note{animation:fadeUp .25s ease}
+
+@media(max-width:800px){
+  .search-layout{grid-template-columns:1fr}
+  .filters-card{position:static}
+  .stats-grid{grid-template-columns:repeat(2,1fr)}
+  .topbar-tabs .tab span{display:none}
+}
+</style>
+</head>
+<body>
+
+<!-- ══════════ LOGIN ══════════ -->
+<div id="login-view">
+  <div class="login-card">
+    <div class="login-logo">
+      <div class="llogo-mark">Б</div>
+      <span class="syne" style="font-size:20px;font-weight:700">Бизнесметр CRM</span>
+    </div>
+    <p class="login-sub">Подключение к вашей CRM системе</p>
+    <div class="login-err" id="login-err"></div>
+    <div class="form-group">
+      <label class="form-label">Домен CRM</label>
+      <input type="text" id="crm-domain" placeholder="your-agency.crmnedv.ru" autocomplete="off">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Логин</label>
+      <input type="text" id="crm-login" placeholder="username" autocomplete="off">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Пароль</label>
+      <input type="password" id="crm-pass" placeholder="••••••••">
+    </div>
+    <button class="btn gold" style="width:100%;margin-top:8px;justify-content:center;height:44px;font-size:15px" onclick="doLogin()" id="login-btn">
+      <i class="ti ti-plug"></i> Подключиться
+    </button>
+    <div class="login-demo">
+      Нет доступа к CRM? <a onclick="demoMode()">Войти в демо-режим</a>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ APP ══════════ -->
+<div id="app-view">
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <a href="index.html" class="btn icon sm" style="flex-shrink:0"><i class="ti ti-arrow-left" style="font-size:15px"></i></a>
+    <div class="topbar-logo"><div class="topbar-logo-mark">Б</div><span>Бизнесметр</span></div>
+    <div class="topbar-tabs">
+      <button class="tab active" onclick="showTab('dashboard')" id="tab-dashboard"><i class="ti ti-dashboard"></i><span>Обзор</span></button>
+      <button class="tab" onclick="showTab('search')" id="tab-search"><i class="ti ti-search"></i><span>Поиск</span></button>
+      <button class="tab" onclick="showTab('chat')" id="tab-chat"><i class="ti ti-message-chatbot"></i><span>AI Риелтор</span></button>
+    </div>
+    <div class="topbar-right">
+      <span class="crm-domain-badge" id="domain-badge"></span>
+      <div class="user-badge">
+        <div class="user-dot" id="user-dot">?</div>
+        <span id="user-name" style="font-size:12px"></span>
+      </div>
+      <button class="btn sm" onclick="logout()"><i class="ti ti-logout"></i></button>
+    </div>
+  </div>
+
+  <!-- CONTENT -->
+  <div class="content">
+
+    <!-- DASHBOARD -->
+    <div class="panel active" id="panel-dashboard">
+      <div class="stats-grid" id="dash-stats">
+        <div class="stat-card"><div class="stat-icon"><i class="ti ti-building"></i></div><div class="stat-val" id="ds-total">—</div><div class="stat-lbl">Объектов всего</div></div>
+        <div class="stat-card"><div class="stat-icon"><i class="ti ti-circle-check" style="color:var(--green)"></i></div><div class="stat-val" id="ds-active">—</div><div class="stat-lbl">Активных</div></div>
+        <div class="stat-card"><div class="stat-icon"><i class="ti ti-users" style="color:var(--blue)"></i></div><div class="stat-val" id="ds-users">—</div><div class="stat-lbl">Пользователей</div></div>
+        <div class="stat-card"><div class="stat-icon"><i class="ti ti-clock" style="color:var(--text2)"></i></div><div class="stat-val" id="ds-updated">—</div><div class="stat-lbl">Обновлено сейчас</div></div>
+      </div>
+      <div class="section-title"><i class="ti ti-history"></i> Последние объекты</div>
+      <div class="results-grid" id="recent-grid"></div>
+    </div>
+
+    <!-- SEARCH -->
+    <div class="panel" id="panel-search">
+      <div class="search-layout">
+        <div class="filters-card">
+          <div class="filter-title"><i class="ti ti-adjustments-horizontal"></i> Фильтры</div>
+          <div class="filter-group">
+            <label class="filter-label">Категория</label>
+            <select id="f-category" onchange="doSearch()">
+              <option value="">Все категории</option>
+              <option value="1">Продажа</option>
+              <option value="2">Аренда</option>
+              <option value="3">Коммерческая</option>
+              <option value="4">Зарубежная</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label class="filter-label">Сортировка</label>
+            <select id="f-sort" onchange="doSearch()">
+              <option value="updated">По обновлению</option>
+              <option value="created">По дате создания</option>
+              <option value="price">По цене</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label class="filter-label">Текстовый поиск</label>
+            <input type="text" id="f-text" placeholder="Район, метро, тип..." onkeydown="if(event.key==='Enter')doSearch()">
+          </div>
+          <button class="btn gold" style="width:100%;justify-content:center;margin-top:4px" onclick="doSearch()">
+            <i class="ti ti-search"></i> Найти
+          </button>
+          <button class="btn" style="width:100%;justify-content:center;margin-top:8px" onclick="resetSearch()">
+            <i class="ti ti-x"></i> Сбросить
+          </button>
+        </div>
+        <div class="results-section">
+          <div class="results-header">
+            <div class="results-count">Найдено: <strong id="res-count">—</strong></div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <div class="loading-spinner" id="search-spinner" style="display:none"></div>
+              <span id="page-info" class="mono" style="font-size:11px;color:var(--text3)"></span>
+            </div>
+          </div>
+          <div class="results-grid" id="search-grid"></div>
+          <button class="load-more" id="load-more-btn" onclick="loadMore()" style="display:none">
+            <i class="ti ti-chevrons-down"></i> Загрузить ещё
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- CHAT -->
+    <div class="panel" id="panel-chat">
+      <div class="chat-layout">
+        <div class="chat-messages" id="chat-msgs"></div>
+        <div class="chat-input-area">
+          <div class="chat-input-row">
+            <button class="audio-btn" id="audio-btn" onclick="toggleAudio()" title="Голосовой ввод">
+              <i class="ti ti-microphone" style="font-size:16px"></i>
+            </button>
+            <div class="chat-input-wrap">
+              <textarea class="chat-input" id="chat-inp" placeholder="Спросите AI-риелтора о недвижимости..." rows="1"
+                onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();chatSend()}"></textarea>
+            </div>
+            <button class="chat-send-btn" id="chat-send" onclick="chatSend()">
+              <i class="ti ti-send" style="font-size:16px;color:#09090A"></i>
+            </button>
+          </div>
+          <div class="audio-status" id="audio-status">
+            <i class="ti ti-microphone" style="font-size:13px"></i>
+            <span id="audio-status-text">Слушаю...</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════
+const S = {
+  token: null,
+  domain: null,
+  user: null,
+  demo: false,
+  searchPage: 1,
+  searchData: [],
+  chatHistory: [],
+  chatBusy: false,
+  recognition: null,
+  isRecording: false,
+};
+
+// ══════════════════════════════════════════════
+// AUTH
+// ══════════════════════════════════════════════
+async function doLogin() {
+  const domain = document.getElementById('crm-domain').value.trim().replace(/^https?:\/\//,'').replace(/\/$/,'');
+  const login  = document.getElementById('crm-login').value.trim();
+  const pass   = document.getElementById('crm-pass').value.trim();
+  if(!domain||!login||!pass){ showLoginErr('Заполните все поля'); return; }
+
+  const btn = document.getElementById('login-btn');
+  btn.disabled=true; btn.innerHTML='<div class="loading-spinner" style="width:16px;height:16px;border-width:2px"></div> Подключение...';
+
+  try {
+    const r = await crmRequest(domain, 'POST', '/rest_api/rest_api/token.json', {User:{username:login,password:pass}});
+    if(r?.data?.token){
+      S.token=r.data.token; S.domain=domain;
+      S.user={login};
+      enterApp();
+    } else { showLoginErr('Неверные данные. Проверьте логин и пароль.'); }
+  } catch(e) {
+    showLoginErr('Ошибка подключения: '+e.message);
+  } finally {
+    btn.disabled=false; btn.innerHTML='<i class="ti ti-plug"></i> Подключиться';
+  }
+}
+
+document.getElementById('crm-pass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
+
+function demoMode() {
+  S.demo=true; S.domain='demo.crmnedv.ru'; S.token='demo'; S.user={login:'demo'};
+  enterApp();
+}
+
+function enterApp() {
+  document.getElementById('login-view').style.display='none';
+  document.getElementById('app-view').style.display='flex';
+  document.getElementById('domain-badge').textContent=S.domain;
+  document.getElementById('user-dot').textContent=S.user.login[0].toUpperCase();
+  document.getElementById('user-name').textContent=S.user.login;
+  loadDashboard();
+  initChat();
+}
+
+function logout() {
+  S.token=null; S.domain=null; S.demo=false; S.chatHistory=[];
+  document.getElementById('login-view').style.display='flex';
+  document.getElementById('app-view').style.display='none';
+  document.getElementById('login-err').style.display='none';
+}
+
+function showLoginErr(msg){ const e=document.getElementById('login-err'); e.textContent=msg; e.style.display='block'; }
+
+// ══════════════════════════════════════════════
+// CRM API (через серверный прокси /api/crm)
+// ══════════════════════════════════════════════
+async function crmRequest(domain, method, path, data=null, token=null) {
+  // Через серверный прокси (решает CORS)
+  try {
+    const r = await fetch('/api/crm', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({crm_domain:domain||S.domain, path, method, data, token:token||S.token})
+    });
+    return await r.json();
+  } catch(e) {
+    // Fallback: прямой запрос (если CORS разрешён на CRM)
+    const url = `https://${domain||S.domain}${path}`;
+    const opts = {method, headers:{'Content-Type':'application/json'}};
+    if(data) opts.body=JSON.stringify(data);
+    const r2 = await fetch(url, opts);
+    return await r2.json();
+  }
+}
+
+async function crmGet(path) {
+  if(S.demo) return getDemoData(path);
+  return crmRequest(S.domain, 'GET', path, null, S.token);
+}
+
+// ══════════════════════════════════════════════
+// DASHBOARD
+// ══════════════════════════════════════════════
+async function loadDashboard() {
+  const data = await crmGet(`/admin/agency/realty/index.json?api_token=${S.token}&sort=updated`);
+  const items = data?.data||demoListings();
+  const count = data?.count||items.length;
+
+  document.getElementById('ds-total').textContent=count||items.length;
+  document.getElementById('ds-active').textContent=Math.round((count||items.length)*0.7);
+  document.getElementById('ds-updated').textContent=items.slice(0,3).length;
+
+  const usersData = await crmGet(`/admin/dictionaries/dictionaries/index/Users.User.json?api_token=${S.token}`);
+  document.getElementById('ds-users').textContent=usersData?.data?.length||'—';
+
+  renderGrid('recent-grid', items.slice(0,6));
+}
+
+// ══════════════════════════════════════════════
+// SEARCH
+// ══════════════════════════════════════════════
+let currentPage=1;
+let allResults=[];
+
+async function doSearch(reset=true) {
+  if(reset){ currentPage=1; allResults=[]; }
+  const cat  = document.getElementById('f-category').value;
+  const sort = document.getElementById('f-sort').value;
+  const text = document.getElementById('f-text').value.trim();
+
+  document.getElementById('search-spinner').style.display='block';
+  document.getElementById('load-more-btn').style.display='none';
+
+  let path = `/admin/agency/realty/index.json?api_token=${S.token}&sort=${sort}&page=${currentPage}`;
+  if(cat) path+=`&category_id=${cat}`;
+
+  const data = await crmGet(path);
+  const items = data?.data||demoListings();
+  const total = data?.count||items.length;
+
+  if(reset) allResults=items;
+  else allResults=[...allResults,...items];
+
+  // Текстовый фильтр (клиентский)
+  let filtered = allResults;
+  if(text) {
+    const t=text.toLowerCase();
+    filtered=allResults.filter(p=>{
+      const title=(p.title||p.name||'').toLowerCase();
+      const desc=(p.description||p.body||'').toLowerCase();
+      const addr=(p.address||'').toLowerCase();
+      return title.includes(t)||desc.includes(t)||addr.includes(t);
+    });
+  }
+
+  document.getElementById('res-count').textContent=total;
+  document.getElementById('page-info').textContent=`стр. ${currentPage}`;
+  renderGrid('search-grid', filtered, !reset);
+  document.getElementById('search-spinner').style.display='none';
+  if(items.length>=10) document.getElementById('load-more-btn').style.display='block';
+}
+
+function loadMore(){ currentPage++; doSearch(false); }
+function resetSearch(){
+  document.getElementById('f-category').value='';
+  document.getElementById('f-sort').value='updated';
+  document.getElementById('f-text').value='';
+  doSearch();
+}
+
+// ══════════════════════════════════════════════
+// RENDER CARDS
+// ══════════════════════════════════════════════
+function renderGrid(containerId, items, append=false) {
+  const grid = document.getElementById(containerId);
+  const html = items.map(p=>propCardHtml(p)).join('');
+  if(append) grid.insertAdjacentHTML('beforeend',html);
+  else grid.innerHTML = items.length ? html : '<div style="color:var(--text3);font-size:13px;grid-column:1/-1;padding:20px 0">Объекты не найдены</div>';
+}
+
+function propCardHtml(p) {
+  const title = esc(p.title||p.name||'Без названия');
+  const price = p.price ? fmtPrice(p.price) : 'Цена не указана';
+  const area  = p.area  ? `${p.area} м²` : '';
+  const addr  = esc(p.address||p.city||'');
+  const status = p.status_id==1?'Активный':'Архив';
+  const statusCls = p.status_id==1?'':'archive';
+  const icons = ['🏢','🏪','🏭','🏗️','🏘️'];
+  const icon = icons[Math.floor(Math.random()*icons.length)];
+  return `<div class="prop-card" onclick='showPropDetail(${JSON.stringify(JSON.stringify(p))})'>
+    <div class="prop-img">${icon}
+      <div class="prop-badge-wrap">
+        <span class="badge badge-status ${statusCls}">${status}</span>
+      </div>
+    </div>
+    <div class="prop-body">
+      <div class="prop-title">${title}</div>
+      <div class="prop-price">${price}</div>
+      <div class="prop-meta">
+        ${area?`<span class="meta-tag"><i class="ti ti-ruler-2"></i>${area}</span>`:''}
+        ${addr?`<span class="meta-tag"><i class="ti ti-map-pin"></i>${addr.slice(0,20)}</span>`:''}
+        ${p.rooms?`<span class="meta-tag"><i class="ti ti-door"></i>${p.rooms} комн.</span>`:''}
+      </div>
+    </div>
+    <div class="prop-footer">
+      <button onclick="event.stopPropagation();chatAbout('${title.replace(/'/g,'&apos;')}')">AI Консультант</button>
+      <button class="gold" onclick="event.stopPropagation()">Открыть</button>
+    </div>
+  </div>`;
+}
+
+function showPropDetail(jsonStr) {
+  const p = JSON.parse(jsonStr);
+  // Переходим в чат с информацией об объекте
+  showTab('chat');
+  const title = p.title||p.name||'Объект';
+  setTimeout(()=>chatAbout(title),100);
+}
+
+function chatAbout(title) {
+  document.getElementById('chat-inp').value=`Расскажи подробнее об объекте: ${title}`;
+  document.getElementById('chat-inp').focus();
+}
+
+// ══════════════════════════════════════════════
+// TABS
+// ══════════════════════════════════════════════
+function showTab(name) {
+  ['dashboard','search','chat'].forEach(t=>{
+    document.getElementById(`panel-${t}`).classList.toggle('active',t===name);
+    document.getElementById(`tab-${t}`).classList.toggle('active',t===name);
+  });
+  if(name==='search'&&document.getElementById('search-grid').innerHTML==='') doSearch();
+}
+
+// ══════════════════════════════════════════════
+// AI CHAT
+// ══════════════════════════════════════════════
+function initChat() {
+  sysNote('Алекс подключён · CRM: '+S.domain+(S.demo?' · демо-режим':''));
+  addAIMsg('Привет! Я Алекс, AI-риелтор. Подключён к вашей CRM системе '+S.domain+'. Спрашивайте об объектах — могу искать, анализировать и консультировать.', [
+    'Что сейчас в базе?',
+    'Покажи офисы',
+    'Что активно продаётся?',
+  ]);
+}
+
+async function chatSend() {
+  const inp = document.getElementById('chat-inp');
+  const text = inp.value.trim();
+  if(!text||S.chatBusy) return;
+  inp.value=''; inp.style.height='auto';
+  sendChatMsg(text);
+}
+
+async function sendChatMsg(text) {
+  if(S.chatBusy) return;
+  S.chatBusy=true;
+  document.getElementById('chat-send').disabled=true;
+  addUserMsg(text);
+  const loader=addTyping();
+  S.chatHistory.push({role:'user',content:text});
+
+  // Получаем данные из CRM для контекста
+  let crmContext = '';
+  if(S.demo || S.token) {
+    const listings = await crmGet(`/admin/agency/realty/index.json?api_token=${S.token}&sort=updated`);
+    const items = (listings?.data||demoListings()).slice(0,15);
+    crmContext = `\nТекущие объекты в CRM (последние 15):\n${items.map(p=>`- ID:${p.id||'?'} "${p.title||p.name||'?'}" ${p.price?fmtPrice(p.price):''} ${p.area?p.area+'м²':''} ${p.address||''}`).join('\n')}`;
+  }
+
+  const systemPrompt = `Ты Алекс — профессиональный AI-риелтор, подключённый к CRM системе агентства недвижимости (домен: ${S.domain}).
+Ты имеешь доступ к базе данных объектов недвижимости через CRM.
+${crmContext}
+Отвечай кратко и по делу (до 150 слов). Только русский язык. Без markdown. Как живой опытный риелтор.
+Если пользователь спрашивает об объекте — ссылайся на данные из CRM выше.`;
+
+  const aiReply = await callClaude(systemPrompt, S.chatHistory.slice(-8));
+  loader.remove();
+
+  const replyText = aiReply||'Не удалось получить ответ. Проверьте подключение к AI.';
+  S.chatHistory.push({role:'assistant',content:replyText});
+  addAIMsg(replyText);
+  if(aiReply) speakText(replyText);
+
+  S.chatBusy=false;
+  document.getElementById('chat-send').disabled=false;
+}
+
+async function callClaude(system, messages) {
+  try {
+    const r = await fetch('/api/claude',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({system,messages,max_tokens:500})
+    });
+    const d = await r.json();
+    return d?.content?.[0]?.text||null;
+  } catch(e){ return null; }
+}
+
+// ══════════════════════════════════════════════
+// AUDIO — Web Speech API
+// ══════════════════════════════════════════════
+function initSpeech() {
+  const SpeechRec = window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SpeechRec){ console.log('Speech API не поддерживается'); return null; }
+  const rec = new SpeechRec();
+  rec.lang='ru-RU'; rec.interimResults=true; rec.continuous=false;
+  rec.onresult=e=>{
+    const transcript=[...e.results].map(r=>r[0].transcript).join('');
+    document.getElementById('chat-inp').value=transcript;
+    if(e.results[e.results.length-1].isFinal){ stopAudio(); chatSend(); }
+  };
+  rec.onerror=()=>stopAudio();
+  rec.onend=()=>{ if(S.isRecording) stopAudio(); };
+  return rec;
+}
+
+function toggleAudio() {
+  if(S.isRecording){ stopAudio(); return; }
+  const SpeechRec=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SpeechRec){ alert('Голосовой ввод не поддерживается в этом браузере. Используйте Chrome.'); return; }
+  if(!S.recognition) S.recognition=initSpeech();
+  S.isRecording=true;
+  S.recognition.start();
+  document.getElementById('audio-btn').classList.add('recording');
+  const st=document.getElementById('audio-status');
+  st.classList.add('show');
+  document.getElementById('audio-status-text').textContent='Слушаю... говорите';
+}
+
+function stopAudio() {
+  S.isRecording=false;
+  if(S.recognition) try{S.recognition.stop()}catch(e){}
+  document.getElementById('audio-btn').classList.remove('recording');
+  document.getElementById('audio-status').classList.remove('show');
+}
+
+function speakText(text) {
+  if(!window.speechSynthesis||!text) return;
+  const short=text.slice(0,200);
+  const utt=new SpeechSynthesisUtterance(short);
+  utt.lang='ru-RU'; utt.rate=0.95; utt.pitch=1;
+  // Выбираем русский голос если есть
+  const voices=window.speechSynthesis.getVoices();
+  const ru=voices.find(v=>v.lang.startsWith('ru'));
+  if(ru) utt.voice=ru;
+  window.speechSynthesis.speak(utt);
+}
+
+// ══════════════════════════════════════════════
+// CHAT UI HELPERS
+// ══════════════════════════════════════════════
+const chatMsgs=()=>document.getElementById('chat-msgs');
+const scrollChat=()=>setTimeout(()=>{const m=chatMsgs();m.scrollTop=m.scrollHeight},60);
+
+function addUserMsg(text){
+  chatMsgs().appendChild(mkEl(`<div class="msg-user"><div class="msg-user-bubble">${esc(text)}</div></div>`));
+  scrollChat();
+}
+function addTyping(){
+  const d=mkEl('<div class="msg-ai"><div class="ai-ava">А</div><div class="ai-bubble"><div class="typing"><span></span><span></span><span></span></div></div></div>');
+  chatMsgs().appendChild(d); scrollChat(); return d;
+}
+function addAIMsg(text,qr=[]){
+  const qrHtml=qr.length?`<div class="quick-replies">${qr.map(q=>`<button class="qr-btn" onclick="sendChatMsg('${q.replace(/'/g,"\\'")}') ">${q}</button>`).join('')}</div>`:'';
+  chatMsgs().appendChild(mkEl(`<div class="msg-ai"><div class="ai-ava">А</div><div class="ai-bubble"><div>${esc(text)}</div>${qrHtml}</div></div>`));
+  scrollChat();
+}
+function sysNote(text){chatMsgs().appendChild(mkEl(`<div class="sys-note">${text}</div>`));scrollChat();}
+function mkEl(html){const d=document.createElement('div');d.innerHTML=html;return d.firstChild;}
+
+// ══════════════════════════════════════════════
+// UTILS
+// ══════════════════════════════════════════════
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function fmtPrice(p){
+  if(!p||p==0) return '—';
+  const n=parseFloat(p);
+  if(n>=1000000) return (n/1000000).toFixed(1).replace('.0','')+' млн ₽';
+  if(n>=1000) return Math.round(n/1000)+'K ₽';
+  return n+' ₽';
+}
+
+// Автоувеличение textarea
+document.getElementById('chat-inp')?.addEventListener('input',function(){
+  this.style.height='auto';
+  this.style.height=Math.min(this.scrollHeight,80)+'px';
+});
+
+// ══════════════════════════════════════════════
+// DEMO DATA
+// ══════════════════════════════════════════════
+function demoListings(){
+  return [
+    {id:1,title:"Офис у м. Тверская",price:255000,area:85,address:"ЦАО, Тверская",status_id:1},
+    {id:2,title:"Склад Котельники 500м²",price:250000,area:500,address:"МО, Котельники",status_id:1},
+    {id:3,title:"Торговое помещение Арбат",price:480000,area:120,address:"ЦАО, Арбат",status_id:1},
+    {id:4,title:"Офис Москва-Сити башня",price:900000,area:150,address:"ЦАО, Деловой центр",status_id:1},
+    {id:5,title:"Производственный цех ЮВАО",price:390000,area:650,address:"ЮВАО, Люблино",status_id:1},
+    {id:6,title:"Ресторан Патриаршие пруды",price:960000,area:200,address:"ЦАО, Маяковская",status_id:1},
+    {id:7,title:"Офис продажа Новый Арбат",price:42000000,area:95,address:"ЦАО, Арбатская",status_id:1},
+    {id:8,title:"Склад Подольск 3500м²",price:1050000,area:3500,address:"МО, Подольск",status_id:2},
+  ];
+}
+
+function getDemoData(path){
+  if(path.includes('Users.User')) return {data:[{id:1,name:'Иванов И.И.'},{id:2,name:'Петрова М.В.'}]};
+  const items=demoListings();
+  return {data:items,count:147,page:1};
+}
+</script>
+</body>
+</html>
