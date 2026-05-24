@@ -18,13 +18,14 @@ import { ChatApprovalCard, ChatJobCard } from "./chat-tool-cards";
 import { clampToViewport, readPos, writePos } from "@/lib/clampViewport";
 
 // Eugene 2026-05-14 Босс: «после 1 dismiss через 1 мин, если ещё раз — 1 час».
-const REAPPEAR_MS_FIRST = 60_000;     // 1 минута после первого dismiss
-const REAPPEAR_MS_SECOND = 3_600_000; // 1 час после второго
+const REAPPEAR_MS_FIRST = 60_000;       // 1 минута после первого dismiss
+const REAPPEAR_MS_SECOND = 3_600_000;   // 1 час после второго (Eugene 2026-05-24)
+const REAPPEAR_MS_THIRD = 3 * 3_600_000; // 3 часа после третьего (Eugene 2026-05-24)
 // Eugene 2026-05-22 Босс «Муза появляется через 60 секунд» —
 // initial delay 2500ms → 0 (мгновенно при загрузке).
 // Reappear после dismiss (60s/1ч) остаётся как было — это by-design UX.
 const APPEAR_DELAY_MS = 0;
-const MAX_DISMISS = 3;
+const MAX_DISMISS = 4; // Eugene 2026-05-24: 3 cooldowns (1мин/1ч/3ч) перед stay-hidden
 const SS_KEY = "_helperDismissed";
 const SCROLL_VELOCITY_THRESHOLD = 60; // px между двумя scroll-events за <100ms = «резкий»
 
@@ -611,17 +612,26 @@ export function FloatingConsultant() {
     // Если юзер уже двигал в ТЕКУЩЕЙ session — используем её позицию.
     const saved = readSessionPos();
     if (saved) return clampToViewport(saved.x, saved.y, fabW, fabH);
-    // Eugene 2026-05-23 Босс «расположение музы в зависимости от размера
-    // окна придумай пусть будет правее вверх». Музa ВСЕГДА top-right
-    // (не только при chatOpen). Адаптивный отступ от верха: на mobile
-    // ближе к навбару (76px), на tablet — 92px, на desktop — 108px.
-    // Так FAB не перекрывает chat drawer + не теряется в шапке +
-    // визуально «правее вверх» на любом размере экрана. iOS safe-area-top
-    // обрабатывается padding-top родительского контейнера, не нужен здесь.
+    // Eugene 2026-05-24 Босс «Музa в первом нижнем углу экрана» — вернули
+    // bottom-right position (previously top-right per 2026-05-23). iOS safe-
+    // area-bottom через probe для home-indicator. Когда chatOpen на mobile
+    // — поднимаемся над chat drawer (≈62vh снизу).
     const vw = window.innerWidth;
-    const safeTop = vw < 640 ? 76 : vw < 1024 ? 92 : 108;
+    const vh = window.innerHeight;
+    let safeBottom = 16;
+    try {
+      const probe = document.createElement("div");
+      probe.style.cssText = "position:fixed;bottom:0;padding-bottom:env(safe-area-inset-bottom);visibility:hidden;pointer-events:none;";
+      document.body.appendChild(probe);
+      const pad = parseInt(getComputedStyle(probe).paddingBottom, 10) || 0;
+      safeBottom = Math.max(16, pad + 8);
+      document.body.removeChild(probe);
+    } catch {}
+    const isChatOpen = (window as any).__muzaChatOpen === true;
+    const isMobile = vw < 640;
+    const chatLifted = isChatOpen && isMobile ? Math.round(vh * 0.62) : 0;
     const x = Math.max(8, vw - fabW - 8);
-    const y = safeTop;
+    const y = Math.max(8, vh - fabH - safeBottom - chatLifted);
     return { x, y };
   };
   const [fabPos, setFabPos] = useState(computeFabPos);
@@ -1798,9 +1808,22 @@ export function FloatingConsultant() {
       setExpanded(false);
       dismissedRef.current += 1;
       try { sessionStorage.setItem(SS_KEY, String(dismissedRef.current)); } catch {}
-      // Eugene 2026-05-14 Босс «1 мин после первого, 1 час после ещё раз».
+      // Eugene 2026-05-24 Босс «закрыл 2 раза подряд — 1 час, ещё раз — 3 часа».
       if (dismissedRef.current < MAX_DISMISS) {
-        const reappearMs = dismissedRef.current === 1 ? REAPPEAR_MS_FIRST : REAPPEAR_MS_SECOND;
+        const reappearMs = dismissedRef.current === 1 ? REAPPEAR_MS_FIRST
+                          : dismissedRef.current === 2 ? REAPPEAR_MS_SECOND
+                          : REAPPEAR_MS_THIRD;
+        // Toast «тапни на экран 2 раза и я вернусь» — instructs юзера как wake
+        try {
+          const dur = reappearMs >= 3_600_000
+            ? `${Math.round(reappearMs / 3_600_000)} ч`
+            : `${Math.round(reappearMs / 60_000)} мин`;
+          const toastDiv = document.createElement("div");
+          toastDiv.textContent = `Тапни на экран 2 раза и я вернусь · иначе через ${dur}`;
+          toastDiv.style.cssText = "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#7C3AED,#FF006E,#00D4FF);color:#fff;padding:10px 18px;border-radius:9999px;font-size:13px;font-weight:600;z-index:99999;box-shadow:0 8px 32px rgba(124,58,237,0.4);animation:fadeInUp 0.3s ease-out;max-width:88vw;text-align:center;";
+          document.body.appendChild(toastDiv);
+          window.setTimeout(() => { try { toastDiv.remove(); } catch {} }, 4500);
+        } catch {}
         timerRef.current = window.setTimeout(() => {
           setVisible(true);
         }, reappearMs);
@@ -1814,7 +1837,7 @@ export function FloatingConsultant() {
   useEffect(() => {
     if (typeof document === "undefined") return;
     const KNOCK_WINDOW_MS = 1200;
-    const REQUIRED_KNOCKS = 3;
+    const REQUIRED_KNOCKS = 2; // Eugene 2026-05-24 Босс «тапни 2 раза и я вернусь»
     const tapTimestamps: number[] = [];
     const onTap = (e: PointerEvent) => {
       const tgt = e.target as HTMLElement | null;
