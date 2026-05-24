@@ -475,6 +475,18 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // прямое свойство, React не re-render. Делаем State + listeners на play/pause events.
   const [isPlayingState, setIsPlayingState] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  // Eugene 2026-05-24 Босс «при нажатии уменьшилась в первоначальное положение».
+  // closingId — id трека, у которого expanded карточка сейчас СВОРАЧИВАЕТСЯ.
+  // Рендер expanded остаётся пока closingId === id (300мс exit animation),
+  // потом expandedId/closingId сбрасываются в null и DOM unmount'ится.
+  const [closingId, setClosingId] = useState<number | null>(null);
+  const closeExpanded = (id: number) => {
+    setClosingId(id);
+    setTimeout(() => {
+      setClosingId(prev => (prev === id ? null : prev));
+      setExpandedId(prev => (prev === id ? null : prev));
+    }, 300);
+  };
   // Eugene 2026-05-19 Босс «при случайном нажатии закрывается — добавь паузу».
   // Anti-accidental-collapse: 350ms cooldown после открытия expanded card.
   // Pointer-down → если прошло <350ms → ignore (anti-double-tap, anti-flicker).
@@ -2566,8 +2578,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                     className={`flex-1 min-w-0 ${isMusic ? "cursor-pointer" : ""}`}
                     onClick={(e) => {
                       if (!isMusic) return;
-                      // Toggle expand: повторный клик по строке = свернуть
-                      if (isExpanded) { setExpandedId(null); return; }
+                      // Toggle expand: повторный клик по строке = свернуть (с reverse animation).
+                      if (isExpanded) { closeExpanded(track.id); return; }
                       setExpandedId(track.id);
                       setTimeout(() => (e.currentTarget as HTMLElement)?.closest("[data-track-card]")?.scrollIntoView({ behavior: "smooth", block: "center" }), 100);
                     }}
@@ -2644,30 +2656,32 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                 </div>
 
                 {/* Inline expanded cover — appears after selected track */}
-                {isExpanded && (() => {
+                {(isExpanded || closingId === track.id) && (() => {
                   const eActive = playingId === track.id;
                   const ePlaying = eActive && isPlayingState;
+                  // Eugene 2026-05-24 Босс «увеличение с подсветкой как на плеере,
+                  // нажатие — обратно». data-cover-state=open|closing → applies
+                  // bloom-in / bloom-out animations (см. index.css).
+                  const coverState = closingId === track.id ? "closing" : "open";
                   // Eugene 2026-05-17 Босс: дата ПУБЛИКАЦИИ (fallback на createdAt).
                   const eDateSource = (track as any).publishedAt || track.createdAt;
                   const eDateStr = eDateSource ? new Date(eDateSource).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" }) : "";
                   return (
-                    <div className="px-2 pb-2 pt-1">
+                    <div className="px-2 pb-2 pt-1" data-cover-state={coverState}>
                       {/* Eugene 2026-05-23 Босс «раскрытая обложка подсветка
                           с обратной стороны должна быть такая же как на
                           обложке основного плеера с учётом размеров».
-                          Brand conic-gradient aura (purple/pink/cyan/amber)
-                          с slow rotation. Размер пропорциональный: -inset-4
-                          (mobile, base ≈ 320-380px cover → +16px halo) →
-                          -inset-6 (sm tablet 600px+ → +24px) → -inset-8
-                          (md desktop большой → +32px). blur-3xl bigger чем
-                          у main player (-inset-2 + blur-2xl) пропорционально. */}
+                          Eugene 2026-05-24 Босс «глуина увеличение подсветки» —
+                          aura теперь сама bloom'ится из 0 → 35% opacity вместе
+                          с обложкой (cover-aura-bloom keyframe). */}
                       <div className="relative">
                         <div
                           aria-hidden="true"
-                          className="absolute -inset-4 sm:-inset-6 md:-inset-8 rounded-3xl opacity-35 blur-3xl pointer-events-none cover-aura"
+                          className="absolute -inset-4 sm:-inset-6 md:-inset-8 rounded-3xl blur-3xl pointer-events-none cover-aura cover-aura-bloom"
                           style={{ animationDuration: "12.3s" }}
+                          data-cover-state={coverState}
                         />
-                        <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-purple-500/20 animate-in fade-in zoom-in-95 duration-300">
+                        <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-purple-500/20 cover-bloom" data-cover-state={coverState}>
                           <div
                             className="w-full aspect-square bg-gradient-to-br from-purple-900 via-blue-900 to-black relative cursor-pointer"
                           /* Eugene 2026-05-21 Босс «замедли чувствительность —
@@ -2700,7 +2714,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             if (dt > 350) return;          // long-press — не collapse
                             if (Date.now() - expandedAtRef.current < 700) return;
                             e.preventDefault();
-                            setExpandedId(null);
+                            closeExpanded(track.id);
                           }}
                           onPointerCancel={(e) => {
                             const ce = e.currentTarget as any;
