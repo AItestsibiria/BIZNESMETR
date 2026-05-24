@@ -855,7 +855,13 @@ export function FloatingConsultant() {
   // создаётся локально и не нарушает persistent player ownership.
   const SOUND_KEY = "muza-chat-sound";
   const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
-    try { return localStorage.getItem(SOUND_KEY) === "1"; } catch { return false; }
+    // Eugene 2026-05-24 Босс «звук чата по умолчанию включён».
+    // Если ключ ещё не set — true. Если "0" → false (юзер сам выключил). "1" → true.
+    try {
+      const stored = localStorage.getItem(SOUND_KEY);
+      if (stored === null) return true;
+      return stored === "1";
+    } catch { return true; }
   });
   const audioCtxRef = useRef<AudioContext | null>(null);
   const prevChatMsgsLenRef = useRef(0);
