@@ -1714,20 +1714,21 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // категории/поиска.
   // Eugene 2026-05-19 «Playlist-strict-selection rule»: expandPrev/Next тоже
   // только filtered подборка. Никакого fallback на musicTracks (full).
-  // Eugene 2026-05-23 Player audit BUG #3: lookup идёт по playingId, не
-  // expandedId. Раньше — divergence: юзер свайпом смотрел другую обложку
-  // (expandedId изменился) но НЕ играл — кнопки ▶◀ в expanded переключали
-  // на основе expandedId → skipNext снизу переключал на основе playingId
-  // → разные результаты. Унифицируем: всё на playingId как источник истины.
+  // Eugene 2026-05-23 Босс «раскрытая обложка должна быть в одном месте,
+  // при нажатии на следующий трек обложка на месте и только меняется трек,
+  // на смартфоне очень важно». Раньше expandPrev/expandNext делали
+  // setExpandedId(newTrack.id) → раскрытая обложка переезжала под новый
+  // row в плейлисте (визуальный прыжок). Теперь — expandedId НЕ меняется,
+  // меняется только playingId. Image внутри expanded cover читает
+  // currentTrack.imageUrl (см. render блок), так что картинка обновляется
+  // на новый трек, но позиция стабильна.
   const expandPrev = () => {
     const list = filteredMusicRef.current || [];
     if (list.length === 0) return;
     const idx = list.findIndex(t => t.id === playingId);
     if (idx < 0) return;
     const prev = (idx - 1 + list.length) % list.length;
-    const prevTrack = list[prev];
-    setExpandedId(prevTrack.id);
-    playTrack(prevTrack);
+    playTrack(list[prev]);
   };
   const expandNext = () => {
     const list = filteredMusicRef.current || [];
@@ -1735,9 +1736,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     const idx = list.findIndex(t => t.id === playingId);
     if (idx < 0) return;
     const next = (idx + 1) % list.length;
-    const nextTrack = list[next];
-    setExpandedId(nextTrack.id);
-    playTrack(nextTrack);
+    playTrack(list[next]);
   };
 
   return (<>
@@ -2662,7 +2661,19 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             ce.__capX = ce.__capY = ce.__capAt = undefined;
                           }}
                         >
-                          {track.imageUrl && <img key={track.imageUrl} src={track.imageUrl} alt="" className="w-full h-full object-cover absolute inset-0 animate-in fade-in duration-500" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />}
+                          {/* Eugene 2026-05-23 Босс: при skip обложка остаётся
+                              на месте (position по expandedId/track), image
+                              читает currentTrack — следует за играющим треком.
+                              Так на смартфоне нет визуального прыжка. */}
+                          {((currentTrack as any)?.imageUrl || track.imageUrl) && (
+                            <img
+                              key={(currentTrack as any)?.imageUrl || track.imageUrl}
+                              src={((currentTrack as any)?.imageUrl || track.imageUrl) as string}
+                              alt=""
+                              className="w-full h-full object-cover absolute inset-0 animate-in fade-in duration-500"
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                            />
+                          )}
                           {/* Eugene 2026-05-19 Босс «S на большой обложке».
                               Eugene 2026-05-21 Босс «Плей и S в наложении»:
                               S меньше на mobile (w-9 h-9) + смещена top-3 right-3
