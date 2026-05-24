@@ -2678,7 +2678,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                         <div
                           aria-hidden="true"
                           className="absolute -inset-4 sm:-inset-6 md:-inset-8 rounded-3xl blur-3xl pointer-events-none cover-aura cover-aura-bloom"
-                          style={{ animationDuration: "12.3s" }}
                           data-cover-state={coverState}
                         />
                         <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-purple-500/20 cover-bloom" data-cover-state={coverState}>

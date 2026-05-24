@@ -1067,7 +1067,11 @@
 .chat-cosmic-bg {
   position: absolute;
   inset: 0;
-  z-index: 0;
+  /* Eugene 2026-05-24 fix: z-index:-1 (было 0) — иначе фон paints НАД in-flow
+     content по CSS stacking order (z:0 absolute = step 7, content = step 3).
+     Кнопка «Ухожу» + другие контролы пропадали под фоном. С z:-1 cosmic-bg
+     ложится между drawer-background и chat content. */
+  z-index: -1;
   overflow: hidden;
   border-radius: inherit;
   pointer-events: none;
@@ -1196,12 +1200,16 @@
 }
 
 @keyframes cover-aura-bloom-in {
+  /* Eugene 2026-05-24 Босс «подсветка должна быть такой же динамичной».
+     End opacity = 0.55 = стартовое значение coverAuraShift keyframe (см.
+     L425) — плавный handoff bloom-in → coverAuraShift без opacity-скачка.
+     Дальше coverAuraShift пульсирует 0.55→0.75→0.65→0.8→0.55 (как у main player). */
   0%   { opacity: 0; transform: scale(0.4); }
-  70%  { opacity: 0.45; transform: scale(1.05); }
-  100% { opacity: 0.35; transform: scale(1); }
+  70%  { opacity: 0.7; transform: scale(1.05); }
+  100% { opacity: 0.55; transform: scale(1); }
 }
 @keyframes cover-aura-bloom-out {
-  0%   { opacity: 0.35; transform: scale(1); }
+  0%   { opacity: 0.55; transform: scale(1); }
   100% { opacity: 0; transform: scale(0.5); }
 }
 
@@ -1217,14 +1225,16 @@
   transform-origin: center;
   /* Базовое opacity управляется keyframe (не overrides cover-aura conic-rotation). */
   opacity: 0;
+  /* Eugene 2026-05-24: coverAuraShift 8s (как у main player .cover-aura) —
+     было 12.3s, что давало визуально менее динамичную подсветку. */
   animation:
     cover-aura-bloom-in 520ms cubic-bezier(0.22, 1, 0.36, 1) both,
-    coverAuraShift 12.3s ease-in-out infinite;
+    coverAuraShift 8s ease-in-out infinite;
 }
 .cover-aura-bloom[data-cover-state="closing"] {
   animation:
     cover-aura-bloom-out 260ms cubic-bezier(0.45, 0, 0.55, 1) both,
-    coverAuraShift 12.3s ease-in-out infinite;
+    coverAuraShift 8s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

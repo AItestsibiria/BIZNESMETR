@@ -796,11 +796,13 @@ export function FloatingConsultant() {
   // Eugene 2026-05-23 Босс «прозрачность изменение нажатием 3 режима».
   // 0=плотно (95%), 1=полупрозрачно (60%), 2=стекло (28%, текущий default).
   const [chatOpacity, setChatOpacity] = useState<0 | 1 | 2>(() => {
-    if (typeof window === "undefined") return 2;
+    // Eugene 2026-05-24 Босс «по умолчанию средняя прозрачность» — default 1
+    // (полупрозрачно), было 2 (стекло). Юзер может переключить кнопкой ▓▒░.
+    if (typeof window === "undefined") return 1;
     try {
       const saved = Number(localStorage.getItem("muza-chat-opacity"));
-      return saved === 0 || saved === 1 || saved === 2 ? (saved as 0 | 1 | 2) : 2;
-    } catch { return 2; }
+      return saved === 0 || saved === 1 || saved === 2 ? (saved as 0 | 1 | 2) : 1;
+    } catch { return 1; }
   });
   useEffect(() => {
     try { localStorage.setItem("muza-chat-opacity", String(chatOpacity)); } catch {}
