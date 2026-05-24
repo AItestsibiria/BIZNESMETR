@@ -12,15 +12,16 @@ import { onJourneyEvent } from "../lib/user-journey";
 import { getPersistentPlayerAudio } from "../lib/lockscreen";
 import { SupportModal } from "./support-modal";
 import { ChatTrackCard, type ChatTrackCardData } from "./chat-track-card";
+import { Maximize2, Minimize2 } from "lucide-react";
 // Eugene 2026-05-21 Босс Chat-tool-calling MVP: approval-карточка + job-карточка
 // для chat-tool результатов (generate_lyrics / create_music_job / publish_asset).
 import { ChatApprovalCard, ChatJobCard } from "./chat-tool-cards";
 import { clampToViewport, readPos, writePos } from "@/lib/clampViewport";
 
 // Eugene 2026-05-14 Босс: «после 1 dismiss через 1 мин, если ещё раз — 1 час».
-const REAPPEAR_MS_FIRST = 60_000;       // 1 минута после первого dismiss
-const REAPPEAR_MS_SECOND = 3_600_000;   // 1 час после второго (Eugene 2026-05-24)
-const REAPPEAR_MS_THIRD = 3 * 3_600_000; // 3 часа после третьего (Eugene 2026-05-24)
+const REAPPEAR_MS_FIRST = 15 * 60_000;  // 15 минут после первого (Eugene 2026-05-24)
+const REAPPEAR_MS_SECOND = 3_600_000;   // 1 час после второго
+const REAPPEAR_MS_THIRD = 3 * 3_600_000; // 3 часа после третьего
 // Eugene 2026-05-22 Босс «Муза появляется через 60 секунд» —
 // initial delay 2500ms → 0 (мгновенно при загрузке).
 // Reappear после dismiss (60s/1ч) остаётся как было — это by-design UX.
@@ -2511,14 +2512,29 @@ export function FloatingConsultant() {
               "left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
             }`}
             style={{
-              // Eugene 2026-05-23 Босс «растянуть проще». chatFullscreen
-              // override приоритет — 92vw × 86vh.
+              // Eugene 2026-05-24 Босс «полный экран с отступами — управление
+              // верхнее и кнопка уйти с зазорами от границ экрана». Fullscreen
+              // занимает почти всю viewport (100dvw × 100dvh — dynamic vh
+              // правильно работает на iOS Safari с динамическим address bar),
+              // минус safe-area-insets (notch / home indicator) + 8px gap
+              // со всех сторон, чтобы window controls / footer не упирались
+              // в edge экрана.
               ...(chatFullscreen
-                ? { width: "92vw", height: "86vh", maxWidth: "92vw" }
+                ? {
+                    position: "fixed",
+                    top: "calc(env(safe-area-inset-top, 0px) + 8px)",
+                    left: "calc(env(safe-area-inset-left, 0px) + 8px)",
+                    right: "calc(env(safe-area-inset-right, 0px) + 8px)",
+                    bottom: "calc(env(safe-area-inset-bottom, 0px) + 8px)",
+                    width: "auto",
+                    height: "auto",
+                    maxWidth: "none",
+                    transform: "none",
+                  }
                 : chatSize
                   ? { width: `${chatSize.w}px`, height: `${chatSize.h}px`, maxWidth: "96vw" }
                   : { height: "min(60vh, calc(100vh - 96px - env(safe-area-inset-bottom, 0px)))" }),
-              marginBottom: drawerSnap === "br" || drawerSnap === "bl" ? "env(safe-area-inset-bottom, 0px)" : undefined,
+              marginBottom: !chatFullscreen && (drawerSnap === "br" || drawerSnap === "bl") ? "env(safe-area-inset-bottom, 0px)" : undefined,
               // Eugene 2026-05-23 Босс «прозрачность 3 режима». 0=плотно, 1=полупрозрачно, 2=стекло.
               backgroundColor: `hsl(var(--background) / ${[0.95, 0.6, 0.28][chatOpacity]})`,
             }}
@@ -2634,8 +2650,13 @@ export function FloatingConsultant() {
                 onClick={() => setChatFullscreen(f => !f)}
                 aria-label={chatFullscreen ? "Свернуть чат" : "Развернуть на весь экран"}
                 title={chatFullscreen ? "Свернуть" : "Развернуть на весь экран"}
-                className="w-9 h-9 sm:w-7 sm:h-7 rounded-full hover:bg-white/[0.08] text-white/70 hover:text-white text-[14px] flex items-center justify-center shrink-0"
-              >{chatFullscreen ? "⊟" : "⛶"}</button>
+                className="w-9 h-9 sm:w-7 sm:h-7 rounded-full hover:bg-white/[0.08] text-white/70 hover:text-white flex items-center justify-center shrink-0"
+              >
+                {chatFullscreen
+                  ? <Minimize2 className="w-4 h-4" strokeWidth={2.5} />
+                  : <Maximize2 className="w-4 h-4" strokeWidth={2.5} />
+                }
+              </button>
               {/* Eugene 2026-05-14 Босс: новый разговор — чистый sessionId,
                   устраняет остатки старой истории в БД. */}
               <button
