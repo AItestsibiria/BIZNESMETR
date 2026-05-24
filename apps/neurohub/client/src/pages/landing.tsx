@@ -2584,7 +2584,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                         if (navigator.share) {
                           try {
                             await navigator.share({ title: `Послушай на MuzaAi.ru`, text: `${title}`, url });
-                            fetch(`/api/playlist/activity/${track.id}`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({action:'share'}) }).catch(() => {});
+                            fetch(`/api/gen-activity/${track.id}/share`, { method: 'POST' }).catch(() => {});
                             return;
                           } catch {}
                         }
