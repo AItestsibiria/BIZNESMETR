@@ -3,259 +3,257 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<meta name="description" content="Бизнесметр AI — аналитика коммерческой недвижимости на основе искусственного интеллекта">
-<title>Бизнесметр AI — Коммерческая недвижимость нового поколения</title>
+<meta name="description" content="Бизнесметр — AI-платформа коммерческой недвижимости нового поколения">
+<title>Бизнесметр — Коммерческая недвижимость нового поколения</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#09090A;
-  --bg1:#111113;
-  --bg2:#18181C;
-  --bg3:#222228;
-  --border:#2A2A32;
-  --border2:#38383F;
-  --gold:#C8A040;
-  --gold-dim:#8A6E2A;
-  --gold-glow:rgba(200,160,64,.12);
-  --blue:#5087B8;
-  --blue-dim:#2A4560;
-  --text:#F0EFE8;
-  --text2:#A0A09A;
-  --text3:#606060;
-  --green:#4AA870;
-  --red:#CC5555;
-  --radius:10px;
-  --radius-sm:6px;
+  --green:#5BC85B;--green-dark:#3A9E3A;--green-dim:#1E4D1E;
+  --green-glow:rgba(91,200,91,.12);--green-glow2:rgba(91,200,91,.06);
+  --teal:#00B8CC;--teal-dim:rgba(0,184,204,.2);
+  --blue:#2A7EC8;--blue-dim:rgba(42,126,200,.2);
+  --bg:#0A0D0F;--bg1:#0F1418;--bg2:#141A1F;--bg3:#1C2530;
+  --border:#1E2A35;--border2:#263545;
+  --text:#E8F0E8;--text2:#8DA89D;--text3:#4A6055;
+  --r:10px;--rs:6px;
 }
 html{scroll-behavior:smooth}
-body{font-family:'Golos Text',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
-h1,h2,h3,h4,.font-syne{font-family:'Syne',sans-serif}
+body{font-family:'Golos Text',sans-serif;background:var(--bg);color:var(--text);overflow-x:hidden}
+h1,h2,h3,.syne{font-family:'Syne',sans-serif}
 .mono{font-family:'JetBrains Mono',monospace}
 
-/* ── GRID BG ── */
-body::before{content:'';position:fixed;inset:0;background-image:radial-gradient(circle at 1px 1px,var(--border) 1px,transparent 0);background-size:32px 32px;opacity:.4;pointer-events:none;z-index:0}
-body::after{content:'';position:fixed;top:0;left:0;right:0;height:600px;background:radial-gradient(ellipse 60% 40% at 70% 20%,rgba(200,160,64,.07) 0%,transparent 70%);pointer-events:none;z-index:0}
+/* Grid bg */
+body::before{content:'';position:fixed;inset:0;
+  background-image:radial-gradient(circle at 1px 1px,rgba(91,200,91,.08) 1px,transparent 0);
+  background-size:40px 40px;opacity:1;pointer-events:none;z-index:0}
+body::after{content:'';position:fixed;top:0;left:0;right:0;height:700px;
+  background:radial-gradient(ellipse 70% 50% at 60% 0%,rgba(91,200,91,.08) 0%,transparent 70%);
+  pointer-events:none;z-index:0}
 
-/* ── NAV ── */
-nav{position:fixed;top:0;left:0;right:0;z-index:100;transition:background .3s,border-color .3s;border-bottom:1px solid transparent}
-nav.scrolled{background:rgba(9,9,10,.92);backdrop-filter:blur(16px);border-color:var(--border)}
-.nav-inner{max-width:1200px;margin:0 auto;padding:0 24px;height:60px;display:flex;align-items:center;gap:32px}
-.nav-logo{display:flex;align-items:center;gap:10px;font-family:'Syne',sans-serif;font-weight:700;font-size:18px;color:var(--text);text-decoration:none;flex-shrink:0}
-.logo-mark{width:32px;height:32px;background:var(--gold);border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;color:#09090A;font-family:'Syne',sans-serif}
-.nav-links{display:flex;gap:24px;margin-left:auto}
+/* NAV */
+nav{position:fixed;top:0;left:0;right:0;z-index:100;transition:all .3s;border-bottom:1px solid transparent}
+nav.scrolled{background:rgba(10,13,15,.94);backdrop-filter:blur(20px);border-color:var(--border)}
+.nav-inner{max-width:1200px;margin:0 auto;padding:0 24px;height:62px;display:flex;align-items:center;gap:32px}
+.nav-logo{display:flex;align-items:center;gap:10px;text-decoration:none;flex-shrink:0}
+.logo-cube{position:relative;width:36px;height:36px}
+.logo-cube svg{width:36px;height:36px}
+.nav-logo-text{font-family:'Syne',sans-serif;font-weight:800;font-size:18px;color:var(--text);letter-spacing:-.01em}
+.nav-logo-text span{color:var(--green)}
+.nav-links{display:flex;gap:28px;margin-left:auto}
 .nav-links a{font-size:14px;color:var(--text2);text-decoration:none;transition:color .2s}
-.nav-links a:hover{color:var(--text)}
+.nav-links a:hover{color:var(--green)}
 .nav-actions{display:flex;gap:8px;align-items:center;margin-left:16px}
-.dev-badge{font-family:'JetBrains Mono',monospace;font-size:10px;padding:3px 8px;background:rgba(200,160,64,.15);color:var(--gold);border:1px solid var(--gold-dim);border-radius:20px;letter-spacing:.02em}
-.btn-ghost{height:34px;padding:0 16px;border:1px solid var(--border2);border-radius:var(--radius-sm);color:var(--text2);font-size:13px;cursor:pointer;background:transparent;transition:all .2s;font-family:'Golos Text',sans-serif}
-.btn-ghost:hover{border-color:var(--text2);color:var(--text)}
-.btn-primary{height:34px;padding:0 18px;border:none;border-radius:var(--radius-sm);background:var(--gold);color:#09090A;font-size:13px;font-weight:600;cursor:pointer;transition:opacity .2s;font-family:'Golos Text',sans-serif}
-.btn-primary:hover{opacity:.88}
+.dev-tag{font-family:'JetBrains Mono',monospace;font-size:10px;padding:3px 8px;
+  background:rgba(91,200,91,.1);color:var(--green);border:1px solid var(--green-dim);border-radius:20px}
+.btn-nav{height:36px;padding:0 18px;border-radius:var(--rs);font-size:13px;cursor:pointer;
+  font-family:'Golos Text',sans-serif;display:inline-flex;align-items:center;gap:6px;transition:all .2s}
+.btn-ghost{border:1px solid var(--border2);background:transparent;color:var(--text2)}
+.btn-ghost:hover{border-color:var(--green);color:var(--green)}
+.btn-green{border:none;background:var(--green);color:#0A0D0F;font-weight:600}
+.btn-green:hover{background:var(--green-dark)}
 
-/* ── HERO ── */
+/* HERO */
 .hero{position:relative;z-index:1;min-height:100vh;display:flex;align-items:center;padding:100px 24px 60px}
-.hero-inner{max-width:1200px;margin:0 auto;width:100%;display:grid;grid-template-columns:1fr 460px;gap:60px;align-items:center}
-.hero-tag{display:inline-flex;align-items:center;gap:6px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--gold);background:var(--gold-glow);border:1px solid var(--gold-dim);padding:4px 12px;border-radius:20px;margin-bottom:24px}
-.hero-tag .dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-h1.headline{font-size:clamp(36px,5vw,64px);font-weight:800;line-height:1.08;letter-spacing:-.02em;margin-bottom:20px;color:var(--text)}
-h1.headline em{font-style:normal;color:var(--gold)}
-.hero-sub{font-size:17px;color:var(--text2);line-height:1.65;margin-bottom:36px;max-width:500px}
+.hero-inner{max-width:1200px;margin:0 auto;width:100%;display:grid;grid-template-columns:1fr 440px;gap:64px;align-items:center}
+.hero-eyebrow{display:inline-flex;align-items:center;gap:8px;font-family:'JetBrains Mono',monospace;
+  font-size:11px;color:var(--green);background:var(--green-glow);border:1px solid var(--green-dim);
+  padding:5px 14px;border-radius:20px;margin-bottom:28px}
+.hero-eyebrow .dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:bpulse 2s infinite}
+@keyframes bpulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.8)}}
+h1.hero-h{font-size:clamp(38px,5.5vw,68px);font-weight:800;line-height:1.06;letter-spacing:-.025em;margin-bottom:22px}
+h1.hero-h em{font-style:normal;color:var(--green)}
+h1.hero-h .line2{color:var(--text2)}
+.hero-sub{font-size:17px;color:var(--text2);line-height:1.7;margin-bottom:36px;max-width:520px}
+.hero-btns{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:48px}
+.btn-hero-main{height:48px;padding:0 28px;border:none;border-radius:var(--rs);background:var(--green);
+  color:#0A0D0F;font-size:15px;font-weight:700;cursor:pointer;font-family:'Golos Text',sans-serif;
+  display:inline-flex;align-items:center;gap:8px;transition:all .2s}
+.btn-hero-main:hover{background:var(--green-dark);transform:translateY(-1px)}
+.btn-hero-sec{height:48px;padding:0 24px;border:1px solid var(--border2);border-radius:var(--rs);
+  background:transparent;color:var(--text2);font-size:15px;cursor:pointer;font-family:'Golos Text',sans-serif;
+  display:inline-flex;align-items:center;gap:8px;transition:all .2s}
+.btn-hero-sec:hover{border-color:var(--green);color:var(--green)}
+.hero-stats{display:flex;gap:32px;flex-wrap:wrap}
+.stat{display:flex;flex-direction:column}
+.stat-v{font-family:'Syne',sans-serif;font-size:30px;font-weight:800;color:var(--text);line-height:1}
+.stat-v em{color:var(--green);font-style:normal}
+.stat-l{font-size:12px;color:var(--text3);margin-top:5px;font-family:'JetBrains Mono',monospace}
 
-/* Query Demo Box */
-.demo-box{background:var(--bg1);border:1px solid var(--border2);border-radius:var(--radius);overflow:hidden;margin-bottom:40px}
-.demo-box-top{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border)}
-.demo-dot{width:10px;height:10px;border-radius:50%}
-.demo-dot.r{background:#FF5F57}
-.demo-dot.y{background:#FEBC2E}
-.demo-dot.g{background:#28C840}
-.demo-label{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text3);margin-left:auto}
-.demo-input-wrap{display:flex;align-items:center;gap:10px;padding:14px 16px}
-.demo-prompt{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--gold)}
-.demo-text{font-size:15px;color:var(--text);flex:1}
-.demo-cursor{display:inline-block;width:2px;height:18px;background:var(--gold);margin-left:1px;animation:blink .8s infinite}
-@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
-.demo-response{padding:0 16px 14px;font-size:13px;color:var(--text2);line-height:1.6;display:none;border-top:1px solid var(--border)}
-.demo-response.show{display:block}
-.demo-r-row{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px}
-.demo-r-chip{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 12px;font-size:12px}
-.demo-r-chip strong{color:var(--text);font-weight:600}
-.demo-r-chip span{color:var(--text3)}
-
-.hero-stats{display:flex;gap:24px;flex-wrap:wrap}
-.stat-item{display:flex;flex-direction:column}
-.stat-val{font-family:'Syne',sans-serif;font-size:28px;font-weight:700;color:var(--text);line-height:1}
-.stat-val em{color:var(--gold);font-style:normal}
-.stat-lbl{font-size:12px;color:var(--text3);margin-top:4px}
-
-/* Hero Card */
-.hero-card{background:var(--bg1);border:1px solid var(--border);border-radius:14px;padding:20px;position:relative;overflow:hidden}
-.hero-card::before{content:'';position:absolute;top:-40px;right:-40px;width:200px;height:200px;background:radial-gradient(circle,var(--gold-glow) 0%,transparent 70%);pointer-events:none}
-.hc-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
-.hc-title{font-family:'Syne',sans-serif;font-weight:600;font-size:14px;color:var(--text)}
-.hc-live{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--green)}
-.hc-live .dot{width:6px;height:6px;background:var(--green);border-radius:50%;animation:pulse 2s infinite}
-.hc-big{font-family:'Syne',sans-serif;font-size:40px;font-weight:800;color:var(--text);letter-spacing:-.02em;line-height:1;margin-bottom:4px}
-.hc-sub{font-size:12px;color:var(--text3);margin-bottom:20px}
-.hc-bars{display:flex;flex-direction:column;gap:8px;margin-bottom:20px}
+/* HERO CARD */
+.hero-card{background:var(--bg1);border:1px solid var(--border);border-radius:16px;padding:22px;position:relative;overflow:hidden}
+.hero-card::before{content:'';position:absolute;top:-60px;right:-60px;width:200px;height:200px;
+  background:radial-gradient(circle,rgba(91,200,91,.08) 0%,transparent 70%)}
+.hc-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
+.hc-brand{display:flex;align-items:center;gap:8px;font-family:'Syne',sans-serif;font-weight:700;font-size:14px;color:var(--text)}
+.hc-live{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--green);font-family:'JetBrains Mono',monospace}
+.hc-live-dot{width:6px;height:6px;background:var(--green);border-radius:50%;animation:bpulse 2s infinite}
+.hc-big{font-family:'Syne',sans-serif;font-size:42px;font-weight:800;color:var(--text);letter-spacing:-.02em;line-height:1;margin-bottom:4px}
+.hc-sub{font-size:12px;color:var(--text3);margin-bottom:20px;font-family:'JetBrains Mono',monospace}
+.hc-bars{display:flex;flex-direction:column;gap:10px;margin-bottom:18px}
 .bar-row{display:flex;align-items:center;gap:10px}
-.bar-lbl{font-size:11px;color:var(--text2);width:70px;flex-shrink:0}
-.bar-track{flex:1;height:4px;background:var(--bg3);border-radius:2px;overflow:hidden}
-.bar-fill{height:100%;border-radius:2px;background:var(--gold);animation:grow 1.5s ease-out forwards;transform-origin:left}
+.bar-lbl{font-size:11px;color:var(--text2);width:68px;flex-shrink:0}
+.bar-track{flex:1;height:5px;background:var(--bg3);border-radius:3px;overflow:hidden}
+.bar-fill{height:100%;border-radius:3px;animation:grow 1.8s ease-out forwards}
 @keyframes grow{from{width:0}to{width:var(--w)}}
-.bar-val{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text2);width:40px;text-align:right;flex-shrink:0}
+.bar-val{font-size:11px;color:var(--text2);width:36px;text-align:right;font-family:'JetBrains Mono',monospace}
 .hc-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.hc-mini{background:var(--bg2);border-radius:var(--radius-sm);padding:10px;border:1px solid var(--border)}
-.hc-mini-lbl{font-size:10px;color:var(--text3);margin-bottom:4px}
-.hc-mini-val{font-family:'Syne',sans-serif;font-size:18px;font-weight:700;color:var(--text)}
-.hc-mini-chg{font-size:10px;margin-top:2px}
-.up{color:var(--green)}.dn{color:var(--red)}
+.hc-mini{background:var(--bg2);border-radius:var(--rs);padding:10px;border:1px solid var(--border)}
+.hc-mini-l{font-size:10px;color:var(--text3);margin-bottom:4px;font-family:'JetBrains Mono',monospace}
+.hc-mini-v{font-family:'Syne',sans-serif;font-size:18px;font-weight:700;color:var(--text)}
+.hc-mini-c{font-size:10px;margin-top:3px}
+.up{color:var(--green)}.dn{color:#E05555}
 
-/* ── SECTION COMMONS ── */
-section{position:relative;z-index:1;padding:80px 24px}
-.section-inner{max-width:1200px;margin:0 auto}
-.section-tag{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--gold);letter-spacing:.08em;text-transform:uppercase;margin-bottom:12px}
-.section-title{font-size:clamp(28px,4vw,44px);font-weight:700;color:var(--text);line-height:1.1;letter-spacing:-.02em;margin-bottom:16px}
-.section-title em{color:var(--gold);font-style:normal}
-.section-sub{font-size:16px;color:var(--text2);max-width:580px;line-height:1.65}
-
-/* ── MARQUEE ── */
-.marquee-section{padding:32px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);overflow:hidden;position:relative;z-index:1}
-.marquee-track{display:flex;gap:0;white-space:nowrap;animation:marquee 25s linear infinite}
-.marquee-track:hover{animation-play-state:paused}
+/* MARQUEE */
+.marquee-wrap{padding:28px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);
+  overflow:hidden;position:relative;z-index:1}
+.marquee-track{display:flex;gap:0;white-space:nowrap;animation:marquee 30s linear infinite}
 @keyframes marquee{from{transform:translateX(0)}to{transform:translateX(-50%)}}
-.marquee-item{display:inline-flex;align-items:center;gap:8px;padding:0 32px;font-size:13px;color:var(--text3);border-right:1px solid var(--border)}
-.marquee-item i{font-size:15px;color:var(--gold-dim)}
+.marquee-item{display:inline-flex;align-items:center;gap:8px;padding:0 28px;
+  font-size:13px;color:var(--text3);border-right:1px solid var(--border)}
+.marquee-item i{font-size:15px;color:var(--green)}
 
-/* ── FEATURES ── */
-.features-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-top:48px}
-.feat-card{background:var(--bg1);padding:28px;transition:background .2s;cursor:default}
+/* SECTIONS */
+section{position:relative;z-index:1;padding:88px 24px}
+.section-inner{max-width:1200px;margin:0 auto}
+.section-tag{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--green);letter-spacing:.1em;text-transform:uppercase;margin-bottom:14px}
+.section-title{font-size:clamp(28px,4vw,46px);font-weight:800;letter-spacing:-.02em;line-height:1.1;margin-bottom:16px}
+.section-title em{color:var(--green);font-style:normal}
+.section-sub{font-size:16px;color:var(--text2);max-width:580px;line-height:1.7}
+
+/* FEATURES */
+.features-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-top:52px}
+.feat-card{background:var(--bg1);padding:30px;transition:background .2s}
 .feat-card:hover{background:var(--bg2)}
-.feat-icon{width:40px;height:40px;border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;margin-bottom:16px;font-size:20px}
-.feat-icon.gold{background:var(--gold-glow);color:var(--gold);border:1px solid var(--gold-dim)}
-.feat-icon.blue{background:rgba(80,135,184,.1);color:var(--blue);border:1px solid var(--blue-dim)}
-.feat-icon.green{background:rgba(74,168,112,.1);color:var(--green);border:1px solid rgba(74,168,112,.3)}
-.feat-card h3{font-family:'Syne',sans-serif;font-size:16px;font-weight:600;color:var(--text);margin-bottom:8px}
-.feat-card p{font-size:13px;color:var(--text2);line-height:1.65}
-.feat-card .feat-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:12px}
-.feat-tag{font-family:'JetBrains Mono',monospace;font-size:10px;padding:2px 8px;background:var(--bg3);border:1px solid var(--border);border-radius:20px;color:var(--text3)}
+.feat-icon{width:44px;height:44px;border-radius:var(--rs);display:flex;align-items:center;justify-content:center;margin-bottom:18px;font-size:22px}
+.feat-icon.g{background:var(--green-glow);color:var(--green);border:1px solid var(--green-dim)}
+.feat-icon.t{background:var(--teal-dim);color:var(--teal);border:1px solid rgba(0,184,204,.3)}
+.feat-icon.b{background:var(--blue-dim);color:var(--blue);border:1px solid rgba(42,126,200,.3)}
+.feat-card h3{font-family:'Syne',sans-serif;font-size:17px;font-weight:700;color:var(--text);margin-bottom:10px}
+.feat-card p{font-size:13px;color:var(--text2);line-height:1.7}
+.feat-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:14px}
+.feat-tag{font-family:'JetBrains Mono',monospace;font-size:10px;padding:3px 8px;
+  background:var(--bg3);border:1px solid var(--border2);border-radius:20px;color:var(--text3)}
 
-/* ── PROCESS ── */
-.process-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:40px;margin-top:56px;position:relative}
-.process-steps::before{content:'';position:absolute;top:28px;left:calc(16.67% + 16px);right:calc(16.67% + 16px);height:1px;background:linear-gradient(90deg,var(--gold),var(--blue),var(--gold));opacity:.4}
+/* MESSENGERS */
+.mess-section{background:var(--bg1);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+.mess-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-top:48px}
+.mess-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:24px 16px;
+  text-align:center;transition:all .2s;cursor:default}
+.mess-card:hover{border-color:var(--green);transform:translateY(-3px)}
+.mess-icon{font-size:36px;margin-bottom:12px}
+.mess-name{font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--text);margin-bottom:4px}
+.mess-desc{font-size:11px;color:var(--text3)}
+
+/* PROCESS */
+.process-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:48px;margin-top:56px;position:relative}
+.process-steps::before{content:'';position:absolute;top:32px;left:calc(16.67% + 20px);right:calc(16.67% + 20px);
+  height:1px;background:linear-gradient(90deg,var(--green),var(--teal),var(--green));opacity:.35}
 .step{text-align:center}
-.step-num{width:56px;height:56px;border-radius:50%;border:1px solid var(--border2);display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-family:'Syne',sans-serif;font-weight:700;font-size:18px;color:var(--gold);background:var(--bg1);position:relative}
-.step-num::after{content:'';position:absolute;inset:-4px;border-radius:50%;border:1px solid var(--gold-dim);opacity:.4}
-.step h3{font-family:'Syne',sans-serif;font-size:16px;font-weight:600;color:var(--text);margin-bottom:8px}
-.step p{font-size:13px;color:var(--text2);line-height:1.65}
-.step-code{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text3);margin-top:10px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;text-align:left;display:inline-block;width:100%}
+.step-num{width:64px;height:64px;border-radius:50%;border:1px solid var(--green-dim);display:flex;align-items:center;
+  justify-content:center;margin:0 auto 22px;font-family:'Syne',sans-serif;font-weight:800;font-size:20px;
+  color:var(--green);background:var(--bg1);position:relative}
+.step-num::after{content:'';position:absolute;inset:-5px;border-radius:50%;border:1px solid rgba(91,200,91,.2)}
+.step h3{font-family:'Syne',sans-serif;font-size:17px;font-weight:700;color:var(--text);margin-bottom:10px}
+.step p{font-size:13px;color:var(--text2);line-height:1.7}
+.step-code{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text3);margin-top:12px;
+  background:var(--bg2);border:1px solid var(--border);border-radius:var(--rs);padding:8px 10px;text-align:left}
 
-/* ── STACK ── */
-.stack-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:40px}
-.stack-card{background:var(--bg1);border:1px solid var(--border);border-radius:var(--radius);padding:16px;transition:border-color .2s}
-.stack-card:hover{border-color:var(--border2)}
-.stack-icon{width:36px;height:36px;border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;font-size:18px;margin-bottom:10px}
-.stack-name{font-family:'Syne',sans-serif;font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px}
-.stack-role{font-size:11px;color:var(--text3);line-height:1.5}
-.stack-cost{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--gold);margin-top:8px}
-
-/* ── MODULES NAV ── */
-.modules-nav{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:32px}
-.mod-btn{height:34px;padding:0 16px;border:1px solid var(--border);border-radius:20px;background:transparent;color:var(--text2);font-size:13px;cursor:pointer;transition:all .2s;font-family:'Golos Text',sans-serif}
-.mod-btn.active{background:var(--gold);color:#09090A;border-color:var(--gold);font-weight:600}
-.mod-btn:hover:not(.active){border-color:var(--border2);color:var(--text)}
-
-/* ── TIERS ── */
-.tiers-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:48px}
-.tier-card{background:var(--bg1);border:1px solid var(--border);border-radius:14px;padding:24px;position:relative;transition:border-color .2s}
+/* TIERS */
+.tiers-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:52px}
+.tier-card{background:var(--bg1);border:1px solid var(--border);border-radius:14px;padding:26px;position:relative;transition:border-color .2s}
 .tier-card:hover{border-color:var(--border2)}
-.tier-card.featured{border-color:var(--gold-dim)}
-.tier-feat-badge{position:absolute;top:-10px;left:50%;transform:translateX(-50%);font-size:10px;padding:3px 10px;background:var(--gold);color:#09090A;border-radius:20px;font-weight:600;white-space:nowrap;font-family:'Golos Text',sans-serif}
-.tier-users{font-size:12px;color:var(--text3);margin-bottom:4px}
-.tier-price{font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--text);margin-bottom:2px}
-.tier-price em{font-style:normal;color:var(--gold)}
-.tier-period{font-size:11px;color:var(--text3);margin-bottom:16px}
-.tier-divider{height:1px;background:var(--border);margin:16px 0}
-.tier-items{display:flex;flex-direction:column;gap:8px}
+.tier-card.featured{border-color:var(--green-dim)}
+.tier-badge{position:absolute;top:-11px;left:50%;transform:translateX(-50%);
+  font-size:10px;padding:3px 12px;background:var(--green);color:#0A0D0F;border-radius:20px;font-weight:700;
+  white-space:nowrap;font-family:'Golos Text',sans-serif}
+.tier-users{font-size:11px;color:var(--text3);margin-bottom:6px;font-family:'JetBrains Mono',monospace}
+.tier-price{font-family:'Syne',sans-serif;font-size:30px;font-weight:800;color:var(--text);margin-bottom:2px}
+.tier-price em{color:var(--green);font-style:normal}
+.tier-period{font-size:11px;color:var(--text3);margin-bottom:18px;font-family:'JetBrains Mono',monospace}
+.tier-div{height:1px;background:var(--border);margin:18px 0}
+.tier-items{display:flex;flex-direction:column;gap:9px}
 .tier-item{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--text2)}
-.tier-item i{font-size:13px;color:var(--gold);margin-top:1px;flex-shrink:0}
+.tier-item i{font-size:13px;color:var(--green);margin-top:1px;flex-shrink:0}
 .tier-item.off{color:var(--text3)}
 .tier-item.off i{color:var(--text3)}
 
-/* ── CTA ── */
+/* CTA */
 .cta-section{padding:100px 24px;position:relative;overflow:hidden}
-.cta-section::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 80% 60% at 50% 50%,rgba(200,160,64,.06) 0%,transparent 70%)}
-.cta-inner{max-width:700px;margin:0 auto;text-align:center;position:relative}
-.cta-inner h2{font-size:clamp(28px,4vw,48px);font-weight:800;color:var(--text);letter-spacing:-.02em;margin-bottom:16px}
-.cta-inner p{font-size:16px;color:var(--text2);margin-bottom:36px;line-height:1.65}
-.cta-input-row{display:flex;gap:8px;max-width:440px;margin:0 auto}
-.cta-input{flex:1;height:44px;padding:0 16px;background:var(--bg1);border:1px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:14px;outline:none;font-family:'Golos Text',sans-serif;transition:border .2s}
-.cta-input:focus{border-color:var(--gold)}
+.cta-section::before{content:'';position:absolute;inset:0;
+  background:radial-gradient(ellipse 80% 60% at 50% 50%,rgba(91,200,91,.06) 0%,transparent 70%)}
+.cta-inner{max-width:680px;margin:0 auto;text-align:center;position:relative}
+.cta-inner h2{font-size:clamp(28px,4vw,50px);font-weight:800;letter-spacing:-.025em;margin-bottom:16px}
+.cta-inner h2 em{color:var(--green);font-style:normal}
+.cta-inner p{font-size:16px;color:var(--text2);margin-bottom:36px;line-height:1.7}
+.cta-form{display:flex;gap:10px;max-width:440px;margin:0 auto}
+.cta-input{flex:1;height:46px;padding:0 16px;background:var(--bg1);border:1px solid var(--border2);
+  border-radius:var(--rs);color:var(--text);font-size:14px;outline:none;font-family:'Golos Text',sans-serif;transition:border .2s}
+.cta-input:focus{border-color:var(--green)}
 .cta-input::placeholder{color:var(--text3)}
-.btn-cta{height:44px;padding:0 24px;background:var(--gold);border:none;border-radius:var(--radius-sm);color:#09090A;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .2s;font-family:'Golos Text',sans-serif;white-space:nowrap}
+.btn-cta{height:46px;padding:0 24px;background:var(--green);border:none;border-radius:var(--rs);
+  color:#0A0D0F;font-size:14px;font-weight:700;cursor:pointer;font-family:'Golos Text',sans-serif;white-space:nowrap;transition:opacity .2s}
 .btn-cta:hover{opacity:.88}
+#cta-ok{margin-top:12px;font-size:13px;color:var(--green);display:none}
 
-/* ── FOOTER ── */
-footer{border-top:1px solid var(--border);padding:40px 24px;position:relative;z-index:1}
+/* FOOTER */
+footer{border-top:1px solid var(--border);padding:44px 24px;position:relative;z-index:1}
 .footer-inner{max-width:1200px;margin:0 auto;display:grid;grid-template-columns:1fr auto auto;gap:48px;align-items:start}
-.footer-logo{display:flex;align-items:center;gap:8px;font-family:'Syne',sans-serif;font-weight:700;font-size:16px;color:var(--text);margin-bottom:8px}
+.footer-logo{display:flex;align-items:center;gap:8px;font-family:'Syne',sans-serif;font-weight:800;font-size:16px;color:var(--text);margin-bottom:8px}
 .footer-copy{font-size:12px;color:var(--text3)}
+.footer-col-title{font-size:10px;color:var(--text3);margin-bottom:12px;letter-spacing:.08em;font-family:'JetBrains Mono',monospace}
 .footer-links{display:flex;flex-direction:column;gap:8px}
 .footer-links a{font-size:13px;color:var(--text2);text-decoration:none;transition:color .2s}
-.footer-links a:hover{color:var(--text)}
-.footer-col-title{font-size:11px;color:var(--text3);margin-bottom:12px;letter-spacing:.06em}
+.footer-links a:hover{color:var(--green)}
 
-/* ── AI DEMO MODAL ── */
-.demo-modal-wrap{position:fixed;inset:0;z-index:200;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.8);backdrop-filter:blur(6px)}
-.demo-modal-wrap.open{display:flex}
-.demo-modal{background:var(--bg1);border:1px solid var(--border);border-radius:14px;width:90%;max-width:720px;max-height:80vh;display:flex;flex-direction:column;overflow:hidden}
-.dm-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
-.dm-header h3{font-family:'Syne',sans-serif;font-size:16px;font-weight:600;color:var(--text);flex:1}
-.dm-close{width:28px;height:28px;border-radius:50%;border:1px solid var(--border);background:transparent;color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px}
-.dm-body{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:12px}
-.dm-msg-user{display:flex;justify-content:flex-end}
-.dm-msg-user div{background:var(--gold);color:#09090A;padding:10px 14px;border-radius:10px 2px 10px 10px;font-size:14px;max-width:80%}
-.dm-msg-ai{background:var(--bg2);border:1px solid var(--border);border-radius:2px 10px 10px 10px;padding:12px 14px;font-size:14px;color:var(--text2);line-height:1.65}
-.dm-msg-ai strong{color:var(--text)}
-.dm-msg-ai .dm-chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-.dm-chip{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:6px 12px;font-size:12px;color:var(--text)}
-.dm-chip strong{color:var(--gold)}
-.dm-input-area{padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px}
-.dm-input{flex:1;height:40px;padding:0 14px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:13px;outline:none;font-family:'Golos Text',sans-serif;transition:border .2s}
-.dm-input:focus{border-color:var(--gold)}
-.dm-input::placeholder{color:var(--text3)}
-.dm-send{height:40px;padding:0 16px;background:var(--gold);border:none;border-radius:var(--radius-sm);color:#09090A;font-size:13px;font-weight:600;cursor:pointer;font-family:'Golos Text',sans-serif;display:flex;align-items:center;gap:6px}
-.dm-typing{display:inline-flex;gap:4px;align-items:center}
-.dm-typing span{width:5px;height:5px;background:var(--gold);border-radius:50%;animation:typing 1.2s infinite}
-.dm-typing span:nth-child(2){animation-delay:.2s}
-.dm-typing span:nth-child(3){animation-delay:.4s}
-@keyframes typing{0%,80%,100%{transform:translateY(0)}40%{transform:translateY(-4px)}}
+/* DEMO MODAL */
+.modal-wrap{position:fixed;inset:0;z-index:200;display:none;align-items:center;justify-content:center;
+  background:rgba(0,0,0,.85);backdrop-filter:blur(8px)}
+.modal-wrap.open{display:flex}
+.modal{background:var(--bg1);border:1px solid var(--border);border-radius:16px;width:90%;max-width:700px;
+  max-height:80vh;display:flex;flex-direction:column;overflow:hidden}
+.modal-header{padding:18px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+.modal-header h3{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:var(--text);flex:1}
+.modal-close{width:30px;height:30px;border-radius:50%;border:1px solid var(--border);background:transparent;
+  color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:15px}
+.modal-body{flex:1;overflow-y:auto;padding:18px 22px;display:flex;flex-direction:column;gap:12px}
+.modal-input-area{padding:12px 22px;border-top:1px solid var(--border);display:flex;gap:8px}
+.modal-inp{flex:1;height:40px;padding:0 14px;background:var(--bg2);border:1px solid var(--border2);
+  border-radius:var(--rs);color:var(--text);font-size:13px;outline:none;font-family:'Golos Text',sans-serif;transition:border .2s}
+.modal-inp:focus{border-color:var(--green)}
+.modal-inp::placeholder{color:var(--text3)}
+.modal-send{height:40px;padding:0 18px;background:var(--green);border:none;border-radius:var(--rs);
+  color:#0A0D0F;font-size:13px;font-weight:700;cursor:pointer;font-family:'Golos Text',sans-serif;display:flex;align-items:center;gap:6px}
+.dm-user{display:flex;justify-content:flex-end}
+.dm-user div{background:var(--green);color:#0A0D0F;padding:10px 15px;border-radius:14px 3px 14px 14px;font-size:14px;max-width:75%;font-weight:500}
+.dm-ai{background:var(--bg2);border:1px solid var(--border);border-radius:3px 14px 14px 14px;padding:12px 15px;font-size:14px;color:var(--text2);line-height:1.65}
+.typing{display:inline-flex;gap:4px;align-items:center}
+.typing span{width:6px;height:6px;background:var(--green);border-radius:50%;animation:typing 1.2s infinite}
+.typing span:nth-child(2){animation-delay:.2s}
+.typing span:nth-child(3){animation-delay:.4s}
+@keyframes typing{0%,80%,100%{opacity:.3;transform:translateY(0)}40%{opacity:1;transform:translateY(-4px)}}
 
-/* ── RESPONSIVE ── */
-@media(max-width:900px){
+.fade-up{opacity:0;transform:translateY(20px);transition:opacity .7s ease,transform .7s ease}
+.fade-up.visible{opacity:1;transform:none}
+
+@media(max-width:960px){
   .hero-inner{grid-template-columns:1fr;gap:40px}
   .hero-card{display:none}
   .features-grid{grid-template-columns:repeat(2,1fr)}
   .tiers-grid{grid-template-columns:repeat(2,1fr)}
-  .stack-grid{grid-template-columns:repeat(2,1fr)}
-  .process-steps{grid-template-columns:1fr;gap:32px}
-  .process-steps::before{display:none}
-  .footer-inner{grid-template-columns:1fr;gap:32px}
+  .mess-grid{grid-template-columns:repeat(3,1fr)}
+  .footer-inner{grid-template-columns:1fr}
 }
 @media(max-width:600px){
   .features-grid{grid-template-columns:1fr}
   .tiers-grid{grid-template-columns:1fr}
+  .mess-grid{grid-template-columns:repeat(2,1fr)}
   .nav-links{display:none}
-  .cta-input-row{flex-direction:column}
+  .process-steps{grid-template-columns:1fr;gap:32px}
+  .process-steps::before{display:none}
 }
-
-/* ── ENTRANCE ANIMATIONS ── */
-.fade-up{opacity:0;transform:translateY(24px);transition:opacity .7s ease,transform .7s ease}
-.fade-up.visible{opacity:1;transform:none}
 </style>
 </head>
 <body>
@@ -264,20 +262,26 @@ footer{border-top:1px solid var(--border);padding:40px 24px;position:relative;z-
 <nav id="nav">
   <div class="nav-inner">
     <a href="/" class="nav-logo">
-      <div class="logo-mark">Б</div>
-      Бизнесметр
+      <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M18 4L32 12V24L18 32L4 24V12L18 4Z" fill="none"/>
+        <path d="M18 4L32 12L18 20L4 12L18 4Z" fill="#5BC85B"/>
+        <path d="M4 12L18 20V32L4 24V12Z" fill="#2A7EC8"/>
+        <path d="M32 12L18 20V32L32 24V12Z" fill="#00B8CC"/>
+      </svg>
+      <span class="nav-logo-text">Бизнес<span>метр</span></span>
     </a>
     <div class="nav-links">
       <a href="#features">Функции</a>
+      <a href="#messengers">Связь</a>
       <a href="#how">Как работает</a>
-      <a href="#stack">Стек</a>
       <a href="#pricing">Тарифы</a>
-      <a href="crmnedv-ai-analyst.html" target="_blank">CRM Аналитик</a>
+      <a href="crm.html">CRM</a>
+      <a href="realtor.html">AI Риелтор</a>
     </div>
     <div class="nav-actions">
-      <span class="dev-badge">v0.1 · DEV</span>
-      <button class="btn-ghost" onclick="openDemo()">Демо AI</button>
-      <button class="btn-primary">Войти</button>
+      <span class="dev-tag">v0.1 · DEV</span>
+      <button class="btn-nav btn-ghost" onclick="openModal()">Демо AI</button>
+      <button class="btn-nav btn-green">Войти</button>
     </div>
   </div>
 </nav>
@@ -285,370 +289,258 @@ footer{border-top:1px solid var(--border);padding:40px 24px;position:relative;z-
 <!-- HERO -->
 <section class="hero">
   <div class="hero-inner">
-    <div class="hero-left">
-      <div class="hero-tag">
-        <span class="dot"></span>
-        Тестовая среда · Бизнесметр.рф
-      </div>
-      <h1 class="headline fade-up">
+    <div>
+      <div class="hero-eyebrow"><span class="dot"></span>Тестовая среда · Бизнесметр.рф</div>
+      <h1 class="hero-h fade-up">
         Коммерческая<br>
-        недвижимость.<br>
+        <span class="line2">недвижимость.</span><br>
         <em>Данные говорят.</em>
       </h1>
       <p class="hero-sub fade-up">
-        AI-платформа для агентств, инвесторов и девелоперов. Анализ рынка, CRM, парсинг конкурентов — в одном месте, на обычном русском языке.
+        AI-платформа для агентств, инвесторов и девелоперов. Умный поиск, CRM, аналитика рынка — всё в одном месте, на русском языке, с интеграцией популярных мессенджеров.
       </p>
-
-      <!-- Live Query Demo -->
-      <div class="demo-box fade-up">
-        <div class="demo-box-top">
-          <div class="demo-dot r"></div>
-          <div class="demo-dot y"></div>
-          <div class="demo-dot g"></div>
-          <span class="demo-label">Бизнесметр AI · бета</span>
-        </div>
-        <div class="demo-input-wrap">
-          <span class="demo-prompt">›</span>
-          <span class="demo-text" id="typewriter"></span><span class="demo-cursor"></span>
-        </div>
-        <div class="demo-response" id="demo-resp">
-          <span style="font-size:11px;color:var(--text3);font-family:'JetBrains Mono',monospace">AI · 0.8s</span>
-          <div id="demo-resp-text" style="margin-top:6px;font-size:14px;color:var(--text2);line-height:1.65"></div>
-          <div class="demo-r-row" id="demo-chips"></div>
-        </div>
+      <div class="hero-btns fade-up">
+        <button class="btn-hero-main" onclick="openModal()"><i class="ti ti-message-chatbot"></i>Попробовать AI</button>
+        <a href="crm.html" class="btn-hero-sec"><i class="ti ti-layout-dashboard"></i>Открыть CRM</a>
       </div>
-
       <div class="hero-stats fade-up">
-        <div class="stat-item">
-          <div class="stat-val"><span id="cnt1">0</span><em>+</em></div>
-          <div class="stat-lbl">API интеграций</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-val"><span id="cnt2">0</span></div>
-          <div class="stat-lbl">AI модулей</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-val"><em>~</em><span id="cnt3">0</span><em>$/мес</em></div>
-          <div class="stat-lbl">стартовый бюджет</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-val"><span id="cnt4">0</span><em>K+</em></div>
-          <div class="stat-lbl">объектов в индексе</div>
-        </div>
+        <div class="stat"><div class="stat-v"><span id="c1">0</span><em>+</em></div><div class="stat-l">интеграций</div></div>
+        <div class="stat"><div class="stat-v"><span id="c2">0</span></div><div class="stat-l">AI модулей</div></div>
+        <div class="stat"><div class="stat-v"><em>~</em><span id="c3">0</span><em>$/мес</em></div><div class="stat-l">стартовый бюджет</div></div>
+        <div class="stat"><div class="stat-v"><span id="c4">0</span><em>K+</em></div><div class="stat-l">объектов</div></div>
       </div>
     </div>
 
-    <!-- Floating Analytics Card -->
     <div class="hero-card fade-up">
-      <div class="hc-header">
-        <div class="hc-title">Рынок · Москва</div>
-        <div class="hc-live"><span class="dot"></span> Live</div>
+      <div class="hc-top">
+        <div class="hc-brand">
+          <svg width="20" height="20" viewBox="0 0 36 36"><path d="M18 4L32 12L18 20L4 12L18 4Z" fill="#5BC85B"/><path d="M4 12L18 20V32L4 24V12Z" fill="#2A7EC8"/><path d="M32 12L18 20V32L32 24V12Z" fill="#00B8CC"/></svg>
+          Рынок · Москва
+        </div>
+        <div class="hc-live"><span class="hc-live-dot"></span>Live</div>
       </div>
       <div class="hc-big" id="hc-price">₽ —</div>
       <div class="hc-sub">средн. цена офисного м² · ЦАО</div>
-
       <div class="hc-bars">
-        <div class="bar-row">
-          <div class="bar-lbl">Офисы</div>
-          <div class="bar-track"><div class="bar-fill" style="--w:78%"></div></div>
-          <div class="bar-val">78%</div>
-        </div>
-        <div class="bar-row">
-          <div class="bar-lbl">Торговля</div>
-          <div class="bar-track"><div class="bar-fill" style="--w:61%"></div></div>
-          <div class="bar-val">61%</div>
-        </div>
-        <div class="bar-row">
-          <div class="bar-lbl">Склады</div>
-          <div class="bar-track"><div class="bar-fill" style="--w:45%;background:var(--blue)"></div></div>
-          <div class="bar-val">45%</div>
-        </div>
-        <div class="bar-row">
-          <div class="bar-lbl">Земля</div>
-          <div class="bar-track"><div class="bar-fill" style="--w:32%;background:var(--green)"></div></div>
-          <div class="bar-val">32%</div>
-        </div>
+        <div class="bar-row"><div class="bar-lbl">Офисы</div><div class="bar-track"><div class="bar-fill" style="--w:78%;background:var(--green)"></div></div><div class="bar-val">78%</div></div>
+        <div class="bar-row"><div class="bar-lbl">Торговля</div><div class="bar-track"><div class="bar-fill" style="--w:61%;background:var(--teal)"></div></div><div class="bar-val">61%</div></div>
+        <div class="bar-row"><div class="bar-lbl">Склады</div><div class="bar-track"><div class="bar-fill" style="--w:45%;background:var(--blue)"></div></div><div class="bar-val">45%</div></div>
+        <div class="bar-row"><div class="bar-lbl">Земля</div><div class="bar-track"><div class="bar-fill" style="--w:32%;background:#8DA89D"></div></div><div class="bar-val">32%</div></div>
       </div>
-
       <div class="hc-grid">
-        <div class="hc-mini">
-          <div class="hc-mini-lbl">Объектов</div>
-          <div class="hc-mini-val" id="hc-obj">—</div>
-          <div class="hc-mini-chg up">+12 сегодня</div>
-        </div>
-        <div class="hc-mini">
-          <div class="hc-mini-lbl">Ср. экспозиция</div>
-          <div class="hc-mini-val">47 дн</div>
-          <div class="hc-mini-chg dn">+3 дня</div>
-        </div>
-        <div class="hc-mini">
-          <div class="hc-mini-lbl">Сделок / мес</div>
-          <div class="hc-mini-val" id="hc-deals">—</div>
-          <div class="hc-mini-chg up">+8%</div>
-        </div>
-        <div class="hc-mini">
-          <div class="hc-mini-lbl">Источников</div>
-          <div class="hc-mini-val">6</div>
-          <div class="hc-mini-chg" style="color:var(--text3)">Циан · Авито +4</div>
-        </div>
+        <div class="hc-mini"><div class="hc-mini-l">Объектов</div><div class="hc-mini-v" id="hc-obj">—</div><div class="hc-mini-c up">+12 сегодня</div></div>
+        <div class="hc-mini"><div class="hc-mini-l">Экспозиция</div><div class="hc-mini-v">47 дн</div><div class="hc-mini-c dn">+3 дня</div></div>
+        <div class="hc-mini"><div class="hc-mini-l">Сделок/мес</div><div class="hc-mini-v" id="hc-deals">—</div><div class="hc-mini-c up">+8%</div></div>
+        <div class="hc-mini"><div class="hc-mini-l">Источников</div><div class="hc-mini-v">6</div><div class="hc-mini-c" style="color:var(--text3)">Циан · Авито +4</div></div>
       </div>
     </div>
   </div>
 </section>
 
 <!-- MARQUEE -->
-<div class="marquee-section">
+<div class="marquee-wrap">
   <div class="marquee-track">
-    <div class="marquee-item"><i class="ti ti-database"></i> Циан</div>
-    <div class="marquee-item"><i class="ti ti-database"></i> Авито.Недвижимость</div>
-    <div class="marquee-item"><i class="ti ti-database"></i> Яндекс.Недвижимость</div>
-    <div class="marquee-item"><i class="ti ti-database"></i> Domofond.ru</div>
-    <div class="marquee-item"><i class="ti ti-database"></i> Мирквартир.ру</div>
-    <div class="marquee-item"><i class="ti ti-database"></i> ru.09</div>
-    <div class="marquee-item"><i class="ti ti-robot"></i> OpenAI GPT-4</div>
-    <div class="marquee-item"><i class="ti ti-robot"></i> Claude API</div>
-    <div class="marquee-item"><i class="ti ti-server"></i> Supabase</div>
-    <div class="marquee-item"><i class="ti ti-search"></i> Typesense</div>
-    <div class="marquee-item"><i class="ti ti-cloud"></i> Cloudflare R2</div>
-    <div class="marquee-item"><i class="ti ti-map"></i> Яндекс Карты</div>
+    <div class="marquee-item"><i class="ti ti-database"></i>Циан</div>
+    <div class="marquee-item"><i class="ti ti-database"></i>Авито</div>
+    <div class="marquee-item"><i class="ti ti-database"></i>Яндекс.Недвижимость</div>
+    <div class="marquee-item"><i class="ti ti-brand-telegram"></i>Telegram</div>
+    <div class="marquee-item"><i class="ti ti-message-circle"></i>ВКонтакте / Max</div>
+    <div class="marquee-item"><i class="ti ti-brand-whatsapp"></i>WhatsApp</div>
+    <div class="marquee-item"><i class="ti ti-message"></i>Viber</div>
+    <div class="marquee-item"><i class="ti ti-robot"></i>AI Аналитика</div>
+    <div class="marquee-item"><i class="ti ti-search"></i>Умный поиск</div>
+    <div class="marquee-item"><i class="ti ti-map-2"></i>Яндекс Карты</div>
+    <div class="marquee-item"><i class="ti ti-building"></i>CRM Недвижимость</div>
+    <div class="marquee-item"><i class="ti ti-chart-area"></i>Аналитика рынка</div>
     <!-- дубль -->
-    <div class="marquee-item"><i class="ti ti-database"></i> Циан</div>
-    <div class="marquee-item"><i class="ti ti-database"></i> Авито.Недвижимость</div>
-    <div class="marquee-item"><i class="ti ti-database"></i> Яндекс.Недвижимость</div>
-    <div class="marquee-item"><i class="ti ti-database"></i> Domofond.ru</div>
-    <div class="marquee-item"><i class="ti ti-database"></i> Мирквартир.ру</div>
-    <div class="marquee-item"><i class="ti ti-database"></i> ru.09</div>
-    <div class="marquee-item"><i class="ti ti-robot"></i> OpenAI GPT-4</div>
-    <div class="marquee-item"><i class="ti ti-robot"></i> Claude API</div>
-    <div class="marquee-item"><i class="ti ti-server"></i> Supabase</div>
-    <div class="marquee-item"><i class="ti ti-search"></i> Typesense</div>
-    <div class="marquee-item"><i class="ti ti-cloud"></i> Cloudflare R2</div>
-    <div class="marquee-item"><i class="ti ti-map"></i> Яндекс Карты</div>
+    <div class="marquee-item"><i class="ti ti-database"></i>Циан</div>
+    <div class="marquee-item"><i class="ti ti-database"></i>Авито</div>
+    <div class="marquee-item"><i class="ti ti-database"></i>Яндекс.Недвижимость</div>
+    <div class="marquee-item"><i class="ti ti-brand-telegram"></i>Telegram</div>
+    <div class="marquee-item"><i class="ti ti-message-circle"></i>ВКонтакте / Max</div>
+    <div class="marquee-item"><i class="ti ti-brand-whatsapp"></i>WhatsApp</div>
+    <div class="marquee-item"><i class="ti ti-message"></i>Viber</div>
+    <div class="marquee-item"><i class="ti ti-robot"></i>AI Аналитика</div>
+    <div class="marquee-item"><i class="ti ti-search"></i>Умный поиск</div>
+    <div class="marquee-item"><i class="ti ti-map-2"></i>Яндекс Карты</div>
+    <div class="marquee-item"><i class="ti ti-building"></i>CRM Недвижимость</div>
+    <div class="marquee-item"><i class="ti ti-chart-area"></i>Аналитика рынка</div>
   </div>
 </div>
 
 <!-- FEATURES -->
 <section id="features">
   <div class="section-inner">
-    <div class="section-tag fade-up">/ Функции платформы</div>
-    <h2 class="section-title fade-up">Что умеет <em>Бизнесметр AI</em></h2>
-    <p class="section-sub fade-up">Шесть AI-модулей, которые закрывают полный цикл работы с коммерческой недвижимостью.</p>
-
+    <div class="section-tag fade-up">/ Возможности платформы</div>
+    <h2 class="section-title fade-up">Что умеет <em>Бизнесметр</em></h2>
+    <p class="section-sub fade-up">Шесть AI-модулей для полного цикла работы с коммерческой недвижимостью.</p>
     <div class="features-grid">
       <div class="feat-card">
-        <div class="feat-icon gold"><i class="ti ti-message-chatbot"></i></div>
+        <div class="feat-icon g"><i class="ti ti-message-chatbot"></i></div>
         <h3>Поиск на русском языке</h3>
-        <p>Введите «офис 200 м² у метро Тверская до 300 000 руб/мес» — AI разберёт запрос и найдёт подходящие объекты из базы.</p>
-        <div class="feat-tags">
-          <span class="feat-tag">NLP</span>
-          <span class="feat-tag">Typesense</span>
-          <span class="feat-tag">GPT-4</span>
-        </div>
+        <p>«Офис 200 м² у метро Тверская до 300 тыс» — AI поймёт и найдёт подходящие объекты из базы мгновенно.</p>
+        <div class="feat-tags"><span class="feat-tag">NLP</span><span class="feat-tag">Typesense</span><span class="feat-tag">AI</span></div>
       </div>
       <div class="feat-card">
-        <div class="feat-icon gold"><i class="ti ti-chart-area"></i></div>
+        <div class="feat-icon g"><i class="ti ti-chart-area"></i></div>
         <h3>Аналитика рынка</h3>
-        <p>Средние цены, динамика, тепловая карта конкурентов — данные с 6 площадок в одном дашборде в реальном времени.</p>
-        <div class="feat-tags">
-          <span class="feat-tag">Scrapy</span>
-          <span class="feat-tag">MongoDB</span>
-          <span class="feat-tag">Bright Data</span>
-        </div>
+        <p>Средние цены, динамика, карта конкурентов — данные с 6 площадок в едином дашборде в реальном времени.</p>
+        <div class="feat-tags"><span class="feat-tag">Scrapy</span><span class="feat-tag">MongoDB</span><span class="feat-tag">Bright Data</span></div>
       </div>
       <div class="feat-card">
-        <div class="feat-icon blue"><i class="ti ti-users"></i></div>
+        <div class="feat-icon t"><i class="ti ti-users"></i></div>
         <h3>Встроенная CRM</h3>
-        <p>Клиенты, заявки, воронка продаж, автоматические напоминания. Интеграция с CRMNedv через REST API.</p>
-        <div class="feat-tags">
-          <span class="feat-tag">REST API</span>
-          <span class="feat-tag">Supabase</span>
-          <span class="feat-tag">Resend</span>
-        </div>
+        <p>Клиенты, заявки, воронка продаж, автоматические уведомления в мессенджеры агентам и клиентам.</p>
+        <div class="feat-tags"><span class="feat-tag">REST API</span><span class="feat-tag">Supabase</span><span class="feat-tag">Мессенджеры</span></div>
       </div>
       <div class="feat-card">
-        <div class="feat-icon blue"><i class="ti ti-robot"></i></div>
+        <div class="feat-icon t"><i class="ti ti-robot"></i></div>
         <h3>AI-описания объектов</h3>
-        <p>Автоматическая генерация продающих описаний, SEO-текстов и постов для соцсетей на основе характеристик объекта.</p>
-        <div class="feat-tags">
-          <span class="feat-tag">GPT-4</span>
-          <span class="feat-tag">Claude API</span>
-        </div>
+        <p>Автоматическая генерация продающих описаний, SEO-текстов и публикаций для соцсетей по характеристикам.</p>
+        <div class="feat-tags"><span class="feat-tag">AI</span><span class="feat-tag">SEO</span><span class="feat-tag">Авто-публикация</span></div>
       </div>
       <div class="feat-card">
-        <div class="feat-icon green"><i class="ti ti-bell"></i></div>
-        <h3>Умные уведомления</h3>
-        <p>Email и SMS-рассылки при появлении объектов по критериям клиента. Пуши агентам при изменении статуса заявки.</p>
-        <div class="feat-tags">
-          <span class="feat-tag">SMS.ru</span>
-          <span class="feat-tag">Resend</span>
-          <span class="feat-tag">Webhooks</span>
-        </div>
+        <div class="feat-icon b"><i class="ti ti-brand-telegram"></i></div>
+        <h3>Уведомления в мессенджеры</h3>
+        <p>Push-уведомления агентам в Telegram, Max, WhatsApp, Viber при появлении объектов по критериям клиента.</p>
+        <div class="feat-tags"><span class="feat-tag">Telegram</span><span class="feat-tag">WhatsApp</span><span class="feat-tag">Viber</span><span class="feat-tag">Max</span></div>
       </div>
       <div class="feat-card">
-        <div class="feat-icon green"><i class="ti ti-map-pin"></i></div>
+        <div class="feat-icon b"><i class="ti ti-map-pin"></i></div>
         <h3>Карта и геоаналитика</h3>
-        <p>Все объекты на Яндекс Картах с фильтрами, тепловой картой цен и анализом пешеходного трафика по районам.</p>
-        <div class="feat-tags">
-          <span class="feat-tag">Яндекс Карты</span>
-          <span class="feat-tag">GeoJSON</span>
-        </div>
+        <p>Все объекты на Яндекс Картах с фильтрами, тепловой картой цен и анализом трафика по районам.</p>
+        <div class="feat-tags"><span class="feat-tag">Яндекс Карты</span><span class="feat-tag">GeoJSON</span><span class="feat-tag">Heatmap</span></div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- HOW IT WORKS -->
-<section id="how" style="background:var(--bg1);border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
+<!-- MESSENGERS -->
+<section id="messengers" class="mess-section">
+  <div class="section-inner">
+    <div class="section-tag fade-up">/ Современные коммуникации</div>
+    <h2 class="section-title fade-up">Работайте там, где <em>удобно клиенту</em></h2>
+    <p class="section-sub fade-up">Платформа интегрирована с ведущими мессенджерами. Клиент выбирает канал — система адаптируется.</p>
+    <div class="mess-grid">
+      <div class="mess-card fade-up">
+        <div class="mess-icon">✈️</div>
+        <div class="mess-name">Telegram</div>
+        <div class="mess-desc">Уведомления, бот-поиск, OCR документов</div>
+      </div>
+      <div class="mess-card fade-up">
+        <div class="mess-icon">🔵</div>
+        <div class="mess-name">VK / Max</div>
+        <div class="mess-desc">Публикации, лиды, мессенджер ВКонтакте</div>
+      </div>
+      <div class="mess-card fade-up">
+        <div class="mess-icon">💬</div>
+        <div class="mess-name">WhatsApp</div>
+        <div class="mess-desc">Деловая переписка, объекты, показы</div>
+      </div>
+      <div class="mess-card fade-up">
+        <div class="mess-icon">📳</div>
+        <div class="mess-name">Viber</div>
+        <div class="mess-desc">Рассылки и уведомления клиентам</div>
+      </div>
+      <div class="mess-card fade-up">
+        <div class="mess-icon">📧</div>
+        <div class="mess-name">Email</div>
+        <div class="mess-desc">Транзакционные письма и дайджесты</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW -->
+<section id="how">
   <div class="section-inner">
     <div class="section-tag fade-up">/ Как это работает</div>
-    <h2 class="section-title fade-up">Три шага от <em>вопроса</em> до инсайта</h2>
-
+    <h2 class="section-title fade-up">Три шага от <em>вопроса до сделки</em></h2>
     <div class="process-steps">
       <div class="step fade-up">
         <div class="step-num">1</div>
-        <h3>Вы задаёте вопрос</h3>
-        <p>На обычном русском языке — в строке поиска, в чате или через голосовой ввод. Никаких фильтров и форм.</p>
-        <div class="step-code">› Покажи склады от 500 м² в ЮВАО<br>› Сколько новых заявок за неделю?<br>› Сравни цены с Циан</div>
+        <h3>Вы задаёте запрос</h3>
+        <p>На обычном русском языке — в строке поиска, в чате AI-риелтора или через голос. Никаких сложных форм.</p>
+        <div class="step-code">› Офис 150 м² у м. Тверская аренда<br>› Склад от 500 м² с ж/д веткой<br>› Сравни цены: Циан vs Авито</div>
       </div>
       <div class="step fade-up">
         <div class="step-num">2</div>
         <h3>AI строит запрос</h3>
-        <p>Языковая модель интерпретирует запрос, выбирает нужные источники данных и вызывает API с правильными параметрами.</p>
-        <div class="step-code">GET /realty/index.json<br>?category=склад&district=ЮВАО<br>&area_from=500&sort=price</div>
+        <p>Языковая модель интерпретирует запрос, выбирает источники и вызывает API с нужными параметрами.</p>
+        <div class="step-code">GET /realty/index.json<br>?category=офис&district=ЦАО<br>&area_from=150&sort=price</div>
       </div>
       <div class="step fade-up">
         <div class="step-num">3</div>
-        <h3>Получаете ответ</h3>
-        <p>Структурированный результат с метриками, таблицей данных и рекомендацией — за 1–3 секунды.</p>
-        <div class="step-code">✓ Найдено 23 объекта<br>✓ Ср. цена: 8 200 ₽/м²<br>✓ Рекомендация: ЮВАО → ЮАО</div>
+        <h3>Получаете результат</h3>
+        <p>Структурированные объекты с метриками и рекомендацией — за 1–3 секунды. Уведомление в мессенджер.</p>
+        <div class="step-code">✓ Найдено 23 объекта<br>✓ Ср. цена: 8 200 ₽/м²<br>✓ → Telegram уведомление</div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- TECH STACK -->
-<section id="stack">
-  <div class="section-inner">
-    <div class="section-tag fade-up">/ Технический стек</div>
-    <h2 class="section-title fade-up">Производительность <em>в рамках $100/мес</em></h2>
-    <p class="section-sub fade-up">Архитектура спроектирована так, что каждый компонент масштабируется независимо при росте базы.</p>
-
-    <div class="stack-grid">
-      <div class="stack-card fade-up">
-        <div class="stack-icon" style="background:rgba(74,168,112,.1);color:var(--green)"><i class="ti ti-server-2"></i></div>
-        <div class="stack-name">Vercel Hobby</div>
-        <div class="stack-role">Хостинг фронтенда. Edge-сеть, CI/CD из коробки, SSL автоматически</div>
-        <div class="stack-cost">$0 / мес</div>
-      </div>
-      <div class="stack-card fade-up">
-        <div class="stack-icon" style="background:var(--green-bg);color:var(--green)"><i class="ti ti-database"></i></div>
-        <div class="stack-name">Supabase Free</div>
-        <div class="stack-role">PostgreSQL + Auth + Storage + Realtime. До 50K MAU на free-тире</div>
-        <div class="stack-cost">$0 / мес</div>
-      </div>
-      <div class="stack-card fade-up">
-        <div class="stack-icon" style="background:rgba(80,135,184,.1);color:var(--blue)"><i class="ti ti-search"></i></div>
-        <div class="stack-name">Typesense Cloud</div>
-        <div class="stack-role">Молниеносный full-text поиск по объектам. Typo-tolerance, фасеты</div>
-        <div class="stack-cost">~$10 / мес</div>
-      </div>
-      <div class="stack-card fade-up">
-        <div class="stack-icon" style="background:var(--gold-glow);color:var(--gold)"><i class="ti ti-robot"></i></div>
-        <div class="stack-name">OpenAI GPT-4</div>
-        <div class="stack-role">Интерпретация запросов, генерация описаний, анализ данных</div>
-        <div class="stack-cost">~$35 / мес</div>
-      </div>
-      <div class="stack-card fade-up">
-        <div class="stack-icon" style="background:rgba(200,80,80,.1);color:var(--red)"><i class="ti ti-cloud"></i></div>
-        <div class="stack-name">Cloudflare R2</div>
-        <div class="stack-role">S3-совместимое хранилище для фото объектов. 0 egress fees</div>
-        <div class="stack-cost">~$0 / мес</div>
-      </div>
-      <div class="stack-card fade-up">
-        <div class="stack-icon" style="background:rgba(80,135,184,.1);color:var(--blue)"><i class="ti ti-spider"></i></div>
-        <div class="stack-name">Scrapy + Playwright</div>
-        <div class="stack-role">Парсинг 6 площадок. Bright Data прокси + 2captcha. MongoDB raw</div>
-        <div class="stack-cost">~$30 / мес</div>
-      </div>
-      <div class="stack-card fade-up">
-        <div class="stack-icon" style="background:var(--gold-glow);color:var(--gold)"><i class="ti ti-mail"></i></div>
-        <div class="stack-name">Resend + SMS.ru</div>
-        <div class="stack-role">Transactional email и SMS-уведомления для клиентов и агентов</div>
-        <div class="stack-cost">~$15 / мес</div>
-      </div>
-      <div class="stack-card fade-up">
-        <div class="stack-icon" style="background:var(--green-bg);color:var(--green)"><i class="ti ti-map-2"></i></div>
-        <div class="stack-name">Яндекс Карты</div>
-        <div class="stack-role">Геовизуализация объектов, маршруты, пешеходный трафик</div>
-        <div class="stack-cost">Free tier</div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- PRICING -->
+<!-- TIERS -->
 <section id="pricing" style="background:var(--bg1);border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
   <div class="section-inner">
     <div class="section-tag fade-up">/ Масштабирование</div>
-    <h2 class="section-title fade-up">4 уровня роста <em>по одной логике</em></h2>
-    <p class="section-sub fade-up">При достижении порога пользователей — переключаем тумблер, не переписываем архитектуру.</p>
-
+    <h2 class="section-title fade-up">4 уровня роста <em>одной архитектурой</em></h2>
+    <p class="section-sub fade-up">При достижении порога — переключаем тумблер, не переписываем систему.</p>
     <div class="tiers-grid">
       <div class="tier-card featured fade-up">
-        <div class="tier-feat-badge">Сейчас</div>
-        <div class="tier-users">до 1 000 пользователей</div>
+        <div class="tier-badge">Сейчас</div>
+        <div class="tier-users">до 50 000 пользователей</div>
         <div class="tier-price"><em>~</em>100</div>
         <div class="tier-period">долл. в месяц</div>
-        <div class="tier-divider"></div>
+        <div class="tier-div"></div>
         <div class="tier-items">
-          <div class="tier-item"><i class="ti ti-check"></i><span>Vercel Hobby</span></div>
-          <div class="tier-item"><i class="ti ti-check"></i><span>Supabase Free</span></div>
-          <div class="tier-item"><i class="ti ti-check"></i><span>GPT-4 ~$35</span></div>
-          <div class="tier-item"><i class="ti ti-check"></i><span>Парсер 6 площадок</span></div>
-          <div class="tier-item off"><i class="ti ti-x"></i><span>ML lead scoring</span></div>
-          <div class="tier-item off"><i class="ti ti-x"></i><span>Matterport 360°</span></div>
+          <div class="tier-item"><i class="ti ti-check"></i>AI поиск и чат</div>
+          <div class="tier-item"><i class="ti ti-check"></i>CRM система</div>
+          <div class="tier-item"><i class="ti ti-check"></i>Telegram + Email</div>
+          <div class="tier-item"><i class="ti ti-check"></i>6 источников данных</div>
+          <div class="tier-item off"><i class="ti ti-x"></i>ML lead scoring</div>
+          <div class="tier-item off"><i class="ti ti-x"></i>WhatsApp Business</div>
         </div>
       </div>
       <div class="tier-card fade-up">
-        <div class="tier-users">до 10 000 пользователей</div>
-        <div class="tier-price"><em>~</em>500</div>
+        <div class="tier-users">до 500 000 пользователей</div>
+        <div class="tier-price"><em>~</em>300</div>
         <div class="tier-period">долл. в месяц</div>
-        <div class="tier-divider"></div>
+        <div class="tier-div"></div>
         <div class="tier-items">
-          <div class="tier-item"><i class="ti ti-check"></i><span>Vercel Pro</span></div>
-          <div class="tier-item"><i class="ti ti-check"></i><span>Supabase Pro</span></div>
-          <div class="tier-item"><i class="ti ti-check"></i><span>Claude API активен</span></div>
-          <div class="tier-item"><i class="ti ti-check"></i><span>ML lead scoring</span></div>
-          <div class="tier-item off"><i class="ti ti-x"></i><span>Matterport 360°</span></div>
-          <div class="tier-item off"><i class="ti ti-x"></i><span>WhatsApp Business</span></div>
+          <div class="tier-item"><i class="ti ti-check"></i>OCR Telegram бот</div>
+          <div class="tier-item"><i class="ti ti-check"></i>ML lead scoring</div>
+          <div class="tier-item"><i class="ti ti-check"></i>WhatsApp API</div>
+          <div class="tier-item"><i class="ti ti-check"></i>Viber + Max</div>
+          <div class="tier-item off"><i class="ti ti-x"></i>Голосовой ввод</div>
+          <div class="tier-item off"><i class="ti ti-x"></i>360° туры</div>
         </div>
       </div>
       <div class="tier-card fade-up">
-        <div class="tier-users">до 50 000 пользователей</div>
-        <div class="tier-price"><em>~</em>1500</div>
+        <div class="tier-users">до 2 000 000 пользователей</div>
+        <div class="tier-price"><em>~</em>800</div>
         <div class="tier-period">долл. в месяц</div>
-        <div class="tier-divider"></div>
+        <div class="tier-div"></div>
         <div class="tier-items">
-          <div class="tier-item"><i class="ti ti-check"></i><span>Vercel Enterprise</span></div>
-          <div class="tier-item"><i class="ti ti-check"></i><span>Supabase Team</span></div>
-          <div class="tier-item"><i class="ti ti-check"></i><span>GPT-4 + Claude двойной</span></div>
-          <div class="tier-item"><i class="ti ti-check"></i><span>Matterport 360°</span></div>
-          <div class="tier-item"><i class="ti ti-check"></i><span>WhatsApp API</span></div>
-          <div class="tier-item off"><i class="ti ti-x"></i><span>Выделенный кластер</span></div>
+          <div class="tier-item"><i class="ti ti-check"></i>Голосовой поиск</div>
+          <div class="tier-item"><i class="ti ti-check"></i>360° туры объектов</div>
+          <div class="tier-item"><i class="ti ti-check"></i>Image Recognition</div>
+          <div class="tier-item"><i class="ti ti-check"></i>Все мессенджеры</div>
+          <div class="tier-item off"><i class="ti ti-x"></i>Выделенный кластер</div>
+          <div class="tier-item off"><i class="ti ti-x"></i>Fine-tuned LLM</div>
         </div>
       </div>
       <div class="tier-card fade-up">
-        <div class="tier-users">50 000+ пользователей</div>
+        <div class="tier-users">10 000 000+ пользователей</div>
         <div class="tier-price"><em>~</em>2000<em>+</em></div>
         <div class="tier-period">долл. в месяц</div>
-        <div class="tier-divider"></div>
+        <div class="tier-div"></div>
         <div class="tier-items">
-          <div class="tier-item"><i class="ti ti-check"></i><span>Kubernetes кластер</span></div>
-          <div class="tier-item"><i class="ti ti-check"></i><span>Supabase Enterprise</span></div>
-          <div class="tier-item"><i class="ti ti-check"></i><span>Fine-tuned LLM</span></div>
-          <div class="tier-item"><i class="ti ti-check"></i><span>Телефония</span></div>
-          <div class="tier-item"><i class="ti ti-check"></i><span>Image recognition</span></div>
-          <div class="tier-item"><i class="ti ti-check"></i><span>Полный стек</span></div>
+          <div class="tier-item"><i class="ti ti-check"></i>Kubernetes кластер</div>
+          <div class="tier-item"><i class="ti ti-check"></i>Fine-tuned LLM</div>
+          <div class="tier-item"><i class="ti ti-check"></i>Enterprise SLA 99.99%</div>
+          <div class="tier-item"><i class="ti ti-check"></i>Полный стек AI</div>
+          <div class="tier-item"><i class="ti ti-check"></i>Белый лейбл</div>
+          <div class="tier-item"><i class="ti ti-check"></i>Выделенная поддержка</div>
         </div>
       </div>
     </div>
@@ -659,15 +551,13 @@ footer{border-top:1px solid var(--border);padding:40px 24px;position:relative;z-
 <section class="cta-section">
   <div class="cta-inner">
     <div class="section-tag" style="text-align:center;margin-bottom:16px">/ Ранний доступ</div>
-    <h2 class="font-syne fade-up">Получи доступ<br>к <em style="color:var(--gold)">бета-версии</em></h2>
-    <p class="fade-up">Пока платформа в разработке — оставь email, и ты будешь среди первых на Бизнесметр.рф</p>
-    <div class="cta-input-row fade-up">
+    <h2 class="syne fade-up">Получи доступ<br>к <em>бета-версии</em></h2>
+    <p class="fade-up">Платформа в разработке — оставь email, будешь первым на Бизнесметр.рф</p>
+    <div class="cta-form fade-up">
       <input class="cta-input" type="email" placeholder="ваш@email.ru" id="cta-email">
-      <button class="btn-cta" onclick="ctaSubmit()">Попасть в список</button>
+      <button class="btn-cta" onclick="ctaSubmit()">Записаться</button>
     </div>
-    <p id="cta-ok" style="margin-top:12px;font-size:13px;color:var(--green);display:none">
-      <i class="ti ti-circle-check"></i> Записали! Свяжемся при запуске.
-    </p>
+    <p id="cta-ok"><i class="ti ti-circle-check"></i> Записали! Свяжемся при запуске.</p>
   </div>
 </section>
 
@@ -676,150 +566,71 @@ footer{border-top:1px solid var(--border);padding:40px 24px;position:relative;z-
   <div class="footer-inner">
     <div>
       <div class="footer-logo">
-        <div class="logo-mark">Б</div>
+        <svg width="22" height="22" viewBox="0 0 36 36"><path d="M18 4L32 12L18 20L4 12L18 4Z" fill="#5BC85B"/><path d="M4 12L18 20V32L4 24V12Z" fill="#2A7EC8"/><path d="M32 12L18 20V32L32 24V12Z" fill="#00B8CC"/></svg>
         Бизнесметр AI
       </div>
-      <div class="footer-copy">© 2025 Бизнесметр.рф · Тестовая среда v0.1<br>Коммерческая недвижимость, аналитика, CRM</div>
+      <div class="footer-copy">© 2025 Бизнесметр.рф · Тестовая среда v0.1<br>AI-платформа коммерческой недвижимости</div>
     </div>
     <div>
       <div class="footer-col-title">ИНСТРУМЕНТЫ</div>
       <div class="footer-links">
-        <a href="crmnedv-ai-analyst.html" target="_blank">CRM AI Аналитик</a>
-        <a href="#">Поиск объектов</a>
-        <a href="#">Дашборд рынка</a>
-        <a href="#">API документация</a>
+        <a href="crm.html">CRM Система</a>
+        <a href="realtor.html">AI Риелтор</a>
+        <a href="crmnedv-ai-analyst.html">CRMNedv Аналитик</a>
       </div>
     </div>
     <div>
-      <div class="footer-col-title">КОНТАКТЫ</div>
+      <div class="footer-col-title">СВЯЗЬ</div>
       <div class="footer-links">
         <a href="#">Telegram</a>
-        <a href="#">GitHub</a>
-        <a href="#">Архитектура (PDF)</a>
+        <a href="#">ВКонтакте</a>
+        <a href="#">WhatsApp</a>
       </div>
     </div>
   </div>
 </footer>
 
-<!-- AI DEMO MODAL -->
-<div class="demo-modal-wrap" id="demo-modal">
-  <div class="demo-modal">
-    <div class="dm-header">
-      <div class="ai-avatar" style="width:32px;height:32px;border-radius:50%;background:var(--gold-glow);display:flex;align-items:center;justify-content:center"><i class="ti ti-robot" style="color:var(--gold);font-size:15px"></i></div>
+<!-- DEMO MODAL -->
+<div class="modal-wrap" id="demo-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <svg width="24" height="24" viewBox="0 0 36 36"><path d="M18 4L32 12L18 20L4 12L18 4Z" fill="#5BC85B"/><path d="M4 12L18 20V32L4 24V12Z" fill="#2A7EC8"/><path d="M32 12L18 20V32L32 24V12Z" fill="#00B8CC"/></svg>
       <h3>Бизнесметр AI · Демо</h3>
-      <button class="dm-close" onclick="closeDemo()"><i class="ti ti-x"></i></button>
+      <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
     </div>
-    <div class="dm-body" id="dm-body">
-      <div class="dm-msg-ai">
-        <strong>Привет!</strong> Я AI-ассистент по коммерческой недвижимости. Спросите меня что угодно о рынке, ценах, типах объектов — или попробуйте один из примеров:
-        <div class="dm-chips">
-          <div class="dm-chip" onclick="dmAsk(this.textContent)" style="cursor:pointer">Сравни аренду офисов ЦАО и ЮВАО</div>
-          <div class="dm-chip" onclick="dmAsk(this.textContent)" style="cursor:pointer">Что такое ERV в недвижимости?</div>
-          <div class="dm-chip" onclick="dmAsk(this.textContent)" style="cursor:pointer">Как считается доходность склада?</div>
-        </div>
+    <div class="modal-body" id="modal-body">
+      <div class="dm-ai">
+        Привет! Я AI-консультант по коммерческой недвижимости. Спрашивайте о рынке, ценах, объектах — отвечу на русском языке.
       </div>
     </div>
-    <div class="dm-input-area">
-      <input class="dm-input" id="dm-input" placeholder="Задайте вопрос о коммерческой недвижимости..."
-        onkeydown="if(event.key==='Enter')dmSend()">
-      <button class="dm-send" onclick="dmSend()"><i class="ti ti-send" style="font-size:15px"></i> Спросить</button>
+    <div class="modal-input-area">
+      <input class="modal-inp" id="modal-inp" placeholder="Ваш вопрос о недвижимости..."
+        onkeydown="if(event.key==='Enter')modalSend()">
+      <button class="modal-send" onclick="modalSend()"><i class="ti ti-send" style="font-size:15px"></i>Спросить</button>
     </div>
   </div>
 </div>
 
 <script>
-/* ── NAV scroll ── */
-const nav = document.getElementById('nav');
-window.addEventListener('scroll',()=>{
-  nav.classList.toggle('scrolled',window.scrollY>20);
-});
+// Nav scroll
+window.addEventListener('scroll',()=>document.getElementById('nav').classList.toggle('scrolled',scrollY>20));
 
-/* ── Intersection observer for fade-up ── */
-const io = new IntersectionObserver(els=>{
-  els.forEach(e=>{if(e.isIntersecting)e.target.classList.add('visible')});
-},{threshold:.12});
+// Fade-up observer
+const io=new IntersectionObserver(els=>els.forEach(e=>{if(e.isIntersecting)e.target.classList.add('visible')}),{threshold:.1});
 document.querySelectorAll('.fade-up').forEach(el=>io.observe(el));
 
-/* ── Counter animation ── */
-function countUp(id,target,suffix=''){
-  const el=document.getElementById(id);
-  let current=0;
-  const step=target/40;
-  const t=setInterval(()=>{
-    current=Math.min(current+step,target);
-    el.textContent=Math.round(current)+(suffix||'');
-    if(current>=target)clearInterval(t);
-  },30);
+// Counters
+function count(id,to,suffix=''){
+  const el=document.getElementById(id);let c=0;
+  const t=setInterval(()=>{c=Math.min(c+to/40,to);el.textContent=Math.round(c)+(suffix);if(c>=to)clearInterval(t)},30);
 }
 setTimeout(()=>{
-  countUp('cnt1',12);
-  countUp('cnt2',6);
-  countUp('cnt3',100);
-  countUp('cnt4',50);
-  // Hero card
-  const priceEl=document.getElementById('hc-price');
-  let p=0; const ti=setInterval(()=>{
-    p+=1200; priceEl.textContent='₽ '+p.toLocaleString('ru');
-    if(p>=180000)clearInterval(ti);
-  },25);
-  countUp('hc-obj',2847);
-  countUp('hc-deals',143);
+  count('c1',12);count('c2',6);count('c3',100);count('c4',50);
+  let p=0;const pi=setInterval(()=>{p+=1800;document.getElementById('hc-price').textContent='₽ '+p.toLocaleString('ru');if(p>=180000)clearInterval(pi)},20);
+  count('hc-obj',2847);count('hc-deals',143);
 },400);
 
-/* ── Typewriter ── */
-const queries=[
-  'Сколько офисов сдаётся в ЮВАО?',
-  'Средняя цена склада от 1000 м² в Подмосковье',
-  'Новые объекты за последние 3 дня',
-  'Сравни ставки аренды — Циан vs Авито',
-  'Торговые помещения у метро с трафиком 10K+',
-  'Какие районы Москвы растут быстрее всего?',
-];
-const responses=[
-  {text:'Нашла 218 предложений аренды офисов в ЮВАО. Медианная ставка — 18 500 ₽/м²/год. Наибольший выбор в районе Печатники и Кожухово.',chips:[{l:'Объектов',v:'218'},{l:'Медиана',v:'18 500 ₽'},{l:'Районов',v:'7'}]},
-  {text:'Склады от 1000 м² в Подмосковье: 342 предложения. Средняя цена 7 200 ₽/м²/год. Дешевле всего — юг и восток (Домодедово, Люберцы).',chips:[{l:'Объектов',v:'342'},{l:'Средняя',v:'7 200 ₽'},{l:'Дешевле всего',v:'Юг МО'}]},
-  {text:'За 3 дня добавлено 47 новых объектов. 23 офиса, 14 торговых, 10 складов. Самые активные площадки: Авито и Циан.',chips:[{l:'Офисы',v:'23'},{l:'Торговые',v:'14'},{l:'Склады',v:'10'}]},
-];
-let qi=0,responding=false;
-function typeQuery(q,resp){
-  const el=document.getElementById('typewriter');
-  const rEl=document.getElementById('demo-resp');
-  const rText=document.getElementById('demo-resp-text');
-  const rChips=document.getElementById('demo-chips');
-  rEl.classList.remove('show');
-  el.textContent='';
-  let i=0;
-  const interval=setInterval(()=>{
-    el.textContent=q.slice(0,i+1);i++;
-    if(i>=q.length){clearInterval(interval);
-      setTimeout(()=>{
-        if(resp){
-          rText.textContent=resp.text;
-          rChips.innerHTML=resp.chips.map(c=>`<div class="demo-r-chip"><strong>${c.l}</strong> <span>${c.v}</span></div>`).join('');
-          rEl.classList.add('show');
-        }
-        setTimeout(()=>eraseQuery(q),4000);
-      },600);
-    }
-  },40);
-}
-function eraseQuery(q){
-  const el=document.getElementById('typewriter');
-  let i=q.length;
-  const interval=setInterval(()=>{
-    el.textContent=q.slice(0,i-1);i--;
-    if(i<=0){clearInterval(interval);
-      setTimeout(()=>{
-        document.getElementById('demo-resp').classList.remove('show');
-        qi=(qi+1)%queries.length;
-        typeQuery(queries[qi],responses[qi%responses.length]);
-      },400);
-    }
-  },18);
-}
-setTimeout(()=>typeQuery(queries[0],responses[0]),1200);
-
-/* ── CTA submit ── */
+// CTA
 function ctaSubmit(){
   const v=document.getElementById('cta-email').value.trim();
   if(!v||!v.includes('@'))return;
@@ -827,54 +638,29 @@ function ctaSubmit(){
   document.getElementById('cta-email').value='';
 }
 
-/* ── AI Demo Modal ── */
-function openDemo(){document.getElementById('demo-modal').classList.add('open')}
-function closeDemo(){document.getElementById('demo-modal').classList.remove('open')}
-document.getElementById('demo-modal').addEventListener('click',e=>{if(e.target===e.currentTarget)closeDemo()});
+// Modal
+function openModal(){document.getElementById('demo-modal').classList.add('open')}
+function closeModal(){document.getElementById('demo-modal').classList.remove('open')}
+document.getElementById('demo-modal').addEventListener('click',e=>{if(e.target===e.currentTarget)closeModal()});
 
-function dmAsk(q){
-  document.getElementById('dm-input').value=q;
-  dmSend();
-}
-
-async function dmSend(){
-  const inp=document.getElementById('dm-input');
-  const q=inp.value.trim();
-  if(!q)return;
+async function modalSend(){
+  const inp=document.getElementById('modal-inp');
+  const q=inp.value.trim();if(!q)return;
   inp.value='';
-
-  const body=document.getElementById('dm-body');
-
-  // User bubble
-  const ub=document.createElement('div');
-  ub.className='dm-msg-user';
-  ub.innerHTML=`<div>${q}</div>`;
-  body.appendChild(ub);
-
-  // Typing indicator
+  const body=document.getElementById('modal-body');
+  body.innerHTML+=`<div class="dm-user"><div>${q.replace(/</g,'&lt;')}</div></div>`;
   const typing=document.createElement('div');
-  typing.className='dm-msg-ai';
-  typing.innerHTML='<div class="dm-typing"><span></span><span></span><span></span></div>';
+  typing.className='dm-ai';
+  typing.innerHTML='<div class="typing"><span></span><span></span><span></span></div>';
   body.appendChild(typing);
   body.scrollTop=body.scrollHeight;
-
   try{
-    const r=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        model:'claude-sonnet-4-20250514',
-        max_tokens:600,
-        system:`Ты эксперт по коммерческой недвижимости России. Отвечай кратко, конкретно, по делу. Используй цифры и факты там, где возможно. Отвечай на русском языке. Не используй markdown — только обычный текст. Максимум 150 слов.`,
-        messages:[{role:'user',content:q}]
-      })
-    });
+    const r=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({system:'Ты эксперт по коммерческой недвижимости России. Отвечай кратко, по делу, только русский. Без markdown. До 120 слов.',
+        messages:[{role:'user',content:q}],max_tokens:400})});
     const d=await r.json();
-    const ans=d.content?.[0]?.text||'Не удалось получить ответ.';
-    typing.textContent=ans;
-  }catch(e){
-    typing.textContent='Ошибка подключения к AI. Проверьте интернет-соединение.';
-  }
+    typing.textContent=d?.content?.[0]?.text||'Не удалось получить ответ.';
+  }catch(e){typing.textContent='Ошибка подключения к AI.';}
   body.scrollTop=body.scrollHeight;
 }
 </script>
