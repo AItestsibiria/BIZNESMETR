@@ -2885,7 +2885,7 @@ export function FloatingConsultant() {
                           title="Расширить текст ×2 и собрать ключевые слова"
                         >
                           <span aria-hidden>🔄</span>
-                          <span>Re:Текст — расширь ×2</span>
+                          <span>Re:Текст — увеличь ×2</span>
                         </button>
                         {/* Eugene 2026-05-23 Босс «надо добавить возможность
                             юзеру править текст трека в чате». Click → текст
@@ -2915,7 +2915,33 @@ export function FloatingConsultant() {
                           title="Скопировать текст в поле — править вручную"
                         >
                           <span aria-hidden>✏️</span>
-                          <span>Править текст</span>
+                          <span>Править</span>
+                        </button>
+                        {/* Eugene 2026-05-24 Босс «Музa должна предложить убрать
+                            какие то слова из текста и новый текст сгенерировать
+                            без этих слов». Click → pre-fill input с template
+                            «Убери слова: ___ и перепиши без них» → юзер вписывает
+                            конкретные слова → отправляет → Музa rewrites. */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            try { playMuzaTick(); } catch {}
+                            trackEngagement("consultant_action", { kind: "remove_words" });
+                            setChatInput("Убери слова: ");
+                            setTimeout(() => {
+                              const ta = document.querySelector<HTMLTextAreaElement>('textarea[data-muza-chat-input]');
+                              if (ta) {
+                                ta.focus();
+                                ta.setSelectionRange(ta.value.length, ta.value.length);
+                              }
+                            }, 30);
+                          }}
+                          className="text-[11px] px-3 py-1.5 rounded-full bg-gradient-to-r from-rose-500/20 via-pink-500/20 to-fuchsia-500/20 hover:from-rose-500/30 hover:via-pink-500/30 hover:to-fuchsia-500/30 text-white border border-rose-400/40 hover:border-rose-300/70 transition-all flex items-center gap-1.5 shrink-0 active:scale-95"
+                          aria-label="Убрать слова из текста"
+                          title="Указать слова которые убрать — Музa перепишет без них"
+                        >
+                          <span aria-hidden>🗑</span>
+                          <span>Убрать слова</span>
                         </button>
                       </div>
                     )}
