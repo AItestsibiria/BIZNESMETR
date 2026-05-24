@@ -3098,9 +3098,27 @@ export function FloatingConsultant() {
                         </span>
                       );
                     })()}</div>
-                    {/* Eugene 2026-05-24 Босс «всегда кнопка скопировать
-                        последние 5 сообщений» — per-message copy button удалён,
-                        consolidated в header «📋» (копирует last 5). */}
+                    {/* Eugene 2026-05-24 Босс «добавь кнопку в чате сообщения
+                        скопировать по классике». Per-message clipboard button
+                        возвращён под bubble. Видна ВСЕМ (auth + анон). Header
+                        «📋 last 5» сохранён для сводного copy. */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        try {
+                          navigator.clipboard.writeText(m.text);
+                          const btn = e.currentTarget as HTMLElement;
+                          const orig = btn.dataset.orig || btn.textContent || "";
+                          btn.dataset.orig = orig;
+                          btn.textContent = "✓";
+                          window.setTimeout(() => { try { btn.textContent = orig; } catch {} }, 1200);
+                        } catch {}
+                      }}
+                      className="self-end mt-0.5 text-[10px] text-white/25 hover:text-white/70 px-1.5 py-0.5 rounded transition-colors"
+                      aria-label="Скопировать сообщение"
+                      title="Скопировать сообщение"
+                    >📋</button>
                     {/* Eugene 2026-05-23 Босс «после первых строк кнопка
                         Re:Текст». Show под последним bot-message содержащим
                         lyrics draft. Click → seed message Музе «расширь × 2
