@@ -2199,16 +2199,53 @@ export function FloatingConsultant() {
   ]);
   const factShownRef = useRef<Set<string>>(new Set());
   const factClickedRef = useRef<{ expand: string } | null>(null);
+  const lastFactCategoryRef = useRef<string>("");
+  // Eugene 2026-05-24 Босс «чередую project и хуки, 1 раз в 10 мин + кнопка
+  // настроить». Settings: interval (1-60 мин), какие категории показывать.
+  const [factSettings, setFactSettings] = useState<{ intervalMin: number; cats: Record<string, boolean> }>(() => {
+    if (typeof window === "undefined") return { intervalMin: 10, cats: { feature: true, fact: true, hook: true } };
+    try {
+      const raw = localStorage.getItem("muza-facts-settings");
+      if (raw) {
+        const p = JSON.parse(raw);
+        return {
+          intervalMin: typeof p.intervalMin === "number" && p.intervalMin >= 1 && p.intervalMin <= 60 ? p.intervalMin : 10,
+          cats: {
+            feature: p.cats?.feature !== false,
+            fact: p.cats?.fact !== false,
+            hook: p.cats?.hook !== false,
+          },
+        };
+      }
+    } catch {}
+    return { intervalMin: 10, cats: { feature: true, fact: true, hook: true } };
+  });
+  const [showFactSettings, setShowFactSettings] = useState(false);
+  useEffect(() => {
+    try { localStorage.setItem("muza-facts-settings", JSON.stringify(factSettings)); } catch {}
+  }, [factSettings]);
   useEffect(() => {
     if (!visible || chatOpen) return;
     const showFact = () => {
       if (chatOpen) return;
       if (smartBubbleText) return; // уже занято smart-trigger'ом
-      const pool = musicFactsRef.current.filter(f => !factShownRef.current.has(f.id));
-      const list = pool.length > 0 ? pool : musicFactsRef.current; // circular reset
-      if (pool.length === 0) factShownRef.current.clear();
+      const enabledCats = Object.keys(factSettings.cats).filter(c => factSettings.cats[c]);
+      if (enabledCats.length === 0) return; // все категории off
+      // Categorize fact by id prefix.
+      const categorize = (id: string) =>
+        id.startsWith("feature_") ? "feature" : id.startsWith("hook_") ? "hook" : "fact";
+      // Alternation: pool = enabledCats excluding lastCategory (если >1 enabled)
+      let preferredCats = enabledCats.filter(c => c !== lastFactCategoryRef.current);
+      if (preferredCats.length === 0) preferredCats = enabledCats;
+      const pool = musicFactsRef.current
+        .filter(f => preferredCats.includes(categorize(f.id)))
+        .filter(f => !factShownRef.current.has(f.id));
+      const fallback = musicFactsRef.current.filter(f => preferredCats.includes(categorize(f.id)));
+      const list = pool.length > 0 ? pool : fallback.length > 0 ? fallback : musicFactsRef.current;
+      if (pool.length === 0 && list === fallback) factShownRef.current.clear();
       const fact = list[Math.floor(Math.random() * list.length)];
       factShownRef.current.add(fact.id);
+      lastFactCategoryRef.current = categorize(fact.id);
       factClickedRef.current = { expand: fact.expand };
       setSmartBubbleText(`${fact.emoji} ${fact.text}`);
       window.setTimeout(() => {
@@ -2218,11 +2255,11 @@ export function FloatingConsultant() {
         }
       }, 9000);
     };
-    // Первый показ через 12 сек после mount, затем каждые 90 сек.
+    // Первый показ через 12 сек после mount, затем каждые intervalMin минут.
     const first = window.setTimeout(showFact, 12_000);
-    const iv = window.setInterval(showFact, 90_000);
+    const iv = window.setInterval(showFact, factSettings.intervalMin * 60_000);
     return () => { window.clearTimeout(first); window.clearInterval(iv); };
-  }, [visible, chatOpen, smartBubbleText]);
+  }, [visible, chatOpen, smartBubbleText, factSettings.intervalMin, factSettings.cats]);
 
   // Click handler для bubble — opens chat на ТЕКУЩЕЙ странице (overlay
   // через portal, без navigation) + просит Музу развернуть факт.
@@ -2520,6 +2557,49 @@ export function FloatingConsultant() {
                 </span>
                 <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" aria-hidden="true" />
               </button>
+              <button
+                type="button"
+                onClick={() => setShowFactSettings(s => !s)}
+                className="self-start min-h-[28px] px-2 mb-1 rounded-lg bg-white/[0.02] text-[10px] text-white/40 hover:text-white/70 hover:bg-white/[0.06] transition-colors border border-white/[0.05] active:scale-95"
+                aria-label="Настроить хуки Музы"
+                title="Настроить частоту и категории хуков"
+              >
+                ⚙️ Настроить
+              </button>
+              {showFactSettings && (
+                <div className="self-stretch p-2 rounded-xl bg-white/[0.04] border border-white/[0.08] flex flex-col gap-2 mb-1">
+                  <div className="text-[10px] text-white/60">Раз в:</div>
+                  <input
+                    type="range"
+                    min={1} max={60} step={1}
+                    value={factSettings.intervalMin}
+                    onChange={(e) => setFactSettings(s => ({ ...s, intervalMin: parseInt(e.target.value, 10) }))}
+                    className="w-full accent-fuchsia-400"
+                  />
+                  <div className="text-[10px] text-white/70 text-center tabular-nums">{factSettings.intervalMin} мин</div>
+                  <div className="text-[10px] text-white/60 mt-1">Показывать:</div>
+                  <div className="flex flex-wrap gap-1">
+                    {[
+                      { k: "feature", label: "Возможности" },
+                      { k: "hook", label: "Исполнители" },
+                      { k: "fact", label: "Факты" },
+                    ].map(opt => (
+                      <button
+                        key={opt.k}
+                        type="button"
+                        onClick={() => setFactSettings(s => ({ ...s, cats: { ...s.cats, [opt.k]: !s.cats[opt.k] } }))}
+                        className={`text-[10px] px-2 py-1 rounded-full border transition-all ${
+                          factSettings.cats[opt.k]
+                            ? "bg-fuchsia-500/30 border-fuchsia-400/60 text-white"
+                            : "bg-white/[0.04] border-white/[0.10] text-white/50"
+                        }`}
+                      >
+                        {factSettings.cats[opt.k] ? "✓ " : ""}{opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               {/* Eugene 2026-05-24 Босс «совсем поднять выше чтобы не нажимали
                   часто, добавить 15 мин, 1 час оставить». 3 опции:
                   - «15 мин» / «1 час» — частые, рядом снизу
