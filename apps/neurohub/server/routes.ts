@@ -11023,6 +11023,11 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     const userId = (req as any).userId;
     const user = storage.getUser(userId);
     if (!user) { res.status(404).json({ message: "Пользователь не найден" }); return; }
+    // Eugene 2026-05-24: gen rate-limit 5/мин per user (см. /api/music/generate).
+    if (!rateLimit(`gen:${userId}`, 5, 60_000)) {
+      res.status(429).json({ message: "Слишком быстро! Подождите минуту между запросами." });
+      return;
+    }
     const { prompt, genre, mood, language } = req.body;
     if (!prompt) {
       res.status(400).json({ message: "Опишите тему песни" });
@@ -11283,6 +11288,13 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     }
     const user = storage.getUser(userId);
     if (!user) { res.status(404).json({ message: "Пользователь не найден" }); return; }
+    // Eugene 2026-05-24: gen rate-limit 5/мин per user. Защита от бот-сетки
+    // и случайных «двойных кликов» юзера. До этого юзер мог за секунду
+    // отправить 50 параллельных generate → 50× charge + Suno OOM.
+    if (!rateLimit(`gen:${userId}`, 5, 60_000)) {
+      res.status(429).json({ message: "Слишком быстро! Подождите минуту между запросами." });
+      return;
+    }
     // Suno-watchdog circuit breaker — Eugene 2026-05-08 «Реши кардинально».
     // Если Suno глобально недоступен (баланс=0, ключ невалид, error-rate>80%)
     // — отказываем СРАЗУ, до charge. Иначе юзер бы получил error+refund цикл.
@@ -11778,6 +11790,11 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const userId = (req as any).userId;
     const user = storage.getUser(userId);
     if (!user) { res.status(404).json({ message: "Автор не найден" }); return; }
+    // Eugene 2026-05-24: gen rate-limit 5/мин per user (см. /api/music/generate).
+    if (!rateLimit(`gen:${userId}`, 5, 60_000)) {
+      res.status(429).json({ message: "Слишком быстро! Подождите минуту между запросами." });
+      return;
+    }
     if (isSunoCircuitOpen()) { res.status(503).json({ message: "MuzaAi временно недоступен. Мы уже работаем над проблемой. Попробуйте через 5–10 минут." }); return; }
     const { sourceId, newStyle, voice, voiceType, isDuet, instrumental, isPublic, category, authorName } = req.body;
     if (!sourceId) { res.status(400).json({ message: "Исходный трек не указан" }); return; }
@@ -11896,6 +11913,11 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     const userId = (req as any).userId;
     const user = storage.getUser(userId);
     if (!user) { res.status(404).json({ message: "Автор не найден" }); return; }
+    // Eugene 2026-05-24: gen rate-limit 5/мин per user (см. /api/music/generate).
+    if (!rateLimit(`gen:${userId}`, 5, 60_000)) {
+      res.status(429).json({ message: "Слишком быстро! Подождите минуту между запросами." });
+      return;
+    }
     if (isSunoCircuitOpen()) { res.status(503).json({ message: "MuzaAi временно недоступен. Мы уже работаем над проблемой. Попробуйте через 5–10 минут." }); return; }
     const { sourceId, continueAt, prompt, lyrics, voice, isPublic, category, authorName } = req.body;
     if (!sourceId) { res.status(400).json({ message: "Исходный трек не указан" }); return; }
@@ -14982,6 +15004,11 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     if (oldGen.status !== "error") { res.status(400).json({ message: "Можно регенерировать только треки с ошибкой" }); return; }
     const user = storage.getUser(userId);
     if (!user) { res.status(404).json({ message: "Пользователь не найден" }); return; }
+    // Eugene 2026-05-24: gen rate-limit 5/мин per user (см. /api/music/generate).
+    if (!rateLimit(`gen:${userId}`, 5, 60_000)) {
+      res.status(429).json({ message: "Слишком быстро! Подождите минуту между запросами." });
+      return;
+    }
 
     // Распарсиваем оригинальные параметры из поля style (JSON)
     let styleObj: any = {};
