@@ -310,9 +310,14 @@ function enrichActionsWithBrainFocus(
 
 // === Multer (memoryStorage, max 5 MB) ===
 const MAX_AUDIO_BYTES = 5 * 1024 * 1024;
+// Eugene 2026-05-24 voice-admin fix: расширен список (iOS Safari использует
+// audio/mp4 + variant audio/aac / audio/x-m4a). Случаются также blob'ы с
+// type='application/octet-stream' когда browser не выставил MIME —
+// разрешаем их с fallback-detection через ffmpeg (он сам определит).
 const ALLOWED_MIMES = new Set([
   "audio/webm",
   "audio/ogg",
+  "audio/opus",
   "audio/mpeg",
   "audio/mp3",
   "audio/wav",
@@ -321,6 +326,11 @@ const ALLOWED_MIMES = new Set([
   "audio/mp4",
   "audio/m4a",
   "audio/x-m4a",
+  "audio/aac",
+  "audio/aacp",
+  "audio/3gpp",
+  "audio/3gpp2",
+  "application/octet-stream",
 ]);
 
 const upload = multer({
@@ -601,25 +611,45 @@ router.post(
     }
     const baseMime = (file.mimetype || "").split(";")[0].trim().toLowerCase();
     if (!ALLOWED_MIMES.has(baseMime)) {
-      return res
-        .status(415)
-        .json({ data: null, error: `Mime не поддерживается: ${file.mimetype}` });
+      // Eugene 2026-05-24 voice-admin fix: best-effort вместо жёсткого reject.
+      // Yandex/ffmpeg сами разберутся через magic-bytes. Просто логируем.
+      console.warn(`[ADMIN-VOICE] unusual mime accepted: ${file.mimetype}`);
     }
-    if (file.size < 500) {
+    // Eugene 2026-05-24 voice-admin fix: 500B → 200B минимум. Короткие фразы
+    // на iOS Safari (≈1 сек "покажи метрики") могут давать 600B-1.2KB mp4.
+    // Yandex STT всё равно отбросит пустоту — это лишь sanity guard от bug'ов
+    // recorder (empty blob).
+    if (file.size < 200) {
       return res
         .status(400)
-        .json({ data: null, error: "Запись слишком короткая (<500 B) — попробуй ещё раз" });
+        .json({
+          data: null,
+          error: `Микрофон отдал пустую запись (${file.size} B). Проверь mute / permission и попробуй заново — говори ≥1 сек.`,
+        });
     }
+
+    // Eugene 2026-05-24 voice-admin fix: ext выбираем по реальному MIME, а не
+    // фиксированному "webm" — для OpenAI/GPTunnel Whisper это критично
+    // (multipart filename влияет на server-side parser).
+    const ext = baseMime.includes("mp4") || baseMime.includes("m4a") ? "m4a"
+      : baseMime.includes("ogg") || baseMime.includes("opus") ? "ogg"
+      : baseMime.includes("wav") ? "wav"
+      : baseMime.includes("mpeg") || baseMime.includes("mp3") ? "mp3"
+      : "webm";
 
     // 1) STT
     let transcript = "";
     try {
-      const r = await transcribeRussianAudio(file.buffer, baseMime, "webm");
+      const r = await transcribeRussianAudio(file.buffer, baseMime || "audio/webm", ext);
       transcript = String(r.transcript || "").trim();
       if (!transcript) {
+        // Diagnose: соберём attempt-summary в error (для логов / админ-debug)
+        const summary = (r.attempts || [])
+          .map((a: any) => `${a.provider}:${a.ok ? "ok" : (a.error || "fail").toString().slice(0, 80)}`)
+          .join(" · ");
         return res.status(422).json({
           data: null,
-          error: "Yandex SpeechKit не услышал речь — говори чуть громче, ближе к микрофону, минимум 3 сек.",
+          error: `STT: речь не распознана. Говори громче, ближе к микрофону, ≥2 сек. [${summary || "no providers"}]`,
         });
       }
     } catch (e: any) {

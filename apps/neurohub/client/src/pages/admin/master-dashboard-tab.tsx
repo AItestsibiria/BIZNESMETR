@@ -1242,6 +1242,14 @@ function MusaVoiceCommand() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const blobUrlRef = useRef<string | null>(null);
   const autoStopTimerRef = useRef<number | null>(null);
+  // Eugene 2026-05-24 voice-admin fix: фиксируем время старта записи + actual
+  // MIME (recorder.mimeType vs hardcoded webm) — iOS Safari использует audio/mp4,
+  // и без учёта реального MIME blob получает неверный type → server отбрасывает
+  // через ALLOWED_MIMES check. Также elapsed time даёт честную проверку
+  // длительности (не зависит от размера блоба, который у iOS Safari может быть
+  // компактным для коротких фраз).
+  const recordingStartedAtRef = useRef<number>(0);
+  const actualMimeRef = useRef<string>("audio/webm");
 
   const loadHistory = useCallback(async () => {
     try {
@@ -1320,33 +1328,90 @@ function MusaVoiceCommand() {
       return;
     }
     streamRef.current = stream;
-    // MediaRecorder в webm/opus — Yandex STT перепакует через ffmpeg.
-    let recorder: MediaRecorder;
-    try {
-      const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : "audio/webm";
-      recorder = new MediaRecorder(stream, { mimeType: mime });
-    } catch {
-      recorder = new MediaRecorder(stream);
+    // Eugene 2026-05-24 voice-admin fix: cross-browser MIME selection.
+    // iOS Safari НЕ поддерживает audio/webm — использует audio/mp4.
+    // Перебираем кандидатов от лучшего к fallback.
+    let recorder: MediaRecorder | null = null;
+    const mimeCandidates = [
+      "audio/webm;codecs=opus",   // Chrome/Firefox/Edge — preferred
+      "audio/webm",                // Chrome fallback
+      "audio/mp4;codecs=mp4a.40.2", // iOS Safari 14+
+      "audio/mp4",                 // iOS Safari fallback
+      "audio/ogg;codecs=opus",     // Firefox legacy
+      "",                          // browser default
+    ];
+    let pickedMime = "";
+    for (const m of mimeCandidates) {
+      try {
+        if (!m || (typeof (MediaRecorder as any).isTypeSupported === "function" && MediaRecorder.isTypeSupported(m))) {
+          pickedMime = m;
+          recorder = m ? new MediaRecorder(stream, { mimeType: m }) : new MediaRecorder(stream);
+          break;
+        }
+      } catch {
+        // try next
+      }
+    }
+    if (!recorder) {
+      try {
+        recorder = new MediaRecorder(stream);
+      } catch (e) {
+        cleanupStream();
+        setError(
+          "Браузер не смог запустить запись (MediaRecorder unsupported). На iPad/Safari проверь iOS 14.3+.",
+        );
+        return;
+      }
     }
     mediaRecorderRef.current = recorder;
+    // Запоминаем РЕАЛЬНЫЙ mime (recorder.mimeType содержит выданное браузером
+    // значение — у Safari это может быть audio/mp4 даже если мы хотели webm).
+    actualMimeRef.current = recorder.mimeType || pickedMime || "audio/webm";
     chunksRef.current = [];
     recorder.ondataavailable = (e) => {
       if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
     };
     recorder.onstop = async () => {
       cleanupStream();
-      const blob = new Blob(chunksRef.current, { type: "audio/webm" });
+      const elapsedMs = Date.now() - recordingStartedAtRef.current;
+      // Используем актуальный MIME — иначе Safari отдаст mp4-данные с
+      // подписью webm → server reject + ffmpeg detect fail.
+      const recMime = actualMimeRef.current || "audio/webm";
+      const blob = new Blob(chunksRef.current, { type: recMime });
       chunksRef.current = [];
-      if (blob.size < 500) {
-        setError("Запись слишком короткая — попробуй ещё раз (минимум 1 сек).");
+      // Eugene 2026-05-24 voice-admin fix: проверка по времени (не размеру).
+      // Раньше "blob.size < 500" блокировал валидные короткие фразы на iOS
+      // Safari (~1-2KB), а также любые webm-записи где первый chunk пришёл
+      // отдельно после stop. Теперь:
+      //  - elapsed >= 350ms → считаем валидной попыткой
+      //  - blob.size >= 200 byte → достаточно для ffmpeg-decode
+      if (elapsedMs < 350) {
+        setError("Запись очень короткая (<0.4 сек). Удержи кнопку и проговори фразу — например «покажи метрики за сегодня».");
         setState("idle");
         return;
       }
-      await uploadAudio(blob);
+      if (blob.size < 200) {
+        setError(`Микрофон отдал пустую запись (${blob.size} B). Проверь что разрешён доступ и не выключен mute.`);
+        setState("idle");
+        return;
+      }
+      await uploadAudio(blob, recMime);
     };
-    recorder.start();
+    // Eugene 2026-05-24 voice-admin fix: timeslice=250 заставляет recorder
+    // отдавать chunks каждые 250ms — это гарантирует что ondataavailable
+    // выстрелит хотя бы один раз даже на коротких записях (раньше блок шёл
+    // одним куском при stop(), и на iOS иногда был пустой).
+    try {
+      recorder.start(250);
+    } catch {
+      // Если start(timeslice) бросает (старый Safari) — fallback на дефолтный
+      try { recorder.start(); } catch (e: any) {
+        cleanupStream();
+        setError(`Не удалось начать запись: ${e?.message || e}`);
+        return;
+      }
+    }
+    recordingStartedAtRef.current = Date.now();
     setState("recording");
     // Auto-stop через 60 сек (cost cap)
     autoStopTimerRef.current = window.setTimeout(() => {
@@ -1357,19 +1422,36 @@ function MusaVoiceCommand() {
   }, [cleanupStream]);
 
   const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
-      mediaRecorderRef.current.stop();
+    const rec = mediaRecorderRef.current;
+    if (rec && rec.state === "recording") {
+      // Eugene 2026-05-24 voice-admin fix: requestData() ПЕРЕД stop() —
+      // принудительно flush'ит pending audio data в ondataavailable. Без
+      // этого на iOS Safari блок мог приходить пустым (timeslice'и copy'ились
+      // в очередь и stop() их не дренировал перед onstop callback).
+      try {
+        if (typeof (rec as any).requestData === "function") rec.requestData();
+      } catch {}
+      try { rec.stop(); } catch {}
       // setState переключится в uploadAudio
       setState("uploading");
     }
   }, []);
 
   const uploadAudio = useCallback(
-    async (blob: Blob) => {
+    async (blob: Blob, mimeOverride?: string) => {
       setState("uploading");
       try {
         const fd = new FormData();
-        fd.append("audio", blob, "voice.webm");
+        // Eugene 2026-05-24 voice-admin fix: file extension должен совпадать
+        // с реальным MIME, иначе Multer проставит .webm на mp4-данные и
+        // ffmpeg на сервере не сможет правильно detect input.
+        const actualMime = mimeOverride || blob.type || "audio/webm";
+        const ext = actualMime.includes("mp4") || actualMime.includes("m4a") ? "m4a"
+          : actualMime.includes("ogg") ? "ogg"
+          : actualMime.includes("wav") ? "wav"
+          : actualMime.includes("mpeg") ? "mp3"
+          : "webm";
+        fd.append("audio", blob, `voice.${ext}`);
         const url = `/api/admin/v304/voice-command${autoTts ? "?tts=1" : ""}`;
         const r = await fetch(url, {
           method: "POST",
@@ -1427,6 +1509,28 @@ function MusaVoiceCommand() {
             console.warn("auto-play blocked", e);
             setState("idle");
           });
+        } else if (autoTts && data.response) {
+          // Eugene 2026-05-24 voice-admin fix: Yandex TTS не вернул аудио
+          // (нет ключа / квота / выкл) — fallback на browser SpeechSynthesis.
+          // У Босса будет голосовой ответ всё равно — это покрывает
+          // деградировавший backend случай.
+          try {
+            if (typeof window !== "undefined" && "speechSynthesis" in window) {
+              const utter = new SpeechSynthesisUtterance(data.response);
+              utter.lang = "ru-RU";
+              utter.rate = 1.05;
+              utter.pitch = 1.0;
+              utter.onend = () => setState("idle");
+              utter.onerror = () => setState("idle");
+              setState("playing");
+              window.speechSynthesis.cancel(); // прерываем предыдущий, если был
+              window.speechSynthesis.speak(utter);
+            } else {
+              setState("idle");
+            }
+          } catch {
+            setState("idle");
+          }
         } else {
           setState("idle");
         }
