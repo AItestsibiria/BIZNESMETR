@@ -328,7 +328,15 @@ export default function PhoneOtpForm({
       if (used === "call") setCallFailures(0);
       // Применяем фактически использованный метод (важно для doVerify).
       if (used !== method) setMethod(used);
-      setCountryHint(res.data?.countryName ? (used === "call" ? `Звонок в ${res.data.countryName}` : `Отправлено в ${res.data.countryName}`) : null);
+      // Eugene 2026-05-24 Босс «если номер авторизован — авторизуй». Если
+      // backend auto-switched register→login (existing user) — показываем
+      // info вместо country hint, чтобы юзер понял что входит а не
+      // регистрируется заново.
+      if (res.data?.switchedToLogin) {
+        setCountryHint("✓ Этот номер уже у нас — впустим без регистрации");
+      } else {
+        setCountryHint(res.data?.countryName ? (used === "call" ? `Звонок в ${res.data.countryName}` : `Отправлено в ${res.data.countryName}`) : null);
+      }
       if (used === "call") {
         setCallHint(res.data?.hint || null);
         // Eugene 2026-05-17 Босс «Нам никто не звонит» — classical flashcall:
