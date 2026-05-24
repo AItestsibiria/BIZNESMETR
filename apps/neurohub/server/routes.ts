@@ -1422,7 +1422,9 @@ export async function registerRoutes(
   });
 
   // Pending registrations (email verification)
-  const pendingRegs = new Map<string, { name: string; email: string; password: string; ref?: string; promo?: string; code: string; expires: number }>();
+  // Eugene 2026-05-24: добавлен attempts counter — после 5 неверных кодов
+  // pending удаляется, юзер вынужден запросить новый код. См. /verify-register.
+  const pendingRegs = new Map<string, { name: string; email: string; password: string; ref?: string; promo?: string; code: string; expires: number; attempts: number }>();
 
   app.post("/api/auth/register", async (req: Request, res: Response) => {
     const ip = req.ip || req.socket.remoteAddress || "unknown";
@@ -1463,7 +1465,7 @@ export async function registerRoutes(
 
       // Send verification code
       const code = String(Math.floor(100000 + Math.random() * 900000));
-      pendingRegs.set(email.toLowerCase(), { name, email, password, ref, promo, code, expires: Date.now() + 15 * 60 * 1000 });
+      pendingRegs.set(email.toLowerCase(), { name, email, password, ref, promo, code, expires: Date.now() + 15 * 60 * 1000, attempts: 0 });
       try {
         await mailTransport.sendMail({
           from: `"MuzaAi" <${CLIENT_EMAIL}>`, replyTo: CLIENT_EMAIL,
@@ -1487,12 +1489,28 @@ export async function registerRoutes(
   // Verify email and complete registration
   app.post("/api/auth/verify-register", async (req: Request, res: Response) => {
     try {
+      // Eugene 2026-05-24: brute-force защита.
+      // Per-IP: 20 попыток / 10 мин (защищает single-IP атаку).
+      // Per-email: 5 неверных кодов → pending invalidated, нужен новый код
+      //   (защищает IP-rotation атаку — счётчик per-email, не per-IP).
+      const ip = req.ip || req.socket.remoteAddress || "unknown";
+      if (!rateLimit(ip + ":verify-register", 20, 10 * 60 * 1000)) {
+        res.status(429).json({ message: "Слишком много попыток. Подождите 10 минут." }); return;
+      }
       const { email, code } = req.body;
       const key = email?.toLowerCase();
       const pending = pendingRegs.get(key);
       if (!pending) { res.status(400).json({ message: "Сначала запросите регистрацию" }); return; }
       if (Date.now() > pending.expires) { pendingRegs.delete(key); res.status(400).json({ message: "Код истёк" }); return; }
-      if (pending.code !== code) { res.status(400).json({ message: "Неверный код" }); return; }
+      if (pending.code !== code) {
+        pending.attempts += 1;
+        if (pending.attempts >= 5) {
+          pendingRegs.delete(key);
+          res.status(429).json({ message: "Слишком много неверных попыток. Запросите новый код." }); return;
+        }
+        const remaining = 5 - pending.attempts;
+        res.status(400).json({ message: `Неверный код. Осталось попыток: ${remaining}` }); return;
+      }
       pendingRegs.delete(key);
 
       // Actually create user
