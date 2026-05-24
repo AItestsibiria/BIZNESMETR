@@ -117,27 +117,43 @@ function renderHeader(): string {
 
 // ─────────────────────────────────────────────────────────────────────
 // Common FOOTER (контакты Музы со всеми сетями + ссылками)
+// Eugene 2026-05-24 Босс «все ссылки на соцсети с реальными логотипами —
+// как на всех сайтах». Иконки через Simple Icons CDN (cdn.simpleicons.org)
+// — official brand SVG/PNG, recognizable, battle-tested email-compatible.
+// Не используем emoji (не distinct visual). Color через URL param.
 // ─────────────────────────────────────────────────────────────────────
 function renderFooter(): string {
+  // Simple Icons CDN: https://cdn.simpleicons.org/{slug}/{color}
+  // White color (ffffff) для contrast на dark bg. Все иконки 24×24px PNG.
+  const icon = (slug: string) =>
+    `https://cdn.simpleicons.org/${slug}/ffffff`;
   return `</td></tr>
       <tr><td style="padding:24px 28px 32px;border-top:1px solid rgba(255,255,255,0.08);">
         <p style="margin:0 0 16px;color:rgba(255,255,255,0.8);font-size:14px;font-family:'Inter',-apple-system,Arial,sans-serif;text-align:center;">Свяжись с Музой:</p>
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:0 auto;">
           <tr>
             <td style="padding:0 6px;">
-              <a href="${BRAND.url}" style="display:inline-block;width:44px;height:44px;line-height:44px;text-align:center;background:rgba(124,58,237,0.18);border:1px solid rgba(124,58,237,0.4);border-radius:50%;color:#fff;text-decoration:none;font-size:18px;font-family:'Inter',-apple-system,Arial,sans-serif;" title="Сайт MuzaAi">🌐</a>
+              <a href="${BRAND.url}" style="display:inline-block;width:44px;height:44px;line-height:44px;text-align:center;background:#7C3AED;border-radius:50%;text-decoration:none;" title="Сайт MuzaAi">
+                <img src="${icon("googlechrome")}" width="20" height="20" alt="Web" style="vertical-align:middle;display:inline-block;border:0;" />
+              </a>
             </td>
             <td style="padding:0 6px;">
-              <a href="${BRAND.telegram}" style="display:inline-block;width:44px;height:44px;line-height:44px;text-align:center;background:rgba(0,212,255,0.18);border:1px solid rgba(0,212,255,0.4);border-radius:50%;color:#fff;text-decoration:none;font-size:18px;font-family:'Inter',-apple-system,Arial,sans-serif;" title="Telegram бот">✈️</a>
+              <a href="${BRAND.telegram}" style="display:inline-block;width:44px;height:44px;line-height:44px;text-align:center;background:#0088cc;border-radius:50%;text-decoration:none;" title="Telegram бот">
+                <img src="${icon("telegram")}" width="20" height="20" alt="Telegram" style="vertical-align:middle;display:inline-block;border:0;" />
+              </a>
             </td>
             <td style="padding:0 6px;">
-              <a href="${BRAND.max}" style="display:inline-block;width:44px;height:44px;line-height:44px;text-align:center;background:rgba(57,255,20,0.18);border:1px solid rgba(57,255,20,0.4);border-radius:50%;color:#fff;text-decoration:none;font-size:14px;font-weight:700;font-family:'Inter',-apple-system,Arial,sans-serif;" title="Max messenger">М</a>
+              <a href="${BRAND.max}" style="display:inline-block;width:44px;height:44px;line-height:44px;text-align:center;background:#39FF14;border-radius:50%;text-decoration:none;color:#000;font-size:18px;font-weight:900;font-family:'Inter',-apple-system,Arial,sans-serif;" title="Max messenger">М</a>
             </td>
             <td style="padding:0 6px;">
-              <a href="${BRAND.vk}" style="display:inline-block;width:44px;height:44px;line-height:44px;text-align:center;background:rgba(255,0,110,0.18);border:1px solid rgba(255,0,110,0.4);border-radius:50%;color:#fff;text-decoration:none;font-size:14px;font-weight:700;font-family:'Inter',-apple-system,Arial,sans-serif;" title="VK сообщество">VK</a>
+              <a href="${BRAND.vk}" style="display:inline-block;width:44px;height:44px;line-height:44px;text-align:center;background:#0077FF;border-radius:50%;text-decoration:none;" title="VK сообщество">
+                <img src="${icon("vk")}" width="20" height="20" alt="VK" style="vertical-align:middle;display:inline-block;border:0;" />
+              </a>
             </td>
             <td style="padding:0 6px;">
-              <a href="mailto:${BRAND.email}" style="display:inline-block;width:44px;height:44px;line-height:44px;text-align:center;background:rgba(251,191,36,0.18);border:1px solid rgba(251,191,36,0.4);border-radius:50%;color:#fff;text-decoration:none;font-size:18px;font-family:'Inter',-apple-system,Arial,sans-serif;" title="Email">✉️</a>
+              <a href="mailto:${BRAND.email}" style="display:inline-block;width:44px;height:44px;line-height:44px;text-align:center;background:#FBBF24;border-radius:50%;text-decoration:none;" title="Email">
+                <img src="${icon("maildotru")}" width="20" height="20" alt="Email" style="vertical-align:middle;display:inline-block;border:0;" />
+              </a>
             </td>
           </tr>
         </table>
