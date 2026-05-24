@@ -13,6 +13,7 @@ import { getPersistentPlayerAudio } from "../lib/lockscreen";
 import { SupportModal } from "./support-modal";
 import { ChatTrackCard, type ChatTrackCardData } from "./chat-track-card";
 import { Maximize2, Minimize2 } from "lucide-react";
+import { useAuth } from "@/lib/auth";
 // Eugene 2026-05-21 Босс Chat-tool-calling MVP: approval-карточка + job-карточка
 // для chat-tool результатов (generate_lyrics / create_music_job / publish_asset).
 import { ChatApprovalCard, ChatJobCard } from "./chat-tool-cards";
@@ -560,6 +561,9 @@ export function FloatingConsultant() {
   // ВАЖНО: hook вызываем безусловно (React hooks rule), а ранний return
   // делаем после остальных state — иначе порядок hooks меняется между renders.
   const featureEnabled = useFeatureEnabled("floating-consultant");
+  // Eugene 2026-05-24 Босс «кнопка скопировать должна быть на всех
+  // сообщениях если юзер авторизован». auth() возвращает user|null.
+  const { user: authedUser } = useAuth();
   // Eugene 2026-05-23 Босс «99% генерации через чат» — wouter navigate для
   // [PANEL_ACTION:*] markers. Музa открывает /music, /lyrics, /covers etc.
   const [, navigate] = useLocation();
@@ -2915,6 +2919,28 @@ export function FloatingConsultant() {
                         </span>
                       );
                     })()}</div>
+                    {/* Eugene 2026-05-24 Босс «кнопка скопировать должна быть
+                        на всех сообщениях если юзер авторизован». Compact
+                        clipboard button under EACH message (user + bot) для
+                        authed юзеров. Click → navigator.clipboard.writeText(m.text). */}
+                    {authedUser && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          try {
+                            navigator.clipboard.writeText(m.text);
+                            const btn = e.currentTarget as HTMLElement;
+                            const orig = btn.textContent;
+                            btn.textContent = "✓ скопировано";
+                            window.setTimeout(() => { btn.textContent = orig; }, 1400);
+                          } catch {}
+                        }}
+                        className="self-end mt-0.5 text-[10px] text-white/30 hover:text-white/70 px-1.5 py-0.5 rounded transition-colors"
+                        aria-label="Скопировать сообщение"
+                        title="Скопировать в буфер обмена"
+                      >📋 копировать</button>
+                    )}
                     {/* Eugene 2026-05-23 Босс «после первых строк кнопка
                         Re:Текст». Show под последним bot-message содержащим
                         lyrics draft. Click → seed message Музе «расширь × 2

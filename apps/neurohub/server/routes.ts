@@ -2929,14 +2929,16 @@ export async function registerRoutes(
           .where(and(eq(generations.userId, authUserId), eq(generations.type, "music"), eq(generations.status, "done")))
           .all();
         const name = u?.name || "автор";
-        // Eugene 2026-05-24 Босс «по возвращении в чат после 1 часа юзер
-        // должен вернуться в то же место — сообщение от Музы в стиле
+        // Eugene 2026-05-24 Босс «по возвращении в чат — В ТЕЧЕНИЕ 1 часа —
+        // юзер должен вернуться в то же место, сообщение от Музы в стиле
         // контекста: продолжим или осталось ещё чуть-чуть до финала».
+        // Если вернулся быстро (< 1 час) — контекст ещё свежий, продолжаем.
+        // Если > 1 час — generic «С возвращением» (контекст утратился).
         const lastMsg = history.length > 0 ? history[history.length - 1] : null;
         const lastMsgTs = lastMsg?.createdAt ? new Date(lastMsg.createdAt).getTime() : 0;
         const lastMsgAge = lastMsgTs > 0 ? Date.now() - lastMsgTs : 0;
         const ONE_HOUR = 60 * 60 * 1000;
-        if (history.length > 0 && lastMsgAge > ONE_HOUR) {
+        if (history.length > 0 && lastMsgAge > 0 && lastMsgAge < ONE_HOUR) {
           const lastBot = [...history].reverse().find(h => h.role === "bot");
           const lastBotText = lastBot?.text || "";
           const hasLyricsMarker = /\[(Куплет|Припев|Verse|Chorus|Bridge)/i.test(lastBotText);
