@@ -8902,6 +8902,74 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     }
   });
 
+  // Eugene 2026-05-24 (TODOS-PENDING P0): author cabinet stats. До этого фронт
+  // dashboard.tsx звал /api/admin/gen-stats → 403 для не-админа → панель статистики
+  // никогда не рендерилась авторам. Здесь — те же агрегаты, scoped к currentUser.id.
+  app.get("/api/account/my-gen-stats", authMiddleware, (req: Request, res: Response) => {
+    const userId = (req as any).userId as number;
+    const period = (req.query.period as string) || 'all';
+    const raw = (db as any).$client;
+    let dateFilter = '';
+    if (period && period !== 'all') {
+      const r = getPeriodRange(period);
+      dateFilter = `AND ga.created_at >= '${r.fromIso}' AND ga.created_at < '${r.toIso}'`;
+    }
+    const top = raw.prepare(`SELECT ga.gen_id, g.display_title, g.prompt, g.type, g.author_name,
+      SUM(CASE WHEN ga.action='play' THEN 1 ELSE 0 END) as plays,
+      SUM(CASE WHEN ga.action='download' THEN 1 ELSE 0 END) as downloads,
+      SUM(CASE WHEN ga.action='copy' THEN 1 ELSE 0 END) as copies,
+      SUM(CASE WHEN ga.action='share' THEN 1 ELSE 0 END) as shares,
+      COUNT(*) as total
+      FROM gen_activity ga JOIN generations g ON ga.gen_id = g.id
+      WHERE g.user_id = ? ${dateFilter}
+      GROUP BY ga.gen_id ORDER BY total DESC LIMIT 10`).all(userId);
+    const totalsDateFilter = dateFilter.replace(/ga\./g, '');
+    const totals = raw.prepare(`SELECT
+      SUM(CASE WHEN ga.action='play' THEN 1 ELSE 0 END) as plays,
+      SUM(CASE WHEN ga.action='download' THEN 1 ELSE 0 END) as downloads,
+      SUM(CASE WHEN ga.action='copy' THEN 1 ELSE 0 END) as copies,
+      SUM(CASE WHEN ga.action='share' THEN 1 ELSE 0 END) as shares,
+      COUNT(*) as total
+      FROM gen_activity ga JOIN generations g ON ga.gen_id = g.id
+      WHERE g.user_id = ? ${dateFilter}`).get(userId);
+    res.json({ top, totals });
+  });
+
+  app.get("/api/account/my-top-downloads", authMiddleware, (req: Request, res: Response) => {
+    const userId = (req as any).userId as number;
+    const period = (req.query.period as string) || 'all';
+    const raw = (db as any).$client;
+    let dateFilter = '';
+    if (period && period !== 'all') {
+      const r = getPeriodRange(period);
+      dateFilter = `AND ga.created_at >= '${r.fromIso}' AND ga.created_at < '${r.toIso}'`;
+    }
+    const rows = raw.prepare(`SELECT ga.gen_id, g.display_title, g.prompt, g.type, g.author_name,
+      COUNT(*) as downloads, MAX(ga.created_at) as last_download
+      FROM gen_activity ga JOIN generations g ON ga.gen_id = g.id
+      WHERE ga.action='download' AND g.user_id = ? ${dateFilter}
+      GROUP BY ga.gen_id ORDER BY downloads DESC LIMIT 20`).all(userId);
+    const totalDownloads = raw.prepare(`SELECT COUNT(*) as total
+      FROM gen_activity ga JOIN generations g ON ga.gen_id = g.id
+      WHERE ga.action='download' AND g.user_id = ? ${dateFilter}`).get(userId);
+    res.json({ rows, totalDownloads: (totalDownloads as any)?.total || 0 });
+  });
+
+  // Per-track detail: только если track принадлежит юзеру (ownership guard).
+  app.get("/api/account/my-gen-stats/:id", authMiddleware, (req: Request, res: Response) => {
+    const userId = (req as any).userId as number;
+    const genId = parseInt(req.params.id, 10);
+    if (!Number.isFinite(genId)) { res.status(400).json({ error: "bad id" }); return; }
+    const gen = db.select().from(generations).where(eq(generations.id, genId)).get();
+    if (!gen || gen.userId !== userId) { res.status(404).json({ error: "not-found" }); return; }
+    const raw = (db as any).$client;
+    const byAction = raw.prepare(`SELECT action, COUNT(*) as count
+      FROM gen_activity WHERE gen_id = ? GROUP BY action`).all(genId);
+    const recent = raw.prepare(`SELECT action, created_at, ip, user_agent
+      FROM gen_activity WHERE gen_id = ? ORDER BY created_at DESC LIMIT 50`).all(genId);
+    res.json({ byAction, recent, gen: { id: gen.id, displayTitle: gen.displayTitle, prompt: gen.prompt, type: gen.type } });
+  });
+
   // GET /api/admin/v304/user-memory — список юзеров с памятью
   app.get("/api/admin/v304/user-memory", requireAdmin, (req: Request, res: Response) => {
     try {

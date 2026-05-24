@@ -156,9 +156,11 @@ function TopGenStats() {
   const [detail, setDetail] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'activity' | 'downloads'>('activity');
   const [topDownloads, setTopDownloads] = useState<any>(null);
-  useEffect(() => { apiRequest('GET', `/api/admin/gen-stats?period=${statPeriod}`).then(r => r.json()).then(setGenStats).catch(() => {}); }, [statPeriod]);
-  useEffect(() => { if (activeTab === 'downloads') apiRequest('GET', `/api/admin/top-downloads?period=${statPeriod}`).then(r => r.json()).then(setTopDownloads).catch(() => {}); }, [activeTab, statPeriod]);
-  useEffect(() => { if (detailId) apiRequest('GET', `/api/admin/gen-stats/${detailId}`).then(r => r.json()).then(setDetail).catch(() => {}); else setDetail(null); }, [detailId]);
+  // Eugene 2026-05-24: dashboard = author cabinet. Используем /api/account/my-*
+  // (раньше звали /api/admin/* → 403 для не-админов → панель не рендерилась).
+  useEffect(() => { apiRequest('GET', `/api/account/my-gen-stats?period=${statPeriod}`).then(r => r.json()).then(setGenStats).catch(() => {}); }, [statPeriod]);
+  useEffect(() => { if (activeTab === 'downloads') apiRequest('GET', `/api/account/my-top-downloads?period=${statPeriod}`).then(r => r.json()).then(setTopDownloads).catch(() => {}); }, [activeTab, statPeriod]);
+  useEffect(() => { if (detailId) apiRequest('GET', `/api/account/my-gen-stats/${detailId}`).then(r => r.json()).then(setDetail).catch(() => {}); else setDetail(null); }, [detailId]);
   if (!genStats) return null;
   return (
     <div className="mt-3 glass-card rounded-xl p-4">
