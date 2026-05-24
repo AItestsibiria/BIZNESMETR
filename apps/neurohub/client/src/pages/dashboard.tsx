@@ -1609,6 +1609,7 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
                         const blob = resp?.ok ? await resp.blob() : null;
                         const files = blob ? [new File([blob], 'MuzaAi-cover.jpg', { type: 'image/jpeg' })] : [];
                         await navigator.share({ title: `Послушай на MuzaAi.ru`, text: `${title}`, url: shareUrl, ...(files.length ? { files } : {}) });
+                        fetch(`/api/gen-activity/${current.id}/share`, { method: 'POST' }).catch(() => {});
                         return;
                       } catch {}
                     }
@@ -1945,7 +1946,11 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
                       const shareUrl = `https://muzaai.ru/share/${gen.id}`;
                       const t = (gen as any).displayTitle || gen.prompt?.slice(0, 50) || 'MuzaAi';
                       if (navigator.share) {
-                        try { await navigator.share({ title: `Послушай на MuzaAi.ru`, text: t, url: shareUrl }); return; } catch {}
+                        try {
+                          await navigator.share({ title: `Послушай на MuzaAi.ru`, text: t, url: shareUrl });
+                          fetch(`/api/gen-activity/${gen.id}/share`, { method: 'POST' }).catch(() => {});
+                          return;
+                        } catch {}
                       }
                       navigator.clipboard.writeText(shareUrl);
                       toast({ title: "Ссылка скопирована" });
@@ -4294,6 +4299,7 @@ export default function DashboardPage() {
                           if (navigator.share) {
                             try {
                               await navigator.share({ title: `Послушай на MuzaAi.ru`, text: title, url });
+                              fetch(`/api/gen-activity/${selectedGen.id}/share`, { method: 'POST' }).catch(() => {});
                               return;
                             } catch {}
                           }
