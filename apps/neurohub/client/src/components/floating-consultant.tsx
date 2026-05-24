@@ -1812,57 +1812,64 @@ export function FloatingConsultant() {
   }, []);
 
   const dismiss = () => {
-    setExiting(true);
+    // Eugene 2026-05-24 Босс «тапни 2 раза строго сообщение FAB перед уходом» —
+    // показываем speech-bubble «тапни 2 раза» ДО ухода FAB. Юзер видит Музу
+    // на месте + рядом облако с message. Через 2 сек — Музa fade-out.
+    const futureDismissCount = dismissedRef.current + 1;
+    if (futureDismissCount < MAX_DISMISS) {
+      const reappearMs = futureDismissCount === 1 ? REAPPEAR_MS_FIRST
+                       : futureDismissCount === 2 ? REAPPEAR_MS_SECOND
+                       : REAPPEAR_MS_THIRD;
+      try {
+        const dur = reappearMs >= 3_600_000
+          ? `${Math.round(reappearMs / 3_600_000)} ч`
+          : `${Math.round(reappearMs / 60_000)} мин`;
+        const toastDiv = document.createElement("div");
+        toastDiv.textContent = `Тапни на экран 2 раза и я вернусь · иначе через ${dur}`;
+        // Position — над FAB (bottom-right): bottom = fab.y отсчитывается от низа.
+        // Используем bottom = 200px чтобы bubble сидел над силуэтом FAB ≈ 144-192px.
+        toastDiv.style.cssText = [
+          "position:fixed",
+          "bottom:210px",
+          "right:16px",
+          "background:rgba(10,10,23,0.85)",
+          "backdrop-filter:blur(8px)",
+          "-webkit-backdrop-filter:blur(8px)",
+          "color:rgba(255,255,255,0.82)",
+          "padding:8px 14px",
+          "border-radius:18px 18px 4px 18px",
+          "font-size:12px",
+          "font-weight:500",
+          "z-index:99999",
+          "border:1px solid rgba(124,58,237,0.40)",
+          "box-shadow:0 4px 16px rgba(0,0,0,0.35)",
+          "max-width:260px",
+          "line-height:1.4",
+          "animation:fadeIn 0.3s ease-out",
+          "pointer-events:none",
+        ].join(";");
+        document.body.appendChild(toastDiv);
+        window.setTimeout(() => { try { toastDiv.style.opacity = "0"; toastDiv.style.transition = "opacity 0.4s"; } catch {} }, 4100);
+        window.setTimeout(() => { try { toastDiv.remove(); } catch {} }, 4600);
+      } catch {}
+    }
+    // Delay 2 сек чтобы юзер прочитал toast → ТОЛЬКО потом FAB exit animation
+    window.setTimeout(() => setExiting(true), 1800);
     window.setTimeout(() => {
       setVisible(false);
       setExiting(false);
       setExpanded(false);
       dismissedRef.current += 1;
       try { sessionStorage.setItem(SS_KEY, String(dismissedRef.current)); } catch {}
-      // Eugene 2026-05-24 Босс «закрыл 2 раза подряд — 1 час, ещё раз — 3 часа».
       if (dismissedRef.current < MAX_DISMISS) {
         const reappearMs = dismissedRef.current === 1 ? REAPPEAR_MS_FIRST
                           : dismissedRef.current === 2 ? REAPPEAR_MS_SECOND
                           : REAPPEAR_MS_THIRD;
-        // Eugene 2026-05-24 Босс «сообщение тапни показывает Музa в облаке
-        // перед уходом не ярко». Subtle speech-bubble стиль (dark glass +
-        // soft purple border), бочком от где была Музa (bottom-right),
-        // НЕ bright gradient. Auto-hide 4.5s.
-        try {
-          const dur = reappearMs >= 3_600_000
-            ? `${Math.round(reappearMs / 3_600_000)} ч`
-            : `${Math.round(reappearMs / 60_000)} мин`;
-          const toastDiv = document.createElement("div");
-          toastDiv.textContent = `Тапни на экран 2 раза и я вернусь · иначе через ${dur}`;
-          toastDiv.style.cssText = [
-            "position:fixed",
-            "bottom:24px",
-            "right:24px",
-            "background:rgba(10,10,23,0.82)",
-            "backdrop-filter:blur(8px)",
-            "-webkit-backdrop-filter:blur(8px)",
-            "color:rgba(255,255,255,0.78)",
-            "padding:8px 14px",
-            "border-radius:18px 18px 18px 4px",
-            "font-size:12px",
-            "font-weight:500",
-            "z-index:99999",
-            "border:1px solid rgba(124,58,237,0.35)",
-            "box-shadow:0 4px 16px rgba(0,0,0,0.3)",
-            "max-width:280px",
-            "line-height:1.4",
-            "animation:fadeIn 0.4s ease-out",
-            "pointer-events:none",
-          ].join(";");
-          document.body.appendChild(toastDiv);
-          window.setTimeout(() => { try { toastDiv.style.opacity = "0"; toastDiv.style.transition = "opacity 0.4s"; } catch {} }, 4100);
-          window.setTimeout(() => { try { toastDiv.remove(); } catch {} }, 4600);
-        } catch {}
         timerRef.current = window.setTimeout(() => {
           setVisible(true);
         }, reappearMs);
       }
-    }, 350);
+    }, 2200);
   };
 
   // Eugene 2026-05-21 Босс «постукивания по экрану — Музa приходит/уходит».
