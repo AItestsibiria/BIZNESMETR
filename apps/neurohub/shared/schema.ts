@@ -1055,6 +1055,25 @@ export const genLifecycleLog = sqliteTable("gen_lifecycle_log", {
 
 export type GenLifecycleLog = typeof genLifecycleLog.$inferSelect;
 
+// Eugene 2026-05-24 Босс: Агент Деньга — manual cost override для конкретной gen.
+// Admin вводит custom стоимость генерации трека/обложки/текста/чата если default
+// тариф провайдера не отражает реальный cost (free promo, refund от провайдера,
+// особый прайс-листы партнёра). Каждая запись = одна правка, latest wins.
+export const dengaManualCosts = sqliteTable("denga_manual_costs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  genId: integer("gen_id").notNull(),
+  userId: integer("user_id"),
+  sunoCost: integer("suno_cost"),       // override kopecks (null = use tariff)
+  chatCost: integer("chat_cost"),       // attributed chat cost override
+  coverCost: integer("cover_cost"),     // cover (image gen) cost override
+  lyricsCost: integer("lyrics_cost"),   // lyrics gen cost override
+  notes: text("notes"),
+  adminId: integer("admin_id").notNull(),
+  createdAt: integer("created_at").notNull(),  // unix millis
+});
+
+export type DengaManualCost = typeof dengaManualCosts.$inferSelect;
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;

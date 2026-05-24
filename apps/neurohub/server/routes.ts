@@ -54,6 +54,22 @@ import { recordAuditEntry, queryAuditLog } from "./lib/adminAuditLog";
 // Read-only — никаких UPDATE/INSERT/DELETE. См. lib/billingAudit.ts +
 // docs/BILLING-AUDIT-2026-05-23.md.
 import { runBillingAudit, renderMarkdownReport } from "./lib/billingAudit";
+// Eugene 2026-05-24 Босс «Агент Деньга» — cost tracking + profit analysis per
+// user / per track + chat attribution + manual override. См. lib/dengaAgent.ts
+// + Denga-agent rule в CLAUDE.md.
+import {
+  getAggregates as getDengaAggregates,
+  getUserStats as getDengaUserStats,
+  getTrackStats as getDengaTrackStats,
+  getAnonymousStats as getDengaAnonymousStats,
+  listUsersWithStats as listDengaUsers,
+  listTracksWithStats as listDengaTracks,
+  searchUsers as searchDengaUsers,
+  setManualCost as setDengaManualCost,
+  getManualCostHistory as getDengaManualHistory,
+  invalidateDengaCache,
+} from "./lib/dengaAgent";
+import { getCurrentTariffs as getDengaCurrentTariffs, TARIFF_HISTORY as DENGA_TARIFF_HISTORY } from "./lib/providerTariffs";
 // Eugene 2026-05-20: User-memory-context rule — Музa держит контекст общения
 // с авторизованным юзером. См. lib/userMemory.ts + CLAUDE.md.
 import {
@@ -4686,6 +4702,188 @@ export async function registerRoutes(
     } catch (e: any) {
       console.error("[BILLING-AUTO-FIX] error:", e);
       res.status(500).json({ ok: false, error: String(e?.message || e) });
+    }
+  });
+
+  // =============================================================
+  // Eugene 2026-05-24 Босс «Агент Деньга» — cost tracking + profit analysis.
+  // Все endpoints requireAdmin. Manual override → recordAuditEntry.
+  // Apply Period-20-MSK rule (getPeriodRange) для всех аналитических запросов.
+  // =============================================================
+
+  // Aggregates по period (general dashboard data)
+  app.get("/api/admin/v304/denga/aggregates", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const period = String(req.query.period || "30d");
+      const range = getPeriodRange(period, String(req.query.from || ""), String(req.query.to || ""));
+      const agg = getDengaAggregates({
+        periodLabel: range.label,
+        fromIso: range.fromIso,
+        toIso: range.toIso,
+      });
+      res.json({ data: agg, error: null });
+    } catch (e: any) {
+      console.error("[DENGA] aggregates error:", e);
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 300) });
+    }
+  });
+
+  // List users with stats (search + sort + paginate)
+  app.get("/api/admin/v304/denga/users", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const search = String(req.query.search || "");
+      const period = String(req.query.period || "30d");
+      const range = getPeriodRange(period, String(req.query.from || ""), String(req.query.to || ""));
+      const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
+      const sortBy = String(req.query.sortBy || "profit") as any;
+      const sortDir = String(req.query.sortDir || "desc") as any;
+      const out = listDengaUsers({
+        search,
+        fromIso: range.fromIso,
+        toIso: range.toIso,
+        limit,
+        sortBy,
+        sortDir,
+      });
+      res.json({ data: { ...out, period: range }, error: null });
+    } catch (e: any) {
+      console.error("[DENGA] users error:", e);
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 300) });
+    }
+  });
+
+  // Per-user details
+  app.get("/api/admin/v304/denga/users/:userId/details", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const userId = parseInt(String(req.params.userId || ""), 10);
+      if (!Number.isFinite(userId)) return res.status(400).json({ data: null, error: "Invalid userId" });
+      const period = String(req.query.period || "30d");
+      const range = getPeriodRange(period, String(req.query.from || ""), String(req.query.to || ""));
+      const stats = getDengaUserStats(userId, range.fromIso, range.toIso);
+      if (!stats) return res.status(404).json({ data: null, error: "User not found" });
+      const tracksResult = listDengaTracks({
+        userId,
+        fromIso: range.fromIso,
+        toIso: range.toIso,
+        limit: 200,
+      });
+      res.json({ data: { user: stats, tracks: tracksResult.tracks, period: range }, error: null });
+    } catch (e: any) {
+      console.error("[DENGA] user-details error:", e);
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 300) });
+    }
+  });
+
+  // List tracks with stats (search + paginate)
+  app.get("/api/admin/v304/denga/tracks", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const userId = req.query.userId ? parseInt(String(req.query.userId), 10) : undefined;
+      const search = String(req.query.search || "");
+      const period = String(req.query.period || "30d");
+      const range = getPeriodRange(period, String(req.query.from || ""), String(req.query.to || ""));
+      const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
+      const out = listDengaTracks({
+        userId: Number.isFinite(userId as number) ? (userId as number) : undefined,
+        search,
+        fromIso: range.fromIso,
+        toIso: range.toIso,
+        limit,
+      });
+      res.json({ data: { ...out, period: range }, error: null });
+    } catch (e: any) {
+      console.error("[DENGA] tracks error:", e);
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 300) });
+    }
+  });
+
+  // Per-track detailed breakdown
+  app.get("/api/admin/v304/denga/tracks/:genId", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const genId = parseInt(String(req.params.genId || ""), 10);
+      if (!Number.isFinite(genId)) return res.status(400).json({ data: null, error: "Invalid genId" });
+      const track = getDengaTrackStats(genId);
+      if (!track) return res.status(404).json({ data: null, error: "Track not found" });
+      const history = getDengaManualHistory(genId);
+      res.json({ data: { track, manualHistory: history }, error: null });
+    } catch (e: any) {
+      console.error("[DENGA] track-details error:", e);
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 300) });
+    }
+  });
+
+  // Anonymous chat stats
+  app.get("/api/admin/v304/denga/anonymous", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const period = String(req.query.period || "30d");
+      const range = getPeriodRange(period, String(req.query.from || ""), String(req.query.to || ""));
+      const anon = getDengaAnonymousStats(range.fromIso, range.toIso);
+      res.json({ data: { ...anon, period: range }, error: null });
+    } catch (e: any) {
+      console.error("[DENGA] anonymous error:", e);
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 300) });
+    }
+  });
+
+  // Manual cost override (admin)
+  app.post("/api/admin/v304/denga/manual-cost", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const genId = parseInt(String(req.body?.genId || ""), 10);
+      if (!Number.isFinite(genId)) {
+        return res.status(400).json({ ok: false, error: "Invalid genId" });
+      }
+      const adminId = (req as any).session?.userId || (req as any).user?.id || 0;
+      const override = {
+        sunoCost: req.body?.sunoCost != null ? Number(req.body.sunoCost) : undefined,
+        chatCost: req.body?.chatCost != null ? Number(req.body.chatCost) : undefined,
+        coverCost: req.body?.coverCost != null ? Number(req.body.coverCost) : undefined,
+        lyricsCost: req.body?.lyricsCost != null ? Number(req.body.lyricsCost) : undefined,
+        notes: req.body?.notes ? String(req.body.notes).slice(0, 500) : undefined,
+      };
+      const result = setDengaManualCost({ genId, adminId, override });
+      if (!result.ok) {
+        return res.status(500).json({ ok: false, error: result.error });
+      }
+      try {
+        recordAuditEntry({
+          req,
+          action: "update",
+          entity: "denga_manual_cost",
+          entityKey: `gen-${genId}`,
+          after: { genId, override, overrideId: result.id },
+        });
+      } catch {}
+      res.json({ ok: true, id: result.id });
+    } catch (e: any) {
+      console.error("[DENGA] manual-cost error:", e);
+      res.status(500).json({ ok: false, error: String(e?.message || e).slice(0, 300) });
+    }
+  });
+
+  // Provider tariff list (read-only — для admin UI viewer)
+  app.get("/api/admin/v304/denga/tariffs", requireAdmin, (_req: Request, res: Response) => {
+    try {
+      const current = getDengaCurrentTariffs();
+      res.json({
+        data: {
+          current,
+          history: DENGA_TARIFF_HISTORY,
+          generatedAt: new Date().toISOString(),
+        },
+        error: null,
+      });
+    } catch (e: any) {
+      console.error("[DENGA] tariffs error:", e);
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 300) });
+    }
+  });
+
+  // Cache invalidation (manual refresh from admin UI)
+  app.post("/api/admin/v304/denga/invalidate-cache", requireAdmin, (_req: Request, res: Response) => {
+    try {
+      invalidateDengaCache();
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: String(e?.message || e).slice(0, 300) });
     }
   });
 

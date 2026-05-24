@@ -610,6 +610,42 @@ export function bootstrapDefaultAgents(): void {
     metadata: { brief: "Tracks gen lifecycle от создания до done/errored, auto-retry transient errors" },
   });
 
+  // Eugene 2026-05-24 Босс «Агент Деньга» — cost tracking + profit analysis.
+  // Per-user/per-track cost breakdown, chat attribution to last track, manual
+  // override, tariff history. Read-only по умолчанию; manual override через
+  // admin endpoint с requireAdmin + audit-log. См. lib/dengaAgent.ts.
+  orchestrator.register({
+    id: "denga",
+    name: "Агент Деньга",
+    channel: "internal",
+    role: "diagnostic",
+    status: "active",
+    capabilities: [
+      "cost_tracking",       // расчёт provider cost per gen из tariff_history
+      "profit_analysis",     // revenue (gen.cost) − cost = profit
+      "tariff_history",      // versioned provider tariffs
+      "manual_override",     // admin вписывает custom cost для конкретной gen
+      "chat_attribution",    // chat-to-track attribution (last track rule)
+      "anonymous_tracking",  // отдельный bucket для anonymous chat cost
+    ],
+    healthCheck: async () => {
+      try {
+        const mod = await import("./dengaAgent");
+        const stats = mod.getDengaAgentStats();
+        return {
+          ok: true,
+          details: {
+            cacheSize: stats.cacheSize,
+            totalOverrides: stats.totalOverrides,
+          },
+        };
+      } catch (e: any) {
+        return { ok: false, details: { error: e?.message || String(e) } };
+      }
+    },
+    metadata: { brief: "Cost/profit tracking per user/track + chat attribution + manual override" },
+  });
+
   // Eugene 2026-05-23 marketing-orchestrator. Cross-channel campaigns +
   // retargeting + content calendar + auto-triggers по event'ам. Связано с
   // существующими channels через edges (см. registerMarketingEdges ниже).
@@ -707,6 +743,17 @@ function registerDefaultEdges(): void {
   // ===== Yars moderator =====
   orchestrator.addEdge("moderator-yars", "muza-admin", "event", {
     purpose: "Yars-command detection → admin queue",
+  });
+
+  // ===== Denga agent (Eugene 2026-05-24) =====
+  // Поставляет per-user profit data для retargeting (high-LTV → premium upsell,
+  // low-LTV → onboarding nudges).
+  orchestrator.addEdge("denga", "marketing-orchestrator", "data-sync", {
+    purpose: "Per-user profit/LTV → retargeting segments (high-LTV upsell, low-LTV onboarding)",
+  });
+  // Эскалация anomalies в admin (юзер платит мало но cost огромный = abuse / loss)
+  orchestrator.addEdge("denga", "muza-admin", "webhook", {
+    purpose: "Loss alerts — юзеры с profit < 0 (для admin review)",
   });
 
   // ===== Gen-lifecycle agent (Eugene 2026-05-24) =====

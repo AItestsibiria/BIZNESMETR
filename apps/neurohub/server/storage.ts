@@ -821,6 +821,24 @@ try {
     CREATE INDEX IF NOT EXISTS idx_gen_lifecycle_gen ON gen_lifecycle_log(gen_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_gen_lifecycle_event_time ON gen_lifecycle_log(event_type, created_at DESC);
 
+    -- Eugene 2026-05-24 Босс «Агент Деньга» — manual cost override для конкретной gen.
+    -- Admin вводит custom стоимость генерации трека/обложки/текста/чата если default
+    -- тариф провайдера не отражает реальный cost. Latest record per gen_id wins.
+    CREATE TABLE IF NOT EXISTS denga_manual_costs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      gen_id INTEGER NOT NULL,
+      user_id INTEGER,
+      suno_cost INTEGER,
+      chat_cost INTEGER,
+      cover_cost INTEGER,
+      lyrics_cost INTEGER,
+      notes TEXT,
+      admin_id INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_denga_manual_gen ON denga_manual_costs(gen_id, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_denga_manual_user ON denga_manual_costs(user_id, id DESC);
+
     -- Incident tracking — auto-detect + auto-resolve.
     CREATE TABLE IF NOT EXISTS incidents (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
