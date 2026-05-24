@@ -2165,6 +2165,9 @@ export function FloatingConsultant() {
   // Click → openChat (overlay НА текущей странице, без navigation) +
   // doSendMessage просит Музу развернуть факт + предложить трек по смыслу.
   const musicFactsRef = useRef([
+    // Eugene 2026-05-24 Босс «FAB в облаке пусть показывает хуки по музыке
+    // исполнителям, при нажатии в чат он читает полностью инсайт на основе
+    // хука». 12 features + 14 хуков-исполнителей + general факты.
     { id: "feature_voices", emoji: "🎤", text: "Голос можно выбрать: женский, мужской, дуэт", expand: "Расскажи подробнее про выбор голоса в MuzaAi и предложи трек где это слышно" },
     { id: "fact_chorus", emoji: "🎵", text: "Лучшие хиты — это 80% припев", expand: "Расскажи почему припев решает в хите и покажи трек где это видно" },
     { id: "fact_suno_speed", emoji: "⚡", text: "AI пишет трек за минуту — раньше нужны были дни", expand: "Расскажи как AI ускорил создание музыки и предложи трек который сложно поверить что AI" },
@@ -2177,6 +2180,22 @@ export function FloatingConsultant() {
     { id: "feature_cover", emoji: "🎨", text: "Обложка трека — это часть его смысла", expand: "Расскажи как обложка усиливает песню и про автоматическую генерацию" },
     { id: "fact_repeat", emoji: "🔁", text: "Хит — это песня которую хочется ставить на повтор", expand: "Расскажи что делает песню reпит-достойной и предложи трек-loop" },
     { id: "fact_emotion", emoji: "❤️", text: "Лучшие песни — про конкретного человека", expand: "Расскажи почему адресность делает песню сильнее, предложи начать про конкретного" },
+    // Хуки про исполнителей (Eugene 2026-05-24)
+    { id: "hook_beatles", emoji: "🎙", text: "Beatles записали Hey Jude в один дубль за 7 минут", expand: "Расскажи историю записи Hey Jude — почему получилось в один дубль и какой урок для нас в MuzaAi (impulse + готовый текст = качество)" },
+    { id: "hook_queen", emoji: "👑", text: "Bohemian Rhapsody — 6 минут, в радио никто не верил", expand: "Расскажи как Queen прорвались с 6-минутной оперой когда стандарт был 3 мин, и почему MuzaAi даёт длину под смысл а не под формат" },
+    { id: "hook_adele", emoji: "🎹", text: "Adele пишет под фортепиано, не под гитару", expand: "Расскажи как выбор инструмента-аккомпанемента меняет характер lyrics, и предложи попробовать piano-stиль на MuzaAi" },
+    { id: "hook_eminem", emoji: "📝", text: "Eminem пишет на бумажках в любом месте — даже на парковке", expand: "Расскажи как импульсивная запись идей рождает hits, и почему я в чате идеальный инструмент для capture мысли" },
+    { id: "hook_tsoi", emoji: "🇷🇺", text: "Цой записывал на портативной кассете на квартире", expand: "Расскажи как Цой обходил студии и записывал на лету — параллель с MuzaAi (один таб → готовый трек)" },
+    { id: "hook_vysotsky", emoji: "✒️", text: "Высоцкий писал на ходу, в перерывах между съёмками", expand: "Расскажи как Высоцкий ловил инсайты между делами — параллель с моим чатом (zapisал → готовый текст за минуты)" },
+    { id: "hook_michael", emoji: "🕺", text: "Майкл Джексон спал в гипербарической камере для голоса", expand: "Расскажи anekdot про MJ + переведи на то что MuzaAi подбирает voice tone без таких jertv" },
+    { id: "hook_abba", emoji: "🌐", text: "ABBA сочиняли на шведском, потом переводили", expand: "Расскажи метод ABBA: пишешь как чувствуется → потом translate. На MuzaAi можешь начать с русского, мы тебе и английский подгоним" },
+    { id: "hook_cobain", emoji: "📓", text: "У Кобейна был блокнот с lyrics-стихами не для песен", expand: "Расскажи про блокнот Кобейна — отдельные мысли в копилке. Параллель: в MuzaAi можешь сохранять черновики и собирать когда созреет" },
+    { id: "hook_rammstein", emoji: "🔥", text: "Rammstein репетируют по 6 часов перед туром", expand: "Расскажи про дисциплину Rammstein и как MuzaAi даёт sound уровня концерта без 6-часовых рpetиций" },
+    { id: "hook_taylor", emoji: "💕", text: "Taylor Swift пишет про bывших — каждый альбом про разрыв", expand: "Расскажи про Taylor — лучшие тексты из личного боль/любви. Предложи юзеру взять свою историю и сделать трек" },
+    { id: "hook_beyonce", emoji: "👸", text: "Beyoncé на 1 песню записывает 10+ вокальных дублей", expand: "Расскажи про perfectionism Beyoncé — каждый вдох идеален. MuzaAi даёт perfect vocals сразу — это твой шот" },
+    { id: "hook_kanye", emoji: "🎧", text: "Kanye слушает трек 1000 раз пока не «правильно»", expand: "Расскажи про upor Kanye на pitch-perfect и как MuzaAi даёт unlimited iterations через Re:Текст" },
+    { id: "hook_billie", emoji: "🌙", text: "Billie Eilish записывалась в спальне с братом Finneas", expand: "Расскажи про home-studio Billie — никаких big budget. MuzaAi даёт ту же possibility — твой телефон = студия" },
+    { id: "hook_freddie", emoji: "🎤", text: "Freddie Mercury тренировался на гаммах каждый день 4 часа", expand: "Расскажи про disciplinu Freddie + параллель: MuzaAi voice modeling даёт тебе trained voice без 4-часовых упражнений" },
   ]);
   const factShownRef = useRef<Set<string>>(new Set());
   const factClickedRef = useRef<{ expand: string } | null>(null);
