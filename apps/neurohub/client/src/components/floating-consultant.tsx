@@ -2887,6 +2887,20 @@ export function FloatingConsultant() {
               backgroundColor: `hsl(var(--background) / ${[0.95, 0.6, 0.28][chatOpacity]})`,
             }}
           >
+            {/* Eugene 2026-05-24 Босс «глубина картинки и облака парящие в
+                бесконечности вне облаков красивые космические ноты». Декоративный
+                фон chat-drawer: deep-space gradient + звёзды + drift-облака
+                (CSS ::before/::after слои) + 7 космических нот ♪ ♫ ♬ floating
+                по своим орбитам. CSS-only, reduced-motion-safe. Z-0 — под content. */}
+            <div className="chat-cosmic-bg" aria-hidden="true">
+              <span className="cosmic-note cosmic-note-1">♪</span>
+              <span className="cosmic-note cosmic-note-2">♫</span>
+              <span className="cosmic-note cosmic-note-3">♬</span>
+              <span className="cosmic-note cosmic-note-4">♩</span>
+              <span className="cosmic-note cosmic-note-5">♪</span>
+              <span className="cosmic-note cosmic-note-6">♫</span>
+              <span className="cosmic-note cosmic-note-7">♬</span>
+            </div>
             {/* Eugene 2026-05-18 Босс: диагональная стрелка resize в верхне-левом
                 углу. Drag от угла → размер chat panel меняется (рост влево/вверх).
                 Snap-зоны 30% / 50% / 70% viewport width — магнит ±20px,
