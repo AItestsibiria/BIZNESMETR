@@ -160,6 +160,7 @@ export default function TrackPage() {
     }
     try {
       await navigator.clipboard.writeText(url);
+      fetch(`/api/gen-activity/${track.id}/copy`, { method: "POST" }).catch(() => {});
       alert("Ссылка скопирована");
     } catch {}
   };

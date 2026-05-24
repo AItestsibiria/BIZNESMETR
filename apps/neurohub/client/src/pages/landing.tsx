@@ -1988,6 +1988,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                         } catch {}
                       }
                       navigator.clipboard.writeText(`Послушай на MuzaAi.ru: ${title} ${url}`);
+                      fetch(`/api/gen-activity/${currentTrack.id}/copy`, { method: 'POST' }).catch(() => {});
                       toast({ title: "Ссылка скопирована" });
                     }}
                   >

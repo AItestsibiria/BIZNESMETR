@@ -1614,6 +1614,7 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
                       } catch {}
                     }
                     navigator.clipboard.writeText(`Послушай на MuzaAi.ru: ${title} ${shareUrl}`);
+                    fetch(`/api/gen-activity/${current.id}/copy`, { method: 'POST' }).catch(() => {});
                     toast({ title: "Ссылка скопирована" });
                   }}
                 >
@@ -1953,6 +1954,7 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
                         } catch {}
                       }
                       navigator.clipboard.writeText(shareUrl);
+                      fetch(`/api/gen-activity/${gen.id}/copy`, { method: 'POST' }).catch(() => {});
                       toast({ title: "Ссылка скопирована" });
                     }}
                   >
@@ -4304,6 +4306,7 @@ export default function DashboardPage() {
                             } catch {}
                           }
                           navigator.clipboard.writeText(`Послушай на MuzaAi.ru: ${title} ${url}`).then(() => toast({ title: "Ссылка скопирована" }));
+                          fetch(`/api/gen-activity/${selectedGen.id}/copy`, { method: 'POST' }).catch(() => {});
                         }}
                         data-testid="button-share-track"
                       >
