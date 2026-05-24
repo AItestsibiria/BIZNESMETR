@@ -3561,6 +3561,73 @@ Reference: `apps/neurohub/server/lib/agentOrchestrator.ts` + полная док
 
 Reference: `docs/AGENT-ORCHESTRATOR-PROPOSALS.md` (edge matrix + 15 предложений + API контракт).
 
+### Gen-lifecycle agent rule (Eugene 2026-05-24)
+
+**Каждая генерация (music / lyrics / cover) полностью отслеживается через `lib/genLifecycleAgent.ts` — от нажатия «Создать» до done/errored. Auto-retry transient errors (3 attempts с backoff 30s/2min/5min) — «продавливание Suno». Неразрешимые после 3 попыток → escalate → marketing-orchestrator (apology email).**
+
+Босс «назначь агента, отслеживает цикл, исправляет ошибки. Дай возможность продавливать Suno до генерации. Если он отработает на 100% — техподдержка в релаксе».
+
+**Pipeline lifecycle событий:**
+- `started` — gen создана + charge прошёл (hook в `/api/music/generate`)
+- `suno_called` — GPTunnel вернул task_id
+- `suno_failed` — GPTunnel error / no task_id (auto-retry если transient)
+- `stuck_processing` — > 5 мин в processing (cron `gen-lifecycle-scan-stuck` every minute)
+- `retrying` — запущен retry attempt N
+- `done` — успешно (hook в webhook + polling)
+- `errored` — permanent error
+- `refunded` — refund pipeline сработал
+- `manual_retry` / `manual_refund` / `manual_resolve` — admin actions
+- `escalated` — > 3 attempts OR > 30 мин stuck → emit `gen.escalated` event
+
+**Retry policy:**
+- Attempt 1 — после 30 сек backoff
+- Attempt 2 — после 2 мин backoff
+- Attempt 3 — после 5 мин backoff
+- Attempt 4 → forced escalation + refund (если cost > 0)
+- **НЕ retry'ить:** moderation / bad_lyric / low_balance / invalid_key (юзеру нужен fix input или admin ротация ключа)
+
+**Persistence:** все события пишутся в `gen_lifecycle_log` table (gen_id, user_id, event_type, payload JSON, created_at millis). In-memory store держит recent 500 gens (LRU eviction). Admin UI читает из БД.
+
+**Admin endpoints** (`/api/admin/v304/gen-errors/*`):
+- `GET /` — list ошибок с фильтрами (period/type/status, default today)
+- `GET /stats?period=X` — counts для top-cards
+- `GET /:id/report` — full event timeline для одной gen
+- `POST /:id/retry` — manual retry («дожать»)
+- `POST /:id/refund` body `{confirm:true}` — manual refund (с confirm)
+- `POST /:id/resolve` body `{notes?}` — mark resolved без refund
+- `POST /scan-stuck` — manual trigger scan stuck gens
+
+**Admin UI** — вкладка `/admin/v304 → 🚨 Ошибки генерации` (gen-errors-tab.tsx). Live-update 15 сек. KPI cards (total / recovered / pending / escalated). Filter chips period/type/status. Row inline actions: 🔄 Дожать / 💰 Refund / ✔️ OK. Click row → drawer с полным event timeline.
+
+**Жёсткие правила:**
+
+1. **Reuse-working-solutions** — agent ОБЁРТКА над existing pipeline (`storage.refundGeneration`, `gptunnelFetch`, `pollProcessingGenerations`). НЕ создаёт параллельных pipelines / endpoints.
+2. **НЕ дублирует `generation-agent` plugin** (refund-orphans watchdog) — работает выше уровнем (lifecycle tracking + escalation), они сосуществуют.
+3. **Atomic claim перед retry** — `UPDATE generations SET status='processing' WHERE status='error' AND refunded != true` (одной командой). Без claim возможен race с orphan-scanner.
+4. **`trackEvent` sync, never throws** — failure tracking не должен ломать routes.ts hot path. Wrap try/catch.
+5. **Ownership/audit** — admin endpoints requireAdmin + recordAuditEntry + при refund — storage.refundGeneration (atomic + claim).
+6. **Escalation = только после 3 attempts ИЛИ stuck > 30 мин**. Без преждевременной эскалации.
+7. **In-memory store LRU 500** — не растёт бесконечно. Полная история в БД.
+
+**Edges с другими agents:**
+- `gen-lifecycle → marketing-orchestrator` (event) — escalation events для apology email / retention
+- `gen-lifecycle → muza-admin` (webhook) — stuck/escalated alerts голосом
+- `gen-lifecycle → channel-email` (notify) — refund notifications
+
+**Связано с:**
+- Agent-orchestrator rule — register pattern + edges + events
+- Reuse-working-solutions rule — agent обёртка, не замена
+- Backup-before-edit rule — admin destructive actions через recordAuditEntry
+- User-action-failure registry rule — stuck/escalated пишутся в `user_action_failures`
+- Pricing-single-source rule — refund использует existing `storage.refundGeneration`
+- Brand-style consistency rule — admin UI palette glass-card + brand gradient
+
+**TODO следующих итераций:**
+- ML-classification ошибок (сейчас regex-based в `classifyError`) — нужно для лучшего routing retry vs escalate
+- Per-user telemetry (юзер X получает refund 3-й раз за неделю → flag)
+- Self-healing для bad_lyric (LLM переписывает текст и retry)
+- Webhook delivery monitoring (если Suno webhook не дошёл за 60 сек → force polling)
+
 ### Timestamp footer rule (Eugene 2026-05-07)
 
 **В конце каждого ответа в чате — мелким шрифтом (HTML `<sub>` или markdown с эмодзи `🕐`) дата + время с точностью до минуты, по часам сервера.** Формат: `🕐 2026-05-07 08:34 MSK`. Цель — Евгений видит хронологию всей переписки и может ссылаться на конкретную запись по времени.

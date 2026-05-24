@@ -2397,6 +2397,27 @@ const adminOverviewModule: Module = {
         try { cleanupScheduledDeletes(); } catch (e) { console.error("[CLEANUP-SCHEDULED-DELETE job]", e); }
       },
     },
+    // Eugene 2026-05-24 gen-lifecycle agent — scan stuck-in-processing gens
+    // каждые 2 минуты. Дополняет cleanup-stale-processing (он работает с
+    // >24h ancient), здесь — > 5 мин в processing → escalate если > 30 мин.
+    // НЕ дублирует pollProcessingGenerations (он polling Suno) — здесь
+    // только detection + escalation + tracking.
+    {
+      name: "gen-lifecycle-scan-stuck",
+      schedule: "every_minute",
+      handler: async () => {
+        try {
+          // Lazy import чтобы избежать циклической зависимости
+          const mod = await import("../../lib/genLifecycleAgent");
+          const r = await mod.genLifecycleAgent.scanStuckGenerations();
+          if (r.scanned > 0 || r.escalated > 0) {
+            console.log(`[GEN-LIFECYCLE-SCAN] scanned=${r.scanned}, resumed=${r.resumed}, escalated=${r.escalated}`);
+          }
+        } catch (e) {
+          console.error("[GEN-LIFECYCLE-SCAN job]", e);
+        }
+      },
+    },
   ],
   onLoad: async (ctx) => {
     // Eugene 2026-05-14 Босс: при старте — одноразовая зачистка зависших.
