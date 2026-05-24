@@ -3561,6 +3561,67 @@ Reference: `apps/neurohub/server/lib/agentOrchestrator.ts` + полная док
 
 Reference: `docs/AGENT-ORCHESTRATOR-PROPOSALS.md` (edge matrix + 15 предложений + API контракт).
 
+### Denga-agent rule (Eugene 2026-05-24)
+
+**Агент Деньга (`lib/dengaAgent.ts`) — единый источник правды для cost-tracking + profit analysis. Все revenue/cost запросы по юзерам и трекам идут через него, НЕ переисчитываются ad-hoc в других местах. Тарифы провайдеров версионированы в `lib/providerTariffs.ts` через `validFrom/validUntil` — на момент генерации.**
+
+Босс «заведи агента по учёту затрат на каждого автора, чат, генерации по каждому треку. Если было общение между треками — затраты на счёт последнего. Анализ дохода MuzaAi по трекам / автору исходя из стоимости трека/текста/изображения на МОМЕНТ генерации. Правило для всех ранее созданных. Отчёт в админке — Агент Деньга».
+
+**Что разделяется:**
+
+- **Revenue** (что юзер заплатил нам) → `generations.cost` (snapshot на момент списания) + fallback на `PRICES` из routes.ts. Это user-facing pricing — единственный источник правды через `getCurrentPriceKopecks()` (Pricing-single-source rule).
+- **Cost** (наши OUT-of-pocket затраты провайдерам) → `providerTariffs.ts` `TARIFF_HISTORY` per resource per provider per timestamp. НЕ путать с `tariff_history` table (та для revenue side).
+- **Chat cost** → attributed к последовавшему треку (см. chat-to-track attribution алгоритм ниже).
+- **Manual override** → `denga_manual_costs` table; latest wins per gen_id; через admin endpoint с requireAdmin + audit-log.
+
+**Chat-to-track attribution (Босс rule):**
+
+Per user: для каждого bot reply (role='bot') в чате → находим **первый gen с `createdAt > msg.createdAt`** (трек который пришёл ПОСЛЕ chat'а). Если такого нет (chat после всех gens) → attribute к **самому последнему** gen. Если у юзера 0 gens → bucket `anonymous`.
+
+Anonymous chat (нет userId в session) → отдельный bucket `anonymous_chat_cost`. Прибавляется к global cost, НЕ привязан к юзеру.
+
+**Жёсткие правила:**
+
+1. **Все cost/profit запросы — через `dengaAgent.ts`.** НЕ пересчитываем cost ad-hoc в других endpoints. Если нужен новый view — расширить dengaAgent, не дублировать (No-duplicates rule).
+2. **Тарифы провайдеров версионированы.** При изменении цены — добавить новую запись в `TARIFF_HISTORY` с `validFrom = millis (now)` + `validUntil = millis (now)` на старой. НИКОГДА не редактировать existing записи (потеряем историю).
+3. **Manual override обязательно через `setManualCost()`** — НЕ direct INSERT в `denga_manual_costs`. Иначе пропустим audit-log + cache invalidation.
+4. **Все аналитические endpoints используют `getPeriodRange()`** (Period-20-MSK rule). Без своих period-расчётов.
+5. **Cache 5 минут** для aggregated данных (per-user, per-aggregates, per-anonymous). Per-track запросы — без cache (точные данные на каждый клик).
+6. **PII never returned** — endpoints возвращают `name`, `phone`, `email` для admin (это admin tool, requireAdmin). Anonymous bucket не содержит userId, только session_id stats.
+7. **Backfill для existing rows автоматический** — agent проходит по всем gens при первом запросе. Никаких миграций в `generations.cost_attribution`. Read-only over existing data.
+
+**Никаких overrides без audit:**
+
+- `POST /api/admin/v304/denga/manual-cost` — каждый override → `recordAuditEntry` с `entity: "denga_manual_cost"`, `entityKey: gen-${genId}`, `after: {override}` (Backup-before-edit rule).
+
+**Применяется к:**
+
+- Admin tab `💰 Деньга` (`/admin/v304/denga-tab.tsx`)
+- Все cost/profit endpoints `/api/admin/v304/denga/*`
+- Future LTV-based segmentation в marketing-orchestrator (через edge `denga → marketing-orchestrator (data-sync)`)
+
+**НЕ применяется к:**
+
+- Real-time юзерский cost view (юзер не видит наши provider costs — это коммерческая тайна)
+- Billing audit (`lib/billingAudit.ts`) — он о integrity (double-charge, missed refunds), денга о PnL
+- Public revenue dashboard (пока нет такой)
+
+**Связано с:**
+
+- Pricing-single-source rule — PRICES для revenue, TARIFF_HISTORY для cost
+- Agent-orchestrator rule — register pattern (denga зарегистрирован, role=diagnostic)
+- Backup-before-edit rule — manual override audit
+- Period-20-MSK rule — period boundaries
+- No-duplicates rule — НЕ дублирует billing-audit (разные purposes)
+- Secrets-admin-only rule — все endpoints requireAdmin
+
+Reference:
+- `apps/neurohub/server/lib/dengaAgent.ts` — main entry-point + types
+- `apps/neurohub/server/lib/providerTariffs.ts` — versioned provider cost catalog
+- `apps/neurohub/shared/schema.ts` `dengaManualCosts` — override table
+- `apps/neurohub/client/src/pages/admin/denga-tab.tsx` — admin UI
+- `docs/DENGA-AGENT.md` — полная документация архитектуры
+
 ### Gen-lifecycle agent rule (Eugene 2026-05-24)
 
 **Каждая генерация (music / lyrics / cover) полностью отслеживается через `lib/genLifecycleAgent.ts` — от нажатия «Создать» до done/errored. Auto-retry transient errors (3 attempts с backoff 30s/2min/5min) — «продавливание Suno». Неразрешимые после 3 попыток → escalate → marketing-orchestrator (apology email).**

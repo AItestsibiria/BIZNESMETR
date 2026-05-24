@@ -1,6 +1,11 @@
 // Eugene 2026-05-23 Босс «Оркестратор нужен всеми компаниями агентами начать
 // в проекте — коде». Central agent registry + visibility layer.
 //
+// Eugene 2026-05-24 Босс «Оркестратор переименуем Музa Директор. Он контролирует
+// всех агентов, собирает всю информацию, итоговую докладывает через аудио».
+// Display name везде в UI — «Музa Директор». Технический id и file name —
+// orchestrator (backward compat).
+//
 // Что это:
 //  - Не unified messaging API (не заменяет existing endpoints).
 //  - Не RPC между agents.
@@ -436,6 +441,14 @@ export class AgentOrchestrator {
 
 // Singleton instance — импортируется из любого места.
 export const orchestrator = new AgentOrchestrator();
+
+/**
+ * Display name для UI / endpoint responses / voice greetings.
+ * Технический термин «orchestrator» остаётся в коде / id'ах / URLs,
+ * но Босс и админы видят «Музa Директор».
+ */
+export const DIRECTOR_NAME = "Музa Директор";
+export const DIRECTOR_SHORT = "Директор";
 
 /**
  * Bootstrap default agents на старте сервера.
