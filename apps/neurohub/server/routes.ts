@@ -2069,6 +2069,26 @@ export async function registerRoutes(
           user = existingUser;
           console.log(`[TG AUTH] Linked tg:${tgId} to user #${user.id} (${user.email})`);
         } else if (tgData.force_create) {
+          // Eugene 2026-05-24: anti-fraud cap. До этого не было лимита, бот-сетка
+          // могла зарегистрировать unlimited TG-аккаунтов и каждому забрать
+          // welcome bonus 1000 ₽ + welcome gift трек. Per-IP: 3 force_create /
+          // 24h. Превышение — 429 без создания юзера и без списания казны.
+          const ip = req.ip || req.socket.remoteAddress || "unknown";
+          if (!rateLimit(ip + ":tg-force-create", 3, 24 * 60 * 60 * 1000)) {
+            try {
+              logUserActionFailure({
+                channel: "telegram",
+                action: "tg-force-create",
+                errorCode: "rate_limit",
+                errorMessage: `IP ${ip} exceeded TG force_create cap (3/24h)`,
+                endpoint: "/api/auth/telegram",
+                statusCode: 429,
+                context: { ip, tgId: tgId.slice(0, 24) },
+              });
+            } catch {}
+            res.status(429).json({ message: "Слишком много регистраций с этого IP. Попробуйте через 24 часа." });
+            return;
+          }
           // Explicitly create new account
           const crypto = require("crypto");
           const tgEmail = `tg_${tgId}@telegram.MuzaAi.ru`;
