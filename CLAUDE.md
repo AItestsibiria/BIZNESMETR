@@ -2532,6 +2532,55 @@ Idempotency: `if (invoice.status === 'paid') skip` — повторные Roboka
 
 Применяется к: chatbot_messages с audio_url. НЕ применяется к: текстовым сообщениям, музыкальным трекам (генерация — отдельная экономика per-track).
 
+### Premium-lyrics rule (Eugene 2026-05-24)
+
+**Качественная генерация лирики через 4-step refinement pipeline. Real Anthropic fine-tuning публично закрыт — реализация через prompt engineering + multi-step self-refinement (квалитативный uplift без своей fine-tuned модели).**
+
+Доступ:
+- **One-off:** 149 ₽ за один premium-draft (PRICES.premium_lyrics_oneoff = 14900)
+- **Подписка:** 299 ₽/мес `tier='text_quality'` — безлимит на премиум-драфты
+
+Pipeline (`apps/neurohub/server/lib/premiumLyrics.ts` → `generatePremiumDraft()`):
+1. **Draft** — первый набросок 12-16 строк (как обычная генерация)
+2. **Critique** — self-critique, ищет 3 слабых места (клише, рваный ритм, плоские эмоции)
+3. **Refine** — переписывает текст целиком, исправляя найденные проблемы
+4. **Polish** — финальная проверка размера, рифмы, структуры [Куплет/Припев/Бридж]
+
+Каждый шаг — отдельный LLM-вызов через `callDeepSeek → callTimeWebGateway → Anthropic chain` (Reuse-working-solutions rule). DeepSeek первый (cheap). Cost ≈ 0.30 ₽ за весь pipeline → маржа 99%+ для one-off.
+
+Endpoints:
+- `POST /api/lyrics/premium-generate` (authMiddleware) — генерация. Returns `{id, lyrics, iterations, steps_used, viaSubscription, chargedKopecks}`.
+- `GET /api/lyrics/premium-status` (authMiddleware) — статус подписки + цены для UI.
+- При подписке active → cost=0, audit-log `via=subscription`
+- При one-off → списание из balance + transaction type='lyrics_premium' + audit-log
+
+Graceful degrade:
+- Если LLM-цепочка вернула null на шаге 2/3/4 — возвращаем лучший доступный draft с `error` в response (юзер всё равно получил value, refund не делается)
+- Если шаг 1 (Draft) упал — refund + ответ `refunded: true`
+- Sanity hard limit 400 символов (Suno) — обрезаем по последней целой строке
+
+Tariff → tier mapping (`routes.ts` TARIFF_TO_TIER):
+- `premium_text_quality` → `{ tier: 'text_quality', days: 30 }`
+- Активация через Robokassa Result callback (Premium voice-messages rule pattern)
+
+UI (`/lyrics` page):
+- Toggle-card между form-fields и кнопкой «Создать»
+- При active подписке → badge «Включено в подписку» (emerald), free
+- При не-подписке → badge «+149 ₽» (fuchsia)
+- Modal «как работает» с описанием 4 шагов
+- Badge `[✨ premium: draft→critique→refine→polish]` в результате
+
+Применяется к: текстам песен через `/lyrics`. НЕ применяется к: covers, music generation, voice — у них собственные premium-tier варианты (см. PREMIUM-LYRICS.md → Future extensions).
+
+Связано с:
+- Pricing-single-source rule — цены в `PRICES` + `PREMIUM_TIERS` + `TARIFF_TO_TIER` + `muzaTools.ts TARIFFS`. При изменении — обновить ВСЕ места.
+- Premium voice-messages rule — pattern для tier-based premium features.
+- Reuse-working-solutions rule — wraps existing `storage.createGeneration` + `refundGeneration` + LLM chain + `saveGenFiles`.
+- Backup-before-edit rule — audit-log per generation.
+- Musa-knowledge-governance rule — Музa может предложить подписку через `issue_invoice({tariff:"premium_text_quality"})` в чате.
+
+Documentation: `docs/PREMIUM-LYRICS.md` — полная спецификация, economics, API examples.
+
 ### iOS-lock-screen-audio rule (Eugene 2026-05-21, **навсегда зафиксировано**)
 
 **На iOS Safari НИКОГДА не вызывать `AudioContext.createMediaElementSource()` на player audio — это ломает background playback при lock screen.**
