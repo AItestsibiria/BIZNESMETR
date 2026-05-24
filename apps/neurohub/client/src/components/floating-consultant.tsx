@@ -2091,6 +2091,73 @@ export function FloatingConsultant() {
     };
   }, [visible, chatOpen]);
 
+  // Eugene 2026-05-24 Босс «FAB отслеживает процессы и подсказывает по ходу
+  // дела, смотрит глазами юзера, поддержи невербальный диалог: при генерации
+  // трека Музa-AI генерит, я тоже жду хочу услышать песню». Listen на
+  // application events + show empathic bubble.
+  useEffect(() => {
+    if (typeof window === "undefined" || !visible) return;
+    const showCoBubble = (text: string, ttl = 8000) => {
+      if (chatOpen) return; // не дёргаем во время разговора
+      setSmartBubbleText(text);
+      window.setTimeout(() => setSmartBubbleText(curr => (curr === text ? null : curr)), ttl);
+    };
+    // Generation started — empathic «я тоже жду»
+    const onGenStarted = (e: Event) => {
+      const detail = (e as CustomEvent).detail || {};
+      const tipe = detail.type || "трек";
+      const phrases = [
+        `MuzaAi генерит ${tipe} — я тоже жду 🎵`,
+        `Креатив начался! Сижу рядом, переживаю за результат ✨`,
+        `Ожидание — самое волнующее. Пусть получится!`,
+      ];
+      showCoBubble(phrases[Math.floor(Math.random() * phrases.length)]);
+    };
+    const onGenDone = (e: Event) => {
+      const detail = (e as CustomEvent).detail || {};
+      const title = detail.title || "трек";
+      const phrases = [
+        `Готово! «${title}» — слушаем? 🎧`,
+        `Свершилось! Жду твоего «вау» 🌟`,
+        `Получилось! Поделишься впечатлением?`,
+      ];
+      showCoBubble(phrases[Math.floor(Math.random() * phrases.length)], 10000);
+    };
+    const onGenError = () => {
+      showCoBubble(`Что-то пошло не по плану. Попробуем ещё раз? 💪`, 9000);
+    };
+    const onTrackFinished = () => {
+      const phrases = [
+        `Цепляет? 🔁`,
+        `Что чувствуешь?`,
+        `Ставим на повтор?`,
+      ];
+      if (Math.random() < 0.4) showCoBubble(phrases[Math.floor(Math.random() * phrases.length)], 6000);
+    };
+    const onPaymentSuccess = () => {
+      showCoBubble(`Поздравляю с оплатой! Креативим? ✨`, 8000);
+    };
+    const onCounterUp = () => {
+      if (Math.random() < 0.2) {
+        showCoBubble(`Кто-то послушал! ${Math.random() < 0.5 ? "🎵" : "🔥"}`, 4500);
+      }
+    };
+    window.addEventListener("muza:gen-started", onGenStarted);
+    window.addEventListener("muza:gen-done", onGenDone);
+    window.addEventListener("muza:gen-error", onGenError);
+    window.addEventListener("muza:track-finished", onTrackFinished);
+    window.addEventListener("muza:payment-success", onPaymentSuccess);
+    window.addEventListener("muza:counter-up", onCounterUp);
+    return () => {
+      window.removeEventListener("muza:gen-started", onGenStarted);
+      window.removeEventListener("muza:gen-done", onGenDone);
+      window.removeEventListener("muza:gen-error", onGenError);
+      window.removeEventListener("muza:track-finished", onTrackFinished);
+      window.removeEventListener("muza:payment-success", onPaymentSuccess);
+      window.removeEventListener("muza:counter-up", onCounterUp);
+    };
+  }, [visible, chatOpen]);
+
   // Eugene 2026-05-24 Босс «Музa не рассказывает факты о музыке + после
   // нажатия облако не уходить со страницы — здесь появится трек, смысл».
   // Реализация Musa-facts-rotation rule (CLAUDE.md): локальный rotating
