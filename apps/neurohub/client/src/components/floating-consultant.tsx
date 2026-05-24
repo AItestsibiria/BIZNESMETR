@@ -209,6 +209,57 @@ function hasLyricsDraft(text: string): boolean {
   return poeticCount >= 3;
 }
 
+// Eugene 2026-05-23 Босс «надо добавить возможность юзеру править текст
+// трека в чате». Helper извлекает только poetry block из bot-message
+// (от первого до последнего section-marker, или contiguous poetic блок).
+// Чтобы юзер при tap на «Править» получал в input ТОЛЬКО текст песни,
+// без вводных фраз Музы.
+function extractLyricsForEdit(text: string): string {
+  if (LYRICS_SECTION_RE.test(text)) {
+    LYRICS_SECTION_RE.lastIndex = 0;
+    const lines = text.split("\n");
+    let startIdx = -1;
+    let lastMarkerIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (/\[(Куплет|Припев|Бридж|Verse|Chorus|Bridge|Outro|Intro|Pre-?Chorus|Solo|Концовка|Вступление)/i.test(lines[i])) {
+        if (startIdx < 0) startIdx = i;
+        lastMarkerIdx = i;
+      }
+    }
+    if (startIdx >= 0) {
+      let endIdx = lastMarkerIdx;
+      // Доводим до последней непустой строки после последнего маркера
+      for (let j = lastMarkerIdx + 1; j < lines.length; j++) {
+        if (lines[j].trim()) endIdx = j;
+        else if (endIdx === lastMarkerIdx) continue;
+        else break; // двойной пустой = конец lyrics block
+      }
+      return lines.slice(startIdx, endIdx + 1).join("\n").trim();
+    }
+  }
+  LYRICS_SECTION_RE.lastIndex = 0;
+  // Fallback: contiguous поэтический блок 3+ строк
+  const lines = text.split("\n").map(l => l.trim());
+  let bestStart = -1, bestLen = 0;
+  let curStart = -1, curLen = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const isPoetic = line.length >= 15 && line.length <= 80 && !/[.!?]\s*$/.test(line) && !line.startsWith("—") && !line.startsWith("-");
+    if (isPoetic) {
+      if (curStart < 0) curStart = i;
+      curLen++;
+    } else {
+      if (curLen > bestLen) { bestStart = curStart; bestLen = curLen; }
+      curStart = -1; curLen = 0;
+    }
+  }
+  if (curLen > bestLen) { bestStart = curStart; bestLen = curLen; }
+  if (bestStart >= 0 && bestLen >= 3) {
+    return lines.slice(bestStart, bestStart + bestLen).join("\n");
+  }
+  return text.trim();
+}
+
 function normalizeLyricsBlocks(text: string): string {
   if (!LYRICS_SECTION_RE.test(text)) {
     LYRICS_SECTION_RE.lastIndex = 0;
@@ -2821,20 +2872,52 @@ export function FloatingConsultant() {
                         пока chatSending (избегаем double-click) и когда
                         message не последний. */}
                     {m.role === "bot" && i === arr.length - 1 && !chatSending && hasLyricsDraft(m.text) && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          try { playMuzaTick(); } catch {}
-                          trackEngagement("consultant_action", { kind: "re_text_expand" });
-                          void doSendMessage("Re:Текст — прочитай этот текст ещё раз. Точно ли он передаёт смысл который я хотел? Если да — давай нарастим объём в 2 раза. Сначала спроси какие 3-5 ключевых слов должны прозвучать в песне (имена, места, занятия, важные детали для меня). Потом вставь их естественно в расширенный текст.");
-                        }}
-                        className="mt-1.5 self-start text-[11px] px-3 py-1.5 rounded-full bg-gradient-to-r from-amber-500/20 via-fuchsia-500/20 to-purple-500/20 hover:from-amber-500/30 hover:via-fuchsia-500/30 hover:to-purple-500/30 text-white border border-amber-400/40 hover:border-amber-300/70 transition-all flex items-center gap-1.5 shrink-0 active:scale-95"
-                        aria-label="Расширить текст и спросить ключевые слова"
-                        title="Расширить текст ×2 и собрать ключевые слова"
-                      >
-                        <span aria-hidden>🔄</span>
-                        <span>Re:Текст — расширь ×2 + ключевые слова</span>
-                      </button>
+                      <div className="mt-1.5 flex flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            try { playMuzaTick(); } catch {}
+                            trackEngagement("consultant_action", { kind: "re_text_expand" });
+                            void doSendMessage("Re:Текст — прочитай этот текст ещё раз. Точно ли он передаёт смысл который я хотел? Если да — давай нарастим объём в 2 раза. Сначала спроси какие 3-5 ключевых слов должны прозвучать в песне (имена, места, занятия, важные детали для меня). Потом вставь их естественно в расширенный текст.");
+                          }}
+                          className="text-[11px] px-3 py-1.5 rounded-full bg-gradient-to-r from-amber-500/20 via-fuchsia-500/20 to-purple-500/20 hover:from-amber-500/30 hover:via-fuchsia-500/30 hover:to-purple-500/30 text-white border border-amber-400/40 hover:border-amber-300/70 transition-all flex items-center gap-1.5 shrink-0 active:scale-95"
+                          aria-label="Расширить текст и спросить ключевые слова"
+                          title="Расширить текст ×2 и собрать ключевые слова"
+                        >
+                          <span aria-hidden>🔄</span>
+                          <span>Re:Текст — расширь ×2</span>
+                        </button>
+                        {/* Eugene 2026-05-23 Босс «надо добавить возможность
+                            юзеру править текст трека в чате». Click → текст
+                            копируется в input с pre-fix «Поправь текст:» →
+                            юзер правит → отправляет → Музa подхватывает
+                            и финализирует. */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            try { playMuzaTick(); } catch {}
+                            trackEngagement("consultant_action", { kind: "edit_lyrics" });
+                            const lyrics = extractLyricsForEdit(m.text);
+                            setChatInput("Поправь текст (мой вариант):\n" + lyrics);
+                            setTimeout(() => {
+                              const ta = document.querySelector<HTMLTextAreaElement>('textarea[data-muza-chat-input]');
+                              if (ta) {
+                                ta.focus();
+                                ta.setSelectionRange(ta.value.length, ta.value.length);
+                                ta.style.height = "auto";
+                                ta.style.height = Math.min(ta.scrollHeight, 240) + "px";
+                                ta.scrollTop = ta.scrollHeight;
+                              }
+                            }, 30);
+                          }}
+                          className="text-[11px] px-3 py-1.5 rounded-full bg-gradient-to-r from-cyan-500/20 via-purple-500/20 to-fuchsia-500/20 hover:from-cyan-500/30 hover:via-purple-500/30 hover:to-fuchsia-500/30 text-white border border-cyan-400/40 hover:border-cyan-300/70 transition-all flex items-center gap-1.5 shrink-0 active:scale-95"
+                          aria-label="Править текст вручную"
+                          title="Скопировать текст в поле — править вручную"
+                        >
+                          <span aria-hidden>✏️</span>
+                          <span>Править текст</span>
+                        </button>
+                      </div>
                     )}
                     {/* Eugene 2026-05-20 Босс «мини-плеер в чате».
                         Когда Муза вызвала find_public_track и tool вернул
