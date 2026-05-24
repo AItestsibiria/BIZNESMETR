@@ -520,6 +520,12 @@ try {
   // Eugene 2026-05-17 Босс: per-domain трекинг.
   if (!vn.includes("host")) sqlite.exec("ALTER TABLE visitors ADD COLUMN host TEXT");
   sqlite.exec("CREATE INDEX IF NOT EXISTS visitors_host_date ON visitors(host, last_visit DESC)");
+  // Eugene 2026-05-24 Босс «Czechia 1 уник + 1887 visits = bot fraud».
+  // is_bot flag — read-side aggregates исключают bot rows, запись остаётся
+  // для аудита/блокировок. См. lib/botDetect.ts.
+  if (!vn.includes("is_bot")) sqlite.exec("ALTER TABLE visitors ADD COLUMN is_bot INTEGER NOT NULL DEFAULT 0");
+  if (!vn.includes("bot_reason")) sqlite.exec("ALTER TABLE visitors ADD COLUMN bot_reason TEXT");
+  sqlite.exec("CREATE INDEX IF NOT EXISTS visitors_is_bot ON visitors(is_bot, last_visit DESC)");
 
   // admin_audit_log: enriched columns для Eugene 2026-05-17 «email 2FA tracking».
   // via_email_confirm=1 — действие было подтверждено через email-OTP code.
@@ -800,6 +806,20 @@ try {
     );
     CREATE INDEX IF NOT EXISTS admin_audit_log_entity_idx ON admin_audit_log(entity, entity_key, created_at DESC);
     CREATE INDEX IF NOT EXISTS admin_audit_log_recent_idx ON admin_audit_log(created_at DESC);
+
+    -- Eugene 2026-05-24 Босс: gen-lifecycle agent log.
+    -- Каждое событие лайф-цикла generation пишется сюда. Источник для admin UI
+    -- «🚨 Ошибки генерации» (gen-errors-tab.tsx). См. lib/genLifecycleAgent.ts.
+    CREATE TABLE IF NOT EXISTS gen_lifecycle_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      gen_id INTEGER NOT NULL,
+      user_id INTEGER,
+      event_type TEXT NOT NULL,
+      payload TEXT,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_gen_lifecycle_gen ON gen_lifecycle_log(gen_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_gen_lifecycle_event_time ON gen_lifecycle_log(event_type, created_at DESC);
 
     -- Incident tracking — auto-detect + auto-resolve.
     CREATE TABLE IF NOT EXISTS incidents (

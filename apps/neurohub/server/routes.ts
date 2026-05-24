@@ -38,6 +38,9 @@ import { detectMuzaToolIntent } from "./lib/muzaIntentRouter";
 import { smsProviderLogs, smsOtp } from "@shared/schema";
 import { logUserActionFailure } from "./lib/userActionFailures";
 import { orchestrator as agentOrchestrator } from "./lib/agentOrchestrator";
+// Eugene 2026-05-24 — gen-lifecycle agent (tracks музыкальную/lyrics/cover генерации
+// от создания до done/errored, auto-retry transient, escalate stuck).
+import { genLifecycleAgent } from "./lib/genLifecycleAgent";
 import {
   initiateAction,
   confirmAction,
@@ -72,6 +75,13 @@ import { extractHost, KNOWN_DOMAINS, hostToBucket } from "./lib/extractHost";
 import { embedTrackId3, findSiblingCover } from "./lib/id3Writer";
 import { alertPromoEntry, checkExpiredPromo } from "./lib/promoAlert";
 import { buildBotExclusionSql, isBotUserAgent } from "./lib/botUa";
+import {
+  isLikelyBotUa,
+  isDatacenterAsn,
+  checkVisitRateLimit,
+  notifyBurstAlert,
+  getRateMapSnapshot,
+} from "./lib/botDetect";
 import { incCurrLabelFor, buildReceipt, receiptToParam, type RoboPaymentMethod } from "./lib/robokassaMethods";
 import { getLegalConfig, isLegalConfigComplete } from "./lib/legalConfig";
 import {
@@ -858,6 +868,13 @@ export async function registerRoutes(
         }
 
         console.log(`[SUNO-WEBHOOK] gen #${genId} → done, audio=${audioUrl.slice(0, 80)}`);
+        // Eugene 2026-05-24: gen-lifecycle agent — track done
+        try {
+          genLifecycleAgent.trackEvent({
+            type: "done", genId, userId: gen.userId,
+            payload: { audioUrl: String(audioUrl).slice(0, 100), source: "webhook" },
+          });
+        } catch {}
         res.json({ ok: true, status: "done" });
         return;
       }
@@ -872,6 +889,20 @@ export async function registerRoutes(
           });
         }
         console.log(`[SUNO-WEBHOOK] gen #${genId} → error: ${reason}`);
+        // Eugene 2026-05-24: gen-lifecycle agent — track suno_failed + recover
+        try {
+          genLifecycleAgent.trackEvent({
+            type: "suno_failed", genId, userId: gen.userId,
+            payload: { error: reason, source: "webhook" },
+          });
+          if (gen.cost && gen.cost > 0) {
+            genLifecycleAgent.trackEvent({
+              type: "refunded", genId, userId: gen.userId,
+              payload: { cost: gen.cost, by: "webhook_error" },
+            });
+          }
+          genLifecycleAgent.attemptAutoRecover(genId).catch(() => {});
+        } catch {}
         res.json({ ok: true, status: "error" });
         return;
       }
@@ -895,18 +926,68 @@ export async function registerRoutes(
       const ua = req.headers['user-agent'] || '';
       const { fingerprint, pageUrl, sessionId } = req.body;
 
+      // Eugene 2026-05-24 Босс «Czechia 1 уник + 1887 visits — bot fraud».
+      // Atom-level visitor fraud defense (см. lib/botDetect.ts):
+      //   1. Расширенный UA detector (puppeteer, playwright, headless variants).
+      //   2. Per-IP rate-limit (30/min, 200/hr).
+      //   3. Burst alert (>500/hr → Telegram админу).
+      //   4. Datacenter ASN signature check.
+      //
       // Eugene 2026-05-19 Босс «4575 visits / 44 unique = боты». Bot UA filter
-      // на запись (Counters-audit D.1) + path-фильтр (D.6). Read-side фильтр
-      // уже был, но писали ВСЕХ → перекос.
-      if (isBotUserAgent(String(ua))) {
+      // (Counters-audit D.1) + path-фильтр (D.6). Read-side фильтр уже был,
+      // но писали ВСЕХ → перекос.
+      let detectedBotReason: string | null = null;
+      if (isLikelyBotUa(String(ua))) {
+        // Лёгкое логирование, чтобы Босс видел частоту в логах.
+        if (Math.random() < 0.01) {
+          try { console.log("[track-visit] skip bot UA:", String(ua).slice(0, 80)); } catch {}
+        }
         return res.json({ ok: true, skipped: "bot-ua" });
       }
       if (typeof pageUrl === "string" && /^https?:\/\/[^/]+\/(api\/|favicon|robots\.txt|healthz|sitemap)/i.test(pageUrl)) {
         return res.json({ ok: true, skipped: "non-page" });
       }
 
+      // Per-IP rate-limit. 30/min, 200/hr — выше = bot для sure.
+      const rateCheck = checkVisitRateLimit(String(ip));
+      if (!rateCheck.ok) {
+        detectedBotReason = rateCheck.reason || "rate_limit";
+        // Запись с is_bot=1 чтобы admin видел частоту, не теряем data
+        try {
+          const raw = db.$client;
+          raw.prepare(
+            `UPDATE visitors SET is_bot=1, bot_reason=COALESCE(bot_reason, ?), last_visit=CURRENT_TIMESTAMP WHERE ip=? AND last_visit > datetime('now','-1 hour')`
+          ).run(detectedBotReason, String(ip));
+        } catch {}
+        return res.json({ ok: true, skipped: detectedBotReason, hitsLastMin: rateCheck.hitsLastMin, hitsLastHour: rateCheck.hitsLastHour });
+      }
+
       const { device, browser, os } = parseUA(ua);
       const geo = await getGeo(ip);
+
+      // Datacenter ASN check (через ipGeo asn). Если IP из hosting/datacenter
+      // ASN — почти наверняка bot/скрипт, не real юзер. Записываем (для аудита)
+      // но помечаем is_bot=1.
+      let isFromDatacenter = false;
+      try {
+        const enrichedGeo = await getIpGeo(ip, req.headers as any);
+        if (isDatacenterAsn(enrichedGeo.asn)) {
+          isFromDatacenter = true;
+          detectedBotReason = detectedBotReason || "datacenter_asn";
+        }
+      } catch { /* graceful */ }
+
+      // Burst alert: >500 visits/hour от одного IP → Telegram админу.
+      if (rateCheck.burst) {
+        notifyBurstAlert({
+          ip: String(ip),
+          ua: String(ua),
+          country: geo?.country || null,
+          asn: null, // лишний lookup; в alert у нас уже всё что нужно
+          hitsLastHour: rateCheck.hitsLastHour,
+          hitsLastMin: rateCheck.hitsLastMin,
+        });
+      }
       // Per-domain трекинг (Eugene 2026-05-17 Босс): muzaai.ru / muziai.ru /
       // podaripesnu.ru. Старые записи без host → bucket "other".
       const host = extractHost(req);
@@ -925,15 +1006,34 @@ export async function registerRoutes(
         // host обновляем только если был NULL — иначе оставляем первый
         // зарегистрированный домен (visitor мог зайти с muzaai.ru, потом
         // переключиться на muziai.ru — но для аналитики важен первоисточник).
+        // Eugene 2026-05-24 — sticky is_bot: если ранее помечен ботом,
+        // оставляем; если detected сейчас, поднимаем флаг.
+        const stickyBot = existing.isBot === 1 || isFromDatacenter;
         db.update(visitors).set({
           visits: existing.visits + 1,
           lastVisit: new Date().toISOString(),
           pageUrl: pageUrl || existing.pageUrl,
           userId: req.body.userId || existing.userId,
           host: existing.host || host || null,
+          isBot: stickyBot ? 1 : (existing.isBot || 0),
+          botReason: existing.botReason || detectedBotReason || null,
         }).where(eq(visitors.id, existing.id)).run();
       } else {
-        db.insert(visitors).values({ ip, fingerprint: key, country: geo.country, countryCode: geo.countryCode, city: geo.city, region: geo.region, userAgent: ua, referer: req.headers.referer || '', device, browser, os, pageUrl, sessionId, userId: req.body.userId || null, host }).run();
+        db.insert(visitors).values({
+          ip,
+          fingerprint: key,
+          country: geo.country,
+          countryCode: geo.countryCode,
+          city: geo.city,
+          region: geo.region,
+          userAgent: ua,
+          referer: req.headers.referer || '',
+          device, browser, os, pageUrl, sessionId,
+          userId: req.body.userId || null,
+          host,
+          isBot: (isFromDatacenter || detectedBotReason) ? 1 : 0,
+          botReason: detectedBotReason || (isFromDatacenter ? "datacenter_asn" : null),
+        }).run();
       }
 
       // Eugene 2026-05-17 Босс «Cookies + IP geo + identifying автор». В дополнение
@@ -1040,7 +1140,9 @@ export async function registerRoutes(
     }
     // Eugene 2026-05-22 Босс «настоящая статистика» — добавляем filter для cron
     // daily_country_bump seed-визитов в combinedWhere ВСЕГДА (нельзя override).
-    const realFilterSql = "fingerprint NOT LIKE 'daily_%' AND ip != '0.0.0.0' AND user_agent IS NOT NULL AND user_agent != ''";
+    // Eugene 2026-05-24 Босс «Czechia 1+1887» — + is_bot=0 (новые bot-detect rows).
+    const isBotFilter = includeBots ? "" : " AND (is_bot IS NULL OR is_bot=0)";
+    const realFilterSql = "fingerprint NOT LIKE 'daily_%' AND ip != '0.0.0.0' AND user_agent IS NOT NULL AND user_agent != ''" + isBotFilter;
     combinedWhere = combinedWhere
       ? `${combinedWhere} AND ${realFilterSql}`
       : `WHERE ${realFilterSql}`;
@@ -1053,7 +1155,8 @@ export async function registerRoutes(
     const raw = db.$client;
     // Быстрые сводки (для верхних карточек) — bot filter применяется ВЕЗДЕ.
     // Eugene 2026-05-22 Босс «настоящая статистика» — + filter cron daily-bump.
-    const realFilter = " AND fingerprint NOT LIKE 'daily_%' AND ip != '0.0.0.0' AND user_agent IS NOT NULL AND user_agent != ''";
+    // Eugene 2026-05-24 Босс «Czechia» — + is_bot=0.
+    const realFilter = " AND fingerprint NOT LIKE 'daily_%' AND ip != '0.0.0.0' AND user_agent IS NOT NULL AND user_agent != ''" + isBotFilter;
     const botExtra = (botExclSql ? ` AND ${botExclSql}` : "") + realFilter;
     const today = new Date().toISOString().slice(0, 10);
     const week = new Date(Date.now() - 7 * 86400000).toISOString();
@@ -1145,6 +1248,134 @@ export async function registerRoutes(
       byIp,
       byDevice,
       byBrowser,
+    });
+  });
+
+  // Eugene 2026-05-24 Босс «Czechia 1 уник + 1887 visits — атомарный разбор».
+  // Admin endpoint для проверки suspicious IPs:
+  //   - всех помеченных is_bot=1 (UA, rate-limit, datacenter ASN, burst)
+  //   - top-N IP с >100 visits/час (даже если is_bot=0 — кандидаты для review)
+  // + snapshot из in-memory rate-map (текущие burst-кандидаты).
+  app.get("/api/admin/v304/visitor-stats/suspicious", requireAdmin, (req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "no-store");
+    const raw = db.$client;
+    const threshold = Math.max(50, Math.min(5000, parseInt(String(req.query.threshold || "100"), 10) || 100));
+    const sinceHours = Math.max(1, Math.min(168, parseInt(String(req.query.hours || "24"), 10) || 24));
+    const sinceIso = new Date(Date.now() - sinceHours * 3600_000).toISOString();
+
+    // Suspicious — высокий visits count за окно, любой is_bot статус
+    const suspicious = raw.prepare(`
+      SELECT
+        ip,
+        MAX(city) as city,
+        MAX(country) as country,
+        MAX(country_code) as countryCode,
+        MAX(user_agent) as userAgent,
+        MAX(device) as device,
+        MAX(browser) as browser,
+        MAX(is_bot) as isBot,
+        MAX(bot_reason) as botReason,
+        COALESCE(SUM(visits), 0) as totalVisits,
+        COUNT(DISTINCT COALESCE(fingerprint, ip)) as uniques,
+        MAX(last_visit) as lastVisit,
+        MIN(created_at) as firstSeen
+      FROM visitors
+      WHERE last_visit >= ?
+        AND ip IS NOT NULL AND ip != ''
+        AND fingerprint NOT LIKE 'daily_%' AND ip != '0.0.0.0'
+      GROUP BY ip
+      HAVING totalVisits >= ?
+      ORDER BY totalVisits DESC
+      LIMIT 200
+    `).all(sinceIso, threshold);
+
+    // Все is_bot=1 за окно — для отдельного списка «уже помеченные»
+    const flaggedBots = raw.prepare(`
+      SELECT
+        ip,
+        MAX(country) as country,
+        MAX(country_code) as countryCode,
+        MAX(user_agent) as userAgent,
+        MAX(bot_reason) as botReason,
+        COALESCE(SUM(visits), 0) as totalVisits,
+        MAX(last_visit) as lastVisit
+      FROM visitors
+      WHERE last_visit >= ?
+        AND is_bot = 1
+      GROUP BY ip, bot_reason
+      ORDER BY totalVisits DESC
+      LIMIT 200
+    `).all(sinceIso);
+
+    // In-memory rate-map snapshot — текущие burst-кандидаты (live)
+    const liveRateMap = getRateMapSnapshot(100);
+
+    // Summary
+    const summary = raw.prepare(`
+      SELECT
+        COUNT(*) as totalIps,
+        COUNT(CASE WHEN is_bot=1 THEN 1 END) as botIps,
+        COUNT(CASE WHEN is_bot=0 OR is_bot IS NULL THEN 1 END) as realIps,
+        COALESCE(SUM(visits), 0) as totalVisits,
+        COALESCE(SUM(CASE WHEN is_bot=1 THEN visits ELSE 0 END), 0) as botVisits
+      FROM visitors
+      WHERE last_visit >= ?
+    `).get(sinceIso) as any;
+
+    res.json({
+      ok: true,
+      windowHours: sinceHours,
+      threshold,
+      summary,
+      suspicious,
+      flaggedBots,
+      liveRateMap,
+    });
+  });
+
+  // Backfill: помечает existing visitors как bot если их UA matches expanded
+  // bot regex. Run после deploy этого фикса для cleanup исторических данных.
+  // dryRun=1 → не пишет, возвращает count.
+  app.post("/api/admin/v304/visitor-stats/backfill-bot-flag", requireAdmin, (req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "no-store");
+    const raw = db.$client;
+    const dryRun = String(req.query.dryRun || "") === "1";
+    // Список UA substring patterns (lowercase) — собрано из expanded regex.
+    const patterns = [
+      "puppeteer", "playwright", "selenium", "webdriver", "phantom", "headless",
+      "prerender", "lighthouse", "gtmetrix", "pagespeed", "ahrefs", "semrush",
+      "mj12bot", "dotbot", "uptimerobot", "pingdom", "datadog", "newrelic",
+      "facebookexternalhit", "twitterbot", "linkedinbot", "telegrambot",
+      "vkshare", "petalbot", "bytedance", "ngrok", "amazonbot", "claudebot",
+      "gptbot", "ccbot", "anthropic-ai",
+    ];
+    const orConds = patterns.map((p) => `LOWER(user_agent) LIKE '%${p}%'`).join(" OR ");
+    const sql_ = `SELECT id, ip, user_agent FROM visitors WHERE (is_bot IS NULL OR is_bot=0) AND user_agent IS NOT NULL AND (${orConds}) LIMIT 5000`;
+    const candidates = raw.prepare(sql_).all() as Array<{ id: number; ip: string; user_agent: string }>;
+    let updated = 0;
+    if (!dryRun) {
+      const stmt = raw.prepare("UPDATE visitors SET is_bot=1, bot_reason=COALESCE(bot_reason, 'backfill_ua') WHERE id=?");
+      for (const row of candidates) {
+        try {
+          stmt.run(row.id);
+          updated++;
+        } catch {}
+      }
+      recordAuditEntry({
+        entity: "visitor_stats",
+        entityKey: "backfill-bot-flag",
+        action: "update",
+        adminEmail: (req as any).user?.email || "admin",
+        before: null,
+        after: { found: candidates.length, updated },
+      });
+    }
+    res.json({
+      ok: true,
+      dryRun,
+      found: candidates.length,
+      updated,
+      samples: candidates.slice(0, 10),
     });
   });
 
@@ -10450,6 +10681,15 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         if (!charge.isFree) {
           storage.refundGeneration({ genId: gen.id, userId, cost: gen.cost || PRICES["music"] || 39900, type: "music", description: `Возврат: ошибка генерации #${gen.id}` });
         }
+        // Eugene 2026-05-24: gen-lifecycle agent — track suno_failed
+        // attemptAutoRecover решит можно ли retry (не для moderation / bad_lyric)
+        try {
+          genLifecycleAgent.trackEvent({
+            type: "suno_failed", genId: gen.id, userId,
+            payload: { error: apiErrText, httpStatus: resp.status, attempt: 1 },
+          });
+          genLifecycleAgent.attemptAutoRecover(gen.id).catch(() => {});
+        } catch {}
         // Extract detailed validation error (GPTunnel/Suno schema issues)
         let userMsg = data.error?.message || data.message || "Ошибка API";
         if (Array.isArray(data.issues) && data.issues.length > 0) {
@@ -10486,11 +10726,28 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         if (!charge.isFree) {
           storage.refundGeneration({ genId: gen.id, userId, cost: gen.cost || PRICES["music"] || 39900, type: "music", description: `Возврат: нет task_id #${gen.id}` });
         }
+        // Eugene 2026-05-24: gen-lifecycle agent — track suno_failed + try recover
+        try {
+          genLifecycleAgent.trackEvent({ type: "suno_failed", genId: gen.id, userId, payload: { error: "no_task_id", attempt: 1 } });
+          // Запустить auto-recover (background, без await — response уже идёт)
+          genLifecycleAgent.attemptAutoRecover(gen.id).catch(() => {});
+        } catch {}
         res.status(500).json({ message: "Ошибка создания трека. Попробуйте снова." });
         return;
       }
 
       storage.updateGeneration(gen.id, { taskId, status: "processing" });
+
+      // Eugene 2026-05-24: gen-lifecycle agent — track full started + suno_called
+      try {
+        genLifecycleAgent.trackEvent({
+          type: "started",
+          genId: gen.id,
+          userId,
+          payload: { genType: "music", cost: gen.cost || 0, mode: payload.mode || "basic" },
+        });
+        genLifecycleAgent.trackEvent({ type: "suno_called", genId: gen.id, userId, payload: { taskId } });
+      } catch {}
 
       const updatedUser = storage.getUser(userId);
       res.json({ id: gen.id, taskId, balance: updatedUser?.balance });

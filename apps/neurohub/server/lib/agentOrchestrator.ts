@@ -569,6 +569,47 @@ export function bootstrapDefaultAgents(): void {
     capabilities: ["metrics", "alert", "probe"],
   });
 
+  // Eugene 2026-05-24 Босс «назначь агента который отслеживает цикл от
+  // нажатия генерации, исправляет ошибки. Дай возможность продавливать
+  // Suno до генерации». GenerationLifecycleAgent — единый watchdog для
+  // gen-lifecycle (music/lyrics/cover): tracking + auto-retry + escalation.
+  // См. lib/genLifecycleAgent.ts + Gen-lifecycle agent rule в CLAUDE.md.
+  orchestrator.register({
+    id: "gen-lifecycle",
+    name: "Лайф-цикл генераций",
+    channel: "internal",
+    role: "watchdog",
+    capabilities: [
+      "lifecycle_tracking",  // trackEvent в memory + БД
+      "auto_retry",          // retrySuno с 3-attempt backoff
+      "stuck_detection",     // scanStuckGenerations > 5 мин
+      "auto_recover",        // attemptAutoRecover для transient errors
+      "escalation",          // escalate → marketing-orchestrator
+      "alert",
+    ],
+    status: env.GPTUNNEL_API_KEY ? "active" : "not_configured",
+    healthCheck: async () => {
+      try {
+        // Lazy import чтобы избежать циклической зависимости при boot
+        const mod = await import("./genLifecycleAgent");
+        const stats = mod.genLifecycleAgent.getStats();
+        return {
+          ok: stats.escalated < 10 && !stats.lastError,
+          details: {
+            totalTracked: stats.totalTracked,
+            recovered: stats.recovered,
+            escalated: stats.escalated,
+            lastError: stats.lastError,
+            lastScanAt: stats.lastScanAt,
+          },
+        };
+      } catch (e: any) {
+        return { ok: false, details: { error: e?.message || String(e) } };
+      }
+    },
+    metadata: { brief: "Tracks gen lifecycle от создания до done/errored, auto-retry transient errors" },
+  });
+
   // Eugene 2026-05-23 marketing-orchestrator. Cross-channel campaigns +
   // retargeting + content calendar + auto-triggers по event'ам. Связано с
   // существующими channels через edges (см. registerMarketingEdges ниже).
@@ -666,6 +707,21 @@ function registerDefaultEdges(): void {
   // ===== Yars moderator =====
   orchestrator.addEdge("moderator-yars", "muza-admin", "event", {
     purpose: "Yars-command detection → admin queue",
+  });
+
+  // ===== Gen-lifecycle agent (Eugene 2026-05-24) =====
+  // Эскалация неразрешимых ошибок генерации → marketing для apology email
+  orchestrator.addEdge("gen-lifecycle", "marketing-orchestrator", "event", {
+    events: ["gen.escalated", "gen.stuck", "gen.recovered"],
+    purpose: "Эскалация неразрешимых ошибок генерации для marketing follow-up (apology email, retention campaign)",
+  });
+  // Алерты в admin (Музa Admin FAB) при stuck/escalated
+  orchestrator.addEdge("gen-lifecycle", "muza-admin", "webhook", {
+    purpose: "Stuck/escalated alerts — Музa уведомляет Босса голосом",
+  });
+  // Refund notifications через email канал
+  orchestrator.addEdge("gen-lifecycle", "channel-email", "notify", {
+    purpose: "Refund email после escalation (юзер видит «деньги вернули»)",
   });
 }
 

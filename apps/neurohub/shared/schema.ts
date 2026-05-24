@@ -165,6 +165,12 @@ export const visitors = sqliteTable("visitors", {
   // Eugene 2026-05-17 Босс: per-domain трекинг (muzaai.ru / muziai.ru /
   // podaripesnu.ru / other). Заполняется через extractHost(req).
   host: text("host"),
+  // Eugene 2026-05-24 Босс «Czechia 1 уник + 1887 visits — bot fraud».
+  // is_bot=1 — запись помечена как бот (через UA detect / rate-limit /
+  // datacenter ASN / burst pattern). Read-side aggregates исключают is_bot=1.
+  // Запись НЕ удаляется — нужно для аудита и блокировок.
+  isBot: integer("is_bot").notNull().default(0),
+  botReason: text("bot_reason"), // ua / rate_limit_min / rate_limit_hour / datacenter_asn / burst / short_ua
   visits: integer("visits").notNull().default(1),
   lastVisit: text("last_visit").default(sql`CURRENT_TIMESTAMP`),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
@@ -1027,6 +1033,27 @@ export const emailSendLog = sqliteTable("email_send_log", {
 });
 
 export type EmailSendLog = typeof emailSendLog.$inferSelect;
+
+// Eugene 2026-05-24 Босс: gen-lifecycle agent log.
+// Каждое событие лайф-цикла generation (started / suno_called / suno_failed /
+// stuck_processing / retrying / done / errored / refunded / manual_* / escalated)
+// пишется в эту таблицу. Источник правды для admin UI «🚨 Ошибки генерации».
+// In-memory store в genLifecycleAgent держит recent 500, БД — полная история.
+export const genLifecycleLog = sqliteTable("gen_lifecycle_log", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  genId: integer("gen_id").notNull(),
+  userId: integer("user_id"),
+  // started | suno_called | suno_failed | stuck_processing | retrying |
+  // done | errored | refunded | manual_retry | manual_refund | manual_resolve | escalated
+  eventType: text("event_type").notNull(),
+  // JSON serialized event-specific payload {attempt, error, taskId, cost, reason, ageMin, ...}
+  payload: text("payload"),
+  // unix millis (отличается от других таблиц где text ISO — здесь millis для consistency
+  // с in-memory event.ts и удобства sort)
+  createdAt: integer("created_at").notNull(),
+});
+
+export type GenLifecycleLog = typeof genLifecycleLog.$inferSelect;
 
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
