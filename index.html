@@ -3,529 +3,670 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<meta name="description" content="Бизнесметр AI — AI-платформа коммерческой недвижимости">
-<title>Бизнесметр AI — Коммерческая недвижимость нового поколения</title>
+<title>Бизнесметр AI — Коммерческая недвижимость</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Golos+Text:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Golos+Text:wght@400;500;600&family=Playfair+Display:ital,wght@0,700;1,700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#EEF4FF;
-  --bg1:#FFFFFF;
+  --bg:#EDF3FE;
+  --bg1:#fff;
   --bg2:#F5F8FF;
   --bg3:#E4EDFF;
-  --border:#C8D9F5;
-  --border2:#A8C2EE;
-  --blue:#2A6DD9;
-  --blue-dark:#1A4FA0;
+  --blue:#1A5FCC;
+  --blue2:#2A6DD9;
   --blue-light:#5B9BF5;
-  --blue-glow:rgba(42,109,217,.1);
-  --teal:#2AB8A0;
-  --teal-light:rgba(42,184,160,.12);
-  --text:#0F1D3A;
-  --text2:#4A6080;
-  --text3:#8AA0C0;
-  --green:#28A06A;
-  --r:12px;--rs:8px;
+  --blue-xlight:rgba(26,95,204,.08);
+  --teal:#1BA89A;
+  --navy:#0C1E3E;
+  --border:#C5D6F2;
+  --border2:#A8C2EE;
+  --text:#0C1E3E;
+  --text2:#3D5A88;
+  --text3:#7A9CC0;
+  --green:#1A9E6A;
+  --gold:#B8860B;
+  --r:10px;--rs:6px;
 }
 html{scroll-behavior:smooth}
 body{font-family:'Golos Text',sans-serif;background:var(--bg);color:var(--text);overflow-x:hidden}
-h1,h2,h3,.syne{font-family:'Syne',sans-serif}
 
-body::before{content:'';position:fixed;inset:0;
-  background-image:radial-gradient(circle at 1px 1px,rgba(42,109,217,.06) 1px,transparent 0);
-  background-size:36px 36px;pointer-events:none;z-index:0}
-body::after{content:'';position:fixed;top:0;left:50%;transform:translateX(-50%);
-  width:1200px;height:900px;
-  background:radial-gradient(ellipse 60% 50% at 50% 30%,rgba(42,109,217,.15) 0%,transparent 70%);
-  pointer-events:none;z-index:0}
+/* ── MESH BACKGROUND ── */
+body::before{
+  content:'';position:fixed;inset:0;
+  background:
+    radial-gradient(ellipse 80% 60% at 70% -20%,rgba(26,95,204,.13) 0%,transparent 60%),
+    radial-gradient(ellipse 50% 40% at -10% 80%,rgba(27,168,154,.09) 0%,transparent 60%),
+    radial-gradient(circle at 1px 1px,rgba(26,95,204,.055) 1px,transparent 0);
+  background-size:100% 100%,100% 100%,32px 32px;
+  pointer-events:none;z-index:0
+}
 
-/* NAV */
-nav{position:fixed;top:0;left:0;right:0;z-index:100;transition:all .3s;border-bottom:1px solid transparent}
-nav.scrolled{background:rgba(238,244,255,.94);backdrop-filter:blur(20px);border-color:var(--border)}
-.nav-inner{max-width:1200px;margin:0 auto;padding:0 24px;height:64px;display:flex;align-items:center;gap:28px}
-.nav-logo{display:flex;align-items:center;gap:10px;text-decoration:none;flex-shrink:0}
-.nav-logo-text{font-family:'Syne',sans-serif;font-weight:800;font-size:19px;color:var(--text);letter-spacing:-.01em}
-.nav-logo-text span{color:var(--blue)}
-.nav-logo-ai{font-size:11px;background:var(--blue);color:#fff;padding:2px 7px;border-radius:5px;margin-left:5px;font-weight:700;letter-spacing:.05em}
-.nav-links{display:flex;gap:26px;margin-left:auto}
-.nav-links a{font-size:14px;color:var(--text2);text-decoration:none;transition:color .2s}
-.nav-links a:hover{color:var(--blue)}
-.nav-actions{display:flex;gap:8px;align-items:center;margin-left:12px}
-.btn-nav{height:38px;padding:0 18px;border-radius:var(--rs);font-size:13px;cursor:pointer;font-family:'Golos Text',sans-serif;display:inline-flex;align-items:center;gap:6px;transition:all .2s}
-.btn-ghost{border:1px solid var(--border2);background:transparent;color:var(--text2)}
-.btn-ghost:hover{border-color:var(--blue);color:var(--blue)}
-.btn-blue{border:none;background:var(--blue);color:#fff;font-weight:600}
-.btn-blue:hover{background:var(--blue-dark)}
+/* ── NAV ── */
+nav{position:fixed;top:0;left:0;right:0;z-index:200;height:64px;transition:all .3s}
+nav.solid{background:rgba(237,243,254,.96);backdrop-filter:blur(16px);border-bottom:1px solid var(--border)}
+.nav-wrap{max-width:1280px;margin:0 auto;padding:0 28px;height:64px;display:flex;align-items:center;gap:32px}
+.logo{display:flex;align-items:center;gap:10px;text-decoration:none;flex-shrink:0}
+.logo-cube{width:34px;height:34px}
+.logo-text{font-family:'Syne',sans-serif;font-weight:800;font-size:17px;color:var(--navy);letter-spacing:-.02em}
+.logo-text b{color:var(--blue2)}
+.logo-ai{font-size:10px;background:var(--blue2);color:#fff;padding:2px 6px;border-radius:4px;margin-left:4px;letter-spacing:.04em;font-weight:700}
+.nav-menu{display:flex;gap:4px;margin-left:auto}
+.nav-item{position:relative}
+.nav-btn{height:36px;padding:0 14px;border:none;background:transparent;color:var(--text2);font-size:13px;cursor:pointer;font-family:'Golos Text',sans-serif;border-radius:6px;transition:all .2s;display:flex;align-items:center;gap:5px}
+.nav-btn:hover{background:var(--blue-xlight);color:var(--blue)}
+.nav-btn i{font-size:14px}
+.nav-actions{display:flex;gap:8px;align-items:center;margin-left:8px}
+.btn-sm-ghost{height:36px;padding:0 16px;border:1.5px solid var(--border2);border-radius:6px;background:transparent;color:var(--text2);font-size:13px;cursor:pointer;font-family:'Golos Text',sans-serif;transition:all .2s}
+.btn-sm-ghost:hover{border-color:var(--blue);color:var(--blue)}
+.btn-sm-blue{height:36px;padding:0 18px;border:none;border-radius:6px;background:var(--blue2);color:#fff;font-size:13px;font-weight:600;cursor:pointer;font-family:'Golos Text',sans-serif;transition:all .2s;box-shadow:0 2px 12px rgba(26,95,204,.25)}
+.btn-sm-blue:hover{background:var(--blue)}
 
-/* HERO — MAIN SEARCH */
-.hero{position:relative;z-index:1;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:80px 24px 60px;text-align:center}
-.hero-inner{max-width:860px;width:100%}
-.hero-eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--blue);
-  background:var(--blue-glow);border:1px solid var(--border);padding:6px 14px;border-radius:20px;margin-bottom:32px;font-weight:500}
-.dot-live{width:7px;height:7px;border-radius:50%;background:var(--teal);animation:bpulse 2s infinite}
-@keyframes bpulse{0%,100%{opacity:1}50%{opacity:.35}}
+/* ── HERO ── */
+.hero{position:relative;z-index:1;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:100px 28px 80px;text-align:center}
+.hero-content{max-width:900px;width:100%}
 
-h1.hero-h{font-size:clamp(46px,7vw,84px);font-weight:800;line-height:1.04;letter-spacing:-.03em;margin-bottom:18px;color:var(--text)}
-h1.hero-h em{font-style:normal;color:var(--blue);
-  background:linear-gradient(135deg,var(--blue) 0%,var(--blue-light) 100%);
-  -webkit-background-clip:text;background-clip:text;color:transparent}
-.hero-sub{font-size:18px;color:var(--text2);line-height:1.6;margin-bottom:44px;max-width:600px;margin-left:auto;margin-right:auto}
+.hero-label{display:inline-flex;align-items:center;gap:8px;font-size:11px;color:var(--blue2);background:rgba(42,109,217,.08);border:1px solid rgba(42,109,217,.18);padding:5px 14px;border-radius:20px;margin-bottom:36px;font-weight:600;letter-spacing:.05em;text-transform:uppercase}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--teal);animation:livepulse 2s infinite}
+@keyframes livepulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.3;transform:scale(.8)}}
 
-/* SEARCH BOX */
-.search-wrap{position:relative;max-width:720px;margin:0 auto 28px;animation:fadeUpIn .8s .2s both}
-@keyframes fadeUpIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}
-.search-box{background:var(--bg1);border:2px solid var(--border2);border-radius:18px;padding:20px;
-  box-shadow:0 12px 48px rgba(42,109,217,.18),0 2px 12px rgba(42,109,217,.08);
-  transition:all .25s;text-align:left}
-.search-box:focus-within{border-color:var(--blue);box-shadow:0 16px 56px rgba(42,109,217,.25),0 4px 16px rgba(42,109,217,.12)}
-.search-input{width:100%;min-height:60px;max-height:200px;background:transparent;border:none;outline:none;
-  font-size:18px;color:var(--text);font-family:'Golos Text',sans-serif;resize:none;line-height:1.5}
-.search-input::placeholder{color:var(--text3)}
-.search-actions{display:flex;justify-content:space-between;align-items:center;margin-top:14px;border-top:1px solid var(--bg3);padding-top:14px}
-.search-tools{display:flex;gap:6px}
-.s-tool{height:34px;padding:0 12px;border:1px solid var(--border);background:var(--bg2);border-radius:8px;
-  color:var(--text2);font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;font-family:'Golos Text',sans-serif;transition:all .2s}
-.s-tool:hover{border-color:var(--blue);color:var(--blue);background:var(--bg1)}
-.s-tool i{font-size:15px}
-.search-send{height:46px;padding:0 22px;background:var(--blue);color:#fff;border:none;border-radius:10px;
-  font-size:15px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:8px;font-family:'Golos Text',sans-serif;
-  transition:all .2s;box-shadow:0 4px 16px rgba(42,109,217,.35)}
-.search-send:hover{background:var(--blue-dark);box-shadow:0 6px 24px rgba(42,109,217,.45);transform:translateY(-1px)}
-.search-send i{font-size:18px}
+.hero-h{font-family:'Syne',sans-serif;font-size:clamp(54px,8vw,104px);font-weight:800;line-height:.96;letter-spacing:-.04em;margin-bottom:22px;color:var(--navy)}
+.hero-h .accent{background:linear-gradient(135deg,var(--blue2) 0%,var(--blue-light) 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero-h .italic{font-family:'Playfair Display',serif;font-style:italic;color:var(--navy);font-weight:700}
 
-/* EXAMPLE QUERIES */
-.examples{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;animation:fadeUpIn .8s .4s both}
-.example-chip{font-size:13px;padding:9px 16px;background:var(--bg1);border:1px solid var(--border);
-  border-radius:24px;color:var(--text2);cursor:pointer;transition:all .2s;font-family:'Golos Text',sans-serif}
-.example-chip:hover{border-color:var(--blue);color:var(--blue);background:var(--bg1);transform:translateY(-1px);box-shadow:0 4px 12px rgba(42,109,217,.12)}
+.hero-sub{font-size:19px;color:var(--text2);line-height:1.6;margin-bottom:52px;max-width:640px;margin-left:auto;margin-right:auto}
 
-/* CHAT AREA — поверх hero */
-.chat-results{max-width:720px;margin:24px auto 0;display:none;flex-direction:column;gap:14px;text-align:left}
-.chat-results.active{display:flex}
-.cr-q{background:var(--blue);color:#fff;padding:12px 18px;border-radius:18px 6px 18px 18px;font-size:15px;align-self:flex-end;max-width:80%;font-weight:500}
-.cr-a{background:var(--bg1);border:1px solid var(--border);border-radius:6px 18px 18px 18px;padding:14px 18px;font-size:15px;color:var(--text);line-height:1.7;align-self:flex-start;max-width:95%;box-shadow:0 2px 12px rgba(42,109,217,.08)}
-.cr-typing{display:inline-flex;gap:5px;align-items:center;padding:6px 0}
-.cr-typing span{width:8px;height:8px;background:var(--blue);border-radius:50%;animation:typing 1.2s infinite}
-.cr-typing span:nth-child(2){animation-delay:.2s}
-.cr-typing span:nth-child(3){animation-delay:.4s}
-@keyframes typing{0%,80%,100%{opacity:.3;transform:translateY(0)}40%{opacity:1;transform:translateY(-5px)}}
+/* ── SEARCH COMMAND CENTER ── */
+.search-center{max-width:780px;margin:0 auto;position:relative}
+.search-glow{position:absolute;inset:-20px;border-radius:28px;background:radial-gradient(ellipse at 50% 50%,rgba(42,109,217,.14) 0%,transparent 70%);pointer-events:none;transition:opacity .4s}
+.search-box{background:var(--bg1);border:2px solid var(--border);border-radius:20px;padding:22px 24px;
+  box-shadow:0 8px 40px rgba(26,95,204,.13),0 2px 8px rgba(26,95,204,.06);transition:all .3s;position:relative;z-index:1}
+.search-box:focus-within{border-color:var(--blue2);box-shadow:0 16px 60px rgba(26,95,204,.22),0 4px 16px rgba(26,95,204,.1)}
+.search-textarea{width:100%;min-height:64px;max-height:240px;background:transparent;border:none;outline:none;font-size:18px;color:var(--text);font-family:'Golos Text',sans-serif;resize:none;line-height:1.5}
+.search-textarea::placeholder{color:var(--text3)}
+.search-row{display:flex;align-items:center;justify-content:space-between;margin-top:16px;padding-top:16px;border-top:1px solid var(--bg3)}
+.search-modes{display:flex;gap:6px}
+.mode-pill{height:32px;padding:0 13px;border:1px solid var(--border);background:var(--bg2);border-radius:20px;color:var(--text3);font-size:12px;cursor:pointer;font-family:'Golos Text',sans-serif;transition:all .2s;display:flex;align-items:center;gap:5px}
+.mode-pill:hover,.mode-pill.active{border-color:var(--blue2);color:var(--blue2);background:var(--blue-xlight)}
+.mode-pill i{font-size:13px}
+.search-go{height:44px;padding:0 24px;background:var(--blue2);color:#fff;border:none;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;font-family:'Golos Text',sans-serif;display:flex;align-items:center;gap:8px;transition:all .2s;box-shadow:0 4px 20px rgba(26,95,204,.35)}
+.search-go:hover{background:var(--blue);transform:translateY(-1px);box-shadow:0 8px 28px rgba(26,95,204,.45)}
+.search-go i{font-size:17px}
 
-/* SECTIONS */
-section{position:relative;z-index:1;padding:80px 24px}
-.section-inner{max-width:1100px;margin:0 auto}
-.section-tag{font-size:11px;color:var(--blue);letter-spacing:.15em;text-transform:uppercase;margin-bottom:14px;font-weight:600;text-align:center}
-.section-title{font-size:clamp(30px,4vw,46px);font-weight:800;letter-spacing:-.02em;line-height:1.15;margin-bottom:16px;color:var(--text);text-align:center}
-.section-title em{color:var(--blue);font-style:normal}
-.section-sub{font-size:16px;color:var(--text2);max-width:600px;line-height:1.7;margin:0 auto;text-align:center}
+.chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:22px}
+.chip{font-size:13px;padding:8px 16px;background:var(--bg1);border:1px solid var(--border);border-radius:24px;color:var(--text2);cursor:pointer;transition:all .2s;font-family:'Golos Text',sans-serif}
+.chip:hover{border-color:var(--blue2);color:var(--blue2);transform:translateY(-2px);box-shadow:0 4px 16px rgba(26,95,204,.12)}
 
-/* ABILITIES */
-.abilities-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:52px}
-.ab-card{background:var(--bg1);border:1.5px solid var(--border);border-radius:16px;padding:28px 22px;
-  text-align:center;transition:all .25s}
-.ab-card:hover{border-color:var(--blue);transform:translateY(-4px);box-shadow:0 12px 32px rgba(42,109,217,.14)}
-.ab-icon{width:54px;height:54px;border-radius:14px;background:var(--blue-glow);border:1.5px solid var(--border);
-  display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:26px;color:var(--blue)}
-.ab-icon.t{background:var(--teal-light);border-color:rgba(42,184,160,.3);color:var(--teal)}
-.ab-card h3{font-family:'Syne',sans-serif;font-size:17px;font-weight:700;color:var(--text);margin-bottom:8px}
-.ab-card p{font-size:13px;color:var(--text2);line-height:1.6}
+/* ── CHAT STREAM ── */
+.chat-stream{max-width:780px;margin:28px auto 0;display:none;flex-direction:column;gap:14px;text-align:left}
+.chat-stream.on{display:flex}
+.msg-u{align-self:flex-end;background:var(--blue2);color:#fff;padding:12px 18px;border-radius:18px 4px 18px 18px;font-size:15px;max-width:78%;font-weight:500}
+.msg-a{background:var(--bg1);border:1px solid var(--border);border-radius:4px 18px 18px 18px;padding:14px 18px;font-size:15px;color:var(--text);line-height:1.7;box-shadow:0 2px 12px rgba(26,95,204,.07)}
+.typing{display:inline-flex;gap:5px;align-items:center}
+.typing s{width:8px;height:8px;background:var(--blue2);border-radius:50%;animation:typ 1.2s infinite;text-decoration:none}
+.typing s:nth-child(2){animation-delay:.2s}
+.typing s:nth-child(3){animation-delay:.4s}
+@keyframes typ{0%,80%,100%{opacity:.25;transform:scale(.7)}40%{opacity:1;transform:scale(1)}}
 
-/* LEGAL DEPARTMENT */
-.legal-section{background:linear-gradient(135deg,#FFFFFF 0%,#F5F8FF 100%);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
-.legal-grid{display:grid;grid-template-columns:1fr 1fr;gap:48px;margin-top:48px;align-items:center}
-.legal-services{display:flex;flex-direction:column;gap:14px}
-.legal-item{background:var(--bg1);border:1.5px solid var(--border);border-radius:12px;padding:18px 22px;
-  display:flex;gap:14px;align-items:flex-start;transition:all .2s}
-.legal-item:hover{border-color:var(--blue);transform:translateX(4px)}
-.legal-item-icon{width:36px;height:36px;border-radius:8px;background:var(--blue-glow);
-  display:flex;align-items:center;justify-content:center;color:var(--blue);font-size:18px;flex-shrink:0}
-.legal-item-icon.t{background:var(--teal-light);color:var(--teal)}
-.legal-item h4{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--text);margin-bottom:4px}
+/* ── SECTION BASE ── */
+section{position:relative;z-index:1}
+.section-wrap{max-width:1280px;margin:0 auto;padding:100px 28px}
+.s-tag{font-size:11px;color:var(--blue2);letter-spacing:.14em;text-transform:uppercase;font-weight:700;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.s-tag::before{content:'';width:20px;height:1.5px;background:var(--blue2)}
+.s-h{font-family:'Syne',sans-serif;font-size:clamp(32px,4vw,52px);font-weight:800;letter-spacing:-.025em;line-height:1.1;color:var(--navy);margin-bottom:16px}
+.s-h em{font-style:normal;color:var(--blue2)}
+.s-sub{font-size:16px;color:var(--text2);line-height:1.7;max-width:560px}
+
+/* ── B2B ── */
+.b2b-section{background:var(--navy)}
+.b2b-section .s-tag{color:rgba(91,155,245,.8)}
+.b2b-section .s-tag::before{background:rgba(91,155,245,.5)}
+.b2b-section .s-h{color:#fff}
+.b2b-section .s-h em{color:var(--blue-light)}
+.b2b-section .s-sub{color:rgba(255,255,255,.55)}
+.b2b-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:2px;margin-top:56px;background:rgba(255,255,255,.06);border-radius:16px;overflow:hidden;border:1px solid rgba(255,255,255,.08)}
+.b2b-card{background:rgba(255,255,255,.03);padding:36px 28px;transition:background .25s;cursor:default}
+.b2b-card:hover{background:rgba(91,155,245,.1)}
+.b2b-icon{width:52px;height:52px;border-radius:12px;background:rgba(91,155,245,.12);border:1px solid rgba(91,155,245,.2);display:flex;align-items:center;justify-content:center;margin-bottom:22px;font-size:26px;color:var(--blue-light)}
+.b2b-card h3{font-family:'Syne',sans-serif;font-size:20px;font-weight:700;color:#fff;margin-bottom:14px}
+.b2b-card p{font-size:13px;color:rgba(255,255,255,.5);line-height:1.7;margin-bottom:20px}
+.b2b-list{display:flex;flex-direction:column;gap:8px}
+.b2b-li{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:rgba(255,255,255,.45)}
+.b2b-li i{font-size:13px;color:var(--teal);margin-top:1px;flex-shrink:0}
+.b2b-cta{display:inline-flex;align-items:center;gap:6px;margin-top:22px;font-size:13px;color:var(--blue-light);font-weight:600;cursor:pointer;transition:gap .2s}
+.b2b-cta:hover{gap:10px}
+
+/* ── B2C ── */
+.b2c-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:56px}
+.b2c-card{background:var(--bg1);border:1.5px solid var(--border);border-radius:18px;padding:40px;overflow:hidden;position:relative;transition:all .25s}
+.b2c-card::before{content:'';position:absolute;top:-60px;right:-60px;width:200px;height:200px;border-radius:50%;pointer-events:none;opacity:.5}
+.b2c-card.sell::before{background:radial-gradient(circle,rgba(26,95,204,.08) 0%,transparent 70%)}
+.b2c-card.rent::before{background:radial-gradient(circle,rgba(27,168,154,.08) 0%,transparent 70%)}
+.b2c-card:hover{border-color:var(--blue2);transform:translateY(-4px);box-shadow:0 16px 48px rgba(26,95,204,.14)}
+.b2c-tag{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-bottom:16px;display:flex;align-items:center;gap:6px}
+.b2c-tag.sell{color:var(--blue2)}
+.b2c-tag.rent{color:var(--teal)}
+.b2c-card h3{font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--navy);letter-spacing:-.025em;margin-bottom:12px}
+.b2c-card p{font-size:15px;color:var(--text2);line-height:1.65;margin-bottom:28px}
+.b2c-features{display:flex;flex-direction:column;gap:10px;margin-bottom:28px}
+.b2c-f{display:flex;gap:10px;align-items:flex-start;font-size:14px;color:var(--text2)}
+.b2c-f i{font-size:16px;margin-top:1px;flex-shrink:0}
+.b2c-f.b i{color:var(--blue2)}
+.b2c-f.t i{color:var(--teal)}
+.btn-b2c{height:46px;padding:0 24px;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;font-family:'Golos Text',sans-serif;display:inline-flex;align-items:center;gap:8px;transition:all .2s}
+.btn-b2c.sell{background:var(--blue2);color:#fff;border:none;box-shadow:0 4px 20px rgba(26,95,204,.3)}
+.btn-b2c.sell:hover{background:var(--blue)}
+.btn-b2c.rent{background:transparent;color:var(--teal);border:1.5px solid var(--teal)}
+.btn-b2c.rent:hover{background:var(--teal);color:#fff}
+
+/* ── LEGAL ── */
+.legal-section{background:linear-gradient(160deg,#fff 0%,var(--bg2) 100%);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+.legal-layout{display:grid;grid-template-columns:1fr 420px;gap:72px;margin-top:56px;align-items:start}
+.legal-items{display:flex;flex-direction:column;gap:3px}
+.legal-item{border:1px solid transparent;border-radius:12px;padding:20px 22px;transition:all .2s;cursor:default;display:flex;gap:16px;align-items:flex-start}
+.legal-item:hover{background:var(--bg1);border-color:var(--border);transform:translateX(6px);box-shadow:0 4px 20px rgba(26,95,204,.08)}
+.li-icon{width:40px;height:40px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;margin-top:2px}
+.li-icon.b{background:var(--blue-xlight);color:var(--blue2)}
+.li-icon.t{background:rgba(27,168,154,.1);color:var(--teal)}
+.legal-item h4{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:var(--navy);margin-bottom:5px}
 .legal-item p{font-size:13px;color:var(--text2);line-height:1.6}
-.legal-visual{position:relative}
-.legal-visual-card{background:var(--bg1);border:1.5px solid var(--border);border-radius:18px;padding:28px;
-  box-shadow:0 12px 48px rgba(42,109,217,.12)}
-.lv-title{font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--text);margin-bottom:18px;
-  display:flex;align-items:center;gap:8px}
-.lv-title i{color:var(--blue);font-size:18px}
-.lv-doc{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:8px;
-  display:flex;gap:10px;align-items:center;font-size:13px;color:var(--text2)}
-.lv-doc i{color:var(--blue)}
-.lv-doc strong{color:var(--text);margin-right:auto}
-.lv-doc small{font-size:11px;color:var(--text3)}
-.lv-status{font-size:11px;padding:3px 10px;border-radius:20px}
-.lv-st-ok{background:rgba(40,160,106,.12);color:var(--green)}
-.lv-st-rev{background:var(--blue-glow);color:var(--blue)}
+.legal-panel{background:var(--navy);border-radius:18px;padding:36px;color:#fff;position:sticky;top:90px}
+.lp-title{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:#fff;margin-bottom:22px;display:flex;align-items:center;gap:8px}
+.lp-title i{color:var(--blue-light)}
+.lp-doc{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:12px 14px;margin-bottom:8px;display:flex;align-items:center;gap:10px;font-size:13px;color:rgba(255,255,255,.7)}
+.lp-doc i{color:var(--blue-light);font-size:16px}
+.lp-doc strong{flex:1;color:#fff;font-size:13px}
+.lp-doc small{font-size:10px;color:rgba(255,255,255,.35)}
+.lp-badge{font-size:10px;padding:3px 9px;border-radius:20px;font-weight:600}
+.lp-ok{background:rgba(27,168,154,.2);color:var(--teal)}
+.lp-rev{background:rgba(91,155,245,.2);color:var(--blue-light)}
+.lp-ai{margin-top:24px;border-top:1px solid rgba(255,255,255,.1);padding-top:20px}
+.lp-ai-label{font-size:11px;color:rgba(255,255,255,.35);margin-bottom:10px;letter-spacing:.08em;text-transform:uppercase}
+.lp-ai-input{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:10px 14px;font-size:13px;color:#fff;width:100%;outline:none;font-family:'Golos Text',sans-serif}
+.lp-ai-input::placeholder{color:rgba(255,255,255,.25)}
 
-/* MESSENGERS */
-.mess-section{padding:80px 24px}
-.mess-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-top:48px}
-.mess-card{background:var(--bg1);border:1.5px solid var(--border);border-radius:14px;padding:26px 14px;
-  text-align:center;transition:all .25s}
-.mess-card:hover{border-color:var(--blue);transform:translateY(-3px);box-shadow:0 8px 24px rgba(42,109,217,.12)}
-.mess-icon{font-size:38px;margin-bottom:12px}
-.mess-name{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--text);margin-bottom:4px}
+/* ── MESSENGERS ── */
+.mess-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-top:56px}
+.mess-card{background:var(--bg1);border:1.5px solid var(--border);border-radius:16px;padding:30px 16px;text-align:center;transition:all .25s}
+.mess-card:hover{border-color:var(--blue2);transform:translateY(-5px);box-shadow:0 12px 36px rgba(26,95,204,.14)}
+.mess-ico{font-size:40px;margin-bottom:14px;display:block}
+.mess-name{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--navy);margin-bottom:4px}
 .mess-desc{font-size:11px;color:var(--text3)}
 
-/* CONTACT / TRADEMARK */
-.contact-section{background:var(--bg1);border-top:1px solid var(--border);padding:72px 24px}
-.contact-grid{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin-top:48px}
-.contact-card{background:var(--bg);border:1.5px solid var(--border);border-radius:16px;padding:28px}
-.contact-card h3{font-family:'Syne',sans-serif;font-size:17px;font-weight:700;color:var(--text);margin-bottom:18px;
-  display:flex;align-items:center;gap:8px}
-.contact-card h3 i{color:var(--blue);font-size:20px}
-.contact-row{display:flex;gap:14px;padding:10px 0;border-bottom:1px dashed var(--border);font-size:14px}
-.contact-row:last-child{border:none}
-.contact-row-l{color:var(--text3);min-width:140px;font-size:13px}
-.contact-row-v{color:var(--text);font-weight:500;flex:1}
+/* ── STATS BAR ── */
+.stats-bar{background:var(--blue2);padding:56px 28px}
+.stats-wrap{max-width:1280px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr);gap:2px}
+.stat-item{text-align:center;padding:0 20px}
+.stat-val{font-family:'Syne',sans-serif;font-size:48px;font-weight:800;color:#fff;line-height:1;letter-spacing:-.03em}
+.stat-val sup{font-size:24px;color:rgba(255,255,255,.7)}
+.stat-lbl{font-size:13px;color:rgba(255,255,255,.6);margin-top:6px}
+.stat-div{width:1px;background:rgba(255,255,255,.15);margin:10px 0}
 
-/* CTA */
-.cta-section{padding:96px 24px;position:relative;overflow:hidden;background:linear-gradient(135deg,#EEF4FF 0%,#E4EDFF 50%,#EAF5FF 100%)}
-.cta-section::before{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
-  width:600px;height:600px;background:radial-gradient(circle,rgba(42,109,217,.1) 0%,transparent 70%)}
-.cta-inner{max-width:600px;margin:0 auto;text-align:center;position:relative}
-.cta-inner h2{font-size:clamp(30px,4vw,46px);font-weight:800;letter-spacing:-.02em;margin-bottom:16px;color:var(--text)}
-.cta-inner h2 em{color:var(--blue);font-style:normal}
-.cta-inner p{font-size:16px;color:var(--text2);margin-bottom:32px;line-height:1.7}
-.cta-form{display:flex;gap:10px;max-width:440px;margin:0 auto}
-.cta-input{flex:1;height:48px;padding:0 18px;background:var(--bg1);border:1.5px solid var(--border2);
-  border-radius:10px;color:var(--text);font-size:14px;outline:none;font-family:'Golos Text',sans-serif;transition:border .2s;box-shadow:0 2px 8px rgba(42,109,217,.08)}
-.cta-input:focus{border-color:var(--blue)}
-.btn-cta{height:48px;padding:0 26px;background:var(--blue);border:none;border-radius:10px;color:#fff;font-size:14px;font-weight:700;cursor:pointer;font-family:'Golos Text',sans-serif;white-space:nowrap;transition:all .2s;box-shadow:0 4px 12px rgba(42,109,217,.3)}
-.btn-cta:hover{background:var(--blue-dark)}
-#cta-ok{margin-top:12px;font-size:13px;color:var(--green);display:none}
+/* ── TRADEMARK ── */
+.tm-section{background:var(--bg1);border-top:1px solid var(--border)}
+.tm-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:48px}
+.tm-card{background:var(--bg2);border:1.5px solid var(--border);border-radius:14px;padding:28px}
+.tm-card h3{font-family:'Syne',sans-serif;font-size:17px;font-weight:700;color:var(--navy);margin-bottom:20px;display:flex;align-items:center;gap:8px}
+.tm-card h3 i{color:var(--blue2)}
+.tm-row{display:flex;gap:12px;padding:10px 0;border-bottom:1px dashed var(--border);font-size:14px}
+.tm-row:last-child{border:none;padding-bottom:0}
+.tm-l{color:var(--text3);min-width:150px;font-size:13px}
+.tm-v{color:var(--text);font-weight:500}
 
-/* FOOTER */
-footer{border-top:1px solid var(--border);padding:40px 24px;position:relative;z-index:1;background:var(--bg1)}
-.footer-inner{max-width:1100px;margin:0 auto;display:grid;grid-template-columns:1fr auto auto auto;gap:36px;align-items:start}
-.footer-logo{display:flex;align-items:center;gap:8px;font-family:'Syne',sans-serif;font-weight:800;font-size:16px;color:var(--text);margin-bottom:6px}
-.footer-copy{font-size:11px;color:var(--text3);line-height:1.6}
-.footer-col-title{font-size:10px;color:var(--text3);margin-bottom:12px;letter-spacing:.08em;font-weight:600}
-.footer-links{display:flex;flex-direction:column;gap:8px}
-.footer-links a{font-size:13px;color:var(--text2);text-decoration:none;transition:color .2s}
-.footer-links a:hover{color:var(--blue)}
+/* ── CTA ── */
+.cta-section{background:linear-gradient(135deg,var(--navy) 0%,#0F2D6B 100%);padding:100px 28px;position:relative;overflow:hidden}
+.cta-section::before{content:'';position:absolute;top:-100px;right:-100px;width:500px;height:500px;border-radius:50%;background:radial-gradient(circle,rgba(91,155,245,.12) 0%,transparent 70%)}
+.cta-section::after{content:'';position:absolute;bottom:-80px;left:-80px;width:400px;height:400px;border-radius:50%;background:radial-gradient(circle,rgba(27,168,154,.1) 0%,transparent 70%)}
+.cta-inner{max-width:680px;margin:0 auto;text-align:center;position:relative;z-index:1}
+.cta-inner h2{font-family:'Syne',sans-serif;font-size:clamp(32px,4vw,52px);font-weight:800;color:#fff;letter-spacing:-.025em;margin-bottom:18px}
+.cta-inner h2 em{font-style:normal;color:var(--blue-light)}
+.cta-inner p{font-size:17px;color:rgba(255,255,255,.55);line-height:1.7;margin-bottom:36px}
+.cta-form{display:flex;gap:10px;max-width:460px;margin:0 auto}
+.cta-inp{flex:1;height:50px;padding:0 18px;background:rgba(255,255,255,.1);border:1.5px solid rgba(255,255,255,.15);border-radius:10px;color:#fff;font-size:14px;outline:none;font-family:'Golos Text',sans-serif;transition:border .2s}
+.cta-inp:focus{border-color:rgba(91,155,245,.6)}
+.cta-inp::placeholder{color:rgba(255,255,255,.3)}
+.cta-btn{height:50px;padding:0 28px;background:var(--blue-light);color:#fff;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;font-family:'Golos Text',sans-serif;white-space:nowrap;transition:all .2s;box-shadow:0 4px 16px rgba(91,155,245,.4)}
+.cta-btn:hover{background:var(--blue2)}
+#cta-ok{margin-top:14px;font-size:13px;color:var(--teal);display:none}
 
-.fade-up{opacity:0;transform:translateY(20px);transition:opacity .7s ease,transform .7s ease}
-.fade-up.visible{opacity:1;transform:none}
+/* ── FOOTER ── */
+footer{background:var(--navy);padding:56px 28px 36px}
+.footer-wrap{max-width:1280px;margin:0 auto}
+.footer-top{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:48px;margin-bottom:48px}
+.footer-logo{display:flex;align-items:center;gap:10px;margin-bottom:12px;font-family:'Syne',sans-serif;font-weight:800;font-size:16px;color:#fff}
+.footer-copy{font-size:12px;color:rgba(255,255,255,.3);line-height:1.7}
+.footer-col h4{font-size:11px;color:rgba(255,255,255,.3);letter-spacing:.1em;text-transform:uppercase;margin-bottom:16px;font-weight:600}
+.footer-col a{display:block;font-size:13px;color:rgba(255,255,255,.5);text-decoration:none;margin-bottom:10px;transition:color .2s}
+.footer-col a:hover{color:rgba(255,255,255,.9)}
+.footer-bottom{border-top:1px solid rgba(255,255,255,.07);padding-top:24px;display:flex;justify-content:space-between;align-items:center}
+.footer-tm{font-size:11px;color:rgba(255,255,255,.25)}
+.footer-links-bottom{display:flex;gap:20px}
+.footer-links-bottom a{font-size:11px;color:rgba(255,255,255,.25);text-decoration:none;transition:color .2s}
+.footer-links-bottom a:hover{color:rgba(255,255,255,.6)}
 
-@media(max-width:900px){
-  .abilities-grid{grid-template-columns:repeat(2,1fr)}
-  .legal-grid{grid-template-columns:1fr}
-  .mess-grid{grid-template-columns:repeat(3,1fr)}
-  .contact-grid{grid-template-columns:1fr}
-  .footer-inner{grid-template-columns:1fr 1fr}
+/* ── ANIMATIONS ── */
+.reveal{opacity:0;transform:translateY(24px);transition:opacity .8s cubic-bezier(.16,1,.3,1),transform .8s cubic-bezier(.16,1,.3,1)}
+.reveal.in{opacity:1;transform:none}
+.reveal-left{opacity:0;transform:translateX(-24px);transition:opacity .8s cubic-bezier(.16,1,.3,1),transform .8s cubic-bezier(.16,1,.3,1)}
+.reveal-left.in{opacity:1;transform:none}
+
+@media(max-width:1024px){
+  .b2b-grid{grid-template-columns:repeat(2,1fr)}
+  .b2c-grid{grid-template-columns:1fr}
+  .legal-layout{grid-template-columns:1fr}
+  .stats-wrap{grid-template-columns:repeat(2,1fr)}
+  .footer-top{grid-template-columns:1fr 1fr}
 }
-@media(max-width:600px){
-  .abilities-grid{grid-template-columns:1fr}
+@media(max-width:700px){
   .mess-grid{grid-template-columns:repeat(2,1fr)}
-  .nav-links{display:none}
-  .footer-inner{grid-template-columns:1fr}
-  .search-actions{flex-direction:column;gap:10px;align-items:stretch}
-  .search-send{width:100%;justify-content:center}
+  .b2b-grid{grid-template-columns:1fr}
+  .tm-grid{grid-template-columns:1fr}
+  .nav-menu{display:none}
+  .footer-top{grid-template-columns:1fr}
+  .cta-form{flex-direction:column}
+  .footer-bottom{flex-direction:column;gap:12px;text-align:center}
+  .footer-links-bottom{flex-wrap:wrap;justify-content:center}
 }
 </style>
 </head>
 <body>
 
+<!-- ═══ NAV ═══ -->
 <nav id="nav">
-  <div class="nav-inner">
-    <a href="/" class="nav-logo">
-      <svg width="32" height="32" viewBox="0 0 36 36" fill="none">
+  <div class="nav-wrap">
+    <a href="/" class="logo">
+      <svg class="logo-cube" viewBox="0 0 36 36" fill="none">
         <path d="M18 4L32 12L18 20L4 12L18 4Z" fill="#2A6DD9"/>
         <path d="M4 12L18 20V32L4 24V12Z" fill="#1A4FA0"/>
-        <path d="M32 12L18 20V32L32 24V12Z" fill="#2AB8A0"/>
+        <path d="M32 12L18 20V32L32 24V12Z" fill="#1BA89A"/>
       </svg>
-      <span class="nav-logo-text">Бизнес<span>метр</span><span class="nav-logo-ai">AI</span></span>
+      <span class="logo-text">Бизнес<b>метр</b><span class="logo-ai">AI</span></span>
     </a>
-    <div class="nav-links">
-      <a href="#abilities">Возможности</a>
-      <a href="#legal">Юр. отдел</a>
-      <a href="#messengers">Связь</a>
-      <a href="#contact">Контакты</a>
-      <a href="crm.html">CRM</a>
+    <div class="nav-menu">
+      <div class="nav-item"><button class="nav-btn" onclick="scrollTo('b2b')"><i class="ti ti-building-skyscraper"></i>Бизнесу</button></div>
+      <div class="nav-item"><button class="nav-btn" onclick="scrollTo('b2c')"><i class="ti ti-user"></i>Частным лицам</button></div>
+      <div class="nav-item"><button class="nav-btn" onclick="scrollTo('legal')"><i class="ti ti-gavel"></i>Юр. отдел</button></div>
+      <div class="nav-item"><button class="nav-btn" onclick="window.location='crm.html'"><i class="ti ti-layout-dashboard"></i>CRM</button></div>
+      <div class="nav-item"><button class="nav-btn" onclick="window.location='realtor.html'"><i class="ti ti-message-chatbot"></i>AI Риелтор</button></div>
     </div>
     <div class="nav-actions">
-      <button class="btn-nav btn-blue">Войти</button>
+      <button class="btn-sm-ghost">Войти</button>
+      <button class="btn-sm-blue">Попробовать бесплатно</button>
     </div>
   </div>
 </nav>
 
-<!-- HERO с большим поиском -->
+<!-- ═══ HERO ═══ -->
 <section class="hero">
-  <div class="hero-inner">
-    <div class="hero-eyebrow"><span class="dot-live"></span>Тестовая среда · Бизнесметр.рф</div>
-    <h1 class="hero-h">Спроси <em>Бизнесметр AI</em><br>о любом объекте</h1>
-    <p class="hero-sub">Коммерческая недвижимость, аналитика рынка, юридическая консультация — задайте вопрос на обычном языке.</p>
+  <div class="hero-content">
+    <div class="hero-label"><span class="live-dot"></span>Бета-версия · Бизнесметр.рф</div>
+    <h1 class="hero-h">
+      <span class="accent">Бизнесметр</span><br>
+      <span class="italic">AI</span>
+    </h1>
+    <p class="hero-sub">Единая AI-платформа коммерческой недвижимости. Поиск, аналитика рынка, CRM, юридическое сопровождение — всё в одном запросе.</p>
 
-    <!-- БОЛЬШОЕ ПОЛЕ ПОИСКА -->
-    <div class="search-wrap">
+    <div class="search-center">
+      <div class="search-glow" id="sglow"></div>
       <div class="search-box">
-        <textarea class="search-input" id="search-input" rows="2"
-          placeholder="Например: «Найди офис 200 м² у метро Тверская до 400 тыс/мес» или «Сколько стоит зарегистрировать аренду в Росреестре?»"
-          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();askAI()}"></textarea>
-        <div class="search-actions">
-          <div class="search-tools">
-            <button class="s-tool" onclick="setMode('search')"><i class="ti ti-search"></i>Объекты</button>
-            <button class="s-tool" onclick="setMode('analytics')"><i class="ti ti-chart-area"></i>Аналитика</button>
-            <button class="s-tool" onclick="setMode('legal')"><i class="ti ti-gavel"></i>Юрист</button>
+        <textarea class="search-textarea" id="sinp" rows="2"
+          placeholder="Опишите что ищете или спросите о рынке... Например: «Офис 200 м² у Тверской до 400 тыс» или «Как правильно расторгнуть договор аренды?»"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();doAsk()}"></textarea>
+        <div class="search-row">
+          <div class="search-modes">
+            <button class="mode-pill active" id="m-search" onclick="setMode('search',this)"><i class="ti ti-building"></i>Объекты</button>
+            <button class="mode-pill" id="m-analytics" onclick="setMode('analytics',this)"><i class="ti ti-chart-area"></i>Аналитика</button>
+            <button class="mode-pill" id="m-legal" onclick="setMode('legal',this)"><i class="ti ti-gavel"></i>Юрист</button>
           </div>
-          <button class="search-send" onclick="askAI()"><i class="ti ti-send"></i>Спросить</button>
+          <button class="search-go" onclick="doAsk()"><i class="ti ti-send"></i>Спросить</button>
         </div>
       </div>
     </div>
 
-    <div class="examples">
-      <span class="example-chip" onclick="setQuery('Офис 150 м² в ЦАО до 350 тыс/мес')">Офис в ЦАО до 350 тыс</span>
-      <span class="example-chip" onclick="setQuery('Сравни рынок аренды складов в Москве за 2025 год')">Аналитика складов 2025</span>
-      <span class="example-chip" onclick="setQuery('Что нужно для регистрации договора аренды в Росреестре?')">Регистрация аренды</span>
-      <span class="example-chip" onclick="setQuery('Купить торговое помещение на первой линии до 50 млн')">Покупка торгового</span>
+    <div class="chips">
+      <span class="chip" onclick="ask('Офис 150 м² в ЦАО аренда до 350 тыс/мес')">Офис ЦАО до 350 тыс</span>
+      <span class="chip" onclick="ask('Как регистрируется договор аренды в Росреестре?')">Регистрация аренды</span>
+      <span class="chip" onclick="ask('Анализ рынка складов Москвы 2025')">Рынок складов 2025</span>
+      <span class="chip" onclick="ask('Купить торговое помещение в ТЦ до 50 млн')">Торговое до 50 млн</span>
+      <span class="chip" onclick="ask('Какова доходность офисной недвижимости в Москве?')">Доходность офисов</span>
     </div>
 
-    <!-- РЕЗУЛЬТАТЫ -->
-    <div class="chat-results" id="chat-results"></div>
+    <div class="chat-stream" id="cstream"></div>
   </div>
 </section>
 
-<!-- ВОЗМОЖНОСТИ -->
-<section id="abilities">
-  <div class="section-inner">
-    <div class="section-tag">/ Возможности</div>
-    <h2 class="section-title">Всё в <em>одном окне</em></h2>
-    <p class="section-sub">Бизнесметр AI — единая платформа для работы с коммерческой недвижимостью.</p>
-    <div class="abilities-grid">
-      <div class="ab-card fade-up">
-        <div class="ab-icon"><i class="ti ti-search"></i></div>
-        <h3>Умный поиск</h3>
-        <p>Объекты на естественном языке — без сложных фильтров.</p>
+<!-- ═══ STATS ═══ -->
+<div class="stats-bar">
+  <div class="stats-wrap">
+    <div class="stat-item reveal"><div class="stat-val"><span id="sv1">0</span><sup>+</sup></div><div class="stat-lbl">источников данных</div></div>
+    <div class="stat-item reveal"><div class="stat-val"><span id="sv2">0</span><sup>K+</sup></div><div class="stat-lbl">объектов в базе</div></div>
+    <div class="stat-item reveal"><div class="stat-val"><span id="sv3">0</span></div><div class="stat-lbl">AI-модулей</div></div>
+    <div class="stat-item reveal"><div class="stat-val"><sup>от</sup><span id="sv4">0</span><sup>$/мес</sup></div><div class="stat-lbl">стартовый план</div></div>
+  </div>
+</div>
+
+<!-- ═══ B2B ═══ -->
+<section id="b2b" class="b2b-section">
+  <div class="section-wrap">
+    <div class="s-tag" style="color:rgba(91,155,245,.8);--c:rgba(91,155,245,.5)">/ Для бизнеса B2B</div>
+    <h2 class="s-h" style="color:#fff;max-width:700px">Профессиональные инструменты для <em>работы с рынком</em></h2>
+    <p class="s-sub" style="color:rgba(255,255,255,.5)">Инфраструктура уровня enterprise для агентств, инвесторов и девелоперов.</p>
+    <div class="b2b-grid">
+
+      <div class="b2b-card reveal">
+        <div class="b2b-icon"><i class="ti ti-building"></i></div>
+        <h3>Агентствам недвижимости</h3>
+        <p>Полная CRM с воронкой продаж, автоматизация работы с клиентами, уведомления в мессенджеры.</p>
+        <div class="b2b-list">
+          <div class="b2b-li"><i class="ti ti-check"></i>CRM и воронка сделок</div>
+          <div class="b2b-li"><i class="ti ti-check"></i>AI-подбор объектов</div>
+          <div class="b2b-li"><i class="ti ti-check"></i>Автоматические уведомления</div>
+          <div class="b2b-li"><i class="ti ti-check"></i>Аналитика агентства</div>
+        </div>
+        <div class="b2b-cta" onclick="window.location='crm.html'">Открыть CRM <i class="ti ti-arrow-right"></i></div>
       </div>
-      <div class="ab-card fade-up">
-        <div class="ab-icon"><i class="ti ti-chart-area"></i></div>
-        <h3>Аналитика рынка</h3>
-        <p>Динамика цен, спрос, прогнозы по сегментам.</p>
+
+      <div class="b2b-card reveal">
+        <div class="b2b-icon" style="background:rgba(27,168,154,.12);border-color:rgba(27,168,154,.2);color:#1BA89A"><i class="ti ti-chart-arrows"></i></div>
+        <h3>Инвесторам</h3>
+        <p>Аналитика доходности, динамика цен по районам, сравнение объектов и мониторинг рынка.</p>
+        <div class="b2b-list">
+          <div class="b2b-li"><i class="ti ti-check"></i>Доходность по сегментам</div>
+          <div class="b2b-li"><i class="ti ti-check"></i>Динамика ставок аренды</div>
+          <div class="b2b-li"><i class="ti ti-check"></i>Сравнение объектов</div>
+          <div class="b2b-li"><i class="ti ti-check"></i>Прогнозы рынка (AI)</div>
+        </div>
+        <div class="b2b-cta">Смотреть аналитику <i class="ti ti-arrow-right"></i></div>
       </div>
-      <div class="ab-card fade-up">
-        <div class="ab-icon t"><i class="ti ti-gavel"></i></div>
-        <h3>Юридический отдел</h3>
-        <p>Сопровождение сделок и консультации онлайн.</p>
+
+      <div class="b2b-card reveal">
+        <div class="b2b-icon"><i class="ti ti-crane"></i></div>
+        <h3>Девелоперам</h3>
+        <p>Мониторинг конкурентов, анализ локаций, автоматическая публикация объектов по всем площадкам.</p>
+        <div class="b2b-list">
+          <div class="b2b-li"><i class="ti ti-check"></i>Конкурентный анализ</div>
+          <div class="b2b-li"><i class="ti ti-check"></i>Анализ локаций</div>
+          <div class="b2b-li"><i class="ti ti-check"></i>Мультиплатформенная публикация</div>
+          <div class="b2b-li"><i class="ti ti-check"></i>AI-описания объектов</div>
+        </div>
+        <div class="b2b-cta">Узнать подробнее <i class="ti ti-arrow-right"></i></div>
       </div>
-      <div class="ab-card fade-up">
-        <div class="ab-icon"><i class="ti ti-users"></i></div>
-        <h3>CRM для агентств</h3>
-        <p>Клиенты, заявки, воронка — в одном месте.</p>
+
+      <div class="b2b-card reveal">
+        <div class="b2b-icon" style="background:rgba(184,134,11,.1);border-color:rgba(184,134,11,.2);color:#B8860B"><i class="ti ti-gavel"></i></div>
+        <h3>Юридическим лицам</h3>
+        <p>Юридическое сопровождение сделок с коммерческой недвижимостью — от due diligence до Росреестра.</p>
+        <div class="b2b-list">
+          <div class="b2b-li"><i class="ti ti-check"></i>Проверка чистоты сделки</div>
+          <div class="b2b-li"><i class="ti ti-check"></i>Договоры и регистрация</div>
+          <div class="b2b-li"><i class="ti ti-check"></i>Налоговое сопровождение</div>
+          <div class="b2b-li"><i class="ti ti-check"></i>Защита в суде</div>
+        </div>
+        <div class="b2b-cta" onclick="document.getElementById('legal').scrollIntoView({behavior:'smooth'})">Юридический отдел <i class="ti ti-arrow-right"></i></div>
       </div>
+
     </div>
   </div>
 </section>
 
-<!-- ЮРИДИЧЕСКИЙ ОТДЕЛ -->
+<!-- ═══ B2C ═══ -->
+<section id="b2c">
+  <div class="section-wrap">
+    <div class="s-tag">/ Для частных лиц B2C</div>
+    <h2 class="s-h">Найдите или сдайте <em>коммерческую недвижимость</em></h2>
+    <p class="s-sub">Для собственников и арендаторов — поиск, сравнение, переговоры и оформление.</p>
+    <div class="b2c-grid">
+
+      <div class="b2c-card sell reveal">
+        <div class="b2c-tag sell"><i class="ti ti-home-check" style="font-size:13px"></i>Собственникам</div>
+        <h3>Продайте или сдайте в аренду</h3>
+        <p>Разместите объект — AI оценит рыночную стоимость, составит описание и разошлёт по площадкам.</p>
+        <div class="b2c-features">
+          <div class="b2c-f b"><i class="ti ti-chart-bar"></i>AI-оценка рыночной стоимости</div>
+          <div class="b2c-f b"><i class="ti ti-photo"></i>Генерация описания объекта</div>
+          <div class="b2c-f b"><i class="ti ti-share"></i>Публикация на Циан, Авито и др.</div>
+          <div class="b2c-f b"><i class="ti ti-users"></i>Поиск и фильтрация арендаторов</div>
+        </div>
+        <button class="btn-b2c sell">Разместить объект <i class="ti ti-arrow-right"></i></button>
+      </div>
+
+      <div class="b2c-card rent reveal">
+        <div class="b2c-tag rent"><i class="ti ti-search" style="font-size:13px"></i>Арендаторам и покупателям</div>
+        <h3>Найдите идеальный объект</h3>
+        <p>Опишите что нужно простым языком — AI подберёт варианты из базы с 6 площадок и даст рекомендацию.</p>
+        <div class="b2c-features">
+          <div class="b2c-f t"><i class="ti ti-message-chatbot"></i>Поиск по описанию на русском</div>
+          <div class="b2c-f t"><i class="ti ti-map-pin"></i>Карта и геоаналитика</div>
+          <div class="b2c-f t"><i class="ti ti-bell"></i>Уведомления при появлении объектов</div>
+          <div class="b2c-f t"><i class="ti ti-file-text"></i>Помощь в оформлении договора</div>
+        </div>
+        <button class="btn-b2c rent" onclick="ask('Помоги найти коммерческую недвижимость')">Начать поиск <i class="ti ti-arrow-right"></i></button>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ═══ LEGAL ═══ -->
 <section id="legal" class="legal-section">
-  <div class="section-inner">
-    <div class="section-tag">/ Юридический отдел</div>
-    <h2 class="section-title">Юридическое <em>сопровождение</em></h2>
-    <p class="section-sub">Полный цикл работы с коммерческой недвижимостью — от due diligence до регистрации сделки.</p>
-
-    <div class="legal-grid">
-      <div class="legal-services">
-        <div class="legal-item fade-up">
-          <div class="legal-item-icon"><i class="ti ti-file-search"></i></div>
-          <div>
-            <h4>Due Diligence объектов</h4>
-            <p>Проверка чистоты сделки, обременений, прав собственности, ВРИ участка.</p>
-          </div>
+  <div class="section-wrap">
+    <div class="s-tag">/ Юридический отдел</div>
+    <h2 class="s-h">Юридическое <em>сопровождение</em><br>сделок с недвижимостью</h2>
+    <p class="s-sub">От проверки объекта до регистрации права — полный цикл правовой поддержки.</p>
+    <div class="legal-layout">
+      <div class="legal-items">
+        <div class="legal-item reveal-left">
+          <div class="li-icon b"><i class="ti ti-file-search"></i></div>
+          <div><h4>Due Diligence объектов</h4><p>Проверка юридической чистоты, обременений, ВРИ участка, истории сделок.</p></div>
         </div>
-        <div class="legal-item fade-up">
-          <div class="legal-item-icon t"><i class="ti ti-contract"></i></div>
-          <div>
-            <h4>Договоры аренды и купли-продажи</h4>
-            <p>Составление, экспертиза и адаптация договоров под ваши задачи.</p>
-          </div>
+        <div class="legal-item reveal-left">
+          <div class="li-icon t"><i class="ti ti-contract"></i></div>
+          <div><h4>Договоры аренды и купли-продажи</h4><p>Составление, экспертиза и адаптация договоров под задачи клиента.</p></div>
         </div>
-        <div class="legal-item fade-up">
-          <div class="legal-item-icon"><i class="ti ti-building-bank"></i></div>
-          <div>
-            <h4>Регистрация в Росреестре</h4>
-            <p>Подготовка пакета документов и сопровождение регистрации права собственности и обременений.</p>
-          </div>
+        <div class="legal-item reveal-left">
+          <div class="li-icon b"><i class="ti ti-building-bank"></i></div>
+          <div><h4>Регистрация в Росреестре</h4><p>Подготовка пакета документов, подача и сопровождение регистрации.</p></div>
         </div>
-        <div class="legal-item fade-up">
-          <div class="legal-item-icon t"><i class="ti ti-shield-check"></i></div>
-          <div>
-            <h4>Защита интересов в суде</h4>
-            <p>Споры по арендной плате, расторжение договоров, защита прав собственника.</p>
-          </div>
+        <div class="legal-item reveal-left">
+          <div class="li-icon t"><i class="ti ti-shield-check"></i></div>
+          <div><h4>Защита интересов в суде</h4><p>Споры по аренде, расторжение договоров, защита прав собственника.</p></div>
         </div>
-        <div class="legal-item fade-up">
-          <div class="legal-item-icon"><i class="ti ti-receipt-tax"></i></div>
-          <div>
-            <h4>Налоговое сопровождение</h4>
-            <p>Оптимизация налогов, НДС, налог на имущество, кадастровая стоимость.</p>
-          </div>
+        <div class="legal-item reveal-left">
+          <div class="li-icon b"><i class="ti ti-receipt-tax"></i></div>
+          <div><h4>Налоговое сопровождение</h4><p>НДС, налог на имущество, оптимизация при сделках с недвижимостью.</p></div>
+        </div>
+        <div class="legal-item reveal-left">
+          <div class="li-icon t"><i class="ti ti-scale"></i></div>
+          <div><h4>Кадастровая стоимость</h4><p>Оспаривание кадастровой стоимости, снижение налоговой базы.</p></div>
         </div>
       </div>
 
-      <div class="legal-visual fade-up">
-        <div class="legal-visual-card">
-          <div class="lv-title"><i class="ti ti-folder"></i>Пакет документов</div>
-          <div class="lv-doc"><i class="ti ti-file"></i><strong>Договор аренды</strong><small>v2.1</small><span class="lv-status lv-st-ok">готов</span></div>
-          <div class="lv-doc"><i class="ti ti-file"></i><strong>Акт приёма-передачи</strong><small>v1.0</small><span class="lv-status lv-st-ok">готов</span></div>
-          <div class="lv-doc"><i class="ti ti-file"></i><strong>Заявление в Росреестр</strong><small>v1.3</small><span class="lv-status lv-st-rev">на проверке</span></div>
-          <div class="lv-doc"><i class="ti ti-file"></i><strong>Выписка из ЕГРН</strong><small>—</small><span class="lv-status lv-st-ok">получена</span></div>
-          <div class="lv-doc"><i class="ti ti-file"></i><strong>Согласие собственника</strong><small>v1.0</small><span class="lv-status lv-st-rev">черновик</span></div>
+      <div class="reveal">
+        <div class="legal-panel">
+          <div class="lp-title"><i class="ti ti-folder-open"></i>Документы по сделке</div>
+          <div class="lp-doc"><i class="ti ti-file-text"></i><strong>Договор аренды</strong><small>v2.1</small><span class="lp-badge lp-ok">готов</span></div>
+          <div class="lp-doc"><i class="ti ti-file-text"></i><strong>Акт приёма-передачи</strong><small>v1.0</small><span class="lp-badge lp-ok">готов</span></div>
+          <div class="lp-doc"><i class="ti ti-file-text"></i><strong>Заявление в Росреестр</strong><small>v1.3</small><span class="lp-badge lp-rev">проверка</span></div>
+          <div class="lp-doc"><i class="ti ti-file-text"></i><strong>Выписка из ЕГРН</strong><small>—</small><span class="lp-badge lp-ok">получена</span></div>
+          <div class="lp-doc"><i class="ti ti-file-text"></i><strong>Согласие собственника</strong><small>v1.0</small><span class="lp-badge lp-rev">черновик</span></div>
+          <div class="lp-ai">
+            <div class="lp-ai-label">Задайте вопрос юристу AI</div>
+            <input class="lp-ai-input" placeholder="Ваш правовой вопрос..." onkeydown="if(event.key==='Enter'){setMode('legal',null);ask(this.value);this.value=''}">
+          </div>
         </div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- МЕССЕНДЖЕРЫ -->
-<section id="messengers" class="mess-section">
-  <div class="section-inner">
-    <div class="section-tag">/ Современные коммуникации</div>
-    <h2 class="section-title">Работаем там, где <em>удобно вам</em></h2>
-    <p class="section-sub">Уведомления и общение через привычные мессенджеры — без приложений и регистраций.</p>
+<!-- ═══ MESSENGERS ═══ -->
+<section>
+  <div class="section-wrap">
+    <div class="s-tag">/ Коммуникации</div>
+    <h2 class="s-h">Работаем там, где <em>удобно вам</em></h2>
+    <p class="s-sub">Уведомления и общение через привычные каналы без дополнительных приложений.</p>
     <div class="mess-grid">
-      <div class="mess-card fade-up"><div class="mess-icon">✈️</div><div class="mess-name">Telegram</div><div class="mess-desc">Бот и уведомления</div></div>
-      <div class="mess-card fade-up"><div class="mess-icon">🔵</div><div class="mess-name">VK / Max</div><div class="mess-desc">Сообщения ВКонтакте</div></div>
-      <div class="mess-card fade-up"><div class="mess-icon">💬</div><div class="mess-name">WhatsApp</div><div class="mess-desc">Переписка и показы</div></div>
-      <div class="mess-card fade-up"><div class="mess-icon">📳</div><div class="mess-name">Viber</div><div class="mess-desc">Рассылки клиентам</div></div>
-      <div class="mess-card fade-up"><div class="mess-icon">📧</div><div class="mess-name">Email</div><div class="mess-desc">Письма и дайджесты</div></div>
+      <div class="mess-card reveal"><span class="mess-ico">✈️</span><div class="mess-name">Telegram</div><div class="mess-desc">Бот и уведомления</div></div>
+      <div class="mess-card reveal"><span class="mess-ico">🔵</span><div class="mess-name">VK / Max</div><div class="mess-desc">Сообщения ВКонтакте</div></div>
+      <div class="mess-card reveal"><span class="mess-ico">💬</span><div class="mess-name">WhatsApp</div><div class="mess-desc">Переписка и показы</div></div>
+      <div class="mess-card reveal"><span class="mess-ico">📳</span><div class="mess-name">Viber</div><div class="mess-desc">Рассылки клиентам</div></div>
+      <div class="mess-card reveal"><span class="mess-ico">📧</span><div class="mess-name">Email</div><div class="mess-desc">Письма и дайджесты</div></div>
     </div>
   </div>
 </section>
 
-<!-- КОНТАКТЫ И ТОВАРНЫЙ ЗНАК -->
-<section id="contact" class="contact-section">
-  <div class="section-inner">
-    <div class="section-tag">/ О компании</div>
-    <h2 class="section-title">Зарегистрированная <em>торговая марка</em></h2>
-    <p class="section-sub">Бизнесметр — официально зарегистрированный товарный знак РФ.</p>
-
-    <div class="contact-grid">
-      <div class="contact-card fade-up">
+<!-- ═══ TRADEMARK ═══ -->
+<section class="tm-section">
+  <div class="section-wrap">
+    <div class="s-tag">/ О компании</div>
+    <h2 class="s-h">Зарегистрированная <em>торговая марка</em></h2>
+    <p class="s-sub">Бизнесметр — официально зарегистрированный товарный знак РФ №723207.</p>
+    <div class="tm-grid">
+      <div class="tm-card reveal">
         <h3><i class="ti ti-certificate"></i>Свидетельство на товарный знак</h3>
-        <div class="contact-row"><div class="contact-row-l">Номер</div><div class="contact-row-v">№ 723207</div></div>
-        <div class="contact-row"><div class="contact-row-l">Дата регистрации</div><div class="contact-row-v">13 августа 2019 г.</div></div>
-        <div class="contact-row"><div class="contact-row-l">Действует до</div><div class="contact-row-v">6 декабря 2028 г.</div></div>
-        <div class="contact-row"><div class="contact-row-l">Правообладатель</div><div class="contact-row-v">АЛЬТЕРНАТИВА</div></div>
-        <div class="contact-row"><div class="contact-row-l">Контакт</div><div class="contact-row-v">Болотова А. Ю.</div></div>
+        <div class="tm-row"><div class="tm-l">Номер</div><div class="tm-v">№ 723207</div></div>
+        <div class="tm-row"><div class="tm-l">Дата регистрации</div><div class="tm-v">13 августа 2019 г.</div></div>
+        <div class="tm-row"><div class="tm-l">Действует до</div><div class="tm-v">6 декабря 2028 г.</div></div>
+        <div class="tm-row"><div class="tm-l">Правообладатель</div><div class="tm-v">АЛЬТЕРНАТИВА</div></div>
+        <div class="tm-row"><div class="tm-l">Контактное лицо</div><div class="tm-v">Болотова Александра Юрьевна</div></div>
       </div>
-      <div class="contact-card fade-up">
-        <h3><i class="ti ti-map-pin"></i>Контакты и адрес</h3>
-        <div class="contact-row"><div class="contact-row-l">Регион</div><div class="contact-row-v">г. Новосибирск</div></div>
-        <div class="contact-row"><div class="contact-row-l">Индекс</div><div class="contact-row-v">630047</div></div>
-        <div class="contact-row"><div class="contact-row-l">Сайт</div><div class="contact-row-v">бизнесметр.рф</div></div>
-        <div class="contact-row"><div class="contact-row-l">Email</div><div class="contact-row-v">info@бизнесметр.рф</div></div>
-        <div class="contact-row"><div class="contact-row-l">Юр. отдел</div><div class="contact-row-v">legal@бизнесметр.рф</div></div>
+      <div class="tm-card reveal">
+        <h3><i class="ti ti-map-pin"></i>Реквизиты и контакты</h3>
+        <div class="tm-row"><div class="tm-l">Регион</div><div class="tm-v">г. Новосибирск</div></div>
+        <div class="tm-row"><div class="tm-l">Индекс</div><div class="tm-v">630047</div></div>
+        <div class="tm-row"><div class="tm-l">Сайт</div><div class="tm-v">бизнесметр.рф</div></div>
+        <div class="tm-row"><div class="tm-l">Email</div><div class="tm-v">info@бизнесметр.рф</div></div>
+        <div class="tm-row"><div class="tm-l">Юридический отдел</div><div class="tm-v">legal@бизнесметр.рф</div></div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- CTA -->
+<!-- ═══ CTA ═══ -->
 <section class="cta-section">
   <div class="cta-inner">
-    <div class="section-tag" style="margin-bottom:18px">/ Ранний доступ</div>
-    <h2 class="syne fade-up">Запустимся <em>совсем скоро</em></h2>
-    <p class="fade-up">Оставьте email — будете первыми кто получит доступ.</p>
-    <div class="cta-form fade-up">
-      <input class="cta-input" type="email" placeholder="ваш@email.ru" id="cta-email">
-      <button class="btn-cta" onclick="ctaSubmit()">Записаться</button>
+    <h2>Начните работать<br>с <em>Бизнесметр AI</em> сегодня</h2>
+    <p>Бета-доступ открыт. Оставьте email — пришлём инструкцию и доступ к платформе.</p>
+    <div class="cta-form">
+      <input class="cta-inp" type="email" id="cta-email" placeholder="ваш@email.ru">
+      <button class="cta-btn" onclick="ctaSend()">Получить доступ</button>
     </div>
-    <p id="cta-ok"><i class="ti ti-circle-check"></i> Записали! Свяжемся при запуске.</p>
+    <p id="cta-ok"><i class="ti ti-circle-check"></i> Отлично! Пришлём доступ в течение 24 часов.</p>
   </div>
 </section>
 
+<!-- ═══ FOOTER ═══ -->
 <footer>
-  <div class="footer-inner">
-    <div>
-      <div class="footer-logo">
-        <svg width="20" height="20" viewBox="0 0 36 36"><path d="M18 4L32 12L18 20L4 12L18 4Z" fill="#2A6DD9"/><path d="M4 12L18 20V32L4 24V12Z" fill="#1A4FA0"/><path d="M32 12L18 20V32L32 24V12Z" fill="#2AB8A0"/></svg>
-        Бизнесметр AI
+  <div class="footer-wrap">
+    <div class="footer-top">
+      <div>
+        <div class="footer-logo">
+          <svg width="24" height="24" viewBox="0 0 36 36"><path d="M18 4L32 12L18 20L4 12L18 4Z" fill="#2A6DD9"/><path d="M4 12L18 20V32L4 24V12Z" fill="#1A4FA0"/><path d="M32 12L18 20V32L32 24V12Z" fill="#1BA89A"/></svg>
+          Бизнесметр AI
+        </div>
+        <div class="footer-copy">AI-платформа коммерческой недвижимости России.<br>Товарный знак № 723207 · АЛЬТЕРНАТИВА.<br>© 2025 Бизнесметр.рф</div>
       </div>
-      <div class="footer-copy">© 2025 Бизнесметр.рф<br>Товарный знак № 723207<br>Все права защищены</div>
-    </div>
-    <div>
-      <div class="footer-col-title">ПЛАТФОРМА</div>
-      <div class="footer-links">
-        <a href="#abilities">Возможности</a>
-        <a href="crm.html">CRM</a>
+      <div class="footer-col">
+        <h4>Бизнесу (B2B)</h4>
+        <a href="#b2b">Агентствам</a>
+        <a href="#b2b">Инвесторам</a>
+        <a href="#b2b">Девелоперам</a>
+        <a href="#b2b">Юридическим лицам</a>
+      </div>
+      <div class="footer-col">
+        <h4>Частным лицам (B2C)</h4>
+        <a href="#b2c">Собственникам</a>
+        <a href="#b2c">Арендаторам</a>
+        <a href="#b2c">Покупателям</a>
+        <a href="#legal">Юридическая помощь</a>
+      </div>
+      <div class="footer-col">
+        <h4>Платформа</h4>
+        <a href="crm.html">CRM Система</a>
         <a href="realtor.html">AI Риелтор</a>
-      </div>
-    </div>
-    <div>
-      <div class="footer-col-title">УСЛУГИ</div>
-      <div class="footer-links">
-        <a href="#legal">Юридический отдел</a>
-        <a href="#legal">Сопровождение сделок</a>
+        <a href="crmnedv-ai-analyst.html">Аналитик CRMNedv</a>
         <a href="#contact">Контакты</a>
       </div>
     </div>
-    <div>
-      <div class="footer-col-title">СВЯЗЬ</div>
-      <div class="footer-links">
-        <a href="#">Telegram</a>
-        <a href="#">ВКонтакте</a>
-        <a href="#">WhatsApp</a>
+    <div class="footer-bottom">
+      <div class="footer-tm">Товарный знак №723207 зарегистрирован 13.08.2019, действует до 06.12.2028</div>
+      <div class="footer-links-bottom">
+        <a href="#">Политика конфиденциальности</a>
+        <a href="#">Пользовательское соглашение</a>
+        <a href="#">Офerta</a>
       </div>
     </div>
   </div>
 </footer>
 
 <script>
-window.addEventListener('scroll',()=>document.getElementById('nav').classList.toggle('scrolled',scrollY>20));
-const io=new IntersectionObserver(els=>els.forEach(e=>{if(e.isIntersecting)e.target.classList.add('visible')}),{threshold:.1});
-document.querySelectorAll('.fade-up').forEach(el=>io.observe(el));
+// NAV
+window.addEventListener('scroll',()=>document.getElementById('nav').classList.toggle('solid',scrollY>20));
 
+// Scroll to
+function scrollTo(id){document.getElementById(id).scrollIntoView({behavior:'smooth'})}
+
+// Reveal on scroll
+const obs=new IntersectionObserver(entries=>entries.forEach(e=>{if(e.isIntersecting)e.target.classList.add('in')}),{threshold:.1});
+document.querySelectorAll('.reveal,.reveal-left').forEach(el=>obs.observe(el));
+
+// Counters
+function counter(id,to,d=0){
+  const el=document.getElementById(id);let v=0;
+  const step=to/50;
+  const t=setInterval(()=>{v=Math.min(v+step,to);el.textContent=Math.round(v);if(v>=to)clearInterval(t)},30);
+}
+setTimeout(()=>{counter('sv1',6);counter('sv2',50);counter('sv3',6);counter('sv4',100)},600);
+
+// Mode
 let mode='search';
-function setMode(m){mode=m;document.querySelectorAll('.s-tool').forEach(b=>b.style.borderColor='');event.currentTarget.style.borderColor='var(--blue)';event.currentTarget.style.color='var(--blue)';}
-
-function setQuery(q){
-  document.getElementById('search-input').value=q;
-  document.getElementById('search-input').focus();
-  askAI();
+function setMode(m,btn){
+  mode=m;
+  document.querySelectorAll('.mode-pill').forEach(b=>b.classList.remove('active'));
+  if(btn)btn.classList.add('active');
 }
 
-// Автоувеличение textarea
-const ti=document.getElementById('search-input');
-ti.addEventListener('input',function(){this.style.height='auto';this.style.height=Math.min(this.scrollHeight,200)+'px';});
+// Search textarea
+const ta=document.getElementById('sinp');
+ta.addEventListener('input',function(){this.style.height='auto';this.style.height=Math.min(this.scrollHeight,240)+'px'});
 
 let busy=false;
-async function askAI(){
+function ask(q){
+  document.getElementById('sinp').value=q;
+  doAsk();
+}
+async function doAsk(){
   if(busy)return;
-  const q=document.getElementById('search-input').value.trim();
-  if(!q)return;
+  const q=document.getElementById('sinp').value.trim();if(!q)return;
   busy=true;
-  const cr=document.getElementById('chat-results');
-  cr.classList.add('active');
-  cr.innerHTML+=`<div class="cr-q">${q.replace(/</g,'&lt;')}</div>`;
-  const ans=document.createElement('div');
-  ans.className='cr-a';
-  ans.innerHTML='<div class="cr-typing"><span></span><span></span><span></span></div>';
-  cr.appendChild(ans);
-  document.getElementById('search-input').value='';
-  ti.style.height='auto';
-  cr.scrollIntoView({behavior:'smooth',block:'end'});
+  const s=document.getElementById('cstream');
+  s.classList.add('on');
+  s.innerHTML+=`<div class="msg-u">${q.replace(/</g,'&lt;')}</div>`;
+  document.getElementById('sinp').value='';
+  ta.style.height='auto';
+  const a=document.createElement('div');a.className='msg-a';
+  a.innerHTML='<div class="typing"><s></s><s></s><s></s></div>';
+  s.appendChild(a);s.scrollIntoView({behavior:'smooth',block:'end'});
 
-  const sysPrompts={
-    search:'Ты эксперт по коммерческой недвижимости в России. Помоги найти и описать объекты. Кратко, по делу, до 120 слов. Только русский. Без markdown.',
-    analytics:'Ты аналитик рынка коммерческой недвижимости РФ. Дай данные о ценах, динамике, прогнозах. Кратко, по делу, до 120 слов. Только русский. Без markdown.',
-    legal:'Ты юрист по недвижимости РФ. Помоги с правовыми вопросами по сделкам с коммерческой недвижимостью. Кратко и понятно, до 120 слов. Только русский. Без markdown.'
+  const sys={
+    search:'Ты эксперт по коммерческой недвижимости РФ. Помогаешь найти объекты. Отвечай кратко (до 130 слов), по делу. Только русский. Без markdown.',
+    analytics:'Ты аналитик рынка коммерческой недвижимости РФ. Предоставляй данные, цифры, тренды. До 130 слов. Только русский. Без markdown.',
+    legal:'Ты опытный юрист по недвижимости РФ. Отвечай понятно и профессионально. До 130 слов. Только русский. Без markdown.'
   };
 
   try{
     const r=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({system:sysPrompts[mode]||sysPrompts.search,messages:[{role:'user',content:q}],max_tokens:400})});
+      body:JSON.stringify({system:sys[mode]||sys.search,messages:[{role:'user',content:q}],max_tokens:350})});
     const d=await r.json();
-    ans.textContent=d?.content?.[0]?.text||'Не удалось получить ответ. Попробуйте переформулировать.';
-  }catch(e){
-    ans.textContent='Ошибка подключения к AI. Проверьте интернет.';
-  }
+    a.textContent=d?.content?.[0]?.text||'Не удалось получить ответ.';
+  }catch(e){a.textContent='Ошибка подключения. Проверьте соединение.';}
   busy=false;
-  cr.scrollIntoView({behavior:'smooth',block:'end'});
+  s.scrollIntoView({behavior:'smooth',block:'end'});
 }
 
-function ctaSubmit(){
+// CTA
+function ctaSend(){
   const v=document.getElementById('cta-email').value.trim();
   if(!v||!v.includes('@'))return;
   document.getElementById('cta-ok').style.display='block';
