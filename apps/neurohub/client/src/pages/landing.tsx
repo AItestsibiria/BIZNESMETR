@@ -1755,9 +1755,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             подсвечен: маленький pill «✦ Live» сверху, font-display h2 +
             gradient-text, под ним подзаголовок с MuzaAi-логотипом. */}
         <div className="flex justify-center mb-3">
-          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-fuchsia-500/30 bg-fuchsia-500/10 text-[11px] font-sans font-medium text-fuchsia-200 uppercase tracking-wider">
+          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-fuchsia-500/30 bg-fuchsia-500/10 text-[11px] font-sans font-medium text-fuchsia-200 uppercase tracking-wider whitespace-nowrap">
             <span className="w-1.5 h-1.5 rounded-full bg-fuchsia-400 animate-pulse" />
-            Live · Плейлист
+            Платформа на тестировании · Platform in beta
           </span>
         </div>
         <h2 className="text-2xl sm:text-3xl font-display font-bold text-center mb-3 tracking-tight">
