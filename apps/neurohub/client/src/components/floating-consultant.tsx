@@ -1824,16 +1824,39 @@ export function FloatingConsultant() {
         const reappearMs = dismissedRef.current === 1 ? REAPPEAR_MS_FIRST
                           : dismissedRef.current === 2 ? REAPPEAR_MS_SECOND
                           : REAPPEAR_MS_THIRD;
-        // Toast «тапни на экран 2 раза и я вернусь» — instructs юзера как wake
+        // Eugene 2026-05-24 Босс «сообщение тапни показывает Музa в облаке
+        // перед уходом не ярко». Subtle speech-bubble стиль (dark glass +
+        // soft purple border), бочком от где была Музa (bottom-right),
+        // НЕ bright gradient. Auto-hide 4.5s.
         try {
           const dur = reappearMs >= 3_600_000
             ? `${Math.round(reappearMs / 3_600_000)} ч`
             : `${Math.round(reappearMs / 60_000)} мин`;
           const toastDiv = document.createElement("div");
           toastDiv.textContent = `Тапни на экран 2 раза и я вернусь · иначе через ${dur}`;
-          toastDiv.style.cssText = "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#7C3AED,#FF006E,#00D4FF);color:#fff;padding:10px 18px;border-radius:9999px;font-size:13px;font-weight:600;z-index:99999;box-shadow:0 8px 32px rgba(124,58,237,0.4);animation:fadeInUp 0.3s ease-out;max-width:88vw;text-align:center;";
+          toastDiv.style.cssText = [
+            "position:fixed",
+            "bottom:24px",
+            "right:24px",
+            "background:rgba(10,10,23,0.82)",
+            "backdrop-filter:blur(8px)",
+            "-webkit-backdrop-filter:blur(8px)",
+            "color:rgba(255,255,255,0.78)",
+            "padding:8px 14px",
+            "border-radius:18px 18px 18px 4px",
+            "font-size:12px",
+            "font-weight:500",
+            "z-index:99999",
+            "border:1px solid rgba(124,58,237,0.35)",
+            "box-shadow:0 4px 16px rgba(0,0,0,0.3)",
+            "max-width:280px",
+            "line-height:1.4",
+            "animation:fadeIn 0.4s ease-out",
+            "pointer-events:none",
+          ].join(";");
           document.body.appendChild(toastDiv);
-          window.setTimeout(() => { try { toastDiv.remove(); } catch {} }, 4500);
+          window.setTimeout(() => { try { toastDiv.style.opacity = "0"; toastDiv.style.transition = "opacity 0.4s"; } catch {} }, 4100);
+          window.setTimeout(() => { try { toastDiv.remove(); } catch {} }, 4600);
         } catch {}
         timerRef.current = window.setTimeout(() => {
           setVisible(true);
