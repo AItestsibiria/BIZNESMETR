@@ -7698,6 +7698,87 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     }
   });
 
+  // Eugene 2026-05-24 Босс «Музa Директор контролирует всех агентов, собирает
+  // всю информацию, итоговую докладывает через аудио». Voice report endpoint
+  // для admin UI кнопки «🎤 Доложи итоги».
+  //
+  // GET/POST /api/admin/v304/director/voice-report?period=today&skipTts=0&voice=alena
+  // Returns: { data: { textSummary, audioBase64?, audioContentType?, ttsError?,
+  //                    generatedAt, period, sections }, error: null }
+  //
+  // Auth: requireAdmin (Босс / super_admin). Audit-log с пометкой кто запросил.
+  // Secrets-admin-only rule: ENV-values НЕ возвращаются.
+  app.get("/api/admin/v304/director/voice-report", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const period = typeof req.query.period === "string" ? req.query.period : "today";
+      const skipTts = String(req.query.skipTts || "").trim() === "1";
+      const voice = typeof req.query.voice === "string" ? req.query.voice : undefined;
+      const { buildDirectorSummary } = await import("./lib/directorVoiceReport");
+      const report = await buildDirectorSummary({
+        period,
+        voice: voice as any,
+        skipTts,
+      });
+      // Audit-log (без audio payload — слишком жирно)
+      try {
+        const userId = (req as any).user?.id ?? null;
+        const email = (req as any).user?.email ?? null;
+        recordAuditEntry({
+          userId: userId ?? 0,
+          adminEmail: email ?? "system",
+          action: "create",
+          entity: "director:voice-report",
+          entityKey: report.period.id,
+          before: null,
+          after: {
+            period: report.period,
+            textLength: report.textSummary.length,
+            hasAudio: !!report.audioBase64,
+            ttsError: report.ttsError ?? null,
+          },
+        });
+      } catch {}
+      res.json({ data: report, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  app.post("/api/admin/v304/director/voice-report", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const period = (req.body?.period as string) || "today";
+      const skipTts = req.body?.skipTts === true || req.body?.skipTts === 1;
+      const voice = typeof req.body?.voice === "string" ? req.body.voice : undefined;
+      const { buildDirectorSummary } = await import("./lib/directorVoiceReport");
+      const report = await buildDirectorSummary({
+        period,
+        voice: voice as any,
+        skipTts,
+      });
+      try {
+        const userId = (req as any).user?.id ?? null;
+        const email = (req as any).user?.email ?? null;
+        recordAuditEntry({
+          userId: userId ?? 0,
+          adminEmail: email ?? "system",
+          action: "create",
+          entity: "director:voice-report",
+          entityKey: report.period.id,
+          before: null,
+          after: {
+            period: report.period,
+            textLength: report.textSummary.length,
+            hasAudio: !!report.audioBase64,
+            ttsError: report.ttsError ?? null,
+          },
+        });
+      } catch {}
+      res.json({ data: report, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
   // =============================================================
   // Eugene 2026-05-24 Босс «В админке его пропиши, собирай туда ошибки
   // генерации + отчёт агента + возможность дожать в ручном режиме».

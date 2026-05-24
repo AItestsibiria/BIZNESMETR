@@ -755,63 +755,65 @@ export default function AdminV304Page() {
             Brand-style: glass-card backdrop + sticky-top, mobile single-row
             scroll (overflow-x-auto + flex-nowrap), desktop wrap. Активный
             TabsTrigger подсвечен brand-gradient. */}
+        {/* Eugene 2026-05-24 Босс «Проверяй дубли в админе, группируй по
+            направлениям» — Admin-tabs-groups rule. Все 40 tabs визуально
+            сгруппированы по 6 направлениям (см. tabClass helper ниже) с
+            color-coded gradient'ом и порядком: 📊 Аналитика → 👥 Юзеры →
+            🎵 Музa → 💰 Финансы → 🚨 Errors → ⚙️ System. */}
         <TabsList
           className="mb-4 sticky top-0 z-30 -mx-2 sm:mx-0 px-2 sm:px-3 py-2 h-auto flex flex-nowrap sm:flex-wrap gap-1 overflow-x-auto sm:overflow-visible justify-start glass-card border border-purple-500/20 rounded-2xl bg-[#0a0a17]/85 backdrop-blur-xl scrollbar-thin shadow-[0_4px_24px_rgba(124,58,237,0.18)]"
         >
-          <TabsTrigger value="master-dashboard" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🧠 Сводка</TabsTrigger>
-          <TabsTrigger value="brain-3d" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🧠 Второй мозг</TabsTrigger>
-          <TabsTrigger value="brain-analytics" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">📊 Мозг — Аналитика</TabsTrigger>
-          <TabsTrigger value="overview" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">Обзор</TabsTrigger>
-          <TabsTrigger value="friend" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">👤 Муза</TabsTrigger>
-          <TabsTrigger value="musa-avatar" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🎨 Аватар Музы</TabsTrigger>
-          <TabsTrigger value="image-generator" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🎨 Генератор</TabsTrigger>
-          <TabsTrigger value="files-archive" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">📁 Архив</TabsTrigger>
-          <TabsTrigger value="vps-sync" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🖥 VPS Sync</TabsTrigger>
-          {/* Eugene 2026-05-23 Босс: единая вкладка Ярс — operator-tab и
-              inline yars-rules слиты сюда. См. Yars-admin-unified rule. */}
-          <TabsTrigger value="yars-queue" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-red-500 data-[state=active]:via-amber-500 data-[state=active]:to-purple-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(217,70,239,0.45)] data-[state=active]:border-red-300/40">🚨 Ярс</TabsTrigger>
-          <TabsTrigger value="suggestions" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">💡 Идеи</TabsTrigger>
-          <TabsTrigger value="nps" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">💬 NPS</TabsTrigger>
-          <TabsTrigger value="escalations" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">😠 Жалобы</TabsTrigger>
-          <TabsTrigger value="plays-audit" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">📊 Аудит плеев</TabsTrigger>
-          <TabsTrigger value="plays-analytics" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">📊 Прослушивания</TabsTrigger>
-          <TabsTrigger value="feature-toggles" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🎛 UI Toggles</TabsTrigger>
-          <TabsTrigger value="bot-stats" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🤖 Бот</TabsTrigger>
-          <TabsTrigger value="ai-keys" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🤖 Ключи AI</TabsTrigger>
-          <TabsTrigger value="api-health" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🔑 API ключи</TabsTrigger>
-          {/* Eugene 2026-05-23 Босс Agent-orchestrator rule: central registry
-              всех agents (каналы, персоны, watchdog'и, cron'ы). */}
-          <TabsTrigger value="orchestrator" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🤖 Оркестратор</TabsTrigger>
-          <TabsTrigger value="gen-errors" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-red-500 data-[state=active]:via-amber-500 data-[state=active]:to-fuchsia-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(239,68,68,0.45)] data-[state=active]:border-red-300/40">🚨 Ошибки генерации</TabsTrigger>
-          {/* Eugene 2026-05-24 Босс «заведи агента по учёту затрат... Отчёт в
-              админке — Агент Деньга». Cost/profit per user/track. */}
-          <TabsTrigger value="denga" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-amber-500 data-[state=active]:via-orange-500 data-[state=active]:to-fuchsia-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(245,158,11,0.45)] data-[state=active]:border-amber-300/40">💰 Деньга</TabsTrigger>
-          {/* Eugene 2026-05-23 Босс «интерактивный дизайн писем от Музы» —
-              templates registry, preview, send-test, log. */}
-          <TabsTrigger value="email-templates" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">✉️ Письма Музы</TabsTrigger>
-          <TabsTrigger value="bot-channels" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🔌 Каналы</TabsTrigger>
-          <TabsTrigger value="delegates" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🤝 Заместители</TabsTrigger>
-          <TabsTrigger value="secrets" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🔑 Секреты</TabsTrigger>
-          <TabsTrigger value="templates" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">Шаблоны</TabsTrigger>
-          <TabsTrigger value="flags" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">Feature flags</TabsTrigger>
-          <TabsTrigger value="leads" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">Лиды</TabsTrigger>
-          <TabsTrigger value="audit" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">Audit log</TabsTrigger>
-          <TabsTrigger value="failures" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">⚠️ Проблемы</TabsTrigger>
-          <TabsTrigger value="dialogs" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">💬 Диалоги</TabsTrigger>
-          {/* Eugene 2026-05-21 Босс Multi-domain-admin-stats rule: per-domain
-              + сводная статистика по всем instance'ам MuzaAi. */}
-          <TabsTrigger value="multi-domain" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🌐 Все домены</TabsTrigger>
-          <TabsTrigger value="support" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🆘 Обращения</TabsTrigger>
-          <TabsTrigger value="journey" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🗺 Путь</TabsTrigger>
-          <TabsTrigger value="authors" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">👥 Авторы</TabsTrigger>
-          <TabsTrigger value="user-profiles" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">👤 Профили</TabsTrigger>
-          <TabsTrigger value="blocks" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🚫 Блокировки</TabsTrigger>
-          {/* Eugene 2026-05-20 Босс User-memory-context rule: память Музы по
-              юзерам — list / view / edit / recompress / delete. */}
-          <TabsTrigger value="user-memory" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">🧠 Память юзеров</TabsTrigger>
-          {/* Eugene 2026-05-23 Босс: публичное меню «Информация о Музе» —
-              CRUD разделов + upload файлов. См. plugin muza-info. */}
-          <TabsTrigger value="muza-info" className="shrink-0 whitespace-nowrap text-xs sm:text-sm data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-fuchsia-300/40">📖 Информация о Музе</TabsTrigger>
+          {/* ═══ 📊 АНАЛИТИКА (emerald-tinted) ═══ */}
+          <TabsTrigger value="master-dashboard" className={tabClass("analytics")}>📊 Сводка</TabsTrigger>
+          <TabsTrigger value="brain-3d" className={tabClass("analytics")}>📊 Второй мозг (3D)</TabsTrigger>
+          <TabsTrigger value="brain-analytics" className={tabClass("analytics")}>📊 Воронки и тренды</TabsTrigger>
+          <TabsTrigger value="overview" className={tabClass("analytics")}>📊 Обзор системы</TabsTrigger>
+          <TabsTrigger value="plays-analytics" className={tabClass("analytics")}>📊 Прослушивания</TabsTrigger>
+          <TabsTrigger value="plays-audit" className={tabClass("analytics")}>📊 Аудит плеев</TabsTrigger>
+          <TabsTrigger value="multi-domain" className={tabClass("analytics")}>📊 Все домены</TabsTrigger>
+          <TabsTrigger value="journey" className={tabClass("analytics")}>📊 Путь</TabsTrigger>
+          <TabsTrigger value="dialogs" className={tabClass("analytics")}>📊 Диалоги</TabsTrigger>
+
+          {/* ═══ 👥 ЮЗЕРЫ (cyan-tinted) ═══ */}
+          <TabsTrigger value="authors" className={tabClass("users")}>👥 Авторы</TabsTrigger>
+          <TabsTrigger value="user-profiles" className={tabClass("users")}>👥 Профили</TabsTrigger>
+          <TabsTrigger value="user-memory" className={tabClass("users")}>👥 Память юзеров</TabsTrigger>
+          <TabsTrigger value="blocks" className={tabClass("users")}>👥 Блокировки</TabsTrigger>
+          <TabsTrigger value="escalations" className={tabClass("users")}>👥 Жалобы</TabsTrigger>
+          <TabsTrigger value="nps" className={tabClass("users")}>👥 NPS</TabsTrigger>
+          <TabsTrigger value="suggestions" className={tabClass("users")}>👥 Идеи</TabsTrigger>
+          <TabsTrigger value="support" className={tabClass("users")}>👥 Обращения</TabsTrigger>
+          <TabsTrigger value="leads" className={tabClass("users")}>👥 Лиды</TabsTrigger>
+
+          {/* ═══ 🎵 МУЗA (fuchsia-tinted) ═══ */}
+          <TabsTrigger value="friend" className={tabClass("musa")}>🎵 Музa</TabsTrigger>
+          <TabsTrigger value="musa-avatar" className={tabClass("musa")}>🎵 Аватар Музы</TabsTrigger>
+          <TabsTrigger value="muza-info" className={tabClass("musa")}>🎵 Информация о Музе</TabsTrigger>
+          <TabsTrigger value="email-templates" className={tabClass("musa")}>🎵 Письма Музы</TabsTrigger>
+          <TabsTrigger value="orchestrator" className={tabClass("musa")}>🎵 Оркестратор</TabsTrigger>
+          <TabsTrigger value="bot-channels" className={tabClass("musa")}>🎵 Каналы</TabsTrigger>
+          <TabsTrigger value="bot-stats" className={tabClass("musa")}>🎵 Бот</TabsTrigger>
+
+          {/* ═══ 💰 ФИНАНСЫ (amber-tinted) ═══ */}
+          <TabsTrigger value="denga" className={tabClass("finance")}>💰 Деньга</TabsTrigger>
+
+          {/* ═══ 🚨 ERRORS / ALERTS (red-tinted) ═══ */}
+          <TabsTrigger value="gen-errors" className={tabClass("errors")}>🚨 Ошибки генерации</TabsTrigger>
+          <TabsTrigger value="yars-queue" className={tabClass("errors")}>🚨 Ярс</TabsTrigger>
+          <TabsTrigger value="failures" className={tabClass("errors")}>🚨 Проблемы</TabsTrigger>
+
+          {/* ═══ ⚙️ SYSTEM (violet-tinted) ═══ */}
+          <TabsTrigger value="api-health" className={tabClass("system")}>⚙️ API ключи</TabsTrigger>
+          <TabsTrigger value="ai-keys" className={tabClass("system")}>⚙️ Ключи AI</TabsTrigger>
+          <TabsTrigger value="secrets" className={tabClass("system")}>⚙️ Секреты</TabsTrigger>
+          <TabsTrigger value="vps-sync" className={tabClass("system")}>⚙️ VPS Sync</TabsTrigger>
+          <TabsTrigger value="files-archive" className={tabClass("system")}>⚙️ Архив</TabsTrigger>
+          <TabsTrigger value="image-generator" className={tabClass("system")}>⚙️ Генератор изображений</TabsTrigger>
+          <TabsTrigger value="feature-toggles" className={tabClass("system")}>⚙️ UI Toggles</TabsTrigger>
+          <TabsTrigger value="flags" className={tabClass("system")}>⚙️ Feature flags</TabsTrigger>
+          <TabsTrigger value="templates" className={tabClass("system")}>⚙️ Шаблоны</TabsTrigger>
+          <TabsTrigger value="delegates" className={tabClass("system")}>⚙️ Заместители</TabsTrigger>
+          <TabsTrigger value="audit" className={tabClass("system")}>⚙️ Audit log</TabsTrigger>
         </TabsList>
         <TabsContent value="master-dashboard"><MasterDashboardTab /></TabsContent>
         <TabsContent value="brain-3d">
