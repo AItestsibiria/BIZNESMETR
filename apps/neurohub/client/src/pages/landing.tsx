@@ -514,6 +514,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const [repeatMode, setRepeatMode] = useState<"off" | "all" | "one">("all");
   // Eugene 2026-05-16 Босс «кнопка 🔍 Детали справа от Repeat — full-screen modal».
   const [detailsOpen, setDetailsOpen] = useState(false);
+  // Eugene 2026-05-24 Босс «обложка увеличивается и её можно сохранить, без меню
+  // при первом нажиме». Lightbox-режим: tap по обложке main player → fullscreen
+  // image, без controls/S/Play. Save через long-press (mobile) / right-click (desktop).
+  const [coverLightbox, setCoverLightbox] = useState(false);
   // Eugene 2026-05-17 Босс «стильный ползунок громкости в плеере».
   // Persist в localStorage пер-юзер (muzaai-volume).
   const [volume, setVolume] = useState<number>(() => {
@@ -1843,8 +1847,16 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                 className={`relative bg-gradient-to-br from-purple-500/30 to-blue-500/30 flex items-center justify-center cursor-pointer shadow-lg shadow-purple-500/10 overflow-hidden transition-all duration-300 w-full h-full rounded-xl ${
                   coverExpanded ? "md:rounded-2xl" : ""
                 }`}
-                onClick={() => setExpandedId(expandedId === currentTrack.id ? null : currentTrack.id)}
-                title={(currentTrack as any).hasCustomCover ? "Обложка создана автором" : undefined}
+                onClick={() => {
+                  // Eugene 2026-05-24 Босс «обложка увеличивается без меню при первом нажиме».
+                  // Main player cover → lightbox (fullscreen image, без controls/S/Play),
+                  // юзер может сохранить через long-press (mobile) / right-click (desktop).
+                  // S-кнопка в углу обложки (desktop) и expanded-row controls остаются доступны
+                  // для меню — это «второе нажатие» в сценарии Босса.
+                  if (currentTrack.imageUrl) setCoverLightbox(true);
+                  else setExpandedId(expandedId === currentTrack.id ? null : currentTrack.id);
+                }}
+                title={(currentTrack as any).hasCustomCover ? "Обложка создана автором — нажми для увеличения" : "Нажми для увеличения"}
               >
                 {/* Crossfade: old cover fading out */}
                 {prevCoverUrl && coverFading && (
@@ -2284,6 +2296,38 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           onRepeatToggle={() => setRepeatMode(m => m === "off" ? "all" : m === "all" ? "one" : "off")}
           onSetRepeatMode={(m) => setRepeatMode(m)}
         />
+
+        {/* Eugene 2026-05-24 Босс «обложка увеличивается без меню при первом нажиме».
+            Lightbox-режим: только image + кнопка закрытия. Save через long-press
+            (mobile native context menu) / right-click (desktop). Контролы и меню
+            недоступны — это «второе нажатие» в сценарии Босса (S-кнопка или expand). */}
+        {coverLightbox && currentTrack?.imageUrl && (
+          <div
+            className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in duration-200"
+            onClick={() => setCoverLightbox(false)}
+            role="dialog"
+            aria-label="Увеличенная обложка"
+          >
+            <img
+              src={currentTrack.imageUrl}
+              alt={currentTrack.displayTitle || currentTrack.prompt || "Обложка"}
+              className="max-w-[92vw] max-h-[92vh] w-auto h-auto object-contain rounded-2xl shadow-2xl shadow-purple-500/30 select-none"
+              onClick={(e) => e.stopPropagation()}
+              draggable={false}
+            />
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setCoverLightbox(false); }}
+              aria-label="Закрыть"
+              className="absolute top-4 right-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-md border border-white/20 flex items-center justify-center text-white text-2xl leading-none transition-colors"
+            >
+              ×
+            </button>
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-white/60 text-xs sm:text-sm font-sans pointer-events-none select-none">
+              Удерживай, чтобы сохранить
+            </div>
+          </div>
+        )}
 
         {/* Expanded cover rendered inline after selected track (see renderExpandedCover below) */}
 
