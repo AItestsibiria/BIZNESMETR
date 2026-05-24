@@ -12014,6 +12014,10 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         style,
         cost: charge.isFree ? 0 : PRICES.cover,
         status: "processing",
+        // Eugene 2026-05-24 Босс «по умолчанию обложки не публикуются».
+        // Cover создаётся private (isPublic=0). Юзер может опубликовать
+        // вручную через /covers UI или admin tab.
+        isPublic: 0,
       });
 
       const fullPrompt = `Album cover art. Style: ${style || "modern"}. ${prompt}. High quality, professional album artwork, square format.`;
