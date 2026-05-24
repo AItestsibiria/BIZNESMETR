@@ -25,6 +25,7 @@ import { db } from "../../storage";
 import { chatbotSessions, chatbotMessages, users, generations } from "@shared/schema";
 import { personaFor, buildPersonaSystem } from "../../lib/consultantPersona";
 import { callUnifiedMuzaLLM } from "../../lib/llmCore";
+import { detectMuzaToolIntent } from "../../lib/muzaIntentRouter";
 import { loadHistoryForLLM } from "../../lib/chatHistory";
 import { logUserActionFailure } from "../../lib/userActionFailures";
 import { detectsYars, recordYarsMention } from "../../lib/yarsDetect";
@@ -522,8 +523,11 @@ async function generateReply(
   };
 
   // 1. Primary: единая Claude через llmCore (с MUZA_TOOLS + cross-channel history).
+  // forceAnthropic для player/panel/generation intent — иначе DeepSeek (primary)
+  // вернёт text без tool-use → команды не выполнятся в Max. См. muzaIntentRouter.ts.
   const history = loadHistoryForLLM(sessionId, 15);
   const dynamicContext = (memoryCtx ? memoryCtx + "\n\n" : "") + ownerHint;
+  const forceAnthropic = detectMuzaToolIntent(text);
   const reply = await callUnifiedMuzaLLM({
     sessionId,
     userId: authUserId,
@@ -534,6 +538,7 @@ async function generateReply(
     maxTokens: 400,
     role: muzaRole,
     onToolResult,
+    forceAnthropic,
   });
   if (reply) return { reply, attachedTrackId };
 

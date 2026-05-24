@@ -30,6 +30,7 @@ import { personaFor, PERSONAS, loadKB, buildPersonaSystem, kbPath } from "../../
 import { debounceMessage, bypassDebounce } from "../../lib/messageDebouncer";
 import { loadHistoryForLLM } from "../../lib/chatHistory";
 import { callUnifiedMuzaLLM } from "../../lib/llmCore";
+import { detectMuzaToolIntent } from "../../lib/muzaIntentRouter";
 import { logUserActionFailure } from "../../lib/userActionFailures";
 import { detectsYars, recordYarsMention } from "../../lib/yarsDetect";
 import { buildMemoryContext, scheduleCompressionIfNeeded } from "../../lib/userMemory";
@@ -216,6 +217,11 @@ async function generateReply(
   authUserId: number | null = null,
 ): Promise<string> {
   // 1. Primary: единый Claude-call через llmCore (с MUZA_TOOLS).
+  // Если у юзера player/panel/generation intent — нужны MUZA_TOOLS, которые
+  // работают ТОЛЬКО на Anthropic-шаге. Без forceAnthropic DeepSeek (primary)
+  // вернёт text без вызова tool → команды «постав трек», «создай песню»
+  // не сработают в Telegram. См. muzaIntentRouter.ts + routes.ts:3675.
+  const forceAnthropic = detectMuzaToolIntent(userText);
   const reply = await callUnifiedMuzaLLM({
     sessionId,
     userId: authUserId,
@@ -224,6 +230,7 @@ async function generateReply(
     history,
     dynamicContext,
     maxTokens: 400,
+    forceAnthropic,
   });
   if (reply) return reply;
 

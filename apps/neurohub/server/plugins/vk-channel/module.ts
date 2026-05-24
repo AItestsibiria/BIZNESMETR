@@ -28,6 +28,7 @@ import type { BootContext, Module } from "../../core";
 import { db } from "../../storage";
 import { chatbotSessions, chatbotMessages } from "@shared/schema";
 import { callUnifiedMuzaLLM } from "../../lib/llmCore";
+import { detectMuzaToolIntent } from "../../lib/muzaIntentRouter";
 import { loadHistoryForLLM } from "../../lib/chatHistory";
 import { logUserActionFailure } from "../../lib/userActionFailures";
 import { vkSendMessage, vkConfigStatus } from "../../lib/vkApi";
@@ -131,6 +132,9 @@ async function generateVkReply(
   authUserId: number | null,
 ): Promise<string> {
   const history = loadHistoryForLLM(sessionId, 15);
+  // forceAnthropic для player/panel/generation intent — иначе DeepSeek (primary)
+  // вернёт text без tool-use → команды не выполнятся в VK. См. muzaIntentRouter.ts.
+  const forceAnthropic = detectMuzaToolIntent(text);
   try {
     const reply = await callUnifiedMuzaLLM({
       sessionId,
@@ -140,6 +144,7 @@ async function generateVkReply(
       history,
       maxTokens: 400,
       role: null,
+      forceAnthropic,
     });
     if (reply) return reply;
   } catch (e) {
