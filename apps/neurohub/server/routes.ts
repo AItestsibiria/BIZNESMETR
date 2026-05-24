@@ -10314,8 +10314,37 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       // Build the media create payload per GPTunnel Suno API docs
       const rawLyrics = norm.finalLyrics || lyrics || "";
       const rawPrompt = norm.finalPrompt || prompt || "";
-      const fullTags = norm.finalStyle;
+      let fullTags = norm.finalStyle;
       const isInstrumental = norm.voiceType === "instrumental";
+
+      // Eugene 2026-05-24 Босс «Suno надо поставить автоматическое указание
+      // проверять ударение на слова и если выбран язык передать указание
+      // Suno чтобы он его распознал». Detect language от lyrics+prompt
+      // (cyrillic vs latin ratio) → augment `tags` с language hint.
+      // Suno использует tag-разметку «russian», «english», «native
+      // pronunciation» для правильной фонетики. Без этого иногда коверкает
+      // ударения и phonemes (особенно для русского).
+      try {
+        const langSrc = `${rawLyrics}\n${rawPrompt}`;
+        const cyr = (langSrc.match(/[а-яА-ЯёЁ]/g) || []).length;
+        const lat = (langSrc.match(/[a-zA-Z]/g) || []).length;
+        const total = cyr + lat;
+        let langHint = "";
+        if (total >= 10) {
+          if (cyr / total > 0.6 && !/russian|russ\b/i.test(fullTags || "")) {
+            langHint = "russian language, native pronunciation, clear articulation, accurate stress";
+          } else if (lat / total > 0.6 && !/english|engl\b/i.test(fullTags || "")) {
+            langHint = "english language, clear pronunciation";
+          }
+        }
+        if (langHint) {
+          fullTags = `${(fullTags || "").trim()}${fullTags ? ", " : ""}${langHint}`.slice(0, 200);
+          console.log(`[MUSIC] gen #${gen.id} language hint auto-added: «${langHint}»`);
+        }
+      } catch (e) {
+        console.warn(`[MUSIC] gen #${gen.id} language detection failed:`, e);
+      }
+
       const payload: any = {
         model: "suno",
       };
