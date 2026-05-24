@@ -2947,8 +2947,11 @@ export function FloatingConsultant() {
                           onClick={() => {
                             try { playMuzaTick(); } catch {}
                             trackEngagement("consultant_action", { kind: "edit_lyrics" });
-                            const lyrics = extractLyricsForEdit(m.text);
-                            setChatInput("Поправь текст (мой вариант):\n" + lyrics);
+                            // Eugene 2026-05-24 Босс «если нажимается режим правки
+                            // то должен редактироваться последний текст полностью».
+                            // Берём весь bot-message целиком (вводные фразы Музы +
+                            // lyrics block + хвост), юзер сам поправит что нужно.
+                            setChatInput("Поправь текст (мой вариант):\n\n" + m.text);
                             setTimeout(() => {
                               const ta = document.querySelector<HTMLTextAreaElement>('textarea[data-muza-chat-input]');
                               if (ta) {
