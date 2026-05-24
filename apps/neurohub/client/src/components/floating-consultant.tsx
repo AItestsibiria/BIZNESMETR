@@ -1790,6 +1790,39 @@ export function FloatingConsultant() {
       dismissedRef.current = saved;
       if (saved >= MAX_DISMISS) return;
     } catch {}
+    // Eugene 2026-05-24 Босс «1 ч / совсем (до конца суток)» — проверяем
+    // localStorage timer. Если ещё активен — НЕ показываем. Если истёк —
+    // удаляем ключ и показываем normally. Для "eod" режима — после истечения
+    // показываем 1 раз на 3 минуты затем re-hide.
+    let untilTs = 0;
+    let isEod = false;
+    try {
+      untilTs = Number(localStorage.getItem("muza-dismiss-until-ts") || "0");
+      isEod = localStorage.getItem("muza-dismiss-eod") === "1";
+    } catch {}
+    const now = Date.now();
+    if (untilTs > 0 && untilTs > now) {
+      // Ещё спим — schedule reappear на конкретное время
+      const diff = Math.min(untilTs - now, 24 * 60 * 60 * 1000);
+      timerRef.current = window.setTimeout(() => {
+        try { localStorage.removeItem("muza-dismiss-until-ts"); localStorage.removeItem("muza-dismiss-eod"); } catch {}
+        setVisible(true);
+        trackEngagement("consultant_impression", { trigger: "scheduled_resume" });
+        // Для "eod" режима — auto-hide через 3 мин если no interaction
+        if (isEod) {
+          window.setTimeout(() => {
+            if (!chatOpen) {
+              try { localStorage.setItem("muza-dismiss-until-ts", String(Date.now() + 21 * 60 * 60 * 1000)); } catch {}
+              setVisible(false);
+            }
+          }, 3 * 60 * 1000);
+        }
+      }, diff);
+      return;
+    }
+    if (untilTs > 0) {
+      try { localStorage.removeItem("muza-dismiss-until-ts"); localStorage.removeItem("muza-dismiss-eod"); } catch {}
+    }
     timerRef.current = window.setTimeout(() => {
       setVisible(true);
       trackEngagement("consultant_impression");
@@ -2401,13 +2434,46 @@ export function FloatingConsultant() {
                 </span>
                 <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000" aria-hidden="true" />
               </button>
+              {/* Eugene 2026-05-24 Босс «в облачке Музы добавь выбор времени:
+                  1 час / совсем (до конца суток)». 2 кнопки рядом. После
+                  «совсем» — при следующем визите в течение суток Музa
+                  появляется 1 раз на 3 минуты (опционально). */}
               <button
                 type="button"
-                onClick={dismiss}
-                className="min-h-[44px] px-3 rounded-xl bg-white/[0.04] text-[12px] text-white/70 hover:text-white hover:bg-white/[0.08] transition-colors border border-white/[0.06] active:scale-95"
-                aria-label="Скрыть"
+                onClick={() => {
+                  // На 1 час
+                  try {
+                    const untilTs = Date.now() + 60 * 60 * 1000;
+                    localStorage.setItem("muza-dismiss-until-ts", String(untilTs));
+                    localStorage.removeItem("muza-dismiss-eod");
+                  } catch {}
+                  setExpanded(false);
+                  dismiss();
+                }}
+                className="min-h-[44px] px-2 rounded-xl bg-white/[0.04] text-[11px] text-white/70 hover:text-white hover:bg-white/[0.08] transition-colors border border-white/[0.06] active:scale-95"
+                aria-label="Скрыть на 1 час"
               >
-                Скрыть
+                На 1 ч
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  // До конца суток (MSK midnight)
+                  try {
+                    const now = new Date();
+                    const mskHours = (now.getUTCHours() + 3) % 24;
+                    const hoursToMidnight = 24 - mskHours;
+                    const untilTs = Date.now() + hoursToMidnight * 60 * 60 * 1000 - now.getUTCMinutes() * 60 * 1000;
+                    localStorage.setItem("muza-dismiss-until-ts", String(untilTs));
+                    localStorage.setItem("muza-dismiss-eod", "1");
+                  } catch {}
+                  setExpanded(false);
+                  dismiss();
+                }}
+                className="min-h-[44px] px-2 rounded-xl bg-white/[0.04] text-[11px] text-white/70 hover:text-white hover:bg-white/[0.08] transition-colors border border-white/[0.06] active:scale-95"
+                aria-label="Скрыть до конца суток"
+              >
+                Совсем
               </button>
             </div>
           </div>
