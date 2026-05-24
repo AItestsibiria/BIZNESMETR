@@ -790,10 +790,14 @@ router.post("/send-call", async (req, res) => {
   }
   const phone = v.normalized;
 
-  // Те же проверки уникальности что для SMS-flow.
+  // Eugene 2026-05-24 Босс «если номер авторизован — авторизуй, дай
+  // позвонить». Auto-switch register → login если номер уже существует
+  // (вместо 409 errror). Юзер просто продолжает flow, авторизуется,
+  // не разочаровывается ошибкой.
+  let effectivePurpose: "register" | "login" = purpose;
   if (purpose === "register") {
     const exists = db.select({ id: users.id }).from(users).where(eq(users.phone, phone)).get();
-    if (exists) return res.status(409).json({ data: null, error: "Этот номер уже зарегистрирован — войдите по нему" });
+    if (exists) effectivePurpose = "login";
   }
   if (purpose === "login") {
     const exists = db.select({ id: users.id }).from(users).where(eq(users.phone, phone)).get();
@@ -825,7 +829,7 @@ router.post("/send-call", async (req, res) => {
   const logId = logProvider({
     provider: `${provider.name}-call`,
     phone,
-    purpose: `call_${purpose}`,
+    purpose: `call_${effectivePurpose}`,
     result: {
       ok: result.ok,
       status: result.ok ? "sent" : "failed",
@@ -851,7 +855,7 @@ router.post("/send-call", async (req, res) => {
     db.insert(smsOtp).values({
       phone,
       otpHash: result.callId,
-      purpose: `call_${purpose}`,
+      purpose: `call_${effectivePurpose}`,
       providerLogId: logId,
       expiresAt,
     }).run();
@@ -860,8 +864,10 @@ router.post("/send-call", async (req, res) => {
   }
 
   bootRefs?.eventBus?.emit?.("auth.call_otp_sent", {
-    purpose, country: v.country.code, provider: provider.name,
+    purpose: effectivePurpose, country: v.country.code, provider: provider.name,
   }, "auth-sms");
+
+  const switchedToLogin = purpose === "register" && effectivePurpose === "login";
 
   return res.json({
     data: {
@@ -869,6 +875,11 @@ router.post("/send-call", async (req, res) => {
       method: "call",
       country: v.country.code,
       countryName: v.country.name,
+      // Eugene 2026-05-24 Босс «если номер авторизован — авторизуй» — flag
+      // даёт фронту знать что flow auto-switched и юзер сейчас войдёт (не
+      // зарегистрируется). UI может показать «Этот номер уже у нас — впустим».
+      purpose: effectivePurpose,
+      switchedToLogin,
       callPhone: result.callPhone || null,
       callPhonePretty: result.callPhonePretty || null,
       checkId: result.callId,
