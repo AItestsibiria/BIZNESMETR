@@ -444,6 +444,19 @@
     opacity: 0.4;
   }
 }
+
+/* Eugene 2026-05-23 Босс «платформа на тестировании пульсирующей 1 раз
+   в 5 сек, ярко белая надпись, контур в стиле Музa Ай градиентами». */
+@keyframes betaPulse {
+  0%, 100% { opacity: 0.85; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.04); }
+}
+.beta-badge-pulse {
+  animation: betaPulse 5s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .beta-badge-pulse { animation: none; opacity: 1; }
+}
 .consultant-dance {
   animation: consultantBreathe 6s ease-in-out infinite;
   transform-origin: 50% 95%;
