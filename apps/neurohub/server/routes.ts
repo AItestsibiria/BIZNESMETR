@@ -2929,7 +2929,26 @@ export async function registerRoutes(
           .where(and(eq(generations.userId, authUserId), eq(generations.type, "music"), eq(generations.status, "done")))
           .all();
         const name = u?.name || "автор";
-        if (userTracks.length === 0) {
+        // Eugene 2026-05-24 Босс «по возвращении в чат после 1 часа юзер
+        // должен вернуться в то же место — сообщение от Музы в стиле
+        // контекста: продолжим или осталось ещё чуть-чуть до финала».
+        const lastMsg = history.length > 0 ? history[history.length - 1] : null;
+        const lastMsgTs = lastMsg?.createdAt ? new Date(lastMsg.createdAt).getTime() : 0;
+        const lastMsgAge = lastMsgTs > 0 ? Date.now() - lastMsgTs : 0;
+        const ONE_HOUR = 60 * 60 * 1000;
+        if (history.length > 0 && lastMsgAge > ONE_HOUR) {
+          const lastBot = [...history].reverse().find(h => h.role === "bot");
+          const lastBotText = lastBot?.text || "";
+          const hasLyricsMarker = /\[(Куплет|Припев|Verse|Chorus|Bridge)/i.test(lastBotText);
+          const snip = lastBotText.slice(0, 120).replace(/\s+/g, " ").trim();
+          if (hasLyricsMarker && snip) {
+            greeting = `С возвращением, ${name}! 🎵 Мы были у финала — осталось буквально чуть-чуть. Хочешь продолжим оттуда?\n\nПоследнее моё:\n«${snip}…»`;
+          } else if (snip) {
+            greeting = `С возвращением, ${name}! 🎵 Мы остановились на «${snip}…». Продолжим оттуда — или новая идея?`;
+          } else {
+            greeting = `С возвращением, ${name}! 🎵 Давно не было — готова продолжить с того места. О чём сейчас думаешь?`;
+          }
+        } else if (userTracks.length === 0) {
           greeting = `Привет, ${name}! Готовы создать первый трек? Я тут — подскажу с поводом и стилем 🎵`;
         } else if (userTracks.length < 3) {
           greeting = `🎵 С возвращением, ${name}! Уже ${userTracks.length} трек${userTracks.length === 1 ? "" : "а"} у нас собрали. Что задумали сегодня?`;

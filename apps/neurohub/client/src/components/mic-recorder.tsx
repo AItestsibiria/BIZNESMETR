@@ -96,6 +96,18 @@ export function MicRecorder({ maxSeconds = DEFAULT_MAX, onRecorded, disabled }: 
       rec.start();
       setState("recording");
 
+      // Eugene 2026-05-24 Босс «при переходе порога 30 сек запись должна
+      // быть распознана в длине 30 сек». RAF (requestAnimationFrame) pauses
+      // когда таб в background → elapsed check не fires → recording
+      // продолжается > 30 сек. Fallback: безусловный setTimeout(stop,
+      // maxSeconds*1000) — fires даже когда tab inactive. Гарантирует
+      // обрезку до 30 сек + onRecorded → STT.
+      const autoStopBackupId = window.setTimeout(() => {
+        if (recorderRef.current && recorderRef.current.state === "recording") {
+          try { stop(); } catch {}
+        }
+      }, maxSeconds * 1000 + 200); // +200ms grace для RAF опередить
+
       // Уровень звука для визуала
       const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
       audioCtxRef.current = ctx;
@@ -114,6 +126,7 @@ export function MicRecorder({ maxSeconds = DEFAULT_MAX, onRecorded, disabled }: 
         const elapsed = (Date.now() - startedAt) / 1000;
         setSeconds(Math.floor(elapsed));
         if (elapsed >= maxSeconds) {
+          window.clearTimeout(autoStopBackupId);
           stop();
           return;
         }
