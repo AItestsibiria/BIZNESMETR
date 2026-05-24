@@ -1983,6 +1983,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                           const blob = resp?.ok ? await resp.blob() : null;
                           const files = blob ? [new File([blob], 'cover.jpg', { type: blob.type })] : [];
                           await navigator.share({ title: `Послушай на MuzaAi.ru`, text: `Послушай на MuzaAi.ru: ${title}`, url, ...(files.length ? { files } : {}) });
+                          fetch(`/api/gen-activity/${currentTrack.id}/share`, { method: 'POST' }).catch(() => {});
                           return;
                         } catch {}
                       }
