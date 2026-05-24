@@ -326,6 +326,49 @@ ssh root@72.56.1.149 'sed -i "/^ИМЯ_КЛЮЧА=/d" /var/www/neurohub/.env \
 
 ---
 
+### Admin-tabs-groups rule (Eugene 2026-05-24, **сильнее No-duplicates rule в части UI organization**)
+
+**В админ-панели `/admin/v304` все TabsTrigger сгруппированы по 6 направлениям через единый `tabClass(group)` helper (`apps/neurohub/client/src/pages/admin-v304.tsx`). Один источник правды для color-gradient'ов. НЕ дублировать inline-классы.**
+
+Босс: «Проверяй дубли в админе, группируй по направлениям».
+
+**Канонические 6 групп** (порядок в TabsList — этот же):
+
+| Group | Префикс | Gradient | Что входит |
+|---|---|---|---|
+| `analytics` | 📊 | emerald → cyan → blue | Сводка, Второй мозг (3D), Воронки и тренды, Обзор системы, Прослушивания, Аудит плеев, Все домены, Путь, Диалоги |
+| `users` | 👥 | cyan → sky → blue | Авторы, Профили, Память юзеров, Блокировки, Жалобы, NPS, Идеи, Обращения, Лиды |
+| `musa` | 🎵 | purple → fuchsia → pink | Музa (friend), Аватар Музы, Информация о Музе, Письма Музы, Музa Директор (orchestrator), Каналы, Бот |
+| `finance` | 💰 | amber → orange → fuchsia | Деньга (cost/profit) |
+| `errors` | 🚨 | red → amber → fuchsia | Ошибки генерации, Ярс, Проблемы |
+| `system` | ⚙️ | violet → purple → indigo | API ключи, Ключи AI, Секреты, VPS Sync, Архив, Генератор изображений, UI Toggles, Feature flags, Шаблоны, Заместители, Audit log |
+
+**Жёсткие правила:**
+
+1. **Любой новый tab ОБЯЗАН вызывать `tabClass(group)`** для className. Inline `data-[state=active]:bg-gradient-to-r ...` строки в TabsTrigger запрещены — это нарушение SSR (Single Source of Rule).
+2. **Префикс label = emoji группы** (📊 / 👥 / 🎵 / 💰 / 🚨 / ⚙️). НЕ смешивать (например `🎨 Аватар` теперь `🎵 Аватар Музы`).
+3. **Порядок tabs в TabsList идёт по группам** (analytics → users → musa → finance → errors → system). Внутри группы — по логической важности.
+4. **Перед созданием нового tab — сверка с существующими в той же группе.** Если функция overlap'ит ≥70% — НЕ создавать (нарушение No-duplicates rule). Расширить existing.
+5. **Если новая фича не вписывается ни в одну группу** — обсудить в claude.ai/code chat ДО implementation. Либо это сигнал создать 7-ю группу (редко), либо это сигнал что фича дублирует другую группу.
+6. **Comments в TabsList с разделителями `═══ <emoji> <ГРУППА> ═══`** — обязательны для визуальной навигации в коде.
+7. **`TAB_GROUP_STYLES` — read-only constant.** Менять цвета группы можно только через CLAUDE.md-апрув (это влияет на узнаваемость всех tabs группы юзером).
+
+**Найденные дубли при аудите 2026-05-24** (статус: оставлены раздельными, оба нужны):
+- `master-dashboard` (📊 Сводка) vs `overview` (📊 Обзор системы) vs `brain-3d` (3D) vs `brain-analytics` (воронки) — разные visualizations одних данных. Оставлены как 4 разных вкладки в группе `analytics`. Кандидат на консолидацию в будущем — sub-tabs внутри одной аналитической секции.
+- `plays-audit` (per-track diagnostic) vs `plays-analytics` (aggregate с period selector) — разные purposes (deep-dive vs overview). Оставлены раздельно.
+- `feature-toggles` (frontend UI toggles localStorage) vs `flags` (backend feature_flags DB) — разные слои. Оставлены раздельно.
+- `bot-stats` vs `bot-channels` vs `orchestrator` — bot-stats показывает статистику Telegram, bot-channels manage'ит channels (webhook), orchestrator = registry всех agents. Все 3 в группе `musa`.
+
+**Применяется к:** ВСЕМ будущим правкам `admin-v304.tsx` (добавление tabs, переименование, перегруппировка). НЕ применяется к: nested tabs внутри одной вкладки (например sub-tabs в yars-queue-tab.tsx — они под своим scope).
+
+**Связано с:**
+- No-duplicates rule — перед новым endpoint / UI tab проверка существующих
+- Brand-style consistency rule — gradient'ы группы используют brand palette
+- Yars-admin-unified rule — пример уже сделанной консолидации (operator + yars в один tab)
+- Reuse-working-solutions rule — расширять `tabClass()` helper, не плодить параллельные
+
+---
+
 ### Yars-admin-unified rule (Eugene 2026-05-23, **источник правды UI = одна вкладка**)
 
 **В админ-панели `/admin/v304` есть ровно ОДНА вкладка для всех Ярс/operator-команд — `🚨 Ярс` (`yars-queue` tab, `apps/neurohub/client/src/pages/admin/yars-queue-tab.tsx`). Все прежние дубли удалены.**
@@ -3488,11 +3531,13 @@ ssh root@31.130.148.107 'awk -F= "/^КЛЮЧ/{print \"length:\", length(\$2), \"
 **Анти-паттерн который правило закрывает (real-world пример 2026-05-23):**
 Фикс «плеер исчез» (commit `441ab5b`) применил валидацию ТОЛЬКО в `fetch().then()` callback. На mobile fetch GATED — initial render шёл из cached LS, мой фикс не выполнялся. Юзер опять видел «плеера нет». Если бы прошёл чек-лист (пункт 3 «mobile-gated paths» + пункт 8 «mental dry-run сценарии») — поймал бы это до push. Реальный фикс `bf2bf99` потребовался следующим коммитом.
 
-### Agent-orchestrator rule (Eugene 2026-05-23)
+### Agent-orchestrator rule (Eugene 2026-05-23, **rename 2026-05-24**)
 
-**Каждый новый channel / bot / persona / watchdog / cron / utility AI-сервис ОБЯЗАН register'ить себя в orchestrator на старте.** Это даёт Боссу и админам один единый view «кто живой, кто молчит, кто не настроен» в `/admin/v304 → 🤖 Оркестратор`.
+**Каждый новый channel / bot / persona / watchdog / cron / utility AI-сервис ОБЯЗАН register'ить себя в orchestrator на старте.** Это даёт Боссу и админам один единый view «кто живой, кто молчит, кто не настроен» в `/admin/v304 → 🎬 Музa Директор`.
 
-Reference: `apps/neurohub/server/lib/agentOrchestrator.ts` + полная документация в `docs/AGENT-ORCHESTRATOR.md`.
+**Display name (Eugene 2026-05-24): «Музa Директор»** — экспортируется из `agentOrchestrator.ts` как `DIRECTOR_NAME`. Босс «Оркестратор переименуем Музa Директор. Он контролирует всех агентов, собирает всю информацию, итоговую докладывает через аудио». Технический термин «orchestrator» остаётся в коде / id'ах / URLs (`/api/admin/v304/orchestrator/*`) — backward compat. Аудио-доклад: `POST /api/admin/v304/director/voice-report?period=today` (см. `lib/directorVoiceReport.ts` + кнопка «🎤 Доложи итоги» в orchestrator-tab).
+
+Reference: `apps/neurohub/server/lib/agentOrchestrator.ts` + `apps/neurohub/server/lib/directorVoiceReport.ts` + полная документация в `docs/AGENT-ORCHESTRATOR.md`.
 
 **3 шага при добавлении нового agent:**
 

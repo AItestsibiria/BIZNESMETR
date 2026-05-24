@@ -669,6 +669,43 @@ function MusaMemoryAdminTab({ toast }: { toast: ReturnType<typeof useToast>["toa
   );
 }
 
+/**
+ * Eugene 2026-05-24 Босс «Проверяй дубли в админе, группируй по направлениям» —
+ * Admin-tabs-groups rule (см. CLAUDE.md). Все TabsTrigger в admin-v304
+ * визуально сгруппированы по 6 направлениям через color-coded gradient.
+ *
+ * Один источник правды — этот helper. НЕ дублировать gradient inline в
+ * каждом TabsTrigger. Если нужен новый tab — выбрать одну из 6 групп и
+ * вызвать tabClass(group). Если ни одна группа не подходит — обсудить в
+ * чате (это сигнал что либо нужна новая группа, либо tab — дубль).
+ */
+type TabGroup = "analytics" | "users" | "musa" | "finance" | "errors" | "system";
+
+const TAB_GROUP_STYLES: Record<TabGroup, string> = {
+  // 📊 АНАЛИТИКА — emerald → cyan → blue (data/numbers)
+  analytics:
+    "data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-500 data-[state=active]:via-cyan-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(16,185,129,0.45)] data-[state=active]:border-emerald-300/40",
+  // 👥 ЮЗЕРЫ — cyan → blue (live data людей)
+  users:
+    "data-[state=active]:bg-gradient-to-r data-[state=active]:from-cyan-500 data-[state=active]:via-sky-500 data-[state=active]:to-blue-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(0,212,255,0.45)] data-[state=active]:border-cyan-300/40",
+  // 🎵 МУЗA — purple → fuchsia → pink (brand persona)
+  musa:
+    "data-[state=active]:bg-gradient-to-r data-[state=active]:from-purple-500 data-[state=active]:via-fuchsia-500 data-[state=active]:to-pink-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(217,70,239,0.45)] data-[state=active]:border-fuchsia-300/40",
+  // 💰 ФИНАНСЫ — amber → orange (money)
+  finance:
+    "data-[state=active]:bg-gradient-to-r data-[state=active]:from-amber-500 data-[state=active]:via-orange-500 data-[state=active]:to-fuchsia-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(245,158,11,0.45)] data-[state=active]:border-amber-300/40",
+  // 🚨 ERRORS / ALERTS — red → amber → fuchsia (attention)
+  errors:
+    "data-[state=active]:bg-gradient-to-r data-[state=active]:from-red-500 data-[state=active]:via-amber-500 data-[state=active]:to-fuchsia-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(239,68,68,0.45)] data-[state=active]:border-red-300/40",
+  // ⚙️ SYSTEM — violet → purple (infra/tools)
+  system:
+    "data-[state=active]:bg-gradient-to-r data-[state=active]:from-violet-500 data-[state=active]:via-purple-500 data-[state=active]:to-indigo-500 data-[state=active]:text-white data-[state=active]:shadow-[0_0_16px_rgba(124,58,237,0.45)] data-[state=active]:border-violet-300/40",
+};
+
+function tabClass(group: TabGroup): string {
+  return `shrink-0 whitespace-nowrap text-xs sm:text-sm ${TAB_GROUP_STYLES[group]}`;
+}
+
 export default function AdminV304Page() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -790,7 +827,7 @@ export default function AdminV304Page() {
           <TabsTrigger value="musa-avatar" className={tabClass("musa")}>🎵 Аватар Музы</TabsTrigger>
           <TabsTrigger value="muza-info" className={tabClass("musa")}>🎵 Информация о Музе</TabsTrigger>
           <TabsTrigger value="email-templates" className={tabClass("musa")}>🎵 Письма Музы</TabsTrigger>
-          <TabsTrigger value="orchestrator" className={tabClass("musa")}>🎵 Оркестратор</TabsTrigger>
+          <TabsTrigger value="orchestrator" className={tabClass("musa")}>🎬 Музa Директор</TabsTrigger>
           <TabsTrigger value="bot-channels" className={tabClass("musa")}>🎵 Каналы</TabsTrigger>
           <TabsTrigger value="bot-stats" className={tabClass("musa")}>🎵 Бот</TabsTrigger>
 
