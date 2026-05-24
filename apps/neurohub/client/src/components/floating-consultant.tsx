@@ -2051,6 +2051,64 @@ export function FloatingConsultant() {
     };
   }, [visible, chatOpen]);
 
+  // Eugene 2026-05-24 Босс «Музa не рассказывает факты о музыке + после
+  // нажатия облако не уходить со страницы — здесь появится трек, смысл».
+  // Реализация Musa-facts-rotation rule (CLAUDE.md): локальный rotating
+  // pool фактов про музыку. Каждые 90 сек рандом fact → smartBubbleText.
+  // Click → openChat (overlay НА текущей странице, без navigation) +
+  // doSendMessage просит Музу развернуть факт + предложить трек по смыслу.
+  const musicFactsRef = useRef([
+    { id: "feature_voices", emoji: "🎤", text: "Голос можно выбрать: женский, мужской, дуэт", expand: "Расскажи подробнее про выбор голоса в MuzaAi и предложи трек где это слышно" },
+    { id: "fact_chorus", emoji: "🎵", text: "Лучшие хиты — это 80% припев", expand: "Расскажи почему припев решает в хите и покажи трек где это видно" },
+    { id: "fact_suno_speed", emoji: "⚡", text: "AI пишет трек за минуту — раньше нужны были дни", expand: "Расскажи как AI ускорил создание музыки и предложи трек который сложно поверить что AI" },
+    { id: "feature_named", emoji: "🌟", text: "Именная песня с характером — твоя фишка", expand: "Расскажи как создавать именные песни с характером и предложи начать прямо сейчас" },
+    { id: "fact_lyrics", emoji: "✍️", text: "Самые трогательные песни — про конкретные детали", expand: "Расскажи почему детали важнее обобщений в текстах и предложи трек-пример" },
+    { id: "feature_bonus", emoji: "🎁", text: "Первая 1000 авторов получают трек в подарок", expand: "Расскажи про подарочную программу MuzaAi и как получить" },
+    { id: "fact_mood", emoji: "💫", text: "Настроение в музыке кодируется ритмом и тембром", expand: "Расскажи как ритм и тембр создают настроение в треке + пример" },
+    { id: "feature_edit", emoji: "✏️", text: "Текст можно редактировать прямо в чате", expand: "Расскажи про редактирование текста в чате со мной — покажи как" },
+    { id: "fact_genres", emoji: "🎸", text: "В одной песне можно смешать 3-4 стиля", expand: "Расскажи про смешение стилей и предложи трек-пример где это удалось" },
+    { id: "feature_cover", emoji: "🎨", text: "Обложка трека — это часть его смысла", expand: "Расскажи как обложка усиливает песню и про автоматическую генерацию" },
+    { id: "fact_repeat", emoji: "🔁", text: "Хит — это песня которую хочется ставить на повтор", expand: "Расскажи что делает песню reпит-достойной и предложи трек-loop" },
+    { id: "fact_emotion", emoji: "❤️", text: "Лучшие песни — про конкретного человека", expand: "Расскажи почему адресность делает песню сильнее, предложи начать про конкретного" },
+  ]);
+  const factShownRef = useRef<Set<string>>(new Set());
+  const factClickedRef = useRef<{ expand: string } | null>(null);
+  useEffect(() => {
+    if (!visible || chatOpen) return;
+    const showFact = () => {
+      if (chatOpen) return;
+      if (smartBubbleText) return; // уже занято smart-trigger'ом
+      const pool = musicFactsRef.current.filter(f => !factShownRef.current.has(f.id));
+      const list = pool.length > 0 ? pool : musicFactsRef.current; // circular reset
+      if (pool.length === 0) factShownRef.current.clear();
+      const fact = list[Math.floor(Math.random() * list.length)];
+      factShownRef.current.add(fact.id);
+      factClickedRef.current = { expand: fact.expand };
+      setSmartBubbleText(`${fact.emoji} ${fact.text}`);
+      window.setTimeout(() => {
+        if (factClickedRef.current?.expand === fact.expand) {
+          setSmartBubbleText(null);
+          factClickedRef.current = null;
+        }
+      }, 9000);
+    };
+    // Первый показ через 12 сек после mount, затем каждые 90 сек.
+    const first = window.setTimeout(showFact, 12_000);
+    const iv = window.setInterval(showFact, 90_000);
+    return () => { window.clearTimeout(first); window.clearInterval(iv); };
+  }, [visible, chatOpen, smartBubbleText]);
+
+  // Click handler для bubble — opens chat на ТЕКУЩЕЙ странице (overlay
+  // через portal, без navigation) + просит Музу развернуть факт.
+  const handleBubbleClick = useCallback(() => {
+    const expandPrompt = factClickedRef.current?.expand;
+    factClickedRef.current = null;
+    openChat(); // overlay, не navigation
+    if (expandPrompt) {
+      window.setTimeout(() => { void doSendMessage(expandPrompt); }, 400);
+    }
+  }, [openChat, doSendMessage]);
+
   if (!visible) return null;
   if (!featureEnabled) return null;
   // Eugene 2026-05-19 Single-Musa rule: маленькая mouse-follow override'ит большую FAB
@@ -2157,7 +2215,7 @@ export function FloatingConsultant() {
         {!expanded && !reaction && !chatOpen && smartBubbleText && (
           <button
             type="button"
-            onClick={openChat}
+            onClick={handleBubbleClick}
             className="absolute bottom-full right-0 mb-2 px-4 py-2.5 backdrop-blur-md border text-[12px] font-medium text-white text-center leading-tight max-w-[180px] animate-in fade-in slide-in-from-bottom-2 duration-300 shadow-lg hover:scale-105 transition-all cursor-pointer bg-gradient-to-br from-pink-500/40 to-purple-500/30 border-pink-300/50 shadow-pink-500/30 hover:from-pink-500/60 hover:to-purple-500/45"
             style={{
               borderRadius: "55% 45% 45% 50% / 60% 50% 60% 40%",
