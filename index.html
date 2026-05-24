@@ -11,13 +11,24 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --green:#5BC85B;--green-dark:#3A9E3A;--green-dim:#1E4D1E;
-  --green-glow:rgba(91,200,91,.12);--green-glow2:rgba(91,200,91,.06);
-  --teal:#00B8CC;--teal-dim:rgba(0,184,204,.2);
-  --blue:#2A7EC8;--blue-dim:rgba(42,126,200,.2);
-  --bg:#0A0D0F;--bg1:#0F1418;--bg2:#141A1F;--bg3:#1C2530;
-  --border:#1E2A35;--border2:#263545;
-  --text:#E8F0E8;--text2:#8DA89D;--text3:#4A6055;
+  --bg:#EEF4FF;
+  --bg1:#FFFFFF;
+  --bg2:#F5F8FF;
+  --bg3:#E4EDFF;
+  --border:#C8D9F5;
+  --border2:#A8C2EE;
+  --blue:#2A6DD9;
+  --blue-dark:#1A4FA0;
+  --blue-light:#5B9BF5;
+  --blue-xlight:#EEF4FF;
+  --blue-glow:rgba(42,109,217,.1);
+  --teal:#2AB8A0;
+  --teal-light:rgba(42,184,160,.12);
+  --text:#0F1D3A;
+  --text2:#4A6080;
+  --text3:#8AA0C0;
+  --green:#28A06A;
+  --red:#DC4444;
   --r:10px;--rs:6px;
 }
 html{scroll-behavior:smooth}
@@ -25,73 +36,72 @@ body{font-family:'Golos Text',sans-serif;background:var(--bg);color:var(--text);
 h1,h2,h3,.syne{font-family:'Syne',sans-serif}
 .mono{font-family:'JetBrains Mono',monospace}
 
-/* Grid bg */
+/* Background texture */
 body::before{content:'';position:fixed;inset:0;
-  background-image:radial-gradient(circle at 1px 1px,rgba(91,200,91,.08) 1px,transparent 0);
-  background-size:40px 40px;opacity:1;pointer-events:none;z-index:0}
-body::after{content:'';position:fixed;top:0;left:0;right:0;height:700px;
-  background:radial-gradient(ellipse 70% 50% at 60% 0%,rgba(91,200,91,.08) 0%,transparent 70%);
+  background-image:radial-gradient(circle at 1px 1px,rgba(42,109,217,.07) 1px,transparent 0);
+  background-size:36px 36px;pointer-events:none;z-index:0}
+body::after{content:'';position:fixed;top:0;left:0;right:0;height:800px;
+  background:radial-gradient(ellipse 80% 60% at 65% -10%,rgba(42,109,217,.12) 0%,transparent 70%);
   pointer-events:none;z-index:0}
 
 /* NAV */
 nav{position:fixed;top:0;left:0;right:0;z-index:100;transition:all .3s;border-bottom:1px solid transparent}
-nav.scrolled{background:rgba(10,13,15,.94);backdrop-filter:blur(20px);border-color:var(--border)}
-.nav-inner{max-width:1200px;margin:0 auto;padding:0 24px;height:62px;display:flex;align-items:center;gap:32px}
+nav.scrolled{background:rgba(238,244,255,.94);backdrop-filter:blur(20px);border-color:var(--border)}
+.nav-inner{max-width:1200px;margin:0 auto;padding:0 24px;height:62px;display:flex;align-items:center;gap:28px}
 .nav-logo{display:flex;align-items:center;gap:10px;text-decoration:none;flex-shrink:0}
-.logo-cube{position:relative;width:36px;height:36px}
-.logo-cube svg{width:36px;height:36px}
 .nav-logo-text{font-family:'Syne',sans-serif;font-weight:800;font-size:18px;color:var(--text);letter-spacing:-.01em}
-.nav-logo-text span{color:var(--green)}
-.nav-links{display:flex;gap:28px;margin-left:auto}
+.nav-logo-text span{color:var(--blue)}
+.nav-links{display:flex;gap:26px;margin-left:auto}
 .nav-links a{font-size:14px;color:var(--text2);text-decoration:none;transition:color .2s}
-.nav-links a:hover{color:var(--green)}
-.nav-actions{display:flex;gap:8px;align-items:center;margin-left:16px}
+.nav-links a:hover{color:var(--blue)}
+.nav-actions{display:flex;gap:8px;align-items:center;margin-left:12px}
 .dev-tag{font-family:'JetBrains Mono',monospace;font-size:10px;padding:3px 8px;
-  background:rgba(91,200,91,.1);color:var(--green);border:1px solid var(--green-dim);border-radius:20px}
+  background:var(--blue-glow);color:var(--blue);border:1px solid var(--border);border-radius:20px}
 .btn-nav{height:36px;padding:0 18px;border-radius:var(--rs);font-size:13px;cursor:pointer;
   font-family:'Golos Text',sans-serif;display:inline-flex;align-items:center;gap:6px;transition:all .2s}
 .btn-ghost{border:1px solid var(--border2);background:transparent;color:var(--text2)}
-.btn-ghost:hover{border-color:var(--green);color:var(--green)}
-.btn-green{border:none;background:var(--green);color:#0A0D0F;font-weight:600}
-.btn-green:hover{background:var(--green-dark)}
+.btn-ghost:hover{border-color:var(--blue);color:var(--blue)}
+.btn-blue{border:none;background:var(--blue);color:#fff;font-weight:600}
+.btn-blue:hover{background:var(--blue-dark)}
 
 /* HERO */
 .hero{position:relative;z-index:1;min-height:100vh;display:flex;align-items:center;padding:100px 24px 60px}
-.hero-inner{max-width:1200px;margin:0 auto;width:100%;display:grid;grid-template-columns:1fr 440px;gap:64px;align-items:center}
+.hero-inner{max-width:1200px;margin:0 auto;width:100%;display:grid;grid-template-columns:1fr 440px;gap:60px;align-items:center}
 .hero-eyebrow{display:inline-flex;align-items:center;gap:8px;font-family:'JetBrains Mono',monospace;
-  font-size:11px;color:var(--green);background:var(--green-glow);border:1px solid var(--green-dim);
+  font-size:11px;color:var(--blue);background:var(--blue-glow);border:1px solid var(--border);
   padding:5px 14px;border-radius:20px;margin-bottom:28px}
-.hero-eyebrow .dot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:bpulse 2s infinite}
-@keyframes bpulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.8)}}
-h1.hero-h{font-size:clamp(38px,5.5vw,68px);font-weight:800;line-height:1.06;letter-spacing:-.025em;margin-bottom:22px}
-h1.hero-h em{font-style:normal;color:var(--green)}
-h1.hero-h .line2{color:var(--text2)}
+.dot-live{width:7px;height:7px;border-radius:50%;background:var(--teal);animation:bpulse 2s infinite}
+@keyframes bpulse{0%,100%{opacity:1}50%{opacity:.3}}
+h1.hero-h{font-size:clamp(38px,5.5vw,68px);font-weight:800;line-height:1.06;letter-spacing:-.025em;margin-bottom:22px;color:var(--text)}
+h1.hero-h em{font-style:normal;color:var(--blue)}
 .hero-sub{font-size:17px;color:var(--text2);line-height:1.7;margin-bottom:36px;max-width:520px}
 .hero-btns{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:48px}
-.btn-hero-main{height:48px;padding:0 28px;border:none;border-radius:var(--rs);background:var(--green);
-  color:#0A0D0F;font-size:15px;font-weight:700;cursor:pointer;font-family:'Golos Text',sans-serif;
-  display:inline-flex;align-items:center;gap:8px;transition:all .2s}
-.btn-hero-main:hover{background:var(--green-dark);transform:translateY(-1px)}
-.btn-hero-sec{height:48px;padding:0 24px;border:1px solid var(--border2);border-radius:var(--rs);
-  background:transparent;color:var(--text2);font-size:15px;cursor:pointer;font-family:'Golos Text',sans-serif;
-  display:inline-flex;align-items:center;gap:8px;transition:all .2s}
-.btn-hero-sec:hover{border-color:var(--green);color:var(--green)}
+.btn-hero-main{height:48px;padding:0 28px;border:none;border-radius:var(--rs);background:var(--blue);
+  color:#fff;font-size:15px;font-weight:700;cursor:pointer;font-family:'Golos Text',sans-serif;
+  display:inline-flex;align-items:center;gap:8px;transition:all .2s;box-shadow:0 4px 16px rgba(42,109,217,.3)}
+.btn-hero-main:hover{background:var(--blue-dark);transform:translateY(-1px);box-shadow:0 6px 24px rgba(42,109,217,.4)}
+.btn-hero-sec{height:48px;padding:0 24px;border:1.5px solid var(--border2);border-radius:var(--rs);
+  background:var(--bg1);color:var(--text2);font-size:15px;cursor:pointer;font-family:'Golos Text',sans-serif;
+  display:inline-flex;align-items:center;gap:8px;transition:all .2s;text-decoration:none}
+.btn-hero-sec:hover{border-color:var(--blue);color:var(--blue)}
 .hero-stats{display:flex;gap:32px;flex-wrap:wrap}
 .stat{display:flex;flex-direction:column}
 .stat-v{font-family:'Syne',sans-serif;font-size:30px;font-weight:800;color:var(--text);line-height:1}
-.stat-v em{color:var(--green);font-style:normal}
-.stat-l{font-size:12px;color:var(--text3);margin-top:5px;font-family:'JetBrains Mono',monospace}
+.stat-v em{color:var(--blue);font-style:normal}
+.stat-l{font-size:11px;color:var(--text3);margin-top:5px;font-family:'JetBrains Mono',monospace}
+.stat-sep{width:1px;background:var(--border);height:40px;margin-top:4px}
 
 /* HERO CARD */
-.hero-card{background:var(--bg1);border:1px solid var(--border);border-radius:16px;padding:22px;position:relative;overflow:hidden}
-.hero-card::before{content:'';position:absolute;top:-60px;right:-60px;width:200px;height:200px;
-  background:radial-gradient(circle,rgba(91,200,91,.08) 0%,transparent 70%)}
+.hero-card{background:var(--bg1);border:1.5px solid var(--border);border-radius:16px;padding:22px;
+  position:relative;overflow:hidden;box-shadow:0 8px 40px rgba(42,109,217,.1)}
+.hero-card::before{content:'';position:absolute;top:-80px;right:-80px;width:250px;height:250px;
+  background:radial-gradient(circle,rgba(42,109,217,.06) 0%,transparent 70%)}
 .hc-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px}
 .hc-brand{display:flex;align-items:center;gap:8px;font-family:'Syne',sans-serif;font-weight:700;font-size:14px;color:var(--text)}
-.hc-live{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--green);font-family:'JetBrains Mono',monospace}
-.hc-live-dot{width:6px;height:6px;background:var(--green);border-radius:50%;animation:bpulse 2s infinite}
+.hc-live{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--teal);font-family:'JetBrains Mono',monospace}
+.hc-live-dot{width:6px;height:6px;background:var(--teal);border-radius:50%;animation:bpulse 2s infinite}
 .hc-big{font-family:'Syne',sans-serif;font-size:42px;font-weight:800;color:var(--text);letter-spacing:-.02em;line-height:1;margin-bottom:4px}
-.hc-sub{font-size:12px;color:var(--text3);margin-bottom:20px;font-family:'JetBrains Mono',monospace}
+.hc-sub{font-size:11px;color:var(--text3);margin-bottom:20px;font-family:'JetBrains Mono',monospace}
 .hc-bars{display:flex;flex-direction:column;gap:10px;margin-bottom:18px}
 .bar-row{display:flex;align-items:center;gap:10px}
 .bar-lbl{font-size:11px;color:var(--text2);width:68px;flex-shrink:0}
@@ -104,142 +114,146 @@ h1.hero-h .line2{color:var(--text2)}
 .hc-mini-l{font-size:10px;color:var(--text3);margin-bottom:4px;font-family:'JetBrains Mono',monospace}
 .hc-mini-v{font-family:'Syne',sans-serif;font-size:18px;font-weight:700;color:var(--text)}
 .hc-mini-c{font-size:10px;margin-top:3px}
-.up{color:var(--green)}.dn{color:#E05555}
+.up{color:var(--green)}.dn{color:var(--red)}
 
 /* MARQUEE */
-.marquee-wrap{padding:28px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);
-  overflow:hidden;position:relative;z-index:1}
+.marquee-wrap{padding:22px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);
+  overflow:hidden;position:relative;z-index:1;background:var(--bg1)}
 .marquee-track{display:flex;gap:0;white-space:nowrap;animation:marquee 30s linear infinite}
 @keyframes marquee{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 .marquee-item{display:inline-flex;align-items:center;gap:8px;padding:0 28px;
   font-size:13px;color:var(--text3);border-right:1px solid var(--border)}
-.marquee-item i{font-size:15px;color:var(--green)}
+.marquee-item i{font-size:15px;color:var(--blue)}
 
 /* SECTIONS */
 section{position:relative;z-index:1;padding:88px 24px}
 .section-inner{max-width:1200px;margin:0 auto}
-.section-tag{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--green);letter-spacing:.1em;text-transform:uppercase;margin-bottom:14px}
-.section-title{font-size:clamp(28px,4vw,46px);font-weight:800;letter-spacing:-.02em;line-height:1.1;margin-bottom:16px}
-.section-title em{color:var(--green);font-style:normal}
+.section-tag{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--blue);letter-spacing:.1em;text-transform:uppercase;margin-bottom:14px}
+.section-title{font-size:clamp(28px,4vw,46px);font-weight:800;letter-spacing:-.02em;line-height:1.1;margin-bottom:16px;color:var(--text)}
+.section-title em{color:var(--blue);font-style:normal}
 .section-sub{font-size:16px;color:var(--text2);max-width:580px;line-height:1.7}
 
 /* FEATURES */
-.features-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-top:52px}
-.feat-card{background:var(--bg1);padding:30px;transition:background .2s}
-.feat-card:hover{background:var(--bg2)}
-.feat-icon{width:44px;height:44px;border-radius:var(--rs);display:flex;align-items:center;justify-content:center;margin-bottom:18px;font-size:22px}
-.feat-icon.g{background:var(--green-glow);color:var(--green);border:1px solid var(--green-dim)}
-.feat-icon.t{background:var(--teal-dim);color:var(--teal);border:1px solid rgba(0,184,204,.3)}
-.feat-icon.b{background:var(--blue-dim);color:var(--blue);border:1px solid rgba(42,126,200,.3)}
+.features-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:52px}
+.feat-card{background:var(--bg1);border:1.5px solid var(--border);border-radius:14px;padding:28px;
+  transition:all .2s;box-shadow:0 2px 12px rgba(42,109,217,.06)}
+.feat-card:hover{border-color:var(--blue);transform:translateY(-3px);box-shadow:0 8px 28px rgba(42,109,217,.14)}
+.feat-icon{width:46px;height:46px;border-radius:var(--rs);display:flex;align-items:center;justify-content:center;margin-bottom:18px;font-size:22px}
+.feat-icon.b{background:var(--blue-glow);color:var(--blue);border:1.5px solid var(--border)}
+.feat-icon.t{background:var(--teal-light);color:var(--teal);border:1.5px solid rgba(42,184,160,.25)}
+.feat-icon.g{background:rgba(40,160,106,.1);color:var(--green);border:1.5px solid rgba(40,160,106,.25)}
 .feat-card h3{font-family:'Syne',sans-serif;font-size:17px;font-weight:700;color:var(--text);margin-bottom:10px}
 .feat-card p{font-size:13px;color:var(--text2);line-height:1.7}
 .feat-tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:14px}
 .feat-tag{font-family:'JetBrains Mono',monospace;font-size:10px;padding:3px 8px;
-  background:var(--bg3);border:1px solid var(--border2);border-radius:20px;color:var(--text3)}
+  background:var(--bg3);border:1px solid var(--border);border-radius:20px;color:var(--text3)}
 
 /* MESSENGERS */
 .mess-section{background:var(--bg1);border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
-.mess-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-top:48px}
-.mess-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:24px 16px;
-  text-align:center;transition:all .2s;cursor:default}
-.mess-card:hover{border-color:var(--green);transform:translateY(-3px)}
+.mess-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-top:48px}
+.mess-card{background:var(--bg2);border:1.5px solid var(--border);border-radius:var(--r);padding:24px 16px;
+  text-align:center;transition:all .2s}
+.mess-card:hover{border-color:var(--blue);transform:translateY(-3px);box-shadow:0 6px 20px rgba(42,109,217,.12)}
 .mess-icon{font-size:36px;margin-bottom:12px}
 .mess-name{font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--text);margin-bottom:4px}
 .mess-desc{font-size:11px;color:var(--text3)}
 
 /* PROCESS */
 .process-steps{display:grid;grid-template-columns:repeat(3,1fr);gap:48px;margin-top:56px;position:relative}
-.process-steps::before{content:'';position:absolute;top:32px;left:calc(16.67% + 20px);right:calc(16.67% + 20px);
-  height:1px;background:linear-gradient(90deg,var(--green),var(--teal),var(--green));opacity:.35}
+.process-steps::before{content:'';position:absolute;top:36px;left:calc(16.67% + 24px);right:calc(16.67% + 24px);
+  height:1.5px;background:linear-gradient(90deg,var(--blue),var(--teal),var(--blue));opacity:.3}
 .step{text-align:center}
-.step-num{width:64px;height:64px;border-radius:50%;border:1px solid var(--green-dim);display:flex;align-items:center;
-  justify-content:center;margin:0 auto 22px;font-family:'Syne',sans-serif;font-weight:800;font-size:20px;
-  color:var(--green);background:var(--bg1);position:relative}
-.step-num::after{content:'';position:absolute;inset:-5px;border-radius:50%;border:1px solid rgba(91,200,91,.2)}
+.step-num{width:72px;height:72px;border-radius:50%;border:2px solid var(--border);display:flex;align-items:center;
+  justify-content:center;margin:0 auto 22px;font-family:'Syne',sans-serif;font-weight:800;font-size:22px;
+  color:var(--blue);background:var(--bg1);position:relative;box-shadow:0 4px 16px rgba(42,109,217,.1)}
+.step-num::after{content:'';position:absolute;inset:-5px;border-radius:50%;border:1.5px solid rgba(42,109,217,.2)}
 .step h3{font-family:'Syne',sans-serif;font-size:17px;font-weight:700;color:var(--text);margin-bottom:10px}
 .step p{font-size:13px;color:var(--text2);line-height:1.7}
 .step-code{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text3);margin-top:12px;
-  background:var(--bg2);border:1px solid var(--border);border-radius:var(--rs);padding:8px 10px;text-align:left}
+  background:var(--bg3);border:1px solid var(--border);border-radius:var(--rs);padding:8px 10px;text-align:left;line-height:1.8}
 
 /* TIERS */
 .tiers-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:52px}
-.tier-card{background:var(--bg1);border:1px solid var(--border);border-radius:14px;padding:26px;position:relative;transition:border-color .2s}
-.tier-card:hover{border-color:var(--border2)}
-.tier-card.featured{border-color:var(--green-dim)}
+.tier-card{background:var(--bg1);border:1.5px solid var(--border);border-radius:14px;padding:26px;
+  position:relative;transition:all .2s;box-shadow:0 2px 12px rgba(42,109,217,.05)}
+.tier-card:hover{box-shadow:0 6px 24px rgba(42,109,217,.1)}
+.tier-card.featured{border-color:var(--blue);box-shadow:0 4px 24px rgba(42,109,217,.15)}
 .tier-badge{position:absolute;top:-11px;left:50%;transform:translateX(-50%);
-  font-size:10px;padding:3px 12px;background:var(--green);color:#0A0D0F;border-radius:20px;font-weight:700;
+  font-size:10px;padding:3px 12px;background:var(--blue);color:#fff;border-radius:20px;font-weight:700;
   white-space:nowrap;font-family:'Golos Text',sans-serif}
 .tier-users{font-size:11px;color:var(--text3);margin-bottom:6px;font-family:'JetBrains Mono',monospace}
 .tier-price{font-family:'Syne',sans-serif;font-size:30px;font-weight:800;color:var(--text);margin-bottom:2px}
-.tier-price em{color:var(--green);font-style:normal}
+.tier-price em{color:var(--blue);font-style:normal}
 .tier-period{font-size:11px;color:var(--text3);margin-bottom:18px;font-family:'JetBrains Mono',monospace}
 .tier-div{height:1px;background:var(--border);margin:18px 0}
 .tier-items{display:flex;flex-direction:column;gap:9px}
 .tier-item{display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--text2)}
-.tier-item i{font-size:13px;color:var(--green);margin-top:1px;flex-shrink:0}
+.tier-item i{font-size:13px;color:var(--blue);margin-top:1px;flex-shrink:0}
 .tier-item.off{color:var(--text3)}
 .tier-item.off i{color:var(--text3)}
 
 /* CTA */
-.cta-section{padding:100px 24px;position:relative;overflow:hidden}
-.cta-section::before{content:'';position:absolute;inset:0;
-  background:radial-gradient(ellipse 80% 60% at 50% 50%,rgba(91,200,91,.06) 0%,transparent 70%)}
+.cta-section{padding:100px 24px;position:relative;overflow:hidden;
+  background:linear-gradient(135deg,#EEF4FF 0%,#E4EDFF 50%,#EAF5FF 100%)}
+.cta-section::before{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+  width:600px;height:600px;background:radial-gradient(circle,rgba(42,109,217,.08) 0%,transparent 70%)}
 .cta-inner{max-width:680px;margin:0 auto;text-align:center;position:relative}
-.cta-inner h2{font-size:clamp(28px,4vw,50px);font-weight:800;letter-spacing:-.025em;margin-bottom:16px}
-.cta-inner h2 em{color:var(--green);font-style:normal}
+.cta-inner h2{font-size:clamp(28px,4vw,50px);font-weight:800;letter-spacing:-.025em;margin-bottom:16px;color:var(--text)}
+.cta-inner h2 em{color:var(--blue);font-style:normal}
 .cta-inner p{font-size:16px;color:var(--text2);margin-bottom:36px;line-height:1.7}
 .cta-form{display:flex;gap:10px;max-width:440px;margin:0 auto}
-.cta-input{flex:1;height:46px;padding:0 16px;background:var(--bg1);border:1px solid var(--border2);
-  border-radius:var(--rs);color:var(--text);font-size:14px;outline:none;font-family:'Golos Text',sans-serif;transition:border .2s}
-.cta-input:focus{border-color:var(--green)}
+.cta-input{flex:1;height:46px;padding:0 16px;background:var(--bg1);border:1.5px solid var(--border2);
+  border-radius:var(--rs);color:var(--text);font-size:14px;outline:none;font-family:'Golos Text',sans-serif;transition:border .2s;box-shadow:0 2px 8px rgba(42,109,217,.08)}
+.cta-input:focus{border-color:var(--blue)}
 .cta-input::placeholder{color:var(--text3)}
-.btn-cta{height:46px;padding:0 24px;background:var(--green);border:none;border-radius:var(--rs);
-  color:#0A0D0F;font-size:14px;font-weight:700;cursor:pointer;font-family:'Golos Text',sans-serif;white-space:nowrap;transition:opacity .2s}
-.btn-cta:hover{opacity:.88}
+.btn-cta{height:46px;padding:0 24px;background:var(--blue);border:none;border-radius:var(--rs);
+  color:#fff;font-size:14px;font-weight:700;cursor:pointer;font-family:'Golos Text',sans-serif;
+  white-space:nowrap;transition:all .2s;box-shadow:0 4px 12px rgba(42,109,217,.3)}
+.btn-cta:hover{background:var(--blue-dark)}
 #cta-ok{margin-top:12px;font-size:13px;color:var(--green);display:none}
 
 /* FOOTER */
-footer{border-top:1px solid var(--border);padding:44px 24px;position:relative;z-index:1}
+footer{border-top:1px solid var(--border);padding:44px 24px;position:relative;z-index:1;background:var(--bg1)}
 .footer-inner{max-width:1200px;margin:0 auto;display:grid;grid-template-columns:1fr auto auto;gap:48px;align-items:start}
 .footer-logo{display:flex;align-items:center;gap:8px;font-family:'Syne',sans-serif;font-weight:800;font-size:16px;color:var(--text);margin-bottom:8px}
 .footer-copy{font-size:12px;color:var(--text3)}
 .footer-col-title{font-size:10px;color:var(--text3);margin-bottom:12px;letter-spacing:.08em;font-family:'JetBrains Mono',monospace}
 .footer-links{display:flex;flex-direction:column;gap:8px}
 .footer-links a{font-size:13px;color:var(--text2);text-decoration:none;transition:color .2s}
-.footer-links a:hover{color:var(--green)}
+.footer-links a:hover{color:var(--blue)}
 
-/* DEMO MODAL */
+/* MODAL */
 .modal-wrap{position:fixed;inset:0;z-index:200;display:none;align-items:center;justify-content:center;
-  background:rgba(0,0,0,.85);backdrop-filter:blur(8px)}
+  background:rgba(15,29,58,.6);backdrop-filter:blur(8px)}
 .modal-wrap.open{display:flex}
-.modal{background:var(--bg1);border:1px solid var(--border);border-radius:16px;width:90%;max-width:700px;
-  max-height:80vh;display:flex;flex-direction:column;overflow:hidden}
+.modal{background:var(--bg1);border:1.5px solid var(--border);border-radius:16px;width:90%;max-width:700px;
+  max-height:80vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(42,109,217,.15)}
 .modal-header{padding:18px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
 .modal-header h3{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:var(--text);flex:1}
 .modal-close{width:30px;height:30px;border-radius:50%;border:1px solid var(--border);background:transparent;
   color:var(--text2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:15px}
 .modal-body{flex:1;overflow-y:auto;padding:18px 22px;display:flex;flex-direction:column;gap:12px}
 .modal-input-area{padding:12px 22px;border-top:1px solid var(--border);display:flex;gap:8px}
-.modal-inp{flex:1;height:40px;padding:0 14px;background:var(--bg2);border:1px solid var(--border2);
+.modal-inp{flex:1;height:40px;padding:0 14px;background:var(--bg2);border:1.5px solid var(--border2);
   border-radius:var(--rs);color:var(--text);font-size:13px;outline:none;font-family:'Golos Text',sans-serif;transition:border .2s}
-.modal-inp:focus{border-color:var(--green)}
+.modal-inp:focus{border-color:var(--blue)}
 .modal-inp::placeholder{color:var(--text3)}
-.modal-send{height:40px;padding:0 18px;background:var(--green);border:none;border-radius:var(--rs);
-  color:#0A0D0F;font-size:13px;font-weight:700;cursor:pointer;font-family:'Golos Text',sans-serif;display:flex;align-items:center;gap:6px}
+.modal-send{height:40px;padding:0 18px;background:var(--blue);border:none;border-radius:var(--rs);
+  color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:'Golos Text',sans-serif;display:flex;align-items:center;gap:6px}
 .dm-user{display:flex;justify-content:flex-end}
-.dm-user div{background:var(--green);color:#0A0D0F;padding:10px 15px;border-radius:14px 3px 14px 14px;font-size:14px;max-width:75%;font-weight:500}
+.dm-user div{background:var(--blue);color:#fff;padding:10px 15px;border-radius:14px 3px 14px 14px;font-size:14px;max-width:75%;font-weight:500}
 .dm-ai{background:var(--bg2);border:1px solid var(--border);border-radius:3px 14px 14px 14px;padding:12px 15px;font-size:14px;color:var(--text2);line-height:1.65}
 .typing{display:inline-flex;gap:4px;align-items:center}
-.typing span{width:6px;height:6px;background:var(--green);border-radius:50%;animation:typing 1.2s infinite}
+.typing span{width:6px;height:6px;background:var(--blue);border-radius:50%;animation:typing 1.2s infinite}
 .typing span:nth-child(2){animation-delay:.2s}
 .typing span:nth-child(3){animation-delay:.4s}
-@keyframes typing{0%,80%,100%{opacity:.3;transform:translateY(0)}40%{opacity:1;transform:translateY(-4px)}}
+@keyframes typing{0%,80%,100%{opacity:.3;transform:translateY(0)}40%{opacity:1;transform:translateY(-5px)}}
 
 .fade-up{opacity:0;transform:translateY(20px);transition:opacity .7s ease,transform .7s ease}
 .fade-up.visible{opacity:1;transform:none}
 
 @media(max-width:960px){
-  .hero-inner{grid-template-columns:1fr;gap:40px}
+  .hero-inner{grid-template-columns:1fr}
   .hero-card{display:none}
   .features-grid{grid-template-columns:repeat(2,1fr)}
   .tiers-grid{grid-template-columns:repeat(2,1fr)}
@@ -253,20 +267,19 @@ footer{border-top:1px solid var(--border);padding:44px 24px;position:relative;z-
   .nav-links{display:none}
   .process-steps{grid-template-columns:1fr;gap:32px}
   .process-steps::before{display:none}
+  .cta-form{flex-direction:column}
 }
 </style>
 </head>
 <body>
 
-<!-- NAV -->
 <nav id="nav">
   <div class="nav-inner">
     <a href="/" class="nav-logo">
-      <svg viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M18 4L32 12V24L18 32L4 24V12L18 4Z" fill="none"/>
-        <path d="M18 4L32 12L18 20L4 12L18 4Z" fill="#5BC85B"/>
-        <path d="M4 12L18 20V32L4 24V12Z" fill="#2A7EC8"/>
-        <path d="M32 12L18 20V32L32 24V12Z" fill="#00B8CC"/>
+      <svg width="32" height="32" viewBox="0 0 36 36" fill="none">
+        <path d="M18 4L32 12L18 20L4 12L18 4Z" fill="#2A6DD9"/>
+        <path d="M4 12L18 20V32L4 24V12Z" fill="#1A4FA0"/>
+        <path d="M32 12L18 20V32L32 24V12Z" fill="#2AB8A0"/>
       </svg>
       <span class="nav-logo-text">Бизнес<span>метр</span></span>
     </a>
@@ -281,7 +294,7 @@ footer{border-top:1px solid var(--border);padding:44px 24px;position:relative;z-
     <div class="nav-actions">
       <span class="dev-tag">v0.1 · DEV</span>
       <button class="btn-nav btn-ghost" onclick="openModal()">Демо AI</button>
-      <button class="btn-nav btn-green">Войти</button>
+      <button class="btn-nav btn-blue">Войти</button>
     </div>
   </div>
 </nav>
@@ -290,23 +303,24 @@ footer{border-top:1px solid var(--border);padding:44px 24px;position:relative;z-
 <section class="hero">
   <div class="hero-inner">
     <div>
-      <div class="hero-eyebrow"><span class="dot"></span>Тестовая среда · Бизнесметр.рф</div>
+      <div class="hero-eyebrow"><span class="dot-live"></span>Тестовая среда · Бизнесметр.рф</div>
       <h1 class="hero-h fade-up">
         Коммерческая<br>
-        <span class="line2">недвижимость.</span><br>
+        недвижимость.<br>
         <em>Данные говорят.</em>
       </h1>
-      <p class="hero-sub fade-up">
-        AI-платформа для агентств, инвесторов и девелоперов. Умный поиск, CRM, аналитика рынка — всё в одном месте, на русском языке, с интеграцией популярных мессенджеров.
-      </p>
+      <p class="hero-sub fade-up">AI-платформа для агентств, инвесторов и девелоперов. Умный поиск, CRM, аналитика рынка — в одном месте, на русском языке.</p>
       <div class="hero-btns fade-up">
         <button class="btn-hero-main" onclick="openModal()"><i class="ti ti-message-chatbot"></i>Попробовать AI</button>
         <a href="crm.html" class="btn-hero-sec"><i class="ti ti-layout-dashboard"></i>Открыть CRM</a>
       </div>
       <div class="hero-stats fade-up">
         <div class="stat"><div class="stat-v"><span id="c1">0</span><em>+</em></div><div class="stat-l">интеграций</div></div>
+        <div class="stat-sep"></div>
         <div class="stat"><div class="stat-v"><span id="c2">0</span></div><div class="stat-l">AI модулей</div></div>
-        <div class="stat"><div class="stat-v"><em>~</em><span id="c3">0</span><em>$/мес</em></div><div class="stat-l">стартовый бюджет</div></div>
+        <div class="stat-sep"></div>
+        <div class="stat"><div class="stat-v"><em>~</em><span id="c3">0</span><em>$/мес</em></div><div class="stat-l">старт</div></div>
+        <div class="stat-sep"></div>
         <div class="stat"><div class="stat-v"><span id="c4">0</span><em>K+</em></div><div class="stat-l">объектов</div></div>
       </div>
     </div>
@@ -314,7 +328,7 @@ footer{border-top:1px solid var(--border);padding:44px 24px;position:relative;z-
     <div class="hero-card fade-up">
       <div class="hc-top">
         <div class="hc-brand">
-          <svg width="20" height="20" viewBox="0 0 36 36"><path d="M18 4L32 12L18 20L4 12L18 4Z" fill="#5BC85B"/><path d="M4 12L18 20V32L4 24V12Z" fill="#2A7EC8"/><path d="M32 12L18 20V32L32 24V12Z" fill="#00B8CC"/></svg>
+          <svg width="18" height="18" viewBox="0 0 36 36"><path d="M18 4L32 12L18 20L4 12L18 4Z" fill="#2A6DD9"/><path d="M4 12L18 20V32L4 24V12Z" fill="#1A4FA0"/><path d="M32 12L18 20V32L32 24V12Z" fill="#2AB8A0"/></svg>
           Рынок · Москва
         </div>
         <div class="hc-live"><span class="hc-live-dot"></span>Live</div>
@@ -322,10 +336,10 @@ footer{border-top:1px solid var(--border);padding:44px 24px;position:relative;z-
       <div class="hc-big" id="hc-price">₽ —</div>
       <div class="hc-sub">средн. цена офисного м² · ЦАО</div>
       <div class="hc-bars">
-        <div class="bar-row"><div class="bar-lbl">Офисы</div><div class="bar-track"><div class="bar-fill" style="--w:78%;background:var(--green)"></div></div><div class="bar-val">78%</div></div>
-        <div class="bar-row"><div class="bar-lbl">Торговля</div><div class="bar-track"><div class="bar-fill" style="--w:61%;background:var(--teal)"></div></div><div class="bar-val">61%</div></div>
-        <div class="bar-row"><div class="bar-lbl">Склады</div><div class="bar-track"><div class="bar-fill" style="--w:45%;background:var(--blue)"></div></div><div class="bar-val">45%</div></div>
-        <div class="bar-row"><div class="bar-lbl">Земля</div><div class="bar-track"><div class="bar-fill" style="--w:32%;background:#8DA89D"></div></div><div class="bar-val">32%</div></div>
+        <div class="bar-row"><div class="bar-lbl">Офисы</div><div class="bar-track"><div class="bar-fill" style="--w:78%;background:var(--blue)"></div></div><div class="bar-val">78%</div></div>
+        <div class="bar-row"><div class="bar-lbl">Торговля</div><div class="bar-track"><div class="bar-fill" style="--w:61%;background:var(--blue-light)"></div></div><div class="bar-val">61%</div></div>
+        <div class="bar-row"><div class="bar-lbl">Склады</div><div class="bar-track"><div class="bar-fill" style="--w:45%;background:var(--teal)"></div></div><div class="bar-val">45%</div></div>
+        <div class="bar-row"><div class="bar-lbl">Земля</div><div class="bar-track"><div class="bar-fill" style="--w:32%;background:var(--border2)"></div></div><div class="bar-val">32%</div></div>
       </div>
       <div class="hc-grid">
         <div class="hc-mini"><div class="hc-mini-l">Объектов</div><div class="hc-mini-v" id="hc-obj">—</div><div class="hc-mini-c up">+12 сегодня</div></div>
@@ -352,7 +366,6 @@ footer{border-top:1px solid var(--border);padding:44px 24px;position:relative;z-
     <div class="marquee-item"><i class="ti ti-map-2"></i>Яндекс Карты</div>
     <div class="marquee-item"><i class="ti ti-building"></i>CRM Недвижимость</div>
     <div class="marquee-item"><i class="ti ti-chart-area"></i>Аналитика рынка</div>
-    <!-- дубль -->
     <div class="marquee-item"><i class="ti ti-database"></i>Циан</div>
     <div class="marquee-item"><i class="ti ti-database"></i>Авито</div>
     <div class="marquee-item"><i class="ti ti-database"></i>Яндекс.Недвижимость</div>
@@ -375,40 +388,40 @@ footer{border-top:1px solid var(--border);padding:44px 24px;position:relative;z-
     <h2 class="section-title fade-up">Что умеет <em>Бизнесметр</em></h2>
     <p class="section-sub fade-up">Шесть AI-модулей для полного цикла работы с коммерческой недвижимостью.</p>
     <div class="features-grid">
-      <div class="feat-card">
-        <div class="feat-icon g"><i class="ti ti-message-chatbot"></i></div>
+      <div class="feat-card fade-up">
+        <div class="feat-icon b"><i class="ti ti-message-chatbot"></i></div>
         <h3>Поиск на русском языке</h3>
-        <p>«Офис 200 м² у метро Тверская до 300 тыс» — AI поймёт и найдёт подходящие объекты из базы мгновенно.</p>
+        <p>«Офис 200 м² у метро Тверская до 300 тыс» — AI поймёт запрос и найдёт объекты мгновенно.</p>
         <div class="feat-tags"><span class="feat-tag">NLP</span><span class="feat-tag">Typesense</span><span class="feat-tag">AI</span></div>
       </div>
-      <div class="feat-card">
-        <div class="feat-icon g"><i class="ti ti-chart-area"></i></div>
+      <div class="feat-card fade-up">
+        <div class="feat-icon b"><i class="ti ti-chart-area"></i></div>
         <h3>Аналитика рынка</h3>
-        <p>Средние цены, динамика, карта конкурентов — данные с 6 площадок в едином дашборде в реальном времени.</p>
+        <p>Средние цены, динамика, карта конкурентов — данные с 6 площадок в едином дашборде.</p>
         <div class="feat-tags"><span class="feat-tag">Scrapy</span><span class="feat-tag">MongoDB</span><span class="feat-tag">Bright Data</span></div>
       </div>
-      <div class="feat-card">
+      <div class="feat-card fade-up">
         <div class="feat-icon t"><i class="ti ti-users"></i></div>
         <h3>Встроенная CRM</h3>
-        <p>Клиенты, заявки, воронка продаж, автоматические уведомления в мессенджеры агентам и клиентам.</p>
+        <p>Клиенты, заявки, воронка продаж, автоматические уведомления в мессенджеры агентам.</p>
         <div class="feat-tags"><span class="feat-tag">REST API</span><span class="feat-tag">Supabase</span><span class="feat-tag">Мессенджеры</span></div>
       </div>
-      <div class="feat-card">
+      <div class="feat-card fade-up">
         <div class="feat-icon t"><i class="ti ti-robot"></i></div>
         <h3>AI-описания объектов</h3>
-        <p>Автоматическая генерация продающих описаний, SEO-текстов и публикаций для соцсетей по характеристикам.</p>
+        <p>Автоматическая генерация продающих описаний, SEO-текстов и постов по характеристикам.</p>
         <div class="feat-tags"><span class="feat-tag">AI</span><span class="feat-tag">SEO</span><span class="feat-tag">Авто-публикация</span></div>
       </div>
-      <div class="feat-card">
-        <div class="feat-icon b"><i class="ti ti-brand-telegram"></i></div>
-        <h3>Уведомления в мессенджеры</h3>
-        <p>Push-уведомления агентам в Telegram, Max, WhatsApp, Viber при появлении объектов по критериям клиента.</p>
+      <div class="feat-card fade-up">
+        <div class="feat-icon g"><i class="ti ti-brand-telegram"></i></div>
+        <h3>Мессенджеры</h3>
+        <p>Push-уведомления в Telegram, Max, WhatsApp, Viber при появлении объектов по критериям клиента.</p>
         <div class="feat-tags"><span class="feat-tag">Telegram</span><span class="feat-tag">WhatsApp</span><span class="feat-tag">Viber</span><span class="feat-tag">Max</span></div>
       </div>
-      <div class="feat-card">
-        <div class="feat-icon b"><i class="ti ti-map-pin"></i></div>
+      <div class="feat-card fade-up">
+        <div class="feat-icon g"><i class="ti ti-map-pin"></i></div>
         <h3>Карта и геоаналитика</h3>
-        <p>Все объекты на Яндекс Картах с фильтрами, тепловой картой цен и анализом трафика по районам.</p>
+        <p>Все объекты на Яндекс Картах с фильтрами, тепловой картой цен и анализом трафика.</p>
         <div class="feat-tags"><span class="feat-tag">Яндекс Карты</span><span class="feat-tag">GeoJSON</span><span class="feat-tag">Heatmap</span></div>
       </div>
     </div>
@@ -420,33 +433,13 @@ footer{border-top:1px solid var(--border);padding:44px 24px;position:relative;z-
   <div class="section-inner">
     <div class="section-tag fade-up">/ Современные коммуникации</div>
     <h2 class="section-title fade-up">Работайте там, где <em>удобно клиенту</em></h2>
-    <p class="section-sub fade-up">Платформа интегрирована с ведущими мессенджерами. Клиент выбирает канал — система адаптируется.</p>
+    <p class="section-sub fade-up">Интегрированы ведущие мессенджеры России. Клиент выбирает канал — система адаптируется.</p>
     <div class="mess-grid">
-      <div class="mess-card fade-up">
-        <div class="mess-icon">✈️</div>
-        <div class="mess-name">Telegram</div>
-        <div class="mess-desc">Уведомления, бот-поиск, OCR документов</div>
-      </div>
-      <div class="mess-card fade-up">
-        <div class="mess-icon">🔵</div>
-        <div class="mess-name">VK / Max</div>
-        <div class="mess-desc">Публикации, лиды, мессенджер ВКонтакте</div>
-      </div>
-      <div class="mess-card fade-up">
-        <div class="mess-icon">💬</div>
-        <div class="mess-name">WhatsApp</div>
-        <div class="mess-desc">Деловая переписка, объекты, показы</div>
-      </div>
-      <div class="mess-card fade-up">
-        <div class="mess-icon">📳</div>
-        <div class="mess-name">Viber</div>
-        <div class="mess-desc">Рассылки и уведомления клиентам</div>
-      </div>
-      <div class="mess-card fade-up">
-        <div class="mess-icon">📧</div>
-        <div class="mess-name">Email</div>
-        <div class="mess-desc">Транзакционные письма и дайджесты</div>
-      </div>
+      <div class="mess-card fade-up"><div class="mess-icon">✈️</div><div class="mess-name">Telegram</div><div class="mess-desc">Уведомления, бот-поиск, OCR</div></div>
+      <div class="mess-card fade-up"><div class="mess-icon">🔵</div><div class="mess-name">VK / Max</div><div class="mess-desc">Публикации и лиды ВКонтакте</div></div>
+      <div class="mess-card fade-up"><div class="mess-icon">💬</div><div class="mess-name">WhatsApp</div><div class="mess-desc">Деловая переписка и показы</div></div>
+      <div class="mess-card fade-up"><div class="mess-icon">📳</div><div class="mess-name">Viber</div><div class="mess-desc">Рассылки клиентам</div></div>
+      <div class="mess-card fade-up"><div class="mess-icon">📧</div><div class="mess-name">Email</div><div class="mess-desc">Транзакционные письма</div></div>
     </div>
   </div>
 </section>
@@ -460,19 +453,19 @@ footer{border-top:1px solid var(--border);padding:44px 24px;position:relative;z-
       <div class="step fade-up">
         <div class="step-num">1</div>
         <h3>Вы задаёте запрос</h3>
-        <p>На обычном русском языке — в строке поиска, в чате AI-риелтора или через голос. Никаких сложных форм.</p>
-        <div class="step-code">› Офис 150 м² у м. Тверская аренда<br>› Склад от 500 м² с ж/д веткой<br>› Сравни цены: Циан vs Авито</div>
+        <p>На обычном русском языке — в строке поиска или чате. Никаких сложных форм и фильтров.</p>
+        <div class="step-code">› Офис 150 м² у м. Тверская<br>› Склад от 500 м² с ж/д веткой<br>› Сравни: Циан vs Авито</div>
       </div>
       <div class="step fade-up">
         <div class="step-num">2</div>
         <h3>AI строит запрос</h3>
-        <p>Языковая модель интерпретирует запрос, выбирает источники и вызывает API с нужными параметрами.</p>
+        <p>Языковая модель интерпретирует запрос, выбирает источники и вызывает API с параметрами.</p>
         <div class="step-code">GET /realty/index.json<br>?category=офис&district=ЦАО<br>&area_from=150&sort=price</div>
       </div>
       <div class="step fade-up">
         <div class="step-num">3</div>
         <h3>Получаете результат</h3>
-        <p>Структурированные объекты с метриками и рекомендацией — за 1–3 секунды. Уведомление в мессенджер.</p>
+        <p>Структурированные объекты с метриками за 1–3 сек. Уведомление сразу в мессенджер.</p>
         <div class="step-code">✓ Найдено 23 объекта<br>✓ Ср. цена: 8 200 ₽/м²<br>✓ → Telegram уведомление</div>
       </div>
     </div>
@@ -480,7 +473,7 @@ footer{border-top:1px solid var(--border);padding:44px 24px;position:relative;z-
 </section>
 
 <!-- TIERS -->
-<section id="pricing" style="background:var(--bg1);border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
+<section id="pricing" style="background:var(--bg2);border-top:1px solid var(--border);border-bottom:1px solid var(--border)">
   <div class="section-inner">
     <div class="section-tag fade-up">/ Масштабирование</div>
     <h2 class="section-title fade-up">4 уровня роста <em>одной архитектурой</em></h2>
@@ -551,7 +544,7 @@ footer{border-top:1px solid var(--border);padding:44px 24px;position:relative;z-
 <section class="cta-section">
   <div class="cta-inner">
     <div class="section-tag" style="text-align:center;margin-bottom:16px">/ Ранний доступ</div>
-    <h2 class="syne fade-up">Получи доступ<br>к <em>бета-версии</em></h2>
+    <h2 class="syne fade-up">Получи доступ к <em>бета-версии</em></h2>
     <p class="fade-up">Платформа в разработке — оставь email, будешь первым на Бизнесметр.рф</p>
     <div class="cta-form fade-up">
       <input class="cta-input" type="email" placeholder="ваш@email.ru" id="cta-email">
@@ -566,10 +559,10 @@ footer{border-top:1px solid var(--border);padding:44px 24px;position:relative;z-
   <div class="footer-inner">
     <div>
       <div class="footer-logo">
-        <svg width="22" height="22" viewBox="0 0 36 36"><path d="M18 4L32 12L18 20L4 12L18 4Z" fill="#5BC85B"/><path d="M4 12L18 20V32L4 24V12Z" fill="#2A7EC8"/><path d="M32 12L18 20V32L32 24V12Z" fill="#00B8CC"/></svg>
+        <svg width="20" height="20" viewBox="0 0 36 36"><path d="M18 4L32 12L18 20L4 12L18 4Z" fill="#2A6DD9"/><path d="M4 12L18 20V32L4 24V12Z" fill="#1A4FA0"/><path d="M32 12L18 20V32L32 24V12Z" fill="#2AB8A0"/></svg>
         Бизнесметр AI
       </div>
-      <div class="footer-copy">© 2025 Бизнесметр.рф · Тестовая среда v0.1<br>AI-платформа коммерческой недвижимости</div>
+      <div class="footer-copy">© 2025 Бизнесметр.рф · v0.1 DEV<br>AI-платформа коммерческой недвижимости</div>
     </div>
     <div>
       <div class="footer-col-title">ИНСТРУМЕНТЫ</div>
@@ -583,25 +576,23 @@ footer{border-top:1px solid var(--border);padding:44px 24px;position:relative;z-
       <div class="footer-col-title">СВЯЗЬ</div>
       <div class="footer-links">
         <a href="#">Telegram</a>
-        <a href="#">ВКонтакте</a>
+        <a href="#">ВКонтакте / Max</a>
         <a href="#">WhatsApp</a>
       </div>
     </div>
   </div>
 </footer>
 
-<!-- DEMO MODAL -->
+<!-- MODAL -->
 <div class="modal-wrap" id="demo-modal">
   <div class="modal">
     <div class="modal-header">
-      <svg width="24" height="24" viewBox="0 0 36 36"><path d="M18 4L32 12L18 20L4 12L18 4Z" fill="#5BC85B"/><path d="M4 12L18 20V32L4 24V12Z" fill="#2A7EC8"/><path d="M32 12L18 20V32L32 24V12Z" fill="#00B8CC"/></svg>
+      <svg width="22" height="22" viewBox="0 0 36 36"><path d="M18 4L32 12L18 20L4 12L18 4Z" fill="#2A6DD9"/><path d="M4 12L18 20V32L4 24V12Z" fill="#1A4FA0"/><path d="M32 12L18 20V32L32 24V12Z" fill="#2AB8A0"/></svg>
       <h3>Бизнесметр AI · Демо</h3>
       <button class="modal-close" onclick="closeModal()"><i class="ti ti-x"></i></button>
     </div>
     <div class="modal-body" id="modal-body">
-      <div class="dm-ai">
-        Привет! Я AI-консультант по коммерческой недвижимости. Спрашивайте о рынке, ценах, объектах — отвечу на русском языке.
-      </div>
+      <div class="dm-ai">Привет! Я AI-консультант по коммерческой недвижимости. Спрашивайте о рынке, ценах, объектах — отвечу по делу.</div>
     </div>
     <div class="modal-input-area">
       <input class="modal-inp" id="modal-inp" placeholder="Ваш вопрос о недвижимости..."
@@ -612,55 +603,33 @@ footer{border-top:1px solid var(--border);padding:44px 24px;position:relative;z-
 </div>
 
 <script>
-// Nav scroll
 window.addEventListener('scroll',()=>document.getElementById('nav').classList.toggle('scrolled',scrollY>20));
-
-// Fade-up observer
 const io=new IntersectionObserver(els=>els.forEach(e=>{if(e.isIntersecting)e.target.classList.add('visible')}),{threshold:.1});
 document.querySelectorAll('.fade-up').forEach(el=>io.observe(el));
-
-// Counters
-function count(id,to,suffix=''){
-  const el=document.getElementById(id);let c=0;
-  const t=setInterval(()=>{c=Math.min(c+to/40,to);el.textContent=Math.round(c)+(suffix);if(c>=to)clearInterval(t)},30);
-}
+function count(id,to){const el=document.getElementById(id);let c=0;const t=setInterval(()=>{c=Math.min(c+to/40,to);el.textContent=Math.round(c);if(c>=to)clearInterval(t)},30);}
 setTimeout(()=>{
   count('c1',12);count('c2',6);count('c3',100);count('c4',50);
   let p=0;const pi=setInterval(()=>{p+=1800;document.getElementById('hc-price').textContent='₽ '+p.toLocaleString('ru');if(p>=180000)clearInterval(pi)},20);
   count('hc-obj',2847);count('hc-deals',143);
 },400);
-
-// CTA
-function ctaSubmit(){
-  const v=document.getElementById('cta-email').value.trim();
-  if(!v||!v.includes('@'))return;
-  document.getElementById('cta-ok').style.display='block';
-  document.getElementById('cta-email').value='';
-}
-
-// Modal
+function ctaSubmit(){const v=document.getElementById('cta-email').value.trim();if(!v||!v.includes('@'))return;document.getElementById('cta-ok').style.display='block';document.getElementById('cta-email').value='';}
 function openModal(){document.getElementById('demo-modal').classList.add('open')}
 function closeModal(){document.getElementById('demo-modal').classList.remove('open')}
 document.getElementById('demo-modal').addEventListener('click',e=>{if(e.target===e.currentTarget)closeModal()});
-
 async function modalSend(){
-  const inp=document.getElementById('modal-inp');
-  const q=inp.value.trim();if(!q)return;
-  inp.value='';
+  const inp=document.getElementById('modal-inp');const q=inp.value.trim();if(!q)return;inp.value='';
   const body=document.getElementById('modal-body');
   body.innerHTML+=`<div class="dm-user"><div>${q.replace(/</g,'&lt;')}</div></div>`;
-  const typing=document.createElement('div');
-  typing.className='dm-ai';
-  typing.innerHTML='<div class="typing"><span></span><span></span><span></span></div>';
-  body.appendChild(typing);
-  body.scrollTop=body.scrollHeight;
+  const t=document.createElement('div');t.className='dm-ai';
+  t.innerHTML='<div class="typing"><span></span><span></span><span></span></div>';
+  body.appendChild(t);body.scrollTop=body.scrollHeight;
   try{
     const r=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({system:'Ты эксперт по коммерческой недвижимости России. Отвечай кратко, по делу, только русский. Без markdown. До 120 слов.',
-        messages:[{role:'user',content:q}],max_tokens:400})});
+      body:JSON.stringify({system:'Ты эксперт по коммерческой недвижимости России. Кратко, по делу, только русский, без markdown, до 100 слов.',
+        messages:[{role:'user',content:q}],max_tokens:300})});
     const d=await r.json();
-    typing.textContent=d?.content?.[0]?.text||'Не удалось получить ответ.';
-  }catch(e){typing.textContent='Ошибка подключения к AI.';}
+    t.textContent=d?.content?.[0]?.text||'Нет ответа.';
+  }catch(e){t.textContent='Ошибка подключения.';}
   body.scrollTop=body.scrollHeight;
 }
 </script>
