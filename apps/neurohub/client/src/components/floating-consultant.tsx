@@ -2762,6 +2762,31 @@ export function FloatingConsultant() {
                   soundEnabled ? "text-fuchsia-300 hover:text-fuchsia-200 rotate-0" : "text-white/40 hover:text-white/70 -rotate-12"
                 }`}
               >{soundEnabled ? "🔔" : "🔕"}</button>
+              {/* Eugene 2026-05-24 Босс «всегда кнопка скопировать последние
+                  5 сообщений». Visible для ВСЕХ юзеров (auth + анон). Копирует
+                  последние 5 messages в формат «Я: ... / 🎵 Музa: ...». */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  if (chatMsgs.length === 0) return;
+                  const last5 = chatMsgs.slice(-5);
+                  const text = last5.map(m => {
+                    const who = m.role === "user" ? "Я" : "🎵 Музa";
+                    return `${who}: ${m.text}`;
+                  }).join("\n\n");
+                  try {
+                    navigator.clipboard.writeText(text);
+                    const btn = e.currentTarget as HTMLElement;
+                    btn.dataset.orig = btn.textContent || "";
+                    btn.textContent = "✓";
+                    window.setTimeout(() => { try { btn.textContent = btn.dataset.orig || "📋"; } catch {} }, 1400);
+                  } catch {}
+                }}
+                disabled={chatMsgs.length === 0}
+                aria-label="Скопировать последние 5 сообщений"
+                title="Скопировать последние 5 сообщений"
+                className="w-9 h-9 sm:w-7 sm:h-7 rounded-full hover:bg-white/[0.08] text-white/70 hover:text-white text-sm flex items-center justify-center shrink-0 disabled:opacity-30 disabled:cursor-not-allowed"
+              >📋</button>
               {/* Eugene 2026-05-23 Босс «нет кнопки свернуть — классические
                   решения по управлению окнами». Triple control: — / ⛶ / ×
                   (minimize / maximize / close) как Windows/macOS window
@@ -2942,28 +2967,9 @@ export function FloatingConsultant() {
                         </span>
                       );
                     })()}</div>
-                    {/* Eugene 2026-05-24 Босс «кнопка скопировать должна быть
-                        на всех сообщениях если юзер авторизован». Compact
-                        clipboard button under EACH message (user + bot) для
-                        authed юзеров. Click → navigator.clipboard.writeText(m.text). */}
-                    {authedUser && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          try {
-                            navigator.clipboard.writeText(m.text);
-                            const btn = e.currentTarget as HTMLElement;
-                            const orig = btn.textContent;
-                            btn.textContent = "✓ скопировано";
-                            window.setTimeout(() => { btn.textContent = orig; }, 1400);
-                          } catch {}
-                        }}
-                        className="self-end mt-0.5 text-[10px] text-white/30 hover:text-white/70 px-1.5 py-0.5 rounded transition-colors"
-                        aria-label="Скопировать сообщение"
-                        title="Скопировать в буфер обмена"
-                      >📋 копировать</button>
-                    )}
+                    {/* Eugene 2026-05-24 Босс «всегда кнопка скопировать
+                        последние 5 сообщений» — per-message copy button удалён,
+                        consolidated в header «📋» (копирует last 5). */}
                     {/* Eugene 2026-05-23 Босс «после первых строк кнопка
                         Re:Текст». Show под последним bot-message содержащим
                         lyrics draft. Click → seed message Музе «расширь × 2
