@@ -20,6 +20,7 @@ import { recordAuditEntry } from "../../lib/adminAuditLog";
 import {
   ensureClientErrorsTable,
   runFrontendQaScan,
+  runFrontendQaCycle,
   getLatestFrontendQaReport,
   markFrontendBug,
 } from "../../lib/frontendQaAgent";
@@ -33,7 +34,7 @@ adminRouter.get("/frontend-qa/report", async (_req: Request, res: Response) => {
     const report = await getLatestFrontendQaReport();
     res.json({ data: report, error: null });
   } catch (e: any) {
-    console.error("[frontend-qa report]", e?.message || e);
+    console.error("[Фрон отчёт]", e?.message || e);
     res.status(500).json({ data: null, error: "Не удалось получить отчёт Фронт-тестера" });
   }
 });
@@ -51,8 +52,27 @@ adminRouter.post("/frontend-qa/scan-now", async (req: Request, res: Response) =>
     });
     res.json({ data: report, error: null });
   } catch (e: any) {
-    console.error("[frontend-qa scan-now]", e?.message || e);
+    console.error("[Фрон скан]", e?.message || e);
     res.status(500).json({ data: null, error: "Не удалось запустить QA-скан фронта" });
+  }
+});
+
+// POST /frontend-qa/scan-cycle — прогон + повторная проходка после устранения
+// багов + финальный ИТОГ по-русски (Босс «повторная проходка ещё раз, итог»).
+adminRouter.post("/frontend-qa/scan-cycle", async (req: Request, res: Response) => {
+  try {
+    const report = await runFrontendQaCycle();
+    recordAuditEntry({
+      req,
+      action: "create",
+      entity: "frontend_qa_scan",
+      entityKey: report.generatedAt,
+      after: { openCount: report.openCount, criticalCount: report.criticalCount, via: "scan-cycle", rescanned: true },
+    });
+    res.json({ data: report, error: null });
+  } catch (e: any) {
+    console.error("[Фрон цикл]", e?.message || e);
+    res.status(500).json({ data: null, error: "Не удалось выполнить цикл прогона с повторной проходкой" });
   }
 });
 
@@ -78,7 +98,7 @@ adminRouter.post("/frontend-qa/:id/mark", (req: Request, res: Response) => {
     });
     res.json({ data: { id, status }, error: null });
   } catch (e: any) {
-    console.error("[frontend-qa mark]", e?.message || e);
+    console.error("[Фрон статус]", e?.message || e);
     res.status(500).json({ data: null, error: "Не удалось обновить статус бага" });
   }
 });
@@ -91,7 +111,7 @@ const frontendQaModule: Module = {
   onLoad: async (ctx) => {
     ensureClientErrorsTable();
     ctx.app.use("/api/admin/v304", adminRouter);
-    ctx.logger.info("frontend-qa online — admin /api/admin/v304/frontend-qa (report + scan-now + mark)");
+    ctx.logger.info("[Фрон] Агент онлайн — admin /api/admin/v304/frontend-qa (отчёт + скан + отметка статуса)");
   },
   healthCheck: () => ({ status: "ok" }),
 };

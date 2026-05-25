@@ -2198,12 +2198,13 @@ const HANDLERS: Record<string, ToolHandler> = {
     try {
       const mod = await import("./frontendQaAgent");
       const report = run === true ? await mod.runFrontendQaScan() : await mod.getLatestFrontendQaReport();
-      if (!report.items.length) return "Фронт-тестер: открытых багов фронта нет. Всё чисто.";
-      const top = report.items
+      // Лидируем русским ИТОГОМ (summaryRu). Босс «вижу английский» — только русский.
+      if (!report.items.length) return report.summaryRu || "Фронт-тестер: открытых багов фронта нет. Всё чисто.";
+      const SEV: Record<string, string> = { critical: "критич", high: "важн", medium: "средн", low: "мелк" };
+      const links = report.items
         .slice(0, 6)
-        .map((i) => `• [${i.severity}] ${i.message.slice(0, 120)} (×${i.count})\n  ${i.pageUrl}${i.fixProposal ? `\n  💡 ${i.fixProposal.slice(0, 160)}` : ""}`);
-      const head = `Фронт-тестер — баги фронта (критичных ${report.criticalCount}, всего открытых ${report.openCount}):`;
-      return `${head}\n${top.join("\n")}`;
+        .map((i) => `• [${SEV[i.severity] || i.severity}] ${i.page} — ${i.message.slice(0, 120)} (×${i.count})\n  ${i.pageUrl}${i.fixProposal ? `\n  💡 ${i.fixProposal.slice(0, 160)}` : ""}`);
+      return `${report.summaryRu}\n\nСсылки и предложенные фиксы:\n${links.join("\n")}`;
     } catch (e: any) {
       return `Ошибка frontend_qa_report: ${e.message}`;
     }

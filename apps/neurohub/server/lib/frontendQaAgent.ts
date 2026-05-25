@@ -57,6 +57,10 @@ export interface FrontendQaReport {
   openCount: number;
   criticalCount: number;
   items: FrontendQaItem[];
+  /** Итог по-русски: какие баги были (по устройствам/страницам/severity). */
+  summaryRu: string;
+  /** Была ли повторная проходка (re-scan) после устранения багов. */
+  rescanned?: boolean;
 }
 
 function sqlite(): any {
@@ -90,7 +94,7 @@ export function ensureClientErrorsTable(): void {
     `);
     migrated = true;
   } catch (e) {
-    console.warn("[frontend-qa] migration failed:", e);
+    console.warn("[Фрон] Миграция таблицы не удалась:", e);
   }
 }
 
@@ -170,7 +174,7 @@ export function recordClientError(input: {
       ).run(message, stack, pagePath, ua, now, now, source, dedupeKey);
     }
   } catch (e) {
-    console.warn("[frontend-qa] recordClientError failed:", e);
+    console.warn("[Фрон] Не удалось записать ошибку клиента:", e);
   }
 }
 
@@ -233,7 +237,7 @@ async function runSyntheticChecks(): Promise<void> {
         resolveSyntheticIfOpen(path);
       }
     } catch (e) {
-      console.warn(`[frontend-qa] synthetic check ${path} failed:`, e);
+      console.warn(`[Фрон] Синтетическая проверка ${path} не удалась:`, e);
     }
   }
 }
@@ -261,7 +265,7 @@ function upsertSynthetic(page: string, message: string): void {
       ).run(message, pagePath, now, now, dedupeKey);
     }
   } catch (e) {
-    console.warn("[frontend-qa] upsertSynthetic failed:", e);
+    console.warn("[Фрон] Не удалось сохранить синтетическую находку:", e);
   }
 }
 
@@ -339,6 +343,8 @@ interface PlaywrightResult {
   ok: boolean;
   skipped: boolean;
   reason?: string;
+  partial?: boolean;
+  devicesTested?: string[];
   issues: PlaywrightIssue[];
   checkedAt?: string;
 }
@@ -356,9 +362,10 @@ export async function runPlaywrightScan(): Promise<{ ran: boolean; skipped: bool
   }
   const scriptPath = resolvePlaywrightScript();
   if (!scriptPath) {
-    console.log("[frontend-qa] playwright script not found — skip (synthetic checks remain)");
+    console.log("[Фрон] Скрипт реал-браузера не найден — пропускаю (синтетические проверки продолжают работать)");
     return { ran: false, skipped: true, reason: "script_not_found", issueCount: 0 };
   }
+  console.log("[Фрон] Запускаю прогон сайта в реальном браузере по разным устройствам…");
 
   let result: PlaywrightResult | null = null;
   try {
@@ -399,12 +406,12 @@ export async function runPlaywrightScan(): Promise<{ ran: boolean; skipped: bool
       );
     });
   } catch (e: any) {
-    console.warn("[frontend-qa] runPlaywrightScan spawn failed:", e?.message || e);
+    console.warn("[Фрон] Не удалось запустить прогон в реальном браузере:", e?.message || e);
     return { ran: false, skipped: true, reason: "spawn_failed", issueCount: 0 };
   }
 
   if (!result || result.skipped) {
-    console.log(`[frontend-qa] playwright skipped: ${result?.reason || "unknown"}`);
+    console.log(`[Фрон] Прогон в реальном браузере пропущен: ${result?.reason || "причина неизвестна"}`);
     return { ran: false, skipped: true, reason: result?.reason || "skipped", issueCount: 0 };
   }
 
@@ -414,8 +421,10 @@ export async function runPlaywrightScan(): Promise<{ ran: boolean; skipped: bool
   for (const issue of result.issues || []) {
     try {
       const pagePath = issue.page && issue.page.startsWith("/") ? issue.page : "/" + String(issue.page || "");
+      // Русский слаг типа находки — Босс не должен видеть английский (issue.message
+      // уже по-русски + содержит [устройство]). Слаг используется и в severityFor.
       recordClientError({
-        message: `[playwright:${issue.kind}] ${issue.message}`,
+        message: `[Фрон:${playwrightKindRu(issue.kind)}] ${issue.message}`,
         page: pagePath,
         url: `${base}${pagePath}`,
         source: "playwright",
@@ -425,20 +434,40 @@ export async function runPlaywrightScan(): Promise<{ ran: boolean; skipped: bool
       /* never throw */
     }
   }
-  console.log(`[frontend-qa] playwright scan ok — ${recorded} issue(s) recorded`);
+  const devs = (result.devicesTested && result.devicesTested.length)
+    ? result.devicesTested.join(", ")
+    : "—";
+  const partialNote = result.partial ? " (прогон неполный — сработал лимит времени)" : "";
+  console.log(`[Фрон] Прогон завершён${partialNote}. Устройства: ${devs}. Записано находок: ${recorded}.`);
   return { ran: true, skipped: false, issueCount: recorded };
 }
 
 // ====================== SEVERITY ======================
 
+// Русские слаги типов находок реал-браузера (Босс видит только русский).
+// Слаг — стабильный машинный идентификатор для severityFor, тоже по-русски.
+function playwrightKindRu(kind: string): string {
+  switch (kind) {
+    case "console-error": return "ошибка-консоли";
+    case "pageerror": return "исключение";
+    case "requestfailed": return "запрос-не-прошёл";
+    case "http-error": return "http-ошибка";
+    case "blank-render": return "пустой-экран";
+    case "navigation": return "страница-не-открылась";
+    case "overflow-x": return "контент-шире-экрана";
+    case "device-context": return "ошибка-устройства";
+    default: return "находка";
+  }
+}
+
 function severityFor(item: { source: string; count: number; message: string }): FrontendBugSeverity {
   // Синтетический баг = страница/бандл не открывается = всегда critical.
   if (item.source === "synthetic") return "critical";
-  // Playwright реал-браузер: пустой рендер / uncaught / страница не открылась =
+  // Playwright реал-браузер: пустой рендер / исключение / страница не открылась =
   // critical (юзер видит белый/чёрный экран). HTTP/console-ошибки = high.
   if (item.source === "playwright") {
     const m = item.message || "";
-    if (/blank-render|pageerror|navigation/.test(m)) return "critical";
+    if (/пустой-экран|исключение|страница-не-открылась/.test(m)) return "critical";
     return "high";
   }
   const c = item.count;
@@ -472,9 +501,50 @@ async function generateFixProposal(item: { message: string; page: string; stack:
     const t = String(reply || "").trim();
     return t.length > 8 ? t.slice(0, 800) : null;
   } catch (e) {
-    console.warn("[frontend-qa] generateFixProposal failed:", e);
+    console.warn("[Фрон] Не удалось сгенерировать предложение по фиксу:", e);
     return null;
   }
+}
+
+// ====================== ИТОГ ПО-РУССКИ ======================
+
+const SEVERITY_RU: Record<FrontendBugSeverity, string> = {
+  critical: "критические",
+  high: "важные",
+  medium: "средние",
+  low: "мелкие",
+};
+
+/**
+ * Строит ИТОГ ПО-РУССКИ: какие баги были (severity + страницы + устройства).
+ * Уходит Директору (он докладывает Боссу). Босс «вижу английский» — только русский.
+ */
+function buildRussianSummary(items: FrontendQaItem[], rescanned: boolean): string {
+  if (!items.length) {
+    return rescanned
+      ? "Повторная проходка: багов не осталось — фронт чист на всех устройствах. ✅"
+      : "Багов не найдено — фронт чист на всех устройствах. ✅";
+  }
+  const bySeverity: Record<FrontendBugSeverity, number> = { critical: 0, high: 0, medium: 0, low: 0 };
+  const pages = new Set<string>();
+  for (const it of items) {
+    bySeverity[it.severity] = (bySeverity[it.severity] || 0) + 1;
+    pages.add(it.page);
+  }
+  const sevParts = (["critical", "high", "medium", "low"] as FrontendBugSeverity[])
+    .filter((s) => bySeverity[s] > 0)
+    .map((s) => `${bySeverity[s]} ${SEVERITY_RU[s]}`);
+  const lines: string[] = [];
+  lines.push(`${rescanned ? "Повторная проходка. " : ""}Найдено багов: ${items.length} (${sevParts.join(", ")}). Страниц затронуто: ${pages.size}.`);
+  // Топ-5 находок списком — кратко, по-русски, со ссылкой на страницу.
+  const top = items.slice(0, 5);
+  for (const it of top) {
+    lines.push(`• [${SEVERITY_RU[it.severity]}] ${it.page} — ${String(it.message).slice(0, 180)}`);
+  }
+  if (items.length > top.length) {
+    lines.push(`…и ещё ${items.length - top.length} — полный список в админке (🧪 Фронт-тестер).`);
+  }
+  return lines.join("\n");
 }
 
 // ====================== ENTRY POINTS ======================
@@ -495,7 +565,7 @@ export async function runFrontendQaScan(opts?: { withFix?: boolean }): Promise<F
   try {
     await runPlaywrightScan();
   } catch (e) {
-    console.warn("[frontend-qa] playwright scan error (ignored):", e);
+    console.warn("[Фрон] Ошибка прогона в реальном браузере (проигнорирована):", e);
   }
 
   // (a) Топ открытых багов по count.
@@ -522,7 +592,7 @@ export async function runFrontendQaScan(opts?: { withFix?: boolean }): Promise<F
       )
       .all() as any[];
   } catch (e) {
-    console.warn("[frontend-qa] aggregate failed:", e);
+    console.warn("[Фрон] Агрегация находок не удалась:", e);
   }
 
   const items: FrontendQaItem[] = rows.map((r) => {
@@ -578,6 +648,28 @@ export async function runFrontendQaScan(opts?: { withFix?: boolean }): Promise<F
     openCount,
     criticalCount,
     items,
+    summaryRu: buildRussianSummary(items, false),
+  };
+}
+
+/**
+ * Цикл с повторной проходкой (Босс «после устранения багов повторная проходка
+ * ещё раз, итог»): прогон → (фиксы между вызовами делает деплой) → повторный
+ * прогон для проверки → финальный ИТОГ по-русски с дельтой что закрылось.
+ * Synthetic-находки саморазрешаются при повторном прогоне; реал-браузерные
+ * сверяются заново. Never throws.
+ */
+export async function runFrontendQaCycle(): Promise<FrontendQaReport> {
+  const first = await runFrontendQaScan();
+  const firstOpen = first.openCount;
+  // Повторная проходка — свежий скан (synthetic auto-resolve + реал-браузер заново).
+  const second = await runFrontendQaScan({ withFix: false });
+  const closed = Math.max(0, firstOpen - second.openCount);
+  const delta = closed > 0 ? `\nЗакрылось с прошлого прогона: ${closed}.` : "";
+  return {
+    ...second,
+    rescanned: true,
+    summaryRu: buildRussianSummary(second.items, true) + delta,
   };
 }
 
@@ -596,7 +688,7 @@ export async function getLatestFrontendQaReport(): Promise<FrontendQaReport> {
       )
       .all() as any[];
   } catch (e) {
-    console.warn("[frontend-qa] getLatest failed:", e);
+    console.warn("[Фрон] Не удалось получить последний отчёт:", e);
   }
   const items: FrontendQaItem[] = rows.map((r) => {
     const severity = severityFor({ source: r.source, count: Number(r.count || 1), message: r.message || "" });
@@ -620,6 +712,7 @@ export async function getLatestFrontendQaReport(): Promise<FrontendQaReport> {
     openCount: items.filter((i) => i.status === "open" || i.status === "proposed").length,
     criticalCount: items.filter((i) => i.severity === "critical").length,
     items,
+    summaryRu: buildRussianSummary(items, false),
   };
 }
 
@@ -632,7 +725,7 @@ export function markFrontendBug(id: number, status: string): boolean {
     const info = sqlite().prepare(`UPDATE client_errors SET status = ? WHERE id = ?`).run(status, id);
     return Number(info?.changes || 0) > 0;
   } catch (e) {
-    console.warn("[frontend-qa] markFrontendBug failed:", e);
+    console.warn("[Фрон] Не удалось обновить статус бага:", e);
     return false;
   }
 }
