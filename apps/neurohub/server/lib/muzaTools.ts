@@ -913,6 +913,11 @@ export const MUZA_TOOLS: ToolDef[] = [
       required: ["group"],
     },
   },
+  {
+    name: "director_analyze",
+    description: "[ADMIN-ONLY] AI-анализ всего проекта: Директор смотрит срез по ВСЕМ службам (агенты, генерации, финансы, поддержка, обратная связь), находит проблемы и даёт КОНКРЕТНЫЕ предложения через AI. Используй когда Босс говорит «проанализируй», «где проблемы», «что не так», «дай предложения», «разбор», «что улучшить».",
+    input_schema: { type: "object", properties: {} },
+  },
 ];
 
 // === Email 2FA wrapper helper (Eugene 2026-05-17 Босс) ===
@@ -3302,6 +3307,16 @@ const HANDLERS: Record<string, ToolHandler> = {
       return `Не смогла обработать группу: ${e?.message || e}`;
     }
   },
+
+  async director_analyze(_input, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: director tool admin-only.";
+    try {
+      const { analyzeNow } = await import("./directorDigest");
+      return (await analyzeNow()).slice(0, 1900);
+    } catch (e: any) {
+      return `Не смогла провести анализ: ${e?.message || e}`;
+    }
+  },
 };
 
 // === Admin tools runtime state (Eugene 2026-05-17) ===
@@ -3431,6 +3446,7 @@ const LONG_TOOL_TIMEOUTS: Record<string, number> = {
   director_finance: 30_000,
   director_control_group: 30_000,
   director_knowledge: 15_000,
+  director_analyze: 40_000,
 };
 
 export async function executeTool(name: string, input: any, context: ToolContext): Promise<string> {

@@ -12,6 +12,53 @@
 // TG-helper — тот же паттерн что bridge/llmCore. Never throws.
 
 import { db } from "../storage";
+import { callDeepSeek, callTimeWebGateway, listAnthropicKeys } from "./llmCore";
+
+/**
+ * Eugene 2026-05-25 Босс «подключи Директора к AI по API — пусть смотрит где
+ * проблемы и докладывает с предложениями». LLM-анализ среза: DeepSeek (cheap)
+ * → TimeWeb → Anthropic. Возвращает текст с диагнозом + конкретными
+ * предложениями, либо null (тогда caller отдаёт статический дайджест).
+ */
+const DIRECTOR_ANALYST_SYSTEM =
+  `Ты — Музa Директор, главный аналитик бэкенда MuzaAi (AI-генерация музыки). ` +
+  `На входе — JSON-срез по всем службам: агенты, генерации, финансы, поддержка, обратная связь. ` +
+  `Твоя задача: НАЙТИ проблемы и дать КОНКРЕТНЫЕ предложения что сделать (1 проблема — 1 действие). ` +
+  `Пиши кратко, по-деловому, на русском, от женского лица, как начальник Боссу. ` +
+  `Формат: 2-5 пунктов «проблема → предложение». Если проблем нет — одной строкой «Всё штатно, рисков не вижу». ` +
+  `Не выдумывай данных сверх JSON. Не более 700 символов.`;
+
+export async function analyzeWithAI(data: DigestData): Promise<string | null> {
+  const userText = `Срез служб (JSON):\n${JSON.stringify(data)}`;
+  // 1) DeepSeek (cheap)
+  try {
+    const ds = await callDeepSeek({ systemPrompt: DIRECTOR_ANALYST_SYSTEM, history: [], userText, maxTokens: 400 });
+    if (ds.text && ds.text.trim().length > 10) return ds.text.trim();
+  } catch {}
+  // 2) TimeWeb gateway
+  try {
+    const tw = await callTimeWebGateway({ systemPrompt: DIRECTOR_ANALYST_SYSTEM, history: [], userText, maxTokens: 400, model: process.env.TIMEWEB_GATEWAY_MODEL || "anthropic/claude-haiku-4-5" });
+    if (tw.text && tw.text.trim().length > 10) return tw.text.trim();
+  } catch {}
+  // 3) Anthropic (первый ключ)
+  try {
+    const keys = listAnthropicKeys();
+    if (keys.length > 0) {
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "x-api-key": keys[0].key, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+        body: JSON.stringify({ model: "claude-haiku-4-5-20251001", max_tokens: 400, system: DIRECTOR_ANALYST_SYSTEM, messages: [{ role: "user", content: userText }] }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (r.ok) {
+        const j: any = await r.json();
+        const t = (j?.content || []).find((b: any) => b.type === "text")?.text;
+        if (t && t.trim().length > 10) return t.trim();
+      }
+    }
+  } catch {}
+  return null;
+}
 
 function notifyBossTelegram(text: string): void {
   const adminId = process.env.ADMIN_TELEGRAM_ID;
@@ -108,7 +155,7 @@ function formatDigest(d: DigestData, label: string): string {
   return lines.join("\n");
 }
 
-/** Плановый дайджест (03:00 / 14:00 МСК). */
+/** Плановый дайджест (03:00 / 14:00 МСК) + AI-анализ с предложениями. */
 export async function sendDailyDigest(label: string): Promise<void> {
   try {
     const d = await collectDigestData();
@@ -116,7 +163,11 @@ export async function sendDailyDigest(label: string): Promise<void> {
       const { recordAgentActivity } = await import("./agentOrchestrator");
       recordAgentActivity("director-digest", { label });
     } catch {}
-    notifyBossTelegram(formatDigest(d, label));
+    let msg = formatDigest(d, label);
+    // AI-анализ: где проблемы + предложения (Босс «докладывает с предложениями»).
+    const ai = await analyzeWithAI(d).catch(() => null);
+    if (ai) msg += `\n\n🧠 <b>Анализ Директора:</b>\n${ai}`;
+    notifyBossTelegram(msg);
   } catch (e) {
     console.warn("[directorDigest] sendDailyDigest failed:", e);
   }
@@ -136,8 +187,21 @@ export async function checkCritical(): Promise<void> {
     if (key === lastCriticalKey && now - lastCriticalAt < 60 * 60_000) return; // тот же набор — не чаще 1/час
     lastCriticalKey = key;
     lastCriticalAt = now;
-    notifyBossTelegram(`🚨 <b>Директор — КРИТИЧНО</b>\n\n${d.critical.join("\n")}\n\nЗайди в /admin/v304 → 🎬 Музa Директор.`);
+    let msg = `🚨 <b>Директор — КРИТИЧНО</b>\n\n${d.critical.join("\n")}`;
+    // AI-предложение что делать (короткое).
+    const ai = await analyzeWithAI(d).catch(() => null);
+    if (ai) msg += `\n\n🧠 ${ai}`;
+    msg += `\n\nЗайди в /admin/v304 → 🎬 Музa Директор.`;
+    notifyBossTelegram(msg);
   } catch (e) {
     console.warn("[directorDigest] checkCritical failed:", e);
   }
+}
+
+/** On-demand анализ для director-tool: данные + AI-разбор с предложениями. */
+export async function analyzeNow(): Promise<string> {
+  const d = await collectDigestData();
+  const ai = await analyzeWithAI(d).catch(() => null);
+  const base = formatDigest(d, "сейчас").replace(/<\/?b>/g, "");
+  return ai ? `${base}\n\n🧠 Анализ:\n${ai}` : base;
 }
