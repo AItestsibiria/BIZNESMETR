@@ -23,13 +23,10 @@ self.addEventListener("activate", (event) => {
         const keys = await caches.keys();
         await Promise.all(keys.map((k) => caches.delete(k)));
       } catch {}
-      // 2. Снять регистрацию самого SW.
+      // 2. Снять регистрацию самого SW. БЕЗ авто-reload (c.navigate вызывал
+      //    петлю перезагрузки на устройствах со старым бандлом). Юзер обновит
+      //    сам один раз — загрузится уже без SW.
       try { await self.registration.unregister(); } catch {}
-      // 3. Перезагрузить открытые вкладки → они грузятся уже БЕЗ SW (network).
-      try {
-        const clients = await self.clients.matchAll({ type: "window" });
-        clients.forEach((c) => { try { c.navigate(c.url); } catch {} });
-      } catch {}
     })()
   );
 });
