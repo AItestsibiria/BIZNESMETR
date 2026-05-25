@@ -66,6 +66,7 @@ import agentReferralModule from "./plugins/agent-referral/module";
 import agentRetentionModule from "./plugins/agent-retention/module";
 import agentContentModule from "./plugins/agent-content/module";
 import agentA1MasterModule from "./plugins/agent-a1-master/module";
+import agentOrchestratorBridgeModule from "./plugins/agent-orchestrator-bridge/module";
 import adminOverviewModule from "./plugins/admin-overview/module";
 import incidentTrackerModule from "./plugins/incident-tracker/module";
 import audioUploadModule from "./plugins/audio-upload/module";
@@ -534,6 +535,7 @@ app.post("/api/_client-error", express.json(), (req, res) => {
     { name: "agent-retention", module: agentRetentionModule },
     { name: "agent-content", module: agentContentModule },
     { name: "agent-a1-master", module: agentA1MasterModule },
+    { name: "agent-orchestrator-bridge", module: agentOrchestratorBridgeModule },
     { name: "admin-overview", module: adminOverviewModule },
     { name: "incident-tracker", module: incidentTrackerModule },
     { name: "audio-upload", module: audioUploadModule },

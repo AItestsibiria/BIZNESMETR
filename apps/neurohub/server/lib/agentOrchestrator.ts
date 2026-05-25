@@ -683,6 +683,65 @@ export function bootstrapDefaultAgents(): void {
   // Регистрируем edges между marketing-orchestrator и channels (см. matrix
   // в docs/AGENT-ORCHESTRATOR-PROPOSALS.md и Agent-orchestrator rule).
   registerDefaultEdges();
+
+  // Eugene 2026-05-25 Босс «Муза должна владеть всей информацией, контролировать
+  // ВСЕХ агентов». Мост: регистрируем 9 EventBus-агентов (plugins/agent-*) +
+  // A1 Master в Директоре, чтобы он их ВИДЕЛ. Live-активность/здоровье
+  // синхронизирует plugin agent-orchestrator-bridge (subscribes на
+  // agent.action.executed/failed + a1.alert.agent_unhealthy).
+  registerEventBusAgents();
+}
+
+/**
+ * Eugene 2026-05-25 — Bridge #1. Регистрирует EventBus-агентов (plugins/agent-*)
+ * в Директоре. id = `bus-<agentName>`. Статус "active" (они в bundle как плагины);
+ * реальное здоровье обновляется через a1.alert.agent_unhealthy (bridge plugin).
+ *
+ * Маппинг agentName (из runAgentAction) → orchestrator id фиксирован как
+ * `bus-${agentName}` — bridge plugin использует тот же префикс.
+ */
+export function registerEventBusAgents(): void {
+  const busAgents: Array<{ name: string; title: string; role: AgentRole; brief: string }> = [
+    { name: "lead-hunter", title: "Лид-хантер", role: "marketing", brief: "Скоринг новых лидов по UTM" },
+    { name: "scout", title: "Скаут", role: "tool", brief: "Линкует анонимного лида к аккаунту" },
+    { name: "welcome", title: "Welcome-серия", role: "broadcaster", brief: "3-step welcome email серия" },
+    { name: "demo", title: "Демо-агент", role: "marketing", brief: "Демо-flow для новых юзеров" },
+    { name: "onboarding", title: "Онбординг", role: "broadcaster", brief: "Гарантия first-track entitlement" },
+    { name: "conversion", title: "Конверсия", role: "marketing", brief: "Наблюдает payment funnel" },
+    { name: "referral", title: "Реферальный", role: "tool", brief: "Аудит реферальных бонусов" },
+    { name: "retention", title: "Удержание (churn)", role: "marketing", brief: "Daily churn scan + retention.churn_alert" },
+    { name: "content", title: "Контент-агрегатор", role: "diagnostic", brief: "Hourly aggregates plays/shares" },
+  ];
+  for (const a of busAgents) {
+    orchestrator.register({
+      id: `bus-${a.name}`,
+      name: a.title,
+      channel: "internal",
+      role: a.role,
+      status: "active",
+      capabilities: ["event_driven", "agent_action"],
+      metadata: { brief: a.brief, busAgent: a.name, system: "eventbus" },
+    });
+  }
+  // A1 Master — контроллер EventBus-агентов (failure-rate monitor).
+  orchestrator.register({
+    id: "agent-a1-master",
+    name: "A1 Master (контроллер агентов)",
+    channel: "internal",
+    role: "watchdog",
+    status: "active",
+    capabilities: ["agent_monitoring", "failure_rate", "alert"],
+    metadata: { brief: "Watches all agent.action.* — alerts на unhealthy агентов (>50% fail/100)" },
+  });
+  // Edges: A1 Master наблюдает за всеми bus-агентами + алертит Директору.
+  for (const a of busAgents) {
+    orchestrator.addEdge("agent-a1-master", `bus-${a.name}`, "event", {
+      purpose: "failure-rate monitoring (agent.action.executed/failed)",
+    });
+  }
+  orchestrator.addEdge("agent-a1-master", "muza-admin", "webhook", {
+    purpose: "a1.alert.agent_unhealthy → Директор помечает агента error + алерт Боссу",
+  });
 }
 
 /**
