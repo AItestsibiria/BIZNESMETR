@@ -10417,15 +10417,14 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
         return res.status(404).end();
       }
 
-      // Eugene 2026-05-25 security hardening: scoped CORS вместо wildcard `*`.
-      // Обложки — публичный GET-ресурс, но Origin сужаем до публичного сайта
-      // (cross-origin <img>/<audio cover> грузятся и без CORS; этот заголовок
-      // нужен только для fetch() из браузера, и его привязка к нашему домену
-      // не ломает обычную загрузку картинок).
-      res.setHeader(
-        "Access-Control-Allow-Origin",
-        process.env.PUBLIC_URL || "https://muzaai.ru",
-      );
+      // Eugene 2026-05-25 РЕГРЕССИЯ-ФИКС: возврат к wildcard `*`.
+      // Обложки — публичный GET-ресурс. Scoped CORS (PUBLIC_URL) ломал показ
+      // когда origin страницы != PUBLIC_URL (www vs non-www, clone-домен,
+      // unset env → дефолт muzaai.ru при отдаче с другого хоста), а также
+      // canvas-операции с crossOrigin="anonymous" (watermark-save в
+      // cover-details-modal). Утром работало именно с `*` — возвращаем.
+      // Публичная картинка через wildcard CORS — безопасно.
+      res.setHeader("Access-Control-Allow-Origin", "*");
 
       const wantWm = req.query.wm === "1";
       const targetSize = parseInt(req.query.size as string) || 0;
