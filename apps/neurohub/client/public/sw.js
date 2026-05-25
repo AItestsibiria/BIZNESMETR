@@ -97,31 +97,39 @@ self.addEventListener("fetch", (event) => {
     (request.headers.get("accept") || "").includes("text/html");
 
   if (isNavigation) {
-    // Network-first + 2.5s timeout fallback на cache. Свежий деплой
-    // подхватывается на следующей загрузке (HTML ссылается на новый JS-хэш).
-    // Медленный VPN: через 2.5с отдаём cache → юзер не ждёт (Eugene 2026-05-22).
+    // Eugene 2026-05-25 КРИТ-ФИКС: SW НИКОГДА не должен reject'ить respondWith —
+    // иначе Safari на медленном LTE показывает «FetchEvent.respondWith received an
+    // error: Error: timeout» = белый экран. Прошлый вариант делал reject по 2.5с
+    // таймауту и throw при пустом кэше. Теперь:
+    //  • есть кэш → отдаём из кэша быстро (гонка сеть vs 3с; таймаут РЕЗОЛВИТ null);
+    //  • нет кэша → ЖДЁМ реальную сеть (без искусственного таймаута, важно для LTE);
+    //  • сеть недоступна и кэша нет → минимальный HTML. Никаких throw.
     event.respondWith(
       (async () => {
         const cache = await caches.open(RUNTIME_CACHE);
-        try {
-          const fresh = await Promise.race([
-            fetch(request, { cache: "no-store" }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 2500)),
-          ]);
-          if (fresh && fresh.ok) {
-            try { cache.put(request, fresh.clone()); } catch {}
+        const cached = await cache.match(request);
+        const networkP = fetch(request, { cache: "no-store" })
+          .then((fresh) => {
+            if (fresh && fresh.ok) { try { cache.put(request, fresh.clone()); } catch {} }
             return fresh;
-          }
-          const cached = await cache.match(request);
-          return cached || fresh;
-        } catch (e) {
-          // timeout / offline → cache
-          const cached = await cache.match(request);
-          if (cached) return cached;
-          const root = await caches.match("/");
-          if (root) return root;
-          throw e;
+          })
+          .catch(() => null);
+        if (cached) {
+          const fresh = await Promise.race([
+            networkP,
+            new Promise((res) => setTimeout(() => res(null), 3000)),
+          ]);
+          if (fresh && fresh.ok) return fresh;
+          return cached;
         }
+        const fresh = await networkP;
+        if (fresh) return fresh;
+        const root = await caches.match("/");
+        if (root) return root;
+        return new Response(
+          "<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>MuzaAi</title><body style=\"background:#0a0a17;color:#fff;font-family:sans-serif;text-align:center;padding-top:40vh\">Загрузка… <a href=\"/\" style=\"color:#a78bfa\">обновить</a></body>",
+          { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } }
+        );
       })()
     );
     return;
@@ -136,12 +144,16 @@ self.addEventListener("fetch", (event) => {
       (async () => {
         const cached = await caches.match(request);
         if (cached) return cached;
-        const fresh = await fetch(request);
-        if (fresh.ok) {
-          const cache = await caches.open(CACHE_VERSION);
-          cache.put(request, fresh.clone());
+        try {
+          const fresh = await fetch(request);
+          if (fresh.ok) {
+            const cache = await caches.open(CACHE_VERSION);
+            cache.put(request, fresh.clone());
+          }
+          return fresh;
+        } catch {
+          return new Response("", { status: 504 }); // никогда не throw
         }
-        return fresh;
       })()
     );
     return;
@@ -159,18 +171,22 @@ self.addEventListener("fetch", (event) => {
           }).catch(() => {});
           return cached;
         }
-        const fresh = await fetch(request);
-        if (fresh.ok) {
-          const cache = await caches.open(RUNTIME_CACHE);
-          cache.put(request, fresh.clone());
+        try {
+          const fresh = await fetch(request);
+          if (fresh.ok) {
+            const cache = await caches.open(RUNTIME_CACHE);
+            cache.put(request, fresh.clone());
+          }
+          return fresh;
+        } catch {
+          return new Response("", { status: 504 }); // никогда не throw
         }
-        return fresh;
       })()
     );
     return;
   }
 
-  // === Остальное — network-first с fallback на cache ===
+  // === Остальное — network-first с fallback на cache (никогда не throw) ===
   event.respondWith(
     (async () => {
       try {
@@ -178,7 +194,7 @@ self.addEventListener("fetch", (event) => {
       } catch (e) {
         const cached = await caches.match(request);
         if (cached) return cached;
-        throw e;
+        return new Response("", { status: 504 });
       }
     })()
   );
