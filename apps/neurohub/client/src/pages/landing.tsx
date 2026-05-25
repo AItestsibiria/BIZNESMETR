@@ -2324,8 +2324,27 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               src={currentTrack.imageUrl}
               alt={currentTrack.displayTitle || currentTrack.prompt || "Обложка"}
               className="max-w-[92vw] max-h-[92vh] w-auto h-auto object-contain rounded-2xl shadow-2xl shadow-purple-500/30 select-none"
-              onClick={(e) => e.stopPropagation()}
               draggable={false}
+              /* Eugene 2026-05-24 Босс «любое нажатие на обложку её закрывает,
+                 не случайно — а тапнуть». Tap (движение <10px, <500мс) → закрыть.
+                 Long-press (≥500мс) → НЕ закрывать (native save-меню). Drag → нет. */
+              onPointerDown={(e) => {
+                (e.currentTarget as any).__lbX = e.clientX;
+                (e.currentTarget as any).__lbY = e.clientY;
+                (e.currentTarget as any).__lbAt = Date.now();
+              }}
+              onPointerUp={(e) => {
+                const el = e.currentTarget as any;
+                const sx = el.__lbX, sy = el.__lbY, sat = el.__lbAt;
+                el.__lbX = el.__lbY = el.__lbAt = undefined;
+                if (sx == null || sat == null) return;
+                const dx = Math.abs(e.clientX - sx);
+                const dy = Math.abs(e.clientY - sy);
+                const dt = Date.now() - sat;
+                if (dx > 10 || dy > 10) return; // drag — не закрывать
+                if (dt > 500) return;            // long-press (save) — не закрывать
+                setCoverLightbox(false);
+              }}
             />
             <button
               type="button"
@@ -2335,8 +2354,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             >
               ×
             </button>
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-white/60 text-xs sm:text-sm font-sans pointer-events-none select-none">
-              Удерживай, чтобы сохранить
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-white/60 text-xs sm:text-sm font-sans pointer-events-none select-none text-center">
+              Тап — закрыть · удержание — сохранить
             </div>
           </div>
         )}
