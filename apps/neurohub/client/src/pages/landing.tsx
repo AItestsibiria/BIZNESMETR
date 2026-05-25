@@ -372,17 +372,21 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const [playlistFetchEnabled, setPlaylistFetchEnabled] = useState<boolean>(() => {
     if (typeof window === "undefined") return true;
     if (window.innerWidth >= 768) return true;
-    // Mobile: gate ТОЛЬКО если cache не пустой
+    // Mobile: gate ТОЛЬКО если cache не пустой И свежий (в пределах TTL 30 мин).
+    // Eugene 2026-05-25: раньше проверялась только длина, а tracks-инициализатор
+    // (ниже) обнуляет массив при истёкшем TTL → гейт оставался ON, fetch
+    // откладывался, а tracks=[] → плеер исчезал. Синхронизируем условия.
     try {
       const raw = localStorage.getItem("pl:tracks:cache");
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed && Array.isArray(parsed.tracks) && parsed.tracks.length > 0) {
-          return false; // gate ON — есть cached UI чтобы показать
+        if (parsed && Array.isArray(parsed.tracks) && parsed.tracks.length > 0
+            && (Date.now() - (parsed.savedAt || 0) <= 30 * 60 * 1000)) {
+          return false; // gate ON — есть СВЕЖИЙ cached UI чтобы показать
         }
       }
     } catch {}
-    return true; // no cache → fetch immediately, не оставляем пустой плеер
+    return true; // no/expired cache → fetch immediately, не оставляем пустой плеер
   });
   useEffect(() => {
     if (playlistFetchEnabled) return;
@@ -1140,20 +1144,36 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // → .map() ниже падал runtime'ом.
   useEffect(() => {
     if (!playlistFetchEnabled) return; // mobile: gate до scroll/visibility
-    fetch(`/api/playlist?status=${playlistKind}&sort=${sortMode}&dir=${sortDir}&seed=${playlistSeedRef.current}&_=${Date.now()}`, { cache: 'no-store' })
-      .then(r => {
-        if (!r.ok) throw new Error(`playlist HTTP ${r.status}`);
-        return r.json();
-      })
-      .then(data => {
-        if (!Array.isArray(data)) {
-          console.warn("[playlist] non-array response:", data);
-          return;
-        }
-        setTracks(data);
-        setCurrentPage(1);
-      })
-      .catch((e) => { console.warn("[playlist] fetch failed:", e?.message || e); });
+    // Eugene 2026-05-25 Босс «пропал плеер плейлист». ROOT CAUSE: разовый сбой
+    // fetch (502 в окне pm2-рестарта при автодеплое, сетевой обрыв) ловился
+    // пустым catch без ретрая → tracks=[] навсегда → PlaylistSection возвращал
+    // null (плеер исчезал). На mobile recovery вообще не было (effect@998
+    // bail'ил на гейте, 5-мин refresh не регистрировался). ФИКС: ретрай с
+    // backoff до 4 раз + cancel-guard.
+    let cancelled = false;
+    let attempt = 0;
+    let retryTimer: any = null;
+    const load = () => {
+      attempt++;
+      fetch(`/api/playlist?status=${playlistKind}&sort=${sortMode}&dir=${sortDir}&seed=${playlistSeedRef.current}&_=${Date.now()}`, { cache: 'no-store' })
+        .then(r => {
+          if (!r.ok) throw new Error(`playlist HTTP ${r.status}`);
+          return r.json();
+        })
+        .then(data => {
+          if (cancelled) return;
+          if (!Array.isArray(data)) throw new Error("non-array response");
+          setTracks(data);
+          setCurrentPage(1);
+        })
+        .catch((e) => {
+          if (cancelled) return;
+          console.warn(`[playlist] fetch failed (attempt ${attempt}):`, e?.message || e);
+          if (attempt < 4) retryTimer = setTimeout(load, Math.min(attempt * 1500, 6000));
+        });
+    };
+    load();
+    return () => { cancelled = true; if (retryTimer) clearTimeout(retryTimer); };
   }, [sortMode, sortDir, playlistKind, playlistFetchEnabled]);
 
   // Eugene 2026-05-15: persist playlistKind. Skip-first — см. комментарий
@@ -1699,7 +1719,20 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const playingIdRef = useRef<number | null>(null);
   playingIdRef.current = playingId;
 
-  if (tracks.length === 0) return null;
+  if (tracks.length === 0) {
+    // Eugene 2026-05-25 Босс «пропал плеер плейлист». НЕ возвращаем null —
+    // иначе исчезает вся секция вместе с #playlist-section (IO-target для
+    // mobile-гейта), и при сбое fetch плеер не возвращается. Лёгкий
+    // placeholder с тем же id: гейт открывается, fetch (с ретраем) дозагружает.
+    return (
+      <section id="playlist-section" className="max-w-5xl mx-auto px-4 py-16 text-center">
+        <div className="inline-flex items-center gap-3 text-muted-foreground">
+          <span className="h-5 w-5 rounded-full border-2 border-purple-400/40 border-t-purple-400 animate-spin" />
+          <span className="font-sans text-sm">Загружаем плейлист…</span>
+        </div>
+      </section>
+    );
+  }
 
   // Eugene 2026-05-22 Босс: fallback на playingTrackRef.current если трек
   // не найден в обновлённом tracks (после смены category/sort). Плеер
