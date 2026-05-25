@@ -1,12 +1,13 @@
 // MuzaAi PWA Service Worker
-// Eugene 2026-05-22 Босс: «В режиме VPN тормозит всё, зависает. Реши
-// кардинально». Стратегия — cache-first для HTML + stale-while-revalidate
-// для read-only API → юзер видит контент МГНОВЕННО из cache, fresh приходит
-// в фоне через VPN не блокируя UI.
+// Eugene 2026-05-25 Босс: «на смартфоне нет плеера и лист». ROOT CAUSE: HTML
+// был cache-first → мобильный получал СТАРЫЙ HTML (старый JS-хэш) → новый
+// деплой подхватывался только со 2-й загрузки. ФИКС: HTML → network-first с
+// таймаутом 2.5с (свежий деплой сразу; VPN-fallback на cache при медленной
+// сети). + бамп версии кэшей (v2→v3) форсит переустановку SW и чистку старых
+// кэшей на всех устройствах.
 //
 // Стратегия:
-//   - HTML (navigate) → cache-first + background revalidate
-//                       (раньше было network-first — VPN latency блокировала)
+//   - HTML (navigate) → network-first + 2.5s timeout fallback на cache
 //   - JS/CSS/woff hash-named → cache-first (immutable build artifacts)
 //   - Images → cache-first + stale-while-revalidate
 //   - API GET (whitelist) → stale-while-revalidate (playlist, stats, countries)
@@ -15,9 +16,9 @@
 // При появлении новой версии SW → skipWaiting + clients.claim → новые
 // requests идут через новую версию без ручного обновления страницы.
 
-const CACHE_VERSION = "muzaai-v2";
-const RUNTIME_CACHE = "muzaai-runtime-v2";
-const API_CACHE = "muzaai-api-v2";
+const CACHE_VERSION = "muzaai-v3";
+const RUNTIME_CACHE = "muzaai-runtime-v3";
+const API_CACHE = "muzaai-api-v3";
 
 // Whitelist GET endpoints для stale-while-revalidate.
 // Никаких user-specific / auth-affected данных — только public reads.
@@ -96,28 +97,31 @@ self.addEventListener("fetch", (event) => {
     (request.headers.get("accept") || "").includes("text/html");
 
   if (isNavigation) {
-    // Cache-first + background revalidate. Юзер видит страницу мгновенно
-    // даже на медленном VPN. Fresh HTML обновляет cache в фоне для next load.
+    // Network-first + 2.5s timeout fallback на cache. Свежий деплой
+    // подхватывается на следующей загрузке (HTML ссылается на новый JS-хэш).
+    // Медленный VPN: через 2.5с отдаём cache → юзер не ждёт (Eugene 2026-05-22).
     event.respondWith(
       (async () => {
         const cache = await caches.open(RUNTIME_CACHE);
-        const cached = await cache.match(request);
-        const networkP = fetch(request, { cache: "no-store" }).then((fresh) => {
+        try {
+          const fresh = await Promise.race([
+            fetch(request, { cache: "no-store" }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 2500)),
+          ]);
           if (fresh && fresh.ok) {
             try { cache.put(request, fresh.clone()); } catch {}
+            return fresh;
           }
-          return fresh;
-        }).catch(() => null);
-        if (cached) {
-          // background revalidate, не ждём
-          return cached;
+          const cached = await cache.match(request);
+          return cached || fresh;
+        } catch (e) {
+          // timeout / offline → cache
+          const cached = await cache.match(request);
+          if (cached) return cached;
+          const root = await caches.match("/");
+          if (root) return root;
+          throw e;
         }
-        const fresh = await networkP;
-        if (fresh) return fresh;
-        // Совсем нет — fallback на корневой index из CACHE_VERSION
-        const root = await caches.match("/");
-        if (root) return root;
-        throw new Error("No cached HTML and no network");
       })()
     );
     return;
