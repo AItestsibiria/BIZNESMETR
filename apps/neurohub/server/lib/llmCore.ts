@@ -358,6 +358,91 @@ export async function callDeepSeek(opts: {
   }
 }
 
+/**
+ * Eugene 2026-05-25 Босс «DeepSeek, yandex Ai» — YandexGPT в цепочку.
+ * RU data-residency: Yandex Cloud — РФ-инфраструктура, для трансграничного
+ * 152-ФЗ контекста это «свой» провайдер (в отличие от Anthropic США).
+ *
+ * Docs-first-always rule: используем OpenAI-compatible endpoint Yandex Cloud
+ * Foundation Models — https://yandex.cloud/ru/docs/foundation-models/concepts/openai-compatibility
+ *   URL:   https://llm.api.cloud.yandex.net/v1/chat/completions
+ *   Auth:  Authorization: Api-Key <YANDEX_GPT_API_KEY>  (+ x-folder-id)
+ *   Model: gpt://<folder-id>/yandexgpt/latest (или yandexgpt-lite)
+ * БЕЗ tools (Anthropic-tool-use оставлен на Anthropic-шаге).
+ */
+export async function callYandexGPT(opts: {
+  systemPrompt: string;
+  history: Array<{ role: "user" | "assistant"; content: string }>;
+  userText: string;
+  maxTokens: number;
+  model?: string;
+}): Promise<{ text: string | null; usage: any }> {
+  const key = process.env.YANDEX_GPT_API_KEY;
+  const folderId = process.env.YANDEX_GPT_FOLDER_ID || process.env.YANDEX_FOLDER_ID;
+  if (!key || !folderId) return { text: null, usage: null };
+
+  const messages: any[] = [
+    { role: "system", content: opts.systemPrompt },
+    ...opts.history.slice(-15).map(h => ({ role: h.role, content: h.content })),
+    { role: "user", content: opts.userText },
+  ];
+  const url = process.env.YANDEX_GPT_API_URL || "https://llm.api.cloud.yandex.net/v1/chat/completions";
+  // Model URI обязателен для OpenAI-compat режима Yandex (gpt://<folder>/<model>/<ver>).
+  const model = opts.model
+    || process.env.YANDEX_GPT_MODEL
+    || `gpt://${folderId}/yandexgpt/latest`;
+
+  try {
+    const r = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Authorization": `Api-Key ${key}`,
+        "Content-Type": "application/json",
+        "x-folder-id": folderId,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        max_tokens: Math.min(opts.maxTokens, 2000),
+        // anti-repeat (см. DeepSeek/TimeWeb). YandexGPT OpenAI-compat
+        // принимает temperature; penalties не гарантированы — не шлём.
+        temperature: 0.7,
+        stream: false,
+      }),
+      signal: AbortSignal.timeout(25_000),
+    });
+    llmKeyStatus.set("YANDEX_GPT_API_KEY", {
+      lastUsedAt: new Date().toISOString(),
+      lastStatus: r.status,
+    });
+    if (!r.ok) {
+      const errText = await r.text().catch(() => "");
+      llmKeyStatus.set("YANDEX_GPT_API_KEY", {
+        lastUsedAt: new Date().toISOString(),
+        lastStatus: r.status,
+        lastErrorMsg: errText.slice(0, 200),
+      });
+      console.warn(`[YANDEX-GPT] non-ok ${r.status}: ${errText.slice(0, 200)}`);
+      return { text: null, usage: null };
+    }
+    const j: any = await r.json();
+    const text = j?.choices?.[0]?.message?.content;
+    return {
+      text: typeof text === "string" ? text.slice(0, 2000) : null,
+      usage: j?.usage || null,
+    };
+  } catch (e: any) {
+    const msg = e?.name === "AbortError" ? "timeout" : String(e?.message || e).slice(0, 200);
+    llmKeyStatus.set("YANDEX_GPT_API_KEY", {
+      lastUsedAt: new Date().toISOString(),
+      lastStatus: e?.name === "AbortError" ? "timeout" : "error",
+      lastErrorMsg: msg,
+    });
+    console.warn(`[YANDEX-GPT] error: ${msg}`);
+    return { text: null, usage: null };
+  }
+}
+
 // === Telegram-alert при смене ключа (опц.) ===
 
 async function notifyAdminKeySwitch(ev: KeySwitchEvent): Promise<void> {
@@ -396,17 +481,20 @@ async function notifyAdminKeySwitch(ev: KeySwitchEvent): Promise<void> {
  *
  * Eugene 2026-05-21 Босс: PRIMARY = DeepSeek, потом TimeWeb, далее Anthropic
  * (по имени sort: API_KEY → _BACKUP → _BOT), последний резерв = GPTunnel.
+ * Eugene 2026-05-25 Босс «DeepSeek, yandex Ai»: YandexGPT добавлен 2-м
+ * (RU data-residency) между DeepSeek и TimeWeb.
  *
  * Порядок попыток:
  *   1. DeepSeek (OpenAI-compat, без tools) — PRIMARY (cheap: $0.27/$1.10 per M)
- *   2. TimeWeb Gateway (OpenAI-compat, без tools, Anthropic-models) — fallback 1
- *   3. Anthropic ANTHROPIC_API_KEY (tools + tool-use loop) — fallback 2a
- *   4. Anthropic ANTHROPIC_API_KEY_BACKUP — fallback 2b
- *   5. Anthropic ANTHROPIC_API_KEY_BOT — fallback 2c
- *   6. GPTunnel/gpt-4o-mini — последний резерв
+ *   2. YandexGPT (OpenAI-compat, без tools, РФ-инфра) — fallback 1
+ *   3. TimeWeb Gateway (OpenAI-compat, без tools, Anthropic-models) — fallback 2
+ *   4. Anthropic ANTHROPIC_API_KEY (tools + tool-use loop) — fallback 3a
+ *   5. Anthropic ANTHROPIC_API_KEY_BACKUP — fallback 3b
+ *   6. Anthropic ANTHROPIC_API_KEY_BOT — fallback 3c
+ *   7. GPTunnel/gpt-4o-mini — последний резерв
  *
- * Tool-use loop работает ТОЛЬКО на Anthropic-шаге. DeepSeek, TimeWeb, GPTunnel
- * возвращают чистый text без tool-calling.
+ * Tool-use loop работает ТОЛЬКО на Anthropic-шаге. DeepSeek, YandexGPT, TimeWeb,
+ * GPTunnel возвращают чистый text без tool-calling.
  */
 export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string | null> {
   const attempts = listAnthropicKeys();
@@ -511,7 +599,52 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
     console.warn("[MUZA-LLM] DeepSeek (primary) skipped: DEEPSEEK_API_KEY not configured — пробуем TimeWeb");
   }
 
-  // === [FALLBACK 1] TimeWeb Gateway === OpenAI-compatible, БЕЗ tools.
+  // === [FALLBACK 1] YandexGPT (Eugene 2026-05-25 Босс «DeepSeek, yandex Ai») ===
+  // OpenAI-compatible, БЕЗ tools. РФ data-residency (Yandex Cloud).
+  // Risk #12: если forceAnthropic — пропускаем (YandexGPT не поддерживает MUZA_TOOLS).
+  if (opts.forceAnthropic) {
+    console.log("[MUZA-LLM] forceAnthropic=true — skip YandexGPT (no-tools), goto Anthropic");
+  } else if (process.env.YANDEX_GPT_API_KEY && (process.env.YANDEX_GPT_FOLDER_ID || process.env.YANDEX_FOLDER_ID)) {
+    try {
+      const sysText = systemBlocks.map(b => (typeof b === "string" ? b : (b?.text || ""))).join("\n\n");
+      const ya = await callYandexGPT({
+        systemPrompt: sysText,
+        history: history.slice(-15),
+        userText: safeUserText,
+        maxTokens,
+      });
+      if (ya.usage) {
+        muzaTokenStats.inputTokens += Number(ya.usage.prompt_tokens || 0);
+        muzaTokenStats.outputTokens += Number(ya.usage.completion_tokens || 0);
+        muzaTokenStats.callsCount += 1;
+      }
+      if (ya.text && ya.text.length > 0) {
+        if (prevFailed) {
+          notifyAdminKeySwitch({
+            at: new Date().toISOString(),
+            provider: "DeepSeek → YandexGPT",
+            from: prevFailed.name,
+            fromStatus: prevFailed.status,
+            to: "YANDEX_GPT_API_KEY",
+            reason: prevFailed.reason || "primary upstream failed",
+          }).catch(() => {});
+        }
+        return ya.text;
+      }
+      console.warn("[MUZA-LLM] YandexGPT (fallback 1) returned empty text — fallback to TimeWeb");
+      setLLMKeyStatus("YANDEX_GPT_API_KEY", { lastUsedAt: new Date().toISOString(), lastStatus: "error", lastErrorMsg: "empty response" });
+      prevFailed = { name: "YANDEX_GPT_API_KEY", status: "empty-response", reason: "YandexGPT returned empty text" };
+    } catch (e: any) {
+      const msg = String(e?.message || e);
+      console.warn("[MUZA-LLM] YandexGPT (fallback 1) error — fallback to TimeWeb:", msg);
+      setLLMKeyStatus("YANDEX_GPT_API_KEY", { lastUsedAt: new Date().toISOString(), lastStatus: "error", lastErrorMsg: msg.slice(0, 200) });
+      prevFailed = { name: "YANDEX_GPT_API_KEY", status: "error", reason: msg.slice(0, 200) };
+    }
+  } else {
+    console.warn("[MUZA-LLM] YandexGPT skipped: YANDEX_GPT_API_KEY/folder not configured — пробуем TimeWeb");
+  }
+
+  // === [FALLBACK 2] TimeWeb Gateway === OpenAI-compatible, БЕЗ tools.
   // Anthropic-models через api.timeweb.ai gateway.
   // Eugene 2026-05-23 Risk #12: если forceAnthropic — пропускаем (TimeWeb
   // gateway тоже не маршрутизирует tools на upstream Anthropic).
