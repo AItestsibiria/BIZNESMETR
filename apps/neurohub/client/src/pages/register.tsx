@@ -311,7 +311,11 @@ export default function RegisterPage() {
               data-testid="checkbox-agree-pdn"
             />
             <span className="text-[11px] text-muted-foreground leading-snug">
-              Я согласен с обработкой персональных данных в соответствии с
+              Я даю{" "}
+              <Link href="/consent" className="text-purple-300 hover:text-purple-200 underline">
+                Согласие на обработку персональных данных
+              </Link>
+              {" "}в соответствии с
               {" "}
               <Link href="/privacy" className="text-purple-300 hover:text-purple-200 underline">
                 Политикой конфиденциальности

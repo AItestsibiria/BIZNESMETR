@@ -11,6 +11,7 @@ import LoginPhonePage from "./pages/login-phone";
 import RegisterPage from "./pages/register";
 import RegisterPhonePage from "./pages/register-phone";
 import PrivacyPage from "./pages/privacy";
+import ConsentPage from "./pages/consent";
 import OfertaPage from "./pages/oferta";
 import RefundPage from "./pages/refund";
 import ContactsPage from "./pages/contacts";
@@ -73,6 +74,7 @@ function AppContent() {
           <Route path="/register/:ref" component={RegisterPage} />
           <Route path="/r/:ref" component={RegisterPage} />
           <Route path="/privacy" component={PrivacyPage} />
+          <Route path="/consent" component={ConsentPage} />
           <Route path="/terms" component={OfertaPage} />
           <Route path="/oferta" component={OfertaPage} />
           <Route path="/refund" component={RefundPage} />

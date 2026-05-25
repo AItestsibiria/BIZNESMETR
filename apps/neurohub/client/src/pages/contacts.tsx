@@ -143,6 +143,11 @@ export default function ContactsPage() {
                 </Link>
               </li>
               <li>
+                <Link href="/consent" className="text-purple-300 underline">
+                  Согласие на обработку персональных данных (152-ФЗ)
+                </Link>
+              </li>
+              <li>
                 <Link href="/refund" className="text-purple-300 underline">
                   Политика возврата средств
                 </Link>

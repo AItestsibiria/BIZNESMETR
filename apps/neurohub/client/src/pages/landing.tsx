@@ -3774,6 +3774,7 @@ function LandingFooter({ onMail }: { onMail: (e: any) => void }) {
           <nav className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs">
             <a href="#/oferta" className="text-muted-foreground hover:text-purple-300 transition-colors">Оферта</a>
             <a href="#/privacy" className="text-muted-foreground hover:text-purple-300 transition-colors">Политика конф.</a>
+            <a href="#/consent" className="text-muted-foreground hover:text-purple-300 transition-colors">Согласие на ПДн</a>
             <a href="#/refund" className="text-muted-foreground hover:text-purple-300 transition-colors">Возврат</a>
             <a href="#/contacts" className="text-muted-foreground hover:text-purple-300 transition-colors">Контакты</a>
             <a href="#" onClick={onMail} className="text-muted-foreground hover:text-purple-300 transition-colors">Поддержка</a>
