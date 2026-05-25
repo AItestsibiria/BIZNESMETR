@@ -107,6 +107,7 @@ import pdOperatorModule from "./plugins/pd-operator/module";
 import postmanModule from "./plugins/postman/module";
 import directorPublicationsModule from "./plugins/director-publications/module";
 import ferzModule from "./plugins/ferz/module";
+import securityModule from "./plugins/security/module";
 
 // Eugene 2026-05-23 Босс «Оркестратор нужен всеми компаниями агентами начать
 // в проекте — коде». Central agent registry — bootstrap на старте.
@@ -181,6 +182,37 @@ app.use((req, res, next) => {
   // всё. Дублирует <meta name="referrer"> в index.html (header сильнее
   // для не-HTML ответов и старых браузеров).
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+
+  // Eugene 2026-05-25 security hardening (LOW-RISK approved set).
+  // Базовые security-заголовки на ВСЕ ответы (включая /api и audio-stream —
+  // эти заголовки безопасны для них: HSTS/nosniff/SAMEORIGIN не ломают
+  // JSON/audio).
+  // - HSTS: форсируем HTTPS на год (за nginx-TLS — безопасно).
+  // - nosniff: запрещаем MIME-sniffing (XSS-вектор через mis-typed responses).
+  // - X-Frame-Options SAMEORIGIN: защита от clickjacking (frame только свой).
+  res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+
+  // CSP — намеренно в режиме Report-Only (НЕ enforced). Каждый push сразу
+  // уходит в прод; enforced CSP мог бы заблокировать inline-скрипты Vite,
+  // audio-stream (blob:/https:), сторонние пиксели (Yandex Metrika и т.п.) и
+  // сломать живой сайт без права на ошибку. Report-Only даёт ту же видимость
+  // нарушений (через report-uri в будущем) БЕЗ риска регрессии. Политика
+  // консервативная, но реальная — после периода наблюдения её можно перевести
+  // в enforced отдельным approved-изменением.
+  res.setHeader(
+    "Content-Security-Policy-Report-Only",
+    [
+      "default-src 'self'",
+      "img-src 'self' data: https:",
+      "media-src 'self' https: blob:",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      "style-src 'self' 'unsafe-inline'",
+      "connect-src 'self' https:",
+      "frame-ancestors 'self'",
+    ].join("; "),
+  );
   next();
 });
 
@@ -587,6 +619,8 @@ app.post("/api/_client-error", express.json(), (req, res) => {
     { name: "director-publications", module: directorPublicationsModule },
 
     { name: "ferz", module: ferzModule },
+
+    { name: "security", module: securityModule },
 
   ];
 

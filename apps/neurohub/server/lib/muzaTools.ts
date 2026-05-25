@@ -965,6 +965,28 @@ export const MUZA_TOOLS: ToolDef[] = [
       },
     },
   },
+  // === Агент Безопасность (Eugene 2026-05-25) — подчинён Директору ===
+  {
+    name: "security_status",
+    description: "[ADMIN-ONLY] Статус безопасности от Агента Безопасность: всплески неудачных логинов, открытые инциденты, целостность БД, свежесть последнего бэкапа. run=true — свежий скан. Используй когда Босс спрашивает «как безопасность», «всё ли цело», «когда был бэкап», «брутфорсят ли нас».",
+    input_schema: {
+      type: "object",
+      properties: { run: { type: "boolean", description: "true — свежий скан; false/опущено — последний" } },
+      required: [],
+    },
+  },
+  {
+    name: "security_run_backup",
+    description: "[ADMIN-ONLY] Запустить app-level бэкап БД через Агента Безопасность. dry_run=true (по умолчанию) — только показать что будет, БЕЗ создания. dry_run=false — реально создать снапшот (мутация — гейт по доверенному IP / боту). with_authors — включить authors/ (full). Используй когда Босс говорит «сделай бэкап», «забэкапь базу», «снапшот сейчас».",
+    input_schema: {
+      type: "object",
+      properties: {
+        with_authors: { type: "boolean", description: "true = full (БД + authors/); false (default) = только БД" },
+        dry_run: { type: "boolean", description: "true (default) = показать без создания; false = создать" },
+      },
+      required: [],
+    },
+  },
 ];
 
 // === Email 2FA wrapper helper (Eugene 2026-05-17 Босс) ===
@@ -2158,6 +2180,51 @@ const HANDLERS: Record<string, ToolHandler> = {
       return `${head}\n${body}\n\n${report.summary}`;
     } catch (e: any) {
       return `Ошибка ferz_report: ${e.message}`;
+    }
+  },
+
+  // === Агент Безопасность (Eugene 2026-05-25) — подчинён Директору ===
+  async security_status({ run }, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
+    try {
+      const mod = await import("./securityAgent");
+      const scan = run === true ? mod.runSecurityScan() : mod.getLatestSecurityScan();
+      const crit = scan.findings.filter((f) => f.severity === "critical").length;
+      const high = scan.findings.filter((f) => f.severity === "high").length;
+      const top = scan.findings
+        .filter((f) => f.severity === "critical" || f.severity === "high")
+        .slice(0, 6)
+        .map((f) => `• [${f.severity}] ${f.title}`);
+      const backup =
+        scan.backupAgeHours == null
+          ? "бэкапов нет"
+          : `последний бэкап ${scan.backupAgeHours} ч назад`;
+      const head = `Безопасность: целостность БД ${scan.integrityOk ? "OK" : "ПРОБЛЕМА"}, ${backup}. Находок: крит ${crit}/выс ${high}.`;
+      const body = top.length ? top.join("\n") : "Критичных и высоких проблем безопасности нет.";
+      return `${head}\n${body}`;
+    } catch (e: any) {
+      return `Ошибка security_status: ${e.message}`;
+    }
+  },
+
+  async security_run_backup({ with_authors, dry_run }, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
+    const dryRunReq = dry_run !== false; // default true
+    if (dryRunReq) {
+      const kind = with_authors === true ? "full (БД + authors/)" : "только БД";
+      return `Бэкап (${kind}) готов к запуску. Это сухой прогон — ничего не создано. Скажи «сделай бэкап по-настоящему» (dry_run=false) для реального снапшота.`;
+    }
+    // Реальный бэкап — мутация: гейт по доверенному IP / боту.
+    const denied = directorMutationDenied(ctx);
+    if (denied) return denied;
+    try {
+      const mod = await import("./autoBackup");
+      const r = await mod.runDbBackup({ withAuthors: with_authors === true });
+      if (!r.ok) return `Бэкап не удался: ${r.error || "неизвестная ошибка"}.`;
+      const mb = r.sizeBytes ? (r.sizeBytes / (1024 * 1024)).toFixed(1) : "?";
+      return `Бэкап создан (${r.kind}): ${mb} МБ. Файл: ${r.path}. SHA256: ${(r.sha256 || "").slice(0, 16)}…`;
+    } catch (e: any) {
+      return `Ошибка security_run_backup: ${e.message}`;
     }
   },
 

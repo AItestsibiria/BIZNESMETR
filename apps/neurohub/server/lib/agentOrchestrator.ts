@@ -699,6 +699,34 @@ export function bootstrapDefaultAgents(): void {
     purpose: "Доклад о слабых местах и узких местах системы Директору",
   });
 
+  // Eugene 2026-05-25 security hardening: Агент Безопасность (id "security") —
+  // watchdog, подчинён Директору. Собирает сигналы из существующих данных
+  // (failed-login всплески, открытые инциденты, integrity БД) + свежесть
+  // app-level бэкапа. См. lib/securityAgent.ts + lib/autoBackup.ts.
+  orchestrator.register({
+    id: "security",
+    name: "Агент Безопасность",
+    channel: "cron",
+    role: "watchdog",
+    status: "active",
+    capabilities: ["metrics", "alert", "probe", "audit"],
+    healthCheck: async () => {
+      try {
+        const mod = await import("./securityAgent");
+        return mod.securityHealth();
+      } catch (e: any) {
+        return { ok: false, details: { error: e?.message || String(e) } };
+      }
+    },
+    metadata: { brief: "Security-watchdog: всплески логинов, инциденты, целостность БД, свежесть бэкапа → Директор" },
+  });
+  orchestrator.addEdge("security", "muza-admin", "webhook", {
+    purpose: "Алерты безопасности + свежесть бэкапа",
+  });
+  orchestrator.addEdge("security", "channel-email", "notify", {
+    purpose: "Критические security-алерты",
+  });
+
   // Eugene 2026-05-23 marketing-orchestrator. Cross-channel campaigns +
   // retargeting + content calendar + auto-triggers по event'ам. Связано с
   // существующими channels через edges (см. registerMarketingEdges ниже).

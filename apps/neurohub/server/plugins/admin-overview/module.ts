@@ -2559,6 +2559,48 @@ const adminOverviewModule: Module = {
         }
       },
     },
+    // Eugene 2026-05-25 security hardening: app-level авто-бэкап БД.
+    // every_hour + shouldRunDaily-гард:
+    //  - daily DB-only бэкап в 03:00 МСК (shouldRunDaily "auto-backup-db", 3)
+    //  - weekly full бэкап (БД + authors/) в 04:00 МСК по воскресеньям
+    //    (shouldRunDaily "auto-backup-full", 4 + getUTCDay()===0).
+    // Gate AUTO_BACKUP !== "0" (ВКЛ по умолчанию). При ошибке → алерт Боссу
+    // через того же notifyBoss что и ferz-cron. try/catch, never throw.
+    {
+      name: "auto-backup-db",
+      schedule: "every_hour",
+      handler: async () => {
+        try {
+          if (process.env.AUTO_BACKUP === "0") return;
+          const mskHour = (new Date().getUTCHours() + 3) % 24;
+          const isSunday = new Date().getUTCDay() === 0;
+
+          // Weekly full (Вс 04:00 МСК) — БД + authors/.
+          if (isSunday && shouldRunDaily("auto-backup-full", mskHour, 4)) {
+            const mod = await import("../../lib/autoBackup");
+            const r = await mod.runDbBackup({ withAuthors: true });
+            console.log(`[AUTO-BACKUP-FULL] ok=${r.ok}, size=${r.sizeBytes || 0}, path=${r.path || "-"}`);
+            if (!r.ok) {
+              const { notifyBoss } = await import("../../lib/directorDigest");
+              await notifyBoss(`🔒 <b>Безопасность — недельный full-бэкап НЕ удался</b>\nОшибка: ${r.error || "неизвестно"}`);
+            }
+          }
+
+          // Daily DB-only (03:00 МСК).
+          if (shouldRunDaily("auto-backup-db", mskHour, 3)) {
+            const mod = await import("../../lib/autoBackup");
+            const r = await mod.runDbBackup({ withAuthors: false });
+            console.log(`[AUTO-BACKUP-DB] ok=${r.ok}, size=${r.sizeBytes || 0}, path=${r.path || "-"}`);
+            if (!r.ok) {
+              const { notifyBoss } = await import("../../lib/directorDigest");
+              await notifyBoss(`🔒 <b>Безопасность — суточный бэкап БД НЕ удался</b>\nОшибка: ${r.error || "неизвестно"}`);
+            }
+          }
+        } catch (e) {
+          console.error("[AUTO-BACKUP job]", e);
+        }
+      },
+    },
   ],
   onLoad: async (ctx) => {
     // Eugene 2026-05-14 Босс: при старте — одноразовая зачистка зависших.
