@@ -1919,7 +1919,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   (purple→fuchsia→cyan→amber conic gradient + blur + slow spin
                   + pulse opacity). Обложка остаётся резкой внутри. */}
               {/* Eugene 2026-05-18 — обёртка cover+S; cover-square даёт фиксированный размер обложки, S-кнопка идёт после и не выпадает за wrapper. */}
-              <div className={`relative shrink-0 flex flex-col ${coverExpanded ? "md:w-full" : "w-[88px] sm:w-[90px]"}`}>
+              <div className={`relative shrink-0 flex flex-col ${coverExpanded ? "md:w-full md:max-w-[min(100%,55dvh)] md:mx-auto" : "w-[88px] sm:w-[90px]"}`}>
                 {/* Eugene 2026-05-18 Босс «обложка -25% базово + desktop resize».
                     Mobile: w-[60px] (было 80) / sm:w-[72px] (было 96). Desktop:
                     coverSize state управляет (75/100/125%). */}
@@ -2795,7 +2795,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                           Eugene 2026-05-24 Босс «глуина увеличение подсветки» —
                           aura теперь сама bloom'ится из 0 → 35% opacity вместе
                           с обложкой (cover-aura-bloom keyframe). */}
-                      <div className="relative">
+                      <div className="relative max-w-[min(100%,56dvh)] mx-auto">
                         <div
                           aria-hidden="true"
                           className="absolute -inset-4 sm:-inset-6 md:-inset-8 rounded-3xl blur-3xl pointer-events-none cover-aura cover-aura-bloom"
