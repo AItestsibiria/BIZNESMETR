@@ -26,6 +26,9 @@
 // === Secrets-admin-only rule ===
 // В отчёт НЕ попадают значения секретов — только сообщения ошибок / счётчики.
 
+import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { db } from "../storage";
 import { recordAgentActivity } from "./agentOrchestrator";
 import { PUBLIC_URL } from "./publicUrl";
@@ -46,7 +49,7 @@ export interface FrontendQaItem {
   fixProposal: string | null;
   firstSeen: number | null;
   lastSeen: number | null;
-  source: "client" | "synthetic";
+  source: "client" | "synthetic" | "playwright";
 }
 
 export interface FrontendQaReport {
@@ -132,13 +135,17 @@ export function recordClientError(input: {
   page?: string;
   url?: string;
   userAgent?: string;
+  /** Источник ошибки. 'client' (по умолч) — реальный юзер; 'playwright' — реал-браузер тест. */
+  source?: "client" | "playwright" | "synthetic";
 }): void {
   ensureClientErrorsTable();
   try {
     const message = String(input.message || "(без сообщения)").slice(0, 1000);
     // page для «ссылки от фронта»: предпочитаем full url, иначе pageName.
     const pagePath = normalizePage(input.url || input.page);
-    const dedupeKey = `${normalizeMessage(message)}::${pagePath}`;
+    const source = input.source === "playwright" || input.source === "synthetic" ? input.source : "client";
+    // Дедуп учитывает source — playwright-находки не схлопываются с client-ошибками.
+    const dedupeKey = `${source === "client" ? "" : source + "::"}${normalizeMessage(message)}::${pagePath}`;
     const now = Date.now();
     const stack = input.stack ? String(input.stack).slice(0, 4000) : null;
     const ua = input.userAgent ? String(input.userAgent).slice(0, 300) : null;
@@ -159,8 +166,8 @@ export function recordClientError(input: {
       s.prepare(
         `INSERT INTO client_errors
            (message, stack, page, user_agent, count, first_seen, last_seen, status, source, dedupe_key)
-         VALUES (?, ?, ?, ?, 1, ?, ?, 'open', 'client', ?)`,
-      ).run(message, stack, pagePath, ua, now, now, dedupeKey);
+         VALUES (?, ?, ?, ?, 1, ?, ?, 'open', ?, ?)`,
+      ).run(message, stack, pagePath, ua, now, now, source, dedupeKey);
     }
   } catch (e) {
     console.warn("[frontend-qa] recordClientError failed:", e);
@@ -272,11 +279,168 @@ function resolveSyntheticIfOpen(page: string): void {
   }
 }
 
+// ====================== PLAYWRIGHT (real headless browser) ======================
+//
+// === ЖЁСТКАЯ БЕЗОПАСНОСТЬ (event-loop safety) ===
+// Playwright НИКОГДА не запускается в Express/Node event loop. Здесь мы только
+// spawn'им STANDALONE node-скрипт (scripts/frontend-playwright-test.mjs) через
+// execFile с HARD-timeout (90s) и парсим его stdout как JSON. Скрипт сервером НЕ
+// импортируется. Полностью async, не блокирует сервер.
+//
+// === GRACEFUL-SKIP ===
+// Если скрипт не найден / playwright не установлен / chromium не скачан / timeout
+// — мы логируем и пропускаем (синтетика остаётся). НИКОГДА не throw'им наружу.
+//
+// === GATE ===
+// FRONTEND_PLAYWRIGHT !== "0" (ВКЛ по умолчанию) + проверка наличия скрипта.
+
+const PLAYWRIGHT_TIMEOUT_MS = 90_000; // hard timeout на весь child-process
+const PLAYWRIGHT_MAX_BUFFER = 4 * 1024 * 1024; // 4 МБ stdout cap
+
+/** Кандидаты пути к standalone-скрипту (prod dist-layout + source-layout + dev). */
+function resolvePlaywrightScript(): string | null {
+  // 1) Явный override через env (если положили скрипт в нестандартное место).
+  const envPath = process.env.FRONTEND_PLAYWRIGHT_SCRIPT;
+  if (envPath && existsSync(envPath)) return envPath;
+
+  const candidates: string[] = [];
+  // 2) PROD: процесс крутится из /var/www/neurohub (dist), но scripts/ + node_modules
+  //    с playwright лежат в source-каталоге (/opt/<src>/apps/neurohub). Перебираем
+  //    типовые места относительно cwd и __dirname.
+  const cwd = process.cwd();
+  candidates.push(path.join(cwd, "scripts", "frontend-playwright-test.mjs"));
+  candidates.push(path.join(cwd, "apps", "neurohub", "scripts", "frontend-playwright-test.mjs"));
+  // 3) Source-каталоги авто-деплоя (где живёт node_modules/playwright).
+  candidates.push("/opt/muziai-src/apps/neurohub/scripts/frontend-playwright-test.mjs");
+  candidates.push("/opt/neurohub-src/apps/neurohub/scripts/frontend-playwright-test.mjs");
+  // 4) DEV (tsx): __dirname = server/lib → ../../scripts.
+  try {
+    candidates.push(path.join(__dirname, "..", "..", "scripts", "frontend-playwright-test.mjs"));
+  } catch {
+    /* __dirname может отсутствовать в ESM-сборке — игнор */
+  }
+
+  for (const c of candidates) {
+    try {
+      if (existsSync(c)) return c;
+    } catch {
+      /* ignore */
+    }
+  }
+  return null;
+}
+
+interface PlaywrightIssue {
+  page: string;
+  kind: string;
+  message: string;
+}
+interface PlaywrightResult {
+  ok: boolean;
+  skipped: boolean;
+  reason?: string;
+  issues: PlaywrightIssue[];
+  checkedAt?: string;
+}
+
+/**
+ * Запускает реальный headless-браузер (Playwright) В ОТДЕЛЬНОМ ПРОЦЕССЕ для
+ * тестирования живого сайта «глазами юзера». Каждую найденную проблему пишет в
+ * client_errors через existing recordClientError (source='playwright', с дедупом
+ * и полной ссылкой на страницу). Never throws — graceful-skip при любой ошибке.
+ */
+export async function runPlaywrightScan(): Promise<{ ran: boolean; skipped: boolean; reason?: string; issueCount: number }> {
+  // Gate: env (ВКЛ по умолчанию).
+  if (process.env.FRONTEND_PLAYWRIGHT === "0") {
+    return { ran: false, skipped: true, reason: "disabled (FRONTEND_PLAYWRIGHT=0)", issueCount: 0 };
+  }
+  const scriptPath = resolvePlaywrightScript();
+  if (!scriptPath) {
+    console.log("[frontend-qa] playwright script not found — skip (synthetic checks remain)");
+    return { ran: false, skipped: true, reason: "script_not_found", issueCount: 0 };
+  }
+
+  let result: PlaywrightResult | null = null;
+  try {
+    result = await new Promise<PlaywrightResult>((resolve) => {
+      execFile(
+        process.execPath, // текущий node-бинарь
+        [scriptPath],
+        {
+          timeout: PLAYWRIGHT_TIMEOUT_MS,
+          maxBuffer: PLAYWRIGHT_MAX_BUFFER,
+          // cwd = каталог пакета со скриптом, чтобы node нашёл node_modules/playwright.
+          cwd: path.dirname(path.dirname(scriptPath)),
+          env: {
+            ...process.env,
+            PUBLIC_URL: PUBLIC_URL || process.env.PUBLIC_URL || "https://muzaai.ru",
+          },
+        },
+        (err, stdout) => {
+          // Скрипт всегда exit(0) с JSON — но если убит по timeout (err) или
+          // вернул мусор, graceful-skip.
+          const raw = String(stdout || "").trim();
+          if (raw) {
+            try {
+              const parsed = JSON.parse(raw) as PlaywrightResult;
+              resolve(parsed);
+              return;
+            } catch {
+              /* fallthrough to skip */
+            }
+          }
+          resolve({
+            ok: false,
+            skipped: true,
+            reason: err ? `child error: ${String(err.message || err).slice(0, 160)}` : "no/invalid stdout",
+            issues: [],
+          });
+        },
+      );
+    });
+  } catch (e: any) {
+    console.warn("[frontend-qa] runPlaywrightScan spawn failed:", e?.message || e);
+    return { ran: false, skipped: true, reason: "spawn_failed", issueCount: 0 };
+  }
+
+  if (!result || result.skipped) {
+    console.log(`[frontend-qa] playwright skipped: ${result?.reason || "unknown"}`);
+    return { ran: false, skipped: true, reason: result?.reason || "skipped", issueCount: 0 };
+  }
+
+  // Записываем каждую находку через existing recordClientError (дедуп + ссылка).
+  const base = (PUBLIC_URL || "https://muzaai.ru").replace(/\/+$/, "");
+  let recorded = 0;
+  for (const issue of result.issues || []) {
+    try {
+      const pagePath = issue.page && issue.page.startsWith("/") ? issue.page : "/" + String(issue.page || "");
+      recordClientError({
+        message: `[playwright:${issue.kind}] ${issue.message}`,
+        page: pagePath,
+        url: `${base}${pagePath}`,
+        source: "playwright",
+      });
+      recorded++;
+    } catch {
+      /* never throw */
+    }
+  }
+  console.log(`[frontend-qa] playwright scan ok — ${recorded} issue(s) recorded`);
+  return { ran: true, skipped: false, issueCount: recorded };
+}
+
 // ====================== SEVERITY ======================
 
 function severityFor(item: { source: string; count: number; message: string }): FrontendBugSeverity {
   // Синтетический баг = страница/бандл не открывается = всегда critical.
   if (item.source === "synthetic") return "critical";
+  // Playwright реал-браузер: пустой рендер / uncaught / страница не открылась =
+  // critical (юзер видит белый/чёрный экран). HTTP/console-ошибки = high.
+  if (item.source === "playwright") {
+    const m = item.message || "";
+    if (/blank-render|pageerror|navigation/.test(m)) return "critical";
+    return "high";
+  }
   const c = item.count;
   if (c >= 50) return "critical";
   if (c >= 10) return "high";
@@ -326,6 +490,14 @@ export async function runFrontendQaScan(opts?: { withFix?: boolean }): Promise<F
   // (b) Синтетические проверки сначала — могут добавить свежие synthetic-баги.
   await runSyntheticChecks();
 
+  // (b2) Playwright реал-браузер тест (отдельный процесс, hard-timeout, graceful-skip).
+  // Пишет находки в client_errors (source='playwright') через recordClientError.
+  try {
+    await runPlaywrightScan();
+  } catch (e) {
+    console.warn("[frontend-qa] playwright scan error (ignored):", e);
+  }
+
   // (a) Топ открытых багов по count.
   let rows: Array<{
     id: number;
@@ -367,7 +539,7 @@ export async function runFrontendQaScan(opts?: { withFix?: boolean }): Promise<F
       fixProposal: r.fix_proposal || null,
       firstSeen: r.first_seen ?? null,
       lastSeen: r.last_seen ?? null,
-      source: r.source === "synthetic" ? "synthetic" : "client",
+      source: r.source === "synthetic" ? "synthetic" : r.source === "playwright" ? "playwright" : "client",
     };
   });
 
@@ -440,7 +612,7 @@ export async function getLatestFrontendQaReport(): Promise<FrontendQaReport> {
       fixProposal: r.fix_proposal || null,
       firstSeen: r.first_seen ?? null,
       lastSeen: r.last_seen ?? null,
-      source: r.source === "synthetic" ? "synthetic" : "client",
+      source: r.source === "synthetic" ? "synthetic" : r.source === "playwright" ? "playwright" : "client",
     };
   });
   return {
