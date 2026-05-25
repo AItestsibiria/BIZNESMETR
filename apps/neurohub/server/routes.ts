@@ -17,7 +17,8 @@ import fs from "fs";
 import path from "path";
 import { normalizeVocalParams } from "./lib/normalizeVocalParams";
 import { isSunoCircuitOpen } from "./plugins/suno-watchdog/module";
-import { requireAdmin, isAdminUser } from "./core/adminAuth";
+import { requireAdmin, isAdminUser, getUserIdFromBearer } from "./core/adminAuth";
+import { isAdminTrustedIp, getTrustedIpList } from "./lib/adminTrustedIp";
 import { createNonce as tgCreateNonce, pollNonce as tgPollNonce, consumeNonce as tgConsumeNonce, attachUserToNonce as tgAttachUserToNonce } from "./lib/tgLoginNonces";
 import { logEngagement, getEngagementDaily, getEngagementSummary } from "./lib/engagement";
 import { personaFor, PERSONAS } from "./lib/consultantPersona";
@@ -7687,6 +7688,39 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
   //
   // Auth: requireAdmin (Босс / super_admin). Никаких секретов в ответе —
   // только status, capabilities, lastSeenAt, persona_key.
+  // Eugene 2026-05-25 Босс «определение IP и если оно есть в качестве доступа».
+  // Показывает текущему админу его IP + доверен ли он + статус списка. НЕ за
+  // IP-гейтом (только Bearer+role) — чтобы Босс мог узнать свой IP и добавить
+  // его в ADMIN_TRUSTED_IPS, даже если сейчас заблокирован гейтом.
+  app.get("/api/admin/v304/whoami-ip", (req: Request, res: Response) => {
+    const userId = getUserIdFromBearer(req);
+    const u = userId ? storage.getUser(userId) : null;
+    if (!u || !isAdminUser(u as any)) { res.status(403).json({ data: null, error: "forbidden" }); return; }
+    const xff = req.headers["x-forwarded-for"];
+    const candidates: string[] = [];
+    const push = (v: any) => { const s = String(v || "").replace(/^::ffff:/, "").replace(/^\[|\]$/g, "").split(",")[0].trim(); if (s) candidates.push(s); };
+    push(req.ip);
+    if (typeof xff === "string") xff.split(",").forEach(push);
+    push(req.headers["x-real-ip"]);
+    const list = getTrustedIpList();
+    const trusted = isAdminTrustedIp(req);
+    res.json({
+      data: {
+        detectedIp: candidates[0] || null,
+        allCandidates: Array.from(new Set(candidates)),
+        gateEnabled: list.length > 0,
+        trustedListSize: list.length,
+        isCurrentlyTrusted: list.length === 0 ? true : trusted,
+        access: list.length === 0
+          ? "Гейт выключен (ADMIN_TRUSTED_IPS не задан) — доступ со всех IP."
+          : trusted
+            ? "✅ Этот IP доверен — доступ есть."
+            : "🔴 Этот IP НЕ в списке — web-админка заблокирована (доступ через бот остаётся).",
+      },
+      error: null,
+    });
+  });
+
   app.get("/api/admin/v304/orchestrator/agents", requireAdmin, (req: Request, res: Response) => {
     try {
       const channel = typeof req.query.channel === "string" ? req.query.channel : undefined;
