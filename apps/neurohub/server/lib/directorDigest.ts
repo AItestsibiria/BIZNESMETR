@@ -117,6 +117,8 @@ export interface DigestData {
   feedback: { escalationsOpen: number; negative24h: number };
   payments: { total24h: number; failed24h: number };
   frontend: { errorsLastHour: number };
+  // Eugene 2026-05-25 Postman-core rule — Почтальон в дайджесте Директора.
+  email: { activeSubs: number; pending: number; suppressed: number; campaignsSent: number; inboxUnhandled: number } | null;
   business: {
     registrations24h: number;
     visitors24h: number;
@@ -141,6 +143,7 @@ export async function collectDigestData(): Promise<DigestData> {
     feedback: { escalationsOpen: 0, negative24h: 0 },
     payments: { total24h: 0, failed24h: 0 },
     frontend: { errorsLastHour: 0 },
+    email: null,
     business: { registrations24h: 0, visitors24h: 0, gensDone24h: 0, gensError24h: 0, gensProcessing: 0, plays24h: 0, lyrics24h: 0, covers24h: 0, activeSubscriptions: 0 },
     critical: [],
   };
@@ -208,6 +211,19 @@ export async function collectDigestData(): Promise<DigestData> {
   d.business.activeSubscriptions = one(`SELECT COUNT(*) c FROM premium_subscriptions WHERE status='active'`)?.c || 0;
   d.business.visitors24h = one(`SELECT COUNT(DISTINCT ip) c FROM gen_activity WHERE datetime(created_at) > datetime('now','-24 hours')`)?.c || 0;
 
+  // Почтальон (email) — Postman-core rule. getStats sync, never-throw.
+  try {
+    const { getStats } = await import("./postmanAgent");
+    const s = getStats();
+    d.email = {
+      activeSubs: s.subscribers.active,
+      pending: s.subscribers.pending,
+      suppressed: s.subscribers.unsubscribed + s.subscribers.bounced + s.subscribers.complained,
+      campaignsSent: s.campaigns.sent,
+      inboxUnhandled: s.inbox.unhandled,
+    };
+  } catch {}
+
   // Критерии КРИТИЧНОГО (немедленный алерт)
   if (d.agents.errored.length > 0) d.critical.push(`🔴 Агенты в ошибке: ${d.agents.errored.join(", ")}`);
   if (d.generations.stuck >= 5) d.critical.push(`🔴 Зависших генераций: ${d.generations.stuck}`);
@@ -232,6 +248,7 @@ function formatDigest(d: DigestData, label: string): string {
   lines.push(`👥 Бизнес 24ч: регистраций ${b.registrations24h}, посетителей ${b.visitors24h}, плеев ${b.plays24h}`);
   lines.push(`🎼 Создано 24ч: треков ${b.gensDone24h} (ошибок ${b.gensError24h}, в работе ${b.gensProcessing}), текстов ${b.lyrics24h}, каверов ${b.covers24h}`);
   lines.push(`⭐ Активных подписок: ${b.activeSubscriptions}`);
+  if (d.email) lines.push(`📮 Почтальон: подписчиков ${d.email.activeSubs} (ждут подтв. ${d.email.pending}), suppress ${d.email.suppressed}, кампаний отпр. ${d.email.campaignsSent}${d.email.inboxUnhandled ? `, входящих без ответа ${d.email.inboxUnhandled}` : ""}`);
   if (d.critical.length) { lines.push("", "<b>⚠️ Требует внимания:</b>", ...d.critical); }
   return lines.join("\n");
 }

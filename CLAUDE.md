@@ -1088,6 +1088,12 @@ if (isDup(update.update_id)) return;
 
 Применяется в каждом ответе ассистента, когда уместно обращение.
 
+### Russian-communication rule (Eugene 2026-05-25)
+
+**Всё общение с Боссом в чате — на русском.** Босс 2026-05-25: «Правило: общайся со мной на русском».
+
+Применяется к: всем ответам ассистента, отчётам, спискам опций, пояснениям, статусам push'ей, вопросам через AskUserQuestion. НЕ применяется к: коду, именам переменных, commit-сообщениям (Conventional Commits — английские типы `feat`/`fix`/`docs`), техническим идентификаторам, выводу команд. Комментарии в коде проекта — по сложившейся в файле конвенции (в этом проекте — преимущественно русские).
+
 ### Single-audio rule (Eugene 2026-05-12)
 
 **Одновременно на сайте играет ТОЛЬКО ОДНА песня.**
@@ -3815,6 +3821,53 @@ Reference:
 - Per-user telemetry (юзер X получает refund 3-й раз за неделю → flag)
 - Self-healing для bad_lyric (LLM переписывает текст и retry)
 - Webhook delivery monitoring (если Suno webhook не дошёл за 60 сек → force polling)
+
+### Postman-core rule (Eugene 2026-05-25, **Почтальон — ядро, не плагин-довесок**)
+
+**Агент Почтальон (`lib/postmanAgent.ts` + `plugins/postman/`) — одна из главных частей проекта: через него идут письма регистрации, оплаты, сертификаты и любые транзакционные + маркетинговые уведомления. Должен быть надёжным, защищённым и НЕ требовать глобальных ресурсов (только SQLite + существующий `sendEmail`, без внешних брокеров/очередей/облачных функций).**
+
+Босс 2026-05-25: «Правило Почтальон одна из главных частей проекта — регистрации, оплаты, сертификаты. Она должна быть надёжной, защищённой и не требовать глобальных ресурсов».
+
+**Два класса писем (разная юридика, один backbone):**
+
+| Класс | Примеры | Согласие (152/38-ФЗ) | Suppress-list |
+|---|---|---|---|
+| **Транзакционные** | подтверждение регистрации, OTP/звонок, чек/счёт оплаты, сертификат, возврат, смена пароля/email, уведомление о готовности трека | НЕ нужно opt-in (основание — договор/легитимный интерес). Шлются ВСЕГДА | Игнорируют unsubscribe; уважают только hard-bounce/complaint (мёртвый ящик) |
+| **Маркетинговые** | кампании, напоминание о балансе с офером, re-permission, новости, акции | Обязателен double opt-in + журнал согласий + маркировка «реклама» + физ-адрес + List-Unsubscribe (RFC 8058) | Уважают unsubscribe + bounce + complaint |
+
+**Жёсткие правила:**
+
+1. **Единый backbone.** Все письма проекта идут через Почтальона (`postmanAgent.ts`), который — обёртка над существующим `sendEmail` (Reuse-working-solutions rule). НЕ плодить параллельные SMTP-клиенты. Текущие прямые вызовы `sendEmail` (routes.ts регистрация/оплата, admin2fa, notifications) — мигрируют под Почтальона по мере касания (не ломая работающее).
+2. **Надёжность (reliability):**
+   - **Идемпотентность/дедуп** — `postman_send_log` (1 письмо / ключ-события / окно). Транзакционное письмо за один и тот же `event_id` (gen_id / payment_id / user_id+action) не уходит дважды.
+   - **Retry с backoff** при временной ошибке SMTP (не более N попыток), затем — запись в `user_action_failures` (User-action-failure registry rule) + алерт Директору.
+   - **Никогда не throw в hot-path.** Падение отправки письма НЕ ломает регистрацию/оплату — письмо ставится в очередь/лог, основной flow продолжается.
+   - **Hard-bounce/complaint** → `markSuppressed` → адрес исключается из будущих рассылок (оба класса для bounce, только маркетинг для unsubscribe).
+3. **Защита (security):**
+   - Секреты (SMTP_*, IMAP_*) — только через env на VPS, никогда в коде/чате/коммитах (Never-leak-secrets + Secrets-admin-only rules).
+   - PII (email/телефон) — не логировать в plain; маскировать в логах. Полный адрес только в служебных таблицах.
+   - Журнал согласий (`email_consents`) — append-only доказательная база (channel/action/текст/ip/ua/время).
+   - Admin endpoints `/api/admin/v304/postman/*` — `requireAdmin` + IP-gate (мутации — через `directorMutationDenied`).
+   - One-click unsubscribe (`/u/:token`) — без auth, постоянный токен, RFC 8058.
+4. **Без глобальных ресурсов (lightweight):**
+   - Только `data.db` (SQLite) — таблицы `email_subscribers`, `email_consents`, `email_campaigns`, `postman_send_log`, `postman_inbox` (self-migrating CREATE IF NOT EXISTS).
+   - Никаких внешних очередей (RabbitMQ/SQS), брокеров, serverless-функций, отдельных воркеров. Cron внутри `admin-overview` — достаточно.
+   - Кампании батчатся (лимит на проход), не грузят процесс единовременной массовой отправкой.
+5. **Подчинение Директору (Director-subordination rule).** Почтальон register'нут в orchestrator (id `postman`, role `broadcaster`, healthCheck = SMTP + размеры базы), edges → `channel-email` + `muza-admin`. Director-tools `postman_stats` / `postman_send_campaign` (dryRun default + IP-gate + audit) / `postman_inbox`. Статистика Почтальона входит в дайджест/отчёт Директора.
+6. **Consent-gate перед маркетингом.** Любая рекламная рассылка ОБЯЗАНА проверить `email_subscribers.status='active'` (подтверждённый opt-in) + не в suppress-list. Транзакционные — проверяют только suppress на hard-bounce.
+
+**Применяется к:** всем письмам проекта (транзакционным и маркетинговым), всем каналам отправки email. **НЕ применяется к:** in-app/push/Telegram-уведомлениям (у них свои каналы), хотя дедуп-паттерн можно переиспользовать.
+
+**Связано с:**
+- Agent-orchestrator + Director-subordination rules — register + edges + tools
+- Reuse-working-solutions rule — обёртка над `sendEmail`, не новый клиент
+- Never-leak-secrets + Secrets-admin-only rules — SMTP/IMAP креды только env
+- User-action-failure registry rule — неуспешные отправки → лог
+- Pricing-single-source rule — счета/чеки берут суммы из единого источника
+
+**Юр-чеклист Боссу (вне кода):** регистрация оператора ПДн в РКН (ЭП) → `LEGAL_PD_OPERATOR_REG`; DNS SPF/DKIM/DMARC; физ-адрес в `POSTMAN_POSTAL_ADDRESS`; DPA с Anthropic (трансгранично, США); re-permission по старой базе перед маркетингом.
+
+Reference: `apps/neurohub/server/lib/postmanAgent.ts`, `plugins/postman/module.ts`, `lib/emailSender.ts` (headers/List-Unsubscribe), `lib/rePermissionEmail.ts`, `plugins/pd-operator/`, `client/src/pages/consent.tsx`.
 
 ### Timestamp footer rule (Eugene 2026-05-07)
 

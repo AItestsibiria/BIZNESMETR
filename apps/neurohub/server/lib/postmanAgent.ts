@@ -398,7 +398,7 @@ export interface SendCampaignResult {
  * Подобрать адресатов сегмента. По умолчанию — только active (suppress
  * перекрывает любой сегмент: unsubscribed/bounced/complained исключены).
  */
-export function findCampaignAudience(seg: SegmentCriteria, limit = 500): SubscriberRow[] {
+export function findCampaignAudience(seg: SegmentCriteria, limit = 500, requireMarketingConsent = false): SubscriberRow[] {
   ensurePostmanTables();
   try {
     const status = seg.status && !SUPPRESSED.includes(seg.status) ? seg.status : "active";
@@ -407,6 +407,31 @@ export function findCampaignAudience(seg: SegmentCriteria, limit = 500): Subscri
     if (seg.locale) {
       conds.push("locale = ?");
       params.push(seg.locale);
+    }
+    // Postman-core rule #6 (Eugene 2026-05-25): рекламная рассылка (38-ФЗ
+    // «О рекламе» + 152-ФЗ) уходит ТОЛЬКО подписчикам с подтверждённым
+    // согласием на маркетинговый канал. Транзакционный opt-in (channel
+    // 'product') недостаточен. «Последнее действие wins» — если позже был
+    // opt_out по маркетинговому каналу, исключаем.
+    if (requireMarketingConsent) {
+      conds.push(`EXISTS (
+        SELECT 1 FROM email_consents c
+        WHERE c.subscriber_id = email_subscribers.id
+          AND c.channel IN ('marketing','news')
+          AND c.action IN ('opt_in','confirm')
+      )`);
+      conds.push(`NOT EXISTS (
+        SELECT 1 FROM email_consents o
+        WHERE o.subscriber_id = email_subscribers.id
+          AND o.channel IN ('marketing','news')
+          AND o.action = 'opt_out'
+          AND o.created_at > (
+            SELECT MAX(c2.created_at) FROM email_consents c2
+            WHERE c2.subscriber_id = email_subscribers.id
+              AND c2.channel IN ('marketing','news')
+              AND c2.action IN ('opt_in','confirm')
+          )
+      )`);
     }
     const rows = sqlite().prepare(
       `SELECT * FROM email_subscribers WHERE ${conds.join(" AND ")} ORDER BY created_at DESC LIMIT ?`,
@@ -480,7 +505,8 @@ export async function sendCampaign(opts: {
     return { ok: false, candidates: 0, sent: 0, failed: 0, skipped: 0, dryRun, sample: [], error: "Нужны subject и bodyText" };
   }
 
-  const audience = findCampaignAudience(segment, limit);
+  // isAd → требуем подтверждённое маркетинговое согласие (Postman-core rule #6).
+  const audience = findCampaignAudience(segment, limit, isAd);
   recordAgentActivity("postman", { action: "send_campaign", candidates: audience.length, dryRun, isAd });
 
   const result: SendCampaignResult = {
