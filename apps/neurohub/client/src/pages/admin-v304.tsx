@@ -711,7 +711,7 @@ export default function AdminV304Page() {
   const { toast } = useToast();
   // Eugene 2026-05-15 Босс «строка поиска по всей панели — Google по проекту».
   // Контролируемый Tabs + global search jumps к нужной вкладке.
-  const [tab, setTab] = useState("master-dashboard");
+  const [tab, setTab] = useState("orchestrator");
 
   // Eugene 2026-05-17 Босс «техподдержка» — поддержка deep-link из Telegram
   // alert'а: #/admin/v304?tab=support&ticket=XXX → open Обращения tab.
@@ -800,6 +800,8 @@ export default function AdminV304Page() {
         <TabsList
           className="mb-4 sticky top-0 z-30 -mx-2 sm:mx-0 px-2 sm:px-3 py-2 h-auto flex flex-nowrap sm:flex-wrap gap-1 overflow-x-auto sm:overflow-visible justify-start glass-card border border-purple-500/20 rounded-2xl bg-[#0a0a17]/85 backdrop-blur-xl scrollbar-thin shadow-[0_4px_24px_rgba(124,58,237,0.18)]"
         >
+          {/* ═══ 🎬 ДИРЕКТОР — 1-е место (Eugene 2026-05-25 Босс «смести на 1 место») ═══ */}
+          <TabsTrigger value="orchestrator" className={tabClass("musa")}>🎬 Музa Директор</TabsTrigger>
           {/* ═══ 📊 АНАЛИТИКА (emerald-tinted) ═══ */}
           <TabsTrigger value="master-dashboard" className={tabClass("analytics")}>📊 Сводка</TabsTrigger>
           <TabsTrigger value="brain-3d" className={tabClass("analytics")}>📊 Второй мозг (3D)</TabsTrigger>
@@ -827,7 +829,6 @@ export default function AdminV304Page() {
           <TabsTrigger value="musa-avatar" className={tabClass("musa")}>🎵 Аватар Музы</TabsTrigger>
           <TabsTrigger value="muza-info" className={tabClass("musa")}>🎵 Информация о Музе</TabsTrigger>
           <TabsTrigger value="email-templates" className={tabClass("musa")}>🎵 Письма Музы</TabsTrigger>
-          <TabsTrigger value="orchestrator" className={tabClass("musa")}>🎬 Музa Директор</TabsTrigger>
           <TabsTrigger value="bot-channels" className={tabClass("musa")}>🎵 Каналы</TabsTrigger>
           <TabsTrigger value="bot-stats" className={tabClass("musa")}>🎵 Бот</TabsTrigger>
 
