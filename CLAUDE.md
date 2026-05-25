@@ -2209,6 +2209,44 @@ Reference:
 
 Применяется к: всем future live-counters (visitors, revenue, generations, plays).
 
+### PWA-freshness rule (Eugene 2026-05-25, **сильнее cache-first оптимизаций**)
+
+**Деплой обязан доходить до ВСЕХ клиентов (особенно мобильных PWA) максимум за ОДНУ загрузку. HTML — ТОЛЬКО network-first. Cache-first для HTML запрещён — иначе юзер застревает на старом бандле после деплоя.**
+
+Босс 2026-05-25 «на смартфоне нет плеера и лист» — корень: `sw.js` отдавал HTML cache-first → мобильный получал старый закэшированный HTML со старым JS-хэшем → новый деплой подхватывался только со 2-й загрузки. Плюс при изменении ТОЛЬКО клиентского кода (JS-хэш меняется, `sw.js` — нет) SW не переустанавливался, старые кэши жили. Итог: после каждого деплоя «на телефоне старый код».
+
+Жёсткие правила (`apps/neurohub/client/public/sw.js` + `lib/registerSW.ts`):
+1. **HTML (navigate) — network-first с таймаутом (2.5с) fallback на cache.** Свежий HTML → свежий JS-хэш → свежий бандл сразу. Cache отдаём ТОЛЬКО когда сеть медленная/недоступна (VPN-friendly — цель Eugene 2026-05-22 сохранена через таймаут, не через cache-first).
+2. **JS/CSS/woff hash-named — cache-first** (immutable: новый деплой = новое имя файла = cache miss = свежий автоматически).
+3. **При любом изменении cache-стратегии или структуры кэшей — бамп `CACHE_VERSION`/`RUNTIME_CACHE`/`API_CACHE`** (vN→vN+1). Это меняет байты `sw.js` → SW переустанавливается → `activate` чистит старые кэши.
+4. **Auto-update обязателен и без UI-диалога:** `install`→`skipWaiting`; `activate`→`clients.claim` + чистка чужих кэшей; `registerSW.ts`→ silent reload по `controllerchange` + `registration.update()` каждые 5 мин. Юзер получает новую версию без ручной очистки кэша.
+5. **API GET кэшируем ТОЛЬКО public read-only** (whitelist SWR: playlist/stats/countries/star-top). Никогда — auth/POST/stream/payment.
+
+Анти-паттерн который правило закрывает: «оптимизировали под VPN → сделали HTML cache-first → деплои перестали доходить до мобильных». Правильный баланс — network-first + короткий таймаут, а не cache-first.
+
+Применяется к: `sw.js`, `registerSW.ts`, любым PWA-кэш-стратегиям, Capacitor WebView (грузит тот же web). НЕ применяется к: серверным Cache-Control заголовкам (отдельный слой).
+
+Связано с:
+- Counter-live-update rule — SW auto-update = ЕДИНСТВЕННЫЙ разрешённый silent reload
+- iOS-app-capacitor rule — Capacitor грузит web, freshness важна там же
+- Влёт-результат rule — один фикс закрывает корень: и текущий деплой, и будущие
+- Player-render-resilience rule (ниже)
+
+### Player-render-resilience rule (Eugene 2026-05-25)
+
+**Плеер/плейлист НИКОГДА не должен исчезать из-за разового сбоя fetch. Компонент не возвращает `null` при пустых данных — показывает placeholder; fetch обязан иметь `r.ok` + `Array.isArray` guard + ретрай с backoff.**
+
+Босс 2026-05-25 «пропал плеер плейлист» (ПК + смартфон) — корень: `PlaylistSection` возвращал `null` при `tracks=[]`, а инициирующий fetch ловил ошибку пустым `.catch()` без ретрая. Разовый сбой (502 в окне `pm2 restart` при автодеплое, сетевой обрыв, не-массив в ответе) → `tracks=[]` навсегда → плеер исчезал. На mobile recovery не было совсем.
+
+Жёсткие правила (эталон — `landing.tsx` PlaylistSection):
+1. **Никаких `return null` который сносит всю секцию.** При пустых данных — лёгкий placeholder с тем же `id` (сохраняет IntersectionObserver-target мобильного гейта в DOM + юзер видит «Загружаем…», не пустоту).
+2. **Каждый data-fetch:** `if (!r.ok) throw` + `if (!Array.isArray(data)) throw` (не-массив = error envelope/5xx → НЕ попадает в state, иначе `.find/.map` = TypeError = краш) + `.catch` с **ретраем с backoff** (до 4 раз) + cancel-guard в cleanup.
+3. **Mobile-gated paths:** фикс должен работать на ОБОИХ путях (cached LS initial render + gated fetch). Гейт по кэшу — учитывать TTL (истёкший кэш не держит гейт закрытым при пустом state).
+
+Анти-паттерн: «фикс применён только в `.then()` — а на mobile fetch GATED, initial render шёл из cached LS → фикс не выполнялся» (реальный случай commit `441ab5b`→`bf2bf99`). См. Pre-push critical review rule (пункты 3 «mobile-gated paths» + 8 «mental dry-run»).
+
+Применяется к: всем audio/list-компонентам с fetch (`landing.tsx`, `dashboard.tsx`, `track.tsx`, future). Связано с: Playlist-strict-selection rule, Persistent-audio-only rule, Влёт-результат rule, Pre-push critical review rule.
+
 ### Brand-rocket-asset rule (Eugene 2026-05-21)
 
 **Любые визуальные графические элементы (ракеты, иконки, декор, illustrations) на сайте — в brand-цветах MuzaAi: purple `#7C3AED`, fuchsia `#D946EF`, cyan `#06B6D4`, electric blue `#00D4FF`. И ОБЯЗАТЕЛЬНО рядом с ними по палитре** (близкие оттенки: purple-300 `#c084fc`, fuchsia-300 `#f0abfc`, cyan-300 `#67e8f9`, cyan-100 `#a5f3fc`).
