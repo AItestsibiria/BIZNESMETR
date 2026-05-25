@@ -25,7 +25,7 @@ import { db } from "../storage";
 import { callUnifiedMuzaLLM } from "./llmCore";
 import { recordAgentActivity } from "./agentOrchestrator";
 
-export const PUBLICATION_CHANNELS = ["web", "telegram", "max", "vk", "email"] as const;
+export const PUBLICATION_CHANNELS = ["web", "telegram", "max", "vk", "instagram", "email"] as const;
 export type PublicationChannel = (typeof PUBLICATION_CHANNELS)[number];
 
 export const PUBLICATION_STATUSES = ["prepared", "approved", "published", "unpublished"] as const;
@@ -90,6 +90,8 @@ export function channelHasToken(channel: string): boolean {
       return !!process.env.MAX_BOT_TOKEN;
     case "vk":
       return !!process.env.VK_ACCESS_TOKEN;
+    case "instagram":
+      return !!(process.env.INSTAGRAM_ACCESS_TOKEN && process.env.INSTAGRAM_BUSINESS_ACCOUNT_ID);
     case "email":
       return !!(process.env.SMTP_PASS || process.env.GMAIL_APP_PASSWORD);
     default:
@@ -241,10 +243,12 @@ const CHANNEL_BRIEF: Record<PublicationChannel, string> = {
   telegram: "Telegram-пост. До 200 знаков, можно 1-2 эмодзи, ссылка muzaai.ru в конце.",
   max: "Пост в мессенджере Max. До 200 знаков, 1 эмодзи, ссылка muzaai.ru.",
   vk: "Пост ВКонтакте. До 250 знаков, дружелюбно, 1-2 эмодзи, ссылка muzaai.ru.",
+  instagram: "Пост в Instagram (@muzaairu). До 200 знаков, визуально-эмоционально, 2-3 эмодзи, призыв в конце. Ссылку — в профиле.",
+  email: "Письмо. Короткое приветствие Музы + призыв «Создать трек». Кнопка отписки обязательна.",
 };
 
 // Каналы, для которых cron готовит креатив (email — отдельный pipeline Почтальона).
-const CREATIVE_CHANNELS: PublicationChannel[] = ["web", "telegram", "max", "vk"];
+const CREATIVE_CHANNELS: PublicationChannel[] = ["web", "telegram", "max", "vk", "instagram"];
 
 function buildCreativePrompt(channel: PublicationChannel): string {
   return (

@@ -508,6 +508,17 @@ export function bootstrapDefaultAgents(): void {
     capabilities: ["chat"],
   });
 
+  // Instagram (@muzaairu) — публикации через Meta Graph API. Eugene 2026-05-25.
+  // not_configured пока нет токена + Meta App Review (instagram_content_publish).
+  orchestrator.register({
+    id: "channel-instagram",
+    name: "Instagram (@muzaairu)",
+    channel: "instagram",
+    role: "broadcaster",
+    status: (env.INSTAGRAM_ACCESS_TOKEN && env.INSTAGRAM_BUSINESS_ACCOUNT_ID) ? "active" : "not_configured",
+    capabilities: ["post"],
+  });
+
   // Voice / TTS (Yandex SpeechKit для admin-voice FAB + Музa TTS)
   orchestrator.register({
     id: "muza-voice",
