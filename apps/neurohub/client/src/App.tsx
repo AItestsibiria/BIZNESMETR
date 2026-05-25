@@ -59,12 +59,16 @@ function AppContent() {
       <Router hook={useHashLocation}>
         <Navbar />
         <Switch>
-          <Route path="/" component={LandingPage} />
+          {/* Eugene 2026-05-25 Босс — чёрный экран iOS: «/» (LandingPage) был
+              БЕЗ ErrorBoundary → любой throw в плеере/плейлисте = пустая страница.
+              Оборачиваем как остальные роуты (withBoundary), чтобы вместо
+              чёрного экрана показать фолбэк + залогировать стек на сервер. */}
+          <Route path="/" component={withBoundary(LandingPage, "landing")} />
           {/* Eugene 2026-05-21 Босс: pair-link из мессенджеров (TG/Max) →
               открывается web Музa-чат с подгрузкой истории. Route рендерит
               LandingPage — floating-consultant читает useParams().code и
               auto-open chat с pairCode на /api/muza/chat/init. */}
-          <Route path="/pair/:code" component={LandingPage} />
+          <Route path="/pair/:code" component={withBoundary(LandingPage, "landing-pair")} />
           <Route path="/play/:id" component={TrackPage} />
           <Route path="/share/:id" component={TrackPage} />
           <Route path="/login" component={LoginPage} />
