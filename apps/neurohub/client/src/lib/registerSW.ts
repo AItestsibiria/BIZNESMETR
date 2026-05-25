@@ -1,50 +1,30 @@
-// Eugene 2026-05-21 Босс: «изменения на сайте автоматически отправляются в
-// приложение для сохранения домой» — PWA auto-update.
+// Eugene 2026-05-25: Service Worker ОТКЛЮЧЁН.
 //
-// Регистрирует Service Worker (см. public/sw.js).
-// При появлении новой версии:
-//   1. Background install нового SW
-//   2. Detect через registration.onupdatefound
-//   3. postMessage SKIP_WAITING → новый SW activate
-//   4. Silent reload через controllerchange event
+// SW (network-first + reject-таймаут + кэш-стратегии) трижды за день дал
+// чёрный экран / «FetchEvent.respondWith ... timeout» на iOS LTE и не отдавал
+// управление застрявшим устройствам. Решение — убрать SW полностью: сайт
+// работает напрямую с сервера (он быстрый). PWA/offline вернём позже отдельным,
+// тщательно протестированным SW.
 //
-// Без UI dialog — auto-update silently, юзер видит последнюю версию.
-
+// Эта функция теперь НЕ регистрирует SW, а наоборот — снимает любую
+// существующую регистрацию и чистит кэши (на случай если kill-switch sw.js
+// ещё не отработал). Re-register НЕ делаем → никакой петли.
 export function registerServiceWorker(): void {
   if (typeof window === "undefined") return;
   if (!("serviceWorker" in navigator)) return;
 
-  // Регистрируем после load чтобы не блокировать initial render
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js", { scope: "/" })
-      .then((registration) => {
-        // При установке нового SW
-        registration.onupdatefound = () => {
-          const installing = registration.installing;
-          if (!installing) return;
-          installing.onstatechange = () => {
-            if (installing.state === "installed" && navigator.serviceWorker.controller) {
-              // Новая версия установлена — активируем сразу
-              installing.postMessage({ type: "SKIP_WAITING" });
-            }
-          };
-        };
-
-        // Проверяем обновления каждые 5 минут (при активной сессии)
-        setInterval(() => {
-          registration.update().catch(() => {});
-        }, 5 * 60 * 1000);
-      })
-      .catch((e) => {
-        console.warn("[SW] registration failed:", e);
-      });
-
-    // Когда новый SW активировался → reload (silent)
-    let refreshing = false;
-    navigator.serviceWorker.addEventListener("controllerchange", () => {
-      if (refreshing) return;
-      refreshing = true;
-      window.location.reload();
-    });
+    try {
+      navigator.serviceWorker.getRegistrations()
+        .then((regs) => { regs.forEach((r) => { r.unregister().catch(() => {}); }); })
+        .catch(() => {});
+    } catch {}
+    try {
+      if (typeof caches !== "undefined" && caches.keys) {
+        caches.keys()
+          .then((keys) => keys.forEach((k) => { caches.delete(k).catch(() => {}); }))
+          .catch(() => {});
+      }
+    } catch {}
   });
 }
