@@ -31,6 +31,7 @@ import { debounceMessage, bypassDebounce } from "../../lib/messageDebouncer";
 import { loadHistoryForLLM } from "../../lib/chatHistory";
 import { callUnifiedMuzaLLM } from "../../lib/llmCore";
 import { detectMuzaToolIntent } from "../../lib/muzaIntentRouter";
+import { recordAgentActivity } from "../../lib/agentOrchestrator";
 import { logUserActionFailure } from "../../lib/userActionFailures";
 import { detectsYars, recordYarsMention } from "../../lib/yarsDetect";
 import { buildMemoryContext, scheduleCompressionIfNeeded } from "../../lib/userMemory";
@@ -232,7 +233,7 @@ async function generateReply(
     maxTokens: 400,
     forceAnthropic,
   });
-  if (reply) return reply;
+  if (reply) { try { recordAgentActivity("muza-tg"); } catch {} return reply; }
 
   // 2. Backup: GPTunnel (gpt-4o-mini, без tools). Подаём persona+dynamic
   //    как один system-block — самый простой вариант для не-Anthropic LLM.

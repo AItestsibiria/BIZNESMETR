@@ -26,6 +26,7 @@ import { chatbotSessions, chatbotMessages, users, generations } from "@shared/sc
 import { personaFor, buildPersonaSystem } from "../../lib/consultantPersona";
 import { callUnifiedMuzaLLM } from "../../lib/llmCore";
 import { detectMuzaToolIntent } from "../../lib/muzaIntentRouter";
+import { recordAgentActivity } from "../../lib/agentOrchestrator";
 import { loadHistoryForLLM } from "../../lib/chatHistory";
 import { logUserActionFailure } from "../../lib/userActionFailures";
 import { detectsYars, recordYarsMention } from "../../lib/yarsDetect";
@@ -540,7 +541,7 @@ async function generateReply(
     onToolResult,
     forceAnthropic,
   });
-  if (reply) return { reply, attachedTrackId };
+  if (reply) { try { recordAgentActivity("muza-max"); } catch {} return { reply, attachedTrackId }; }
 
   // 2. Backup: GPTunnel (gpt-4o-mini, без tools)
   const sys = buildPersonaSystem(userKey);

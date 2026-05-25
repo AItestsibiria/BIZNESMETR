@@ -29,6 +29,7 @@ import { db } from "../../storage";
 import { chatbotSessions, chatbotMessages } from "@shared/schema";
 import { callUnifiedMuzaLLM } from "../../lib/llmCore";
 import { detectMuzaToolIntent } from "../../lib/muzaIntentRouter";
+import { recordAgentActivity } from "../../lib/agentOrchestrator";
 import { loadHistoryForLLM } from "../../lib/chatHistory";
 import { logUserActionFailure } from "../../lib/userActionFailures";
 import { vkSendMessage, vkConfigStatus } from "../../lib/vkApi";
@@ -146,7 +147,7 @@ async function generateVkReply(
       role: null,
       forceAnthropic,
     });
-    if (reply) return reply;
+    if (reply) { try { recordAgentActivity("muza-vk"); } catch {} return reply; }
   } catch (e) {
     bootRefs?.logger.error("[vk-channel] LLM call failed", {
       error: e instanceof Error ? e.message : String(e),

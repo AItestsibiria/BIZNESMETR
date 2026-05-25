@@ -6,6 +6,8 @@
 //
 // Все вызовы через sendEmail() — единая точка. Возвращает {ok, error?, messageId?}.
 
+import { recordAgentActivity } from "./agentOrchestrator";
+
 let _nodemailer: any = null;
 function getNodemailer(): any {
   if (_nodemailer) return _nodemailer;
@@ -103,6 +105,7 @@ export async function sendEmail(opts: SendEmailOpts): Promise<SendEmailResult> {
         html,
         replyTo: opts.replyTo,
       });
+      try { recordAgentActivity("channel-email", { provider: "custom-smtp" }); } catch {}
       return { ok: true, messageId: info?.messageId, provider: "custom-smtp" };
     } catch (e: any) {
       console.warn("[email] custom-smtp send failed:", e?.message || e);
@@ -122,6 +125,7 @@ export async function sendEmail(opts: SendEmailOpts): Promise<SendEmailResult> {
         html,
         replyTo: opts.replyTo,
       });
+      try { recordAgentActivity("channel-email", { provider: "gmail" }); } catch {}
       return { ok: true, messageId: info?.messageId, provider: "gmail" };
     } catch (e: any) {
       console.warn("[email] gmail send failed:", e?.message || e);
