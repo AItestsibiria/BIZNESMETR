@@ -880,6 +880,39 @@ export const MUZA_TOOLS: ToolDef[] = [
       },
     },
   },
+  {
+    name: "director_finance",
+    description: "[ADMIN-ONLY] Финансы проекта от лица Директора (агент Деньга подчинён ей): выручка, себестоимость (provider cost), прибыль, средние per-track за период. period: today | 7d | 30d. Используй когда Босс спрашивает «деньги», «выручка», «прибыль», «сколько заработали», «финансы», «cost».",
+    input_schema: {
+      type: "object",
+      properties: { period: { type: "string", description: "today | 7d | 30d (default today)" } },
+    },
+  },
+  {
+    name: "director_support",
+    description: "[ADMIN-ONLY] Техподдержка от лица Директора (подчинена ей): открытые тикеты/обращения, по приоритетам, самые срочные. Используй когда Босс спрашивает «что в поддержке», «есть ли обращения», «тикеты», «кому-то нужна помощь».",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "director_knowledge",
+    description: "[ADMIN-ONLY] Знание проекта: правила, фичи, их взаимосвязи (из CLAUDE.md + PITFALLS + KB + последние коммиты). query — что искать (например «прослушивания», «dedup», «директор», «цены»). Пусто = общая сводка разделов. Используй когда Босс спрашивает «какое правило по X», «как работает фича Y», «что у нас по Z», «напомни правило».",
+    input_schema: {
+      type: "object",
+      properties: { query: { type: "string", description: "ключевое слово/тема для поиска в правилах и фичах" } },
+    },
+  },
+  {
+    name: "director_control_group",
+    description: "[ADMIN-ONLY] Групповое управление агентами + «пнуть» если что не так. group — channel (web|telegram|max|vk|email|voice|admin|cron|internal) ИЛИ role (consultant|watchdog|moderator|broadcaster|diagnostic|marketing|tool) ИЛИ 'all'. action: health (проверить группу) | pause | resume | kick (health-check + пометить error у упавших + доложить кого пинать). Используй когда Босс говорит «проверь все каналы», «останови всех маркетологов», «пни watchdog'и», «как группа X».",
+    input_schema: {
+      type: "object",
+      properties: {
+        group: { type: "string", description: "channel / role / 'all'" },
+        action: { type: "string", description: "health | pause | resume | kick (default health)" },
+      },
+      required: ["group"],
+    },
+  },
 ];
 
 // === Email 2FA wrapper helper (Eugene 2026-05-17 Босс) ===
@@ -3177,6 +3210,98 @@ const HANDLERS: Record<string, ToolHandler> = {
       return `Не смогла запустить кампанию: ${e?.message || e}`;
     }
   },
+
+  async director_finance({ period }, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: director tool admin-only.";
+    try {
+      const p = ["today", "7d", "30d"].includes(String(period)) ? String(period) : "today";
+      const periodId = p === "7d" ? "week" : p === "30d" ? "month" : "today";
+      const { getPeriodRange } = await import("./periodBoundaries");
+      const range = getPeriodRange(periodId as any);
+      const { getAggregates } = await import("./dengaAgent");
+      const a = getAggregates({ periodLabel: range.label || p, fromIso: range.fromIso, toIso: range.toIso });
+      const rub = (k: number) => Math.round((k || 0) / 100).toLocaleString("ru-RU");
+      return `💰 Финансы (${range.label || p}): выручка ${rub(a.totalRevenue)} ₽, себестоимость ${rub(a.totalCost + a.totalChatCost)} ₽, прибыль ${rub(a.totalProfit)} ₽. Треков ${a.totalTracks}, средняя прибыль/трек ${rub(a.avgProfitPerTrack)} ₽.`;
+    } catch (e: any) {
+      return `Не смогла собрать финансы: ${e?.message || e}`;
+    }
+  },
+
+  async director_support(_input, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: director tool admin-only.";
+    try {
+      const sqlite: any = (db as any).$client;
+      const one = (q: string, ...a: any[]): any => { try { return sqlite.prepare(q).get(...a); } catch { return null; } };
+      const open = one(`SELECT COUNT(*) c FROM agent_handoffs WHERE status IN ('open','in_progress')`)?.c || 0;
+      const urgent = one(`SELECT COUNT(*) c FROM agent_handoffs WHERE status IN ('open','in_progress') AND priority IN ('high','urgent')`)?.c || 0;
+      if (open === 0) return "🆘 Техподдержка: открытых обращений нет — все разобраны.";
+      const latest = one(`SELECT subject, priority FROM agent_handoffs WHERE status IN ('open','in_progress') ORDER BY created_at DESC LIMIT 1`);
+      const last = latest?.subject ? ` Последнее: «${String(latest.subject).slice(0, 60)}» (${latest.priority || "normal"}).` : "";
+      return `🆘 Техподдержка: открыто ${open} обращени(й)${urgent ? `, срочных ${urgent}` : ""}.${last}`;
+    } catch (e: any) {
+      return `Не смогла собрать поддержку: ${e?.message || e}`;
+    }
+  },
+
+  async director_knowledge({ query }, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: director tool admin-only.";
+    try {
+      const { loadProjectKnowledge } = await import("./musaKnowledgeLoader");
+      const kb = loadProjectKnowledge();
+      const q = String(query || "").trim().toLowerCase();
+      if (!q) {
+        const headings = (kb.match(/^#{1,3} .+$/gm) || []).slice(0, 40).map(h => h.replace(/^#+\s*/, ""));
+        return `Знаю правила/фичи проекта. Разделы (${headings.length}): ${headings.slice(0, 25).join(" · ")}. Уточни тему — найду конкретное правило.`;
+      }
+      // Грубый поиск: блоки по ### заголовкам, score по вхождениям query.
+      const blocks = kb.split(/(?=^#{2,3} )/m);
+      const scored = blocks
+        .map(b => ({ b, score: (b.toLowerCase().split(q).length - 1) }))
+        .filter(x => x.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 2);
+      if (scored.length === 0) return `По «${query}» в правилах/фичах ничего не нашла. Попробуй другое слово.`;
+      return scored.map(x => x.b.trim().slice(0, 900)).join("\n\n---\n\n").slice(0, 1800);
+    } catch (e: any) {
+      return `Не смогла прочитать знания проекта: ${e?.message || e}`;
+    }
+  },
+
+  async director_control_group({ group, action }, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: director tool admin-only.";
+    try {
+      const { orchestrator } = await import("./agentOrchestrator");
+      const g = String(group || "").toLowerCase().trim();
+      const act = String(action || "health").toLowerCase().trim();
+      const all = orchestrator.list();
+      const targets = g === "all" ? all : all.filter(a => a.channel === g || a.role === g);
+      if (targets.length === 0) return `Группа «${group}» пуста или не найдена (channel/role/all).`;
+      const names = targets.map(t => t.name);
+      if (act === "pause") {
+        targets.forEach(t => orchestrator.setStatus(t.id, "paused", "group pause by director"));
+        try { recordAuditEntry({ adminEmail: "director-chat", action: "update", entity: "orchestrator:group", entityKey: g, after: { action: "pause", count: targets.length } }); } catch {}
+        return `⏸ Приостановила группу «${group}» (${targets.length}): ${names.slice(0, 8).join(", ")}.`;
+      }
+      if (act === "resume") {
+        targets.forEach(t => orchestrator.setStatus(t.id, "active"));
+        try { recordAuditEntry({ adminEmail: "director-chat", action: "update", entity: "orchestrator:group", entityKey: g, after: { action: "resume", count: targets.length } }); } catch {}
+        return `▶️ Возобновила группу «${group}» (${targets.length}): ${names.slice(0, 8).join(", ")}.`;
+      }
+      // health | kick — прогнать health-check по группе.
+      const results = await Promise.all(targets.map(async t => ({ t, r: await orchestrator.runHealthCheck(t.id) })));
+      const failing = results.filter(x => !x.r.ok).map(x => x.t.name);
+      if (act === "kick" && failing.length) {
+        // «Пнуть»: упавшим — пометить error (Директор видит) — bridge/alert подхватит.
+        results.filter(x => !x.r.ok).forEach(x => orchestrator.setStatus(x.t.id, "error", "kicked by director — health fail"));
+        try { recordAuditEntry({ adminEmail: "director-chat", action: "update", entity: "orchestrator:group-kick", entityKey: g, after: { failing } }); } catch {}
+      }
+      return failing.length
+        ? `Проверила группу «${group}» (${targets.length}). 🔴 Не в порядке: ${failing.join(", ")}.${act === "kick" ? " Пнула — пометила error, разберусь." : ""}`
+        : `Проверила группу «${group}» (${targets.length}). ✅ Все работают штатно.`;
+    } catch (e: any) {
+      return `Не смогла обработать группу: ${e?.message || e}`;
+    }
+  },
 };
 
 // === Admin tools runtime state (Eugene 2026-05-17) ===
@@ -3303,6 +3428,9 @@ const LONG_TOOL_TIMEOUTS: Record<string, number> = {
   director_force_complete_stuck: 40_000,
   director_report: 30_000,
   director_balance_reminders: 60_000,
+  director_finance: 30_000,
+  director_control_group: 30_000,
+  director_knowledge: 15_000,
 };
 
 export async function executeTool(name: string, input: any, context: ToolContext): Promise<string> {

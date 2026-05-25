@@ -769,6 +769,20 @@ export function registerEventBusAgents(): void {
     // Обратная связь → Директор (он владеет реакциями юзеров).
     orchestrator.addEdge(f.id, "muza-admin", "event", { purpose: "user feedback → Директор (алерты/сводка)" });
   }
+
+  // Eugene 2026-05-25 Босс «финансы и техподдержка тоже подчиняются Директору».
+  // Денга (финансы) уже зарегистрирована выше. Техподдержка — agent_handoffs.
+  orchestrator.register({
+    id: "support",
+    name: "Техподдержка",
+    channel: "internal",
+    role: "moderator",
+    status: "active",
+    capabilities: ["tickets", "handoff", "operator"],
+    metadata: { brief: "Обращения в поддержку (agent_handoffs) — тикеты, эскалация оператору" },
+  });
+  orchestrator.addEdge("support", "muza-admin", "event", { purpose: "Тикеты поддержки → Директор" });
+  orchestrator.addEdge("denga", "muza-admin", "data-sync", { purpose: "Финансы (PnL) → Директор" });
   // Edges: A1 Master наблюдает за всеми bus-агентами + алертит Директору.
   for (const a of busAgents) {
     orchestrator.addEdge("agent-a1-master", `bus-${a.name}`, "event", {
