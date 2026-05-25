@@ -3961,6 +3961,26 @@ export function FloatingConsultant() {
                 className="flex-1 min-w-0 bg-white/[0.07] text-[16px] text-white placeholder:text-white/40 px-4 py-3 rounded-xl border-2 border-purple-400/25 focus:border-purple-400/60 focus:outline-none disabled:opacity-50 font-medium resize-none leading-[1.4] min-h-[3.25rem] max-h-[8.25rem] overflow-y-auto"
                 autoFocus
               />
+              {/* Eugene 2026-05-25 Босс «слева от кнопки отправить — кнопка
+                  сброса написанного юзером». Видна только когда есть текст;
+                  чистит ввод, сбрасывает высоту textarea, возвращает фокус. */}
+              {chatInput.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setChatInput("");
+                    const ta = document.querySelector('[data-muza-chat-input]') as HTMLTextAreaElement | null;
+                    if (ta) { ta.style.height = "auto"; ta.focus(); }
+                  }}
+                  className="shrink-0 w-11 h-11 rounded-xl flex items-center justify-center bg-white/[0.04] border border-white/[0.08] text-white/50 hover:bg-white/[0.08] hover:text-white/80 active:scale-95 transition-all"
+                  aria-label="Сбросить написанное"
+                  title="Стереть написанное"
+                >
+                  <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M18 6 6 18M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
               {/* Eugene 2026-05-23 Босс «кнопку побольше + графический элемент
                   со смыслом нажать». 56×56, paper plane SVG, hover scale,
                   pulse glow когда есть текст. При chatSending клик → queue
