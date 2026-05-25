@@ -47,6 +47,7 @@ import { synthesizeYandexTts, type YandexVoice } from "../../lib/yandexTts";
 import { MUZA_TOOLS, executeTool, filterToolsForRole } from "../../lib/muzaTools";
 import { recordAgentActivity } from "../../lib/agentOrchestrator";
 import { buildPersonaSystem } from "../../lib/consultantPersona";
+import { callUnifiedMuzaLLM } from "../../lib/llmCore";
 import {
   getCachedDashboardSummary,
   getCachedClickStats,
@@ -572,8 +573,26 @@ async function callAdminVoiceLLM(opts: {
     }
   }
 
+  // Eugene 2026-05-25 Босс «смена Ai: если какой-то не работает — сразу
+  // другой». Все Anthropic-ключи упали → фолбэк на унифицированную цепочку
+  // (TimeWeb приоритет → DeepSeek → YandexGPT). Без tools, но юзер получает
+  // настоящий текстовый ответ вместо «все ключи Claude недоступны».
+  try {
+    const fallbackText = await callUnifiedMuzaLLM({
+      sessionId: opts.sessionId,
+      channel: "admin-voice",
+      userText: opts.transcript,
+      role: "admin",
+    });
+    if (fallbackText && fallbackText.trim()) {
+      return { responseText: String(fallbackText).slice(0, 2000), actions, usage: { inputTokens, outputTokens } };
+    }
+  } catch (e: any) {
+    console.warn("[ADMIN-VOICE-LLM] unified fallback error:", e?.message || e);
+  }
+
   return {
-    responseText: "Не получилось обработать запрос — все ключи Claude недоступны. Попробуй ещё раз через минуту.",
+    responseText: "Не получилось обработать запрос — все AI-провайдеры временно недоступны. Попробуй ещё раз через минуту.",
     actions,
     usage: { inputTokens, outputTokens },
   };
