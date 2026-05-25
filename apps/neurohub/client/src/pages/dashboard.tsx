@@ -926,7 +926,7 @@ function CoverPickerExpandable({ covers, selectedCoverId, onAttach }: { covers: 
               className="block w-full aspect-square rounded-xl overflow-hidden border-2 border-amber-500 shadow-lg shadow-amber-500/20 hover:shadow-amber-500/40 transition-all"
               data-testid={`cover-current-${current.id}`}
             >
-              <img src={`/api/stream/${current.id}`} alt="Текущая обложка" loading="lazy" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+              <img src={`/api/stream/${current.id}`} alt="Текущая обложка" loading="lazy" className="w-full h-full object-cover" onError={handleCoverError} />
             </button>
           ) : (
             <div className="w-full aspect-square rounded-xl border-2 border-dashed border-amber-500/40 bg-amber-500/5 flex items-center justify-center text-amber-400/60 text-xs text-center px-3">
@@ -952,7 +952,7 @@ function CoverPickerExpandable({ covers, selectedCoverId, onAttach }: { covers: 
                     className="aspect-square rounded-lg overflow-hidden border-2 border-transparent hover:border-purple-400/60 transition-colors group relative"
                     data-testid={`cover-variant-${cover.id}`}
                   >
-                    <img src={`/api/stream/${cover.id}`} alt="" loading="lazy" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                    <img src={`/api/stream/${cover.id}`} alt="" loading="lazy" className="w-full h-full object-cover" onError={handleCoverError} />
                     <span className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center opacity-0 group-hover:opacity-100">
                       <span className="text-[10px] text-white bg-purple-500/80 px-1.5 py-0.5 rounded">Открыть</span>
                     </span>
@@ -1047,6 +1047,22 @@ function getCoverUrl(gen: any): string {
   // ?v=<id> — cache-bust на случай если браузер закэшировал прошлый 404/fallback.
   const coverId = gen.coverGenId || gen.id;
   return `/api/cover/${coverId}.jpg?v=${gen.id}`;
+}
+
+// Eugene 2026-05-25 КРИТ-ФИКС обложек (тот же класс что в landing.tsx):
+// onError больше НЕ ставит display:none навсегда. Один транзиентный
+// сбой (abort при SW-kill-switch, network-first, обрыв сети) ранее
+// прятал обложку безвозвратно даже при последующем 200. Теперь —
+// ретрай один раз с cache-bust, элемент не скрываем.
+function handleCoverError(e: { currentTarget: HTMLImageElement }) {
+  try {
+    const img = e.currentTarget;
+    if (img.dataset.coverRetried === "1") return;
+    img.dataset.coverRetried = "1";
+    const base = img.src.split("#")[0];
+    const sep = base.includes("?") ? "&" : "?";
+    img.src = `${base}${sep}cb=${Date.now()}`;
+  } catch { /* best-effort */ }
 }
 
 function formatDur(seconds: number): string {
@@ -1512,7 +1528,7 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
               }`}
               onClick={() => setExpandedId(expandedId === current.id ? null : current.id)}
             >
-              <img src={getCoverUrl(current)} alt="" className="w-full h-full object-cover absolute inset-0 transition-all duration-500" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+              <img src={getCoverUrl(current)} alt="" className="w-full h-full object-cover absolute inset-0 transition-all duration-500" onError={handleCoverError} />
               <Music className={`text-white/10 w-8 h-8 ${coverExpanded ? "md:w-24 md:h-24" : ""}`} />
               <ExpandToggleButton
                 expanded={coverExpanded}
@@ -1642,7 +1658,7 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
           <div className="mb-4">
             <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-purple-500/20 animate-in fade-in zoom-in-95 duration-300">
               <div className="w-full aspect-[4/3] max-h-[50dvh] bg-gradient-to-br from-purple-900 via-blue-900 to-black relative">
-                <img key={getCoverUrl(eGen)} src={getCoverUrl(eGen)} alt="" className="w-full h-full object-cover absolute inset-0 animate-in fade-in duration-500" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                <img key={getCoverUrl(eGen)} src={getCoverUrl(eGen)} alt="" className="w-full h-full object-cover absolute inset-0 animate-in fade-in duration-500" onError={handleCoverError} />
                 <div className="absolute inset-0 flex items-center justify-center">
                   <svg viewBox="0 0 24 24" className="w-16 h-16 opacity-10" fill="none">
                     <path d="M3 12c1.5-3 3-5 4.5-3s2 4 3.5 2 2.5-5 4-3 2 4 3.5 2 2.5-4 3.5-2" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
@@ -1793,7 +1809,7 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
                     alt=""
                     loading="lazy"
                     className="w-full h-full object-cover absolute inset-0"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                    onError={handleCoverError}
                   />
                   <Music className="w-3 h-3 text-purple-400/60" />
                   <div className={`absolute inset-0 flex items-center justify-center bg-black/40 transition-opacity ${isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
@@ -3799,7 +3815,7 @@ export default function DashboardPage() {
                              Suno и свои обложки». Для lyrics — иконка PenLine. */}
                         {gen.status === "done" && gen.type === "cover" && gen.resultUrl ? (
                           <div className="relative shrink-0">
-                            <img src={`/api/stream/${gen.id}`} alt="" loading="lazy" className="w-10 h-10 rounded-lg object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                            <img src={`/api/stream/${gen.id}`} alt="" loading="lazy" className="w-10 h-10 rounded-lg object-cover" onError={handleCoverError} />
                             <span className="absolute -bottom-1 -right-1 text-[8px] px-1 py-0.5 rounded-full bg-purple-500/80 text-white border border-purple-300/50" title="Своя обложка от автора">👤</span>
                           </div>
                         ) : gen.status === "done" && gen.type === "music" ? (
@@ -3813,7 +3829,7 @@ export default function DashboardPage() {
                                   ? "ring-1 ring-fuchsia-400/30 shadow-[0_0_8px_rgba(217,70,239,0.3)]"
                                   : ""
                               }`}
-                              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                              onError={handleCoverError}
                             />
                             <span
                               className={`absolute -bottom-1 -right-1 text-[8px] px-1 py-0.5 rounded-full text-white border ${

@@ -352,6 +352,26 @@ function formatDuration(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+// Eugene 2026-05-25 КРИТ-ФИКС обложек: раньше onError ставил
+// display:none НАВСЕГДА. Один транзиентный сбой (abort при
+// SW-kill-switch деплое, network-first HTML, обрыв LTE) → обложка
+// исчезала навсегда, даже когда endpoint потом отдавал 200 JPEG.
+// Теперь: ретрай ОДИН раз с cache-bust, НЕ скрываем элемент.
+// Сзади всегда стоит placeholder <Music/>, так что «дыры» нет.
+// Влёт-результат rule: корень (stuck hidden img), не симптом.
+function handleCoverError(e: { currentTarget: HTMLImageElement }) {
+  try {
+    const img = e.currentTarget;
+    if (img.dataset.coverRetried === "1") return; // уже ретраили — стоп, без скрытия
+    img.dataset.coverRetried = "1";
+    const base = img.src.split("#")[0];
+    const sep = base.includes("?") ? "&" : "?";
+    // Пере-запрос с cache-bust: если был транзиентный abort — теперь
+    // загрузится. display НЕ трогаем — обложка проявится при успехе.
+    img.src = `${base}${sep}cb=${Date.now()}`;
+  } catch { /* best-effort — никогда не роняем рендер */ }
+}
+
 function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const [, navigate] = useLocation();
   const { toast } = useToast();
@@ -1956,7 +1976,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                 )}
                 {/* Current cover fading in */}
                 {currentTrack.imageUrl && (
-                  <img key={currentTrack.imageUrl} src={currentTrack.imageUrl} alt="" decoding="async" className="w-full h-full object-cover absolute inset-0 animate-in fade-in duration-500" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                  <img key={currentTrack.imageUrl} src={currentTrack.imageUrl} alt="" className="w-full h-full object-cover absolute inset-0 animate-in fade-in duration-500" onError={handleCoverError} />
                 )}
                 <Music className={`text-white/10 w-8 h-8 ${coverExpanded ? "md:w-24 md:h-24" : ""}`} />
                 {/* Eugene 2026-05-18 Босс «S не нравится на обложке» —
@@ -2683,7 +2703,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                         src={track.imageUrl}
                         alt=""
                         className="w-full h-full object-cover absolute inset-0"
-                        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                        onError={handleCoverError}
                       />
                     )}
                     <TypeIcon className="w-4 h-4 text-purple-400/60" />
@@ -2858,7 +2878,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               src={((currentTrack as any)?.imageUrl || track.imageUrl) as string}
                               alt=""
                               className="w-full h-full object-cover absolute inset-0 animate-in fade-in duration-500"
-                              onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                              onError={handleCoverError}
                             />
                           )}
                           {/* Eugene 2026-05-19 Босс «S на большой обложке».
@@ -3175,7 +3195,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                     src={cover.imageUrl}
                     alt=""
                     className="w-full object-cover rounded-xl"
-                    onError={(e) => { (e.target as HTMLImageElement).parentElement!.style.display = "none"; }}
+                    onError={handleCoverError}
                   />
                   <div className="absolute bottom-0.5 left-1/2 -translate-x-1/2 z-10">
                     <span className="inline-flex items-center gap-0.5 text-white/20 drop-shadow-[0_1px_2px_rgba(0,0,0,0.4)]"><svg viewBox="0 0 24 24" className="w-2.5 h-2.5" fill="none"><path d="M3 12c1.5-3 3-5 4.5-3s2 4 3.5 2 2.5-5 4-3 2 4 3.5 2 2.5-4 3.5-2" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" /></svg><span className="text-[9px] whitespace-nowrap">MuzaAi.ru</span></span>
