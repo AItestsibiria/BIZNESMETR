@@ -2380,20 +2380,34 @@ Compat с `prefers-reduced-motion` rule: если юзер motion-sensitive (OS-
 
 Reference: commit с реализацией. Frontend: `components/plays-counter.tsx` toggleAnim state + button ✦/○ в правом нижнем углу.
 
-### LLM-chain-order rule (Eugene 2026-05-21)
+### AI-failover-project-wide rule (Eugene 2026-05-25, **сильнее любых per-endpoint LLM-вызовов**)
 
-**Порядок попыток LLM-провайдеров Музы — DeepSeek первый (дешевле), TimeWeb второй, далее Anthropic по имени sort (API_KEY → _BACKUP → _BOT), последний резерв — GPTunnel.**
+**Смена AI-провайдера (failover) действует ВО ВСЁМ ПРОЕКТЕ, везде где используется LLM. Если один провайдер не работает — сразу следующий, без ошибки юзеру. Единая точка — `callUnifiedMuzaLLM` (llmCore.ts). Никаких single-provider вызовов без фолбэка.**
+
+Босс 2026-05-25 (скрин admin-voice «все ключи Claude недоступны»): «Поставь смену Ai — если какой-то не работает, сразу другой. Timeweb Priority. Правило смены провайдера действует во всём проекте, где он используется».
+
+Жёсткие правила:
+1. **Любой LLM-вызов в проекте обязан иметь фолбэк-цепочку.** Если код ходит напрямую в один провайдер (напр. admin-voice — Anthropic-native для tools) — при провале ВСЕХ его ключей ОБЯЗАН провалиться в `callUnifiedMuzaLLM` (текстовый ответ через другие провайдеры). Анти-паттерн: вернуть юзеру «все ключи X недоступны» вместо ответа от другого провайдера.
+2. **Никогда не показывать юзеру «провайдер недоступен»** пока есть хоть один рабочий. Деградированный ответ (без tools) лучше отказа.
+3. **Audit при code review:** `grep -rn "api.anthropic.com\|api.deepseek\|api.timeweb\|gptunnel" apps/neurohub/server --include=*.ts` — каждый прямой вызов должен либо быть внутри `callUnifiedMuzaLLM`, либо иметь явный фолбэк на неё.
+
+Отдельно (Босс 2026-05-25): **отчёт о расходах на AI по запросам Босса — в Музa Директоре** (отдельно от общего cost — Denga-agent). TODO-фича: трекинг token-spend admin-запросов (voice-admin + admin-chat) → агрегат в `/admin/v304 → 🎬 Музa Директор`.
+
+### LLM-chain-order rule (Eugene 2026-05-21, **обновлено 2026-05-25 — TimeWeb priority**)
+
+**Порядок попыток LLM-провайдеров Музы — TimeWeb ПЕРВЫЙ (Босс «Timeweb Priority» 2026-05-25), затем DeepSeek, YandexGPT, далее Anthropic по имени sort (API_KEY → _BACKUP → _BOT), последний резерв — GPTunnel.**
 
 Полный chain (`apps/neurohub/server/lib/llmCore.ts` функция `callUnifiedMuzaLLM`):
 
 | # | Provider | ENV | Default model | Tools |
 |---|---|---|---|---|
-| 1 | **DeepSeek (PRIMARY)** | `DEEPSEEK_API_KEY` | `deepseek-chat` | ❌ |
-| 2 | TimeWeb Gateway | `TIMEWEB_GATEWAY_KEY` | `anthropic/claude-haiku-4-5` | ❌ |
-| 3 | Anthropic | `ANTHROPIC_API_KEY` | `claude-haiku-4-5-20251001` | ✅ tool-use loop |
-| 4 | Anthropic backup | `ANTHROPIC_API_KEY_BACKUP` | то же | ✅ |
-| 5 | Anthropic bot | `ANTHROPIC_API_KEY_BOT` | то же | ✅ |
-| 6 | GPTunnel (last resort) | `GPTUNNEL_API_KEY` | `gpt-4o-mini` | ❌ |
+| 1 | **TimeWeb Gateway (PRIORITY)** | `TIMEWEB_GATEWAY_KEY` | `anthropic/claude-haiku-4-5` | ❌ |
+| 2 | DeepSeek | `DEEPSEEK_API_KEY` | `deepseek-chat` | ❌ |
+| 3 | YandexGPT | `YANDEX_GPT_API_KEY` (+folder) | yandexgpt | ❌ |
+| 4 | Anthropic | `ANTHROPIC_API_KEY` | `claude-haiku-4-5-20251001` | ✅ tool-use loop |
+| 5 | Anthropic backup | `ANTHROPIC_API_KEY_BACKUP` | то же | ✅ |
+| 6 | Anthropic bot | `ANTHROPIC_API_KEY_BOT` | то же | ✅ |
+| 7 | GPTunnel (last resort) | `GPTUNNEL_API_KEY` | `gpt-4o-mini` | ❌ |
 
 **Tools (MUZA_TOOLS — get_user_balance, save_song_draft, find_public_track, issue_invoice, и т.д.) работают ТОЛЬКО на Anthropic-шаге (#3-5).** DeepSeek / TimeWeb / GPTunnel возвращают clean text без function-calling.
 
