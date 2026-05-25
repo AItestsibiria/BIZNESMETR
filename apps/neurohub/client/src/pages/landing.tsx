@@ -1001,7 +1001,14 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
 
   useEffect(() => {
     if (!playlistFetchEnabled) return; // mobile: gate до scroll/visibility
-    fetch(`/api/playlist?status=${playlistKind}&sort=${sortMode}&dir=${sortDir}&seed=${playlistSeedRef.current}&_=${Date.now()}`, { cache: 'no-store' }).then(r => r.json()).then(data => {
+    fetch(`/api/playlist?status=${playlistKind}&sort=${sortMode}&dir=${sortDir}&seed=${playlistSeedRef.current}&_=${Date.now()}`, { cache: 'no-store' }).then(r => {
+      if (!r.ok) throw new Error(`playlist HTTP ${r.status}`);
+      return r.json();
+    }).then(data => {
+      // Eugene 2026-05-25: guard — не-массив (error envelope / 5xx-JSON) НЕ
+      // должен попасть в setTracks, иначе tracks.find ниже = TypeError → краш
+      // PlaylistSection → плеера нет на ПК. effect@1141 (с ретраем) дозагрузит.
+      if (!Array.isArray(data)) { console.warn("[playlist init] non-array:", data); return; }
       setTracks(data);
       // Eugene 2026-05-22 — кешируем для instant-paint при следующем визите.
       try {
