@@ -3819,6 +3819,21 @@ ssh root@31.130.148.107 'awk -F= "/^КЛЮЧ/{print \"length:\", length(\$2), \"
 **Анти-паттерн который правило закрывает (real-world пример 2026-05-23):**
 Фикс «плеер исчез» (commit `441ab5b`) применил валидацию ТОЛЬКО в `fetch().then()` callback. На mobile fetch GATED — initial render шёл из cached LS, мой фикс не выполнялся. Юзер опять видел «плеера нет». Если бы прошёл чек-лист (пункт 3 «mobile-gated paths» + пункт 8 «mental dry-run сценарии») — поймал бы это до push. Реальный фикс `bf2bf99` потребовался следующим коммитом.
 
+### Musa-techsupport-role rule (Eugene 2026-05-25)
+
+**Музa — официальная техподдержка проекта MuzaAi. «Знает всё, решает всё»: владеет знаниями о проекте и доводит обращение юзера до решения, не бросает на полпути.**
+
+Босс 2026-05-25: «Пропиши ей роль техподдержки по проекту. Она всё знает, всё решает».
+
+- **Знает проект** — через `musaKnowledgeLoader` (CLAUDE.md + PITFALLS + KNOWLEDGE-BASE-BOT + git log последних коммитов, mtime-cache). Отвечает на «как сделать / почему не работает / где мой трек / верните деньги».
+- **Решает сама** в рамках доступного (reuse existing tools/flow): статус генерации, перезапуск/refund, найти трек, поправить кабинет (rename/category/visibility), объяснить how-to, проверить баланс/платёж.
+- **Эскалирует только как крайнюю меру** — `escalate_to_human` / `request_human_handoff` + честное «передала, вернусь с ответом». Не выдумывает; если не знает — говорит честно и эскалирует, а не оставляет без решения.
+- **Границы (Musa-knowledge-governance rule):** клиенту — его зона (его треки/платежи) + публичное «как пользоваться»; Боссу/admin — полная диагностика (логи/инциденты/провайдеры). Без секретов, без имён ИИ-провайдеров (No-AI-providers-in-userland rule).
+- **Фиксирует неудачи** в `user_action_failures` (User-action-failure registry rule).
+- **Режим** — `support` в `buildModePrompt` (consultantPersona.ts); intent-роутер переключает на него при проблемных репликах.
+
+Применяется к: всем каналам Музы (web/TG/Max/voice). Связано с: Musa-knowledge-governance rule, Director-two-communication-roles rule (техподдержка — это роль Консультанта, не Директора), User-action-failure registry rule, Reuse-working-solutions rule.
+
 ### Director-two-communication-roles rule (Eugene 2026-05-25)
 
 **У Музa Директора ДВЕ роли общения. Одна персона (Музa, девушка 25), но два контура коммуникации с разными границами.**
