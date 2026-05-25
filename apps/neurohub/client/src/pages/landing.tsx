@@ -924,6 +924,29 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // Keep ref in sync with state
   useEffect(() => { expandedIdRef.current = expandedId; }, [expandedId]);
 
+  // Eugene 2026-05-25 Босс «обложка нового трека грузится с опозданием 1-3 сек».
+  // ROOT CAUSE: обложка фетчилась из сети только когда трек становился current
+  // → при skip юзер ждал загрузку. FIX: префетчим обложки соседних треков
+  // (next/prev + ±2) в браузерный кэш через new Image() → при переключении
+  // картинка уже готова, рендерится мгновенно.
+  const preloadedCoversRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const list = filteredMusicRef.current || [];
+    if (list.length === 0) return;
+    const idx = list.findIndex((t: any) => t.id === playingId);
+    if (idx < 0) return;
+    for (const off of [1, -1, 2, -2]) {
+      const t = list[(idx + off + list.length) % list.length];
+      const url = t?.imageUrl;
+      if (url && !preloadedCoversRef.current.has(url)) {
+        preloadedCoversRef.current.add(url);
+        const img = new Image();
+        img.decoding = "async";
+        img.src = url;
+      }
+    }
+  }, [playingId, tracks]);
+
   // Marquee title in browser tab while playing
   useEffect(() => {
     const originalTitle = 'MuzaAi — Создавай музыку с AI';
@@ -1926,7 +1949,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                 )}
                 {/* Current cover fading in */}
                 {currentTrack.imageUrl && (
-                  <img key={currentTrack.imageUrl} src={currentTrack.imageUrl} alt="" className="w-full h-full object-cover absolute inset-0 animate-in fade-in duration-500" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                  <img key={currentTrack.imageUrl} src={currentTrack.imageUrl} alt="" decoding="async" className="w-full h-full object-cover absolute inset-0 animate-in fade-in duration-500" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
                 )}
                 <Music className={`text-white/10 w-8 h-8 ${coverExpanded ? "md:w-24 md:h-24" : ""}`} />
                 {/* Eugene 2026-05-18 Босс «S не нравится на обложке» —
