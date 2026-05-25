@@ -60,16 +60,49 @@ export async function analyzeWithAI(data: DigestData): Promise<string | null> {
   return null;
 }
 
-function notifyBossTelegram(text: string): void {
+function notifyBossTelegram(text: string): boolean {
   const adminId = process.env.ADMIN_TELEGRAM_ID;
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!adminId || !token) return;
+  if (!adminId || !token) return false;
   fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ chat_id: adminId, text, parse_mode: "HTML", disable_web_page_preview: true }),
     signal: AbortSignal.timeout(8000),
   }).catch(() => {});
+  return true;
+}
+
+// Eugene 2026-05-25 Рек 5: email-fallback дайджеста/алертов если TG не настроен.
+async function notifyBossEmail(text: string): Promise<void> {
+  try {
+    const to = process.env.ADMIN_EMAIL || "egnovoselov@gmail.com";
+    const { sendEmail } = await import("./emailSender");
+    const plain = text.replace(/<\/?b>/g, "");
+    await sendEmail({ to, subject: "🎬 Музa Директор — отчёт", text: plain });
+  } catch {}
+}
+
+/** Единый канал уведомления Боссу: TG primary, email fallback. */
+export async function notifyBoss(text: string): Promise<void> {
+  const tgOk = notifyBossTelegram(text);
+  if (!tgOk) await notifyBossEmail(text);
+}
+
+// Eugene 2026-05-25 Рек 4: единый dedup-канал критических алертов Директора.
+// gen.escalated / a1.alert / escalation-high / critical-scan — все через
+// directorAlert → один и тот же key не чаще windowMs (нет спама от 4 источников).
+const alertDedup = new Map<string, number>();
+export function directorAlert(key: string, text: string, windowMs = 30 * 60_000): void {
+  const now = Date.now();
+  const prev = alertDedup.get(key) || 0;
+  if (now - prev < windowMs) return;
+  alertDedup.set(key, now);
+  // cleanup
+  if (alertDedup.size > 500) {
+    for (const [k, t] of alertDedup) if (now - t > 6 * 3600_000) alertDedup.delete(k);
+  }
+  void notifyBoss(text);
 }
 
 const one = (q: string, ...a: any[]): any => {
@@ -187,7 +220,7 @@ export async function sendDailyDigest(label: string): Promise<void> {
     // AI-анализ: где проблемы + предложения (Босс «докладывает с предложениями»).
     const ai = await analyzeWithAI(d).catch(() => null);
     if (ai) msg += `\n\n🧠 <b>Анализ Директора:</b>\n${ai}`;
-    notifyBossTelegram(msg);
+    await notifyBoss(msg);
   } catch (e) {
     console.warn("[directorDigest] sendDailyDigest failed:", e);
   }
@@ -212,7 +245,8 @@ export async function checkCritical(): Promise<void> {
     const ai = await analyzeWithAI(d).catch(() => null);
     if (ai) msg += `\n\n🧠 ${ai}`;
     msg += `\n\nЗайди в /admin/v304 → 🎬 Музa Директор.`;
-    notifyBossTelegram(msg);
+    // Через directorAlert (dedup с другими источниками критики).
+    directorAlert(`critical-scan:${key}`, msg, 60 * 60_000);
   } catch (e) {
     console.warn("[directorDigest] checkCritical failed:", e);
   }

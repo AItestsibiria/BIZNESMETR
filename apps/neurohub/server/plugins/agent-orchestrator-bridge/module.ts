@@ -22,33 +22,14 @@
 
 import type { BootContext, Module } from "../../core";
 import { orchestrator, recordAgentActivity } from "../../lib/agentOrchestrator";
+import { directorAlert } from "../../lib/directorDigest";
 import { sendEmail } from "../../lib/emailSender";
 import { storage } from "../../storage";
 
 let bootRefs: { logger: BootContext["logger"] } | null = null;
 
-// Anti-flood: один и тот же alert-key — максимум раз в N мс.
-const lastAlertAt = new Map<string, number>();
-function throttled(key: string, windowMs: number): boolean {
-  const now = Date.now();
-  const prev = lastAlertAt.get(key) || 0;
-  if (now - prev < windowMs) return true;
-  lastAlertAt.set(key, now);
-  return false;
-}
-
-// Inline TG-алерт Боссу (паттерн llmCore.notifyAdminKeySwitch). Never throws.
-function notifyAdminTelegram(text: string): void {
-  const adminId = process.env.ADMIN_TELEGRAM_ID;
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!adminId || !token) return;
-  fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: adminId, text, parse_mode: "HTML", disable_web_page_preview: true }),
-    signal: AbortSignal.timeout(8000),
-  }).catch(() => {});
-}
+// Алерты Боссу — через единый directorAlert (TG + email-fallback + dedup),
+// см. lib/directorDigest. Локальный throttle больше не нужен.
 
 // Apology-email юзеру после неразрешимой эскалации. Fire-and-forget.
 async function sendApologyEmail(userId: number | null | undefined, genId: number): Promise<void> {
@@ -104,14 +85,12 @@ const orchestratorBridgeModule: Module = {
       if (!name) return;
       orchestrator.setStatus(`bus-${name}`, "error", `failure-rate: ${p.failed}/${p.executed + p.failed}`);
       orchestrator.recordEdgeUsage("agent-a1-master", "muza-admin", "webhook");
-      if (!throttled(`unhealthy:${name}`, 60 * 60_000)) {
-        notifyAdminTelegram(
-          `🔴 <b>Агент нездоров: ${name}</b>\n\n` +
-          `Выполнено: ${p.executed}, упало: ${p.failed}\n` +
-          `Причина: ${p.lastFailReason || "—"}\n\n` +
-          `Музa Директор пометила агента error.`
-        );
-      }
+      // directorAlert — единый dedup-канал (Рек 4), не чаще 1/час на агента.
+      directorAlert(
+        `unhealthy:${name}`,
+        `🔴 <b>Агент нездоров: ${name}</b>\n\nВыполнено: ${p.executed}, упало: ${p.failed}\nПричина: ${p.lastFailReason || "—"}\n\nМузa Директор пометила агента error.`,
+        60 * 60_000,
+      );
     },
   },
   onLoad: async (ctx) => {
@@ -124,11 +103,10 @@ const orchestratorBridgeModule: Module = {
       const userId = payload?.userId ?? null;
       orchestrator.recordEdgeUsage("gen-lifecycle", "muza-admin", "webhook");
       orchestrator.recordEdgeUsage("gen-lifecycle", "channel-email", "notify");
-      notifyAdminTelegram(
-        `🚨 <b>Генерация эскалирована</b>\n\n` +
-        `Трек #${genId} (юзер ${userId ?? "?"}) не дожался после 3 попыток.\n` +
-        `Причина: ${payload?.reason || "unknown"}\n\n` +
-        `Средства возвращены, юзеру ушёл apology-email.`
+      directorAlert(
+        `gen-escalated:${genId}`,
+        `🚨 <b>Генерация эскалирована</b>\n\nТрек #${genId} (юзер ${userId ?? "?"}) не дожался после 3 попыток.\nПричина: ${payload?.reason || "unknown"}\n\nСредства возвращены, юзеру ушёл apology-email.`,
+        60 * 60_000,
       );
       void sendApologyEmail(userId, genId);
       orchestrator.recordEdgeUsage("gen-lifecycle", "marketing-orchestrator", "event");
@@ -137,9 +115,10 @@ const orchestratorBridgeModule: Module = {
     // gen.stuck — застряла >5 мин (ещё дожимается, инфо-алерт, троттл 30 мин).
     orchestrator.on("gen.stuck", (payload: any) => {
       orchestrator.recordEdgeUsage("gen-lifecycle", "muza-admin", "webhook");
-      if (throttled(`stuck:${payload?.genId}`, 30 * 60_000)) return;
-      notifyAdminTelegram(
-        `⏳ Генерация #${payload?.genId} застряла (${payload?.ageMin || "?"} мин) — Музa дожимает (auto-retry).`
+      directorAlert(
+        `stuck:${payload?.genId}`,
+        `⏳ Генерация #${payload?.genId} застряла (${payload?.ageMin || "?"} мин) — Музa дожимает (auto-retry).`,
+        30 * 60_000,
       );
     });
 
