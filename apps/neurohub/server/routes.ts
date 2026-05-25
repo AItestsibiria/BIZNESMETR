@@ -3712,9 +3712,15 @@ export async function registerRoutes(
       // intent — нужны MUZA_TOOLS, которые работают ТОЛЬКО на Anthropic-шаге.
       // Иначе DeepSeek (primary, cheaper) вернёт text без вызова tool → плеер
       // не реагирует на «постав трек про маму». См. muzaIntentRouter.ts.
-      const forceAnthropic = detectMuzaToolIntent(text);
+      // Eugene 2026-05-25 ROOT CAUSE «диалог с Директором не работает»: admin/
+      // director-команды («кто молчит», «доложи итоги», «проанализируй») НЕ в
+      // паттернах intent-роутера → forceAnthropic=false → DeepSeek (без tools) →
+      // Директор болтал, но НЕ вызывал director_*. Фикс: для админа ВСЕГДА
+      // forceAnthropic (нужны tools; admin-чат low-volume, cost неважен).
+      const isAdminChat = muzaRole === "admin" || muzaRole === "super_admin";
+      const forceAnthropic = isAdminChat || detectMuzaToolIntent(text);
       if (forceAnthropic) {
-        console.log(`[MUZA-INTENT-ROUTER] tool-intent detected → forceAnthropic for sess=${session.id.slice(0, 12)}`);
+        console.log(`[MUZA-INTENT-ROUTER] ${isAdminChat ? "admin (always-tools)" : "tool-intent"} → forceAnthropic for sess=${session.id.slice(0, 12)}`);
       }
 
       let reply = await callUnifiedMuzaLLM({
