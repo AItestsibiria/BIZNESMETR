@@ -978,6 +978,29 @@ export function registerEventBusAgents(): void {
     },
   });
   orchestrator.addEdge("frontend-health", "muza-admin", "webhook", { purpose: "Алерт при всплеске runtime-ошибок фронта" });
+
+  // Eugene 2026-05-25 Босс «агент "фронт-тестер" — непрерывно тестирует фронт
+  // глазами юзера, находит баги, записывает, докладывает Директору СО ССЫЛКОЙ
+  // на страницу где баг, предлагает фикс, ведёт список». Подчинён Директору.
+  // Реальные баги = client_errors (ErrorBoundary telemetry) + синтетика страниц.
+  orchestrator.register({
+    id: "frontend-qa",
+    name: "Фронт-тестер",
+    channel: "internal",
+    role: "watchdog",
+    status: "active",
+    capabilities: ["audit", "metrics", "alert"],
+    metadata: { brief: "Баги фронта глазами юзера (client_errors + синтетика) + ссылка + предложенный фикс" },
+    healthCheck: async () => {
+      try {
+        const { frontendQaHealth } = await import("./frontendQaAgent");
+        return frontendQaHealth();
+      } catch (e: any) {
+        return { ok: false, details: { error: e?.message || String(e) } };
+      }
+    },
+  });
+  orchestrator.addEdge("frontend-qa", "muza-admin", "webhook", { purpose: "Баги фронта + ссылки + предложенные фиксы Директору" });
   // Edges: A1 Master наблюдает за всеми bus-агентами + алертит Директору.
   for (const a of busAgents) {
     orchestrator.addEdge("agent-a1-master", `bus-${a.name}`, "event", {

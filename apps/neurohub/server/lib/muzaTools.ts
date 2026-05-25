@@ -361,6 +361,15 @@ export const MUZA_TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "frontend_qa_report",
+    description: "[ADMIN-ONLY] Доклад агента Фронт-тестер о багах фронта глазами юзера (runtime-ошибки страниц + синтетика). Если run=true — запускает свежий QA-скан, иначе возвращает последний список. Каждый баг — со ссылкой на страницу и предложенным фиксом. Используй когда Босс говорит «Директор, баги фронта», «что падает на фронте», «фронт-тестер, доклад».",
+    input_schema: {
+      type: "object",
+      properties: { run: { type: "boolean", description: "true — запустить свежий QA-скан; false/опущено — вернуть последний список" } },
+      required: [],
+    },
+  },
+  {
     name: "focus_brain_node",
     description: "[ADMIN-ONLY · UI] Сфокусировать камеру в 3D «Втором мозге» на указанном узле. Передаётся имя узла или его id (например 'plugin:telegram-bot', 'provider:gptunnel', 'core:db', 'Telegram', 'GPTunnel'). Поиск substring-match по label/id. Возвращает подтверждение — фронт перехватывает result через actions[] и эмитит CustomEvent 'brain-focus-node' который слушает SecondBrain3D компонент.",
     input_schema: {
@@ -2180,6 +2189,23 @@ const HANDLERS: Record<string, ToolHandler> = {
       return `${head}\n${body}\n\n${report.summary}`;
     } catch (e: any) {
       return `Ошибка ferz_report: ${e.message}`;
+    }
+  },
+
+  // === Агент Фронт-тестер (Eugene 2026-05-25) — подчинён Директору ===
+  async frontend_qa_report({ run }, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
+    try {
+      const mod = await import("./frontendQaAgent");
+      const report = run === true ? await mod.runFrontendQaScan() : await mod.getLatestFrontendQaReport();
+      if (!report.items.length) return "Фронт-тестер: открытых багов фронта нет. Всё чисто.";
+      const top = report.items
+        .slice(0, 6)
+        .map((i) => `• [${i.severity}] ${i.message.slice(0, 120)} (×${i.count})\n  ${i.pageUrl}${i.fixProposal ? `\n  💡 ${i.fixProposal.slice(0, 160)}` : ""}`);
+      const head = `Фронт-тестер — баги фронта (критичных ${report.criticalCount}, всего открытых ${report.openCount}):`;
+      return `${head}\n${top.join("\n")}`;
+    } catch (e: any) {
+      return `Ошибка frontend_qa_report: ${e.message}`;
     }
   },
 

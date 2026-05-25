@@ -107,11 +107,13 @@ import pdOperatorModule from "./plugins/pd-operator/module";
 import postmanModule from "./plugins/postman/module";
 import directorPublicationsModule from "./plugins/director-publications/module";
 import ferzModule from "./plugins/ferz/module";
+import frontendQaModule from "./plugins/frontend-qa/module";
 import securityModule from "./plugins/security/module";
 
 // Eugene 2026-05-23 Босс «Оркестратор нужен всеми компаниями агентами начать
 // в проекте — коде». Central agent registry — bootstrap на старте.
 import { bootstrapDefaultAgents, recordAgentActivity } from "./lib/agentOrchestrator";
+import { recordClientError } from "./lib/frontendQaAgent";
 import { installEventHandlers as installMarketingHandlers } from "./lib/marketingAgent";
 
 import * as fs from "node:fs";
@@ -508,6 +510,14 @@ app.post("/api/_client-error", express.json(), (req, res) => {
   if (CLIENT_ERRORS_RING.length > CLIENT_ERRORS_MAX) {
     CLIENT_ERRORS_RING.splice(0, CLIENT_ERRORS_RING.length - CLIENT_ERRORS_MAX);
   }
+  // Frontend-QA: persist + dedupe в таблицу client_errors (агент Фронт-тестер).
+  // never-throws (внутри recordClientError), не ломает endpoint при сбое БД.
+  try {
+    recordClientError({
+      message: p.message, stack: p.stack, page: p.page, url: p.url,
+      userAgent: req.headers["user-agent"]?.toString(),
+    });
+  } catch {}
   res.json({ data: { logged: true, total: CLIENT_ERRORS_RING.length }, error: null });
 });
 
@@ -619,6 +629,8 @@ app.post("/api/_client-error", express.json(), (req, res) => {
     { name: "director-publications", module: directorPublicationsModule },
 
     { name: "ferz", module: ferzModule },
+
+    { name: "frontend-qa", module: frontendQaModule },
 
     { name: "security", module: securityModule },
 

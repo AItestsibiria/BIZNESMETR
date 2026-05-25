@@ -2565,6 +2565,41 @@ const adminOverviewModule: Module = {
         }
       },
     },
+    // Eugene 2026-05-25 Босс «агент "фронт-тестер" — непрерывно тестирует фронт
+    // глазами юзера, находит баги, докладывает Директору со ссылкой + фикс».
+    // every_hour + shouldRunDaily-гард = раз/день ~05 МСК. Gate FRONTEND_QA_CRON
+    // !== "0" (ВКЛ по умолч). При critical (синтетика страницы non-200 / всплеск
+    // ошибок) — алерт Боссу через Директора (notifyBoss). try/catch, never throw.
+    {
+      name: "frontend-qa-daily",
+      schedule: "every_hour",
+      handler: async () => {
+        try {
+          if (process.env.FRONTEND_QA_CRON === "0") return;
+          const mskHour = (new Date().getUTCHours() + 3) % 24;
+          if (!shouldRunDaily("frontend-qa-daily", mskHour, 5)) return; // раз/день ~05 МСК
+          const qa = await import("../../lib/frontendQaAgent");
+          const report = await qa.runFrontendQaScan();
+          const crit = report.criticalCount || 0;
+          console.log(`[FRONTEND-QA-DAILY] open=${report.openCount}, critical=${crit}`);
+          if (crit > 0) {
+            const { notifyBoss } = await import("../../lib/directorDigest");
+            const top = report.items
+              .filter((i) => i.severity === "critical" || i.severity === "high")
+              .slice(0, 6)
+              .map((i) => `• <b>[${i.severity}]</b> ${i.message.slice(0, 120)}\n  <a href="${i.pageUrl}">${i.page}</a>${i.fixProposal ? `\n  💡 ${i.fixProposal.slice(0, 160)}` : ""}`)
+              .join("\n");
+            const msg =
+              `🧪 <b>Фронт-тестер — баги фронта (05:00 МСК)</b>\n` +
+              `Критичных: ${crit}, всего открытых: ${report.openCount}\n\n` +
+              `${top}`;
+            await notifyBoss(msg);
+          }
+        } catch (e) {
+          console.error("[FRONTEND-QA-DAILY job]", e);
+        }
+      },
+    },
     // Eugene 2026-05-25 security hardening: app-level авто-бэкап БД.
     // every_hour + shouldRunDaily-гард:
     //  - daily DB-only бэкап в 03:00 МСК (shouldRunDaily "auto-backup-db", 3)
