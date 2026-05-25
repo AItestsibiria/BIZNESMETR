@@ -2321,9 +2321,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             aria-label="Увеличенная обложка"
           >
             <img
+              key={currentTrack.id}
               src={currentTrack.imageUrl}
               alt={currentTrack.displayTitle || currentTrack.prompt || "Обложка"}
-              className="max-w-[92vw] max-h-[92vh] w-auto h-auto object-contain rounded-2xl shadow-2xl shadow-purple-500/30 select-none"
+              className="max-w-[92vw] max-h-[92vh] w-auto h-auto object-contain rounded-2xl shadow-2xl shadow-purple-500/30 select-none animate-in fade-in zoom-in-95 duration-500"
               draggable={false}
               /* Eugene 2026-05-24 Босс «любое нажатие на обложку её закрывает,
                  не случайно — а тапнуть». Tap (движение <10px, <500мс) → закрыть.
@@ -2346,6 +2347,23 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                 setCoverLightbox(false);
               }}
             />
+            {/* Eugene 2026-05-24 Босс «при смене трека меняется тоже обложка —
+                следующий его трек». currentTrack реактивный → img key={id} даёт
+                fade при auto-next/skip. Название трека под обложкой подтверждает
+                смену. pointer-events-none — не мешает tap-to-close по обложке. */}
+            <div
+              key={`cap-${currentTrack.id}`}
+              className="absolute top-5 left-1/2 -translate-x-1/2 max-w-[90vw] text-center pointer-events-none select-none animate-in fade-in slide-in-from-top-2 duration-500"
+            >
+              <div className="text-white font-sans font-semibold text-sm sm:text-base truncate drop-shadow-[0_1px_4px_rgba(0,0,0,0.8)]">
+                {currentTrack.displayTitle || currentTrack.prompt?.slice(0, 60) || "Без названия"}
+              </div>
+              {currentTrack.authorName && (
+                <div className="text-white/60 font-sans text-xs sm:text-sm truncate">
+                  {currentTrack.authorName}
+                </div>
+              )}
+            </div>
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); setCoverLightbox(false); }}
