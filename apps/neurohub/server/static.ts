@@ -43,8 +43,14 @@ export function serveStatic(app: Express) {
         } else if (filePath.endsWith(".html")) {
           res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
           res.setHeader("Pragma", "no-cache");
+        } else if (filePath.endsWith("sw.js")) {
+          // Eugene 2026-05-25: sw.js — ВСЕГДА свежий (no-cache), чтобы
+          // kill-switch / обновления SW доходили до устройств мгновенно,
+          // а не через 5 мин / 24ч кэша.
+          res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+          res.setHeader("Pragma", "no-cache");
         } else {
-          // manifest.json, favicon.svg, sw.js — короткий cache
+          // manifest.json, favicon.svg — короткий cache
           res.setHeader("Cache-Control", "public, max-age=300");
         }
       },
