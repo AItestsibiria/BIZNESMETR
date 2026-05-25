@@ -706,11 +706,15 @@ router.post(
           text: llmResult.responseText.slice(0, 4500),
           voice: ttsVoice,
           emotion: ttsEmotion,
-          format: "mp3",
+          // Eugene 2026-05-25 Босс «озвучка не играет, ошибка mp3». ROOT CAUSE:
+          // Yandex SpeechKit v1 (/speech/v1/tts:synthesize) НЕ отдаёт настоящий
+          // mp3 (mp3 — только в API v3) → байты не игрались как audio/mpeg.
+          // oggopus — штатный формат v1, Chrome/Android/Firefox играют.
+          format: "oggopus",
         });
         if (tts.ok && tts.audio) {
           audioBase64 = tts.audio.toString("base64");
-          audioContentType = tts.contentType || "audio/mpeg";
+          audioContentType = tts.contentType || "audio/ogg";
         }
       } catch (e: any) {
         // TTS — best-effort; не валим весь request если TTS упал

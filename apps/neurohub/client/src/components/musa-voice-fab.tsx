@@ -393,7 +393,7 @@ export function MusaVoiceFab() {
           ttsPlayingRef.current = false;
           window.dispatchEvent(new CustomEvent("voice-speaking", { detail: { active: false } }));
           setState("idle");
-          setError("Ошибка воспроизведения mp3");
+          setError("Ошибка воспроизведения аудио");
         };
         setState("playing");
         ttsPlayingRef.current = true;
@@ -570,7 +570,7 @@ export function MusaVoiceFab() {
           };
           audio.onerror = () => {
             setState("idle");
-            setError("Ошибка воспроизведения mp3");
+            setError("Ошибка воспроизведения аудио");
           };
           setState("playing");
           await audio.play().catch((e) => {
