@@ -479,21 +479,21 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
     };
     let es: EventSource | null = null;
     let pollInterval: any = null;
+    // Eugene 2026-05-24 fix: ВСЕГДА немедленный fetch + 60-сек poll (Counter-
+    // live-update rule «1 раз в минуту»). Раньше в SSE-ветке не было initial
+    // fetch (счётчик пустой до первого push) + poll 120с. Если SSE мёртв за
+    // nginx (buffering) — счётчик «висел» до 2 мин. SSE-пуши — realtime бонус
+    // поверх гарантированного 60-сек poll.
+    fetchStats();
     if (typeof EventSource !== "undefined") {
       try {
         es = new EventSource("/api/playlist/stats/stream");
         es.addEventListener("stats", (ev: MessageEvent) => {
           try { applyStats(JSON.parse(ev.data)); } catch {}
         });
-        pollInterval = setInterval(fetchStats, 120_000);
-      } catch {
-        fetchStats();
-        pollInterval = setInterval(fetchStats, 60_000);
-      }
-    } else {
-      fetchStats();
-      pollInterval = setInterval(fetchStats, 60_000);
+      } catch { /* SSE недоступен — poll ниже всё равно работает */ }
     }
+    pollInterval = setInterval(fetchStats, 60_000);
     fetch("/api/user-preferences/anim-state", { cache: "no-store" })
       .then(r => r.ok ? r.json() : null)
       .then(j => { if (j) { setAnimEnabled(!!j.enabled); setPermanentOff(!!j.permanentOff); } })

@@ -4430,8 +4430,13 @@ export async function registerRoutes(
       const raw = (db as any).$client;
       // === Source A: gen_activity COUNT(action='play') ===
       const A_all = (raw.prepare("SELECT COUNT(*) AS n FROM gen_activity WHERE action='play'").get() as any)?.n || 0;
-      const A_24h = (raw.prepare("SELECT COUNT(*) AS n FROM gen_activity WHERE action='play' AND created_at >= strftime('%s','now','-24 hours')*1000").get() as any)?.n || 0;
-      const A_today_msk = (raw.prepare("SELECT COUNT(*) AS n FROM gen_activity WHERE action='play' AND date(created_at/1000, 'unixepoch', '+3 hours') = date('now', '+3 hours')").get() as any)?.n || 0;
+      // Eugene 2026-05-24 fix: created_at — space-формат CURRENT_TIMESTAMP, НЕ
+      // миллисекунды. Раньше сравнивали с strftime('%s')*1000 (TEXT vs INT →
+      // SQLite type affinity: TEXT всегда > INT → 24h возвращал ВСЕ строки) и
+      // created_at/1000 (текст/1000 = 0 → today_msk сравнивал date(0)). Теперь
+      // datetime() нормализует.
+      const A_24h = (raw.prepare("SELECT COUNT(*) AS n FROM gen_activity WHERE action='play' AND datetime(created_at) >= datetime('now','-24 hours')").get() as any)?.n || 0;
+      const A_today_msk = (raw.prepare("SELECT COUNT(*) AS n FROM gen_activity WHERE action='play' AND date(created_at,'+3 hours') = date('now','+3 hours')").get() as any)?.n || 0;
       // === Source B: SUM(meta.plays) из generations.style JSON (legacy cache) ===
       const B_all = (() => {
         try {
@@ -4448,7 +4453,7 @@ export async function registerRoutes(
         "SELECT action, COUNT(*) AS n FROM gen_activity WHERE action='play' OR action LIKE 'play_rejected:%' GROUP BY action ORDER BY n DESC"
       ).all();
       const last24h = raw.prepare(
-        "SELECT action, COUNT(*) AS n FROM gen_activity WHERE (action='play' OR action LIKE 'play_rejected:%') AND created_at >= strftime('%s','now','-24 hours')*1000 GROUP BY action ORDER BY n DESC"
+        "SELECT action, COUNT(*) AS n FROM gen_activity WHERE (action='play' OR action LIKE 'play_rejected:%') AND datetime(created_at) >= datetime('now','-24 hours') GROUP BY action ORDER BY n DESC"
       ).all();
       const topIps = raw.prepare(
         "SELECT ip, COUNT(*) AS plays, COUNT(DISTINCT gen_id) AS tracks FROM gen_activity WHERE action='play' GROUP BY ip ORDER BY plays DESC LIMIT 15"
@@ -5435,11 +5440,13 @@ export async function registerRoutes(
   // Hot = >50 play/24ч (по правилу Босса auto-suggest).
   app.get("/api/admin/v304/playlist-candidates", requireAdmin, (_req: Request, res: Response) => {
     try {
+      // Eugene 2026-05-24 fix: datetime() обе стороны — created_at space-формат
+      // vs ISO since → раньше plays24h всегда 0. datetime() нормализует оба.
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       const rows = db.all<any>(sql`
         SELECT g.id, g.display_title as displayTitle, g.prompt, g.user_id as userId,
                g.created_at as createdAt, g.published_at as publishedAt, g.type, g.author_name as authorName,
-               (SELECT COUNT(*) FROM gen_activity ga WHERE ga.gen_id = g.id AND ga.action = 'play' AND ga.created_at >= ${since}) as plays24h,
+               (SELECT COUNT(*) FROM gen_activity ga WHERE ga.gen_id = g.id AND ga.action = 'play' AND datetime(ga.created_at) >= datetime(${since})) as plays24h,
                (SELECT COUNT(*) FROM gen_activity ga WHERE ga.gen_id = g.id AND ga.action = 'play') as playsTotal
         FROM generations g
         WHERE g.is_public = 2 AND g.status = 'done' AND g.deleted_at IS NULL
@@ -8913,7 +8920,7 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     let dateFilter = '';
     if (period && period !== 'all') {
       const r = getPeriodRange(period);
-      dateFilter = `AND ga.created_at >= '${r.fromIso}' AND ga.created_at < '${r.toIso}'`;
+      dateFilter = `AND datetime(ga.created_at) >= datetime('${r.fromIso}') AND datetime(ga.created_at) < datetime('${r.toIso}')`;
     }
     const top = raw.prepare(`SELECT ga.gen_id, g.display_title, g.prompt, g.type, g.author_name,
       SUM(CASE WHEN ga.action='play' THEN 1 ELSE 0 END) as plays,
@@ -8943,7 +8950,7 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     let dateFilter = '';
     if (period && period !== 'all') {
       const r = getPeriodRange(period);
-      dateFilter = `AND ga.created_at >= '${r.fromIso}' AND ga.created_at < '${r.toIso}'`;
+      dateFilter = `AND datetime(ga.created_at) >= datetime('${r.fromIso}') AND datetime(ga.created_at) < datetime('${r.toIso}')`;
     }
     const rows = raw.prepare(`SELECT ga.gen_id, g.display_title, g.prompt, g.type, g.author_name,
       COUNT(*) as downloads, MAX(ga.created_at) as last_download
@@ -12375,12 +12382,17 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     try {
       const ip = String(req.ip || req.headers["x-forwarded-for"] || "").split(",")[0].trim();
       if (ip) {
-        const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+        // Eugene 2026-05-24 fix: created_at — SQLite CURRENT_TIMESTAMP формат
+        // "YYYY-MM-DD HH:MM:SS" (space). Раньше сравнивали с ISO (.toISOString()
+        // с 'T') — лексически space < 'T' → recent ВСЕГДА 0 → dedup НИКОГДА не
+        // срабатывал → накрутка при рефрешах. datetime('now','-10 minutes')
+        // даёт space-формат → сравнение корректно.
         const recent = db.get<{ c: number }>(sql`
           SELECT COUNT(*) as c FROM gen_activity
-          WHERE gen_id = ${gen.id} AND action = 'play' AND ip = ${ip} AND created_at >= ${tenMinAgo}
+          WHERE gen_id = ${gen.id} AND action = 'play' AND ip = ${ip}
+            AND created_at >= datetime('now', '-10 minutes')
         `);
-        if ((recent?.c || 0) > 0) return { count: false, reason: "ip-dedup-1h" };
+        if ((recent?.c || 0) > 0) return { count: false, reason: "ip-dedup-10min" };
       }
     } catch {}
     return { count: true };
@@ -12663,14 +12675,16 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       total_tracks: Number(tracksRow?.cnt || 0),
       total_plays: Number(playsRow?.cnt || 0),
     };
-    // Today MSK = текущий день по UTC+3, начало 00:00 МСК = (UTC текущего дня в 21:00 предыдущего OR 21:00 текущего)
-    const now = new Date();
-    const mskNow = new Date(now.getTime() + 3 * 60 * 60 * 1000);
-    const mskTodayStart = new Date(Date.UTC(mskNow.getUTCFullYear(), mskNow.getUTCMonth(), mskNow.getUTCDate(), 0, 0, 0));
-    const utcTodayStart = new Date(mskTodayStart.getTime() - 3 * 60 * 60 * 1000).toISOString();
+    // Eugene 2026-05-24 fix: created_at — space-формат CURRENT_TIMESTAMP.
+    // Раньше сравнивали с ISO (utcTodayStart.toISOString()) → 'T' > ' '
+    // лексически → today-плеи ВСЕГДА исключались → todayPlays врал (≈0).
+    // datetime('now','+3h','start of day','-3h') = UTC момент MSK-полуночи в
+    // space-формате → корректное сравнение. 'now'/'+3h' → MSK naive, start
+    // of day → MSK 00:00, '-3h' → обратно в UTC.
     const todayRow = rawSql.prepare(
-      `SELECT COUNT(*) AS cnt FROM gen_activity WHERE action='play' AND created_at >= ?`
-    ).get(utcTodayStart) as { cnt: number };
+      `SELECT COUNT(*) AS cnt FROM gen_activity WHERE action='play'
+         AND created_at >= datetime('now','+3 hours','start of day','-3 hours')`
+    ).get() as { cnt: number };
     const data = {
       totalPlays: Number(stats?.total_plays || 0),
       totalTracks: Number(stats?.total_tracks || 0),
@@ -13568,7 +13582,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     let dateFilter = '';
     if (period && period !== 'all') {
       const r = getPeriodRange(period);
-      dateFilter = `AND ga.created_at >= '${r.fromIso}' AND ga.created_at < '${r.toIso}'`;
+      dateFilter = `AND datetime(ga.created_at) >= datetime('${r.fromIso}') AND datetime(ga.created_at) < datetime('${r.toIso}')`;
     }
     // Top 10 by total activity
     const top = raw.prepare(`SELECT ga.gen_id, g.display_title, g.prompt, g.type, g.author_name,
@@ -13601,7 +13615,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     let dateFilter = '';
     if (period && period !== 'all') {
       const r = getPeriodRange(period);
-      dateFilter = `AND ga.created_at >= '${r.fromIso}' AND ga.created_at < '${r.toIso}'`;
+      dateFilter = `AND datetime(ga.created_at) >= datetime('${r.fromIso}') AND datetime(ga.created_at) < datetime('${r.toIso}')`;
     }
     const rows = raw.prepare(`SELECT ga.gen_id, g.display_title, g.prompt, g.type, g.author_name,
       COUNT(*) as downloads,
@@ -13636,7 +13650,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     let dateFilter = "";
     if (period && period !== "all") {
       const r = getPeriodRange(period);
-      dateFilter = `AND created_at >= '${r.fromIso}' AND created_at < '${r.toIso}'`;
+      dateFilter = `AND datetime(created_at) >= datetime('${r.fromIso}') AND datetime(created_at) < datetime('${r.toIso}')`;
     }
 
     const raw = db.$client;
