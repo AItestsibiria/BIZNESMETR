@@ -3040,9 +3040,9 @@ export function FloatingConsultant() {
                   ? { width: `${chatSize.w}px`, height: `${chatSize.h}px`, maxWidth: "96vw" }
                   : { height: "min(60vh, calc(100vh - 96px - env(safe-area-inset-bottom, 0px)))" }),
               marginBottom: !chatFullscreen && (drawerSnap === "br" || drawerSnap === "bl") ? "env(safe-area-inset-bottom, 0px)" : undefined,
-              // Eugene 2026-05-25 Босс «80% прозрачности по умолчанию».
-              // 0=плотно 0.95, 1=полупрозрачно 0.55, 2=стекло 0.20 (80% прозр.).
-              backgroundColor: `hsl(var(--background) / ${[0.95, 0.55, 0.2][chatOpacity]})`,
+              // Eugene 2026-05-25 Босс «прозрачность чата 90%».
+              // 0=плотно 0.95, 1=полупрозрачно 0.5, 2=стекло 0.10 (90% прозр.).
+              backgroundColor: `hsl(var(--background) / ${[0.95, 0.5, 0.1][chatOpacity]})`,
             }}
           >
             {/* Eugene 2026-05-24 Босс «глубина картинки и облака парящие в
