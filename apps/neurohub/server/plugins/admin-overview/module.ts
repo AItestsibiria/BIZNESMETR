@@ -2439,6 +2439,29 @@ const adminOverviewModule: Module = {
         }
       },
     },
+    // Eugene 2026-05-25 Босс «Музa Директор — готовить рекламные кампании
+    // (креатив + генерация) на постоянной основе». Раз/день в 06:00 МСК
+    // (06:00-06:09) агент «Креатив-маркетинг» готовит черновики рекламы на
+    // каждый канал → блок публикаций (status='prepared', scheduled = завтра
+    // 11:00 МСК). Ничего не публикуется без одобрения Босса. Gate
+    // DIRECTOR_CREATIVE_CRON !== "0" (по умолчанию ВКЛ).
+    {
+      name: "director-creative-daily",
+      schedule: "every_hour",
+      handler: async () => {
+        try {
+          if (process.env.DIRECTOR_CREATIVE_CRON === "0") return;
+          const mskHour = (new Date().getUTCHours() + 3) % 24;
+          const min = new Date().getMinutes();
+          if (mskHour !== 6 || min >= 10) return; // 06:00-06:09 МСК = раз/день
+          const mod = await import("../../lib/publicationsAgent");
+          const r = await mod.prepareCreativeDrafts();
+          console.log(`[DIRECTOR-CREATIVE] created=${r.created}, failed=${r.failed}, campaign=${r.campaignId}`);
+        } catch (e) {
+          console.error("[DIRECTOR-CREATIVE job]", e);
+        }
+      },
+    },
     // Eugene 2026-05-25 Босс «Директор уведомляет меня 03:00 и 14:00 МСК».
     // every_hour + guard на 03 и 14 МСК = два дайджеста в день.
     {

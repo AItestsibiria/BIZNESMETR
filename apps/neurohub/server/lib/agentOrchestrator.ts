@@ -736,6 +736,29 @@ export function bootstrapDefaultAgents(): void {
     purpose: "Жалобы/негатив из входящих + рост отписок → Директор уведомляет Босса",
   });
 
+  // Eugene 2026-05-25 Босс «Музa Директор — готовить рекламные кампании на
+  // постоянной основе (креатив + генерация) + блок публикаций по датам».
+  // Агент «Креатив-маркетинг» готовит черновики рекламы (status='prepared').
+  // Ничего не публикуется без одобрения Босса. Подчинён Директору.
+  orchestrator.register({
+    id: "marketing-creative",
+    name: "Креатив-маркетинг",
+    channel: "internal",
+    role: "marketing",
+    status: hasLLM ? "active" : "not_configured",
+    capabilities: ["creative", "generation", "campaign"],
+    metadata: { brief: "Готовит черновики рекламного креатива по каналам → блок публикаций (одобрение Боссом)" },
+    healthCheck: async () => ({ ok: hasLLM, details: "LLM-based creative" }),
+  });
+  // Креатив → marketing-orchestrator (поставка контента кампании).
+  orchestrator.addEdge("marketing-creative", "marketing-orchestrator", "campaign", {
+    purpose: "Черновики креатива → marketing-orchestrator (планирование кампаний)",
+  });
+  // Креатив → Директор (черновики на одобрение Боссу).
+  orchestrator.addEdge("marketing-creative", "muza-admin", "webhook", {
+    purpose: "Черновики кампаний на одобрение Боссу",
+  });
+
   // Регистрируем edges между marketing-orchestrator и channels (см. matrix
   // в docs/AGENT-ORCHESTRATOR-PROPOSALS.md и Agent-orchestrator rule).
   registerDefaultEdges();

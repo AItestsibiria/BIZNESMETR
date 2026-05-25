@@ -54,6 +54,7 @@ import OrchestratorTab from "@/pages/admin/orchestrator-tab";
 import GenErrorsTab from "@/pages/admin/gen-errors-tab";
 import MuzaInfoTab from "@/pages/admin/muza-info-tab";
 import EmailTemplatesTab from "@/pages/admin/email-templates-tab";
+import PublicationsTab from "@/pages/admin/publications-tab";
 // Eugene 2026-05-24 Босс «заведи агента по учёту затрат... Отчёт в админке —
 // Агент Деньга». См. lib/dengaAgent.ts + Denga-agent rule в CLAUDE.md.
 import DengaTab from "@/pages/admin/denga-tab";
@@ -829,6 +830,7 @@ export default function AdminV304Page() {
           <TabsTrigger value="musa-avatar" className={tabClass("musa")}>🎵 Аватар Музы</TabsTrigger>
           <TabsTrigger value="muza-info" className={tabClass("musa")}>🎵 Информация о Музе</TabsTrigger>
           <TabsTrigger value="email-templates" className={tabClass("musa")}>🎵 Письма Музы</TabsTrigger>
+          <TabsTrigger value="publications" className={tabClass("musa")}>🎵 Публикации</TabsTrigger>
           <TabsTrigger value="bot-channels" className={tabClass("musa")}>🎵 Каналы</TabsTrigger>
           <TabsTrigger value="bot-stats" className={tabClass("musa")}>🎵 Бот</TabsTrigger>
 
@@ -895,6 +897,7 @@ export default function AdminV304Page() {
         <TabsContent value="ai-keys"><AiKeysTab toast={toast} /></TabsContent>
         <TabsContent value="api-health"><ApiHealthTab toast={toast} /></TabsContent>
         <TabsContent value="orchestrator"><OrchestratorTab /></TabsContent>
+        <TabsContent value="publications"><PublicationsTab /></TabsContent>
         <TabsContent value="gen-errors"><GenErrorsTab /></TabsContent>
         <TabsContent value="denga"><DengaTab /></TabsContent>
         <TabsContent value="email-templates"><EmailTemplatesTab toast={toast} /></TabsContent>
