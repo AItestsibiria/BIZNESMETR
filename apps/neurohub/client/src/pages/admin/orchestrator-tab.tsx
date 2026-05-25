@@ -806,6 +806,35 @@ function DirectorVoiceReport() {
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [period, setPeriod] = useState<string>("today");
   const [err, setErr] = useState<string | null>(null);
+  // Eugene 2026-05-25: сохранённые аудио-доклады (7 дней) — прослушать позже.
+  const [saved, setSaved] = useState<Array<{ id: number; periodLabel: string | null; createdAt: number; hasAudio: boolean; preview: string }>>([]);
+
+  async function loadSaved() {
+    try {
+      const r = await fetch("/api/admin/v304/director/voice-reports", { credentials: "include" });
+      if (!r.ok) return;
+      const j = await r.json();
+      setSaved(j.data?.reports || []);
+    } catch {}
+  }
+  useEffect(() => { loadSaved(); }, []);
+
+  async function playSaved(id: number) {
+    try {
+      const r = await fetch(`/api/admin/v304/director/voice-report/saved/${id}`, { credentials: "include" });
+      if (!r.ok) throw new Error(`${r.status}`);
+      const j = await r.json();
+      const rep = j.data;
+      if (rep?.audioBase64 && rep?.audioContentType) {
+        const url = URL.createObjectURL(base64ToBlob(rep.audioBase64, rep.audioContentType));
+        new Audio(url).play().catch(() => speakViaBrowser(rep.text || ""));
+      } else {
+        speakViaBrowser(rep?.text || "");
+      }
+    } catch (e: any) {
+      setErr(`play saved: ${e?.message || e}`);
+    }
+  }
 
   async function generateReport() {
     setLoading(true);
@@ -819,6 +848,7 @@ function DirectorVoiceReport() {
       const j = await r.json();
       const rep: DirectorReport = j.data;
       setReport(rep);
+      loadSaved(); // обновить список сохранённых (только что добавился)
 
       // Play audio: Yandex TTS mp3 (base64) preferred, fallback на browser SpeechSynthesis
       if (rep.audioBase64 && rep.audioContentType) {
@@ -904,6 +934,28 @@ function DirectorVoiceReport() {
           {report.textSummary}
           <div className="mt-2 text-[10px] text-white/40 font-mono">
             {report.period.label} · {new Date(report.generatedAt).toLocaleString("ru-RU")}
+          </div>
+        </div>
+      )}
+
+      {/* Сохранённые доклады (7 дней) — прослушать позже (Eugene 2026-05-25) */}
+      {saved.length > 0 && (
+        <div className="mt-3 pt-2 border-t border-white/10">
+          <div className="text-[11px] text-white/50 mb-1.5">📼 Сохранённые итоги (7 дней):</div>
+          <div className="flex flex-col gap-1 max-h-48 overflow-y-auto">
+            {saved.map(s => (
+              <div key={s.id} className="flex items-center gap-2 text-xs bg-white/[0.03] rounded-lg px-2 py-1.5 border border-white/5">
+                {s.hasAudio ? (
+                  <button onClick={() => playSaved(s.id)} className="shrink-0 px-2 py-1 rounded bg-fuchsia-500/20 text-fuchsia-200 border border-fuchsia-400/25 hover:bg-fuchsia-500/30">▶️</button>
+                ) : (
+                  <span className="shrink-0 px-2 py-1 rounded bg-white/5 text-white/30">🔇</span>
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="text-white/70 truncate">{s.preview || s.periodLabel || "доклад"}</div>
+                  <div className="text-[10px] text-white/35 font-mono">{s.periodLabel || ""} · {new Date(s.createdAt).toLocaleString("ru-RU")}</div>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}

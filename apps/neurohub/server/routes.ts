@@ -7925,7 +7925,35 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
           },
         });
       } catch {}
+      // Eugene 2026-05-25: сохраняем доклад на 7 дней (прослушать позже из админки).
+      try {
+        const { saveDirectorReport } = await import("./lib/directorReportStore");
+        const savedId = saveDirectorReport({ period: report.period?.id, periodLabel: report.period?.label, text: report.textSummary, audioBase64: report.audioBase64, audioContentType: report.audioContentType });
+        (report as any).savedId = savedId;
+      } catch {}
       res.json({ data: report, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  // Список сохранённых аудио-докладов (последние 7 дней).
+  app.get("/api/admin/v304/director/voice-reports", requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const { listDirectorReports } = await import("./lib/directorReportStore");
+      res.json({ data: { reports: listDirectorReports() }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  // Один сохранённый доклад (text + audioBase64) — для прослушивания.
+  app.get("/api/admin/v304/director/voice-report/saved/:id", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { getDirectorReport } = await import("./lib/directorReportStore");
+      const r = getDirectorReport(parseInt(req.params.id, 10));
+      if (!r) { res.status(404).json({ data: null, error: "not found (возможно старше 7 дней)" }); return; }
+      res.json({ data: r, error: null });
     } catch (e: any) {
       res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
     }
@@ -7956,6 +7984,11 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
             ttsError: report.ttsError ?? null,
           },
         });
+      } catch {}
+      try {
+        const { saveDirectorReport } = await import("./lib/directorReportStore");
+        const savedId = saveDirectorReport({ period: report.period?.id, periodLabel: report.period?.label, text: report.textSummary, audioBase64: report.audioBase64, audioContentType: report.audioContentType });
+        (report as any).savedId = savedId;
       } catch {}
       res.json({ data: report, error: null });
     } catch (e: any) {
