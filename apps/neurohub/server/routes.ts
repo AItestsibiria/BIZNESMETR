@@ -7762,6 +7762,86 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     }
   });
 
+  // ===== Eugene 2026-05-25 Босс «Музa Директор — главный начальник, контроль
+  // и управление». Control-API (mutation): пауза/возобновление агента, health-
+  // check одного, force-дожим зависших генераций. requireAdmin + audit-log. =====
+
+  // Stale-aware обзор: помечает агентов которые «молчат слишком долго».
+  // Порог: cron/daily watchdog — 25ч, остальные с активностью — 6ч. Агенты
+  // без recordActivity (lastSeenAt=null) → monitored:false (не false-positive).
+  app.get("/api/admin/v304/orchestrator/health-view", requireAdmin, (_req: Request, res: Response) => {
+    try {
+      const now = Date.now();
+      const items = agentOrchestrator.list().map(a => {
+        const isCron = a.channel === "cron";
+        const thresholdMs = isCron ? 25 * 3600_000 : 6 * 3600_000;
+        const monitored = !!a.lastSeenAt;
+        const ageMs = a.lastSeenAt ? now - a.lastSeenAt : null;
+        const stale = monitored && ageMs !== null && ageMs > thresholdMs;
+        return {
+          id: a.id, name: a.name, channel: a.channel, role: a.role,
+          status: a.status, monitored, lastSeenAgo: ageMs, stale,
+          thresholdHours: thresholdMs / 3600_000,
+        };
+      });
+      const staleList = items.filter(i => i.stale);
+      const errorList = items.filter(i => i.status === "error");
+      res.json({ data: { agents: items, stale: staleList, errored: errorList, total: items.length }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  app.post("/api/admin/v304/orchestrator/agent/:id/pause", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const agent = agentOrchestrator.byId(id);
+      if (!agent) { res.status(404).json({ data: null, error: "agent not found" }); return; }
+      agentOrchestrator.setStatus(id, "paused", "paused by admin");
+      try { recordAuditEntry({ adminEmail: (req as any).user?.email || "director-control", action: "update", entity: "orchestrator:agent", entityKey: id, before: { status: agent.status }, after: { status: "paused" } }); } catch {}
+      res.json({ data: { id, status: "paused" }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  app.post("/api/admin/v304/orchestrator/agent/:id/resume", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const agent = agentOrchestrator.byId(id);
+      if (!agent) { res.status(404).json({ data: null, error: "agent not found" }); return; }
+      agentOrchestrator.setStatus(id, "active");
+      try { recordAuditEntry({ adminEmail: (req as any).user?.email || "director-control", action: "update", entity: "orchestrator:agent", entityKey: id, before: { status: agent.status }, after: { status: "active" } }); } catch {}
+      res.json({ data: { id, status: "active" }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  app.post("/api/admin/v304/orchestrator/agent/:id/health-check", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      if (!agentOrchestrator.byId(id)) { res.status(404).json({ data: null, error: "agent not found" }); return; }
+      const result = await agentOrchestrator.runHealthCheck(id);
+      res.json({ data: { id, result }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  // Force-дожим: вручную запустить scan застрявших генераций (Директор
+  // «продавливает» Suno). Reuse gen-lifecycle scanStuckGenerations.
+  app.post("/api/admin/v304/orchestrator/force-complete-stuck", requireAdmin, async (req: Request, res: Response) => {
+    try {
+      const mod = await import("./lib/genLifecycleAgent");
+      const result = await mod.scanStuckGenerations();
+      try { recordAuditEntry({ adminEmail: (req as any).user?.email || "director-control", action: "update", entity: "orchestrator:force-complete-stuck", entityKey: "gen-lifecycle", after: result as any }); } catch {}
+      res.json({ data: result, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
   // Eugene 2026-05-24 Босс «Музa Директор контролирует всех агентов, собирает
   // всю информацию, итоговую докладывает через аудио». Voice report endpoint
   // для admin UI кнопки «🎤 Доложи итоги».
