@@ -794,18 +794,19 @@ export function FloatingConsultant() {
     try { localStorage.setItem("muza-chat-font-size", String(chatFontSize)); } catch {}
   }, [chatFontSize]);
   // Eugene 2026-05-23 Босс «прозрачность изменение нажатием 3 режима».
-  // 0=плотно (95%), 1=полупрозрачно (60%), 2=стекло (28%, текущий default).
+  // 0=плотно (95%), 1=полупрозрачно (55%), 2=стекло (20% — 80% прозрачности).
+  // Eugene 2026-05-25 Босс «режим 80% прозрачности по умолчанию» → default 2
+  // (стекло). Ключ -v2 чтобы текущие юзеры получили новый default один раз,
+  // дальше их выбор кнопкой ▓▒░ персистится.
   const [chatOpacity, setChatOpacity] = useState<0 | 1 | 2>(() => {
-    // Eugene 2026-05-24 Босс «по умолчанию средняя прозрачность» — default 1
-    // (полупрозрачно), было 2 (стекло). Юзер может переключить кнопкой ▓▒░.
-    if (typeof window === "undefined") return 1;
+    if (typeof window === "undefined") return 2;
     try {
-      const saved = Number(localStorage.getItem("muza-chat-opacity"));
-      return saved === 0 || saved === 1 || saved === 2 ? (saved as 0 | 1 | 2) : 1;
-    } catch { return 1; }
+      const saved = Number(localStorage.getItem("muza-chat-opacity-v2"));
+      return saved === 0 || saved === 1 || saved === 2 ? (saved as 0 | 1 | 2) : 2;
+    } catch { return 2; }
   });
   useEffect(() => {
-    try { localStorage.setItem("muza-chat-opacity", String(chatOpacity)); } catch {}
+    try { localStorage.setItem("muza-chat-opacity-v2", String(chatOpacity)); } catch {}
   }, [chatOpacity]);
   // Eugene 2026-05-23 Босс «после первого сообщения глюк с отправкой кнопка
   // не реагирует» — раньше кнопка submit была disabled пока LLM отвечает
@@ -2941,7 +2942,7 @@ export function FloatingConsultant() {
             }}
             onTouchEnd={() => { drawerPinchRef.current = null; }}
             onTouchCancel={() => { drawerPinchRef.current = null; }}
-            className={`absolute flex flex-col backdrop-blur-md border-2 rounded-2xl border-purple-400/40 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in fade-in duration-300 ${
+            className={`absolute flex flex-col backdrop-blur-2xl border-2 rounded-2xl border-purple-300/35 ring-1 ring-inset ring-white/15 shadow-2xl shadow-purple-500/30 overflow-hidden pointer-events-auto animate-in fade-in duration-300 ${
               isResizing ? "" : "transition-all"
             } ${
               // Eugene 2026-05-23 Босс «на планшете не позволяет сократить» —
@@ -2981,8 +2982,9 @@ export function FloatingConsultant() {
                   ? { width: `${chatSize.w}px`, height: `${chatSize.h}px`, maxWidth: "96vw" }
                   : { height: "min(60vh, calc(100vh - 96px - env(safe-area-inset-bottom, 0px)))" }),
               marginBottom: !chatFullscreen && (drawerSnap === "br" || drawerSnap === "bl") ? "env(safe-area-inset-bottom, 0px)" : undefined,
-              // Eugene 2026-05-23 Босс «прозрачность 3 режима». 0=плотно, 1=полупрозрачно, 2=стекло.
-              backgroundColor: `hsl(var(--background) / ${[0.95, 0.6, 0.28][chatOpacity]})`,
+              // Eugene 2026-05-25 Босс «80% прозрачности по умолчанию».
+              // 0=плотно 0.95, 1=полупрозрачно 0.55, 2=стекло 0.20 (80% прозр.).
+              backgroundColor: `hsl(var(--background) / ${[0.95, 0.55, 0.2][chatOpacity]})`,
             }}
           >
             {/* Eugene 2026-05-24 Босс «глубина картинки и облака парящие в
@@ -2999,6 +3001,17 @@ export function FloatingConsultant() {
               <span className="cosmic-note cosmic-note-6">♫</span>
               <span className="cosmic-note cosmic-note-7">♬</span>
             </div>
+            {/* Eugene 2026-05-25 Босс «премиальность и глянцевость». Glossy
+                sheen overlay: светлый блик сверху + тонкий нижний glow. Чисто
+                декоративный, под контентом, не ловит клики. */}
+            <div
+              aria-hidden="true"
+              className="absolute inset-0 rounded-2xl pointer-events-none -z-[1]"
+              style={{
+                background:
+                  "linear-gradient(180deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.04) 14%, rgba(255,255,255,0) 38%), radial-gradient(120% 60% at 50% 0%, rgba(168,85,247,0.10) 0%, rgba(255,255,255,0) 60%)",
+              }}
+            />
             {/* Eugene 2026-05-18 Босс: диагональная стрелка resize в верхне-левом
                 углу. Drag от угла → размер chat panel меняется (рост влево/вверх).
                 Snap-зоны 30% / 50% / 70% viewport width — магнит ±20px,
