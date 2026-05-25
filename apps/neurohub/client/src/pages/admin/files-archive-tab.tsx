@@ -294,7 +294,7 @@ export function FilesArchiveTab({ toast }: { toast: any }) {
           onClick={() => setPreviewItem(null)}
         >
           <div
-            className="glass-card rounded-2xl p-6 border border-purple-500/30 max-w-3xl w-full max-h-[90vh] overflow-y-auto"
+            className="glass-card rounded-2xl p-6 border border-purple-500/30 max-w-3xl w-full max-h-[90dvh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-4">
@@ -309,7 +309,7 @@ export function FilesArchiveTab({ toast }: { toast: any }) {
             <img
               src={`${previewItem.fileUrl}?v=${previewItem.createdAt}`}
               alt=""
-              className="w-full max-h-[60vh] object-contain bg-[#0a0a17] rounded-xl mb-4"
+              className="w-full max-h-[60dvh] object-contain bg-[#0a0a17] rounded-xl mb-4"
             />
             <div className="space-y-2 text-xs font-mono text-muted-foreground">
               <div>Тип: <span className="text-cyan-300">{previewItem.type}</span></div>

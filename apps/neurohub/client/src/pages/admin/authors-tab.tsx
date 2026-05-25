@@ -517,7 +517,7 @@ function AuthorDrillDownModal({
       onClick={onClose}
     >
       <div
-        className="glass-card border border-purple-500/30 rounded-2xl max-w-5xl w-full max-h-[92vh] overflow-hidden flex flex-col"
+        className="glass-card border border-purple-500/30 rounded-2xl max-w-5xl w-full max-h-[92dvh] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -956,7 +956,7 @@ function ChatsList({ detail }: { detail: AuthorDetail }) {
           </span>
         ))}
       </div>
-      <div className="space-y-1 max-h-[50vh] overflow-y-auto pr-1">
+      <div className="space-y-1 max-h-[50dvh] overflow-y-auto pr-1">
         {messages.map((m) => (
           <div
             key={m.id}

@@ -341,7 +341,7 @@ export function JourneyTab({ toast }: { toast?: any }) {
                 <Loader2 className="w-3 h-3 animate-spin" /> Загрузка timeline…
               </div>
             ) : (
-              <div className="space-y-1 max-h-[60vh] overflow-y-auto">
+              <div className="space-y-1 max-h-[60dvh] overflow-y-auto">
                 {(timelineQ.data?.events || []).map((e, idx, arr) => {
                   const prev = idx > 0 ? arr[idx - 1] : null;
                   const deltaMs = prev ? new Date(e.createdAt).getTime() - new Date(prev.createdAt).getTime() : 0;

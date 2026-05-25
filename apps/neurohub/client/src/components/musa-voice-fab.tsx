@@ -1195,7 +1195,7 @@ export function MusaVoiceFab() {
       {/* Expanded panel — над FAB, появляется при open=true */}
       {open && (
         <div
-          className="fixed bottom-28 right-4 sm:right-6 z-50 w-[92vw] sm:w-[420px] max-w-[420px] max-h-[70vh] overflow-y-auto rounded-2xl border border-purple-500/30 bg-gradient-to-br from-[#0a0a17]/95 via-[#1a0f2e]/95 to-[#0a0a17]/95 backdrop-blur-xl shadow-[0_0_48px_rgba(124,58,237,0.4)]"
+          className="fixed bottom-28 right-4 sm:right-6 z-50 w-[92vw] sm:w-[420px] max-w-[420px] max-h-[70dvh] overflow-y-auto rounded-2xl border border-purple-500/30 bg-gradient-to-br from-[#0a0a17]/95 via-[#1a0f2e]/95 to-[#0a0a17]/95 backdrop-blur-xl shadow-[0_0_48px_rgba(124,58,237,0.4)]"
           data-testid="musa-voice-panel"
           role="dialog"
           aria-label="Голосовой диалог с Музой"

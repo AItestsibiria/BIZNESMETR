@@ -2079,7 +2079,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                           />
                           {/* Panel anchored к 🌍 button. bottom-full + mb-2 =
                               над кнопкой с отступом 8px. left-1/2 -translate-x-1/2
-                              = центрирована по кнопке. max-h-[60vh] + overflow-y-auto
+                              = центрирована по кнопке. max-h-[60dvh] + overflow-y-auto
                               чтобы не выходила за viewport. Растёт ВВЕРХ от anchor.
                               Eugene 2026-05-22 Босс «от нажатия на любую её точку
                               задержку поставь, панель испаряется как обложка»:
@@ -2362,7 +2362,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               key={currentTrack.id}
               src={currentTrack.imageUrl}
               alt={currentTrack.displayTitle || currentTrack.prompt || "Обложка"}
-              className="max-w-[92vw] max-h-[92vh] w-auto h-auto object-contain rounded-2xl shadow-2xl shadow-purple-500/30 select-none animate-in fade-in zoom-in-95 duration-500"
+              className="max-w-[92vw] max-h-[92dvh] w-auto h-auto object-contain rounded-2xl shadow-2xl shadow-purple-500/30 select-none animate-in fade-in zoom-in-95 duration-500"
               draggable={false}
             />
             {/* Eugene 2026-05-24 Босс «при смене трека меняется тоже обложка —

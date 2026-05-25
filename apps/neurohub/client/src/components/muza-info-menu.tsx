@@ -4,7 +4,7 @@
 //
 // Brand-style consistency rule: purple → fuchsia → cyan gradient, glass-card,
 // font-display titles, font-sans body. Layout-fit-no-overlap rule: modal
-// max-h-[88vh] + scroll body, кнопка не перекрывает FAB-кнопки (Музa, S).
+// max-h-[88dvh] + scroll body, кнопка не перекрывает FAB-кнопки (Музa, S).
 
 import { useEffect, useMemo, useState } from "react";
 import { marked } from "marked";
@@ -134,7 +134,7 @@ export function MuzaInfoMenu() {
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
-          className="max-w-4xl w-[calc(100vw-2rem)] max-h-[88vh] overflow-hidden
+          className="max-w-4xl w-[calc(100vw-2rem)] max-h-[88dvh] overflow-hidden
                      bg-gradient-to-br from-[#0a0a17]/95 via-[#1a0f2e]/95 to-[#0a0a17]/95
                      backdrop-blur-xl border border-purple-500/30"
         >
@@ -171,7 +171,7 @@ export function MuzaInfoMenu() {
             <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-4 overflow-hidden">
               {/* Sidebar — список разделов */}
               <nav
-                className="md:max-h-[60vh] overflow-y-auto md:pr-2
+                className="md:max-h-[60dvh] overflow-y-auto md:pr-2
                            flex md:flex-col gap-1 overflow-x-auto md:overflow-x-visible
                            snap-x md:snap-none"
               >
@@ -203,7 +203,7 @@ export function MuzaInfoMenu() {
               </nav>
 
               {/* Content — выбранный раздел */}
-              <div className="md:max-h-[60vh] overflow-y-auto pr-1">
+              <div className="md:max-h-[60dvh] overflow-y-auto pr-1">
                 {active && (
                   <article className="space-y-4">
                     <header>

@@ -502,7 +502,7 @@ function MusaMemoryAdminTab({ toast }: { toast: ReturnType<typeof useToast>["toa
       {selectedUserId && detailData && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xl p-2 sm:p-4" onClick={closeDrawer}>
           <div
-            className="glass-card w-full max-w-4xl max-h-[92vh] overflow-y-auto rounded-2xl border border-fuchsia-500/30 p-4 sm:p-6 shadow-[0_0_60px_rgba(217,70,239,0.4)]"
+            className="glass-card w-full max-w-4xl max-h-[92dvh] overflow-y-auto rounded-2xl border border-fuchsia-500/30 p-4 sm:p-6 shadow-[0_0_60px_rgba(217,70,239,0.4)]"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between mb-4">
@@ -647,7 +647,7 @@ function MusaMemoryAdminTab({ toast }: { toast: ReturnType<typeof useToast>["toa
             )}
 
             {view === "messages" && (
-              <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+              <div className="space-y-2 max-h-[60dvh] overflow-y-auto">
                 <div className="text-[11px] text-muted-foreground">Последние {detailData.recentMessages?.length || 0} сообщений (cross-channel)</div>
                 {(detailData.recentMessages || []).map((m) => (
                   <div key={m.id} className={`p-2 rounded-lg border ${m.role === "user" ? "border-cyan-500/20 bg-cyan-500/[0.03]" : "border-fuchsia-500/20 bg-fuchsia-500/[0.03]"}`}>

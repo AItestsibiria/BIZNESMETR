@@ -210,7 +210,7 @@ export default function AdminSearch({ onSelect }: Props) {
             <X className="w-4 h-4" />
           </button>
         </div>
-        <div className="max-h-[60vh] overflow-y-auto">
+        <div className="max-h-[60dvh] overflow-y-auto">
           {!hasAny && q.length >= 2 && (
             <div className="px-4 py-8 text-sm text-center text-muted-foreground">
               Ничего не нашлось по «{q}». Попробуй другое слово.

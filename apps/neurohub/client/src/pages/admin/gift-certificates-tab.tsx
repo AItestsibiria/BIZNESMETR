@@ -226,7 +226,7 @@ function ListSection({ toast }: { toast?: any }) {
       {detail && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4"
              onClick={() => setDetail(null)}>
-          <div className="bg-gradient-to-br from-[#1a0f2e] to-[#0a0a17] border border-purple-400/40 rounded-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto"
+          <div className="bg-gradient-to-br from-[#1a0f2e] to-[#0a0a17] border border-purple-400/40 rounded-xl max-w-3xl w-full max-h-[90dvh] overflow-y-auto"
                onClick={(e) => e.stopPropagation()}>
             <div className="p-6">
               <div className="flex items-start justify-between mb-4">
@@ -490,7 +490,7 @@ function AuditSection({ toast }: { toast?: any }) {
       ) : entries.length === 0 ? (
         <p className="text-white/60 text-center py-8"><Archive className="h-8 w-8 inline mb-2" /><br />Записей нет.</p>
       ) : (
-        <div className="space-y-1 max-h-[60vh] overflow-y-auto">
+        <div className="space-y-1 max-h-[60dvh] overflow-y-auto">
           {entries.map((a) => (
             <div key={a.id} className="text-xs p-2 rounded bg-white/3 border border-white/10 flex items-center gap-3 flex-wrap">
               <span className="text-purple-300 font-semibold uppercase">{a.action}</span>

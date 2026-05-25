@@ -2382,6 +2382,30 @@ Reference: commit `378b9b6` (pair-link + auto-open chat), commit с улучше
 
 Применяется к: всем местам где есть «mini-cover → expand-big-cover» UI (landing.tsx playlist, dashboard.tsx «Мои треки», track.tsx). Не применяется к: явному Play-button клику на mini (там togglePlay обязательно).
 
+### Responsive-windows (device-fit) rule (Eugene 2026-05-25, **обязательно для всех окон**)
+
+**Любое окно открывается под формат устройства — никогда не больше видимой области.** Босс «любое окно открывается под формат устройства, оттолкнись от документации».
+
+Оттолкнулись от документации (спецификация — live-fetch доков отдавал 403, цитата по стандарту):
+- **CSS Values 4 — dynamic viewport units `dvh`/`dvw`**: учитывают появление/скрытие браузерного chrome (address bar) на мобильных. `vh` НЕ учитывает → контент режется под address bar на iOS Safari / Android Chrome. Для высоты окон — ТОЛЬКО `dvh`, не `vh`.
+- **web.dev «The large, small, and dynamic viewport units»**: для full-height панелей использовать `100dvh` (resize'ится при показе/скрытии UI), `svh`/`lvh` — для edge-кейсов.
+- **Apple HIG / «Designing for iPhone X»**: `env(safe-area-inset-top/right/bottom/left)` — обход notch + home indicator.
+
+**Реализация — единые утилиты в `index.css`** (применять ко ВСЕМ окнам):
+- `.fit-device-overlay` — backdrop: `position:fixed; inset:0; flex center; padding = safe-area + 12px`.
+- `.fit-device` — контент окна: `max-width: min(96vw, 640px); max-height: calc(100dvh - safe-area - 24px); overflow-y:auto`. Контент длиннее экрана → внутренний скролл, окно не вылезает.
+- `.fit-device-full` — большие панели: почти весь экран минус safe-area, `100dvh`.
+- `.fit-device-media` — img/video внутри окна: `max-width:100%; max-height: calc(100dvh - safe-area - 48px); object-fit:contain`.
+
+**Жёсткие правила:**
+1. Высота окна — через `dvh` (или `.fit-device`), НИКОГДА фиксированные `px`/`vh` больше экрана.
+2. Обязательный `env(safe-area-inset-*)` для overlay/fullscreen (notch + home indicator).
+3. Контент превышает окно → внутренний `overflow-y:auto`, окно само не растёт за экран.
+4. Изображения/медиа → `.fit-device-media` (вписываются, не выходят за рамки).
+5. Новое окно/модалка/popup → обязан использовать `.fit-device*` или эквивалентные dvh+safe-area констрейнты. Аудит перед commit на 375/414/768/1280 px + rotate.
+
+**Применяется к:** ВСЕМ окнам (modal, popup, lightbox, drawer, chat-panel, picker, FAB-expand). Связано с Layout-fit-no-overlap rule (вписывание элементов) + Windows-in-viewport rule (clamp + draggable).
+
 ### Windows-in-viewport + draggable rule (Eugene 2026-05-19)
 
 **Любое плавающее окно (modal, floating-FAB, popup, speech-bubble, tooltip, drawer) ВСЕГДА остаётся в рамках viewport. Если оно может быть перемещаемо — пользователь может его таскать пальцем/мышью.**

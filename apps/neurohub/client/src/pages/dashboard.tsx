@@ -278,7 +278,7 @@ function GeoActivityDialog({ genId, open, onClose, title }: { genId: number | nu
         ) : !data ? (
           <div className="text-center py-8 text-sm text-muted-foreground">Нет данных</div>
         ) : (
-          <div className="space-y-3 mt-3 max-h-[60vh] overflow-y-auto">
+          <div className="space-y-3 mt-3 max-h-[60dvh] overflow-y-auto">
             {/* Итог */}
             <div className="flex items-center justify-between p-2 rounded-lg bg-white/5">
               <span className="text-xs text-muted-foreground">Всего прослушиваний</span>
@@ -679,7 +679,7 @@ function AdminStats() {
                   Top 10 видно сразу, остальные скроллятся. */}
               {visitorStats.byCountry?.length > 0 && (
                 <div
-                  className="mb-3 cursor-pointer glass-card rounded-2xl border border-purple-500/30 shadow-2xl shadow-purple-500/20 overflow-hidden flex flex-col h-[320px] max-h-[60vh]"
+                  className="mb-3 cursor-pointer glass-card rounded-2xl border border-purple-500/30 shadow-2xl shadow-purple-500/20 overflow-hidden flex flex-col h-[320px] max-h-[60dvh]"
                   onClick={() => setShowVisitors(false)}
                   title="Нажмите чтобы закрыть"
                   data-testid="panel-countries-close"
@@ -1641,7 +1641,7 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
         return (
           <div className="mb-4">
             <div className="relative rounded-2xl overflow-hidden shadow-2xl shadow-purple-500/20 animate-in fade-in zoom-in-95 duration-300">
-              <div className="w-full aspect-[4/3] max-h-[50vh] bg-gradient-to-br from-purple-900 via-blue-900 to-black relative">
+              <div className="w-full aspect-[4/3] max-h-[50dvh] bg-gradient-to-br from-purple-900 via-blue-900 to-black relative">
                 <img key={getCoverUrl(eGen)} src={getCoverUrl(eGen)} alt="" className="w-full h-full object-cover absolute inset-0 animate-in fade-in duration-500" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
                 <div className="absolute inset-0 flex items-center justify-center">
                   <svg viewBox="0 0 24 24" className="w-16 h-16 opacity-10" fill="none">
@@ -2819,7 +2819,7 @@ function MusaHistorySection() {
 
       {/* Modal со списком всех сессий */}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-2xl bg-gradient-to-br from-[#0a0a17]/95 via-[#1a0f2e]/95 to-[#0a0a17]/95 backdrop-blur-xl border border-purple-500/30 max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl bg-gradient-to-br from-[#0a0a17]/95 via-[#1a0f2e]/95 to-[#0a0a17]/95 backdrop-blur-xl border border-purple-500/30 max-h-[85dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-2xl font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">
               💬 Все диалоги с Музой
@@ -2942,7 +2942,7 @@ function MusaHistoryViewModal({
 
   return (
     <Dialog open={enabled} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-2xl bg-gradient-to-br from-[#0a0a17]/95 via-[#1a0f2e]/95 to-[#0a0a17]/95 backdrop-blur-xl border border-purple-500/30 max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl bg-gradient-to-br from-[#0a0a17]/95 via-[#1a0f2e]/95 to-[#0a0a17]/95 backdrop-blur-xl border border-purple-500/30 max-h-[85dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-xl font-display font-bold flex items-center gap-2">
             {/* Eugene 2026-05-18 Босс «только аватар Музы — без имени персоны». */}
@@ -4081,7 +4081,7 @@ export default function DashboardPage() {
 
       {/* Generation Detail Modal */}
       <Dialog open={!!selectedGen} onOpenChange={() => { setSelectedGen(null); setRenamingId(null); }}>
-        <DialogContent className="glass-card border-purple-500/20 max-w-md sm:max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogContent className="glass-card border-purple-500/20 max-w-md sm:max-w-lg max-h-[85dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="gradient-text text-lg flex items-center gap-2">
               {selectedGen && typeIcons[selectedGen.type] && (() => {

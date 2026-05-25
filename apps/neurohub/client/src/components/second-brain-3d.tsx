@@ -19,7 +19,7 @@
 // Mobile-friendly:
 //   - Touch gestures (1 finger orbit, 2 fingers pinch) — 3d-force-graph
 //     даёт их из коробки через OrbitControls.
-//   - Info-panel: на mobile это bottom-sheet drawer (max-h-[60vh] absolute
+//   - Info-panel: на mobile это bottom-sheet drawer (max-h-[60dvh] absolute
 //     bottom-0), на desktop — right-side panel.
 //
 // Voice integration (Eugene Босс «focus_brain_node admin-tool»):
@@ -628,7 +628,7 @@ function InfoPanel({
 }) {
   const color = colorByGroup(node.group, node.status);
   const panelClasses = isMobile
-    ? "absolute bottom-0 left-0 right-0 max-h-[60vh] rounded-t-2xl overflow-y-auto"
+    ? "absolute bottom-0 left-0 right-0 max-h-[60dvh] rounded-t-2xl overflow-y-auto"
     : "absolute top-16 right-3 bottom-16 w-80 rounded-2xl overflow-y-auto";
 
   return (

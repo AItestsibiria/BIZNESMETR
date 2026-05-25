@@ -515,7 +515,7 @@ export default function GenErrorsTab() {
           onClick={() => { setOpenReport(null); setReportData(null); }}
         >
           <div
-            className="max-w-3xl w-full max-h-[88vh] overflow-y-auto rounded-2xl glass-card border border-purple-500/30 bg-gradient-to-br from-[#1a0f2e]/95 via-[#0a0a17]/95 to-[#0f1830]/95 p-5"
+            className="max-w-3xl w-full max-h-[88dvh] overflow-y-auto rounded-2xl glass-card border border-purple-500/30 bg-gradient-to-br from-[#1a0f2e]/95 via-[#0a0a17]/95 to-[#0f1830]/95 p-5"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-start justify-between mb-3">

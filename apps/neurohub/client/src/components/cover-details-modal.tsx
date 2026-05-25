@@ -3,7 +3,7 @@
 //
 // Reusable across landing/dashboard/music players. Single click anywhere
 // inside modal → closes (per ТЗ «при клике в любую точку → сворачивается»).
-// Cover image занимает до 80% viewport (max-w-[80vw] max-h-[80vh]).
+// Cover image занимает до 80% viewport (max-w-[80vw] max-h-[80dvh]).
 //
 // Mobile-friendly: на узких экранах cover остаётся в пределах viewport,
 // мета-блок (title/author/prompt/date) стэкается под обложкой.
@@ -31,7 +31,7 @@
 //
 // Eugene 2026-05-17 Босс «фирменный стиль MuzaAi» (Brand-style consistency):
 // • Container растянут: w-[90vw] max-w-[900px] / sm:max-w-[1100px]
-// • Cover больше: aspect-square max-h-[85vh]
+// • Cover больше: aspect-square max-h-[85dvh]
 // • Title крупнее + font-display + gradient-text (purple→blue)
 // • Body text увеличен (text-base / text-lg)
 // • Фон deep-space с violet tint + brand-border + brand-glow
@@ -480,8 +480,8 @@ export function CoverDetailsModal({
 
           Eugene 2026-05-18 (iPad Pro overflow fix): на iPad Pro portrait
           (1024-1366px) и landscape (1366-1700+) обложка square aspect-ratio
-          выходит за viewport. Добавлено max-h-[90vh] overflow-hidden на
-          сам container (и max-h-[70vh] ниже на cover image) — square
+          выходит за viewport. Добавлено max-h-[90dvh] overflow-hidden на
+          сам container (и max-h-[70dvh] ниже на cover image) — square
           обложка остаётся в пределах высоты экрана. */}
       {/* Eugene 2026-05-20 Босс: универсальное под гаджет. max-h учитывает
           safe-area-inset-top/bottom (iOS notch + home indicator). Container
@@ -535,12 +535,12 @@ export function CoverDetailsModal({
             Только сама обложка — никаких glow / aura / brand-bordering. */}
         <div className="relative w-full">
         {/* Обложка с swipe-жестом.
-            Eugene 2026-05-18 (iPad Pro overflow fix): max-h-[70vh] вместо
+            Eugene 2026-05-18 (iPad Pro overflow fix): max-h-[70dvh] вместо
             85vh + явный object-contain. На iPad Pro portrait/landscape
             square aspect-ratio + 85vh высота заставлял container выходить
             за viewport (1024×1366 → square 1024 > 70% от 1366). */}
         <div
-          className="relative w-full aspect-square max-h-[63vh] sm:max-h-[69vh] md:max-h-[75vh] lg:max-h-[78vh] rounded-3xl overflow-hidden shadow-lg shadow-purple-500/10 shrink-0 bg-gradient-to-br from-purple-500/30 to-blue-500/30"
+          className="relative w-full aspect-square max-h-[63dvh] sm:max-h-[69dvh] md:max-h-[75dvh] lg:max-h-[78dvh] rounded-3xl overflow-hidden shadow-lg shadow-purple-500/10 shrink-0 bg-gradient-to-br from-purple-500/30 to-blue-500/30"
           onClick={(e) => e.stopPropagation()}
         >
           <AnimatePresence mode="wait" initial={false}>

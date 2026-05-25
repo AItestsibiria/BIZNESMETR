@@ -59,7 +59,7 @@ export function FeatureTogglesPanel({ open, onClose, admin = false }: Props) {
       onClick={onClose}
     >
       <div
-        className="relative w-full max-w-lg max-h-[88vh] overflow-y-auto rounded-2xl bg-gradient-to-br from-[#1a0f2e]/95 via-[#0a0a17]/95 to-[#0f1830]/95 border border-purple-500/30 shadow-[0_0_48px_rgba(124,58,237,0.3)] backdrop-blur-xl"
+        className="relative w-full max-w-lg max-h-[88dvh] overflow-y-auto rounded-2xl bg-gradient-to-br from-[#1a0f2e]/95 via-[#0a0a17]/95 to-[#0f1830]/95 border border-purple-500/30 shadow-[0_0_48px_rgba(124,58,237,0.3)] backdrop-blur-xl"
         onClick={e => e.stopPropagation()}
         data-testid="feature-toggles-panel"
       >
