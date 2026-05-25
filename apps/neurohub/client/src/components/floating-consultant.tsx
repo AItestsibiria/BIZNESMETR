@@ -808,6 +808,54 @@ export function FloatingConsultant() {
   useEffect(() => {
     try { localStorage.setItem("muza-chat-opacity-v2", String(chatOpacity)); } catch {}
   }, [chatOpacity]);
+
+  // Eugene 2026-05-25 Босс «при наведении на кнопки подсказка что это, после
+  // 1 сек контакта; отключаемо в облаке Музы». Делегированный тултип на
+  // корне панели чата: читает title/data-hint любой кнопки, 1с задержка,
+  // только hover-устройства (desktop). Тумблер 💬 в шапке чата.
+  const [buttonHintsEnabled, setButtonHintsEnabled] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    try { return localStorage.getItem("muza-button-hints") !== "0"; } catch { return true; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("muza-button-hints", buttonHintsEnabled ? "1" : "0"); } catch {}
+  }, [buttonHintsEnabled]);
+  const [btnHint, setBtnHint] = useState<{ text: string; x: number; y: number } | null>(null);
+  const chatPanelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!chatOpen || !buttonHintsEnabled) { setBtnHint(null); return; }
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    if (!window.matchMedia("(hover: hover)").matches) return; // только desktop hover
+    const root = chatPanelRef.current;
+    if (!root) return;
+    let timer: number | null = null;
+    let activeEl: HTMLElement | null = null;
+    const onOver = (e: Event) => {
+      const el = (e.target as HTMLElement)?.closest?.("[title],[data-hint]") as HTMLElement | null;
+      if (!el || !root.contains(el) || el === activeEl) return;
+      const text = (el.getAttribute("data-hint") || el.getAttribute("title") || "").trim();
+      if (!text) return;
+      if (el.hasAttribute("title")) { el.setAttribute("data-hint", text); el.removeAttribute("title"); }
+      activeEl = el;
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        const r = el.getBoundingClientRect();
+        setBtnHint({ text, x: r.left + r.width / 2, y: r.top });
+      }, 1000);
+    };
+    const onOut = (e: Event) => {
+      const el = (e.target as HTMLElement)?.closest?.("[title],[data-hint]") as HTMLElement | null;
+      if (el && el === activeEl) { if (timer) window.clearTimeout(timer); activeEl = null; setBtnHint(null); }
+    };
+    root.addEventListener("pointerover", onOver);
+    root.addEventListener("pointerout", onOut);
+    return () => {
+      root.removeEventListener("pointerover", onOver);
+      root.removeEventListener("pointerout", onOut);
+      if (timer) window.clearTimeout(timer);
+      setBtnHint(null);
+    };
+  }, [chatOpen, buttonHintsEnabled]);
   // Eugene 2026-05-23 Босс «после первого сообщения глюк с отправкой кнопка
   // не реагирует» — раньше кнопка submit была disabled пока LLM отвечает
   // (до 45 сек fallback chain). Юзер думал что глюк. Теперь — очередь:
@@ -2886,6 +2934,15 @@ export function FloatingConsultant() {
           <div
             className="absolute inset-0 pointer-events-none"
           />
+          {/* Eugene 2026-05-25 Босс: подсказка по кнопке после 1с hover. */}
+          {btnHint && (
+            <div
+              style={{ position: "fixed", left: btnHint.x, top: btnHint.y - 10, transform: "translate(-50%, -100%)" }}
+              className="pointer-events-none z-[100000] px-2.5 py-1.5 rounded-lg bg-[#1a1030]/95 backdrop-blur-md border border-purple-300/40 text-[12px] leading-snug text-white shadow-xl shadow-purple-900/50 max-w-[220px] text-center animate-in fade-in zoom-in-95 duration-150"
+            >
+              {btnHint.text}
+            </div>
+          )}
           {/* Eugene 2026-05-18 Босс: snap-indicators во время resize — тонкие
               вертикальные линии на 30% / 50% / 70% viewport width + бейдж с %
               у активной snap-зоны. Subtle (purple/fuchsia при активной),
@@ -2942,6 +2999,7 @@ export function FloatingConsultant() {
             }}
             onTouchEnd={() => { drawerPinchRef.current = null; }}
             onTouchCancel={() => { drawerPinchRef.current = null; }}
+            ref={chatPanelRef}
             className={`absolute flex flex-col backdrop-blur-2xl border-2 rounded-2xl border-purple-300/35 ring-1 ring-inset ring-white/15 shadow-2xl shadow-purple-500/30 overflow-hidden pointer-events-auto animate-in fade-in duration-300 ${
               isResizing ? "" : "transition-all"
             } ${
@@ -3202,6 +3260,17 @@ export function FloatingConsultant() {
                   soundEnabled ? "text-fuchsia-300 hover:text-fuchsia-200 rotate-0" : "text-white/40 hover:text-white/70 -rotate-12"
                 }`}
               >{soundEnabled ? "🔔" : "🔕"}</button>
+              {/* Eugene 2026-05-25 Босс «подсказки по кнопкам, отключаемо в
+                  облаке Музы». Тумблер подсказок при наведении (1с hover). */}
+              <button
+                type="button"
+                onClick={() => setButtonHintsEnabled((v) => !v)}
+                aria-label={buttonHintsEnabled ? "Отключить подсказки на кнопках" : "Включить подсказки на кнопках"}
+                title={buttonHintsEnabled ? "Подсказки на кнопках включены — отключить" : "Подсказки на кнопках выключены — включить"}
+                className={`w-9 h-9 sm:w-7 sm:h-7 rounded-full hover:bg-white/[0.08] text-sm flex items-center justify-center shrink-0 transition-colors ${
+                  buttonHintsEnabled ? "text-cyan-300 hover:text-cyan-200" : "text-white/40 hover:text-white/70"
+                }`}
+              >💬</button>
               {/* Eugene 2026-05-24 Босс «всегда кнопка скопировать последние
                   5 сообщений». Visible для ВСЕХ юзеров (auth + анон). Копирует
                   последние 5 messages в формат «Я: ... / 🎵 Музa: ...». */}
