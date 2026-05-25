@@ -80,6 +80,13 @@ export interface UnifiedLLMOpts {
    * ответе, и юзеру с командой «постав трек про маму» музыка не воспроизводится.
    */
   forceAnthropic?: boolean;
+  /**
+   * Eugene 2026-05-25 Босс «админ-управление только через мои IP + бот».
+   * Пробрасывается в ToolContext.ipTrusted — мутирующие director-tools в
+   * web/voice требуют ipTrusted !== false. true=доверен, false=гейт включён+
+   * не доверен, undefined=гейт выключен.
+   */
+  ipTrusted?: boolean;
 }
 
 export type KeySwitchEvent = {
@@ -640,6 +647,7 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
                 sessionId: opts.sessionId,
                 channel: opts.channel,
                 role: opts.role,
+                ipTrusted: opts.ipTrusted,
               });
               console.log(`[MUZA-TOOL/${opts.channel}/iter${iterationCount}] ${block.name}(${JSON.stringify(block.input).slice(0, 60)}) → ${result.slice(0, 80)}`);
               try { opts.onToolResult?.(block.name, block.input, result); } catch {}

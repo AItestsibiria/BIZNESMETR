@@ -40,6 +40,11 @@ export type ToolContext = {
   // при role === 'admin' (см. requireAdminCtx ниже). Для обычных каналов
   // (web/telegram/max) role остаётся undefined → admin-tools будут отказаны.
   role?: string | null;
+  // Eugene 2026-05-25 Босс «админ-управление только через мои IP + бот».
+  // ipTrusted: true = IP в ADMIN_TRUSTED_IPS; false = гейт включён и IP НЕ
+  // доверен; undefined = гейт выключен. Мутирующие director-tools в web/voice
+  // требуют ipTrusted !== false. Бот (telegram/max) — доверенный канал, не гейтим.
+  ipTrusted?: boolean;
 };
 
 export type ToolHandler = (input: any, context: ToolContext) => Promise<string>;
@@ -3124,6 +3129,7 @@ const HANDLERS: Record<string, ToolHandler> = {
 
   async director_control_agent({ agent_id, action }, ctx) {
     if (!isAdminCtx(ctx)) return "Доступ запрещён: director tool admin-only.";
+    { const d = directorMutationDenied(ctx); if (d) return d; }
     try {
       const { orchestrator } = await import("./agentOrchestrator");
       const id = String(agent_id || "");
@@ -3148,6 +3154,7 @@ const HANDLERS: Record<string, ToolHandler> = {
 
   async director_force_complete_stuck(_input, ctx) {
     if (!isAdminCtx(ctx)) return "Доступ запрещён: director tool admin-only.";
+    { const d = directorMutationDenied(ctx); if (d) return d; }
     try {
       const mod = await import("./genLifecycleAgent");
       const r: any = await mod.scanStuckGenerations();
@@ -3200,8 +3207,11 @@ const HANDLERS: Record<string, ToolHandler> = {
 
   async director_balance_reminders({ dry_run, limit }, ctx) {
     if (!isAdminCtx(ctx)) return "Доступ запрещён: director tool admin-only.";
+    const dryRunReq = dry_run !== false;
+    // Реальная рассылка (dry_run=false) — мутация, гейтим по IP. dry-run (показать) — ок.
+    if (!dryRunReq) { const d = directorMutationDenied(ctx); if (d) return d; }
     try {
-      const dryRun = dry_run !== false; // default true (безопасно — показать, не слать)
+      const dryRun = dryRunReq; // default true (безопасно — показать, не слать)
       const { sendBalanceReminders } = await import("./balanceReminder");
       const r = await sendBalanceReminders({ dryRun, limit: typeof limit === "number" ? limit : 50 });
       if (r.dryRun) {
@@ -3278,6 +3288,10 @@ const HANDLERS: Record<string, ToolHandler> = {
       const { orchestrator } = await import("./agentOrchestrator");
       const g = String(group || "").toLowerCase().trim();
       const act = String(action || "health").toLowerCase().trim();
+      // pause/resume/kick — мутации, гейтим по IP. health — чтение, ок.
+      if (act === "pause" || act === "resume" || act === "kick") {
+        const d = directorMutationDenied(ctx); if (d) return d;
+      }
       const all = orchestrator.list();
       const targets = g === "all" ? all : all.filter(a => a.channel === g || a.role === g);
       if (targets.length === 0) return `Группа «${group}» пуста или не найдена (channel/role/all).`;
@@ -3333,6 +3347,19 @@ export function isBotPausedRuntime(): boolean {
 function isAdminCtx(ctx: ToolContext): boolean {
   const role = String(ctx?.role || "").toLowerCase();
   return role === "admin" || role === "super_admin";
+}
+
+// Eugene 2026-05-25: гейт мутирующих director-команд по IP. Бот (telegram/max) —
+// доверенный канал (свой auth по ADMIN_TELEGRAM_ID). web/admin-voice — требуют
+// доверенный IP (ipTrusted !== false). Если гейт выключен (ipTrusted undefined)
+// — разрешаем. Возвращает текст отказа или null если можно.
+function directorMutationDenied(ctx: ToolContext): string | null {
+  const ch = String(ctx?.channel || "").toLowerCase();
+  if (ch === "telegram" || ch === "max") return null; // бот — доверенный канал
+  if (ctx?.ipTrusted === false) {
+    return "🔒 Управляющие команды Директора доступны только с доверенного IP или через бота. Сейчас IP не в списке — изменения заблокированы (чтение доступно).";
+  }
+  return null;
 }
 
 /**

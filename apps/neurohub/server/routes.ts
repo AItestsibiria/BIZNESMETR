@@ -3719,6 +3719,10 @@ export async function registerRoutes(
       // forceAnthropic (нужны tools; admin-чат low-volume, cost неважен).
       const isAdminChat = muzaRole === "admin" || muzaRole === "super_admin";
       const forceAnthropic = isAdminChat || detectMuzaToolIntent(text);
+      // Eugene 2026-05-25: ipTrusted для гейта мутирующих director-tools в web-чате.
+      // Гейт включён (список не пуст) → true если IP доверен, иначе false.
+      // Гейт выключен → undefined (не блокируем).
+      const ipTrusted = getTrustedIpList().length === 0 ? undefined : isAdminTrustedIp(req);
       if (forceAnthropic) {
         console.log(`[MUZA-INTENT-ROUTER] ${isAdminChat ? "admin (always-tools)" : "tool-intent"} → forceAnthropic for sess=${session.id.slice(0, 12)}`);
       }
@@ -3734,6 +3738,7 @@ export async function registerRoutes(
         role: muzaRole,
         onToolResult,
         forceAnthropic,
+        ipTrusted,
       });
 
       // Eugene 2026-05-23 Босс «Музa тупит» — server-side dedup: если LLM
@@ -3775,6 +3780,7 @@ export async function registerRoutes(
               role: muzaRole,
               onToolResult,
               forceAnthropic,
+              ipTrusted,
             });
             if (retry && retry.trim().length > 20) {
               const newSim = sim(trigrams(retry), currentTri);
