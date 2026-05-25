@@ -545,7 +545,10 @@ const apiHealthModule: Module = {
     {
       name: "api-health-nightly",
       schedule: "every_hour",
-      handler: () => runNightlyCheckIfDue(),
+      handler: async () => {
+        runNightlyCheckIfDue();
+        try { const { recordAgentActivity } = await import("../../lib/agentOrchestrator"); recordAgentActivity("watchdog-api-health"); } catch {}
+      },
     },
   ],
   onLoad: async (ctx) => {

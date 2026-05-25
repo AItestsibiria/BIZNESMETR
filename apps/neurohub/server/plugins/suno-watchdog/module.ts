@@ -1389,6 +1389,7 @@ const sunoWatchdogModule: Module = {
         try {
           scanGenerationErrorRate();
           await evaluateState();
+          try { const { recordAgentActivity } = await import("../../lib/agentOrchestrator"); recordAgentActivity("watchdog-suno"); } catch {}
         } catch (e) {
           bootRefs?.logger.error("[suno-watchdog] error-rate-scan failed", { error: e instanceof Error ? e.message : String(e) });
         }

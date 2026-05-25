@@ -14580,6 +14580,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   app.post("/api/payment/result", express.urlencoded({ extended: false }), (req: Request, res: Response) => {
     const { OutSum, InvId, SignatureValue, Shp_userId } = req.body;
     try {
+      try { agentOrchestrator.recordActivity("payment-health", { invId: InvId }); } catch {}
       console.log(`[PAYMENT RESULT] InvId=${InvId}, OutSum=${OutSum}, UserId=${Shp_userId}`);
 
       const creds = getRoboCreds();

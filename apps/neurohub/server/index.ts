@@ -106,7 +106,7 @@ import giftCertificatesModule from "./plugins/gift-certificates/module";
 
 // Eugene 2026-05-23 Босс «Оркестратор нужен всеми компаниями агентами начать
 // в проекте — коде». Central agent registry — bootstrap на старте.
-import { bootstrapDefaultAgents } from "./lib/agentOrchestrator";
+import { bootstrapDefaultAgents, recordAgentActivity } from "./lib/agentOrchestrator";
 import { installEventHandlers as installMarketingHandlers } from "./lib/marketingAgent";
 
 import * as fs from "node:fs";
@@ -461,6 +461,7 @@ app.post("/api/_client-error", express.json(), (req, res) => {
   console.error(`\x1b[31m[CLIENT-ERR]\x1b[0m page=${p.page ?? "?"} url=${p.url ?? "?"} msg=${p.message ?? "?"}`);
   if (p.stack) console.error(`  stack: ${String(p.stack).slice(0, 1500)}`);
   if (p.componentStack) console.error(`  componentStack: ${String(p.componentStack).slice(0, 800)}`);
+  try { recordAgentActivity("frontend-health"); } catch {}
   CLIENT_ERRORS_RING.push({
     ts: new Date().toISOString(),
     page: p.page, url: p.url, message: p.message,

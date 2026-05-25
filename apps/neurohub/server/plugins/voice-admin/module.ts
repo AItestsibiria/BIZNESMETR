@@ -45,6 +45,7 @@ import { requireAdmin } from "../../core/adminAuth";
 import { transcribeRussianAudio } from "../../lib/transcribe";
 import { synthesizeYandexTts, type YandexVoice } from "../../lib/yandexTts";
 import { MUZA_TOOLS, executeTool, filterToolsForRole } from "../../lib/muzaTools";
+import { recordAgentActivity } from "../../lib/agentOrchestrator";
 import { buildPersonaSystem } from "../../lib/consultantPersona";
 import {
   getCachedDashboardSummary,
@@ -776,6 +777,7 @@ router.post(
       console.warn("[ADMIN-VOICE] audit-log failed:", e?.message || e);
     }
 
+    try { recordAgentActivity("muza-voice"); recordAgentActivity("muza-admin"); } catch {}
     return res.json({
       data: {
         transcript,
