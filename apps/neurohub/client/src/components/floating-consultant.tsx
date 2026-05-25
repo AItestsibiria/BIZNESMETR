@@ -3834,11 +3834,11 @@ export function FloatingConsultant() {
                         trackEngagement("consultant_action", { kind: "situation_tile", id: tile.id });
                         void doSendMessage(tile.seed);
                       }}
-                      className={`flex flex-col items-center justify-center gap-0.5 aspect-square rounded-xl bg-gradient-to-br ${tile.accent} border transition-all hover:scale-105 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100`}
+                      className={`flex flex-col items-center justify-center gap-0.5 h-[52px] rounded-xl bg-gradient-to-br ${tile.accent} border transition-all hover:scale-105 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:scale-100`}
                       aria-label={`Запустить диалог: ${tile.label}`}
                     >
-                      <span className="text-2xl leading-none" aria-hidden>{tile.emoji}</span>
-                      <span className="text-[9px] leading-tight text-white/90 font-medium text-center px-0.5 line-clamp-2 mt-0.5">
+                      <span className="text-lg leading-none" aria-hidden>{tile.emoji}</span>
+                      <span className="text-[9px] leading-tight text-white/90 font-medium text-center px-0.5 line-clamp-2">
                         {tile.label}
                       </span>
                     </button>
