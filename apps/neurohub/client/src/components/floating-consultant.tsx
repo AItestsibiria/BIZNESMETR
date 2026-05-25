@@ -2200,8 +2200,21 @@ export function FloatingConsultant() {
     { id: "hook_freddie", emoji: "🎤", text: "Freddie Mercury тренировался на гаммах каждый день 4 часа", expand: "Расскажи про disciplinu Freddie + параллель: MuzaAi voice modeling даёт тебе trained voice без 4-часовых упражнений" },
   ]);
   const factShownRef = useRef<Set<string>>(new Set());
-  const factClickedRef = useRef<{ expand: string } | null>(null);
+  const factClickedRef = useRef<{ expand: string; id: string } | null>(null);
   const lastFactCategoryRef = useRef<string>("");
+  // Eugene 2026-05-24 Босс «FAB сообщение меняй каждый день про музыку, повторяй
+  // в течение месяца рандомно». dayIndex = дни с эпохи. Seeded PRNG (mulberry32-
+  // подобный) → последовательность фактов детерминирована ПО ДНЮ: один день =
+  // один порядок (стабилен сколько ни заходи), другой день = другой порядок.
+  // За месяц дни дают разные перестановки → факты повторяются рандомно.
+  const factDayRef = useRef(Math.floor(Date.now() / 86_400_000));
+  const factPickRef = useRef(0);
+  const seededRandom = (seed: number): number => {
+    let t = (seed + 0x6d2b79f5) | 0;
+    t = Math.imul(t ^ (t >>> 15), 1 | t);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
   // Eugene 2026-05-24 Босс «чередую project и хуки, 1 раз в 10 мин + кнопка
   // настроить». Settings: interval (1-60 мин), какие категории показывать.
   const [factSettings, setFactSettings] = useState<{ intervalMin: number; cats: Record<string, boolean> }>(() => {
@@ -2231,6 +2244,14 @@ export function FloatingConsultant() {
     const showFact = () => {
       if (chatOpen) return;
       if (smartBubbleText) return; // уже занято smart-trigger'ом
+      // Eugene 2026-05-24: смена календарного дня → новый seed + reset seen-set.
+      // Так сессия, пережившая полночь, показывает новый дневной порядок фактов.
+      const today = Math.floor(Date.now() / 86_400_000);
+      if (today !== factDayRef.current) {
+        factDayRef.current = today;
+        factPickRef.current = 0;
+        factShownRef.current.clear();
+      }
       const enabledCats = Object.keys(factSettings.cats).filter(c => factSettings.cats[c]);
       if (enabledCats.length === 0) return; // все категории off
       // Categorize fact by id prefix.
@@ -2245,10 +2266,14 @@ export function FloatingConsultant() {
       const fallback = musicFactsRef.current.filter(f => preferredCats.includes(categorize(f.id)));
       const list = pool.length > 0 ? pool : fallback.length > 0 ? fallback : musicFactsRef.current;
       if (pool.length === 0 && list === fallback) factShownRef.current.clear();
-      const fact = list[Math.floor(Math.random() * list.length)];
+      // Daily-seeded pick: seed = day*997 + порядковый pick. Один день →
+      // воспроизводимая последовательность; разные дни → разные перестановки.
+      const rnd = seededRandom(factDayRef.current * 997 + factPickRef.current);
+      factPickRef.current += 1;
+      const fact = list[Math.floor(rnd * list.length)];
       factShownRef.current.add(fact.id);
       lastFactCategoryRef.current = categorize(fact.id);
-      factClickedRef.current = { expand: fact.expand };
+      factClickedRef.current = { expand: fact.expand, id: fact.id };
       setSmartBubbleText(`${fact.emoji} ${fact.text}`);
       window.setTimeout(() => {
         if (factClickedRef.current?.expand === fact.expand) {
@@ -2267,12 +2292,24 @@ export function FloatingConsultant() {
   // через portal, без navigation) + просит Музу развернуть факт.
   const handleBubbleClick = useCallback(() => {
     const expandPrompt = factClickedRef.current?.expand;
+    const factId = factClickedRef.current?.id;
     factClickedRef.current = null;
+    // Eugene 2026-05-24 Босс «сохраняй паттерны в память автора в том числе
+    // с FAB». Если автор авторизован — пишем topic клика в user_memory.
+    // На следующем входе Музa учитывает интерес. Fire-and-forget.
+    if (factId && authedUser) {
+      const topic = factId.replace(/^(hook_|fact_|feature_)/, "");
+      fetch("/api/account/fab-interaction", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ factId, topic }),
+      }).catch(() => {});
+    }
     openChat(); // overlay, не navigation
     if (expandPrompt) {
       window.setTimeout(() => { void doSendMessage(expandPrompt); }, 400);
     }
-  }, [openChat, doSendMessage]);
+  }, [openChat, doSendMessage, authedUser]);
 
   if (!visible) return null;
   if (!featureEnabled) return null;

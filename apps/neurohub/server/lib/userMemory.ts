@@ -413,6 +413,17 @@ export async function buildMemoryContext(userId: number | null | undefined, _cha
       if (prefPairs) lines.push(`Предпочтения: ${prefPairs}`);
     }
 
+    // Eugene 2026-05-24: FAB-интересы — что автор тапал в облаке Музы (факты/хуки).
+    // Явная строка для LLM — учитывай при выборе темы разговора и рекомендаций.
+    const prefs = memory.preferences || {};
+    const lastFab: string[] = Array.isArray(prefs.last_fab_topics) ? prefs.last_fab_topics : [];
+    const fabInterests: Record<string, number> = (prefs.fab_interests && typeof prefs.fab_interests === "object") ? prefs.fab_interests : {};
+    if (lastFab.length > 0) {
+      const topInterests = Object.entries(fabInterests)
+        .sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k]) => k);
+      lines.push(`Интересовался в облаке (FAB) темами: ${lastFab.slice(0, 3).join(", ")}${topInterests.length ? ` (чаще всего: ${topInterests.join(", ")})` : ""}. Можешь продолжить с этого — он уже проявил интерес.`);
+    }
+
     // Cabinet activity
     const g = cabinet.generations;
     const activityParts: string[] = [];
@@ -724,6 +735,41 @@ export function forgetUserMemory(userId: number, opts?: { adminEmail?: string; a
     return r.changes > 0;
   } catch (e: any) {
     console.warn("[userMemory:forget]", e?.message || e);
+    return false;
+  }
+}
+
+// ============================================================================
+// FAB INTERACTION PATTERNS (Eugene 2026-05-24)
+// ============================================================================
+
+// Сохраняет паттерн взаимодействия автора с FAB (клик по факту/хуку Музы).
+// Пишет в preferences.fab_interests как частотную карту {topic: count} +
+// preferences.last_fab_topics (последние 5, для свежести). На следующем входе
+// buildMemoryContext инжектит это в system prompt → Музa учитывает интересы.
+// Fire-and-forget, не increment'ит version (не "сжатие", а passive signal).
+export function recordFabInteraction(userId: number, factId: string, topic?: string): boolean {
+  if (!Number.isFinite(userId) || userId <= 0 || !factId) return false;
+  try {
+    const sqlite: any = sqliteDb;
+    const row = sqlite.prepare(`SELECT preferences_json FROM user_memory WHERE user_id = ?`).get(userId) as any;
+    const prefs = row ? safeJSON<Record<string, any>>(row.preferences_json, {}) : {};
+    const interests: Record<string, number> = (prefs.fab_interests && typeof prefs.fab_interests === "object") ? prefs.fab_interests : {};
+    const key = (topic || factId).slice(0, 40);
+    interests[key] = (interests[key] || 0) + 1;
+    // Ограничиваем размер карты — оставляем топ-20 по частоте.
+    const trimmed = Object.fromEntries(
+      Object.entries(interests).sort((a, b) => b[1] - a[1]).slice(0, 20),
+    );
+    prefs.fab_interests = trimmed;
+    // last_fab_topics — очередь последних 5 уникальных тем (свежесть > частота).
+    const last: string[] = Array.isArray(prefs.last_fab_topics) ? prefs.last_fab_topics : [];
+    const nextLast = [key, ...last.filter(t => t !== key)].slice(0, 5);
+    prefs.last_fab_topics = nextLast;
+    upsertUserMemory(userId, { preferences: prefs }, { incrementVersion: false });
+    return true;
+  } catch (e: any) {
+    console.warn("[userMemory:recordFabInteraction]", e?.message || e);
     return false;
   }
 }

@@ -86,6 +86,7 @@ import {
   listUserMemories,
   compressUserMemory,
   getRecentMessagesForUser,
+  recordFabInteraction,
 } from "./lib/userMemory";
 import { getPeriodRange } from "./lib/periodBoundaries";
 import { getOrCreateVisitorId, readVisitorId } from "./lib/visitorCookie";
@@ -8968,6 +8969,24 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     const recent = raw.prepare(`SELECT action, created_at, ip, user_agent
       FROM gen_activity WHERE gen_id = ? ORDER BY created_at DESC LIMIT 50`).all(genId);
     res.json({ byAction, recent, gen: { id: gen.id, displayTitle: gen.displayTitle, prompt: gen.prompt, type: gen.type } });
+  });
+
+  // Eugene 2026-05-24 Босс «сохраняй паттерны в память автора в том числе с FAB,
+  // при следующем входе действуй учитывая его действия ранее». Когда автор
+  // кликает по FAB-факту/хуку Музы — пишем topic в preferences.fab_interests.
+  // На следующем входе buildMemoryContext инжектит это → Музa учитывает интересы.
+  // Fire-and-forget — даже при ошибке отвечаем ok (не ломаем UX FAB-клика).
+  app.post("/api/account/fab-interaction", authMiddleware, (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).userId as number;
+      const factId = String(req.body?.factId || "").slice(0, 60);
+      const topic = req.body?.topic ? String(req.body.topic).slice(0, 40) : undefined;
+      if (!factId) { res.json({ ok: false }); return; }
+      recordFabInteraction(userId, factId, topic);
+      res.json({ ok: true });
+    } catch {
+      res.json({ ok: false });
+    }
   });
 
   // GET /api/admin/v304/user-memory — список юзеров с памятью
