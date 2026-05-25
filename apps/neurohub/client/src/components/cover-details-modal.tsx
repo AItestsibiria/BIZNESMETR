@@ -48,6 +48,7 @@ import { X, ChevronLeft, ChevronRight, Info, Play, Pause, SkipBack, SkipForward,
 import { motion, AnimatePresence, type PanInfo } from "framer-motion";
 import { VolumeSlider } from "./volume-slider";
 import { useFeatureEnabled } from "@/lib/featureToggles";
+import { handleCoverError } from "@/lib/coverError";
 
 export interface CoverDetailsTrack {
   id: number | string;
@@ -572,7 +573,7 @@ export function CoverDetailsModal({
                   alt={title}
                   draggable={false}
                   className="w-full h-full object-cover pointer-events-none"
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                  onError={handleCoverError}
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-white/30 text-6xl">

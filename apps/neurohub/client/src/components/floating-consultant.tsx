@@ -10,6 +10,7 @@ import { playMuzaChime, playMuzaTick, playMuzaSparkle } from "../lib/muza-sounds
 import { useFeatureEnabled } from "@/lib/featureToggles";
 import { onJourneyEvent } from "../lib/user-journey";
 import { getPersistentPlayerAudio } from "../lib/lockscreen";
+import { handleCoverError } from "../lib/coverError";
 import { SupportModal } from "./support-modal";
 import { ChatTrackCard, type ChatTrackCardData } from "./chat-track-card";
 import { Maximize2, Minimize2 } from "lucide-react";
@@ -449,8 +450,8 @@ function ChatMiniPlayer() {
           if (target?.audioUrl && a.src === startSrc) {
             // Final check перед switch — listener мог сработать
             const mod = await import("@/lib/lockscreen");
-            mod.loadTrackIntoPlayer(a, target.audioUrl);
-            a.play().catch(() => {});
+            const loaded = mod.loadTrackIntoPlayer(target.audioUrl);
+            (loaded || a).play().catch(() => {});
           }
         } catch {}
       })();
@@ -505,7 +506,7 @@ function ChatMiniPlayer() {
   return (
     <div className="flex items-center gap-2 px-3 py-2 border-t border-white/[0.06] bg-background/40 shrink-0" role="region" aria-label="Мини-плеер">
       {cover ? (
-        <img src={cover} alt="" className="w-9 h-9 rounded-md object-cover shrink-0" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+        <img src={cover} alt="" className="w-9 h-9 rounded-md object-cover shrink-0" onError={handleCoverError} />
       ) : (
         <div className="w-9 h-9 rounded-md bg-gradient-to-br from-purple-500/30 to-blue-500/20 shrink-0 flex items-center justify-center text-[14px]">🎵</div>
       )}

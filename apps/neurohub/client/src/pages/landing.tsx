@@ -2567,7 +2567,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   if (mode === "random") {
                     setSortMode("random");
                     trackChoice("random");
-                    fetch(`/api/playlist?sort=random&dir=desc`).then(r => r.json()).then(setTracks).catch(() => {});
+                    fetch(`/api/playlist?sort=random&dir=desc`)
+                      .then(r => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+                      .then(d => { if (!Array.isArray(d)) throw new Error("not-array"); setTracks(d); })
+                      .catch(() => {}); // bad response → не перезаписываем tracks мусором (плеер не исчезает)
                   } else if (active) {
                     setSortDir(d => d === "asc" ? "desc" : "asc");
                   } else {
