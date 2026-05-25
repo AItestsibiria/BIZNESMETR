@@ -3584,6 +3584,15 @@ ssh root@31.130.148.107 'awk -F= "/^КЛЮЧ/{print \"length:\", length(\$2), \"
 
 **Каждый новый channel / bot / persona / watchdog / cron / utility AI-сервис ОБЯЗАН register'ить себя в orchestrator на старте.** Это даёт Боссу и админам один единый view «кто живой, кто молчит, кто не настроен» в `/admin/v304 → 🎬 Музa Директор`.
 
+**Director-subordination rule (Eugene 2026-05-25, ОБЯЗАТЕЛЬНО):** «Запомни — при добавлении новых фич, которые требуют агентов, сразу назначай подчинение Директору». Любая новая фича, заводящая агента/cron/watchdog/канал/EventBus-обработчик — в ТОМ ЖЕ коммите:
+1. `orchestrator.register({...})` (или через `registerEventBusAgents`-подобный bootstrap) — Директор его ВИДИТ.
+2. `recordAgentActivity(id)` в его рабочем пути — Директор видит что он живой (lastSeenAt).
+3. `healthCheck` probe если возможно — Директор детектит «упал».
+4. `addEdge(...)` к связанным агентам + `recordEdgeUsage` при срабатывании — живой граф.
+5. Если агент эмитит важные события — добавить подписчика (через `orchestrator.on` или EventBus-мост `agent-orchestrator-bridge`), чтобы эскалации/алерты НЕ уходили в пустоту.
+6. Если уместно — Director-tool в `muzaTools.ts` ([ADMIN-ONLY]), чтобы Босс мог командовать агентом из чата Музы-Директора.
+НЕЛЬЗЯ заводить «сирот» вне поля зрения Директора — он главный начальник бэкенда и владеет всей информацией.
+
 **Display name (Eugene 2026-05-24): «Музa Директор»** — экспортируется из `agentOrchestrator.ts` как `DIRECTOR_NAME`. Босс «Оркестратор переименуем Музa Директор. Он контролирует всех агентов, собирает всю информацию, итоговую докладывает через аудио». Технический термин «orchestrator» остаётся в коде / id'ах / URLs (`/api/admin/v304/orchestrator/*`) — backward compat. Аудио-доклад: `POST /api/admin/v304/director/voice-report?period=today` (см. `lib/directorVoiceReport.ts` + кнопка «🎤 Доложи итоги» в orchestrator-tab).
 
 Reference: `apps/neurohub/server/lib/agentOrchestrator.ts` + `apps/neurohub/server/lib/directorVoiceReport.ts` + полная документация в `docs/AGENT-ORCHESTRATOR.md`.
