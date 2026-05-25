@@ -783,6 +783,19 @@ export function registerEventBusAgents(): void {
   });
   orchestrator.addEdge("support", "muza-admin", "event", { purpose: "Тикеты поддержки → Директор" });
   orchestrator.addEdge("denga", "muza-admin", "data-sync", { purpose: "Финансы (PnL) → Директор" });
+
+  // Eugene 2026-05-25 Босс «Директор уведомляет меня 03:00 и 14:00 МСК +
+  // критические немедленно». Агент-дайджест собирает срез по всем направлениям.
+  orchestrator.register({
+    id: "director-digest",
+    name: "Дайджест Директора",
+    channel: "cron",
+    role: "broadcaster",
+    status: process.env.ADMIN_TELEGRAM_ID && process.env.TELEGRAM_BOT_TOKEN ? "active" : "not_configured",
+    capabilities: ["digest", "daily_report", "critical_alert"],
+    metadata: { brief: "Срез по всем направлениям Боссу в TG: 03:00/14:00 МСК + критическое немедленно" },
+  });
+  orchestrator.addEdge("director-digest", "muza-admin", "webhook", { purpose: "Дайджест + критические алерты Боссу в Telegram" });
   // Edges: A1 Master наблюдает за всеми bus-агентами + алертит Директору.
   for (const a of busAgents) {
     orchestrator.addEdge("agent-a1-master", `bus-${a.name}`, "event", {

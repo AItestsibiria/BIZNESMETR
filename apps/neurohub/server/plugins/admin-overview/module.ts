@@ -2439,6 +2439,38 @@ const adminOverviewModule: Module = {
         }
       },
     },
+    // Eugene 2026-05-25 Босс «Директор уведомляет меня 03:00 и 14:00 МСК».
+    // every_hour + guard на 03 и 14 МСК = два дайджеста в день.
+    {
+      name: "director-digest",
+      schedule: "every_hour",
+      handler: async () => {
+        try {
+          const mskHour = (new Date().getUTCHours() + 3) % 24;
+          if (mskHour !== 3 && mskHour !== 14) return;
+          const mod = await import("../../lib/directorDigest");
+          await mod.sendDailyDigest(mskHour === 3 ? "03:00 МСК (ночной)" : "14:00 МСК (дневной)");
+        } catch (e) {
+          console.error("[DIRECTOR-DIGEST job]", e);
+        }
+      },
+    },
+    // Eugene 2026-05-25 Босс «критические ситуации немедленно». Safety-net scan
+    // каждые 5 мин (поверх событийных алертов из agent-orchestrator-bridge).
+    // Анти-флуд внутри checkCritical (один набор не чаще 1/час).
+    {
+      name: "director-critical-scan",
+      schedule: "every_minute",
+      handler: async () => {
+        try {
+          if (new Date().getMinutes() % 5 !== 0) return; // каждые 5 минут
+          const mod = await import("../../lib/directorDigest");
+          await mod.checkCritical();
+        } catch (e) {
+          console.error("[DIRECTOR-CRITICAL job]", e);
+        }
+      },
+    },
   ],
   onLoad: async (ctx) => {
     // Eugene 2026-05-14 Босс: при старте — одноразовая зачистка зависших.
