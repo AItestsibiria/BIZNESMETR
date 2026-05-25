@@ -2523,6 +2523,42 @@ const adminOverviewModule: Module = {
         }
       },
     },
+    // Eugene 2026-05-25 Босс «агент Ферзь — недостатки в работе системы, узкие
+    // места. Доклад Директору ежедневно 04:00 МСК + по запросу». every_hour +
+    // shouldRunDaily-гард = раз/день ~04 МСК. Gate FERZ_CRON !== "0" (ВКЛ по умолч).
+    // При наличии critical/high находок — алерт Боссу через Директора (notifyBoss:
+    // TG primary, email fallback). try/catch, never throw.
+    {
+      name: "ferz-daily",
+      schedule: "every_hour",
+      handler: async () => {
+        try {
+          if (process.env.FERZ_CRON === "0") return;
+          const mskHour = (new Date().getUTCHours() + 3) % 24;
+          if (!shouldRunDaily("ferz-daily", mskHour, 4)) return; // раз/день ~04 МСК
+          const ferz = await import("../../lib/ferzAgent");
+          const report = await ferz.runFerzAnalysis();
+          const crit = report.severityCounts.critical || 0;
+          const high = report.severityCounts.high || 0;
+          console.log(`[FERZ-DAILY] findings=${report.findings.length}, critical=${crit}, high=${high}`);
+          if (crit > 0 || high > 0) {
+            const { notifyBoss } = await import("../../lib/directorDigest");
+            const top = report.findings
+              .filter((f) => f.severity === "critical" || f.severity === "high")
+              .slice(0, 6)
+              .map((f) => `• <b>[${f.severity}]</b> ${f.title}${f.metric ? ` (${f.metric})` : ""}`)
+              .join("\n");
+            const msg =
+              `♟ <b>Ферзь — слабые места системы (04:00 МСК)</b>\n` +
+              `Критичных: ${crit}, высоких: ${high}, всего находок: ${report.findings.length}\n\n` +
+              `${top}\n\n${report.summary}`;
+            await notifyBoss(msg);
+          }
+        } catch (e) {
+          console.error("[FERZ-DAILY job]", e);
+        }
+      },
+    },
   ],
   onLoad: async (ctx) => {
     // Eugene 2026-05-14 Босс: при старте — одноразовая зачистка зависших.

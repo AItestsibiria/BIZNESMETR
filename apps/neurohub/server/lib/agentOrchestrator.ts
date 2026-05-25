@@ -671,6 +671,34 @@ export function bootstrapDefaultAgents(): void {
     metadata: { brief: "Cost/profit tracking per user/track + chat attribution + manual override" },
   });
 
+  // Eugene 2026-05-25 Босс «заведи агента Ферзь — находит недостатки в работе
+  // системы, узкие места. Докладывает Директору по запросу + ежедневно 04:00 МСК».
+  // watchdog-агент аудита: собирает сигналы из существующих источников
+  // (orchestrator health, user_action_failures, incidents, generations,
+  // LLM key health, payments, db integrity) и приоритизирует находки.
+  // См. lib/ferzAgent.ts + Director-subordination rule. Подчинён Директору.
+  orchestrator.register({
+    id: "ferz",
+    name: "Ферзь (слабые места)",
+    channel: "internal",
+    role: "watchdog",
+    status: "active",
+    capabilities: ["audit", "metrics", "alert"],
+    healthCheck: async () => {
+      try {
+        const mod = await import("./ferzAgent");
+        return mod.ferzHealth();
+      } catch (e: any) {
+        return { ok: false, details: { error: e?.message || String(e) } };
+      }
+    },
+    metadata: { brief: "Аудит слабых мест и узких мест системы → доклад Директору (по запросу + 04:00 МСК)" },
+  });
+  // Ферзь докладывает Директору о слабых местах и узких местах.
+  orchestrator.addEdge("ferz", "muza-admin", "webhook", {
+    purpose: "Доклад о слабых местах и узких местах системы Директору",
+  });
+
   // Eugene 2026-05-23 marketing-orchestrator. Cross-channel campaigns +
   // retargeting + content calendar + auto-triggers по event'ам. Связано с
   // существующими channels через edges (см. registerMarketingEdges ниже).

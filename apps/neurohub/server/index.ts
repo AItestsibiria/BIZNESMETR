@@ -106,6 +106,7 @@ import giftCertificatesModule from "./plugins/gift-certificates/module";
 import pdOperatorModule from "./plugins/pd-operator/module";
 import postmanModule from "./plugins/postman/module";
 import directorPublicationsModule from "./plugins/director-publications/module";
+import ferzModule from "./plugins/ferz/module";
 
 // Eugene 2026-05-23 Босс «Оркестратор нужен всеми компаниями агентами начать
 // в проекте — коде». Central agent registry — bootstrap на старте.
@@ -584,6 +585,8 @@ app.post("/api/_client-error", express.json(), (req, res) => {
     { name: "postman", module: postmanModule },
 
     { name: "director-publications", module: directorPublicationsModule },
+
+    { name: "ferz", module: ferzModule },
 
   ];
 

@@ -352,6 +352,15 @@ export const MUZA_TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "ferz_report",
+    description: "[ADMIN-ONLY] Доклад агента Ферзь о слабых местах и узких местах системы. Если run=true — запускает свежий аудит, иначе возвращает последний сохранённый отчёт. Используй когда Босс говорит «Ферзь, доклад», «слабые места», «узкие места», «что не так с системой».",
+    input_schema: {
+      type: "object",
+      properties: { run: { type: "boolean", description: "true — запустить свежий аудит; false/опущено — вернуть последний отчёт" } },
+      required: [],
+    },
+  },
+  {
     name: "focus_brain_node",
     description: "[ADMIN-ONLY · UI] Сфокусировать камеру в 3D «Втором мозге» на указанном узле. Передаётся имя узла или его id (например 'plugin:telegram-bot', 'provider:gptunnel', 'core:db', 'Telegram', 'GPTunnel'). Поиск substring-match по label/id. Возвращает подтверждение — фронт перехватывает result через actions[] и эмитит CustomEvent 'brain-focus-node' который слушает SecondBrain3D компонент.",
     input_schema: {
@@ -2130,6 +2139,25 @@ const HANDLERS: Record<string, ToolHandler> = {
       return `Инциденты (${rows.length}):\n${lines.join("\n")}`;
     } catch (e: any) {
       return `Ошибка get_recent_incidents: ${e.message}`;
+    }
+  },
+
+  async ferz_report({ run }, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
+    try {
+      const mod = await import("./ferzAgent");
+      const report = run === true ? await mod.runFerzAnalysis() : mod.getLatestFerzReport();
+      if (!report) return "Ферзь ещё не делал аудит. Скажи «Ферзь, проверь» — запущу свежий.";
+      const c = report.severityCounts;
+      const top = report.findings
+        .filter((f) => f.severity === "critical" || f.severity === "high")
+        .slice(0, 6)
+        .map((f) => `• [${f.severity}] ${f.title}${f.metric ? ` (${f.metric})` : ""}`);
+      const head = `Ферзь — слабые места (крит ${c.critical}/выс ${c.high}/сред ${c.medium}/низк ${c.low}):`;
+      const body = top.length ? top.join("\n") : "Критичных и высоких узких мест нет.";
+      return `${head}\n${body}\n\n${report.summary}`;
+    } catch (e: any) {
+      return `Ошибка ferz_report: ${e.message}`;
     }
   },
 
