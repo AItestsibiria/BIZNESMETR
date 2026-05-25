@@ -923,6 +923,39 @@ export const MUZA_TOOLS: ToolDef[] = [
     description: "[ADMIN-ONLY] AI-анализ всего проекта: Директор смотрит срез по ВСЕМ службам (агенты, генерации, финансы, поддержка, обратная связь), находит проблемы и даёт КОНКРЕТНЫЕ предложения через AI. Используй когда Босс говорит «проанализируй», «где проблемы», «что не так», «дай предложения», «разбор», «что улучшить».",
     input_schema: { type: "object", properties: {} },
   },
+  // === Агент Почтальон (Eugene 2026-05-25) — подчинён Директору ===
+  {
+    name: "postman_stats",
+    description: "[ADMIN-ONLY] Статистика Агента Почтальон: подписчики (активные / ждут подтверждения / отписались / suppress), согласия (opt-in / confirm / opt-out), кампании, входящие письма по категориям. Используй когда Босс спрашивает «как почта / рассылка», «сколько подписчиков», «кто отписался», «что Почтальон».",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "postman_send_campaign",
+    description: "[ADMIN-ONLY] Запустить email-кампанию через Почтальона. dry_run=true (по умолчанию) — только подобрать аудиторию БЕЗ рассылки. dry_run=false — реально разослать (мутация — гейт по доверенному IP / боту). name — название, subject — тема, body_text — текст письма, is_ad — рекламное (добавит маркировку «реклама» + физ-адрес + List-Unsubscribe). Все письма получают one-click отписку. Используй когда Босс говорит «разошли письмо», «запусти рассылку про X».",
+    input_schema: {
+      type: "object",
+      properties: {
+        name: { type: "string", description: "название кампании" },
+        subject: { type: "string", description: "тема письма" },
+        body_text: { type: "string", description: "текст письма" },
+        is_ad: { type: "boolean", description: "true = рекламное (нужна маркировка)" },
+        limit: { type: "number", description: "макс адресатов (1-5000, default 200)" },
+        dry_run: { type: "boolean", description: "true (default) = только показать аудиторию; false = разослать" },
+      },
+      required: ["name", "subject", "body_text"],
+    },
+  },
+  {
+    name: "postman_inbox",
+    description: "[ADMIN-ONLY] Последние входящие письма (AI-классифицированные: support / complaint / unsubscribe / question / spam / other) + разбивка по категориям. Используй когда Босс спрашивает «что пишут на почту», «входящие письма», «есть ли жалобы по почте».",
+    input_schema: {
+      type: "object",
+      properties: {
+        limit: { type: "number", description: "сколько последних писем (1-50, default 20)" },
+        category: { type: "string", description: "фильтр: support|complaint|unsubscribe|question|spam|other" },
+      },
+    },
+  },
 ];
 
 // === Email 2FA wrapper helper (Eugene 2026-05-17 Босс) ===
@@ -3226,6 +3259,75 @@ const HANDLERS: Record<string, ToolHandler> = {
     }
   },
 
+  // === Агент Почтальон (Eugene 2026-05-25) — подчинён Директору ===
+
+  async postman_stats(_input, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: director tool admin-only.";
+    try {
+      const { getStats } = await import("./postmanAgent");
+      const s = getStats();
+      const sup = s.subscribers.unsubscribed + s.subscribers.bounced + s.subscribers.complained;
+      const cats = Object.entries(s.inbox.byCategory).map(([k, v]) => `${k}: ${v}`).join(", ") || "нет";
+      return (
+        `📮 Почтальон. Подписчики: всего ${s.subscribers.total} ` +
+        `(активных ${s.subscribers.active}, ждут подтверждения ${s.subscribers.pending}, ` +
+        `отписались ${s.subscribers.unsubscribed}, suppress ${sup}). ` +
+        `Согласия: ${s.consents.total} (opt-in ${s.consents.optIn}, подтверждено ${s.consents.confirm}, opt-out ${s.consents.optOut}). ` +
+        `Кампаний: ${s.campaigns.total} (отправлено ${s.campaigns.sent}). ` +
+        `Входящие: ${s.inbox.total} (необработано ${s.inbox.unhandled}) — ${cats}.`
+      );
+    } catch (e: any) {
+      return `Не смогла собрать статистику Почтальона: ${e?.message || e}`;
+    }
+  },
+
+  async postman_send_campaign({ name, subject, body_text, is_ad, limit, dry_run }, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: director tool admin-only.";
+    const dryRunReq = dry_run !== false; // default true (безопасно)
+    // Реальная рассылка — мутация, гейтим по IP / боту. dry-run (показать) — ок.
+    if (!dryRunReq) { const d = directorMutationDenied(ctx); if (d) return d; }
+    if (!String(name || "").trim() || !String(subject || "").trim() || !String(body_text || "").trim()) {
+      return "Нужны name, subject и body_text.";
+    }
+    try {
+      const { sendCampaign } = await import("./postmanAgent");
+      const r = await sendCampaign({
+        name: String(name),
+        subject: String(subject),
+        bodyText: String(body_text),
+        isAd: !!is_ad,
+        limit: typeof limit === "number" ? limit : 200,
+        dryRun: dryRunReq,
+      });
+      if (!r.ok) return `Не смогла запустить кампанию: ${r.error || "ошибка"}`;
+      if (r.dryRun) {
+        if (r.candidates === 0) return "Аудитории нет — нет активных подтверждённых подписчиков.";
+        const sample = r.sample.length ? ` Примеры: ${r.sample.slice(0, 5).join(", ")}.` : "";
+        return `Нашла ${r.candidates} адресат(ов).${sample} Это dry-run — никому не отправила. Скажи «разошли по-настоящему» чтобы запустить.`;
+      }
+      try { recordAuditEntry({ adminEmail: "director-chat", action: "update", entity: "campaign:postman", entityKey: String(r.campaignId || name), after: { sent: r.sent, failed: r.failed, skipped: r.skipped, isAd: !!is_ad } }); } catch {}
+      return `Разослала кампанию «${name}»: ${r.sent} отправлено, ${r.failed} не удалось, ${r.skipped} пропущено (suppress/дедуп) из ${r.candidates}. ${is_ad ? "Письмо помечено «реклама» + физ-адрес + ссылка отписки." : "С one-click отпиской."}`;
+    } catch (e: any) {
+      return `Не смогла запустить кампанию: ${e?.message || e}`;
+    }
+  },
+
+  async postman_inbox({ limit, category }, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: director tool admin-only.";
+    try {
+      const { listInbox } = await import("./postmanAgent");
+      const items = listInbox(typeof limit === "number" ? Math.min(limit, 50) : 20, category ? String(category) : undefined);
+      if (!items.length) return category ? `Входящих в категории «${category}» нет.` : "Входящих писем пока нет.";
+      const lines = items.slice(0, 10).map(i => {
+        const subj = (i.subject || "(без темы)").slice(0, 50);
+        return `[${i.category || "?"}] ${subj}`;
+      });
+      return `📥 Последние входящие (${items.length}): ${lines.join("; ")}.`;
+    } catch (e: any) {
+      return `Не смогла получить входящие: ${e?.message || e}`;
+    }
+  },
+
   async director_finance({ period }, ctx) {
     if (!isAdminCtx(ctx)) return "Доступ запрещён: director tool admin-only.";
     try {
@@ -3474,6 +3576,10 @@ const LONG_TOOL_TIMEOUTS: Record<string, number> = {
   director_control_group: 30_000,
   director_knowledge: 15_000,
   director_analyze: 40_000,
+  // Почтальон: рассылка кампании делает N последовательных SMTP-вызовов.
+  postman_send_campaign: 90_000,
+  postman_stats: 15_000,
+  postman_inbox: 15_000,
 };
 
 export async function executeTool(name: string, input: any, context: ToolContext): Promise<string> {
