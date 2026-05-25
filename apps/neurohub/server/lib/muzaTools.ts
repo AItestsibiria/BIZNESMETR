@@ -822,6 +822,48 @@ export const MUZA_TOOLS: ToolDef[] = [
       required: ["content"],
     },
   },
+  // === DIRECTOR tools (Eugene 2026-05-25 Босс «Муза-Директор — главный
+  // начальник: я даю задачу — она запускает, владеет всеми агентами»).
+  // Поверх Муза-бота: в админ-чате Босс командует Директором, она управляет
+  // агентами + дожимает + докладывает. Все [ADMIN-ONLY].
+  {
+    name: "director_status",
+    description: "[ADMIN-ONLY] Обзор всех агентов проекта от лица Директора: сколько активных/ошибка/молчат (stale), список проблемных. Используй когда Босс спрашивает «как агенты», «кто живой», «кто молчит», «что не работает», «доложи по агентам».",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "director_health_check",
+    description: "[ADMIN-ONLY] Запустить health-check агентов (всех или одного). agent_id опционально — если пусто, проверяет всех. Возвращает кто ok / кто упал.",
+    input_schema: {
+      type: "object",
+      properties: { agent_id: { type: "string", description: "id агента (например 'gen-lifecycle', 'bus-retention'). Пусто = все." } },
+    },
+  },
+  {
+    name: "director_control_agent",
+    description: "[ADMIN-ONLY] Управление агентом: pause (приостановить) / resume (возобновить). Используй когда Босс говорит «останови X», «выключи агента Y», «включи обратно Z».",
+    input_schema: {
+      type: "object",
+      properties: {
+        agent_id: { type: "string", description: "id агента" },
+        action: { type: "string", description: "pause | resume" },
+      },
+      required: ["agent_id", "action"],
+    },
+  },
+  {
+    name: "director_force_complete_stuck",
+    description: "[ADMIN-ONLY] Принудительно «дожать» зависшие генерации — запускает scan застрявших треков и их auto-retry. Используй когда Босс говорит «дожми зависшие», «продави Suno», «доведи генерации до конца».",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
+    name: "director_report",
+    description: "[ADMIN-ONLY] Полный сводный доклад Директора за период (агенты + лайф-цикл генераций + деньги + маркетинг). period: today | 7d | 30d. Используй когда Босс просит «доложи итоги», «дай сводку», «что по проекту».",
+    input_schema: {
+      type: "object",
+      properties: { period: { type: "string", description: "today | 7d | 30d (default today)" } },
+    },
+  },
 ];
 
 // === Email 2FA wrapper helper (Eugene 2026-05-17 Босс) ===
@@ -2979,6 +3021,100 @@ const HANDLERS: Record<string, ToolHandler> = {
       return `Исключение при публикации VK: ${e?.message || e}`;
     }
   },
+
+  // === DIRECTOR handlers (Eugene 2026-05-25) — управление агентами от лица
+  // Директора в админ-чате. Reuse: orchestrator + genLifecycleAgent + voice-report.
+  async director_status(_input, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: director tool admin-only.";
+    try {
+      const { orchestrator } = await import("./agentOrchestrator");
+      const now = Date.now();
+      const items = orchestrator.list();
+      const s = orchestrator.summary();
+      const errored = items.filter(a => a.status === "error").map(a => a.name);
+      const stale = items.filter(a => {
+        if (!a.lastSeenAt) return false;
+        const thr = a.channel === "cron" ? 25 * 3600_000 : 6 * 3600_000;
+        return now - a.lastSeenAt > thr;
+      }).map(a => a.name);
+      const lines = [
+        `Всего агентов: ${s.total}. Активны: ${s.byStatus.active}, ошибка: ${s.byStatus.error}, пауза: ${s.byStatus.paused}, не настроены: ${s.byStatus.not_configured}.`,
+      ];
+      if (errored.length) lines.push(`🔴 Ошибка: ${errored.join(", ")}.`);
+      if (stale.length) lines.push(`🟡 Молчат дольше нормы: ${stale.join(", ")}.`);
+      if (!errored.length && !stale.length) lines.push("✅ Проблемных нет — все работают штатно.");
+      return lines.join(" ");
+    } catch (e: any) {
+      return `Не смогла собрать статус агентов: ${e?.message || e}`;
+    }
+  },
+
+  async director_health_check({ agent_id }, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: director tool admin-only.";
+    try {
+      const { orchestrator } = await import("./agentOrchestrator");
+      if (agent_id) {
+        if (!orchestrator.byId(String(agent_id))) return `Агент «${agent_id}» не найден.`;
+        const r = await orchestrator.runHealthCheck(String(agent_id));
+        return `${agent_id}: ${r.ok ? "✅ ok" : "🔴 fail"}${r.details ? ` (${typeof r.details === "string" ? r.details : JSON.stringify(r.details).slice(0, 200)})` : ""}`;
+      }
+      const all = await orchestrator.healthCheckAll();
+      const failing = Object.entries(all).filter(([, r]) => !r.ok).map(([id]) => id);
+      return failing.length
+        ? `Проверила всех. 🔴 Упали: ${failing.join(", ")}.`
+        : `Проверила всех (${Object.keys(all).length}). ✅ Все ok.`;
+    } catch (e: any) {
+      return `Health-check не прошёл: ${e?.message || e}`;
+    }
+  },
+
+  async director_control_agent({ agent_id, action }, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: director tool admin-only.";
+    try {
+      const { orchestrator } = await import("./agentOrchestrator");
+      const id = String(agent_id || "");
+      const act = String(action || "").toLowerCase();
+      const agent = orchestrator.byId(id);
+      if (!agent) return `Агент «${id}» не найден.`;
+      if (act === "pause") {
+        orchestrator.setStatus(id, "paused", "paused by director (admin chat)");
+        try { recordAuditEntry({ adminEmail: "director-chat", action: "update", entity: "orchestrator:agent", entityKey: id, before: { status: agent.status }, after: { status: "paused" } }); } catch {}
+        return `⏸ Агент «${agent.name}» приостановлен.`;
+      }
+      if (act === "resume") {
+        orchestrator.setStatus(id, "active");
+        try { recordAuditEntry({ adminEmail: "director-chat", action: "update", entity: "orchestrator:agent", entityKey: id, before: { status: agent.status }, after: { status: "active" } }); } catch {}
+        return `▶️ Агент «${agent.name}» возобновлён.`;
+      }
+      return "action должно быть pause или resume.";
+    } catch (e: any) {
+      return `Не смогла изменить агента: ${e?.message || e}`;
+    }
+  },
+
+  async director_force_complete_stuck(_input, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: director tool admin-only.";
+    try {
+      const mod = await import("./genLifecycleAgent");
+      const r: any = await mod.scanStuckGenerations();
+      try { recordAuditEntry({ adminEmail: "director-chat", action: "update", entity: "orchestrator:force-complete-stuck", entityKey: "gen-lifecycle", after: r }); } catch {}
+      return `Просканировала зависшие генерации: проверено ${r?.scanned ?? 0}, запущен дожим (resumed) у ${r?.resumed ?? 0}, восстановлено ${r?.recovered ?? 0}, эскалировано ${r?.escalated ?? 0}. Прослежу до конца — при неудаче верну деньги и сообщу.`;
+    } catch (e: any) {
+      return `Не смогла запустить дожим: ${e?.message || e}`;
+    }
+  },
+
+  async director_report({ period }, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: director tool admin-only.";
+    try {
+      const p = ["today", "7d", "30d"].includes(String(period)) ? String(period) : "today";
+      const { buildDirectorSummary } = await import("./directorVoiceReport");
+      const report: any = await buildDirectorSummary({ period: p, skipTts: true });
+      return (report?.textSummary || "Сводка пуста.").slice(0, 1800);
+    } catch (e: any) {
+      return `Не смогла собрать доклад: ${e?.message || e}`;
+    }
+  },
 };
 
 // === Admin tools runtime state (Eugene 2026-05-17) ===
@@ -3100,6 +3236,10 @@ const LONG_TOOL_TIMEOUTS: Record<string, number> = {
   generate_lyrics: 35_000,
   rewrite_lyrics: 35_000,
   create_music_job: 35_000,
+  // Director tools — health-check/scan/report делают несколько async вызовов.
+  director_health_check: 30_000,
+  director_force_complete_stuck: 40_000,
+  director_report: 30_000,
 };
 
 export async function executeTool(name: string, input: any, context: ToolContext): Promise<string> {
