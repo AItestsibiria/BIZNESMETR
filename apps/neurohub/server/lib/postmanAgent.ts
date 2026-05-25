@@ -198,7 +198,7 @@ function recordConsent(opts: {
       opts.consentText ?? null,
       opts.source ?? null,
       opts.ip ?? null,
-      (opts.userAgent ?? null) ? String(opts.userAgent).slice(0, 500) : null,
+      opts.userAgent ? String(opts.userAgent).slice(0, 500) : null,
     );
   } catch (e) {
     console.warn("[postman] recordConsent failed:", e);
@@ -267,12 +267,11 @@ export async function subscribeOptIn(opts: {
          WHERE id=?`,
       ).run(tokenHash, expiresAt, unsubToken, opts.source ?? null, opts.userId ?? null, sub.id);
     } else {
-      const r: any = sqlite().prepare(
+      sqlite().prepare(
         `INSERT INTO email_subscribers (user_id, email, status, locale, confirm_token_hash, confirm_token_expires_at, unsubscribe_token, source)
          VALUES (?, ?, 'pending', ?, ?, ?, ?, ?)`,
       ).run(opts.userId ?? null, email, opts.locale || "ru", tokenHash, expiresAt, unsubToken, opts.source ?? null);
       sub = findSubscriberByEmail(email);
-      void r;
     }
   } catch (e) {
     console.warn("[postman] subscribe insert failed:", e);
@@ -445,12 +444,12 @@ function buildCampaignBody(bodyText: string, isAd: boolean, unsubToken: string):
   return body;
 }
 
-function alreadySentRecently(subscriberId: number, campaignId: number | null): boolean {
+function alreadySentRecently(subscriberId: number, campaignId: number): boolean {
   try {
     const cut = Date.now() - SEND_DEDUP_MS;
     const row = sqlite().prepare(
-      `SELECT 1 FROM postman_send_log WHERE subscriber_id = ? AND (campaign_id IS ? OR campaign_id = ?) AND sent_at > ? LIMIT 1`,
-    ).get(subscriberId, campaignId, campaignId, cut);
+      `SELECT 1 FROM postman_send_log WHERE subscriber_id = ? AND campaign_id = ? AND sent_at > ? LIMIT 1`,
+    ).get(subscriberId, campaignId, cut);
     return !!row;
   } catch {
     return false;
