@@ -2418,6 +2418,27 @@ const adminOverviewModule: Module = {
         }
       },
     },
+    // Eugene 2026-05-25 Босс — balance-reminder daily кампания. Gate
+    // BALANCE_REMINDER_ENABLED=1 (по умолчанию OFF — чтобы не разослать
+    // неожиданно на деплое; Босс включает осознанно ИЛИ запускает вручную
+    // через director_balance_reminders). every_hour + guard на 11:00 МСК =
+    // раз/день. Reminder_log даёт 7-дневный cooldown на юзера.
+    {
+      name: "balance-reminder-daily",
+      schedule: "every_hour",
+      handler: async () => {
+        try {
+          if (process.env.BALANCE_REMINDER_ENABLED !== "1") return;
+          const mskHour = (new Date().getUTCHours() + 3) % 24;
+          if (mskHour !== 11) return; // раз в день в 11:00 МСК
+          const mod = await import("../../lib/balanceReminder");
+          const r = await mod.sendBalanceReminders({ dryRun: false, limit: 100 });
+          console.log(`[BALANCE-REMINDER] sent=${r.sent}, failed=${r.failed}, candidates=${r.candidates}`);
+        } catch (e) {
+          console.error("[BALANCE-REMINDER job]", e);
+        }
+      },
+    },
   ],
   onLoad: async (ctx) => {
     // Eugene 2026-05-14 Босс: при старте — одноразовая зачистка зависших.

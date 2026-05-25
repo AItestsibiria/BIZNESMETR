@@ -869,6 +869,17 @@ export const MUZA_TOOLS: ToolDef[] = [
     description: "[ADMIN-ONLY] Сводка обратной связи юзеров: открытые эскалации (негатив), негативный sentiment за 24ч, средний NPS, топ-предложения, частые сбои действий. Используй когда Босс спрашивает «что юзеры пишут», «какие жалобы», «обратная связь», «недовольство», «что не нравится людям».",
     input_schema: { type: "object", properties: {} },
   },
+  {
+    name: "director_balance_reminders",
+    description: "[ADMIN-ONLY] Запустить кампанию balance/bonus-reminder — email-нудж юзерам с непотраченным бонусным треком или балансом, которые давно не генерировали. dry_run=true (по умолчанию) — только показать кандидатов БЕЗ рассылки. dry_run=false — реально разослать. limit — макс юзеров (default 50). Используй когда Босс говорит «напомни юзерам про баланс / бонус», «запусти рассылку про подарочные треки», «подтолкни неактивных».",
+    input_schema: {
+      type: "object",
+      properties: {
+        dry_run: { type: "boolean", description: "true (default) = только показать кандидатов; false = разослать" },
+        limit: { type: "number", description: "макс юзеров (1-500, default 50)" },
+      },
+    },
+  },
 ];
 
 // === Email 2FA wrapper helper (Eugene 2026-05-17 Босс) ===
@@ -3148,6 +3159,24 @@ const HANDLERS: Record<string, ToolHandler> = {
     if (lines.length === 0) return "По обратной связи пусто — данных нет.";
     return "📣 Обратная связь юзеров: " + lines.join(" ");
   },
+
+  async director_balance_reminders({ dry_run, limit }, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: director tool admin-only.";
+    try {
+      const dryRun = dry_run !== false; // default true (безопасно — показать, не слать)
+      const { sendBalanceReminders } = await import("./balanceReminder");
+      const r = await sendBalanceReminders({ dryRun, limit: typeof limit === "number" ? limit : 50 });
+      if (r.dryRun) {
+        if (r.candidates === 0) return "Кандидатов на balance-нудж нет (все активны или уже нудженные).";
+        const sample = r.sample.length ? ` Примеры: ${r.sample.slice(0, 5).join("; ")}.` : "";
+        return `Нашла ${r.candidates} кандидат(ов) на напоминание о балансе/бонусе.${sample} Это dry-run — никому не отправила. Скажи «разошли по-настоящему» чтобы запустить рассылку.`;
+      }
+      try { recordAuditEntry({ adminEmail: "director-chat", action: "update", entity: "campaign:balance-reminder", entityKey: "balance", after: { sent: r.sent, failed: r.failed, candidates: r.candidates } }); } catch {}
+      return `Разослала balance-нуджи: ${r.sent} отправлено, ${r.failed} не удалось (из ${r.candidates} кандидатов). Повторно тем же юзерам — не раньше чем через 7 дней.`;
+    } catch (e: any) {
+      return `Не смогла запустить кампанию: ${e?.message || e}`;
+    }
+  },
 };
 
 // === Admin tools runtime state (Eugene 2026-05-17) ===
@@ -3273,6 +3302,7 @@ const LONG_TOOL_TIMEOUTS: Record<string, number> = {
   director_health_check: 30_000,
   director_force_complete_stuck: 40_000,
   director_report: 30_000,
+  director_balance_reminders: 60_000,
 };
 
 export async function executeTool(name: string, input: any, context: ToolContext): Promise<string> {

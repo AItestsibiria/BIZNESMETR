@@ -680,6 +680,23 @@ export function bootstrapDefaultAgents(): void {
     metadata: { brief: "Управляет cross-channel кампаниями MuzaAi" },
   });
 
+  // Eugene 2026-05-25 Босс — balance-reminder + upsell агент (Шаг 3). Нуджит
+  // юзеров с непотраченным бонусом/балансом. Запускается командой Босса
+  // (director-tool) или daily-cron (gate BALANCE_REMINDER_ENABLED). Подчинён
+  // Директору (Director-subordination rule).
+  orchestrator.register({
+    id: "balance-reminder",
+    name: "Balance-reminder (upsell)",
+    channel: "internal",
+    role: "marketing",
+    status: "active",
+    capabilities: ["upsell", "email_nudge", "balance_reminder"],
+    metadata: { brief: "Email-нудж юзерам с непотраченным бонусом/балансом, не генерили ≥3 дней" },
+  });
+  orchestrator.addEdge("balance-reminder", "channel-email", "broadcast", {
+    purpose: "Balance/bonus reminder email → юзеры с непотраченным балансом",
+  });
+
   // Регистрируем edges между marketing-orchestrator и channels (см. matrix
   // в docs/AGENT-ORCHESTRATOR-PROPOSALS.md и Agent-orchestrator rule).
   registerDefaultEdges();
