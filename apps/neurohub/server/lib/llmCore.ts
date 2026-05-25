@@ -196,6 +196,8 @@ export async function callTimeWebGateway(opts: {
   userText: string;
   maxTokens: number;
   model: string;
+  tools?: any[];
+  execCtx?: { userId: number | null; sessionId: string; channel: string; role?: string | null };
 }): Promise<{ text: string | null; usage: any; endpoint: string | null }> {
   const key = process.env.TIMEWEB_GATEWAY_KEY;
   if (!key) return { text: null, usage: null, endpoint: null };
@@ -228,6 +230,24 @@ export async function callTimeWebGateway(opts: {
   const endpoints = TIMEWEB_GATEWAY_URL_CACHE
     ? [TIMEWEB_GATEWAY_URL_CACHE]
     : (process.env.TIMEWEB_GATEWAY_URL ? [process.env.TIMEWEB_GATEWAY_URL] : TIMEWEB_ENDPOINT_CANDIDATES);
+
+  // Eugene 2026-05-25 Босс «все Ai умеют tools». OpenAI function-calling через
+  // общий loop (по resolved endpoint). toolsUnsupported → обычный text-path ниже.
+  if (opts.tools && opts.tools.length && opts.execCtx && providerSupportsTools("TIMEWEB_GATEWAY_KEY")) {
+    const toolUrl = TIMEWEB_GATEWAY_URL_CACHE || endpoints[0];
+    const res = await openaiToolLoop({
+      providerKey: "TIMEWEB_GATEWAY_KEY", url: toolUrl,
+      headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+      model: tmwModel, messages, openaiTools: muzaToolsToOpenAI(opts.tools), execCtx: opts.execCtx,
+      extraBody: { temperature: 0.85, frequency_penalty: 0.5, presence_penalty: 0.4 },
+      timeoutMs: 20_000,
+    });
+    if (!res.toolsUnsupported && res.text) {
+      if (!TIMEWEB_GATEWAY_URL_CACHE) TIMEWEB_GATEWAY_URL_CACHE = toolUrl;
+      return { text: res.text, usage: res.usage, endpoint: toolUrl };
+    }
+    // toolsUnsupported или пусто → проваливаемся в обычный text-path ниже.
+  }
 
   for (const url of endpoints) {
     try {
@@ -294,6 +314,8 @@ export async function callDeepSeek(opts: {
   userText: string;
   maxTokens: number;
   model?: string;
+  tools?: any[];
+  execCtx?: { userId: number | null; sessionId: string; channel: string; role?: string | null };
 }): Promise<{ text: string | null; usage: any }> {
   const key = process.env.DEEPSEEK_API_KEY;
   if (!key) return { text: null, usage: null };
@@ -305,6 +327,19 @@ export async function callDeepSeek(opts: {
   ];
   const url = process.env.DEEPSEEK_API_URL || "https://api.deepseek.com/v1/chat/completions";
   const model = opts.model || process.env.DEEPSEEK_MODEL || "deepseek-chat";
+
+  // Eugene 2026-05-25 Босс «все Ai умеют tools». OpenAI function-calling через
+  // общий loop. При toolsUnsupported — обычный text-path ниже (graceful).
+  if (opts.tools && opts.tools.length && opts.execCtx && providerSupportsTools("DEEPSEEK_API_KEY")) {
+    const res = await openaiToolLoop({
+      providerKey: "DEEPSEEK_API_KEY", url,
+      headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+      model, messages, openaiTools: muzaToolsToOpenAI(opts.tools), execCtx: opts.execCtx,
+      extraBody: { temperature: 0.85, frequency_penalty: 0.5, presence_penalty: 0.4 },
+      timeoutMs: 30_000,
+    });
+    if (!res.toolsUnsupported) return { text: res.text, usage: res.usage };
+  }
 
   try {
     const r = await fetch(url, {
@@ -376,6 +411,8 @@ export async function callYandexGPT(opts: {
   userText: string;
   maxTokens: number;
   model?: string;
+  tools?: any[];
+  execCtx?: { userId: number | null; sessionId: string; channel: string; role?: string | null };
 }): Promise<{ text: string | null; usage: any }> {
   const key = process.env.YANDEX_GPT_API_KEY;
   const folderId = process.env.YANDEX_GPT_FOLDER_ID || process.env.YANDEX_FOLDER_ID;
@@ -391,6 +428,18 @@ export async function callYandexGPT(opts: {
   const model = opts.model
     || process.env.YANDEX_GPT_MODEL
     || `gpt://${folderId}/yandexgpt/latest`;
+
+  // Eugene 2026-05-25 Босс «все Ai умеют tools». При toolsUnsupported — text-path.
+  if (opts.tools && opts.tools.length && opts.execCtx && providerSupportsTools("YANDEX_GPT_API_KEY")) {
+    const res = await openaiToolLoop({
+      providerKey: "YANDEX_GPT_API_KEY", url,
+      headers: { "Authorization": `Api-Key ${key}`, "Content-Type": "application/json", "x-folder-id": folderId },
+      model, messages, openaiTools: muzaToolsToOpenAI(opts.tools), execCtx: opts.execCtx,
+      extraBody: { temperature: 0.7 },
+      timeoutMs: 25_000,
+    });
+    if (!res.toolsUnsupported && res.text) return { text: res.text, usage: res.usage };
+  }
 
   try {
     const r = await fetch(url, {
@@ -496,6 +545,118 @@ async function notifyAdminKeySwitch(ev: KeySwitchEvent): Promise<void> {
  * Tool-use loop работает ТОЛЬКО на Anthropic-шаге. DeepSeek, YandexGPT, TimeWeb,
  * GPTunnel возвращают чистый text без tool-calling.
  */
+// === OpenAI-format function-calling — общий tool-loop для ВСЕХ OpenAI-совместимых
+// провайдеров (TimeWeb / DeepSeek / YandexGPT / GPTunnel). Eugene 2026-05-25 Босс
+// «все Ai умеют и делают tools при смене Ai, одинаковые права». MUZA_TOOLS
+// (Anthropic-формат input_schema) → OpenAI tools. Graceful: провайдер не понял
+// tools (400/422) → toolsUnsupported, caller отвечает текстом / идёт дальше.
+function muzaToolsToOpenAI(anthTools: any[]): any[] {
+  return (anthTools || []).map((t) => ({
+    type: "function",
+    function: {
+      name: t.name,
+      description: String(t.description || "").slice(0, 1024),
+      parameters: t.input_schema || { type: "object", properties: {} },
+    },
+  }));
+}
+
+// Per-process кэш: поддерживает ли провайдер OpenAI-tools (избегаем повторных
+// 400 + double-request на каждый вызов).
+const providerToolsSupported = new Map<string, boolean>();
+export function providerSupportsTools(providerKey: string): boolean {
+  return providerToolsSupported.get(providerKey) !== false;
+}
+
+interface OpenAIToolLoopOpts {
+  providerKey: string;
+  url: string;
+  headers: Record<string, string>;
+  model: string;
+  messages: any[];
+  openaiTools: any[];
+  execCtx: { userId: number | null; sessionId: string; channel: string; role?: string | null };
+  extraBody?: Record<string, any>;
+  timeoutMs?: number;
+  maxIters?: number;
+}
+
+async function openaiToolLoop(o: OpenAIToolLoopOpts): Promise<{ text: string | null; usage: any; toolsUnsupported?: boolean }> {
+  const messages = o.messages.map((m) => ({ ...m }));
+  let usage: any = null;
+  const callCounts = new Map<string, number>();
+  const maxIters = o.maxIters ?? 4;
+  for (let iter = 0; iter < maxIters; iter++) {
+    let r: Response;
+    try {
+      r = await fetch(o.url, {
+        method: "POST",
+        headers: o.headers,
+        body: JSON.stringify({ model: o.model, messages, max_tokens: 4000, tools: o.openaiTools, tool_choice: "auto", ...(o.extraBody || {}) }),
+        signal: AbortSignal.timeout(o.timeoutMs ?? 30_000),
+      });
+    } catch (e: any) {
+      const msg = e?.name === "AbortError" ? "timeout" : String(e?.message || e).slice(0, 200);
+      llmKeyStatus.set(o.providerKey, { lastUsedAt: new Date().toISOString(), lastStatus: e?.name === "AbortError" ? "timeout" : "error", lastErrorMsg: msg });
+      return { text: null, usage };
+    }
+    llmKeyStatus.set(o.providerKey, { lastUsedAt: new Date().toISOString(), lastStatus: r.status });
+    if (!r.ok) {
+      const errText = await r.text().catch(() => "");
+      if ((r.status === 400 || r.status === 422) && /tool|function/i.test(errText)) {
+        providerToolsSupported.set(o.providerKey, false);
+        console.warn(`[OPENAI-TOOLS] ${o.providerKey} не поддерживает tools (${r.status}) → fallback text`);
+        return { text: null, usage, toolsUnsupported: true };
+      }
+      llmKeyStatus.set(o.providerKey, { lastUsedAt: new Date().toISOString(), lastStatus: r.status, lastErrorMsg: errText.slice(0, 200) });
+      return { text: null, usage };
+    }
+    providerToolsSupported.set(o.providerKey, true);
+    const j: any = await r.json().catch(() => null);
+    if (!j) return { text: null, usage };
+    if (j.usage) usage = j.usage;
+    const msg = j?.choices?.[0]?.message;
+    if (!msg) return { text: null, usage };
+    const toolCalls = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];
+    if (toolCalls.length > 0) {
+      messages.push({ role: "assistant", content: msg.content ?? "", tool_calls: toolCalls });
+      for (const tc of toolCalls) {
+        const fname = tc?.function?.name || "";
+        let args: any = {};
+        try { args = tc?.function?.arguments ? JSON.parse(tc.function.arguments) : {}; } catch { args = {}; }
+        const dkey = `${fname}::${JSON.stringify(args).slice(0, 200)}`;
+        const cnt = (callCounts.get(dkey) || 0) + 1;
+        callCounts.set(dkey, cnt);
+        let result: string;
+        if (cnt > 2) {
+          result = "Стоп: инструмент уже вызван 3+ раз с теми же параметрами. Ответь пользователю текстом.";
+        } else {
+          try { result = String(await executeTool(fname, args, o.execCtx as any)); }
+          catch (e: any) { result = `Ошибка инструмента: ${String(e?.message || e).slice(0, 150)}`; }
+        }
+        messages.push({ role: "tool", tool_call_id: tc.id, content: result.slice(0, 1800) });
+      }
+      continue;
+    }
+    const text = msg.content;
+    return { text: typeof text === "string" ? text.slice(0, 2000) : null, usage };
+  }
+  // Лимит итераций — финальный запрос без tools, чтобы вынудить текстовый ответ.
+  try {
+    const r2 = await fetch(o.url, {
+      method: "POST", headers: o.headers,
+      body: JSON.stringify({ model: o.model, messages, max_tokens: 1500, ...(o.extraBody || {}) }),
+      signal: AbortSignal.timeout(o.timeoutMs ?? 30_000),
+    });
+    if (r2.ok) {
+      const j2: any = await r2.json().catch(() => null);
+      const t = j2?.choices?.[0]?.message?.content;
+      if (typeof t === "string") return { text: t.slice(0, 2000), usage: j2?.usage || usage };
+    }
+  } catch {}
+  return { text: null, usage };
+}
+
 export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string | null> {
   const attempts = listAnthropicKeys();
   // Eugene 2026-05-20: убрано raннее return null если attempts.length===0,
@@ -562,12 +723,14 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
 
   let prevFailed: { name: string; status: number | string; reason?: string } | null = null;
 
+  // Eugene 2026-05-25 Босс «все Ai умеют tools, одинаковые права». execCtx +
+  // tools (Anthropic-формат) пробрасываем во ВСЕ провайдеры — каждый умеет
+  // function-calling (через openaiToolLoop). forceAnthropic больше НЕ скипает
+  // их (gateway/OpenAI-compat теперь маршрутизируют tools). Failover по дефолту.
+  const toolExecCtx = { userId: opts.userId, sessionId: opts.sessionId, channel: opts.channel, role: opts.role };
+
   // === [PRIMARY] TimeWeb Gateway (Eugene 2026-05-25 Босс «Timeweb Priority») ===
-  // OpenAI-compatible, БЕЗ tools. Anthropic-models через api.timeweb.ai gateway.
-  // forceAnthropic → пропускаем (gateway не маршрутизирует tools на upstream).
-  if (opts.forceAnthropic) {
-    console.log("[MUZA-LLM] forceAnthropic=true — skip TimeWeb (no-tools), goto Anthropic direct");
-  } else if (process.env.TIMEWEB_GATEWAY_KEY) {
+  if (process.env.TIMEWEB_GATEWAY_KEY) {
     try {
       const sysText = systemBlocks.map(b => (typeof b === "string" ? b : (b?.text || ""))).join("\n\n");
       const tw = await callTimeWebGateway({
@@ -576,6 +739,8 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
         userText: safeUserText,
         maxTokens,
         model: process.env.TIMEWEB_GATEWAY_MODEL || "anthropic/claude-haiku-4-5",
+        tools: toolsForCall,
+        execCtx: toolExecCtx,
       });
       if (tw.usage) {
         muzaTokenStats.inputTokens += Number(tw.usage.prompt_tokens || 0);
@@ -599,11 +764,9 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
   // === [FALLBACK 1] DeepSeek (Eugene 2026-05-21 Босс «DeepSeek primary, TimeWeb fallback,
   // далее по имени sort») === OpenAI-compatible, БЕЗ tools.
   // Дешёвый ($0.27/1M input, $1.10/1M output для deepseek-chat).
-  // Eugene 2026-05-23 Risk #12: если forceAnthropic — пропускаем (DeepSeek
-  // не поддерживает MUZA_TOOLS, а юзер просил player/panel/generation action).
-  if (opts.forceAnthropic) {
-    console.log("[MUZA-LLM] forceAnthropic=true — skip DeepSeek (no-tools), goto Anthropic");
-  } else if (process.env.DEEPSEEK_API_KEY) {
+  // Eugene 2026-05-25: tools теперь работают и на DeepSeek (openaiToolLoop) —
+  // forceAnthropic больше не скипает.
+  if (process.env.DEEPSEEK_API_KEY) {
     try {
       const sysText = systemBlocks.map(b => (typeof b === "string" ? b : (b?.text || ""))).join("\n\n");
       const ds = await callDeepSeek({
@@ -611,6 +774,8 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
         history: history.slice(-15),
         userText: safeUserText,
         maxTokens,
+        tools: toolsForCall,
+        execCtx: toolExecCtx,
       });
       if (ds.usage) {
         muzaTokenStats.inputTokens += Number(ds.usage.prompt_tokens || 0);
@@ -635,10 +800,9 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
 
   // === [FALLBACK 1] YandexGPT (Eugene 2026-05-25 Босс «DeepSeek, yandex Ai») ===
   // OpenAI-compatible, БЕЗ tools. РФ data-residency (Yandex Cloud).
-  // Risk #12: если forceAnthropic — пропускаем (YandexGPT не поддерживает MUZA_TOOLS).
-  if (opts.forceAnthropic) {
-    console.log("[MUZA-LLM] forceAnthropic=true — skip YandexGPT (no-tools), goto Anthropic");
-  } else if (process.env.YANDEX_GPT_API_KEY && (process.env.YANDEX_GPT_FOLDER_ID || process.env.YANDEX_FOLDER_ID)) {
+  // Eugene 2026-05-25: tools пробрасываем и в YandexGPT (graceful если не
+  // поддержит). forceAnthropic больше не скипает.
+  if (process.env.YANDEX_GPT_API_KEY && (process.env.YANDEX_GPT_FOLDER_ID || process.env.YANDEX_FOLDER_ID)) {
     try {
       const sysText = systemBlocks.map(b => (typeof b === "string" ? b : (b?.text || ""))).join("\n\n");
       const ya = await callYandexGPT({
@@ -646,6 +810,8 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
         history: history.slice(-15),
         userText: safeUserText,
         maxTokens,
+        tools: toolsForCall,
+        execCtx: toolExecCtx,
       });
       if (ya.usage) {
         muzaTokenStats.inputTokens += Number(ya.usage.prompt_tokens || 0);
@@ -885,6 +1051,21 @@ export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string |
         });
       }
       messages.push({ role: "user", content: safeUserText });
+      // Eugene 2026-05-25 Босс «все Ai умеют tools» — GPTunnel тоже через loop.
+      if (toolsForCall && toolsForCall.length && providerSupportsTools("GPTUNNEL_LLM")) {
+        const resT = await openaiToolLoop({
+          providerKey: "GPTUNNEL_LLM", url: "https://gptunnel.ru/v1/chat/completions",
+          headers: { "Authorization": `Bearer ${process.env.GPTUNNEL_API_KEY}`, "Content-Type": "application/json" },
+          model: process.env.GPTUNNEL_LLM_MODEL || "gpt-4o-mini",
+          messages, openaiTools: muzaToolsToOpenAI(toolsForCall), execCtx: toolExecCtx,
+          extraBody: { temperature: 0.85, frequency_penalty: 0.5, presence_penalty: 0.4 },
+          timeoutMs: 45_000,
+        });
+        if (!resT.toolsUnsupported && resT.text) {
+          setLLMKeyStatus("GPTUNNEL_LLM", { lastUsedAt: new Date().toISOString(), lastStatus: 200 });
+          return resT.text;
+        }
+      }
       const r = await fetch("https://gptunnel.ru/v1/chat/completions", {
         method: "POST",
         headers: {
