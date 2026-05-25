@@ -83,6 +83,7 @@ const CHANNEL_LABELS: Record<string, string> = {
   telegram: "✈️ Telegram",
   max: "🅼 Max",
   vk: "🆅 VK",
+  instagram: "📸 Instagram",
   email: "📧 Email",
   voice: "🎤 Voice",
   admin: "🛡 Admin",

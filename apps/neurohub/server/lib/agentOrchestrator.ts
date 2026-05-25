@@ -34,6 +34,7 @@ export type AgentChannel =
   | "telegram"   // TG bot
   | "max"        // Max bot
   | "vk"         // VK community bot (планируется)
+  | "instagram"  // Instagram (@muzaairu) — Meta Graph API
   | "email"      // email inbound/outbound
   | "voice"      // voice TTS / STT
   | "admin"      // admin-voice / admin-internal
@@ -952,6 +953,9 @@ function registerDefaultEdges(): void {
   });
   orchestrator.addEdge("marketing-orchestrator", "muza-web", "campaign", {
     purpose: "Landing CMS news cards + in-chat sales triggers",
+  });
+  orchestrator.addEdge("marketing-orchestrator", "channel-instagram", "broadcast", {
+    purpose: "Instagram (@muzaairu) посты кампаний (Meta Graph API)",
   });
 
   // ===== Marketing listens на events (auto-trigger campaigns) =====

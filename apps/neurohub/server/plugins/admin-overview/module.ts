@@ -2364,6 +2364,19 @@ router.post("/audit/:id/restore", requireAdmin, (req, res) => {
   }
 });
 
+// Eugene 2026-05-25 fix: `every_hour` тикает от момента старта процесса, НЕ от
+// :00. Поэтому гварды `min >= 10` (06:00-06:09) почти всегда не срабатывали —
+// job не запускался. Заменяем на once-per-day guard по дате (МСК): job
+// выполняется один раз в сутки, когда тик впервые попадает в нужный час.
+const _dailyRunGuard = new Map<string, string>();
+function shouldRunDaily(jobKey: string, mskHour: number, targetHour: number): boolean {
+  if (mskHour !== targetHour) return false;
+  const todayMsk = new Date(Date.now() + 3 * 3600_000).toISOString().slice(0, 10);
+  if (_dailyRunGuard.get(jobKey) === todayMsk) return false;
+  _dailyRunGuard.set(jobKey, todayMsk);
+  return true;
+}
+
 const adminOverviewModule: Module = {
   name: "admin-overview",
   version: "0.1.0",
@@ -2452,8 +2465,7 @@ const adminOverviewModule: Module = {
         try {
           if (process.env.DIRECTOR_CREATIVE_CRON === "0") return;
           const mskHour = (new Date().getUTCHours() + 3) % 24;
-          const min = new Date().getMinutes();
-          if (mskHour !== 6 || min >= 10) return; // 06:00-06:09 МСК = раз/день
+          if (!shouldRunDaily("director-creative", mskHour, 6)) return; // раз/день ~06 МСК
           const mod = await import("../../lib/publicationsAgent");
           const r = await mod.prepareCreativeDrafts();
           console.log(`[DIRECTOR-CREATIVE] created=${r.created}, failed=${r.failed}, campaign=${r.campaignId}`);
@@ -2502,8 +2514,7 @@ const adminOverviewModule: Module = {
       handler: async () => {
         try {
           const mskHour = (new Date().getUTCHours() + 3) % 24;
-          const min = new Date().getMinutes();
-          if (mskHour !== 3 || min >= 10) return; // 03:00-03:09 МСК = раз/день
+          if (!shouldRunDaily("director-daily-report", mskHour, 3)) return; // раз/день ~03 МСК
           const mod = await import("../../lib/directorDigest");
           const id = await mod.buildAndSaveDailyReport();
           console.log(`[DIRECTOR-DAILY-REPORT] saved id=${id}`);

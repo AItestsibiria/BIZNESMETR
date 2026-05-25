@@ -102,13 +102,10 @@ export function channelHasToken(channel: string): boolean {
 // === Time helper: следующий день 11:00 МСК (millis) ===
 
 export function nextDay11MskMillis(): number {
-  // 11:00 МСК = 08:00 UTC. Берём «сегодня 08:00 UTC», если уже прошло — +1 день.
+  // 11:00 МСК = 08:00 UTC. Всегда «завтра 11:00 МСК» — Боссу время одобрить.
+  // Eugene 2026-05-25 fix: был двойной +1 (получалось послезавтра).
   const now = new Date();
   const target = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 8, 0, 0, 0));
-  if (target.getTime() <= now.getTime()) {
-    target.setUTCDate(target.getUTCDate() + 1);
-  }
-  // Всегда «завтра 11:00 МСК» для подготовленных черновиков — Боссу время одобрить.
   target.setUTCDate(target.getUTCDate() + 1);
   return target.getTime();
 }
