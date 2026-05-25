@@ -13,6 +13,7 @@ import { sql, eq } from "drizzle-orm";
 import { db } from "../storage";
 import { users } from "@shared/schema";
 import type { User } from "@shared/schema";
+import { isAdminTrustedIp, getTrustedIpList } from "../lib/adminTrustedIp";
 
 export const ADMIN_EMAILS: Set<string> = new Set(
   (process.env.ADMIN_EMAIL || "egnovoselov@gmail.com")
@@ -64,6 +65,17 @@ export function requireAdmin(req: any, res: any, next: any): void {
   }
   if (!isAdminUser(u as any)) {
     res.status(403).json({ data: null, error: "forbidden" });
+    return;
+  }
+  // Eugene 2026-05-25 Босс «админ-управление только через мои IP + через бот».
+  // IP-гейт: если ADMIN_TRUSTED_IPS задан (non-empty) — web-админка доступна
+  // ТОЛЬКО с этих IP. Бот (Telegram/Max admin) идёт своим путём (ADMIN_TELEGRAM_ID),
+  // не через requireAdmin → не затронут. Safe default: список пуст → НЕ блокируем
+  // (иначе закрыли бы доступ себе до настройки на VPS).
+  if (getTrustedIpList().length > 0 && !isAdminTrustedIp(req)) {
+    const ip = String(req.ip || req.headers["x-forwarded-for"] || "?").split(",")[0].trim();
+    console.warn(`[ADMIN-IP-GATE] заблокирован admin-доступ с недоверенного IP: ${ip}`);
+    res.status(403).json({ data: null, error: "admin access restricted to trusted IPs" });
     return;
   }
   (req as any).userId = userId;

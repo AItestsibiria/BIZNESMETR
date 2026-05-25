@@ -53,10 +53,21 @@ export function getTrustedIpList(): string[] {
 export function isAdminTrustedIp(req: Request): boolean {
   const list = getTrustedIpList();
   if (list.length === 0) return false;
-  const ip = normalizeIp(req.ip || (req.headers["x-forwarded-for"] as string) || "");
-  if (!ip) return false;
-  return list.some(entry => {
-    if (entry.includes("/")) return inCidr(ip, entry);
-    return normalizeIp(entry) === ip;
-  });
+  // Eugene 2026-05-25: за nginx req.ip может быть 127.0.0.1 (без trust proxy),
+  // реальный клиент — в X-Forwarded-For. Проверяем ВСЕ кандидаты (req.ip +
+  // каждый IP из XFF-цепочки) — матч если ХОТЯ БЫ один доверенный.
+  const candidates = new Set<string>();
+  const add = (raw: string) => { const n = normalizeIp(raw); if (n) candidates.add(n); };
+  if (req.ip) add(req.ip);
+  const xff = req.headers["x-forwarded-for"];
+  if (typeof xff === "string") xff.split(",").forEach(p => add(p));
+  else if (Array.isArray(xff)) xff.forEach(p => add(String(p)));
+  const realIp = req.headers["x-real-ip"];
+  if (typeof realIp === "string") add(realIp);
+  if (candidates.size === 0) return false;
+  for (const ip of candidates) {
+    const ok = list.some(entry => entry.includes("/") ? inCidr(ip, entry) : normalizeIp(entry) === ip);
+    if (ok) return true;
+  }
+  return false;
 }
