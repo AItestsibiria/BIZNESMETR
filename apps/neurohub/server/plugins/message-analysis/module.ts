@@ -18,6 +18,7 @@ import { db } from "../../storage";
 import { requireAdmin } from "../../core/adminAuth";
 import { getPeriodRange, normalizePeriodId } from "../../lib/periodBoundaries";
 import { analyzeMessage } from "../../lib/messageAnalyzer";
+import { recordAgentActivity } from "../../lib/agentOrchestrator";
 import type { Module } from "../../core";
 
 // === Auto-migrate ===
@@ -95,6 +96,8 @@ export function logMessageAnalysis(input: LogAnalysisInput): ReturnType<typeof a
         analysis.mentionsOperator ? 1 : 0,
         Date.now(),
       );
+    // Director-subordination rule: Директор видит что агент анализа жив.
+    try { recordAgentActivity("feedback-sentiment", { label: analysis.sentiment.label }); } catch {}
     return analysis;
   } catch (e) {
     console.warn("[message-analysis] log failed:", e);

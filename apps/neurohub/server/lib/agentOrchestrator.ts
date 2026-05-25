@@ -733,6 +733,25 @@ export function registerEventBusAgents(): void {
     capabilities: ["agent_monitoring", "failure_rate", "alert"],
     metadata: { brief: "Watches all agent.action.* — alerts на unhealthy агентов (>50% fail/100)" },
   });
+
+  // Eugene 2026-05-25 Босс «есть ли агент обратных реакций юзеров — передаёт ли
+  // Директору». Регистрируем компоненты обратной связи как агентов Директора
+  // (Director-subordination rule). recordActivity — через hooks в их путях.
+  const feedbackAgents: Array<{ id: string; name: string; role: AgentRole; brief: string }> = [
+    { id: "feedback-escalation", name: "Эскалации (негатив)", role: "moderator", brief: "Очередь негативных сообщений юзеров (escalation_queue)" },
+    { id: "feedback-sentiment", name: "Анализ сообщений", role: "diagnostic", brief: "Sentiment/intent/topic каждого сообщения (message_analysis)" },
+    { id: "feedback-nps", name: "NPS + предложения", role: "diagnostic", brief: "NPS-оценки + кластеризация suggestions (nps_log, client_suggestions)" },
+    { id: "feedback-failures", name: "Сбои действий юзеров", role: "diagnostic", brief: "Реестр failed-действий (user_action_failures)" },
+  ];
+  for (const f of feedbackAgents) {
+    orchestrator.register({
+      id: f.id, name: f.name, channel: "internal", role: f.role,
+      status: "active", capabilities: ["feedback_monitoring", "metrics"],
+      metadata: { brief: f.brief, system: "feedback" },
+    });
+    // Обратная связь → Директор (он владеет реакциями юзеров).
+    orchestrator.addEdge(f.id, "muza-admin", "event", { purpose: "user feedback → Директор (алерты/сводка)" });
+  }
   // Edges: A1 Master наблюдает за всеми bus-агентами + алертит Директору.
   for (const a of busAgents) {
     orchestrator.addEdge("agent-a1-master", `bus-${a.name}`, "event", {

@@ -122,6 +122,14 @@ internalRouter.post("/log", async (req: Request, res: Response) => {
 
     const id = Number(result?.lastInsertRowid ?? 0);
 
+    // Eugene 2026-05-25 Director-subordination rule: обратная связь → Директор.
+    // recordActivity (он видит что агент жив) + emit (real-time сигнал).
+    try {
+      const { recordAgentActivity, orchestrator } = await import("../../lib/agentOrchestrator");
+      recordAgentActivity("feedback-escalation", { priority });
+      orchestrator.recordEdgeUsage("feedback-escalation", "muza-admin", "event");
+    } catch {}
+
     // High priority — alert админу немедленно (best-effort).
     if (priority === "high") {
       const snippet = p.text.slice(0, 250);

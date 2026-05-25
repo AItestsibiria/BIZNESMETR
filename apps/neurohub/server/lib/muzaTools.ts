@@ -864,6 +864,11 @@ export const MUZA_TOOLS: ToolDef[] = [
       properties: { period: { type: "string", description: "today | 7d | 30d (default today)" } },
     },
   },
+  {
+    name: "director_feedback",
+    description: "[ADMIN-ONLY] Сводка обратной связи юзеров: открытые эскалации (негатив), негативный sentiment за 24ч, средний NPS, топ-предложения, частые сбои действий. Используй когда Босс спрашивает «что юзеры пишут», «какие жалобы», «обратная связь», «недовольство», «что не нравится людям».",
+    input_schema: { type: "object", properties: {} },
+  },
 ];
 
 // === Email 2FA wrapper helper (Eugene 2026-05-17 Босс) ===
@@ -3114,6 +3119,34 @@ const HANDLERS: Record<string, ToolHandler> = {
     } catch (e: any) {
       return `Не смогла собрать доклад: ${e?.message || e}`;
     }
+  },
+
+  async director_feedback(_input, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: director tool admin-only.";
+    const sqlite: any = (db as any).$client;
+    const dayAgo = Date.now() - 24 * 3600_000;
+    const one = (q: string, ...a: any[]): any => { try { return sqlite.prepare(q).get(...a); } catch { return null; } };
+    const many = (q: string, ...a: any[]): any[] => { try { return sqlite.prepare(q).all(...a); } catch { return []; } };
+    const lines: string[] = [];
+    // Открытые эскалации (негатив).
+    const escOpen = one(`SELECT COUNT(*) c FROM escalation_queue WHERE status='open'`)?.c || 0;
+    const escHigh = one(`SELECT COUNT(*) c FROM escalation_queue WHERE status='open' AND priority='high'`)?.c || 0;
+    lines.push(`Эскалаций открыто: ${escOpen}${escHigh ? ` (high: ${escHigh})` : ""}.`);
+    // Негативный sentiment за 24ч.
+    const neg = one(`SELECT COUNT(*) c FROM message_analysis WHERE sentiment_label='negative' AND created_at > ?`, dayAgo)?.c || 0;
+    const totalMsg = one(`SELECT COUNT(*) c FROM message_analysis WHERE created_at > ?`, dayAgo)?.c || 0;
+    if (totalMsg > 0) lines.push(`Негатив за 24ч: ${neg} из ${totalMsg} сообщений (${Math.round((neg / totalMsg) * 100)}%).`);
+    // NPS (последние 30 оценок).
+    const nps = one(`SELECT AVG(score) avg, COUNT(*) c FROM (SELECT score FROM nps_log ORDER BY id DESC LIMIT 30)`);
+    if (nps?.c) lines.push(`NPS (последние ${nps.c}): средний ${Number(nps.avg).toFixed(1)}/10.`);
+    // Топ-кластеры предложений.
+    const sugg = many(`SELECT cluster_key, COUNT(*) c, MAX(text) txt FROM client_suggestions GROUP BY cluster_key ORDER BY c DESC LIMIT 3`);
+    if (sugg.length) lines.push(`Частые предложения: ${sugg.map((s: any) => `«${String(s.txt || s.cluster_key).slice(0, 40)}» ×${s.c}`).join("; ")}.`);
+    // Частые сбои действий за 24ч.
+    const fails = many(`SELECT group_key, COUNT(*) c FROM user_action_failures WHERE created_at > ? GROUP BY group_key ORDER BY c DESC LIMIT 3`, dayAgo);
+    if (fails.length) lines.push(`Сбои действий за 24ч: ${fails.map((f: any) => `${f.group_key} ×${f.c}`).join("; ")}.`);
+    if (lines.length === 0) return "По обратной связи пусто — данных нет.";
+    return "📣 Обратная связь юзеров: " + lines.join(" ");
   },
 };
 
