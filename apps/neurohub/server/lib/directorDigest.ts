@@ -82,6 +82,8 @@ export interface DigestData {
   finance: { revenueRub: number; profitRub: number } | null;
   support: { open: number; urgent: number };
   feedback: { escalationsOpen: number; negative24h: number };
+  payments: { total24h: number; failed24h: number };
+  frontend: { errorsLastHour: number };
   critical: string[];
 }
 
@@ -93,6 +95,8 @@ export async function collectDigestData(): Promise<DigestData> {
     finance: null,
     support: { open: 0, urgent: 0 },
     feedback: { escalationsOpen: 0, negative24h: 0 },
+    payments: { total24h: 0, failed24h: 0 },
+    frontend: { errorsLastHour: 0 },
     critical: [],
   };
 
@@ -135,11 +139,25 @@ export async function collectDigestData(): Promise<DigestData> {
   d.feedback.escalationsOpen = one(`SELECT COUNT(*) c FROM escalation_queue WHERE status='open'`)?.c || 0;
   d.feedback.negative24h = one(`SELECT COUNT(*) c FROM message_analysis WHERE sentiment_label='negative' AND created_at > ?`, now - 24 * 3600_000)?.c || 0;
 
+  // Платежи (24ч)
+  const pay = one(`SELECT SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed, COUNT(*) AS total FROM payments WHERE datetime(created_at) > datetime(?, 'unixepoch')`, Math.floor((now - 24 * 3600_000) / 1000));
+  d.payments.total24h = Number(pay?.total || 0);
+  d.payments.failed24h = Number(pay?.failed || 0);
+
+  // Фронтенд (client-errors за час)
+  try {
+    const ring: Array<{ ts: string }> = (globalThis as any).__clientErrorsRing || [];
+    const hourAgo = now - 3600_000;
+    d.frontend.errorsLastHour = ring.filter(e => { const t = Date.parse(e.ts); return Number.isFinite(t) && t > hourAgo; }).length;
+  } catch {}
+
   // Критерии КРИТИЧНОГО (немедленный алерт)
   if (d.agents.errored.length > 0) d.critical.push(`🔴 Агенты в ошибке: ${d.agents.errored.join(", ")}`);
   if (d.generations.stuck >= 5) d.critical.push(`🔴 Зависших генераций: ${d.generations.stuck}`);
   if (d.support.urgent >= 3) d.critical.push(`🔴 Срочных тикетов: ${d.support.urgent}`);
   if (d.feedback.escalationsOpen >= 5) d.critical.push(`🔴 Открытых эскалаций: ${d.feedback.escalationsOpen}`);
+  if (d.payments.total24h >= 4 && d.payments.failed24h / d.payments.total24h >= 0.5) d.critical.push(`🔴 Платежи: ${d.payments.failed24h}/${d.payments.total24h} провалов за 24ч`);
+  if (d.frontend.errorsLastHour >= 20) d.critical.push(`🔴 Фронтенд: ${d.frontend.errorsLastHour} ошибок за час`);
 
   return d;
 }
@@ -151,6 +169,8 @@ function formatDigest(d: DigestData, label: string): string {
   if (d.finance) lines.push(`💰 Сегодня: выручка ${d.finance.revenueRub} ₽, прибыль ${d.finance.profitRub} ₽`);
   lines.push(`🆘 Поддержка: открыто ${d.support.open}${d.support.urgent ? ` (срочных ${d.support.urgent})` : ""}`);
   lines.push(`📣 Обратная связь: эскалаций ${d.feedback.escalationsOpen}, негатив 24ч ${d.feedback.negative24h}`);
+  lines.push(`💳 Платежи 24ч: ${d.payments.total24h}${d.payments.failed24h ? `, провалов ${d.payments.failed24h}` : ""}`);
+  lines.push(`🖥 Фронтенд: ошибок за час ${d.frontend.errorsLastHour}`);
   if (d.critical.length) { lines.push("", "<b>⚠️ Требует внимания:</b>", ...d.critical); }
   return lines.join("\n");
 }

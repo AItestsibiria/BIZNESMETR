@@ -796,6 +796,58 @@ export function registerEventBusAgents(): void {
     metadata: { brief: "Срез по всем направлениям Боссу в TG: 03:00/14:00 МСК + критическое немедленно" },
   });
   orchestrator.addEdge("director-digest", "muza-admin", "webhook", { purpose: "Дайджест + критические алерты Боссу в Telegram" });
+
+  // Eugene 2026-05-25 Босс «по всем направлениям должен быть агент» (Рек 2).
+  // payment-health — мониторит провал платежей (Robokassa). frontend-health —
+  // runtime-ошибки страниц (client-errors ring). Подчинены Директору, с пробами.
+  orchestrator.register({
+    id: "payment-health",
+    name: "Здоровье платежей",
+    channel: "internal",
+    role: "watchdog",
+    status: "active",
+    capabilities: ["payment_monitoring", "metrics", "alert"],
+    metadata: { brief: "Мониторит fail-rate платежей за 24ч (Robokassa)" },
+    healthCheck: async () => {
+      try {
+        const { db } = await import("../storage");
+        const sqlite: any = (db as any).$client;
+        const dayAgo = Date.now() - 24 * 3600_000;
+        const row = sqlite.prepare(
+          `SELECT SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END) AS failed, COUNT(*) AS total
+           FROM payments WHERE datetime(created_at) > datetime(?, 'unixepoch')`
+        ).get(Math.floor(dayAgo / 1000)) as any;
+        const total = Number(row?.total || 0);
+        const failed = Number(row?.failed || 0);
+        const failRate = total > 0 ? failed / total : 0;
+        return { ok: failRate < 0.5, details: { total24h: total, failed24h: failed, failRate: +(failRate * 100).toFixed(1) } };
+      } catch (e: any) {
+        return { ok: false, details: { error: e?.message || String(e) } };
+      }
+    },
+  });
+  orchestrator.addEdge("payment-health", "muza-admin", "webhook", { purpose: "Алерт при росте провалов платежей" });
+
+  orchestrator.register({
+    id: "frontend-health",
+    name: "Здоровье фронтенда",
+    channel: "internal",
+    role: "watchdog",
+    status: "active",
+    capabilities: ["client_errors", "metrics", "alert"],
+    metadata: { brief: "Runtime-ошибки страниц (client-errors ring) за последний час" },
+    healthCheck: async () => {
+      try {
+        const ring: Array<{ ts: string }> = (globalThis as any).__clientErrorsRing || [];
+        const hourAgo = Date.now() - 3600_000;
+        const recent = ring.filter(e => { const t = Date.parse(e.ts); return Number.isFinite(t) && t > hourAgo; }).length;
+        return { ok: recent < 20, details: { errorsLastHour: recent, ringSize: ring.length } };
+      } catch (e: any) {
+        return { ok: false, details: { error: e?.message || String(e) } };
+      }
+    },
+  });
+  orchestrator.addEdge("frontend-health", "muza-admin", "webhook", { purpose: "Алерт при всплеске runtime-ошибок фронта" });
   // Edges: A1 Master наблюдает за всеми bus-агентами + алертит Директору.
   for (const a of busAgents) {
     orchestrator.addEdge("agent-a1-master", `bus-${a.name}`, "event", {
