@@ -2215,6 +2215,49 @@ export function FloatingConsultant() {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+  // Eugene 2026-05-24 Босс «учитывай продолжительность юзера на сайте, чем
+  // дольше тем реже показывай, до следующей сессии через сутки, с учётом
+  // паттернов памяти». Session-aware backoff интервала FAB-сообщений.
+  //   - sessionStart: начало сессии (localStorage). Reset если idle >2ч ИЛИ
+  //     сессия старше 24ч → «следующая сессия через сутки».
+  //   - Чем дольше сессия — тем больше множитель интервала (1× → 6×).
+  //   - Паттерны памяти (локальный proxy): engaged/shown ratio. Кликает
+  //     bubbles → 0.7× (показываем чаще, ему нравится). Игнорирует (shown>8,
+  //     engaged=0) → 1.6× (реже, не отвлекаем).
+  const FAB_SESSION_KEY = "muza-fab-session";
+  const readFabSession = (): { startedAt: number; lastAt: number; shown: number; engaged: number } => {
+    const now = Date.now();
+    const fresh = { startedAt: now, lastAt: now, shown: 0, engaged: 0 };
+    if (typeof window === "undefined") return fresh;
+    try {
+      const raw = localStorage.getItem(FAB_SESSION_KEY);
+      if (!raw) return fresh;
+      const p = JSON.parse(raw);
+      const startedAt = Number(p.startedAt) || now;
+      const lastAt = Number(p.lastAt) || now;
+      // Новая сессия: idle >2ч ИЛИ возраст сессии >24ч.
+      if (now - lastAt > 2 * 3600_000 || now - startedAt > 24 * 3600_000) return fresh;
+      return { startedAt, lastAt, shown: Number(p.shown) || 0, engaged: Number(p.engaged) || 0 };
+    } catch { return fresh; }
+  };
+  const writeFabSession = (s: { startedAt: number; lastAt: number; shown: number; engaged: number }) => {
+    try { localStorage.setItem(FAB_SESSION_KEY, JSON.stringify(s)); } catch {}
+  };
+  const computeFabInterval = (baseMin: number): number => {
+    const s = readFabSession();
+    const ageMin = (Date.now() - s.startedAt) / 60_000;
+    // Длительность на сайте → множитель (чем дольше — тем реже).
+    let mult = 1;
+    if (ageMin >= 60) mult = 6;
+    else if (ageMin >= 30) mult = 4;
+    else if (ageMin >= 15) mult = 2.5;
+    else if (ageMin >= 5) mult = 1.5;
+    // Паттерны вовлечённости (память поведения).
+    if (s.engaged > 0) mult *= 0.7;            // кликал — показываем чаще
+    else if (s.shown >= 8) mult *= 1.6;        // 8+ показов без клика — реже
+    const ms = baseMin * 60_000 * mult;
+    return Math.max(60_000, Math.min(ms, 45 * 60_000)); // clamp 1мин..45мин
+  };
   // Eugene 2026-05-24 Босс «чередую project и хуки, 1 раз в 10 мин + кнопка
   // настроить». Settings: interval (1-60 мин), какие категории показывать.
   const [factSettings, setFactSettings] = useState<{ intervalMin: number; cats: Record<string, boolean> }>(() => {
@@ -2275,6 +2318,9 @@ export function FloatingConsultant() {
       lastFactCategoryRef.current = categorize(fact.id);
       factClickedRef.current = { expand: fact.expand, id: fact.id };
       setSmartBubbleText(`${fact.emoji} ${fact.text}`);
+      // Учёт показа в session-памяти (для backoff'а интервала).
+      const s = readFabSession();
+      writeFabSession({ ...s, lastAt: Date.now(), shown: s.shown + 1 });
       window.setTimeout(() => {
         if (factClickedRef.current?.expand === fact.expand) {
           setSmartBubbleText(null);
@@ -2282,10 +2328,18 @@ export function FloatingConsultant() {
         }
       }, 9000);
     };
-    // Первый показ через 12 сек после mount, затем каждые intervalMin минут.
-    const first = window.setTimeout(showFact, 12_000);
-    const iv = window.setInterval(showFact, factSettings.intervalMin * 60_000);
-    return () => { window.clearTimeout(first); window.clearInterval(iv); };
+    // Eugene 2026-05-24: рекурсивный setTimeout вместо фиксированного setInterval —
+    // интервал пересчитывается перед каждым показом (session-aware backoff).
+    // Чем дольше юзер на сайте — тем больше пауза. Reset через сутки/idle.
+    let timer = 0;
+    const scheduleNext = (delayMs: number) => {
+      timer = window.setTimeout(() => {
+        showFact();
+        scheduleNext(computeFabInterval(factSettings.intervalMin));
+      }, delayMs);
+    };
+    scheduleNext(12_000); // первый показ через 12 сек после mount
+    return () => { window.clearTimeout(timer); };
   }, [visible, chatOpen, smartBubbleText, factSettings.intervalMin, factSettings.cats]);
 
   // Click handler для bubble — opens chat на ТЕКУЩЕЙ странице (overlay
@@ -2294,6 +2348,9 @@ export function FloatingConsultant() {
     const expandPrompt = factClickedRef.current?.expand;
     const factId = factClickedRef.current?.id;
     factClickedRef.current = null;
+    // Eugene 2026-05-24: клик = вовлечённость → engaged++ в session-памяти.
+    // computeFabInterval показывает чаще (0.7×) тем кто кликает (паттерн).
+    try { const s = readFabSession(); writeFabSession({ ...s, lastAt: Date.now(), engaged: s.engaged + 1 }); } catch {}
     // Eugene 2026-05-24 Босс «сохраняй паттерны в память автора в том числе
     // с FAB». Если автор авторизован — пишем topic клика в user_memory.
     // На следующем входе Музa учитывает интерес. Fire-and-forget.
