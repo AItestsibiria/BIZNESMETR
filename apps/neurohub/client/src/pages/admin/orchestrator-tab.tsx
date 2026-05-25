@@ -808,16 +808,39 @@ function DirectorVoiceReport() {
   const [err, setErr] = useState<string | null>(null);
   // Eugene 2026-05-25: сохранённые аудио-доклады (7 дней) — прослушать позже.
   const [saved, setSaved] = useState<Array<{ id: number; periodLabel: string | null; createdAt: number; hasAudio: boolean; preview: string }>>([]);
+  // Ежедневные текст-отчёты (архив 90 дней).
+  const [daily, setDaily] = useState<Array<{ id: number; periodLabel: string | null; createdAt: number; preview: string }>>([]);
+  const [dailyOpen, setDailyOpen] = useState<{ id: number; text: string } | null>(null);
+  const [dailyGen, setDailyGen] = useState(false);
 
   async function loadSaved() {
     try {
-      const r = await fetch("/api/admin/v304/director/voice-reports", { credentials: "include" });
-      if (!r.ok) return;
-      const j = await r.json();
-      setSaved(j.data?.reports || []);
+      const r = await fetch("/api/admin/v304/director/voice-reports?kind=voice", { credentials: "include" });
+      if (r.ok) setSaved((await r.json()).data?.reports || []);
     } catch {}
   }
-  useEffect(() => { loadSaved(); }, []);
+  async function loadDaily() {
+    try {
+      const r = await fetch("/api/admin/v304/director/voice-reports?kind=daily", { credentials: "include" });
+      if (r.ok) setDaily((await r.json()).data?.reports || []);
+    } catch {}
+  }
+  async function openDaily(id: number) {
+    try {
+      const r = await fetch(`/api/admin/v304/director/voice-report/saved/${id}`, { credentials: "include" });
+      if (!r.ok) return;
+      const j = await r.json();
+      setDailyOpen({ id, text: j.data?.text || "" });
+    } catch {}
+  }
+  async function generateDaily() {
+    setDailyGen(true);
+    try {
+      await fetch("/api/admin/v304/director/daily-report", { method: "POST", credentials: "include" });
+      await loadDaily();
+    } catch {} finally { setDailyGen(false); }
+  }
+  useEffect(() => { loadSaved(); loadDaily(); }, []);
 
   async function playSaved(id: number) {
     try {
@@ -959,6 +982,34 @@ function DirectorVoiceReport() {
           </div>
         </div>
       )}
+
+      {/* Ежедневные текст-отчёты — архив 90 дней (Eugene 2026-05-25) */}
+      <div className="mt-3 pt-2 border-t border-white/10">
+        <div className="flex items-center justify-between mb-1.5">
+          <div className="text-[11px] text-white/50">📅 Ежедневные отчёты (архив, по всем делам):</div>
+          <button onClick={generateDaily} disabled={dailyGen} className="text-[11px] px-2 py-1 rounded bg-cyan-500/20 text-cyan-200 border border-cyan-400/25 hover:bg-cyan-500/30 disabled:opacity-50">
+            {dailyGen ? "⏳" : "📝 Сформировать сейчас"}
+          </button>
+        </div>
+        {daily.length === 0 ? (
+          <div className="text-[11px] text-white/35">Пока нет — формируются автоматически в 03:00 МСК или по кнопке.</div>
+        ) : (
+          <div className="flex flex-col gap-1 max-h-48 overflow-y-auto">
+            {daily.map(s => (
+              <button key={s.id} onClick={() => openDaily(s.id)} className="text-left text-xs bg-white/[0.03] rounded-lg px-2 py-1.5 border border-white/5 hover:bg-white/[0.06]">
+                <div className="text-white/70 truncate">{s.periodLabel || "Ежедневный отчёт"}</div>
+                <div className="text-[10px] text-white/35 font-mono">{new Date(s.createdAt).toLocaleString("ru-RU")}</div>
+              </button>
+            ))}
+          </div>
+        )}
+        {dailyOpen && (
+          <div className="mt-2 p-3 rounded-lg bg-black/40 border border-cyan-400/20 text-xs text-white/85 leading-relaxed whitespace-pre-wrap relative">
+            <button onClick={() => setDailyOpen(null)} className="absolute top-1 right-2 text-white/40 hover:text-white">✕</button>
+            {dailyOpen.text}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

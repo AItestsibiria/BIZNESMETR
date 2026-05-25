@@ -7937,17 +7937,29 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     }
   });
 
-  // Список сохранённых аудио-докладов (последние 7 дней).
-  app.get("/api/admin/v304/director/voice-reports", requireAdmin, async (_req: Request, res: Response) => {
+  // Список сохранённых докладов. ?kind=voice (аудио 7д) | daily (текст-архив 90д).
+  app.get("/api/admin/v304/director/voice-reports", requireAdmin, async (req: Request, res: Response) => {
     try {
+      const kind = req.query.kind === "daily" ? "daily" : req.query.kind === "voice" ? "voice" : undefined;
       const { listDirectorReports } = await import("./lib/directorReportStore");
-      res.json({ data: { reports: listDirectorReports() }, error: null });
+      res.json({ data: { reports: listDirectorReports(kind as any) }, error: null });
     } catch (e: any) {
       res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
     }
   });
 
-  // Один сохранённый доклад (text + audioBase64) — для прослушивания.
+  // Сформировать полный текст-отчёт «по всем делам» сейчас → в архив (kind=daily).
+  app.post("/api/admin/v304/director/daily-report", requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const { buildAndSaveDailyReport } = await import("./lib/directorDigest");
+      const id = await buildAndSaveDailyReport();
+      res.json({ data: { id }, error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 200) });
+    }
+  });
+
+  // Один сохранённый доклад (text + audioBase64) — для прослушивания/чтения.
   app.get("/api/admin/v304/director/voice-report/saved/:id", requireAdmin, async (req: Request, res: Response) => {
     try {
       const { getDirectorReport } = await import("./lib/directorReportStore");

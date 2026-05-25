@@ -2471,6 +2471,24 @@ const adminOverviewModule: Module = {
         }
       },
     },
+    // Eugene 2026-05-25 Босс «текстовый отчёт каждый день, веди архив».
+    // Раз/день в 03:05 МСК — полный текст-отчёт по всем делам → архив 90 дней.
+    {
+      name: "director-daily-report",
+      schedule: "every_hour",
+      handler: async () => {
+        try {
+          const mskHour = (new Date().getUTCHours() + 3) % 24;
+          const min = new Date().getMinutes();
+          if (mskHour !== 3 || min >= 10) return; // 03:00-03:09 МСК = раз/день
+          const mod = await import("../../lib/directorDigest");
+          const id = await mod.buildAndSaveDailyReport();
+          console.log(`[DIRECTOR-DAILY-REPORT] saved id=${id}`);
+        } catch (e) {
+          console.error("[DIRECTOR-DAILY-REPORT job]", e);
+        }
+      },
+    },
   ],
   onLoad: async (ctx) => {
     // Eugene 2026-05-14 Босс: при старте — одноразовая зачистка зависших.

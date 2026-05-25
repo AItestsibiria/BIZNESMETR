@@ -117,6 +117,17 @@ export interface DigestData {
   feedback: { escalationsOpen: number; negative24h: number };
   payments: { total24h: number; failed24h: number };
   frontend: { errorsLastHour: number };
+  business: {
+    registrations24h: number;
+    visitors24h: number;
+    gensDone24h: number;
+    gensError24h: number;
+    gensProcessing: number;
+    plays24h: number;
+    lyrics24h: number;
+    covers24h: number;
+    activeSubscriptions: number;
+  };
   critical: string[];
 }
 
@@ -130,6 +141,7 @@ export async function collectDigestData(): Promise<DigestData> {
     feedback: { escalationsOpen: 0, negative24h: 0 },
     payments: { total24h: 0, failed24h: 0 },
     frontend: { errorsLastHour: 0 },
+    business: { registrations24h: 0, visitors24h: 0, gensDone24h: 0, gensError24h: 0, gensProcessing: 0, plays24h: 0, lyrics24h: 0, covers24h: 0, activeSubscriptions: 0 },
     critical: [],
   };
 
@@ -184,6 +196,18 @@ export async function collectDigestData(): Promise<DigestData> {
     d.frontend.errorsLastHour = ring.filter(e => { const t = Date.parse(e.ts); return Number.isFinite(t) && t > hourAgo; }).length;
   } catch {}
 
+  // Бизнес «по всем делам» (24ч) — регистрации, визиты, генерации, плеи, подписки.
+  const dayMs = now - 24 * 3600_000;
+  d.business.registrations24h = one(`SELECT COUNT(*) c FROM users WHERE datetime(created_at) > datetime(?, 'unixepoch')`, Math.floor(dayMs / 1000))?.c || 0;
+  d.business.gensDone24h = one(`SELECT COUNT(*) c FROM generations WHERE type='music' AND status='done' AND datetime(created_at) > datetime(?, 'unixepoch')`, Math.floor(dayMs / 1000))?.c || 0;
+  d.business.gensError24h = one(`SELECT COUNT(*) c FROM generations WHERE type='music' AND status='error' AND datetime(created_at) > datetime(?, 'unixepoch')`, Math.floor(dayMs / 1000))?.c || 0;
+  d.business.gensProcessing = one(`SELECT COUNT(*) c FROM generations WHERE status='processing'`)?.c || 0;
+  d.business.lyrics24h = one(`SELECT COUNT(*) c FROM generations WHERE type='lyrics' AND status='done' AND datetime(created_at) > datetime(?, 'unixepoch')`, Math.floor(dayMs / 1000))?.c || 0;
+  d.business.covers24h = one(`SELECT COUNT(*) c FROM generations WHERE type='cover' AND status='done' AND datetime(created_at) > datetime(?, 'unixepoch')`, Math.floor(dayMs / 1000))?.c || 0;
+  d.business.plays24h = one(`SELECT COUNT(*) c FROM gen_activity WHERE action='play' AND datetime(created_at) > datetime('now','-24 hours')`)?.c || 0;
+  d.business.activeSubscriptions = one(`SELECT COUNT(*) c FROM premium_subscriptions WHERE status='active'`)?.c || 0;
+  d.business.visitors24h = one(`SELECT COUNT(DISTINCT ip) c FROM gen_activity WHERE datetime(created_at) > datetime('now','-24 hours')`)?.c || 0;
+
   // Критерии КРИТИЧНОГО (немедленный алерт)
   if (d.agents.errored.length > 0) d.critical.push(`🔴 Агенты в ошибке: ${d.agents.errored.join(", ")}`);
   if (d.generations.stuck >= 5) d.critical.push(`🔴 Зависших генераций: ${d.generations.stuck}`);
@@ -204,6 +228,10 @@ function formatDigest(d: DigestData, label: string): string {
   lines.push(`📣 Обратная связь: эскалаций ${d.feedback.escalationsOpen}, негатив 24ч ${d.feedback.negative24h}`);
   lines.push(`💳 Платежи 24ч: ${d.payments.total24h}${d.payments.failed24h ? `, провалов ${d.payments.failed24h}` : ""}`);
   lines.push(`🖥 Фронтенд: ошибок за час ${d.frontend.errorsLastHour}`);
+  const b = d.business;
+  lines.push(`👥 Бизнес 24ч: регистраций ${b.registrations24h}, посетителей ${b.visitors24h}, плеев ${b.plays24h}`);
+  lines.push(`🎼 Создано 24ч: треков ${b.gensDone24h} (ошибок ${b.gensError24h}, в работе ${b.gensProcessing}), текстов ${b.lyrics24h}, каверов ${b.covers24h}`);
+  lines.push(`⭐ Активных подписок: ${b.activeSubscriptions}`);
   if (d.critical.length) { lines.push("", "<b>⚠️ Требует внимания:</b>", ...d.critical); }
   return lines.join("\n");
 }
@@ -258,4 +286,22 @@ export async function analyzeNow(): Promise<string> {
   const ai = await analyzeWithAI(d).catch(() => null);
   const base = formatDigest(d, "сейчас").replace(/<\/?b>/g, "");
   return ai ? `${base}\n\n🧠 Анализ:\n${ai}` : base;
+}
+
+/** Eugene 2026-05-25 Босс «текстовый отчёт каждый день, веди архив».
+ *  Полный текст-отчёт (все направления + AI-анализ) → сохраняется kind='daily'
+ *  (архив 90 дней). Вызывается daily-cron. Возвращает id записи. */
+export async function buildAndSaveDailyReport(): Promise<number | null> {
+  try {
+    const d = await collectDigestData();
+    const ai = await analyzeWithAI(d).catch(() => null);
+    const dateLabel = new Date(Date.now() + 3 * 3600_000).toISOString().slice(0, 10); // МСК-дата
+    const base = formatDigest(d, `день ${dateLabel}`).replace(/<\/?b>/g, "");
+    const text = ai ? `${base}\n\n🧠 Анализ и предложения:\n${ai}` : base;
+    const { saveDirectorReport } = await import("./directorReportStore");
+    return saveDirectorReport({ period: "daily", periodLabel: `Ежедневный отчёт ${dateLabel}`, text, kind: "daily" });
+  } catch (e) {
+    console.warn("[directorDigest] buildAndSaveDailyReport failed:", e);
+    return null;
+  }
 }
