@@ -53,6 +53,7 @@ import { FeatureTogglesAdminTab } from "@/pages/admin/feature-toggles-admin-tab"
 import OrchestratorTab from "@/pages/admin/orchestrator-tab";
 import GenErrorsTab from "@/pages/admin/gen-errors-tab";
 import FrontendQaTab from "@/pages/admin/frontend-qa-tab";
+import BackendQaTab from "@/pages/admin/backend-qa-tab";
 import MuzaInfoTab from "@/pages/admin/muza-info-tab";
 import EmailTemplatesTab from "@/pages/admin/email-templates-tab";
 import PublicationsTab from "@/pages/admin/publications-tab";
@@ -841,6 +842,7 @@ export default function AdminV304Page() {
           {/* ═══ 🚨 ERRORS / ALERTS (red-tinted) ═══ */}
           <TabsTrigger value="gen-errors" className={tabClass("errors")}>🚨 Ошибки генерации</TabsTrigger>
           <TabsTrigger value="frontend-qa" className={tabClass("errors")}>🚨 Фронт-тестер</TabsTrigger>
+          <TabsTrigger value="backend-qa" className={tabClass("errors")}>🚨 Бэк</TabsTrigger>
           <TabsTrigger value="yars-queue" className={tabClass("errors")}>🚨 Ярс</TabsTrigger>
           <TabsTrigger value="failures" className={tabClass("errors")}>🚨 Проблемы</TabsTrigger>
 
@@ -902,6 +904,7 @@ export default function AdminV304Page() {
         <TabsContent value="publications"><PublicationsTab /></TabsContent>
         <TabsContent value="gen-errors"><GenErrorsTab /></TabsContent>
         <TabsContent value="frontend-qa"><FrontendQaTab /></TabsContent>
+        <TabsContent value="backend-qa"><BackendQaTab /></TabsContent>
         <TabsContent value="denga"><DengaTab /></TabsContent>
         <TabsContent value="email-templates"><EmailTemplatesTab toast={toast} /></TabsContent>
         <TabsContent value="bot-channels"><BotChannelsTab toast={toast} /></TabsContent>

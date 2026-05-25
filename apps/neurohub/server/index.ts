@@ -108,6 +108,7 @@ import postmanModule from "./plugins/postman/module";
 import directorPublicationsModule from "./plugins/director-publications/module";
 import ferzModule from "./plugins/ferz/module";
 import frontendQaModule from "./plugins/frontend-qa/module";
+import backendQaModule from "./plugins/backend-qa/module";
 import securityModule from "./plugins/security/module";
 
 // Eugene 2026-05-23 Босс «Оркестратор нужен всеми компаниями агентами начать
@@ -631,6 +632,8 @@ app.post("/api/_client-error", express.json(), (req, res) => {
     { name: "ferz", module: ferzModule },
 
     { name: "frontend-qa", module: frontendQaModule },
+
+    { name: "backend-qa", module: backendQaModule },
 
     { name: "security", module: securityModule },
 

@@ -1001,6 +1001,31 @@ export function registerEventBusAgents(): void {
     },
   });
   orchestrator.addEdge("frontend-qa", "muza-admin", "webhook", { purpose: "Баги фронта + ссылки + предложенные фиксы Директору" });
+
+  // Eugene 2026-05-25 Босс «создай агента "Бэк" — бэкенд-аналог Фрона. Находит
+  // баги/рискованные места, лишнее (dead code), дубли (endpoints/функции),
+  // группирует бэкенд по темам». Подчинён Директору. Только ДЕТЕКТ + доклад +
+  // предложение — НЕ удаляет код сам (Pre-push critical review rule).
+  // Скан репо (fs + regex) → self-migrating таблица backend_findings.
+  orchestrator.register({
+    id: "back-qa",
+    name: "Бэк (бэкенд-аудит)",
+    channel: "internal",
+    role: "watchdog",
+    status: "active",
+    capabilities: ["audit", "dedupe", "metrics"],
+    metadata: { brief: "Дубли маршрутов/функций, лишнее (мёртвый код), техдолг, группировка по темам → Директор" },
+    healthCheck: async () => {
+      try {
+        const { backendQaHealth } = await import("./backendQaAgent");
+        return backendQaHealth();
+      } catch (e: any) {
+        return { ok: false, details: { error: e?.message || String(e) } };
+      }
+    },
+  });
+  orchestrator.addEdge("back-qa", "muza-admin", "webhook", { purpose: "Находки бэкенда (дубли/лишнее/техдолг) + группировка по темам Директору" });
+
   // Edges: A1 Master наблюдает за всеми bus-агентами + алертит Директору.
   for (const a of busAgents) {
     orchestrator.addEdge("agent-a1-master", `bus-${a.name}`, "event", {

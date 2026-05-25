@@ -370,6 +370,15 @@ export const MUZA_TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "backend_qa_report",
+    description: "[ADMIN-ONLY] Доклад агента Бэк (бэкенд-аудит): дубли маршрутов и функций, лишнее (мёртвый код), техдолг, группировка по темам/доменам. Если run=true — запускает свежий скан репо, иначе возвращает последний список. Агент только находит и предлагает — код НЕ удаляет (нужно ревью Босса). Используй когда Босс говорит «Директор, бэкенд-аудит», «дубли в коде», «что лишнее на бэке», «Бэк, доклад».",
+    input_schema: {
+      type: "object",
+      properties: { run: { type: "boolean", description: "true — запустить свежий бэкенд-аудит; false/опущено — вернуть последний список" } },
+      required: [],
+    },
+  },
+  {
     name: "focus_brain_node",
     description: "[ADMIN-ONLY · UI] Сфокусировать камеру в 3D «Втором мозге» на указанном узле. Передаётся имя узла или его id (например 'plugin:telegram-bot', 'provider:gptunnel', 'core:db', 'Telegram', 'GPTunnel'). Поиск substring-match по label/id. Возвращает подтверждение — фронт перехватывает result через actions[] и эмитит CustomEvent 'brain-focus-node' который слушает SecondBrain3D компонент.",
     input_schema: {
@@ -2207,6 +2216,24 @@ const HANDLERS: Record<string, ToolHandler> = {
       return `${report.summaryRu}\n\nСсылки и предложенные фиксы:\n${links.join("\n")}`;
     } catch (e: any) {
       return `Ошибка frontend_qa_report: ${e.message}`;
+    }
+  },
+
+  // === Агент Бэк (Eugene 2026-05-25) — бэкенд-аудит, подчинён Директору ===
+  async backend_qa_report({ run }, ctx) {
+    if (!isAdminCtx(ctx)) return "Доступ запрещён: tool admin-only.";
+    try {
+      const mod = await import("./backendQaAgent");
+      const report = run === true ? await mod.runBackendQaScan() : mod.getLatestBackendQaReport();
+      // Лидируем русским ИТОГОМ (summaryRu).
+      if (!report.items.length) return report.summaryRu || "Бэк: бэкенд чист — дублей и мёртвого кода не найдено.";
+      const SEV: Record<string, string> = { critical: "критич", high: "важн", medium: "средн", low: "мелк" };
+      const top = report.items
+        .slice(0, 6)
+        .map((i) => `• [${SEV[i.severity] || i.severity}] ${i.theme}: ${i.title.slice(0, 120)} (×${i.count})\n  ${i.detail.slice(0, 180)}`);
+      return `${report.summaryRu}\n\nНаходки (только детект, удаление — после ревью):\n${top.join("\n")}`;
+    } catch (e: any) {
+      return `Ошибка backend_qa_report: ${e.message}`;
     }
   },
 
