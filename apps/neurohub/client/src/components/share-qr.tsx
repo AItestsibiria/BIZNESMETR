@@ -96,7 +96,7 @@ async function renderQRWithLogo(url: string, size: number): Promise<Blob | null>
   if (!blob) return null;
 
   const qrUrl = URL.createObjectURL(blob);
-  const qrImg = new Image();
+  const qrImg = document.createElement("img");
   qrImg.src = qrUrl;
   await new Promise(r => { qrImg.onload = r; });
 

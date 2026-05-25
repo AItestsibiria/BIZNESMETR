@@ -297,7 +297,7 @@ function buildArtwork(trackId: number | string, bust?: string | number): MediaIm
 }
 
 /**
- * Prewarm the 512px + 256px cover via `new Image()` so the HTTP cache is
+ * Prewarm the 512px + 256px cover via `document.createElement("img")` so the HTTP cache is
  * warm by the time iOS fetches the artwork URL. НЕ блокирует sync apply.
  *
  * Apple/WebKit: artwork URL fetch имеет короткий timeout (~1.5 сек) перед
@@ -309,11 +309,11 @@ function prewarmCover(trackId: number | string, bust?: string | number): void {
   try {
     const qs = bust ? `&v=${encodeURIComponent(String(bust))}` : "";
     // 512 — самый «крупный», iOS обычно берёт его для lock-screen full-width.
-    const img512 = new Image();
+    const img512 = document.createElement("img");
     img512.decoding = "async";
     img512.src = `${ORIGIN}/api/cover/${trackId}.jpg?size=512${qs}`;
     // 256 — для Notification Center / Apple Watch.
-    const img256 = new Image();
+    const img256 = document.createElement("img");
     img256.decoding = "async";
     img256.src = `${ORIGIN}/api/cover/${trackId}.jpg?size=256${qs}`;
   } catch {

@@ -173,7 +173,7 @@ export function CoverDetailsModal({
   const saveCoverWithWatermark = async () => {
     if (!track || !track.imageUrl) return;
     try {
-      const img = new Image();
+      const img = document.createElement("img");
       img.crossOrigin = "anonymous";
       img.src = track.imageUrl;
       await new Promise<void>((resolve, reject) => {

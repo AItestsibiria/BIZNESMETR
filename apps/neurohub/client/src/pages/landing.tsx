@@ -931,20 +931,27 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // картинка уже готова, рендерится мгновенно.
   const preloadedCoversRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    const list = filteredMusicRef.current || [];
-    if (list.length === 0) return;
-    const idx = list.findIndex((t: any) => t.id === playingId);
-    if (idx < 0) return;
-    for (const off of [1, -1, 2, -2]) {
-      const t = list[(idx + off + list.length) % list.length];
-      const url = t?.imageUrl;
-      if (url && !preloadedCoversRef.current.has(url)) {
-        preloadedCoversRef.current.add(url);
-        const img = new Image();
-        img.decoding = "async";
-        img.src = url;
+    // Eugene 2026-05-25 КРИТ-ФИКС: `new Image()` минифицировался в `new oo`,
+    // который на устройстве оказывался не-конструктором → эффект бросал
+    // исключение → ErrorBoundary валил весь лендинг (чёрный экран). Заменено
+    // на document.createElement("img") + try/catch (preload — не критичен,
+    // никогда не должен ронять страницу).
+    try {
+      const list = filteredMusicRef.current || [];
+      if (list.length === 0) return;
+      const idx = list.findIndex((t: any) => t.id === playingId);
+      if (idx < 0) return;
+      for (const off of [1, -1, 2, -2]) {
+        const t = list[(idx + off + list.length) % list.length];
+        const url = t?.imageUrl;
+        if (url && !preloadedCoversRef.current.has(url)) {
+          preloadedCoversRef.current.add(url);
+          const img = document.createElement("img");
+          img.decoding = "async";
+          img.src = url;
+        }
       }
-    }
+    } catch { /* preload best-effort — не роняем рендер */ }
   }, [playingId, tracks]);
 
   // Marquee title in browser tab while playing
