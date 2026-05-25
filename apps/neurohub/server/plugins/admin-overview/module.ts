@@ -2498,6 +2498,12 @@ const adminOverviewModule: Module = {
       schedule: "every_minute",
       handler: async () => {
         try {
+          // Eugene 2026-05-25 КРИТ: default OFF. checkCritical→collectDigestData
+          // делает full-scan gen_activity (синхронно) → блокировал event loop
+          // каждые 5 мин → сайт переставал отвечать. Событийные алерты
+          // (agent-orchestrator-bridge) остаются. Включить осознанно после
+          // оптимизации тяжёлых запросов: DIRECTOR_CRITICAL_SCAN=1.
+          if (process.env.DIRECTOR_CRITICAL_SCAN !== "1") return;
           if (new Date().getMinutes() % 5 !== 0) return; // каждые 5 минут
           const mod = await import("../../lib/directorDigest");
           await mod.checkCritical();

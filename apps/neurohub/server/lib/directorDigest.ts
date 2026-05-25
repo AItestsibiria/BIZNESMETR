@@ -133,7 +133,18 @@ export interface DigestData {
   critical: string[];
 }
 
-export async function collectDigestData(): Promise<DigestData> {
+// Eugene 2026-05-25 КРИТ: collectDigestData делает тяжёлые СИНХРОННЫЕ SQL
+// (full-scan COUNT/COUNT(DISTINCT ip) по gen_activity — миллионы строк, datetime()
+// отключает индекс). better-sqlite3 синхронен → каждый вызов блокирует event loop
+// на секунды. Кэш (3 мин) не даёт блокировать при частых/кластерных вызовах
+// (digest + report + creative + ferz рядом по времени в 03-06 МСК).
+let _digestCache: { at: number; data: DigestData } | null = null;
+const DIGEST_CACHE_TTL = 180_000;
+
+export async function collectDigestData(opts?: { fresh?: boolean }): Promise<DigestData> {
+  if (!opts?.fresh && _digestCache && Date.now() - _digestCache.at < DIGEST_CACHE_TTL) {
+    return _digestCache.data;
+  }
   const now = Date.now();
   const d: DigestData = {
     agents: { total: 0, errored: [], stale: [] },
@@ -232,6 +243,7 @@ export async function collectDigestData(): Promise<DigestData> {
   if (d.payments.total24h >= 4 && d.payments.failed24h / d.payments.total24h >= 0.5) d.critical.push(`🔴 Платежи: ${d.payments.failed24h}/${d.payments.total24h} провалов за 24ч`);
   if (d.frontend.errorsLastHour >= 20) d.critical.push(`🔴 Фронтенд: ${d.frontend.errorsLastHour} ошибок за час`);
 
+  _digestCache = { at: Date.now(), data: d };
   return d;
 }
 
