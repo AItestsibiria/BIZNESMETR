@@ -2516,6 +2516,30 @@ export function FloatingConsultant() {
               <circle cx="90" cy="65" r="0.8" fill="#a78bfa" className="gift-twinkle" style={{animationDelay:"1.3s"}} />
               <circle cx="170" cy="80" r="1" fill="#60a5fa" className="gift-twinkle" style={{animationDelay:"2.1s"}} />
             </svg>
+            {/* Eugene 2026-05-24 Босс «кнопку Совсем в верхний правый угол, чтобы
+                сложнее было». Absolute top-right — отделена от частых «15 мин»/
+                «1 час» внизу. Маленькая, низкий contrast — осознанный reach в угол. */}
+            <button
+              type="button"
+              onClick={() => {
+                // До конца суток (MSK midnight)
+                try {
+                  const now = new Date();
+                  const mskHours = (now.getUTCHours() + 3) % 24;
+                  const hoursToMidnight = 24 - mskHours;
+                  const untilTs = Date.now() + hoursToMidnight * 60 * 60 * 1000 - now.getUTCMinutes() * 60 * 1000;
+                  localStorage.setItem("muza-dismiss-until-ts", String(untilTs));
+                  localStorage.setItem("muza-dismiss-eod", "1");
+                } catch {}
+                setExpanded(false);
+                dismiss();
+              }}
+              className="absolute top-2.5 right-4 z-20 min-h-[24px] px-2 rounded-lg bg-white/[0.02] text-[10px] text-white/35 hover:text-white/70 hover:bg-white/[0.06] transition-colors border border-white/[0.05] active:scale-95"
+              aria-label="Скрыть до конца суток"
+              title="Совсем — до конца суток"
+            >
+              Совсем
+            </button>
             {/* Brand-header */}
             <div className="relative flex items-center gap-2 mb-3 pb-2 border-b border-white/10">
               <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-purple-500 via-violet-400 to-blue-500 flex items-center justify-center shadow-lg shadow-purple-500/40 shrink-0">
@@ -2696,31 +2720,9 @@ export function FloatingConsultant() {
                   </div>
                 </div>
               )}
-              {/* Eugene 2026-05-24 Босс «совсем поднять выше чтобы не нажимали
-                  часто, добавить 15 мин, 1 час оставить». 3 опции:
-                  - «15 мин» / «1 час» — частые, рядом снизу
-                  - «Совсем» — выше, smaller, less prominent (тяжёлое решение) */}
-              <button
-                type="button"
-                onClick={() => {
-                  // До конца суток (MSK midnight)
-                  try {
-                    const now = new Date();
-                    const mskHours = (now.getUTCHours() + 3) % 24;
-                    const hoursToMidnight = 24 - mskHours;
-                    const untilTs = Date.now() + hoursToMidnight * 60 * 60 * 1000 - now.getUTCMinutes() * 60 * 1000;
-                    localStorage.setItem("muza-dismiss-until-ts", String(untilTs));
-                    localStorage.setItem("muza-dismiss-eod", "1");
-                  } catch {}
-                  setExpanded(false);
-                  dismiss();
-                }}
-                className="self-end min-h-[28px] px-2 mb-1 rounded-lg bg-white/[0.02] text-[10px] text-white/40 hover:text-white/70 hover:bg-white/[0.06] transition-colors border border-white/[0.05] active:scale-95"
-                aria-label="Скрыть до конца суток"
-                title="До конца суток"
-              >
-                Совсем
-              </button>
+              {/* Eugene 2026-05-24 Босс «Совсем» перенесён в верхний правый угол
+                  облачка (absolute, см. выше) — чтобы сложнее было случайно нажать.
+                  Здесь остаются только частые «15 мин» / «1 час». */}
               <button
                 type="button"
                 onClick={() => {
