@@ -30,6 +30,10 @@ export interface SendEmailOpts {
   kind?: EmailKind;
   // Опционально — переопределить from (по умолчанию SMTP_FROM или GMAIL_FROM)
   from?: string;
+  // Eugene 2026-05-25 (Агент Почтальон): кастомные SMTP-заголовки.
+  // Используется для List-Unsubscribe / List-Unsubscribe-Post (RFC 8058) —
+  // отписка одним кликом из почтового клиента.
+  headers?: Record<string, string>;
 }
 
 export interface SendEmailResult {
@@ -104,6 +108,7 @@ export async function sendEmail(opts: SendEmailOpts): Promise<SendEmailResult> {
         text,
         html,
         replyTo: opts.replyTo,
+        headers: opts.headers,
       });
       try { recordAgentActivity("channel-email", { provider: "custom-smtp" }); } catch {}
       return { ok: true, messageId: info?.messageId, provider: "custom-smtp" };
@@ -124,6 +129,7 @@ export async function sendEmail(opts: SendEmailOpts): Promise<SendEmailResult> {
         text,
         html,
         replyTo: opts.replyTo,
+        headers: opts.headers,
       });
       try { recordAgentActivity("channel-email", { provider: "gmail" }); } catch {}
       return { ok: true, messageId: info?.messageId, provider: "gmail" };

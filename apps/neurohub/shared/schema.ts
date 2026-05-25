@@ -1074,6 +1074,71 @@ export const dengaManualCosts = sqliteTable("denga_manual_costs", {
 
 export type DengaManualCost = typeof dengaManualCosts.$inferSelect;
 
+// Eugene 2026-05-25 Босс «Агент Почтальон» — почтовый AI-робот.
+// Фаза 0 (юр-фундамент): email-подписчики + журнал согласий + кампании.
+//
+// email_subscribers — единый реестр email-адресатов (привязка к user_id
+// опциональна — подписка может быть анонимной). status:
+//   pending      — opt-in оформлен, ждёт double opt-in подтверждения
+//   active        — подтвердил, согласие действующее
+//   unsubscribed  — отписался (один из источников suppress-list)
+//   bounced       — hard bounce (suppress)
+//   complained    — пожаловался на спам (suppress, самый жёсткий сигнал)
+export const emailSubscribers = sqliteTable("email_subscribers", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id"),                       // nullable — анонимная подписка ок
+  email: text("email").notNull().unique(),          // нормализованный lowercase
+  status: text("status").notNull().default("pending"), // pending|active|unsubscribed|bounced|complained
+  locale: text("locale").notNull().default("ru"),
+  // double opt-in токен (sha256-hex) + срок жизни (unix millis)
+  confirmTokenHash: text("confirm_token_hash"),
+  confirmTokenExpiresAt: integer("confirm_token_expires_at"),
+  confirmedAt: integer("confirmed_at"),             // unix millis когда подтвердил
+  // unsubscribe-токен (постоянный, для one-click List-Unsubscribe RFC 8058)
+  unsubscribeToken: text("unsubscribe_token").unique(),
+  unsubscribedAt: integer("unsubscribed_at"),       // unix millis
+  bounceReason: text("bounce_reason"),
+  source: text("source"),                           // откуда подписка (landing|chat|import|...)
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+export type EmailSubscriber = typeof emailSubscribers.$inferSelect;
+
+// email_consents — журнал согласий = доказательная база (152-ФЗ / закон «О рекламе»).
+// Каждое действие (opt_in / opt_out / confirm) фиксирует ЧТО юзер согласился
+// получать, КАКОЙ текст видел, С КАКОГО IP/UA и КОГДА. Append-only — не удаляем.
+export const emailConsents = sqliteTable("email_consents", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  subscriberId: integer("subscriber_id").notNull(),
+  channel: text("channel").notNull(),    // product|news|marketing|survey
+  action: text("action").notNull(),      // opt_in|opt_out|confirm
+  consentText: text("consent_text"),     // точная формулировка согласия, что видел юзер
+  source: text("source"),                // landing-form|chat|admin|import|email-link
+  ip: text("ip"),
+  userAgent: text("user_agent"),
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+export type EmailConsent = typeof emailConsents.$inferSelect;
+
+// email_campaigns — описание рассылки (что/кому/когда). Реальная отправка —
+// через sendEmail (Reuse-working-solutions). is_ad=1 → письмо помечается
+// словом «реклама» + физ-адресом (требование закона «О рекламе»).
+export const emailCampaigns = sqliteTable("email_campaigns", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  status: text("status").notNull().default("draft"), // draft|sending|sent|cancelled
+  segmentJson: text("segment_json"),     // JSON: {channel, status, locale, ...} критерии сегмента
+  subject: text("subject"),
+  bodyText: text("body_text"),
+  isAd: integer("is_ad").notNull().default(0), // 1 = рекламное (нужна маркировка)
+  sentCount: integer("sent_count").notNull().default(0),
+  failedCount: integer("failed_count").notNull().default(0),
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+export type EmailCampaign = typeof emailCampaigns.$inferSelect;
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;

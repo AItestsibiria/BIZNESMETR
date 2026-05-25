@@ -697,6 +697,45 @@ export function bootstrapDefaultAgents(): void {
     purpose: "Balance/bonus reminder email → юзеры с непотраченным балансом",
   });
 
+  // Eugene 2026-05-25 Босс «Агент Почтальон» — почтовый AI-робот. Подписки
+  // (double opt-in), журнал согласий, one-click unsubscribe, suppress-list,
+  // рассылка кампаний с маркировкой «реклама», AI-классификация входящих.
+  // Подчинён Директору (Director-subordination rule): register + recordActivity
+  // в путях (lib/postmanAgent) + healthCheck + edges (broadcast→email, webhook→admin).
+  orchestrator.register({
+    id: "postman",
+    name: "Агент Почтальон",
+    channel: "email",
+    role: "broadcaster",
+    status: (env.SMTP_PASS || env.GMAIL_APP_PASSWORD) ? "active" : "not_configured",
+    capabilities: [
+      "opt_in",            // double opt-in (подтверждение по ссылке)
+      "consent_log",       // журнал согласий = доказательная база (152-ФЗ)
+      "unsubscribe",       // one-click отписка (RFC 8058)
+      "suppress_list",     // bounce/complaint/unsub перекрывают сегменты
+      "campaign",          // рассылка с маркировкой «реклама» + List-Unsubscribe
+      "inbound_classify",  // AI-классификация входящих (DeepSeek)
+    ],
+    metadata: { brief: "Email opt-in/consent/unsubscribe/campaigns — юр-чистая рассылка MuzaAi" },
+    healthCheck: async () => {
+      try {
+        const mod = await import("./postmanAgent");
+        const h = mod.postmanHealth();
+        return { ok: h.ok, details: h.details };
+      } catch (e: any) {
+        return { ok: false, details: { error: e?.message || String(e) } };
+      }
+    },
+  });
+  // Почтальон рассылает через email-канал (broadcast).
+  orchestrator.addEdge("postman", "channel-email", "broadcast", {
+    purpose: "Outbound campaigns + double opt-in / unsubscribe confirmations",
+  });
+  // Алерты Директору (входящие жалобы / отписки / падение SMTP).
+  orchestrator.addEdge("postman", "muza-admin", "webhook", {
+    purpose: "Жалобы/негатив из входящих + рост отписок → Директор уведомляет Босса",
+  });
+
   // Регистрируем edges между marketing-orchestrator и channels (см. matrix
   // в docs/AGENT-ORCHESTRATOR-PROPOSALS.md и Agent-orchestrator rule).
   registerDefaultEdges();
