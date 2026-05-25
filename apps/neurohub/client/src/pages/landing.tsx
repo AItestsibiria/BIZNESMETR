@@ -530,6 +530,16 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // при первом нажиме». Lightbox-режим: tap по обложке main player → fullscreen
   // image, без controls/S/Play. Save через long-press (mobile) / right-click (desktop).
   const [coverLightbox, setCoverLightbox] = useState(false);
+  // Eugene 2026-05-24 Босс «подсказка тапнуть на 10 сек, потом уходит и не
+  // возвращается до следующего раскрытия». Hint visible 10s после открытия
+  // lightbox, потом скрыт до следующего setCoverLightbox(true).
+  const [lightboxHint, setLightboxHint] = useState(false);
+  useEffect(() => {
+    if (!coverLightbox) { setLightboxHint(false); return; }
+    setLightboxHint(true);
+    const t = setTimeout(() => setLightboxHint(false), 10_000);
+    return () => clearTimeout(t);
+  }, [coverLightbox]);
   // Eugene 2026-05-17 Босс «стильный ползунок громкости в плеере».
   // Persist в localStorage пер-юзер (muzaai-volume).
   const [volume, setVolume] = useState<number>(() => {
@@ -2315,10 +2325,38 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             недоступны — это «второе нажатие» в сценарии Босса (S-кнопка или expand). */}
         {coverLightbox && currentTrack?.imageUrl && (
           <div
-            className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in duration-200"
-            onClick={() => setCoverLightbox(false)}
+            className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in duration-200 touch-pan-y"
             role="dialog"
             aria-label="Увеличенная обложка"
+            /* Eugene 2026-05-24 Босс «слетай свайп в этом месте, без кнопок».
+               Единый pointer-handler на контейнере (events от img/фона бабблятся):
+               - Горизонтальный свайп (>50px, преобладает над вертикалью) →
+                 влево = следующий трек, вправо = предыдущий. БЕЗ кнопок.
+               - Tap (движение <10px, <500мс) → закрыть.
+               - Long-press (≥500мс) на обложке → native save-меню (не закрываем).
+               - Вертикальный drag / ambiguous → ничего. */
+            onPointerDown={(e) => {
+              (e.currentTarget as any).__lbX = e.clientX;
+              (e.currentTarget as any).__lbY = e.clientY;
+              (e.currentTarget as any).__lbAt = Date.now();
+            }}
+            onPointerUp={(e) => {
+              const el = e.currentTarget as any;
+              const sx = el.__lbX, sy = el.__lbY, sat = el.__lbAt;
+              el.__lbX = el.__lbY = el.__lbAt = undefined;
+              if (sx == null || sat == null) return;
+              const dx = e.clientX - sx;
+              const dy = e.clientY - sy;
+              const adx = Math.abs(dx), ady = Math.abs(dy);
+              const dt = Date.now() - sat;
+              // Горизонтальный свайп → смена трека (в пределах filtered плейлиста).
+              if (adx > 50 && adx > ady * 1.5) {
+                if (dx < 0) skipNext(); else skipPrev();
+                return;
+              }
+              if (dt > 500) return;            // long-press (save) — не закрывать
+              if (adx < 10 && ady < 10) setCoverLightbox(false); // tap — закрыть
+            }}
           >
             <img
               key={currentTrack.id}
@@ -2326,31 +2364,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               alt={currentTrack.displayTitle || currentTrack.prompt || "Обложка"}
               className="max-w-[92vw] max-h-[92vh] w-auto h-auto object-contain rounded-2xl shadow-2xl shadow-purple-500/30 select-none animate-in fade-in zoom-in-95 duration-500"
               draggable={false}
-              /* Eugene 2026-05-24 Босс «любое нажатие на обложку её закрывает,
-                 не случайно — а тапнуть». Tap (движение <10px, <500мс) → закрыть.
-                 Long-press (≥500мс) → НЕ закрывать (native save-меню). Drag → нет. */
-              onPointerDown={(e) => {
-                (e.currentTarget as any).__lbX = e.clientX;
-                (e.currentTarget as any).__lbY = e.clientY;
-                (e.currentTarget as any).__lbAt = Date.now();
-              }}
-              onPointerUp={(e) => {
-                const el = e.currentTarget as any;
-                const sx = el.__lbX, sy = el.__lbY, sat = el.__lbAt;
-                el.__lbX = el.__lbY = el.__lbAt = undefined;
-                if (sx == null || sat == null) return;
-                const dx = Math.abs(e.clientX - sx);
-                const dy = Math.abs(e.clientY - sy);
-                const dt = Date.now() - sat;
-                if (dx > 10 || dy > 10) return; // drag — не закрывать
-                if (dt > 500) return;            // long-press (save) — не закрывать
-                setCoverLightbox(false);
-              }}
             />
             {/* Eugene 2026-05-24 Босс «при смене трека меняется тоже обложка —
                 следующий его трек». currentTrack реактивный → img key={id} даёт
-                fade при auto-next/skip. Название трека под обложкой подтверждает
-                смену. pointer-events-none — не мешает tap-to-close по обложке. */}
+                fade при swipe/skip. Название трека под обложкой подтверждает смену. */}
             <div
               key={`cap-${currentTrack.id}`}
               className="absolute top-5 left-1/2 -translate-x-1/2 max-w-[90vw] text-center pointer-events-none select-none animate-in fade-in slide-in-from-top-2 duration-500"
@@ -2372,9 +2389,13 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             >
               ×
             </button>
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-white/60 text-xs sm:text-sm font-sans pointer-events-none select-none text-center">
-              Тап — закрыть · удержание — сохранить
-            </div>
+            {/* Подсказка: видна 10 сек после раскрытия, потом исчезает до
+                следующего открытия lightbox (Eugene 2026-05-24). */}
+            {lightboxHint && (
+              <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-white/60 text-xs sm:text-sm font-sans pointer-events-none select-none text-center animate-in fade-in duration-300">
+                Свайп — листать · тап — закрыть · удержание — сохранить
+              </div>
+            )}
           </div>
         )}
 
