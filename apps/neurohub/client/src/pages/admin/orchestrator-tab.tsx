@@ -313,6 +313,9 @@ export default function OrchestratorTab() {
           </div>
         </div>
 
+        {/* Диалог с Директором (Eugene 2026-05-25 Босс «диалога нет с Директором») */}
+        <DirectorChat />
+
         {/* Voice report block */}
         <DirectorVoiceReport />
 
@@ -785,6 +788,82 @@ export default function OrchestratorTab() {
 // «Музa Директор контролирует всех агентов, собирает всю информацию,
 //  итоговую докладывает через аудио».
 //
+// ============================================================
+// Eugene 2026-05-25 Босс «диалога нет с Директором». Чат прямо в панели:
+// пишешь задачу → она через /api/muza/chat (admin role → director-tools)
+// исполняет и отвечает. Авторизация — твоя admin-сессия (cookie/Bearer).
+// ============================================================
+function DirectorChat() {
+  const [msgs, setMsgs] = useState<Array<{ role: "user" | "bot"; text: string }>>([]);
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+  const sessionId = useMemo(() => {
+    try {
+      let s = localStorage.getItem("director-chat-session");
+      if (!s) { s = "dir-" + ((crypto as any)?.randomUUID?.() || Date.now().toString(36) + Math.random().toString(36).slice(2)); localStorage.setItem("director-chat-session", s); }
+      return s;
+    } catch { return "dir-" + Date.now().toString(36); }
+  }, []);
+
+  async function send(text?: string) {
+    const msg = (text ?? input).trim();
+    if (!msg || sending) return;
+    setInput("");
+    setMsgs(m => [...m, { role: "user", text: msg }]);
+    setSending(true);
+    try {
+      const r = await fetch("/api/muza/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ message: msg, sessionId }),
+      });
+      const j = await r.json();
+      setMsgs(m => [...m, { role: "bot", text: j?.reply || j?.error || "(пустой ответ — проверь что ты залогинен как admin)" }]);
+    } catch (e: any) {
+      setMsgs(m => [...m, { role: "bot", text: "Ошибка связи: " + (e?.message || e) }]);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  const quick = ["Кто молчит из агентов?", "Доложи итоги", "Проанализируй, где проблемы", "Что в поддержке?", "Деньги за сегодня"];
+
+  return (
+    <div className="mt-4 rounded-xl border border-purple-500/30 bg-gradient-to-br from-purple-900/15 to-cyan-900/10 p-3">
+      <div className="text-sm font-bold text-white mb-2">💬 Диалог с Директором</div>
+      <div className="flex flex-col gap-2 max-h-72 overflow-y-auto mb-2 px-1">
+        {msgs.length === 0 && (
+          <div className="text-xs text-white/40">Поставь задачу — Директор соберёт данные и исполнит. Например: «дожми зависшие», «останови retention», «проанализируй».</div>
+        )}
+        {msgs.map((m, i) => (
+          <div key={i} className={`max-w-[88%] text-xs rounded-2xl px-3 py-2 ${m.role === "user" ? "self-end bg-gradient-to-r from-purple-500/40 to-fuchsia-500/30 text-white" : "self-start bg-white/[0.06] text-white/85 border border-white/10 whitespace-pre-wrap"}`}>
+            {m.text}
+          </div>
+        ))}
+        {sending && <div className="self-start text-xs text-white/40">Директор думает…</div>}
+      </div>
+      <div className="flex flex-wrap gap-1 mb-2">
+        {quick.map(q => (
+          <button key={q} onClick={() => send(q)} disabled={sending} className="text-[11px] px-2 py-1 rounded-full bg-white/5 text-white/60 border border-white/10 hover:bg-white/10 disabled:opacity-50">{q}</button>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+          placeholder="Напиши задачу Директору…"
+          className="flex-1 bg-white/5 border border-purple-400/25 text-white rounded-lg px-3 py-2 text-sm outline-none focus:border-fuchsia-400/50"
+        />
+        <button onClick={() => send()} disabled={sending || !input.trim()} className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 via-fuchsia-500 to-cyan-500 text-white text-sm font-bold disabled:opacity-50">
+          Отправить
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // Большая brand-gradient кнопка «🎤 Доложи итоги». Click → POST
 // /api/admin/v304/director/voice-report → играет mp3 (Yandex TTS) или
 // fallback на browser SpeechSynthesis API. Под кнопкой transcript.
