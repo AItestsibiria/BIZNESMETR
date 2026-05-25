@@ -217,6 +217,41 @@ export default function OrchestratorTab() {
     }
   }
 
+  // Eugene 2026-05-25 Рек 5: control-кнопки на карточке агента (pause/resume/
+  // health) + force-дожим. Мапятся на POST /orchestrator/agent/:id/* + /force-complete-stuck.
+  const [busyAgent, setBusyAgent] = useState<string | null>(null);
+  async function controlAgent(id: string, action: "pause" | "resume" | "health-check") {
+    setBusyAgent(id + ":" + action);
+    try {
+      const r = await fetch(`/api/admin/v304/orchestrator/agent/${encodeURIComponent(id)}/${action}`, {
+        method: "POST", credentials: "include",
+      });
+      if (!r.ok) throw new Error(`${r.status}`);
+      await load();
+    } catch (e: any) {
+      setErr(`${action} ${id}: ${e?.message || e}`);
+    } finally {
+      setBusyAgent(null);
+    }
+  }
+  const [stuckRunning, setStuckRunning] = useState(false);
+  const [stuckResult, setStuckResult] = useState<string | null>(null);
+  async function forceCompleteStuck() {
+    setStuckRunning(true);
+    setStuckResult(null);
+    try {
+      const r = await fetch("/api/admin/v304/orchestrator/force-complete-stuck", { method: "POST", credentials: "include" });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.error || `${r.status}`);
+      const d = j.data || {};
+      setStuckResult(`Проверено ${d.scanned ?? 0}, дожим ${d.resumed ?? 0}, восстановлено ${d.recovered ?? 0}, эскалаций ${d.escalated ?? 0}`);
+    } catch (e: any) {
+      setStuckResult(`⚠ ${e?.message || e}`);
+    } finally {
+      setStuckRunning(false);
+    }
+  }
+
   async function triggerMarketingEvent() {
     setMktTriggerResult(null);
     try {
@@ -375,12 +410,23 @@ export default function OrchestratorTab() {
           {healthRunning ? "⏳ Проверяю..." : "🔬 Запустить health check"}
         </button>
         <button
+          onClick={forceCompleteStuck}
+          disabled={stuckRunning}
+          className="px-4 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 text-white text-sm font-medium hover:opacity-90 disabled:opacity-50"
+          title="Запустить дожим зависших генераций"
+        >
+          {stuckRunning ? "⏳ Дожимаю..." : "🚀 Дожать зависшие"}
+        </button>
+        <button
           onClick={load}
           className="px-3 py-1.5 rounded-lg bg-white/5 border border-purple-400/20 text-white text-sm hover:bg-white/10"
         >
           🔄 Обновить
         </button>
       </div>
+      {stuckResult && (
+        <div className="glass-card rounded-xl p-2 border border-amber-400/30 text-amber-200 text-xs">🚀 {stuckResult}</div>
+      )}
 
       {err && (
         <div className="glass-card rounded-2xl p-3 border border-red-500/30 text-red-300 text-sm">
@@ -464,6 +510,28 @@ export default function OrchestratorTab() {
                       ) : null}
                     </div>
                   )}
+                </div>
+
+                {/* Control-кнопки (Рек 5) */}
+                <div className="flex flex-wrap gap-1.5 mt-3 pt-2 border-t border-white/10">
+                  {a.status === "paused" ? (
+                    <button
+                      onClick={() => controlAgent(a.id, "resume")}
+                      disabled={busyAgent === a.id + ":resume"}
+                      className="text-[11px] px-2 py-1 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-400/25 hover:bg-emerald-500/25 disabled:opacity-50"
+                    >▶️ Включить</button>
+                  ) : (
+                    <button
+                      onClick={() => controlAgent(a.id, "pause")}
+                      disabled={busyAgent === a.id + ":pause"}
+                      className="text-[11px] px-2 py-1 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-400/25 hover:bg-amber-500/25 disabled:opacity-50"
+                    >⏸ Пауза</button>
+                  )}
+                  <button
+                    onClick={() => controlAgent(a.id, "health-check")}
+                    disabled={busyAgent === a.id + ":health-check"}
+                    className="text-[11px] px-2 py-1 rounded-lg bg-purple-500/15 text-purple-300 border border-purple-400/25 hover:bg-purple-500/25 disabled:opacity-50"
+                  >🔬 Проверить</button>
                 </div>
               </div>
             );
