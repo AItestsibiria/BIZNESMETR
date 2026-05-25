@@ -19,6 +19,26 @@
 
 import { useEffect, useState, useMemo } from "react";
 
+// Health-детали могут быть объектом — String(obj) даёт «[object Object]».
+// Приводим к читаемой строке: строку — как есть, объект — компактный JSON.
+function fmtHealthDetails(d: unknown): string {
+  if (d == null) return "";
+  if (typeof d === "string") return d;
+  if (typeof d === "number" || typeof d === "boolean") return String(d);
+  try {
+    const obj = d as Record<string, unknown>;
+    // Частые поля — показываем по-человечески, без фигурных скобок.
+    if (typeof obj.details === "string") return obj.details;
+    if (typeof obj.message === "string") return obj.message;
+    if (typeof obj.error === "string") return obj.error;
+    return Object.entries(obj)
+      .map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`)
+      .join(", ");
+  } catch {
+    return "—";
+  }
+}
+
 type Status = "active" | "paused" | "error" | "not_configured";
 
 interface Agent {
@@ -509,7 +529,7 @@ export default function OrchestratorTab() {
                       </span>
                       {hr.details ? (
                         <span className="text-white/40 font-mono ml-1">
-                          ({String(hr.details).slice(0, 60)})
+                          ({fmtHealthDetails(hr.details).slice(0, 80)})
                         </span>
                       ) : null}
                     </div>
