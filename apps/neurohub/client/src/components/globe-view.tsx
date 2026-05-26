@@ -227,13 +227,14 @@ type DayNightMaterial = {
 
 // Собирает day/night ShaderMaterial (TextureLoader + ShaderMaterial). Текстуры
 // грузятся асинхронно — материал валиден сразу, затем шейдер сам перерисуется.
+// onDay/onNight — колбэки готовности текстур (для поэтапной детализации сцены).
 // null при ошибке → откат на статичную дневную текстуру.
-function buildDayNightMaterial(): DayNightMaterial | null {
+function buildDayNightMaterial(onDay?: () => void, onNight?: () => void): DayNightMaterial | null {
   try {
     const loader = new THREE.TextureLoader();
     loader.setCrossOrigin("anonymous");
-    const dayTex = loader.load(EARTH_DAY_URL);
-    const nightTex = loader.load(EARTH_NIGHT_URL);
+    const dayTex = loader.load(EARTH_DAY_URL, onDay, undefined, onDay);
+    const nightTex = loader.load(EARTH_NIGHT_URL, onNight, undefined, onNight);
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const srgb = (THREE as any).SRGBColorSpace;
@@ -708,7 +709,28 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   const [size, setSize] = useState<{ w: number; h: number }>({ w: 320, h: 320 });
   const [ready, setReady] = useState(false);
 
-  const dayNight = useMemo<DayNightMaterial | null>(() => buildDayNightMaterial(), []);
+  // Поэтапная детализация (Босс «сначала малая детализация — сразу увидеть сцену,
+  // далее плавный рост до 100%»): фаза 0 — дешёвый материал (мгновенно), фаза 2 —
+  // полный day/night ShaderMaterial когда ОБЕ текстуры загрузились. Переход — плавный.
+  const [texturesReady, setTexturesReady] = useState(false);
+  const loadedRef = useRef(0);
+  const markTexLoaded = () => {
+    loadedRef.current += 1;
+    if (loadedRef.current >= 2) setTexturesReady(true);
+  };
+  const dayNight = useMemo<DayNightMaterial | null>(
+    () => buildDayNightMaterial(markTexLoaded, markTexLoaded),
+    [],
+  );
+  // Дешёвый материал-заглушка (без текстур) — сцена видна мгновенно.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cheapMat = useMemo<any>(() => {
+    try {
+      return new THREE.MeshPhongMaterial({ color: 0x16315e, emissive: 0x0a1530, shininess: 6 });
+    } catch {
+      return null;
+    }
+  }, []);
   const sunDirRef = useRef<[number, number, number]>(sunDirWorld(subsolarPoint(Date.now())));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sunMeshRef = useRef<any>(null);
@@ -771,7 +793,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       } catch {
         // ignore
       }
+      try { cheapMat?.dispose?.(); } catch { /* ignore */ }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dayNight]);
 
   // Позиционирование видимых 3D-Солнца и Луны над субсолярной/подлунной точками
@@ -1115,6 +1139,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           "radial-gradient(ellipse at 22% 28%, rgba(124,58,237,0.16) 0%, transparent 55%)," +
           "radial-gradient(ellipse at 80% 78%, rgba(0,212,255,0.12) 0%, transparent 60%)," +
           "#03030a",
+        // Плавное появление сцены + мягкий рост детализации (Босс «плавный»).
+        opacity: ready ? 1 : 0,
+        filter: texturesReady ? "none" : "saturate(0.78) brightness(0.92)",
+        transition: "opacity 0.7s ease, filter 0.8s ease",
       }}
     >
       <Globe
@@ -1124,9 +1152,11 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         backgroundColor="rgba(0,0,0,0)"
         backgroundImageUrl={NIGHT_SKY_URL}
         rendererConfig={{ antialias: true, alpha: true }}
-        {...(dayNight
+        {...(dayNight && texturesReady
           ? { globeMaterial: dayNight.material }
-          : { globeImageUrl: EARTH_DAY_URL, bumpImageUrl: EARTH_BUMP_URL })}
+          : cheapMat
+            ? { globeMaterial: cheapMat }
+            : { globeImageUrl: EARTH_DAY_URL, bumpImageUrl: EARTH_BUMP_URL })}
         showAtmosphere={true}
         atmosphereColor="#7C3AED"
         atmosphereAltitude={0.22}
