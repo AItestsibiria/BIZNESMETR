@@ -501,6 +501,12 @@ app.post("/api/_client-error", express.json(), (req, res) => {
   if (p.stack) console.error(`  stack: ${String(p.stack).slice(0, 1500)}`);
   if (p.componentStack) console.error(`  componentStack: ${String(p.componentStack).slice(0, 800)}`);
   try { recordAgentActivity("frontend-health"); } catch {}
+  // Eugene 2026-05-26 Босс «агента Fab — пусть отслеживает». Если ошибка про
+  // FAB/Музу — отмечаем активность агента muza-fab (Директор видит сбои FAB).
+  try {
+    const blob = `${p.message ?? ""} ${p.page ?? ""} ${p.componentStack ?? ""}`.toLowerCase();
+    if (/consultant|floating|muza|fab/.test(blob)) recordAgentActivity("muza-fab");
+  } catch {}
   CLIENT_ERRORS_RING.push({
     ts: new Date().toISOString(),
     page: p.page, url: p.url, message: p.message,

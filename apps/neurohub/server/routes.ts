@@ -2325,6 +2325,11 @@ export async function registerRoutes(
       const sessionId = String(req.body?.sessionId || "").slice(0, 64) || null;
       const meta = req.body?.meta && typeof req.body.meta === "object" ? req.body.meta : undefined;
       logEngagement(req, evt as any, { channel: "site", userId, sessionId, meta });
+      // Eugene 2026-05-26 Босс «агента Fab — пусть отслеживает». Любое consultant-
+      // событие = живой FAB → отмечаем активность агента muza-fab (Директор видит).
+      if (evt.startsWith("consultant_")) {
+        try { agentOrchestrator.recordActivity("muza-fab", { evt }); } catch {}
+      }
       res.json({ ok: true });
     } catch {
       res.json({ ok: true }); // не блокируем фронт

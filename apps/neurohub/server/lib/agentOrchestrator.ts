@@ -1002,6 +1002,38 @@ export function registerEventBusAgents(): void {
   });
   orchestrator.addEdge("frontend-qa", "muza-admin", "webhook", { purpose: "Баги фронта + ссылки + предложенные фиксы Директору" });
 
+  // Eugene 2026-05-26 Босс «агента Fab заведи — пусть отслеживает и Директору в
+  // контроль». Мониторит плавающую Музу-FAB: показы/клики (consultant_*
+  // telemetry → client_errors ring + journey) + рантайм-ошибки самого FAB.
+  // recordAgentActivity("muza-fab") дёргается из client-telemetry endpoint
+  // (/api/_client-error и journey) когда прилетают consultant-события.
+  orchestrator.register({
+    id: "muza-fab",
+    name: "Музa-FAB (плавающая помощница)",
+    channel: "internal",
+    role: "watchdog",
+    persona_key: "muza",
+    status: "active",
+    capabilities: ["impressions", "metrics", "alert"],
+    metadata: { brief: "Здоровье и активность плавающей Музы-FAB: показы/клики + рантайм-ошибки виджета" },
+    healthCheck: async () => {
+      try {
+        // FAB-специфичные рантайм-ошибки в client_errors ring за последний час.
+        const ring: Array<{ ts: string; message?: string }> = (globalThis as any).__clientErrorsRing || [];
+        const hourAgo = Date.now() - 3600_000;
+        const fabErrors = ring.filter(e => {
+          const t = Date.parse(e.ts);
+          const m = String(e.message || "").toLowerCase();
+          return Number.isFinite(t) && t > hourAgo && (m.includes("consultant") || m.includes("floating") || m.includes("fab") || m.includes("muza"));
+        }).length;
+        return { ok: fabErrors < 10, details: { fabErrorsLastHour: fabErrors } };
+      } catch (e: any) {
+        return { ok: false, details: { error: e?.message || String(e) } };
+      }
+    },
+  });
+  orchestrator.addEdge("muza-fab", "muza-admin", "webhook", { purpose: "Активность/сбои плавающей Музы-FAB Директору в контроль" });
+
   // Eugene 2026-05-25 Босс «создай агента "Бэк" — бэкенд-аналог Фрона. Находит
   // баги/рискованные места, лишнее (dead code), дубли (endpoints/функции),
   // группирует бэкенд по темам». Подчинён Директору. Только ДЕТЕКТ + доклад +
