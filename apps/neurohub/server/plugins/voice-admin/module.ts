@@ -702,22 +702,18 @@ router.post(
     const wantTts = String(req.query.tts || "").trim() === "1";
     if (wantTts && llmResult.responseText) {
       try {
-        // Eugene 2026-05-26 Босс «доклад/голос на iOS не работает». ROOT CAUSE:
-        // iOS Safari/WKWebView НЕ играет ogg/opus в <audio> (только mp3/aac).
-        // oggopus играют Chrome/Android/Firefox. → отдаём mp3 для iOS, oggopus
-        // остальным. (Yandex v1 mp3 для воспроизведения iOS подходит; на iOS
-        // opus = тишина, так что mp3 хуже точно не сделает.)
-        const _ua = String(req.headers?.["user-agent"] || "");
-        const _isIos = /iPhone|iPad|iPod/.test(_ua) || (/Macintosh/.test(_ua) && /Mobile/.test(_ua));
+        // Eugene 2026-05-26 Босс «голос не работает (iOS/везде)». ROOT: v1 mp3
+        // «ненастоящий», oggopus НЕ играет на Safari/iOS. WAV (из lpcm) играет
+        // ВЕЗДЕ → универсальный формат для всех платформ.
         const tts = await synthesizeYandexTts({
           text: llmResult.responseText.slice(0, 4500),
           voice: ttsVoice,
           emotion: ttsEmotion,
-          format: _isIos ? "mp3" : "oggopus",
+          format: "wav",
         });
         if (tts.ok && tts.audio) {
           audioBase64 = tts.audio.toString("base64");
-          audioContentType = tts.contentType || (_isIos ? "audio/mpeg" : "audio/ogg");
+          audioContentType = tts.contentType || "audio/wav";
         }
       } catch (e: any) {
         // TTS — best-effort; не валим весь request если TTS упал
@@ -880,11 +876,11 @@ router.post("/voice-command-text", requireAdmin, async (req: any, res) => {
         text: llmResult.responseText.slice(0, 4500),
         voice: ttsVoiceText,
         emotion: ttsEmotionText,
-        format: "mp3",
+        format: "wav", // универсальный (iOS/Safari/все) — Eugene 2026-05-26
       });
       if (tts.ok && tts.audio) {
         audioBase64 = tts.audio.toString("base64");
-        audioContentType = tts.contentType || "audio/mpeg";
+        audioContentType = tts.contentType || "audio/wav";
       }
     } catch (e: any) {
       console.warn("[ADMIN-VOICE-TEXT] TTS failed:", e?.message || e);

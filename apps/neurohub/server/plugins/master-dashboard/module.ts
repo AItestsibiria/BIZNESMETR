@@ -1425,8 +1425,8 @@ router.post("/tts", requireAdmin, async (req, res) => {
         .json({ data: null, error: "rate-limit: 10 TTS requests per minute" });
     }
 
-    // Cache lookup
-    const cached = getTtsFromCache(text, voice, "mp3");
+    // Cache lookup (формат wav — универсальный, играет на iOS/Safari/всех)
+    const cached = getTtsFromCache(text, voice, "wav");
     if (cached) {
       res.setHeader("Content-Type", cached.contentType);
       res.setHeader("Content-Length", String(cached.audio.length));
@@ -1435,14 +1435,14 @@ router.post("/tts", requireAdmin, async (req, res) => {
       return res.end(cached.audio);
     }
 
-    const result = await synthesizeYandexTts({ text, voice, format: "mp3" });
+    const result = await synthesizeYandexTts({ text, voice, format: "wav" });
     if (!result.ok || !result.audio) {
       return res
         .status(result.httpStatus && result.httpStatus >= 400 ? 502 : 500)
         .json({ data: null, error: result.error || "TTS synthesis failed" });
     }
 
-    putTtsInCache(text, voice, "mp3", result.audio, result.contentType || "audio/mpeg");
+    putTtsInCache(text, voice, "wav", result.audio, result.contentType || "audio/wav");
 
     // Audit-log: фиксируем расход (НЕ пишем text — может быть PII).
     // action='create' — admin_audit_log CHECK ограничен create/update/delete/restore.
@@ -1455,7 +1455,7 @@ router.post("/tts", requireAdmin, async (req, res) => {
                    action: "synthesize",
                    textLen: text.length,
                    voice,
-                   format: "mp3",
+                   format: "wav",
                    bytes: result.audio.length,
                    costKopecks: estimateTtsCostKopecks(text.length),
                    durationMs: result.durationMs ?? null,
@@ -1465,7 +1465,7 @@ router.post("/tts", requireAdmin, async (req, res) => {
       console.warn("[TTS] audit-log insert failed:", e instanceof Error ? e.message : e);
     }
 
-    res.setHeader("Content-Type", result.contentType || "audio/mpeg");
+    res.setHeader("Content-Type", result.contentType || "audio/wav");
     res.setHeader("Content-Length", String(result.audio.length));
     res.setHeader("X-Cache", "MISS");
     res.setHeader("Cache-Control", "no-store");

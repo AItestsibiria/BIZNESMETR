@@ -281,13 +281,13 @@ export async function buildDirectorSummary(opts: {
     const tts = await synthesizeYandexTts({
       text: textSummary,
       voice: opts.voice || "alena",
-      format: "mp3",
+      format: "wav", // универсальный формат (играет на iOS/Safari/всех) — Eugene 2026-05-26
       emotion: "good",
       speed: 1.05,
     });
     if (tts.ok && tts.audio) {
       result.audioBase64 = tts.audio.toString("base64");
-      result.audioContentType = tts.contentType || "audio/mpeg";
+      result.audioContentType = tts.contentType || "audio/wav";
     } else {
       result.ttsError = tts.error || "TTS failed";
     }

@@ -30,10 +30,40 @@ export type YandexVoice =
 export interface TtsOptions {
   text: string;
   voice?: YandexVoice;
-  format?: "mp3" | "oggopus" | "lpcm";
+  // Eugene 2026-05-26 Босс «голос не работает нигде/на iOS». ROOT: v1 mp3 —
+  // «ненастоящий» (не играет), oggopus НЕ играет на Safari/iOS. «wav» —
+  // универсальный формат: запрашиваем lpcm (настоящий PCM) + оборачиваем в
+  // WAV-заголовок → играет ВЕЗДЕ (iOS/Safari/Chrome/Android/Firefox).
+  format?: "mp3" | "oggopus" | "lpcm" | "wav";
   emotion?: "neutral" | "good" | "evil";
   speed?: number; // 0.1 — 3.0
 }
+
+// Оборачивает сырой PCM (signed 16-bit LE, mono) в WAV-контейнер (44-байт
+// заголовок). WAV — единственный формат, который играют ВСЕ платформы в <audio>.
+function pcmToWav(pcm: Buffer, sampleRate: number): Buffer {
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = (sampleRate * numChannels * bitsPerSample) / 8;
+  const blockAlign = (numChannels * bitsPerSample) / 8;
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0);
+  header.writeUInt32LE(36 + pcm.length, 4);
+  header.write("WAVE", 8);
+  header.write("fmt ", 12);
+  header.writeUInt32LE(16, 16);          // PCM fmt chunk size
+  header.writeUInt16LE(1, 20);           // audioFormat = PCM
+  header.writeUInt16LE(numChannels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(bitsPerSample, 34);
+  header.write("data", 36);
+  header.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([header, pcm]);
+}
+
+const WAV_SAMPLE_RATE = 48000;
 
 export interface TtsResult {
   ok: boolean;
@@ -73,7 +103,10 @@ export async function synthesizeYandexTts(opts: TtsOptions): Promise<TtsResult> 
   }
 
   const voice: YandexVoice = opts.voice || "alena";
-  const format = opts.format || "mp3";
+  const reqFormat = opts.format || "wav";
+  // «wav» → у Yandex запрашиваем lpcm + sampleRateHertz, потом оборачиваем в WAV.
+  const wantWav = reqFormat === "wav";
+  const yandexFormat = wantWav ? "lpcm" : reqFormat;
   const emotion = opts.emotion || "neutral";
   const speed = clampSpeed(opts.speed);
 
@@ -81,7 +114,8 @@ export async function synthesizeYandexTts(opts: TtsOptions): Promise<TtsResult> 
   form.set("text", text);
   form.set("lang", "ru-RU");
   form.set("voice", voice);
-  form.set("format", format);
+  form.set("format", yandexFormat);
+  if (wantWav) form.set("sampleRateHertz", String(WAV_SAMPLE_RATE));
   form.set("emotion", emotion);
   form.set("speed", String(speed));
   if (folderId) form.set("folderId", folderId);
@@ -89,7 +123,7 @@ export async function synthesizeYandexTts(opts: TtsOptions): Promise<TtsResult> 
   const startedAt = Date.now();
   try {
     console.log(
-      `[YANDEX-TTS] sending: textLen=${text.length} voice=${voice} format=${format} hasFolderId=${!!folderId}`,
+      `[YANDEX-TTS] sending: textLen=${text.length} voice=${voice} format=${reqFormat}(${yandexFormat}) hasFolderId=${!!folderId}`,
     );
     const r = await fetch(ENDPOINT, {
       method: "POST",
@@ -114,16 +148,21 @@ export async function synthesizeYandexTts(opts: TtsOptions): Promise<TtsResult> 
       };
     }
     const ab = await r.arrayBuffer();
-    const audio = Buffer.from(ab);
+    let audio = Buffer.from(ab);
+    let contentType: string;
+    if (wantWav) {
+      // Оборачиваем сырой PCM в WAV → играет на всех платформах (вкл. iOS/Safari).
+      audio = pcmToWav(audio, WAV_SAMPLE_RATE);
+      contentType = "audio/wav";
+    } else {
+      contentType =
+        yandexFormat === "mp3" ? "audio/mpeg"
+        : yandexFormat === "oggopus" ? "audio/ogg"
+        : "audio/lpcm";
+    }
     console.log(
-      `[YANDEX-TTS] ok: ${audio.length} bytes ${format} (${durationMs}ms)`,
+      `[YANDEX-TTS] ok: ${audio.length} bytes ${reqFormat} (${durationMs}ms)`,
     );
-    const contentType =
-      format === "mp3"
-        ? "audio/mpeg"
-        : format === "oggopus"
-          ? "audio/ogg"
-          : "audio/lpcm";
     return { ok: true, audio, contentType, httpStatus: 200, durationMs };
   } catch (e) {
     const durationMs = Date.now() - startedAt;
