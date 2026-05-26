@@ -636,8 +636,12 @@ export function FloatingConsultant() {
     const isChatOpen = (window as any).__muzaChatOpen === true;
     const isMobile = vw < 640;
     const chatLifted = isChatOpen && isMobile ? Math.round(vh * 0.62) : 0;
+    // Eugene 2026-05-26 Босс «кнопку свайп (S) и fab чуть разнести» — приподнимаем
+    // дефолтную позицию FAB на ~72px, чтобы не липла к S-кнопке плеера внизу-справа.
+    // При открытом чате (chatLifted) доп. подъём не нужен — он и так высоко.
+    const baseLift = chatLifted ? 0 : 72;
     const x = Math.max(8, vw - fabW - 8);
-    const y = Math.max(8, vh - fabH - safeBottom - chatLifted);
+    const y = Math.max(8, vh - fabH - safeBottom - chatLifted - baseLift);
     return { x, y };
   };
   const [fabPos, setFabPos] = useState(computeFabPos);
@@ -648,6 +652,8 @@ export function FloatingConsultant() {
   const dragModeRef = useRef(false);
   const fabDragStartRef = useRef<{ px: number; py: number; fx: number; fy: number; pointerId: number } | null>(null);
   const longPressTimerRef = useRef<number | null>(null);
+  // Eugene 2026-05-26 Босс «3 тапа — он на месте»: метки последних тапов по FAB.
+  const fabTapsRef = useRef<number[]>([]);
   // Eugene 2026-05-21 Босс — auto-avoidance. При overlap с focused input/textarea
   // Музa убегает в свободный угол. autoMoved=true чтобы не перетирать user position
   // когда юзер ушёл с поля (через 5 сек возвращаемся).
@@ -2537,7 +2543,7 @@ export function FloatingConsultant() {
             (idle 30 сек / form abandon / etc). */}
         {!expanded && !reaction && !chatOpen && smartBubbleText && (
           <div
-            className="absolute bottom-full right-0 mb-2 px-4 py-2.5 pb-6 backdrop-blur-md border text-[12px] font-medium text-white text-center leading-tight max-w-[180px] animate-in fade-in duration-500 shadow-lg transition-all bg-gradient-to-br from-pink-500/40 to-purple-500/30 border-pink-300/50 shadow-pink-500/30"
+            className="absolute bottom-full right-0 mb-2 px-4 py-2.5 pb-6 backdrop-blur-xl border text-[12px] font-medium text-white text-center leading-tight max-w-[180px] animate-in fade-in duration-500 shadow-lg transition-all bg-gradient-to-br from-pink-500/20 to-purple-500/12 border-pink-300/30 shadow-pink-500/20"
             style={{ borderRadius: "55% 45% 45% 50% / 60% 50% 60% 40%" }}
           >
             {/* Клик по тексту — открыть чат и развернуть факт. */}
@@ -2564,7 +2570,7 @@ export function FloatingConsultant() {
 
         {/* Click reaction bubble — игровая деловая фраза при нажатии */}
         {reaction && (
-          <div className="absolute bottom-full right-0 mb-1.5 px-3 py-1.5 rounded-2xl bg-gradient-to-br from-purple-500/30 to-blue-500/20 backdrop-blur-md border border-purple-400/40 text-[11px] text-white font-medium whitespace-nowrap animate-in fade-in slide-in-from-bottom-2 duration-200 shadow-lg shadow-purple-500/20">
+          <div className="absolute bottom-full right-0 mb-1.5 px-3 py-1.5 rounded-2xl bg-gradient-to-br from-purple-500/15 to-blue-500/10 backdrop-blur-xl border border-purple-400/25 text-[11px] text-white font-medium whitespace-nowrap animate-in fade-in slide-in-from-bottom-2 duration-200 shadow-lg shadow-purple-500/15">
             {reaction}
           </div>
         )}
@@ -2873,6 +2879,20 @@ export function FloatingConsultant() {
             if (dragExpandedRef.current) {
               dragExpandedRef.current = false;
               return;
+            }
+            // Eugene 2026-05-26 Босс «3 тапа — он на месте»: тройной тап по FAB
+            // возвращает его на дефолтную позицию (сброс перетаскивания).
+            const nowT = Date.now();
+            fabTapsRef.current = [...fabTapsRef.current.filter(t => nowT - t < 700), nowT];
+            if (fabTapsRef.current.length >= 3) {
+              fabTapsRef.current = [];
+              try { sessionStorage.removeItem(FAB_DRAG_KEY); } catch {}
+              userPositionedRef.current = false;
+              setFabPos(computeFabPos());
+              setExpanded(false);
+              setReaction(null);
+              try { (navigator as any).vibrate?.(8); } catch {}
+              return; // reset-тап не раскрывает меню
             }
             // Single-click: меню expanded. Double-click intercept выше.
             // Eugene 2026-05-23 Босс «облако наложение блокирует чат» — пока
