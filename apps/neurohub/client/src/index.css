@@ -445,22 +445,6 @@
   }
 }
 
-/* Eugene 2026-05-26 Босс «подсветку маленькой обложки основного плеера —
-   по периметру, медленно, по часовой». Чёткий вращающийся ободок (conic
-   brand-gradient) позади обложки: opaque-обложка закрывает центр, виден
-   тонкий переливающийся рим по периметру, медленно вращается по часовой. */
-@keyframes coverRimSpin {
-  to { transform: rotate(360deg); }
-}
-.cover-rim-spin {
-  background: conic-gradient(from 0deg,
-    #7C3AED, #FF006E, #00D4FF, #FBBF24, #7C3AED);
-  animation: coverRimSpin 10s linear infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  .cover-rim-spin { animation: none; opacity: 0.5; }
-}
-
 /* Eugene 2026-05-23 Босс «платформа на тестировании пульсирующей 1 раз
    в 5 сек, ярко белая надпись, контур в стиле Музa Ай градиентами». */
 @keyframes betaPulse {
