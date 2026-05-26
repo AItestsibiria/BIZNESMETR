@@ -50,7 +50,26 @@ type GlobePoint = {
   lng: number;
   label: string;
   weight: number;
-  color: string;
+  baseColor: string; // фирменный цвет маркера (до модуляции яркости)
+  color: string;     // текущий rgba с альфой (= яркость), пересчитывается rAF
+  altitude: number;  // текущая высота столбика, пересчитывается rAF
+  key: string;
+  // Runtime-поля — пересчитываются rAF-циклом «загорания по повороту».
+  _front?: boolean;  // на фронтальной (видимой) стороне глобуса
+  _delta?: number;   // |долгота − камерный меридиан| в градусах (0 = по центру)
+};
+
+// Кольцо «приём сигнала» — расходящаяся радиоволна (ripple) от точки страны
+// в момент её выхода во фронт. Бренд-цвета fuchsia→cyan→purple.
+type RingDatum = {
+  lat: number;
+  lng: number;
+  color: string[];
+  maxR: number;
+  speed: number;
+  period: number;
+  bornAt: number;
+  id: number;
 };
 
 // react-globe.gl default export — React-компонент (FCwithRef<GlobeProps,
@@ -77,8 +96,19 @@ type GlobeComponentProps = {
   pointLng?: (d: GlobePoint) => number;
   pointColor?: (d: GlobePoint) => string;
   pointAltitude?: (d: GlobePoint) => number;
-  pointRadius?: number;
+  pointRadius?: number | ((d: GlobePoint) => number);
+  pointResolution?: number;
+  pointsTransitionDuration?: number;
   pointLabel?: (d: GlobePoint) => string;
+  // Rings layer — кольца «приём сигнала» (расходящаяся радиоволна).
+  ringsData?: object[];
+  ringLat?: (d: RingDatum) => number;
+  ringLng?: (d: RingDatum) => number;
+  ringColor?: (d: RingDatum) => string[] | string;
+  ringMaxRadius?: (d: RingDatum) => number;
+  ringPropagationSpeed?: (d: RingDatum) => number;
+  ringRepeatPeriod?: (d: RingDatum) => number;
+  ringResolution?: number;
 };
 const Globe = lazy(() => import("react-globe.gl")) as unknown as ComponentType<GlobeComponentProps>;
 
@@ -172,8 +202,32 @@ function resolveLatLon(code: string, name?: string): [number, number] | null {
   return null;
 }
 
-// Brand palette для маркеров — purple / cyan / fuchsia, цикл по индексу.
-const MARKER_COLORS = ["#7C3AED", "#00D4FF", "#FF006E", "#A78BFA", "#67E8F9"];
+// Brand palette для маркеров/колец — purple / cyan / fuchsia.
+const BRAND_PURPLE = "#7C3AED";
+const BRAND_CYAN = "#00D4FF";
+const BRAND_FUCHSIA = "#FF006E";
+const MARKER_COLORS = [BRAND_PURPLE, BRAND_CYAN, BRAND_FUCHSIA, "#A78BFA", "#67E8F9"];
+
+// «Загорание по повороту»: страна на ФРОНТАЛЬНОЙ (видимой) стороне глобуса,
+// если её долгота в пределах ±FRONT_HALF_DEG от меридиана, обращённого к камере
+// (камерная долгота из pointOfView().lng авто-вращения).
+const FRONT_HALF_DEG = 80;
+
+// Нормализует разницу долгот в диапазон [-180, 180].
+function lngDelta(a: number, b: number): number {
+  let d = ((a - b + 180) % 360) - 180;
+  if (d < -180) d += 360;
+  return d;
+}
+
+// hex → rgba-строка с заданной alpha (для динамической яркости маркеров).
+function hexToRgba(hex: string, alpha: number): string {
+  const h = hex.replace("#", "");
+  const r = parseInt(h.substring(0, 2), 16);
+  const g = parseInt(h.substring(2, 4), 16);
+  const b = parseInt(h.substring(4, 6), 16);
+  return `rgba(${r},${g},${b},${Math.max(0, Math.min(1, alpha)).toFixed(3)})`;
+}
 
 // WebGL detection — если нет, сразу fallback (3D смысла не имеет).
 function hasWebGL(): boolean {
@@ -254,6 +308,23 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   const globeRef = useRef<any>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState<{ w: number; h: number }>({ w: 320, h: 320 });
+  const [ready, setReady] = useState(false);
+
+  // Базовые точки в ref — rAF-цикл читает их без пересоздания эффекта.
+  const basePointsRef = useRef<GlobePoint[]>(points);
+  useEffect(() => {
+    basePointsRef.current = points;
+  }, [points]);
+
+  // Что реально рендерится (пересчитывается rAF по фронтальности).
+  const [litPoints, setLitPoints] = useState<GlobePoint[]>(points);
+  const [rings, setRings] = useState<RingDatum[]>([]);
+
+  const rafRef = useRef<number | null>(null);
+  const ringIdRef = useRef(0);
+  // Страны СЕЙЧАС на фронте — чтобы ловить переход back→front и выпускать
+  // кольцо только при ВХОДЕ страны в видимый сектор (а не каждый кадр).
+  const frontSetRef = useRef<Set<string>>(new Set());
 
   // Замер размера контейнера + ResizeObserver.
   useEffect(() => {
@@ -282,12 +353,117 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     };
   }, []);
 
+  // ───────────────────────────────────────────────────────────────────────
+  // rAF-цикл «загорание по повороту» + кольца «приём сигнала».
+  // Читает долготу камеры (pointOfView().lng авто-вращения) → считает
+  // фронтальность каждой страны → модулирует яркость/высоту маркера; при ВХОДЕ
+  // страны во фронтальный сектор выпускает расходящееся кольцо (ripple).
+  useEffect(() => {
+    if (!ready) return;
+    let destroyed = false;
+    // Throttle тяжёлых setState (пересборка массива точек) до ~12fps —
+    // достаточно для плавного «загорания», не грузит React (lightweight).
+    let lastTick = 0;
+    const TICK_MS = 80;
+
+    const tick = (now: number) => {
+      if (destroyed) return;
+      rafRef.current = requestAnimationFrame(tick);
+      if (now - lastTick < TICK_MS) return;
+      lastTick = now;
+
+      const g = globeRef.current;
+      if (!g) return;
+      let camLng = 0;
+      try {
+        const pov = g.pointOfView?.();
+        if (!pov) return;
+        camLng = pov.lng ?? 0;
+      } catch {
+        return;
+      }
+
+      const pts = basePointsRef.current;
+      if (pts.length === 0) return;
+
+      const nextFront = new Set<string>();
+      const newRings: RingDatum[] = [];
+
+      const lit: GlobePoint[] = pts.map((p) => {
+        // Фронтальность: |delta| 0° = по центру видимой стороны, 180° = сзади.
+        const delta = Math.abs(lngDelta(p.lng, camLng));
+        const isFront = delta <= FRONT_HALF_DEG;
+
+        if (isFront) {
+          nextFront.add(p.key);
+          // Переход back→front → «приём сигнала»: кольцо.
+          if (!frontSetRef.current.has(p.key)) {
+            const w = p.weight || 1;
+            newRings.push({
+              lat: p.lat,
+              lng: p.lng,
+              // Бренд-волна: внутри fuchsia → cyan → purple снаружи.
+              color: [BRAND_FUCHSIA, BRAND_CYAN, BRAND_PURPLE],
+              // Радиус/период зависят от веса (больше слушателей — мощнее пинг).
+              maxR: 4 + Math.min(5, Math.log10(w + 1) * 2.5),
+              speed: 2.4,
+              period: 900,
+              bornAt: now,
+              id: ringIdRef.current++,
+            });
+          }
+        }
+
+        // Яркость маркера: фронт = ярко (min 0.55), тёмная сторона = тускло.
+        const t = Math.max(0, Math.min(1, 1 - delta / 180)); // 1 центр → 0 сзади
+        const frontGain = isFront ? Math.max(0.55, t) : t * 0.45;
+        const alpha = 0.16 + 0.79 * frontGain;
+        const color = hexToRgba(p.baseColor, alpha);
+        const baseAlt = 0.02 + Math.min(0.22, Math.log10((p.weight || 1) + 1) * 0.08);
+        // На фронте маркер «приподнимается» (загорелся), сзади — прижат.
+        const altitude = isFront ? baseAlt * 1.6 : baseAlt * 0.55;
+
+        return { ...p, _front: isFront, _delta: delta, color, altitude };
+      });
+
+      frontSetRef.current = nextFront;
+      setLitPoints(lit);
+
+      if (newRings.length) {
+        setRings((prev) => {
+          // Кольцо живёт ~1.8s. Чистим старые, чтобы массив не рос.
+          const alive = prev.filter((r) => now - r.bornAt < 1800);
+          return [...alive, ...newRings];
+        });
+      } else {
+        setRings((prev) => {
+          if (prev.length === 0) return prev;
+          const alive = prev.filter((r) => now - r.bornAt < 1800);
+          return alive.length === prev.length ? prev : alive;
+        });
+      }
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      destroyed = true;
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    };
+  }, [ready]);
+
+  // Если набор стран сменился до первого tick — синхронизируем отображаемые.
+  useEffect(() => {
+    if (!ready) setLitPoints(points);
+  }, [points, ready]);
+
   // После mount глобуса — настраиваем OrbitControls (auto-rotate + zoom) и
   // стартовую точку обзора. Defensive: controls API может отличаться в minor.
   const onGlobeReady = () => {
     try {
       const g = globeRef.current;
-      if (!g) return;
+      if (!g) {
+        setReady(true);
+        return;
+      }
       const controls = g.controls?.();
       if (controls) {
         controls.autoRotate = true;
@@ -303,6 +479,8 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       g.pointOfView?.({ lat: 30, lng: 50, altitude: 2.4 }, 0);
     } catch (e) {
       console.error("[GlobeView] onGlobeReady controls setup failed:", e);
+    } finally {
+      setReady(true);
     }
   };
 
@@ -320,17 +498,27 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         atmosphereColor="#7C3AED"
         atmosphereAltitude={0.22}
         onGlobeReady={onGlobeReady}
-        pointsData={points}
+        // ── Маркеры «загораются» по повороту (фронт = ярко + приподнят). ──
+        pointsData={litPoints}
         pointLat={(d: GlobePoint) => d.lat}
         pointLng={(d: GlobePoint) => d.lng}
         pointColor={(d: GlobePoint) => d.color}
-        pointAltitude={(d: GlobePoint) =>
-          0.02 + Math.min(0.25, Math.log10((d.weight || 1) + 1) * 0.08)
-        }
-        pointRadius={0.45}
+        pointAltitude={(d: GlobePoint) => d.altitude ?? 0.04}
+        pointRadius={(d: GlobePoint) => (d._front ? 0.6 : 0.32)}
+        pointResolution={6}
+        pointsTransitionDuration={300}
         pointLabel={(d: GlobePoint) =>
           `<div style="font-family:Inter,sans-serif;font-size:12px;color:#fff;background:rgba(10,10,23,0.85);padding:4px 8px;border-radius:8px;border:1px solid rgba(124,58,237,0.5)">${d.label}${d.weight ? ` · ${d.weight}` : ""}</div>`
         }
+        // ── Кольца «приём сигнала»: расходящаяся радиоволна при выходе во фронт.
+        ringsData={rings}
+        ringLat={(d: RingDatum) => d.lat}
+        ringLng={(d: RingDatum) => d.lng}
+        ringColor={(d: RingDatum) => d.color}
+        ringMaxRadius={(d: RingDatum) => d.maxR}
+        ringPropagationSpeed={(d: RingDatum) => d.speed}
+        ringRepeatPeriod={(d: RingDatum) => d.period}
+        ringResolution={64}
       />
     </div>
   );
@@ -349,12 +537,16 @@ export default function GlobeView({ countries }: { countries: GlobeCountry[] }) 
       const ll = resolveLatLon(c.code, c.name);
       if (!ll) continue;
       const weight = c.visits || c.n || 1;
+      const baseColor = MARKER_COLORS[i % MARKER_COLORS.length];
       arr.push({
         lat: ll[0],
         lng: ll[1],
         label: c.name,
         weight,
-        color: MARKER_COLORS[i % MARKER_COLORS.length],
+        baseColor,
+        color: baseColor, // стартовая яркость до первого rAF-tick
+        altitude: 0.02 + Math.min(0.22, Math.log10(weight + 1) * 0.08),
+        key: (c.code || c.name || `i${i}`).toUpperCase(),
       });
       i++;
     }
