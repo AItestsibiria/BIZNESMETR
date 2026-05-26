@@ -1107,6 +1107,24 @@ export function FloatingConsultant() {
   // ref, эффект НЕ зависит от текста и не рестартует сам себя.
   const smartBubbleTextRef = useRef<string | null>(null);
   useEffect(() => { smartBubbleTextRef.current = smartBubbleText; }, [smartBubbleText]);
+  // Eugene 2026-05-26 (атомарный разбор глюка): ЕДИНЫЙ владелец hide-таймера
+  // баббла. Раньше «голые» setTimeout(()=>setSmartBubbleText(null)) в разных
+  // источниках (journey/co-bubble/facts) не отменялись при ремоунте эффектов
+  // (их провоцируют scroll/tap, меняющие visible) → старый таймер гасил свежий
+  // текст → дребезг. Теперь любой показ идёт через setBubble: clear предыдущего
+  // hide-таймера + новый в ОДНОМ ref. cleanup снимает его.
+  const bubbleHideTimerRef = useRef<number | null>(null);
+  const setBubble = useCallback((text: string | null, ttlMs?: number) => {
+    if (bubbleHideTimerRef.current) { window.clearTimeout(bubbleHideTimerRef.current); bubbleHideTimerRef.current = null; }
+    setSmartBubbleText(text);
+    if (text && ttlMs && ttlMs > 0) {
+      bubbleHideTimerRef.current = window.setTimeout(() => {
+        setSmartBubbleText(null);
+        bubbleHideTimerRef.current = null;
+      }, ttlMs);
+    }
+  }, []);
+  useEffect(() => () => { if (bubbleHideTimerRef.current) window.clearTimeout(bubbleHideTimerRef.current); }, []);
   const [smartHighlight, setSmartHighlight] = useState(false);
   // Once-per-session флаги для каждого триггера (не спамим юзера).
   const smartFiredRef = useRef<Set<string>>(new Set());
@@ -2025,8 +2043,14 @@ export function FloatingConsultant() {
       const dt = t - lastT;
       lastY = y; lastT = t;
       if (dt < 100 && dy > SCROLL_VELOCITY_THRESHOLD && !visible && !chatOpen) {
-        // Резкий scroll вниз — показываем Музу даже если dismissed
-        if (timerRef.current) window.clearTimeout(timerRef.current);
+        // Eugene 2026-05-26 (#4 атомарного разбора): НЕ возвращаем Музу на скролле,
+        // если юзер сам её убрал и активен dismiss-cooldown — иначе «появляется-
+        // исчезает-появляется». Уважаем запланированный reappear + dismiss-until.
+        if (timerRef.current) return;
+        try {
+          const until = Number(localStorage.getItem("muza-dismiss-until-ts") || 0);
+          if (until && Date.now() < until) return;
+        } catch {}
         setVisible(true);
       }
     };
@@ -2079,7 +2103,8 @@ export function FloatingConsultant() {
       if (smartFiredRef.current.has(key)) return;
       smartFiredRef.current.add(key);
       if (chatOpen) return; // не дёргаем во время разговора
-      setSmartBubbleText(bubbleText);
+      // setBubble: текст + единый hide-таймер 12с (старый авто-сбрасывается).
+      setBubble(bubbleText, 12_000);
       if (visible) {
         // Уже видна — animate attention.
         setSmartHighlight(true);
@@ -2090,9 +2115,6 @@ export function FloatingConsultant() {
         setVisible(true);
         trackEngagement("consultant_impression", { trigger: key });
       }
-      // Автоматически убираем кастомный текст через 12 сек —
-      // возвращается стандартное «Заходи в чат — креативить».
-      window.setTimeout(() => setSmartBubbleText(null), 12_000);
     };
 
     const off = onJourneyEvent(({ type, page, meta }) => {
@@ -2124,7 +2146,18 @@ export function FloatingConsultant() {
           return;
         }
         // На любой другой странице — generic «Помочь?»
-        showWithBubble("idle:" + page, "Помочь? Я тут, спрашивай 💜");
+        {
+          // Eugene 2026-05-26 (#6 атомарного разбора): глобальный ключ
+          // «idle-generic» (once-per-session, НЕ per-page — иначе «Помочь? Я тут»
+          // повторялась на каждой странице = залипалка) + пул разных фраз.
+          const IDLE_PHRASES = [
+            "Помочь? Я тут, спрашивай 💜",
+            "Если что — я рядом 🎵",
+            "Нужна идея для песни? Подскажу ✨",
+            "Хочешь — соберём трек вместе 🎶",
+          ];
+          showWithBubble("idle-generic", IDLE_PHRASES[Math.floor(Math.random() * IDLE_PHRASES.length)]);
+        }
         return;
       }
       // form_abandon — самый сильный сигнал «застрял на форме».
@@ -2166,8 +2199,7 @@ export function FloatingConsultant() {
     if (typeof window === "undefined" || !visible) return;
     const showCoBubble = (text: string, ttl = 8000) => {
       if (chatOpen) return; // не дёргаем во время разговора
-      setSmartBubbleText(text);
-      window.setTimeout(() => setSmartBubbleText(curr => (curr === text ? null : curr)), ttl);
+      setBubble(text, ttl); // единый hide-таймер (старый авто-сбрасывается)
     };
     // Generation started — empathic «я тоже жду»
     const onGenStarted = (e: Event) => {
@@ -2264,16 +2296,42 @@ export function FloatingConsultant() {
     { id: "hook_billie", emoji: "🌙", text: "Billie Eilish записывалась в спальне с братом Finneas", expand: "Расскажи про home-studio Billie — никаких big budget. MuzaAi даёт ту же possibility — твой телефон = студия" },
     { id: "hook_freddie", emoji: "🎤", text: "Freddie Mercury тренировался на гаммах каждый день 4 часа", expand: "Расскажи про disciplinu Freddie + параллель: MuzaAi voice modeling даёт тебе trained voice без 4-часовых упражнений" },
   ]);
-  const factShownRef = useRef<Set<string>>(new Set());
+  // Eugene 2026-05-26 (#5 атомарного разбора): persist показанных фактов в
+  // localStorage (Musa-facts-rotation rule прямо требует seenFacts). Раньше
+  // dedup был только in-memory → reload сбрасывал → один и тот же первый факт
+  // (factPickRef=0) повторялся. Теперь день+pick+ids переживают reload (в рамках
+  // суток; новый день — свежий набор).
+  const FACTS_SEEN_KEY = "musa_facts_seen";
+  const loadSeenFacts = (): { day: number; pick: number; ids: string[] } => {
+    const today = Math.floor(Date.now() / 86_400_000);
+    try {
+      const raw = typeof window !== "undefined" ? localStorage.getItem(FACTS_SEEN_KEY) : null;
+      if (raw) {
+        const p = JSON.parse(raw);
+        if (typeof p?.day === "number" && p.day === today) {
+          return { day: today, pick: Number(p.pick) || 0, ids: Array.isArray(p.ids) ? p.ids : [] };
+        }
+      }
+    } catch {}
+    return { day: today, pick: 0, ids: [] };
+  };
+  const _seenInit = loadSeenFacts();
+  const factShownRef = useRef<Set<string>>(new Set(_seenInit.ids));
   const factClickedRef = useRef<{ expand: string; id: string } | null>(null);
   const lastFactCategoryRef = useRef<string>("");
   // Eugene 2026-05-24 Босс «FAB сообщение меняй каждый день про музыку, повторяй
   // в течение месяца рандомно». dayIndex = дни с эпохи. Seeded PRNG (mulberry32-
-  // подобный) → последовательность фактов детерминирована ПО ДНЮ: один день =
-  // один порядок (стабилен сколько ни заходи), другой день = другой порядок.
-  // За месяц дни дают разные перестановки → факты повторяются рандомно.
-  const factDayRef = useRef(Math.floor(Date.now() / 86_400_000));
-  const factPickRef = useRef(0);
+  // подобный) → последовательность фактов детерминирована ПО ДНЮ.
+  const factDayRef = useRef(_seenInit.day);
+  const factPickRef = useRef(_seenInit.pick);
+  const persistSeenFacts = () => {
+    try {
+      localStorage.setItem(FACTS_SEEN_KEY, JSON.stringify({
+        day: factDayRef.current, pick: factPickRef.current,
+        ids: Array.from(factShownRef.current).slice(-200),
+      }));
+    } catch {}
+  };
   const seededRandom = (seed: number): number => {
     let t = (seed + 0x6d2b79f5) | 0;
     t = Math.imul(t ^ (t >>> 15), 1 | t);
@@ -2344,6 +2402,10 @@ export function FloatingConsultant() {
     return { intervalMin: 10, cats: { feature: true, fact: true, hook: true } };
   });
   const [showFactSettings, setShowFactSettings] = useState(false);
+  // Eugene 2026-05-26 Босс «ОК — только подтверждение настроек, если менялись».
+  // dirty=true когда юзер изменил настройки в открытой панели → показываем «ОК».
+  const [settingsDirty, setSettingsDirty] = useState(false);
+  useEffect(() => { if (showFactSettings) setSettingsDirty(false); }, [showFactSettings]);
   useEffect(() => {
     try { localStorage.setItem("muza-facts-settings", JSON.stringify(factSettings)); } catch {}
   }, [factSettings]);
@@ -2382,16 +2444,12 @@ export function FloatingConsultant() {
       factShownRef.current.add(fact.id);
       lastFactCategoryRef.current = categorize(fact.id);
       factClickedRef.current = { expand: fact.expand, id: fact.id };
-      setSmartBubbleText(`${fact.emoji} ${fact.text}`);
+      setBubble(`${fact.emoji} ${fact.text}`, 9000); // единый hide-таймер
       // Учёт показа в session-памяти (для backoff'а интервала).
       const s = readFabSession();
       writeFabSession({ ...s, lastAt: Date.now(), shown: s.shown + 1 });
-      window.setTimeout(() => {
-        if (factClickedRef.current?.expand === fact.expand) {
-          setSmartBubbleText(null);
-          factClickedRef.current = null;
-        }
-      }, 9000);
+      // persist показанных фактов (#5) — ниже, после factShownRef.add.
+      persistSeenFacts();
     };
     // Eugene 2026-05-24: рекурсивный setTimeout вместо фиксированного setInterval —
     // интервал пересчитывается перед каждым показом (session-aware backoff).
@@ -2542,30 +2600,18 @@ export function FloatingConsultant() {
             Default-облако удалено — показываем только контекстные smart-bubbles
             (idle 30 сек / form abandon / etc). */}
         {!expanded && !reaction && !chatOpen && smartBubbleText && (
-          <div
-            className="absolute bottom-full right-0 mb-2 px-4 py-2.5 pb-6 backdrop-blur-xl border text-[12px] font-medium text-white text-center leading-tight max-w-[180px] animate-in fade-in duration-500 shadow-lg transition-all bg-gradient-to-br from-pink-500/20 to-purple-500/12 border-pink-300/30 shadow-pink-500/20"
+          /* Eugene 2026-05-26 Босс «кнопку ок из новостей Музы убери» — облачко
+             новостей/фактов БЕЗ ОК (ОК только для подтверждения настроек, ниже).
+             Клик по облачку — открыть чат + развернуть факт. Авто-скрытие 9-12с. */
+          <button
+            type="button"
+            onClick={handleBubbleClick}
+            className="absolute bottom-full right-0 mb-2 px-4 py-2.5 backdrop-blur-xl border text-[12px] font-medium text-white text-center leading-tight max-w-[180px] animate-in fade-in duration-500 shadow-lg transition-all cursor-pointer hover:opacity-90 bg-gradient-to-br from-pink-500/20 to-purple-500/12 border-pink-300/30 shadow-pink-500/20"
             style={{ borderRadius: "55% 45% 45% 50% / 60% 50% 60% 40%" }}
+            aria-label="Открыть чат с Музой"
           >
-            {/* Клик по тексту — открыть чат и развернуть факт. */}
-            <button
-              type="button"
-              onClick={handleBubbleClick}
-              className="block w-full text-center cursor-pointer hover:opacity-90 transition-opacity"
-              aria-label="Открыть чат с Музой"
-            >
-              {smartBubbleText}
-            </button>
-            {/* Eugene 2026-05-26 Босс «ок в облачке справа внизу» — закрыть
-                подсказку вручную. Авто-скрытие (9с) при этом тоже работает. */}
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); factClickedRef.current = null; setSmartBubbleText(null); }}
-              className="absolute bottom-1 right-2 px-2 py-0.5 rounded-full bg-white/20 hover:bg-white/35 border border-white/30 text-[10px] font-semibold text-white/90 transition-colors active:scale-95"
-              aria-label="Закрыть подсказку"
-            >
-              ОК
-            </button>
-          </div>
+            {smartBubbleText}
+          </button>
         )}
 
         {/* Click reaction bubble — игровая деловая фраза при нажатии */}
@@ -2781,7 +2827,7 @@ export function FloatingConsultant() {
                       <button
                         key={m}
                         type="button"
-                        onClick={() => setFactSettings(s => ({ ...s, intervalMin: m }))}
+                        onClick={() => { setFactSettings(s => ({ ...s, intervalMin: m })); setSettingsDirty(true); }}
                         className={`text-[10px] px-2 py-1 rounded-full border transition-all tabular-nums ${
                           factSettings.intervalMin === m
                             ? "bg-fuchsia-500/30 border-fuchsia-400/60 text-white"
@@ -2796,7 +2842,7 @@ export function FloatingConsultant() {
                     type="range"
                     min={1} max={60} step={1}
                     value={factSettings.intervalMin}
-                    onChange={(e) => setFactSettings(s => ({ ...s, intervalMin: parseInt(e.target.value, 10) }))}
+                    onChange={(e) => { setFactSettings(s => ({ ...s, intervalMin: parseInt(e.target.value, 10) })); setSettingsDirty(true); }}
                     className="w-full accent-fuchsia-400"
                     aria-label="Частота показа подсказок (минут)"
                   />
@@ -2810,7 +2856,7 @@ export function FloatingConsultant() {
                       <button
                         key={opt.k}
                         type="button"
-                        onClick={() => setFactSettings(s => ({ ...s, cats: { ...s.cats, [opt.k]: !s.cats[opt.k] } }))}
+                        onClick={() => { setFactSettings(s => ({ ...s, cats: { ...s.cats, [opt.k]: !s.cats[opt.k] } })); setSettingsDirty(true); }}
                         className={`text-[10px] px-2 py-1 rounded-full border transition-all ${
                           factSettings.cats[opt.k]
                             ? "bg-fuchsia-500/30 border-fuchsia-400/60 text-white"
@@ -2821,6 +2867,18 @@ export function FloatingConsultant() {
                       </button>
                     ))}
                   </div>
+                  {/* Eugene 2026-05-26 Босс «ОК — подтверждение настроек, если
+                      менялись; слегка зелёная». Появляется только при изменении. */}
+                  {settingsDirty && (
+                    <button
+                      type="button"
+                      onClick={() => { setSettingsDirty(false); setShowFactSettings(false); }}
+                      className="self-end mt-1 px-3 py-1 rounded-full text-[11px] font-semibold text-emerald-50 bg-emerald-500/30 hover:bg-emerald-500/45 border border-emerald-400/50 transition-colors active:scale-95"
+                      aria-label="Подтвердить настройки"
+                    >
+                      ✓ ОК
+                    </button>
+                  )}
                 </div>
               )}
               {/* Eugene 2026-05-24 Босс «Совсем» перенесён в верхний правый угол
