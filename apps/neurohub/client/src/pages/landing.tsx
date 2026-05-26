@@ -738,6 +738,19 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     window.addEventListener("pointerdown", cancel, { once: true });
     return () => { window.clearTimeout(redirect); window.removeEventListener("pointerdown", cancel); };
   }, [globeCardCta]);
+
+  // Босс «по окончании трека Муза — переход на главную из земли». В шаринг-режиме
+  // (?globecard=1) когда трек в карточке глобуса доиграл → уходим на главную.
+  // (В обычном режиме остаётся автоповтор по топу через handleEnded.)
+  useEffect(() => {
+    if (!showGlobe || !globeCardMode) return;
+    let audio: HTMLAudioElement | null = null;
+    try { audio = getPersistentPlayerAudio(); } catch { audio = null; }
+    if (!audio) return;
+    const onEnded = () => { try { window.location.assign(window.location.origin + "/"); } catch { /* no-op */ } };
+    audio.addEventListener("ended", onEnded, { once: true });
+    return () => { try { audio?.removeEventListener("ended", onEnded); } catch { /* no-op */ } };
+  }, [showGlobe, globeCardMode]);
   // Eugene 2026-05-22 Босс «в режиме планшета если юзер не спускается вниз
   // плейлист раскрывается вверх с 1 трека внизу и 2 выше зеркальный порядок,
   // если скроллит вниз верхний плейлист исчезает». Reverse-блок 6 треков

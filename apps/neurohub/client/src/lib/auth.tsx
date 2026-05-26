@@ -125,6 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const register = useCallback(async (name: string, email: string, password: string, ref?: string, remember = true, promo?: string) => {
     const res = await apiRequest("POST", "/api/auth/register", { name, email, password, ref, promo });
     const data = await res.json();
+    if (data.waitlist) return data;        // платформа на тестировании — waitlist
     if (data.needVerification) return data; // need email code
     setAuthState(data.token, data.user, remember);
     return data;

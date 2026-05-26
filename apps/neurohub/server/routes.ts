@@ -7,7 +7,7 @@ import { detectsYars, recordYarsMention } from "./lib/yarsDetect";
 import { detectSentiment } from "./lib/sentimentDetector";
 import bcrypt from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
-import { registerSchema, loginSchema, users, payments, generations, transactions, promoCodes, visitors, genActivity, songDrafts, botLearnings, landingNews, chatbotSessions, chatbotMessages, adminDelegates, userActionFailures, agentHandoffs, userJourneyEvents } from "@shared/schema";
+import { registerSchema, loginSchema, users, payments, generations, transactions, promoCodes, visitors, genActivity, songDrafts, botLearnings, landingNews, chatbotSessions, chatbotMessages, adminDelegates, userActionFailures, agentHandoffs, userJourneyEvents, leads } from "@shared/schema";
 import express from "express";
 import { eq, desc, sql, and, isNotNull, inArray } from "drizzle-orm";
 import nodemailer from "nodemailer";
@@ -1435,6 +1435,40 @@ export async function registerRoutes(
     }
     if (req.body.website) { res.status(200).json({ token: "ok", user: {} }); return; }
     logEngagement(req, "email_register_attempt", { channel: "email", meta: { email: String(req.body?.email || "").slice(0, 80) } });
+
+    // Eugene 2026-05-26 Босс «по попытке зарегистрироваться по почте — сообщение
+    // "платформа на тестировании, уведомим когда стартует". Директору отследить».
+    // Email-регистрация на время теста → waitlist: сохраняем лид, не шлём код.
+    // (Телефон-регистрация остаётся рабочей — это primary канал.)
+    {
+      const wlEmail = String(req.body?.email || "").trim().toLowerCase();
+      const wlEmailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(wlEmail);
+      try {
+        if (wlEmailOk) {
+          const existing = db.select().from(leads).where(eq(leads.email, wlEmail)).get();
+          if (existing) {
+            db.update(leads)
+              .set({ intent: "waitlist_launch", segment: "email_waitlist", lastSeen: sql`CURRENT_TIMESTAMP` })
+              .where(eq(leads.id, existing.id)).run();
+          } else {
+            db.insert(leads).values({ email: wlEmail, intent: "waitlist_launch", segment: "email_waitlist", status: "new" }).run();
+          }
+        }
+      } catch (e) { console.log("[REG-WAITLIST] lead capture error:", e); }
+      // Директор отслеживает движение (marketing-orchestrator активность, маск email).
+      try {
+        agentOrchestrator.recordActivity("marketing-orchestrator", {
+          evt: "email_waitlist",
+          email: wlEmailOk ? wlEmail.replace(/^(.).+(@.*)$/, "$1***$2") : "invalid",
+        });
+      } catch { /* never throws */ }
+      res.json({
+        waitlist: true,
+        message: "Платформа на тестировании. Мы уведомим вас, как только MuzaAi стартует 💜",
+      });
+      return;
+    }
+
     try {
       const parsed = registerSchema.safeParse(req.body);
       if (!parsed.success) {

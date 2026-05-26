@@ -58,6 +58,7 @@ export default function RegisterPage() {
   const { register, verifyRegister, login, user } = useAuth();
   const [verifyStep, setVerifyStep] = useState(false);
   const [verifyCode, setVerifyCode] = useState("");
+  const [waitlistMsg, setWaitlistMsg] = useState<string | null>(null);
   const [, navigate] = useLocation();
   const { toast } = useToast();
 
@@ -111,6 +112,11 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       const result = await register(name || email.split("@")[0], email, password, refCode, remember, promo || undefined);
+      if (result?.waitlist) {
+        setWaitlistMsg(result.message || "Платформа на тестировании. Мы уведомим вас, как только MuzaAi стартует 💜");
+        setLoading(false);
+        return;
+      }
       if (result?.needVerification) {
         setVerifyStep(true);
         toast({ title: "Код отправлен", description: result.message });
@@ -157,7 +163,27 @@ export default function RegisterPage() {
           <p className="text-sm text-muted-foreground mt-1">Присоединяйтесь к MuzaAi</p>
         </div>
 
-        {verifyStep ? (
+        {waitlistMsg ? (
+          <div className="gradient-border p-6 rounded-2xl text-center space-y-4">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-500 via-fuchsia-500 to-blue-500 flex items-center justify-center mx-auto shadow-[0_0_24px_rgba(124,58,237,0.45)] text-2xl">
+              🚀
+            </div>
+            <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-background/70 border border-white/15 text-[11px] font-bold text-white uppercase tracking-wider">
+              <span className="w-1.5 h-1.5 rounded-full bg-fuchsia-400 animate-pulse" />
+              Платформа Ai на тестировании
+            </span>
+            <p className="text-sm text-white/80 leading-relaxed">{waitlistMsg}</p>
+            <p className="text-xs text-white/45">
+              Ваш email сохранён — мы напишем первыми, как только MuzaAi откроется 💜
+            </p>
+            <div className="flex flex-col gap-2 pt-1">
+              <Link href="/register-phone" className="w-full">
+                <Button className="w-full btn-gradient">Зарегистрироваться по звонку</Button>
+              </Link>
+              <button onClick={() => navigate("/")} className="text-xs text-muted-foreground hover:text-white w-full text-center mt-1">На главную</button>
+            </div>
+          </div>
+        ) : verifyStep ? (
           <div className="gradient-border p-6 rounded-2xl space-y-4">
             <p className="text-sm text-center text-muted-foreground mb-2">Код отправлен на <span className="text-white font-medium">{email}</span></p>
             <div className="space-y-2">
