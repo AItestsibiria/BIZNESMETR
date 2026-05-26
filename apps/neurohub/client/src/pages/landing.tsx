@@ -1433,6 +1433,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const playTrack = (track: any) => {
     if (timerRef.current) clearInterval(timerRef.current);
 
+    // Босс «пролёт МКС после каждого нового трека» — сигналим глобусу (троттлинг
+    // 3 мин внутри IssFlyby). Безвредно если глобус закрыт (никто не слушает).
+    try { window.dispatchEvent(new CustomEvent("muza:new-track", { detail: { id: track?.id } })); } catch { /* no-op */ }
+
     // Eugene 2026-05-14 Босс «правило: одновременно ИСКЛЮЧИТЕЛЬНО одна песня».
     // pauseAllExcept(audio) после получения persistent audio — pause всё
     // ОСИМ его (background-music, прочие <audio> на странице).

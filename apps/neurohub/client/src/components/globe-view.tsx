@@ -507,6 +507,97 @@ function CountriesFallbackList({ countries }: { countries: GlobeCountry[] }) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
+// Пролёт МКС над глобусом (Босс: при долгом просмотре + после нового трека,
+// не чаще 1 раз / 3 мин). Детальный SVG: солнечные панели, модуль с надписью
+// MuzaAi, иллюминатор с улыбающимся машущим космонавтом. CSS-анимация дуги.
+function IssFlyby() {
+  const [flyId, setFlyId] = useState(0);
+  const lastRef = useRef(0);
+  const THROTTLE_MS = 3 * 60 * 1000;
+  useEffect(() => {
+    const trigger = () => {
+      const now = Date.now();
+      if (now - lastRef.current < THROTTLE_MS) return;
+      lastRef.current = now;
+      setFlyId((n) => n + 1);
+    };
+    // «При долгом просмотре» — первый пролёт через 30 сек после открытия (Босс).
+    const initial = window.setTimeout(trigger, 30_000);
+    // «После каждого нового трека» — событие из плеера (троттлинг 3 мин).
+    const onNewTrack = () => trigger();
+    window.addEventListener("muza:new-track", onNewTrack);
+    return () => {
+      window.clearTimeout(initial);
+      window.removeEventListener("muza:new-track", onNewTrack);
+    };
+  }, []);
+
+  if (flyId === 0) return null;
+  return (
+    <div
+      key={flyId}
+      className="iss-flyby absolute top-[15%] w-[150px] h-[66px] pointer-events-none z-20"
+      style={{ left: "-26%", filter: "drop-shadow(0 0 8px rgba(0,212,255,0.35))" }}
+      aria-hidden="true"
+    >
+      <svg viewBox="0 0 150 66" width="150" height="66">
+        <defs>
+          <linearGradient id="iss-panel" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#1b2a6b" />
+            <stop offset="0.5" stopColor="#2348b8" />
+            <stop offset="1" stopColor="#15205a" />
+          </linearGradient>
+          <linearGradient id="iss-mod" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stopColor="#1a0f2e" />
+            <stop offset="1" stopColor="#0a0a17" />
+          </linearGradient>
+        </defs>
+        {/* Ферма */}
+        <rect x="24" y="31" width="102" height="4" rx="1.5" fill="#8b93b5" />
+        <rect x="24" y="30" width="102" height="1" fill="#c7cde6" opacity="0.6" />
+        {/* Левая солнечная панель */}
+        <g>
+          <rect x="4" y="15" width="34" height="36" rx="2" fill="url(#iss-panel)" stroke="#3a5fd0" strokeWidth="0.8" />
+          {[19, 25, 31, 37, 43].map((y) => (
+            <line key={`lh${y}`} x1="5" y1={y} x2="37" y2={y} stroke="#5b7be0" strokeWidth="0.4" opacity="0.5" />
+          ))}
+          {[12, 21, 30].map((x) => (
+            <line key={`lv${x}`} x1={x} y1="16" x2={x} y2="50" stroke="#0e1844" strokeWidth="0.6" opacity="0.7" />
+          ))}
+        </g>
+        {/* Правая солнечная панель */}
+        <g>
+          <rect x="112" y="15" width="34" height="36" rx="2" fill="url(#iss-panel)" stroke="#3a5fd0" strokeWidth="0.8" />
+          {[19, 25, 31, 37, 43].map((y) => (
+            <line key={`rh${y}`} x1="113" y1={y} x2="145" y2={y} stroke="#5b7be0" strokeWidth="0.4" opacity="0.5" />
+          ))}
+          {[120, 129, 138].map((x) => (
+            <line key={`rv${x}`} x1={x} y1="16" x2={x} y2="50" stroke="#0e1844" strokeWidth="0.6" opacity="0.7" />
+          ))}
+        </g>
+        {/* Центральный модуль + надпись MuzaAi (на борту) */}
+        <rect x="52" y="18" width="46" height="30" rx="9" fill="url(#iss-mod)" stroke="#7C3AED" strokeWidth="1.1" />
+        <text x="75" y="44.5" textAnchor="middle" fontFamily="Inter, sans-serif" fontSize="6.5" fontWeight="700" fill="#67E8F9" letterSpacing="0.3">MuzaAi</text>
+        {/* Иллюминатор с космонавтом */}
+        <circle cx="75" cy="29" r="8.5" fill="#061018" stroke="#00D4FF" strokeWidth="1.2" />
+        <circle cx="75" cy="29" r="8.5" fill="none" stroke="#ffffff" strokeWidth="0.4" opacity="0.3" />
+        {/* Шлем космонавта */}
+        <circle cx="75" cy="30" r="5.2" fill="#eef2ff" />
+        <path d="M71.2 29.5 a3.8 3.8 0 0 1 7.6 0 v2 a3.8 3.8 0 0 1 -7.6 0 z" fill="#bcd2ff" opacity="0.7" />
+        {/* Лицо — улыбка + глаза */}
+        <circle cx="73.4" cy="29.6" r="0.7" fill="#1a0f2e" />
+        <circle cx="76.6" cy="29.6" r="0.7" fill="#1a0f2e" />
+        <path d="M73 31.4 q2 2 4 0" stroke="#1a0f2e" strokeWidth="0.7" fill="none" strokeLinecap="round" />
+        {/* Машущая рука */}
+        <g transform="translate(80 27)">
+          <rect className="iss-wave-arm" x="0" y="6" width="2.2" height="7" rx="1.1" fill="#eef2ff" />
+        </g>
+      </svg>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 // Внутренний компонент — <Globe> с day/night шейдером, яркостью маркеров
 // (фронт + день/ночь), огоньками столиц ночью и кольцами «приём сигнала».
 function GlobeInner({ points }: { points: GlobePoint[] }) {
@@ -832,6 +923,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         ringRepeatPeriod={(d: RingDatum) => d.period}
         ringResolution={64}
       />
+      <IssFlyby />
     </div>
   );
 }
