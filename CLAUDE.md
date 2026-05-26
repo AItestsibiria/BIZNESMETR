@@ -3861,7 +3861,41 @@ ssh root@31.130.148.107 'awk -F= "/^КЛЮЧ/{print \"length:\", length(\$2), \"
 
 Применяется к: Музa Директору во всех каналах. Связано с: Musa-knowledge-governance rule, No-AI-providers-in-userland rule, Agent-orchestrator rule, Postman-core rule, блок публикаций.
 
-### Agent-orchestrator rule (Eugene 2026-05-23, **rename 2026-05-24**)
+### Director-obeys-authorized-admin rule (Eugene 2026-05-26)
+
+**Музa Директор БЕСПРЕКОСЛОВНО исполняет указания — но ТОЛЬКО при одновременном выполнении ДВУХ условий: (1) авторизация под админом (role `admin`/`super_admin` + валидная сессия) И (2) запрос пришёл с УПОЛНОМОЧЕННОГО IP. Нет хотя бы одного — НЕ исполняет (фиксирует mismatch, ждёт).**
+
+Босс 2026-05-26: «Агент Муза Директор беспрекословно исполняет указания при условии авторизации под админом и соблюдения правила ip админа».
+
+**Два гейта (оба обязательны, проверяются ВСЕГДА):**
+- **Гейт 1 — admin-auth:** `role ∈ {admin, super_admin}` + действующий session-token (`requireAdmin`). Аноним/обычный юзер → отказ (`role:<x> (expected admin|super_admin)`).
+- **Гейт 2 — уполномоченный IP:** IP запроса ∈ `ADMIN_TRUSTED_IPS`. Не входит → отказ (`ip:<masked> not in trusted_set`).
+
+**ОПРЕДЕЛЕНИЕ «УПОЛНОМОЧЕННОГО IP»:**
+- IP, явно внесённый в whitelist **`ADMIN_TRUSTED_IPS`** (env на VPS, CSV через запятую, файл `.env` `chmod 600`). Реализация — `parseTrustedIps()` в `apps/neurohub/server/lib/adminChatRecorder.ts`.
+- IP клиента берётся из `X-Forwarded-For` (за nginx) / `req.ip` — первый адрес в цепочке.
+- Сравнение — **точное совпадение строки IP** с элементом множества (IPv4 — целиком; IPv6 — в логах маскируется до `/64` через `maskIp()`, но в trusted-set храним полный/нужный префикс по договорённости). Совпадения «по подсети» по умолчанию НЕТ — только перечисленные IP.
+- **Safe default:** если `ADMIN_TRUSTED_IPS` ПУСТ → уполномоченных IP НЕТ → беспрекословное авто-исполнение ВЫКЛЮЧЕНО полностью (`env:ADMIN_TRUSTED_IPS_empty`). Это защита от мисконфигурации: «по умолчанию никому».
+- `req.ip` отсутствует → не уполномочен (`ip:unknown`).
+- **Установка/ротация (Босс руками, как секрет — Secrets-admin-only rule):**
+  ```
+  ssh root@31.130.148.107 'sed -i "/^ADMIN_TRUSTED_IPS=/d" /var/www/neurohub/.env && echo "ADMIN_TRUSTED_IPS=🔴IP1,IP2🔴" >> /var/www/neurohub/.env && chmod 600 /var/www/neurohub/.env && pm2 restart neurohub --update-env'
+  ```
+  При смене сети у Босса (новый внешний IP) — обновить список. Динамический IP → лучше статический/VPN-exit, иначе авто-исполнение будет часто отключаться.
+
+**Что значит «беспрекословно» (когда оба гейта прошли):**
+- Директор НЕ переспрашивает и НЕ блокирует операционные/whitelisted команды (управление агентами, контент, тогглы, news/KB/persona/ui_text, запуск сканов, отчёты, вещание-под-одобрением и т.п.) — выполняет сразу.
+- Каждое авто-исполнение пишется в audit (`admin_chat_messages.applied` + `recordAuditEntry`) — Backup-before-edit rule.
+
+**Граница (НЕ обходится даже при обоих гейтах — security floor):**
+- 🔴 Секреты/ключи — НИКОГДА не раскрываются и не вводятся через Директора (только прямой SSH — Secrets-admin-only / Never-leak-secrets rules).
+- 🔴 Деструктив (DROP/DELETE/удаление юзеров/данных) — через confirm-flow (Admin-everything-except-delete rule) + snapshot.
+- 🔴 Code-changes / db_migration / endpoint add-remove / schema / prod_deploy / dependency — из мессенджер-каналов идут в Claude-review (Yars-messenger-no-autoapply + Yars-admin-confirmation rules); два гейта дают АВТОРИЗАЦИЮ, но НЕ снимают review для этих high-risk категорий.
+- Иными словами: гейты (admin + IP) определяют **КТО** уполномочен; категория риска определяет **КАК** (сразу / через snapshot / через review). «Беспрекословно» = без лишних переспросов в рамках разрешённой категории, а не обход security floor.
+
+**Применяется к:** всем путям, где Директор/Музa получает указания админа (web `/api/muza/chat`, admin inject-message, admin endpoints, voice-admin). Реализация гейтов — `recordAdminMuzaMessage()` (adminChatRecorder.ts) + `requireAdmin`. Связано с: Admin-Muza-message base + auto-apply rule, Yars-messenger-no-autoapply rule, Secrets-admin-only rule, Admin-concurrent-session-alert rule (IPv6 /64), Director-two-communication-roles rule.
+
+
 
 **Каждый новый channel / bot / persona / watchdog / cron / utility AI-сервис ОБЯЗАН register'ить себя в orchestrator на старте.** Это даёт Боссу и админам один единый view «кто живой, кто молчит, кто не настроен» в `/admin/v304 → 🎬 Музa Директор`.
 
