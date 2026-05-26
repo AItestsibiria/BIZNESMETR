@@ -417,16 +417,13 @@
   animation: detailsPulse 5s ease-in-out infinite;
 }
 
-/* Eugene 2026-05-17 Босс «бутират свет вокруг обложки в фирменных цветах
-   пусть переливаются». Анимация brand-aura: переливающийся гамма purple →
-   fuchsia → cyan → amber + хаотичный rotation + opacity pulse. Reduced-
-   motion-safe (отключается в @media prefers-reduced-motion ниже). */
+/* Eugene 2026-05-17 Босс «свет вокруг обложки в фирменных цветах».
+   Eugene 2026-05-26 Босс «светящийся квадрат за обложкой — по периметру,
+   медленно, по часовой»: чистое РАВНОМЕРНОЕ вращение по часовой (16с, linear),
+   без хаотичного переливания/пульсации. Reduced-motion-safe (ниже). */
 @keyframes coverAuraShift {
-  0%   { background-position: 0% 50%; transform: rotate(0deg); opacity: 0.55; }
-  25%  { background-position: 50% 100%; opacity: 0.75; }
-  50%  { background-position: 100% 50%; transform: rotate(180deg); opacity: 0.65; }
-  75%  { background-position: 50% 0%; opacity: 0.8; }
-  100% { background-position: 0% 50%; transform: rotate(360deg); opacity: 0.55; }
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
 }
 .cover-aura {
   background: conic-gradient(from 0deg,
@@ -435,8 +432,7 @@
     #00D4FF 50%,
     #FBBF24 75%,
     #7C3AED 100%);
-  background-size: 300% 300%;
-  animation: coverAuraShift 8s ease-in-out infinite;
+  animation: coverAuraShift 16s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) {
   .cover-aura {
