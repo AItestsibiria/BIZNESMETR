@@ -1607,15 +1607,32 @@ export function FloatingConsultant() {
     // занимает 30-45 сек. 20s слишком короткий — AbortError на здоровом стеке.
     const timeoutId = window.setTimeout(() => ctrl.abort(), 45_000);
     try {
-      const r = await fetch("/api/muza/chat", {
+      let r = await fetch("/api/muza/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text, sessionId: sid }),
         signal: ctrl.signal,
       });
       window.clearTimeout(timeoutId);
+      // Eugene 2026-05-26 Босс: 5xx часто = короткое окно рестарта при деплое.
+      // Один авто-ретрай через 2с — юзер не видит «502», запрос проходит когда
+      // сервер поднялся. Только при 5xx; 4xx не ретраим.
+      if (!r.ok && r.status >= 500) {
+        await new Promise(res => window.setTimeout(res, 2000));
+        try {
+          const ctrl2 = new AbortController();
+          const t2 = window.setTimeout(() => ctrl2.abort(), 45_000);
+          r = await fetch("/api/muza/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: text, sessionId: sid }),
+            signal: ctrl2.signal,
+          });
+          window.clearTimeout(t2);
+        } catch { /* оставляем r как был — ниже покажем ошибку */ }
+      }
       if (!r.ok) {
-        setChatMsgs(m => [...m, { role: "bot", text: `Хм, что-то с сервером (${r.status}). Попробуй ещё раз — я тут.` }]);
+        setChatMsgs(m => [...m, { role: "bot", text: `Секунду не дозвонилась до сервера — напиши ещё раз, я тут 💜` }]);
         setChatSending(false);
         return;
       }
