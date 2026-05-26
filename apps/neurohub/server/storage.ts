@@ -1307,6 +1307,92 @@ try {
     console.error("[MIGRATION] user_memory failed:", e);
   }
 
+  // Eugene 2026-05-26 Босс — B2B / корпоративные клиенты (юрлица + ИП). Кабинет
+  // ЮЛ по ИНН (Контур.Фокус), договоры (реестр), счета, баланс. См. lib/corporateTools.ts.
+  try {
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS legal_entities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'ul',
+        inn TEXT NOT NULL,
+        kpp TEXT,
+        ogrn TEXT,
+        name TEXT NOT NULL,
+        full_name TEXT,
+        legal_address TEXT,
+        actual_address TEXT,
+        director_name TEXT,
+        director_basis TEXT DEFAULT 'на основании Устава',
+        phone TEXT,
+        email TEXT,
+        bank_name TEXT,
+        bik TEXT,
+        settlement_account TEXT,
+        corr_account TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        source TEXT NOT NULL DEFAULT 'manual',
+        data_json TEXT,
+        balance INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS legal_entities_user_idx ON legal_entities(user_id)`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS legal_entities_inn_idx ON legal_entities(inn)`);
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS corporate_contracts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        legal_entity_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        number TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'draft',
+        body_text TEXT,
+        amount_rub INTEGER,
+        invoice_id INTEGER,
+        signed_at TEXT,
+        sent_at TEXT,
+        stamped_by TEXT,
+        meta TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS corporate_contracts_le_idx ON corporate_contracts(legal_entity_id)`);
+    // Seed-кабинет ЗАО «Инфолайн» (Босс «сформируй кабинет исходя из данных»).
+    // Привязываем к первому админу; если таблица пуста и админ есть.
+    try {
+      const cnt = sqlite.prepare("SELECT COUNT(*) AS c FROM legal_entities").get() as { c: number };
+      if (!cnt || cnt.c === 0) {
+        const admin = sqlite.prepare(
+          "SELECT id FROM users WHERE role IN ('admin','super_admin') ORDER BY id LIMIT 1",
+        ).get() as { id: number } | undefined;
+        if (admin?.id) {
+          sqlite.prepare(`
+            INSERT INTO legal_entities
+              (user_id, kind, inn, kpp, ogrn, name, full_name, legal_address, actual_address,
+               director_name, director_basis, phone, email, bank_name, bik,
+               settlement_account, corr_account, status, source)
+            VALUES (?, 'ul', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 'seed')
+          `).run(
+            admin.id, "7017236261", "701701001", "1097017005601",
+            "ЗАО «Инфолайн»", "Закрытое акционерное общество «Инфолайн»",
+            "634050, г. Томск, пр. Ленина, д. 151/1, корпус 1",
+            "г. Томск, ул. Карла Маркса, д. 7, оф. 519",
+            "Новосёлов Евгений Геннадьевич", "на основании Устава",
+            "+7 (3822) 50-36-70", "hello@muzaai.ru",
+            "Томское ОСБ № 8616 ПАО Сбербанк, г. Томск", "046902606",
+            "40702810464000007838", "30101810800000000606",
+          );
+          console.log("[MIGRATION] seeded legal_entities: ЗАО «Инфолайн»");
+        }
+      }
+    } catch (e) {
+      console.error("[MIGRATION] legal_entities seed failed:", e);
+    }
+  } catch (e) {
+    console.error("[MIGRATION] legal_entities/corporate_contracts failed:", e);
+  }
+
   // Eugene 2026-05-23 Босс «Информация о Музе» — публичные разделы продукта
   // + admin CMS + file uploads. См. plugin muza-info/module.ts.
   try {

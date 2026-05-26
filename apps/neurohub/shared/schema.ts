@@ -439,6 +439,57 @@ export const invoices = sqliteTable("invoices", {
 export type PremiumSubscription = typeof premiumSubscriptions.$inferSelect;
 export type Invoice = typeof invoices.$inferSelect;
 
+// Eugene 2026-05-26 Босс — B2B / корпоративные клиенты (юрлица + ИП). Данные
+// подтягиваются по ИНН/названию (Контур.Фокус API), регистрируется кабинет ЮЛ,
+// формируется договор, выписывается счёт, ведётся реестр. Принадлежит юзеру (userId).
+export const legalEntities = sqliteTable("legal_entities", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: integer("user_id").notNull(),                // владелец кабинета (контактное лицо)
+  kind: text("kind").notNull().default("ul"),          // 'ul' (юрлицо) | 'ip' (ИП)
+  inn: text("inn").notNull(),
+  kpp: text("kpp"),
+  ogrn: text("ogrn"),
+  name: text("name").notNull(),                        // краткое наименование
+  fullName: text("full_name"),                         // полное наименование
+  legalAddress: text("legal_address"),
+  actualAddress: text("actual_address"),
+  directorName: text("director_name"),
+  directorBasis: text("director_basis").default("на основании Устава"),
+  phone: text("phone"),
+  email: text("email"),
+  bankName: text("bank_name"),
+  bik: text("bik"),
+  settlementAccount: text("settlement_account"),
+  corrAccount: text("corr_account"),
+  status: text("status").notNull().default("active"),  // active | blocked | archived
+  source: text("source").notNull().default("manual"),  // kontur_focus | manual | seed
+  dataJson: text("data_json"),                         // сырой ответ Контур.Фокус
+  balance: integer("balance").notNull().default(0),    // баланс кабинета ЮЛ, копейки
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+// Реестр договоров с юрлицами (Босс «заполнить договор, вести реестр, подписать,
+// печать, отправить»). Документ + статусы жизненного цикла.
+export const corporateContracts = sqliteTable("corporate_contracts", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  legalEntityId: integer("legal_entity_id").notNull(),
+  userId: integer("user_id").notNull(),
+  number: text("number").notNull(),                    // номер договора (реестр)
+  status: text("status").notNull().default("draft"),   // draft|signed|sent|active|cancelled
+  bodyText: text("body_text"),                         // текст договора
+  amountRub: integer("amount_rub"),
+  invoiceId: integer("invoice_id"),                    // связанный счёт (FK invoices)
+  signedAt: text("signed_at"),
+  sentAt: text("sent_at"),
+  stampedBy: text("stamped_by"),                       // 'muza-org' когда проставлена печать ЗАО
+  meta: text("meta"),
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+export type LegalEntity = typeof legalEntities.$inferSelect;
+export type CorporateContract = typeof corporateContracts.$inferSelect;
+
 export type ChatbotSession = typeof chatbotSessions.$inferSelect;
 export type ChatbotMessage = typeof chatbotMessages.$inferSelect;
 
