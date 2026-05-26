@@ -713,10 +713,19 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     catch { return false; }
   });
   const [globeCardCta, setGlobeCardCta] = useState(false);
-  // Земля на плеере игриво моргает при ПЕРВОМ заходе (Босс: стимулирует нажать).
+  // Земля на плеере игриво моргает пока юзер НЕ нажал (Босс: «хук для вирусности —
+  // каждый должен нажать»). Чем дольше без реакции — тем чаще подмигивает.
   const [planetWink, setPlanetWink] = useState<boolean>(() => {
     try { return !localStorage.getItem("muza_globe_seen"); } catch { return false; }
   });
+  const [winkLevel, setWinkLevel] = useState(0);
+  // Эскалация: каждые 9 сек без нажатия подмигивание учащается (до уровня 3).
+  useEffect(() => {
+    if (!planetWink) return;
+    const id = window.setInterval(() => setWinkLevel((l) => Math.min(3, l + 1)), 9000);
+    return () => window.clearInterval(id);
+  }, [planetWink]);
+  const WINK_DUR = [3.4, 2.3, 1.5, 0.95]; // сек — чем выше уровень, тем быстрее
 
   // Шаринг-режим: открыть карточку глобуса сразу, через 60 сек показать CTA на MuzaAi.ru.
   useEffect(() => {
@@ -2378,11 +2387,16 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             click-handler родительского button. */}
                         <span
                           className={`pointer-events-none group-hover:opacity-90 inline-flex items-center justify-center ${planetWink ? "animate-globe-wink" : ""}`}
+                          style={planetWink ? { animationDuration: `${WINK_DUR[winkLevel]}s` } : undefined}
                         >
                           <PlanetIcon size={32} />
                         </span>
                         {planetWink && (
-                          <span className="absolute inset-0 rounded-full pointer-events-none animate-globe-wink-glow" aria-hidden="true" />
+                          <span
+                            className="absolute inset-0 rounded-full pointer-events-none animate-globe-wink-glow"
+                            style={{ animationDuration: `${WINK_DUR[winkLevel]}s` }}
+                            aria-hidden="true"
+                          />
                         )}
                         {/* Countries ABS под h-8 row — не влияет на flex alignment */}
                         <span className="absolute top-full left-1/2 -translate-x-1/2 mt-2 text-[13px] tabular-nums font-bold bg-gradient-to-r from-blue-300 via-cyan-300 to-emerald-200 bg-clip-text text-transparent pointer-events-none group-hover:underline underline-offset-2 whitespace-nowrap" title="Стран слушают">{countriesCount}</span>

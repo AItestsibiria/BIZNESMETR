@@ -209,8 +209,12 @@ const DAY_NIGHT_FRAGMENT = `
     float intensity = dot(normalize(vNormal), normalize(rotatedSunDirection));
     vec4 dayColor = texture2D(dayTexture, vUv);
     vec4 nightColor = texture2D(nightTexture, vUv);
-    float blendFactor = smoothstep(-0.1, 0.1, intensity);
-    gl_FragColor = mix(nightColor, dayColor, blendFactor);
+    // Ночная сторона НЕ мрачная (Босс): усиливаем огни больших городов (×1.7)
+    // + лёгкий сине-фиолетовый ambient-пол, чтобы материки ночью были видны.
+    vec3 nightBoost = nightColor.rgb * 1.7 + vec3(0.02, 0.025, 0.055);
+    float blendFactor = smoothstep(-0.12, 0.12, intensity);
+    vec3 col = mix(nightBoost, dayColor.rgb, blendFactor);
+    gl_FragColor = vec4(col, 1.0);
   }
 `;
 
@@ -311,6 +315,30 @@ function subsolarPoint(dt: number): [number, number] {
   const lng = longitude - equationOfTimeMin(t) / 4;
   const lat = solarDeclinationDeg(t);
   return [lng, lat];
+}
+
+// Подлунная точка [lng°, lat°] — точка Земли прямо под Луной (низкоточная формула
+// Meeus, точность ±неск. градусов — достаточно «в реальности» для визуала Луны).
+function subLunarPoint(dt: number): [number, number] {
+  const d = dt / 86400000 + 2440587.5 - 2451545.0; // дни от J2000
+  const rad = Math.PI / 180;
+  const L = 218.316 + 13.176396 * d;        // средняя долгота Луны
+  const M = 134.963 + 13.064993 * d;        // средняя аномалия
+  const F = 93.272 + 13.22935 * d;          // аргумент широты
+  const lambda = L + 6.289 * Math.sin(M * rad);   // эклиптическая долгота
+  const beta = 5.128 * Math.sin(F * rad);          // эклиптическая широта
+  const eps = 23.439 - 0.0000004 * d;              // наклон эклиптики
+  const lr = lambda * rad, br = beta * rad, er = eps * rad;
+  const sinDec = Math.sin(br) * Math.cos(er) + Math.cos(br) * Math.sin(er) * Math.sin(lr);
+  const dec = Math.asin(sinDec) / rad;
+  const ra = Math.atan2(
+    Math.sin(lr) * Math.cos(er) - Math.tan(br) * Math.sin(er),
+    Math.cos(lr),
+  ) / rad;
+  const gmst = (280.4606 + 360.9856473 * d) % 360; // среднее звёздное время Гринвича
+  let lng = ((ra - gmst + 180) % 360) - 180;
+  if (lng < -180) lng += 360;
+  return [lng, dec];
 }
 
 // Нормаль поверхности в (lat,lng) — базис Polar2Cartesian как в шейдере.
@@ -609,6 +637,13 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
 
   const dayNight = useMemo<DayNightMaterial | null>(() => buildDayNightMaterial(), []);
   const sunDirRef = useRef<[number, number, number]>(sunDirWorld(subsolarPoint(Date.now())));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sunMeshRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const moonMeshRef = useRef<any>(null);
+  // Геолокация юзера для стартового обзора (Босс: «открытие глобуса по геолокации»).
+  const userLatLngRef = useRef<{ lat: number; lng: number } | null>(null);
+  const [userLatLng, setUserLatLng] = useState<{ lat: number; lng: number } | null>(null);
 
   const basePointsRef = useRef<GlobePoint[]>(points);
   useEffect(() => {
@@ -648,8 +683,44 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       } catch {
         // ignore
       }
+      // Освобождаем Солнце/Луну (geometry + material + дети-гало).
+      try {
+        for (const m of [sunMeshRef.current, moonMeshRef.current]) {
+          if (!m) continue;
+          m.parent?.remove?.(m);
+          m.geometry?.dispose?.();
+          m.material?.dispose?.();
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (m.children || []).forEach((ch: any) => { ch.geometry?.dispose?.(); ch.material?.dispose?.(); });
+        }
+        sunMeshRef.current = null;
+        moonMeshRef.current = null;
+      } catch {
+        // ignore
+      }
     };
   }, [dayNight]);
+
+  // Позиционирование видимых 3D-Солнца и Луны над субсолярной/подлунной точками
+  // (Босс «Солнце и Луну не видно» — теперь это реальные объекты сцены).
+  const positionSunMoon = () => {
+    const g = globeRef.current;
+    if (!g?.getCoords) return;
+    try {
+      if (sunMeshRef.current) {
+        const sp = subsolarPoint(Date.now());
+        const c = g.getCoords(sp[1], sp[0], 3.0); // (lat, lng, altitude≈3 радиуса)
+        sunMeshRef.current.position.set(c.x, c.y, c.z);
+      }
+      if (moonMeshRef.current) {
+        const mp = subLunarPoint(Date.now());
+        const c = g.getCoords(mp[1], mp[0], 1.9);
+        moonMeshRef.current.position.set(c.x, c.y, c.z);
+      }
+    } catch {
+      // ignore
+    }
+  };
 
   // Обновление положения Солнца раз в минуту (Босс п.4). Старт = момент открытия.
   useEffect(() => {
@@ -661,11 +732,45 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       } catch {
         // ignore
       }
+      positionSunMoon();
     };
     tick();
     const id = window.setInterval(tick, 60_000);
     return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dayNight]);
+
+  // Геолокация юзера → стартовый обзор глобуса (Босс «открытие по геолокации»).
+  // Async + permission prompt; при отказе/таймауте — fallback «Солнце слева».
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) return;
+    let cancelled = false;
+    try {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (cancelled) return;
+          const ll = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          userLatLngRef.current = ll;
+          setUserLatLng(ll);
+        },
+        () => { /* отказ/ошибка — остаёмся на fallback-обзоре */ },
+        { enableHighAccuracy: false, timeout: 6000, maximumAge: 600000 },
+      );
+    } catch {
+      // ignore
+    }
+    return () => { cancelled = true; };
+  }, []);
+
+  // Когда геолокация получена и глобус готов — плавно наводим камеру на юзера.
+  useEffect(() => {
+    if (!ready || !userLatLng) return;
+    try {
+      globeRef.current?.pointOfView?.({ lat: userLatLng.lat, lng: userLatLng.lng, altitude: 2.0 }, 1200);
+    } catch {
+      // ignore
+    }
+  }, [ready, userLatLng]);
 
   // Замер размера контейнера + ResizeObserver.
   useEffect(() => {
@@ -738,6 +843,16 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       const newRings: RingDatum[] = [];
       const capPts: GlobePoint[] = [];
 
+      // Сердечный пульс «тук-тук» (Босс: не часто, стильно, как пульс сердца).
+      // Период 3 сек: сильный «тук» (lub) + чуть слабее «тук» (dub), затем покой.
+      // Все огни пульсируют синхронно мягко (±18%) — не дёрганое мигание.
+      const HB_PERIOD = 3000;
+      const hbPhase = (now % HB_PERIOD) / HB_PERIOD;
+      const lub = Math.exp(-Math.pow((hbPhase - 0.08) / 0.05, 2));
+      const dub = 0.7 * Math.exp(-Math.pow((hbPhase - 0.22) / 0.055, 2));
+      const heart = Math.min(1, lub + dub); // 0..1
+      const pulse = 0.82 + 0.18 * heart;
+
       const lit: GlobePoint[] = pts.map((p) => {
         const delta = Math.abs(lngDelta(p.lng, camLng)); // 0 центр → 180 сзади
         const isFront = delta <= FRONT_HALF_DEG;
@@ -766,15 +881,16 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           if (capDelta <= FRONT_HALF_DEG && capIllum < -0.02) {
             const depth = Math.min(1, -capIllum / 0.6);
             const frontF = 1 - (capDelta / FRONT_HALF_DEG) * 0.7;
-            const a = Math.max(0.4, Math.min(1, depth * frontF + 0.25));
+            // Яркие точки столиц (Босс) + мягкий сердечный пульс.
+            const a = Math.max(0.55, Math.min(1, (depth * frontF + 0.4) * pulse));
             capPts.push({
               lat: p.capLat,
               lng: p.capLng,
               label: p.label,
               weight: 0,
               baseColor: "#FFE9A8",
-              color: hexToRgba("#FFE9A8", a), // тёплый «городской свет»
-              altitude: 0.008,
+              color: hexToRgba("#FFF0C2", a), // тёплый яркий «городской свет»
+              altitude: 0.01,
               capLat: p.capLat,
               capLng: p.capLng,
               key: `${p.key}:cap`,
@@ -783,11 +899,13 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           }
         }
 
-        // Яркость (Босс п.1): видимая сторона ярче + днём ярче ночи, не гаснет.
-        const t = Math.max(0, Math.min(1, 1 - delta / 180));
-        const frontGain = isFront ? Math.max(0.55, t) : t * 0.45;
+        // Яркость: НЕПРЕРЫВНАЯ по фронтальности (без резкого скачка на границе —
+        // это и был «некрасивый» блинк) + днём ярче ночи + мягкий сердечный пульс.
+        const fr = Math.max(0, Math.min(1, 1 - delta / 130));
+        const frEase = fr * fr * (3 - 2 * fr); // smoothstep — плавно
         const dayFactor = 0.55 + 0.45 * Math.max(0, Math.min(1, (illum + 0.2) / 1.2));
-        const alpha = Math.max(0.16, Math.min(1, (0.16 + 0.79 * frontGain) * dayFactor));
+        const base = (0.2 + 0.62 * frEase) * dayFactor;
+        const alpha = Math.max(0.14, Math.min(1, base * pulse));
         const color = hexToRgba(p.baseColor, alpha);
         const baseAlt = 0.02 + Math.min(0.22, Math.log10((p.weight || 1) + 1) * 0.08);
         const altitude = isFront ? baseAlt * 1.6 : baseAlt * 0.55;
@@ -842,12 +960,60 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         controls.rotateSpeed = 0.7;
         controls.zoomSpeed = 0.8;
       }
-      // Солнце СЛЕВА (Босс): камера на 90° восточнее субсолярной долготы →
-      // освещённая сторона уходит на левый лимб, терминатор по центру кадра —
-      // видно рассвет/закат. Астрономически точно (реальная субсолярная точка).
-      // altitude 2.0 — глобус крупный, с отступами слева/справа.
-      const [subLng] = subsolarPoint(Date.now());
-      g.pointOfView?.({ lat: 22, lng: subLng + 90, altitude: 2.0 }, 0);
+      // Видимые 3D-Солнце и Луна (Босс «Солнца и Луну не видно»). Добавляем в
+      // сцену один раз; позиция — над субсолярной/подлунной точками (positionSunMoon).
+      try {
+        const scene = g.scene?.();
+        if (scene && !sunMeshRef.current) {
+          // Солнце — яркий диск + аддитивное гало.
+          const sun = new THREE.Mesh(
+            new THREE.SphereGeometry(11, 28, 28),
+            new THREE.MeshBasicMaterial({ color: 0xfff1c4 }),
+          );
+          const glow = new THREE.Mesh(
+            new THREE.SphereGeometry(22, 28, 28),
+            new THREE.MeshBasicMaterial({
+              color: 0xffd27a, transparent: true, opacity: 0.28,
+              blending: THREE.AdditiveBlending, depthWrite: false,
+            }),
+          );
+          sun.add(glow);
+          scene.add(sun);
+          sunMeshRef.current = sun;
+        }
+        if (scene && !moonMeshRef.current) {
+          // Луна — серый диск с лёгким холодным свечением по краю.
+          const moon = new THREE.Mesh(
+            new THREE.SphereGeometry(4.2, 28, 28),
+            new THREE.MeshBasicMaterial({ color: 0xd9dbe2 }),
+          );
+          const moonGlow = new THREE.Mesh(
+            new THREE.SphereGeometry(6.4, 24, 24),
+            new THREE.MeshBasicMaterial({
+              color: 0xaab4d6, transparent: true, opacity: 0.18,
+              blending: THREE.AdditiveBlending, depthWrite: false,
+            }),
+          );
+          moon.add(moonGlow);
+          scene.add(moon);
+          moonMeshRef.current = moon;
+        }
+        positionSunMoon();
+      } catch (e) {
+        console.error("[GlobeView] sun/moon setup failed:", e);
+      }
+
+      // Стартовый обзор: если уже есть геолокация юзера — на неё (Босс «открытие
+      // по геолокации»). Иначе Солнце СЛЕВА — камера на 90° восточнее субсолярной
+      // долготы → освещённая сторона на левом лимбе, терминатор по центру (видно
+      // рассвет/закат). altitude 2.0 — глобус крупный, с отступами слева/справа.
+      const u = userLatLngRef.current;
+      if (u) {
+        g.pointOfView?.({ lat: u.lat, lng: u.lng, altitude: 2.0 }, 0);
+      } else {
+        const [subLng] = subsolarPoint(Date.now());
+        g.pointOfView?.({ lat: 22, lng: subLng + 90, altitude: 2.0 }, 0);
+      }
     } catch (e) {
       console.error("[GlobeView] onGlobeReady controls setup failed:", e);
     } finally {
