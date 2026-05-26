@@ -2430,12 +2430,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             setShowGlobe(true);
                             setWinkMode("off");
                             try { localStorage.setItem("muza_globe_seen", "1"); } catch { /* no-op */ }
-                            // Босс «под глобусом миниплеер, автоплей трека Муза, потом
-                            // автоповтор по рейтингу топ». Запуск В ЭТОМ user-gesture
-                            // (iOS требует жест для play). Если уже что-то играет —
-                            // не перебиваем. Иначе ищем трек «Муза», иначе топ рейтинга.
+                            // Босс «автоплей Муза на 3D ТОЛЬКО если плеер НЕ играл.
+                            // Если играл — продолжаем без пауз, непрерывно по правилам
+                            // юзера». Гейт на isPlayingState (активное воспроизведение),
+                            // НЕ на playingId. Запуск в этом user-gesture (iOS требует жест).
                             try {
-                              if (!playingId) {
+                              if (!isPlayingState) {
                                 const list = filteredMusicRef.current || [];
                                 const muza = list.find((t: any) =>
                                   /\bмуза\b|\bmuza\b/i.test(String(t.displayTitle || t.prompt || "")));
