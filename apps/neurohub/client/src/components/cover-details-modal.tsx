@@ -133,7 +133,10 @@ export function CoverDetailsModal({
   // Eugene 2026-05-26 Босс «между треками не должно быть пустого квадрата» —
   // держим ПОСЛЕДНЮЮ загруженную обложку фоном, пока новая грузится. Новая
   // (в motion.div) проявляется поверх по onLoad — пустого плейсхолдера нет.
-  const [lastCover, setLastCover] = useState<string | null>(track.imageUrl || null);
+  // КРИТ-ФИКС (Eugene 2026-05-26): track?.imageUrl — инициализатор useState
+  // выполняется ДО early-return, при track=null был краш «null is not an object
+  // (n.imageUrl)» → ErrorBoundary валил весь лендинг.
+  const [lastCover, setLastCover] = useState<string | null>(track?.imageUrl || null);
 
   // Eugene 2026-05-20 Босс «Текст сайта не должен быть в Swipe» — body
   // scroll lock пока модалка открыта. Без этого юзер может проскроллить
