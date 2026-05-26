@@ -3126,7 +3126,7 @@ export function FloatingConsultant() {
             onTouchEnd={() => { drawerPinchRef.current = null; }}
             onTouchCancel={() => { drawerPinchRef.current = null; }}
             ref={chatPanelRef}
-            className={`absolute flex flex-col backdrop-blur-2xl border-2 rounded-2xl border-purple-300/35 ring-1 ring-inset ring-white/15 shadow-2xl shadow-purple-500/30 overflow-hidden pointer-events-auto animate-in fade-in duration-300 ${
+            className={`absolute flex flex-col backdrop-blur-3xl backdrop-saturate-150 border rounded-2xl border-white/20 ring-1 ring-inset ring-white/20 shadow-2xl shadow-purple-500/20 overflow-hidden pointer-events-auto animate-in fade-in duration-300 ${
               isResizing ? "" : "transition-all"
             } ${
               // Eugene 2026-05-23 Босс «на планшете не позволяет сократить» —
@@ -3168,7 +3168,10 @@ export function FloatingConsultant() {
               marginBottom: !chatFullscreen && (drawerSnap === "br" || drawerSnap === "bl") ? "env(safe-area-inset-bottom, 0px)" : undefined,
               // Eugene 2026-05-25 Босс «прозрачность чата 90%».
               // 0=плотно 0.95, 1=полупрозрачно 0.5, 2=стекло 0.10 (90% прозр.).
-              backgroundColor: `hsl(var(--background) / ${[0.95, 0.5, 0.1][chatOpacity]})`,
+              // Eugene 2026-05-26 Босс «фон чата убери цвет на 30%, стекло+глянец,
+              // прозрачность >50% по умолчанию». Альфа снижена (~30% меньше «тела»):
+              // 0=плотно 0.85, 1=полупрозр 0.4, 2=стекло 0.06 (94% прозр., дефолт).
+              backgroundColor: `hsl(var(--background) / ${[0.85, 0.4, 0.06][chatOpacity]})`,
             }}
           >
             {/* Eugene 2026-05-24 Босс «глубина картинки и облака парящие в
@@ -3193,7 +3196,7 @@ export function FloatingConsultant() {
               className="absolute inset-0 rounded-2xl pointer-events-none -z-[1]"
               style={{
                 background:
-                  "linear-gradient(180deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.04) 14%, rgba(255,255,255,0) 38%), radial-gradient(120% 60% at 50% 0%, rgba(168,85,247,0.10) 0%, rgba(255,255,255,0) 60%)",
+                  "linear-gradient(180deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.05) 14%, rgba(255,255,255,0) 38%), radial-gradient(120% 60% at 50% 0%, rgba(168,85,247,0.07) 0%, rgba(255,255,255,0) 60%)",
               }}
             />
             {/* Eugene 2026-05-18 Босс: диагональная стрелка resize в верхне-левом
