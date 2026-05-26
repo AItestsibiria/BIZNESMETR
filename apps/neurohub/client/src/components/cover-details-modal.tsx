@@ -130,6 +130,11 @@ export function CoverDetailsModal({
   // Info-popover (отдельный от первого hint overlay).
   const [showInfo, setShowInfo] = useState(false);
 
+  // Eugene 2026-05-26 Босс «между треками не должно быть пустого квадрата» —
+  // держим ПОСЛЕДНЮЮ загруженную обложку фоном, пока новая грузится. Новая
+  // (в motion.div) проявляется поверх по onLoad — пустого плейсхолдера нет.
+  const [lastCover, setLastCover] = useState<string | null>(track.imageUrl || null);
+
   // Eugene 2026-05-20 Босс «Текст сайта не должен быть в Swipe» — body
   // scroll lock пока модалка открыта. Без этого юзер может проскроллить
   // landing вниз и видеть «Три мощных инструмента» под обложкой через
@@ -537,6 +542,18 @@ export function CoverDetailsModal({
           className="relative w-full aspect-square max-h-[63dvh] sm:max-h-[69dvh] md:max-h-[75dvh] lg:max-h-[78dvh] rounded-3xl overflow-hidden shadow-lg shadow-purple-500/10 shrink-0 bg-gradient-to-br from-purple-500/30 to-blue-500/30"
           onClick={(e) => e.stopPropagation()}
         >
+          {/* Eugene 2026-05-26 Босс «между треками не должно быть пустого
+              квадрата». Фон — последняя загруженная обложка; держится пока новая
+              грузится, новая проявляется поверх (по onLoad). Пустоты нет. */}
+          {lastCover && (
+            <img
+              src={lastCover}
+              alt=""
+              aria-hidden="true"
+              draggable={false}
+              className="absolute inset-0 w-full h-full object-cover pointer-events-none"
+            />
+          )}
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={track.id}
@@ -565,7 +582,8 @@ export function CoverDetailsModal({
                   src={track.imageUrl}
                   alt={title}
                   draggable={false}
-                  className="w-full h-full object-cover pointer-events-none"
+                  className="relative w-full h-full object-cover pointer-events-none"
+                  onLoad={() => { if (track.imageUrl) setLastCover(track.imageUrl); }}
                   onError={handleCoverError}
                 />
               ) : (
@@ -807,7 +825,9 @@ export function CoverDetailsModal({
         <div className="w-full text-center px-2 pb-1" onClick={(e) => e.stopPropagation()}>
           {/* Eugene 2026-05-19 Босс «шрифт более читабельный» — крупнее title,
               чище контраст автор + дата. */}
-          <p className="text-lg sm:text-xl font-display font-bold gradient-text neon-text leading-tight tracking-tight">{title}</p>
+          {/* Eugene 2026-05-26 Босс «текст песни не светящимся шрифтом — читать
+              неудобно»: убран neon-text (свечение). Чистый белый, читабельно. */}
+          <p className="text-lg sm:text-xl font-sans font-bold text-white leading-snug tracking-tight">{title}</p>
           {track.authorName && (
             <p className="text-sm text-purple-200 mt-0.5 font-semibold font-sans">{track.authorName}</p>
           )}
