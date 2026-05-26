@@ -12,6 +12,7 @@ import { PlanetIcon } from "@/components/plays-counter";
 import { VolumeSlider } from "@/components/volume-slider";
 import { muteBgMusic, unmuteBgMusic } from "@/components/background-music";
 import { setupMediaSessionForTrack, setLockScreenPlaybackState, setLockScreenPosition, loadTrackIntoPlayer, setPlayerVolume, getPersistentPlayerAudio, getPlayerAnalyser } from "@/lib/lockscreen";
+import { getTrackEnvelope } from "@/lib/audioEnvelope";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 // Eugene 2026-05-21 Босс «panel перенесён в ЛК автора» — import не нужен в landing
@@ -513,13 +514,21 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       return;
     }
     let raf = 0;
+    let cancelled = false;
     let analyser: ReturnType<typeof getPlayerAnalyser> = null;
     let freq: Uint8Array | null = null;
-    try {
-      const audio = getPersistentPlayerAudio();
-      if (audio) analyser = getPlayerAnalyser(audio);
-    } catch { /* iOS / нет графа — имитация ниже */ }
+    const audio = (() => { try { return getPersistentPlayerAudio(); } catch { return null; } })();
+    try { if (audio) analyser = getPlayerAnalyser(audio); } catch { /* iOS / нет графа */ }
     if (analyser) freq = new Uint8Array(analyser.frequencyBinCount);
+    // iOS (analyser=null): строим огибающую трека по скачанному буферу
+    // (decodeAudioData — lock-screen safe, см. audioEnvelope.ts) и синхроним
+    // бары по audio.currentTime → реальная реакция на ритм. Пока строится / при
+    // ошибке — живая имитация (ниже).
+    let envData: { env: Float32Array; frameSec: number } | null = null;
+    if (!analyser && audio) {
+      const url = audio.currentSrc || audio.src || "";
+      if (url) getTrackEnvelope(url).then(e => { if (!cancelled) envData = e; }).catch(() => {});
+    }
     const N = bars.length || 20;
     const tick = () => {
       if (analyser && freq) {
@@ -530,6 +539,18 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           const v = freq[bin] / 255;
           const b = bars[i];
           if (b) { b.style.height = `${Math.max(8, 12 + v * 100)}%`; b.style.opacity = String(0.55 + v * 0.45); }
+        }
+      } else if (envData && audio) {
+        // iOS реальный режим: амплитуда из огибающей на текущей позиции трека.
+        const idx = Math.floor((audio.currentTime || 0) / envData.frameSec);
+        const a = envData.env[Math.max(0, Math.min(envData.env.length - 1, idx))] || 0;
+        const t = performance.now() / 1000;
+        for (let i = 0; i < N; i++) {
+          // амплитуда трека × спектр-подобная вариация по барам (танец по ритму)
+          const varr = 0.65 + 0.35 * Math.sin(t * 5 + i * 0.55);
+          const h = 14 + a * 86 * varr;
+          const b = bars[i];
+          if (b) { b.style.height = `${Math.max(8, Math.min(100, h))}%`; b.style.opacity = String(0.55 + a * 0.45); }
         }
       } else {
         const t = performance.now() / 1000;
@@ -542,8 +563,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [isPlayingState]);
+    return () => { cancelled = true; cancelAnimationFrame(raf); };
+  }, [isPlayingState, playingId]);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   // Eugene 2026-05-24 Босс «при нажатии уменьшилась в первоначальное положение».
   // closingId — id трека, у которого expanded карточка сейчас СВОРАЧИВАЕТСЯ.
