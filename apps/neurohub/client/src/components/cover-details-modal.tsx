@@ -98,8 +98,7 @@ function formatTime(sec: number): string {
 
 const SWIPE_OFFSET_THRESHOLD = 80;
 const SWIPE_VELOCITY_THRESHOLD = 500;
-const HINT_STORAGE_KEY = "cover-modal-hint-seen";
-const HINT_AUTO_HIDE_MS = 3000;
+const HINT_AUTO_HIDE_MS = 10000; // Eugene 2026-05-26 Босс «через 10 сек исчезают»
 
 export function CoverDetailsModal({
   open,
@@ -268,7 +267,9 @@ export function CoverDetailsModal({
     }
   };
 
-  // Показываем hint только если localStorage flag отсутствует И есть навигация.
+  // Eugene 2026-05-26 Босс «юзеру должно быть понятно что влево/вправо свайпать»:
+  // подсказку-стрелки показываем КАЖДЫЙ раз при открытии (аффорданс свайпа), и
+  // они сами исчезают через 10 сек. Свайп при этом работает всегда.
   useEffect(() => {
     if (!open) {
       setShowHint(false);
@@ -276,23 +277,15 @@ export function CoverDetailsModal({
       return;
     }
     if (!(onNext || onPrev)) return;
-    try {
-      if (!localStorage.getItem(HINT_STORAGE_KEY)) {
-        setShowHint(true);
-        const t = window.setTimeout(() => {
-          setShowHint(false);
-          try { localStorage.setItem(HINT_STORAGE_KEY, "1"); } catch {}
-        }, HINT_AUTO_HIDE_MS);
-        return () => window.clearTimeout(t);
-      }
-    } catch {}
+    setShowHint(true);
+    const t = window.setTimeout(() => setShowHint(false), HINT_AUTO_HIDE_MS);
+    return () => window.clearTimeout(t);
   }, [open, onNext, onPrev]);
 
-  // Гасит hint overlay (вызывается при первом swipe / click стрелки).
+  // Гасит hint-стрелки раньше срока (при первом swipe / клике по стрелке).
   const dismissHint = () => {
     if (!showHint) return;
     setShowHint(false);
-    try { localStorage.setItem(HINT_STORAGE_KEY, "1"); } catch {}
   };
 
   useEffect(() => {
@@ -583,56 +576,54 @@ export function CoverDetailsModal({
             </motion.div>
           </AnimatePresence>
 
-          {/* Mobile-only inline arrow hints (на узких экранах нет места снаружи).
-              Показываются всегда (subtle wiggle) — намёк на жест. На active drag —
-              усиливаются. */}
-          {(onPrev || onNext) && (
-            <>
-              {onPrev && (
-                <div
-                  className={`sm:hidden absolute left-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full border flex items-center justify-center pointer-events-none transition-all ${
-                    dragDirection === "right"
-                      ? "bg-gradient-to-br from-purple-500/60 to-cyan-500/40 border-purple-400/70 scale-110"
-                      : "bg-black/30 border-white/15 cover-arrow-wiggle-left"
-                  }`}
-                >
-                  <ChevronLeft className={`w-5 h-5 ${dragDirection === "right" ? "text-white" : "text-white/60"}`} />
-                </div>
-              )}
-              {onNext && (
-                <div
-                  className={`sm:hidden absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full border flex items-center justify-center pointer-events-none transition-all ${
-                    dragDirection === "left"
-                      ? "bg-gradient-to-br from-purple-500/60 to-cyan-500/40 border-purple-400/70 scale-110"
-                      : "bg-black/30 border-white/15 cover-arrow-wiggle-right"
-                  }`}
-                >
-                  <ChevronRight className={`w-5 h-5 ${dragDirection === "left" ? "text-white" : "text-white/60"}`} />
-                </div>
-              )}
-            </>
-          )}
-
-          {/* First-time hint overlay — пульсирующие стрелки + поясняющий текст.
-              Появляется при первом открытии modal (нет localStorage flag).
-              fade-out через 3 сек ИЛИ при первом swipe/click на стрелку. */}
+          {/* Eugene 2026-05-26 Босс «кнопки в стиле свайпа, полупрозрачные,
+              сместить вниз, через 10 сек исчезают, но свайп работает всегда,
+              юзеру понятно что влево/вправо свайпать».
+              Единый аффорданс свайпа (mobile): полупрозрачные стрелки в НИЖНЕЙ
+              трети обложки + подпись «свайп». Показывается showHint (10 сек при
+              каждом открытии), гаснет после первого свайпа. Сам drag-swipe (см.
+              motion.div выше) работает независимо от видимости стрелок. */}
           {showHint && (onPrev || onNext) && (
             <div
-              className="absolute inset-0 z-[5] flex items-center justify-between px-4 pointer-events-none animate-in fade-in duration-300"
+              className="sm:hidden absolute inset-x-0 bottom-[15%] z-[6] flex items-center justify-between px-5 pointer-events-none animate-in fade-in duration-300"
               data-testid="cover-details-hint-overlay"
             >
-              <div className={`flex flex-col items-center gap-2 ${onPrev ? "opacity-100" : "opacity-0"}`}>
-                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500/60 to-cyan-500/50 border-2 border-white/40 flex items-center justify-center shadow-2xl cover-hint-pulse">
-                  <ChevronLeft className="w-9 h-9 text-white drop-shadow-lg" />
-                </div>
-              </div>
-              <div className={`flex flex-col items-center gap-2 ${onNext ? "opacity-100" : "opacity-0"}`}>
-                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500/60 to-cyan-500/50 border-2 border-white/40 flex items-center justify-center shadow-2xl cover-hint-pulse">
-                  <ChevronRight className="w-9 h-9 text-white drop-shadow-lg" />
-                </div>
-              </div>
-              {/* Eugene 2026-05-18 Босс «убери лишнее» — text-overlay убран,
-                  стрелки сами по себе достаточно понятный hint. */}
+              {onPrev ? (
+                <button
+                  type="button"
+                  aria-label="Предыдущий трек"
+                  onClick={(e) => { e.stopPropagation(); dismissHint(); onPrev(); }}
+                  className={`pointer-events-auto w-12 h-12 rounded-full backdrop-blur-md border flex items-center justify-center transition-all cover-arrow-wiggle-left ${
+                    dragDirection === "right"
+                      ? "bg-purple-500/40 border-purple-300/60 scale-110 text-white"
+                      : "bg-white/10 border-white/20 text-white/80"
+                  }`}
+                >
+                  <ChevronLeft className="w-6 h-6" />
+                </button>
+              ) : <span className="w-12" />}
+              {onNext ? (
+                <button
+                  type="button"
+                  aria-label="Следующий трек"
+                  onClick={(e) => { e.stopPropagation(); dismissHint(); onNext(); }}
+                  className={`pointer-events-auto w-12 h-12 rounded-full backdrop-blur-md border flex items-center justify-center transition-all cover-arrow-wiggle-right ${
+                    dragDirection === "left"
+                      ? "bg-purple-500/40 border-purple-300/60 scale-110 text-white"
+                      : "bg-white/10 border-white/20 text-white/80"
+                  }`}
+                >
+                  <ChevronRight className="w-6 h-6" />
+                </button>
+              ) : <span className="w-12" />}
+            </div>
+          )}
+          {/* Подпись-аффорданс «свайп» — чтобы юзеру было понятно про жест. */}
+          {showHint && (onPrev || onNext) && (
+            <div className="sm:hidden absolute bottom-[6%] left-1/2 -translate-x-1/2 z-[6] pointer-events-none animate-in fade-in duration-300">
+              <span className="text-[11px] text-white/70 bg-black/30 backdrop-blur-sm rounded-full px-3 py-1 whitespace-nowrap">
+                ← свайп листает →
+              </span>
             </div>
           )}
         </div>
