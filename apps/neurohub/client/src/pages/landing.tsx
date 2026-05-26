@@ -1955,6 +1955,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   aria-hidden="true"
                   className={`absolute -inset-2 rounded-2xl opacity-35 blur-2xl pointer-events-none cover-aura ${coverExpanded ? "md:-inset-3" : ""}`}
                 />
+                {/* Eugene 2026-05-26 Босс «по периметру, медленно по часовой» —
+                    чёткий вращающийся ободок позади обложки (виден тонкий рим). */}
+                <div
+                  aria-hidden="true"
+                  className={`absolute -inset-[2px] rounded-[14px] blur-[1px] opacity-80 pointer-events-none cover-rim-spin ${coverExpanded ? "md:rounded-[18px]" : ""}`}
+                />
               <div
                 className={`relative bg-gradient-to-br from-purple-500/30 to-blue-500/30 flex items-center justify-center cursor-pointer shadow-lg shadow-purple-500/10 overflow-hidden transition-all duration-300 w-full h-full rounded-xl ${
                   coverExpanded ? "md:rounded-2xl" : ""
