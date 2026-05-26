@@ -706,6 +706,38 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // feature-toggle "globe-3d" (default ON) — можно выключить без релиза.
   const [showGlobe, setShowGlobe] = useState(false);
   const globe3dEnabled = useFeatureEnabled("globe-3d");
+  // Босс «при пересылке открывается этот элемент, через 60 сек предлагает перейти
+  // на MuzaAi.ru, если нет реакции — сам переходит». ?globecard=1 = шаринг-режим.
+  const [globeCardMode] = useState<boolean>(() => {
+    try { return new URLSearchParams(window.location.search).get("globecard") === "1"; }
+    catch { return false; }
+  });
+  const [globeCardCta, setGlobeCardCta] = useState(false);
+  // Земля на плеере игриво моргает при ПЕРВОМ заходе (Босс: стимулирует нажать).
+  const [planetWink, setPlanetWink] = useState<boolean>(() => {
+    try { return !localStorage.getItem("muza_globe_seen"); } catch { return false; }
+  });
+
+  // Шаринг-режим: открыть карточку глобуса сразу, через 60 сек показать CTA на MuzaAi.ru.
+  useEffect(() => {
+    if (!globeCardMode || !globe3dEnabled) return;
+    setShowGlobe(true);
+    const ctaTimer = window.setTimeout(() => setGlobeCardCta(true), 60_000);
+    return () => window.clearTimeout(ctaTimer);
+  }, [globeCardMode, globe3dEnabled]);
+
+  // CTA показан → если нет реакции 12 сек, сам переходит на страницу (Босс).
+  // Любое касание/клик отменяет авто-переход (юзер сам решает остаться).
+  useEffect(() => {
+    if (!globeCardCta) return;
+    let cancelled = false;
+    const redirect = window.setTimeout(() => {
+      if (!cancelled) { try { window.location.assign(window.location.origin + "/"); } catch { /* no-op */ } }
+    }, 12_000);
+    const cancel = () => { cancelled = true; window.clearTimeout(redirect); };
+    window.addEventListener("pointerdown", cancel, { once: true });
+    return () => { window.clearTimeout(redirect); window.removeEventListener("pointerdown", cancel); };
+  }, [globeCardCta]);
   // Eugene 2026-05-22 Босс «в режиме планшета если юзер не спускается вниз
   // плейлист раскрывается вверх с 1 трека внизу и 2 выше зеркальный порядок,
   // если скроллит вниз верхний плейлист исчезает». Reverse-блок 6 треков
@@ -2298,7 +2330,24 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                           // Eugene 2026-05-26 Босс «глобус ВМЕСТО панели стран»: 🌍
                           // открывает сразу 3D-глобус (список — fallback в ErrorBoundary
                           // глобуса / при выключенном toggle).
-                          if (globe3dEnabled) setShowGlobe(true);
+                          if (globe3dEnabled) {
+                            setShowGlobe(true);
+                            setPlanetWink(false);
+                            try { localStorage.setItem("muza_globe_seen", "1"); } catch { /* no-op */ }
+                            // Босс «под глобусом миниплеер, автоплей трека Муза, потом
+                            // автоповтор по рейтингу топ». Запуск В ЭТОМ user-gesture
+                            // (iOS требует жест для play). Если уже что-то играет —
+                            // не перебиваем. Иначе ищем трек «Муза», иначе топ рейтинга.
+                            try {
+                              if (!playingId) {
+                                const list = filteredMusicRef.current || [];
+                                const muza = list.find((t: any) =>
+                                  /\bмуза\b|\bmuza\b/i.test(String(t.displayTitle || t.prompt || "")));
+                                const pick = muza || list[0];
+                                if (pick) playTrack(pick);
+                              }
+                            } catch { /* no-op */ }
+                          }
                           else setShowPlayerCountries(v => !v);
                         }}
                         className="relative h-8 w-8 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform cursor-pointer group"
@@ -2310,9 +2359,14 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             emoji, нажатие сохрани». PlanetIcon — equirectangular
                             SVG + SMIL animateTransform 60s/оборот. Сохраняет
                             click-handler родительского button. */}
-                        <span className="pointer-events-none group-hover:opacity-90 inline-flex items-center justify-center">
+                        <span
+                          className={`pointer-events-none group-hover:opacity-90 inline-flex items-center justify-center ${planetWink ? "animate-globe-wink" : ""}`}
+                        >
                           <PlanetIcon size={32} />
                         </span>
+                        {planetWink && (
+                          <span className="absolute inset-0 rounded-full pointer-events-none animate-globe-wink-glow" aria-hidden="true" />
+                        )}
                         {/* Countries ABS под h-8 row — не влияет на flex alignment */}
                         <span className="absolute top-full left-1/2 -translate-x-1/2 mt-2 text-[13px] tabular-nums font-bold bg-gradient-to-r from-blue-300 via-cyan-300 to-emerald-200 bg-clip-text text-transparent pointer-events-none group-hover:underline underline-offset-2 whitespace-nowrap" title="Стран слушают">{countriesCount}</span>
                       </button>
@@ -2450,7 +2504,50 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   }))}
                                 />
                               </Suspense>
+                              {/* Шаринг-CTA (через 60 сек): предлагает перейти на MuzaAi.ru */}
+                              {globeCardCta && (
+                                <div className="absolute inset-x-3 bottom-3 z-10 rounded-2xl border border-fuchsia-400/40 bg-[#0a0a17]/90 backdrop-blur-md px-4 py-3 shadow-[0_0_24px_rgba(217,70,239,0.4)] flex items-center justify-between gap-3 cover-bloom">
+                                  <p className="text-[12px] font-sans text-white/80 m-0 min-w-0">
+                                    Хочешь больше музыки? <span className="text-fuchsia-300 font-semibold">MuzaAi.ru</span>
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={() => { try { window.location.assign(window.location.origin + "/"); } catch { /* no-op */ } }}
+                                    className="shrink-0 px-3 py-1.5 rounded-xl text-[11px] font-bold text-white bg-gradient-to-r from-purple-500 via-fuchsia-500 to-blue-500 shadow-[0_0_14px_rgba(124,58,237,0.45)] active:scale-95 transition-transform whitespace-nowrap"
+                                  >
+                                    Перейти →
+                                  </button>
+                                </div>
+                              )}
                             </div>
+                            {/* Мини-плеер под глобусом (Босс: автоплей «Муза» → автоповтор по топу) */}
+                            {(() => {
+                              const gt = tracks.find((t: any) => t.id === playingId);
+                              if (!gt) return null;
+                              return (
+                                <div className="px-4 py-2 border-t border-purple-400/15 bg-black/25 shrink-0 flex items-center gap-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => togglePlay(gt)}
+                                    className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-white bg-gradient-to-br from-purple-500 via-fuchsia-500 to-blue-500 shadow-[0_0_14px_rgba(124,58,237,0.45)] active:scale-90 transition-transform"
+                                    aria-label={isPlayingState ? "Пауза" : "Слушать"}
+                                  >
+                                    {isPlayingState ? <Pause className="w-4 h-4" fill="currentColor" /> : <Play className="w-4 h-4 ml-0.5" fill="currentColor" />}
+                                  </button>
+                                  {gt.imageUrl ? (
+                                    <img src={gt.imageUrl} alt="" className="w-9 h-9 rounded-lg object-cover shrink-0" />
+                                  ) : (
+                                    <span className="w-9 h-9 rounded-lg bg-white/5 flex items-center justify-center shrink-0"><Music className="w-4 h-4 text-white/40" /></span>
+                                  )}
+                                  <div className="min-w-0 flex-1">
+                                    <p className="truncate text-[12px] font-sans font-medium m-0 bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent">
+                                      {gt.displayTitle || gt.prompt?.slice(0, 40) || "Муза"}
+                                    </p>
+                                    <p className="truncate text-[10px] font-sans text-white/40 m-0">▶ автоповтор по топу рейтинга</p>
+                                  </div>
+                                </div>
+                              );
+                            })()}
                             {/* Подпись + кнопки (Босс: слоган под глобусом + 2 кнопки справа) */}
                             <div className="px-4 py-2.5 border-t border-purple-400/20 bg-purple-500/5 shrink-0 flex items-center justify-between gap-3">
                               <div className="min-w-0">
