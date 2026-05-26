@@ -713,19 +713,89 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     catch { return false; }
   });
   const [globeCardCta, setGlobeCardCta] = useState(false);
-  // Земля на плеере игриво моргает пока юзер НЕ нажал (Босс: «хук для вирусности —
-  // каждый должен нажать»). Чем дольше без реакции — тем чаще подмигивает.
-  const [planetWink, setPlanetWink] = useState<boolean>(() => {
-    try { return !localStorage.getItem("muza_globe_seen"); } catch { return false; }
-  });
+  // Земля на плеере — «хук для вирусности» (Босс). Первый визит: игривое
+  // подмигивание, учащается, НО затихает после 3-го раза до конца дня. Возврат:
+  // приветствие морганием азбукой Морзе «ПРИВЕТ Я МУЗА». Клик 🌍 — тихо навсегда.
+  const [winkMode, setWinkMode] = useState<"off" | "playful" | "morse">("off");
   const [winkLevel, setWinkLevel] = useState(0);
-  // Эскалация: каждые 9 сек без нажатия подмигивание учащается (до уровня 3).
-  useEffect(() => {
-    if (!planetWink) return;
-    const id = window.setInterval(() => setWinkLevel((l) => Math.min(3, l + 1)), 9000);
-    return () => window.clearInterval(id);
-  }, [planetWink]);
+  const [morseOn, setMorseOn] = useState(false);
   const WINK_DUR = [3.4, 2.3, 1.5, 0.95]; // сек — чем выше уровень, тем быстрее
+
+  useEffect(() => {
+    let seen = false, firstVisit = true, quietToday = false;
+    const today = new Date().toDateString();
+    try {
+      seen = !!localStorage.getItem("muza_globe_seen");
+      firstVisit = !localStorage.getItem("muza_first_visit");
+      quietToday = localStorage.getItem("muza_wink_quiet_date") === today;
+    } catch { /* no-op */ }
+    if (seen) return; // юзер уже открывал глобус — не отвлекаем
+    if (firstVisit) {
+      try { localStorage.setItem("muza_first_visit", today); } catch { /* no-op */ }
+      setWinkMode("playful");
+    } else {
+      // Возврат: приветствие Морзе один раз за сессию.
+      let greeted = false;
+      try { greeted = !!sessionStorage.getItem("muza_morse_session"); } catch { /* no-op */ }
+      if (!greeted) {
+        try { sessionStorage.setItem("muza_morse_session", "1"); } catch { /* no-op */ }
+        setWinkMode("morse");
+      } else if (!quietToday) {
+        setWinkMode("playful");
+      }
+    }
+  }, []);
+
+  // Playful: эскалация каждые 9с; после 3-го уровня — короткий бурст и тихо до конца дня.
+  useEffect(() => {
+    if (winkMode !== "playful") return;
+    let level = 0;
+    let quietT = 0;
+    const id = window.setInterval(() => {
+      level += 1;
+      setWinkLevel(Math.min(3, level));
+      if (level >= 3) {
+        window.clearInterval(id);
+        quietT = window.setTimeout(() => {
+          setWinkMode("off");
+          try { localStorage.setItem("muza_wink_quiet_date", new Date().toDateString()); } catch { /* no-op */ }
+        }, 8000);
+      }
+    }, 9000);
+    return () => { window.clearInterval(id); if (quietT) window.clearTimeout(quietT); };
+  }, [winkMode]);
+
+  // Morse: моргание «ПРИВЕТ Я МУЗА» (русская азбука Морзе), затем тихо.
+  useEffect(() => {
+    if (winkMode !== "morse") return;
+    const M: Record<string, string> = {
+      А: ".-", В: ".--", Е: ".", З: "--..", И: "..", М: "--",
+      П: ".--.", Р: ".-.", Т: "-", У: "..-", Я: ".-.-",
+    };
+    const DOT = 190, DASH = 560, GAP = 190, LGAP = 520, WGAP = 1200;
+    const seq: Array<{ on: boolean; d: number }> = [];
+    "ПРИВЕТ Я МУЗА".split(" ").forEach((w, wi, words) => {
+      w.split("").forEach((ch, ci) => {
+        const code = M[ch] || "";
+        code.split("").forEach((sym, si) => {
+          seq.push({ on: true, d: sym === "-" ? DASH : DOT });
+          if (si < code.length - 1) seq.push({ on: false, d: GAP });
+        });
+        if (ci < w.length - 1) seq.push({ on: false, d: LGAP });
+      });
+      if (wi < words.length - 1) seq.push({ on: false, d: WGAP });
+    });
+    let i = 0;
+    let t = 0;
+    const step = () => {
+      if (i >= seq.length) { setMorseOn(false); setWinkMode("off"); return; }
+      const s = seq[i++];
+      setMorseOn(s.on);
+      t = window.setTimeout(step, s.d);
+    };
+    step();
+    return () => { if (t) window.clearTimeout(t); setMorseOn(false); };
+  }, [winkMode]);
 
   // Шаринг-режим: открыть карточку глобуса сразу, через 60 сек показать CTA на MuzaAi.ru.
   useEffect(() => {
@@ -2358,7 +2428,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                           // глобуса / при выключенном toggle).
                           if (globe3dEnabled) {
                             setShowGlobe(true);
-                            setPlanetWink(false);
+                            setWinkMode("off");
                             try { localStorage.setItem("muza_globe_seen", "1"); } catch { /* no-op */ }
                             // Босс «под глобусом миниплеер, автоплей трека Муза, потом
                             // автоповтор по рейтингу топ». Запуск В ЭТОМ user-gesture
@@ -2386,15 +2456,25 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             SVG + SMIL animateTransform 60s/оборот. Сохраняет
                             click-handler родительского button. */}
                         <span
-                          className={`pointer-events-none group-hover:opacity-90 inline-flex items-center justify-center ${planetWink ? "animate-globe-wink" : ""}`}
-                          style={planetWink ? { animationDuration: `${WINK_DUR[winkLevel]}s` } : undefined}
+                          className={`pointer-events-none group-hover:opacity-90 inline-flex items-center justify-center ${winkMode === "playful" ? "animate-globe-wink" : ""}`}
+                          style={
+                            winkMode === "playful"
+                              ? { animationDuration: `${WINK_DUR[winkLevel]}s` }
+                              : winkMode === "morse"
+                                ? { transition: "transform 0.12s, filter 0.12s", transform: morseOn ? "scale(1.12)" : "scale(1)", filter: morseOn ? "brightness(1.6)" : "brightness(1)" }
+                                : undefined
+                          }
                         >
                           <PlanetIcon size={32} />
                         </span>
-                        {planetWink && (
+                        {winkMode !== "off" && (
                           <span
-                            className="absolute inset-0 rounded-full pointer-events-none animate-globe-wink-glow"
-                            style={{ animationDuration: `${WINK_DUR[winkLevel]}s` }}
+                            className={`absolute inset-0 rounded-full pointer-events-none ${winkMode === "playful" ? "animate-globe-wink-glow" : ""}`}
+                            style={
+                              winkMode === "playful"
+                                ? { animationDuration: `${WINK_DUR[winkLevel]}s` }
+                                : { transition: "box-shadow 0.12s, opacity 0.12s", boxShadow: morseOn ? "0 0 16px 4px rgba(217,70,239,0.7)" : "0 0 0 0 rgba(217,70,239,0)" }
+                            }
                             aria-hidden="true"
                           />
                         )}

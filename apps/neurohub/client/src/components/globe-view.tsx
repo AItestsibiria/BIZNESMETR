@@ -564,61 +564,134 @@ function IssFlyby() {
   return (
     <div
       key={flyId}
-      className="iss-flyby absolute top-[15%] w-[150px] h-[66px] pointer-events-none z-20"
-      style={{ left: "-26%", filter: "drop-shadow(0 0 8px rgba(0,212,255,0.35))" }}
+      className="iss-flyby absolute top-[14%] w-[188px] h-[96px] pointer-events-none z-20"
+      style={{ left: "-30%", filter: "drop-shadow(0 3px 6px rgba(0,0,0,0.55)) drop-shadow(0 0 10px rgba(120,170,255,0.2))" }}
       aria-hidden="true"
     >
-      <svg viewBox="0 0 150 66" width="150" height="66">
+      {/* Фотореалистичная МКС (детальный SVG): солнечные батареи с гло-бликом,
+          радиаторы, ферма, модули в золотой MLI-фольге, купол с космонавтом. */}
+      <svg viewBox="0 0 188 96" width="188" height="96">
         <defs>
-          <linearGradient id="iss-panel" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0" stopColor="#1b2a6b" />
-            <stop offset="0.5" stopColor="#2348b8" />
-            <stop offset="1" stopColor="#15205a" />
+          {/* Солнечная батарея — тёмно-янтарные фотоэлементы (как у настоящей МКС) */}
+          <linearGradient id="iss-sa" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#3a2a10" />
+            <stop offset="0.45" stopColor="#8a6a26" />
+            <stop offset="0.55" stopColor="#a07d2e" />
+            <stop offset="1" stopColor="#2f2210" />
           </linearGradient>
-          <linearGradient id="iss-mod" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stopColor="#1a0f2e" />
-            <stop offset="1" stopColor="#0a0a17" />
+          {/* Гло-блик по диагонали (отражение Солнца) */}
+          <linearGradient id="iss-gloss" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stopColor="#ffffff" stopOpacity="0" />
+            <stop offset="0.45" stopColor="#fff7e0" stopOpacity="0.5" />
+            <stop offset="0.55" stopColor="#fff7e0" stopOpacity="0.5" />
+            <stop offset="1" stopColor="#ffffff" stopOpacity="0" />
           </linearGradient>
+          {/* Металл фермы/радиаторов */}
+          <linearGradient id="iss-metal" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#aeb6c8" />
+            <stop offset="0.5" stopColor="#e9eef7" />
+            <stop offset="1" stopColor="#8e96ab" />
+          </linearGradient>
+          {/* Корпус модуля — белый/серебристый цилиндр со светом по центру */}
+          <linearGradient id="iss-mod" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#9aa2b6" />
+            <stop offset="0.35" stopColor="#f4f7fc" />
+            <stop offset="0.6" stopColor="#dfe5f0" />
+            <stop offset="1" stopColor="#838ba0" />
+          </linearGradient>
+          {/* Золотая MLI-фольга (тепловая изоляция) */}
+          <linearGradient id="iss-foil" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#c79a3a" />
+            <stop offset="0.5" stopColor="#ffe39a" />
+            <stop offset="1" stopColor="#a87d28" />
+          </linearGradient>
+          {/* Золотой визор шлема с бликом */}
+          <linearGradient id="iss-visor" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stopColor="#ffe9a0" />
+            <stop offset="0.5" stopColor="#caa23e" />
+            <stop offset="1" stopColor="#7a5e1c" />
+          </linearGradient>
+          <radialGradient id="iss-cupola" cx="0.5" cy="0.4" r="0.7">
+            <stop offset="0" stopColor="#0b2030" />
+            <stop offset="1" stopColor="#02060c" />
+          </radialGradient>
         </defs>
-        {/* Ферма */}
-        <rect x="24" y="31" width="102" height="4" rx="1.5" fill="#8b93b5" />
-        <rect x="24" y="30" width="102" height="1" fill="#c7cde6" opacity="0.6" />
-        {/* Левая солнечная панель */}
+
+        {/* ── Левое крыло солнечных батарей (2 секции) ── */}
         <g>
-          <rect x="4" y="15" width="34" height="36" rx="2" fill="url(#iss-panel)" stroke="#3a5fd0" strokeWidth="0.8" />
-          {[19, 25, 31, 37, 43].map((y) => (
-            <line key={`lh${y}`} x1="5" y1={y} x2="37" y2={y} stroke="#5b7be0" strokeWidth="0.4" opacity="0.5" />
-          ))}
-          {[12, 21, 30].map((x) => (
-            <line key={`lv${x}`} x1={x} y1="16" x2={x} y2="50" stroke="#0e1844" strokeWidth="0.6" opacity="0.7" />
+          <line x1="40" y1="48" x2="14" y2="48" stroke="url(#iss-metal)" strokeWidth="2" />
+          {[14, 49].map((y, i) => (
+            <g key={`L${i}`} transform={`translate(2 ${y})`}>
+              <rect width="44" height="30" rx="1.5" fill="url(#iss-sa)" stroke="#1c1407" strokeWidth="0.8" />
+              {[6, 12, 18, 24, 30, 36].map((gx) => (
+                <line key={gx} x1={gx} y1="1" x2={gx} y2="29" stroke="#1c1407" strokeWidth="0.5" opacity="0.8" />
+              ))}
+              {[7.5, 15, 22.5].map((gy) => (
+                <line key={gy} x1="1" y1={gy} x2="43" y2={gy} stroke="#c9a24e" strokeWidth="0.35" opacity="0.45" />
+              ))}
+              <rect width="44" height="30" rx="1.5" fill="url(#iss-gloss)" opacity="0.5" />
+            </g>
           ))}
         </g>
-        {/* Правая солнечная панель */}
+
+        {/* ── Правое крыло солнечных батарей (2 секции) ── */}
         <g>
-          <rect x="112" y="15" width="34" height="36" rx="2" fill="url(#iss-panel)" stroke="#3a5fd0" strokeWidth="0.8" />
-          {[19, 25, 31, 37, 43].map((y) => (
-            <line key={`rh${y}`} x1="113" y1={y} x2="145" y2={y} stroke="#5b7be0" strokeWidth="0.4" opacity="0.5" />
-          ))}
-          {[120, 129, 138].map((x) => (
-            <line key={`rv${x}`} x1={x} y1="16" x2={x} y2="50" stroke="#0e1844" strokeWidth="0.6" opacity="0.7" />
+          <line x1="148" y1="48" x2="174" y2="48" stroke="url(#iss-metal)" strokeWidth="2" />
+          {[[142, 14], [142, 49]].map(([x, y], i) => (
+            <g key={`R${i}`} transform={`translate(${x} ${y})`}>
+              <rect width="44" height="30" rx="1.5" fill="url(#iss-sa)" stroke="#1c1407" strokeWidth="0.8" />
+              {[6, 12, 18, 24, 30, 36].map((gx) => (
+                <line key={gx} x1={gx} y1="1" x2={gx} y2="29" stroke="#1c1407" strokeWidth="0.5" opacity="0.8" />
+              ))}
+              {[7.5, 15, 22.5].map((gy) => (
+                <line key={gy} x1="1" y1={gy} x2="43" y2={gy} stroke="#c9a24e" strokeWidth="0.35" opacity="0.45" />
+              ))}
+              <rect width="44" height="30" rx="1.5" fill="url(#iss-gloss)" opacity="0.5" />
+            </g>
           ))}
         </g>
-        {/* Центральный модуль + надпись MuzaAi (на борту) */}
-        <rect x="52" y="18" width="46" height="30" rx="9" fill="url(#iss-mod)" stroke="#7C3AED" strokeWidth="1.1" />
-        <text x="75" y="44.5" textAnchor="middle" fontFamily="Inter, sans-serif" fontSize="6.5" fontWeight="700" fill="#67E8F9" letterSpacing="0.3">MuzaAi</text>
-        {/* Иллюминатор с космонавтом */}
-        <circle cx="75" cy="29" r="8.5" fill="#061018" stroke="#00D4FF" strokeWidth="1.2" />
-        <circle cx="75" cy="29" r="8.5" fill="none" stroke="#ffffff" strokeWidth="0.4" opacity="0.3" />
-        {/* Шлем космонавта */}
-        <circle cx="75" cy="30" r="5.2" fill="#eef2ff" />
-        <path d="M71.2 29.5 a3.8 3.8 0 0 1 7.6 0 v2 a3.8 3.8 0 0 1 -7.6 0 z" fill="#bcd2ff" opacity="0.7" />
-        {/* Лицо — улыбка + глаза */}
-        <circle cx="73.4" cy="29.6" r="0.7" fill="#1a0f2e" />
-        <circle cx="76.6" cy="29.6" r="0.7" fill="#1a0f2e" />
-        <path d="M73 31.4 q2 2 4 0" stroke="#1a0f2e" strokeWidth="0.7" fill="none" strokeLinecap="round" />
-        {/* Машущая рука */}
-        <g transform="translate(80 27)">
-          <rect className="iss-wave-arm" x="0" y="6" width="2.2" height="7" rx="1.1" fill="#eef2ff" />
+
+        {/* ── Радиаторы (белые панели) ── */}
+        <g>
+          <rect x="78" y="6" width="32" height="9" rx="1" fill="url(#iss-metal)" stroke="#7d8598" strokeWidth="0.5" />
+          {[84, 90, 96, 102].map((x) => (<line key={`rt${x}`} x1={x} y1="7" x2={x} y2="14" stroke="#9aa2b6" strokeWidth="0.4" />))}
+          <rect x="78" y="81" width="32" height="9" rx="1" fill="url(#iss-metal)" stroke="#7d8598" strokeWidth="0.5" />
+          {[84, 90, 96, 102].map((x) => (<line key={`rb${x}`} x1={x} y1="82" x2={x} y2="89" stroke="#9aa2b6" strokeWidth="0.4" />))}
+        </g>
+
+        {/* ── Интегрированная ферма (горизонтальная) ── */}
+        <rect x="40" y="45" width="108" height="6" rx="1.5" fill="url(#iss-metal)" stroke="#7d8598" strokeWidth="0.5" />
+        {[52, 64, 76, 100, 112, 124, 136].map((x) => (
+          <line key={`tr${x}`} x1={x} y1="45" x2={x} y2="51" stroke="#7d8598" strokeWidth="0.5" opacity="0.7" />
+        ))}
+
+        {/* ── Связка модулей (центр) ── */}
+        {/* Поперечный модуль с золотой фольгой */}
+        <rect x="70" y="40" width="48" height="16" rx="8" fill="url(#iss-foil)" stroke="#6e521a" strokeWidth="0.6" />
+        {/* Главный модуль */}
+        <rect x="64" y="30" width="60" height="20" rx="10" fill="url(#iss-mod)" stroke="#7d8598" strokeWidth="0.8" />
+        {/* Стыковочные кольца */}
+        <rect x="60" y="36" width="5" height="8" rx="1.5" fill="url(#iss-metal)" />
+        <rect x="123" y="36" width="5" height="8" rx="1.5" fill="url(#iss-metal)" />
+        {/* Надпись MuzaAi на борту */}
+        <text x="94" y="27" textAnchor="middle" fontFamily="Inter, sans-serif" fontSize="6" fontWeight="800" fill="#7C3AED" letterSpacing="0.4">MuzaAi</text>
+
+        {/* ── Купол (Cupola) с космонавтом ── */}
+        <circle cx="94" cy="40" r="10" fill="url(#iss-cupola)" stroke="#aeb6c8" strokeWidth="1.4" />
+        <circle cx="94" cy="40" r="10" fill="none" stroke="#ffffff" strokeWidth="0.5" opacity="0.25" />
+        {/* блик стекла */}
+        <ellipse cx="90.5" cy="36" rx="3" ry="1.8" fill="#bfe0ff" opacity="0.35" />
+        {/* Шлем EVA */}
+        <circle cx="94" cy="41" r="6" fill="#f2f5fb" stroke="#c2cadb" strokeWidth="0.6" />
+        {/* Золотой визор */}
+        <path d="M90 40 a4 3.4 0 0 1 8 0 v1.6 a4 3.2 0 0 1 -8 0 z" fill="url(#iss-visor)" stroke="#6e531a" strokeWidth="0.4" />
+        <ellipse cx="92" cy="39.6" rx="1.3" ry="0.7" fill="#fff7df" opacity="0.7" />
+        {/* Машущая рука EVA (перчатка) */}
+        <g transform="translate(99 37)">
+          <g className="iss-wave-arm">
+            <rect x="0" y="5" width="2.6" height="8" rx="1.3" fill="#f2f5fb" stroke="#c2cadb" strokeWidth="0.4" />
+            <circle cx="1.3" cy="4.5" r="1.8" fill="#f2f5fb" stroke="#c2cadb" strokeWidth="0.4" />
+          </g>
         </g>
       </svg>
     </div>
