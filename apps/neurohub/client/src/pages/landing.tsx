@@ -2,7 +2,7 @@ import { registerAudio, pauseAllExcept } from "../lib/audio-bus";
 import { useLocation, useRoute } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { useFeatureEnabled } from "@/lib/featureToggles";
-import { PenLine, Music, Image, Sparkles, ArrowRight, Zap, Download, Mic, Play, Pause, SkipForward, SkipBack, ChevronDown, ChevronUp, Share2, Repeat, Repeat1, Maximize } from "lucide-react";
+import { PenLine, Music, Image, Sparkles, ArrowRight, Zap, Download, Mic, Play, Pause, SkipForward, SkipBack, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Share2, Repeat, Repeat1, Maximize } from "lucide-react";
 import { StudioMicEq } from "@/components/studio-mic-eq";
 import { ShareQRSection, TrackShareQR } from "@/components/share-qr";
 import { KaraokeLyrics } from "@/components/karaoke-lyrics";
@@ -523,6 +523,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // coverExpanded — column-layout активного плеера: cover full-width сверху,
   // controls под ним. False = row-layout (current default).
   const [coverExpanded, setCoverExpanded] = useState(false);
+  // Eugene 2026-05-26 Босс «свайп-режим на основном плеере + подсказка на 5 сек +
+  // стильные стрелки». Свайп влево/вправо по обложке = след/пред трек. Подсказка
+  // (стрелки + «свайп») показывается 5с при загрузке плеера.
+  const [mainSwipeHint, setMainSwipeHint] = useState(true);
+  const mainCoverPtrRef = useRef<{ x: number; y: number; t: number } | null>(null);
+  useEffect(() => {
+    const t = window.setTimeout(() => setMainSwipeHint(false), 5000);
+    return () => window.clearTimeout(t);
+  }, []);
   // Eugene 2026-05-18 Босс «для десктопа добавь возможность менять размер
   // отображения обложки». 3 уровня: sm (75%) / md (100%) / lg (125%).
   // Persist в localStorage.
@@ -1993,16 +2002,33 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                 className={`relative bg-gradient-to-br from-purple-500/30 to-blue-500/30 flex items-center justify-center cursor-pointer shadow-lg shadow-purple-500/10 overflow-hidden transition-all duration-300 w-full h-full rounded-xl ${
                   coverExpanded ? "md:rounded-2xl" : ""
                 }`}
-                onClick={() => {
-                  // Eugene 2026-05-24 Босс «обложка увеличивается без меню при первом нажиме».
-                  // Main player cover → lightbox (fullscreen image, без controls/S/Play),
-                  // юзер может сохранить через long-press (mobile) / right-click (desktop).
-                  // S-кнопка в углу обложки (desktop) и expanded-row controls остаются доступны
-                  // для меню — это «второе нажатие» в сценарии Босса.
+                style={{ touchAction: "pan-y" }}
+                onPointerDown={(e) => {
+                  mainCoverPtrRef.current = { x: e.clientX, y: e.clientY, t: Date.now() };
+                }}
+                onPointerUp={(e) => {
+                  // Eugene 2026-05-26 Босс «свайп-режим на основном плеере».
+                  // Горизонтальный свайп → смена трека (filtered playlist).
+                  // Тап → как раньше (lightbox / expand).
+                  const s = mainCoverPtrRef.current;
+                  mainCoverPtrRef.current = null;
+                  if (!s) return;
+                  // Клик по кнопке внутри обложки (Expand и т.п.) — не свайп и не tap-lightbox.
+                  if ((e.target as HTMLElement).closest("button, a, [role=button]")) return;
+                  const dx = e.clientX - s.x;
+                  const dy = e.clientY - s.y;
+                  const adx = Math.abs(dx), ady = Math.abs(dy);
+                  if (adx > 40 && adx > ady * 1.5) {
+                    setMainSwipeHint(false);
+                    if (dx < 0) skipNext(); else skipPrev();
+                    return;
+                  }
+                  if (adx > 10 || ady > 10 || Date.now() - s.t > 600) return; // drag/long — не тап
+                  // Tap — как раньше: lightbox / expand.
                   if (currentTrack.imageUrl) setCoverLightbox(true);
                   else setExpandedId(expandedId === currentTrack.id ? null : currentTrack.id);
                 }}
-                title={(currentTrack as any).hasCustomCover ? "Обложка создана автором — нажми для увеличения" : "Нажми для увеличения"}
+                title={(currentTrack as any).hasCustomCover ? "Обложка создана автором — свайп листать, тап увеличить" : "Свайп листать, тап увеличить"}
               >
                 {/* Crossfade: old cover fading out */}
                 {prevCoverUrl && coverFading && (
@@ -2022,6 +2048,20 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   onToggle={() => setCoverExpanded(v => !v)}
                   className="hidden md:flex absolute top-2 right-2 z-10"
                 />
+                {/* Eugene 2026-05-26 Босс «подсказка про свайп на 5 сек + стильные
+                    стрелки». Полупрозрачные glass-стрелки ‹ › + подпись «свайп»,
+                    видны 5с при загрузке плеера. pointer-events-none — не мешают свайпу. */}
+                {mainSwipeHint && (musicTracks.length > 1) && (
+                  <div className="absolute inset-0 z-20 pointer-events-none animate-in fade-in duration-300" aria-hidden="true">
+                    <div className="absolute left-1.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/15 backdrop-blur-md border border-white/25 flex items-center justify-center text-white/85 cover-arrow-wiggle-left">
+                      <ChevronLeft className="w-4 h-4" />
+                    </div>
+                    <div className="absolute right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/15 backdrop-blur-md border border-white/25 flex items-center justify-center text-white/85 cover-arrow-wiggle-right">
+                      <ChevronRight className="w-4 h-4" />
+                    </div>
+                    <span className="absolute bottom-1.5 left-1/2 -translate-x-1/2 text-[9px] leading-none text-white/90 bg-black/35 backdrop-blur-sm rounded-full px-2 py-0.5 whitespace-nowrap">← свайп →</span>
+                  </div>
+                )}
               </div>
               </div>
               {/* Eugene 2026-05-18 Босс «desktop: размер обложки настраиваемый +
