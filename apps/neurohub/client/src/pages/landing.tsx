@@ -2876,6 +2876,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                              длительность ≤350мс, cooldown после expand 700мс.
                              Drag/scrub/long-press НЕ закрывают cover. */
                           onPointerDown={(e) => {
+                            // Eugene 2026-05-26 Босс «нажатие на панель стран в раскрытой
+                            // обложке закрывает её». Панель стран — портал, её события по
+                            // React-дереву всплывают сюда. Пока панель открыта — обложку НЕ
+                            // трогаем (ни старт, ни collapse).
+                            if (showCountries || showCitiesPanel) return;
                             const tgt = e.target as HTMLElement;
                             if (tgt.closest("button, a, [role=button], input, [data-no-collapse]")) return;
                             (e.currentTarget as any).__capX = e.clientX;
@@ -2888,6 +2893,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             const sy = ce.__capY;
                             const sat = ce.__capAt;
                             ce.__capX = ce.__capY = ce.__capAt = undefined;
+                            // Открыта панель стран/городов — не закрываем обложку (см. onPointerDown).
+                            if (showCountries || showCitiesPanel) return;
                             if (sx == null || sat == null) return;
                             const tgt = e.target as HTMLElement;
                             if (tgt.closest("button, a, [role=button], input, [data-no-collapse]")) return;
