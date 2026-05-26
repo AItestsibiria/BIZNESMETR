@@ -161,6 +161,33 @@ export default function OrchestratorTab() {
   const [healthRunning, setHealthRunning] = useState(false);
   const [healthResult, setHealthResult] = useState<Record<string, { ok: boolean; details?: unknown }> | null>(null);
 
+  // Eugene 2026-05-26 Босс «проверь мою авторизацию и IP» — карточка статуса
+  // двух гейтов (Director-obeys-authorized-admin rule): admin-auth + уполном. IP.
+  const [whoami, setWhoami] = useState<{
+    detectedIp: string | null;
+    gateEnabled: boolean;
+    trustedListSize: number;
+    isCurrentlyTrusted: boolean;
+    access: string;
+  } | null>(null);
+  const [whoamiErr, setWhoamiErr] = useState<string | null>(null);
+  async function loadWhoami() {
+    setWhoamiErr(null);
+    try {
+      const tok = localStorage.getItem("auth_token") || "";
+      const r = await fetch("/api/admin/v304/whoami-ip", {
+        headers: tok ? { Authorization: `Bearer ${tok}` } : undefined,
+        credentials: "include",
+      });
+      if (r.status === 403) { setWhoami(null); setWhoamiErr("Не админ или сессия истекла (гейт 1 не пройден)."); return; }
+      const j = await r.json();
+      if (j?.data) setWhoami(j.data); else setWhoamiErr(j?.error || "Не удалось получить статус.");
+    } catch (e: any) {
+      setWhoamiErr(e?.message || String(e));
+    }
+  }
+  useEffect(() => { loadWhoami(); }, []);
+
   // Edges state
   const [edges, setEdges] = useState<Edge[]>([]);
   const [edgesLoading, setEdgesLoading] = useState(false);
@@ -316,6 +343,31 @@ export default function OrchestratorTab() {
 
   return (
     <div className="space-y-4 p-2">
+      {/* Eugene 2026-05-26 Босс «проверь мою авторизацию и IP» — статус двух гейтов. */}
+      <div className="glass-card rounded-2xl p-3 border border-white/15">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-sm font-bold text-white">🔐 Моя авторизация и IP</span>
+          <button onClick={loadWhoami} className="text-[11px] px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-white/60 hover:bg-white/10">↻ Проверить</button>
+        </div>
+        {whoamiErr ? (
+          <div className="text-[12px] text-red-300">🔴 Гейт 1 (админ): {whoamiErr}</div>
+        ) : whoami ? (
+          <div className="space-y-1 text-[12px]">
+            <div className="text-emerald-300">✅ Гейт 1 (админ-авторизация): пройден</div>
+            <div className="text-white/70">Твой IP: <span className="font-mono text-white/90">{whoami.detectedIp || "не определён"}</span></div>
+            {!whoami.gateEnabled ? (
+              <div className="text-amber-300">🟡 Гейт 2 (IP): <b>выключен</b> — ADMIN_TRUSTED_IPS не задан, доступ со всех IP. Чтобы включить — добавь свой IP в ADMIN_TRUSTED_IPS на VPS.</div>
+            ) : whoami.isCurrentlyTrusted ? (
+              <div className="text-emerald-300">✅ Гейт 2 (IP): этот IP в белом списке ({whoami.trustedListSize} шт.) — доступ есть.</div>
+            ) : (
+              <div className="text-red-300">🔴 Гейт 2 (IP): этот IP НЕ в списке ({whoami.trustedListSize} шт.) — добавь его в ADMIN_TRUSTED_IPS.</div>
+            )}
+            <div className="text-white/50 pt-1">{whoami.access}</div>
+          </div>
+        ) : (
+          <div className="text-[12px] text-white/50">Проверяю…</div>
+        )}
+      </div>
       {/* Header + summary */}
       <div className="glass-card rounded-2xl p-4 border border-purple-500/30">
         <div className="flex items-start gap-3">
