@@ -2293,11 +2293,18 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                     <div className="relative shrink-0" data-testid="earth-anchor">
                       <button
                         type="button"
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowPlayerCountries(v => !v); }}
+                        onClick={(e) => {
+                          e.preventDefault(); e.stopPropagation();
+                          // Eugene 2026-05-26 Босс «глобус ВМЕСТО панели стран»: 🌍
+                          // открывает сразу 3D-глобус (список — fallback в ErrorBoundary
+                          // глобуса / при выключенном toggle).
+                          if (globe3dEnabled) setShowGlobe(true);
+                          else setShowPlayerCountries(v => !v);
+                        }}
                         className="relative h-8 w-8 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform cursor-pointer group"
-                        title="Нас слушают (нажмите для списка стран)"
-                        aria-label={`Стран слушают: ${countriesCount}. Нажмите для списка.`}
-                        aria-expanded={showPlayerCountries}
+                        title="Нас слушают по миру — 3D-глобус"
+                        aria-label={`Стран слушают: ${countriesCount}. Открыть 3D-глобус.`}
+                        aria-expanded={showGlobe}
                       >
                         {/* Eugene 2026-05-22 Босс «3D крутящуюся Землю вместо
                             emoji, нажатие сохрани». PlanetIcon — equirectangular
