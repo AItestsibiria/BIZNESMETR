@@ -1072,6 +1072,33 @@ const maxBotModule: Module = {
       webhookSecret: WEBHOOK_SECRET() ? "configured" : "missing",
       apiBase: MAX_API_PRIMARY,
     });
+    // Eugene 2026-05-26 Босс «MAX-канал должен работать — не работает». ROOT CAUSE:
+    // webhook не регистрировался автоматически (в отличие от telegram setWebhook
+    // в onLoad). Max не знал куда слать update'ы. Теперь авто-подписка при boot
+    // (best-effort, не валит загрузку). Требует MAX_BOT_TOKEN на VPS.
+    try {
+      if (TOKEN()) {
+        const base = String(process.env.MAX_WEBHOOK_URL || process.env.PUBLIC_URL || `https://${process.env.BASE_DOMAIN || "muzaai.ru"}`).replace(/\/+$/, "");
+        const url = base.includes("/api/max-bot/webhook") ? base : `${base}/api/max-bot/webhook`;
+        if (url.startsWith("https://")) {
+          const body: any = { url, update_types: ["message_created", "bot_started", "bot_added"] };
+          if (WEBHOOK_SECRET()) body.secret = WEBHOOK_SECRET();
+          for (const b of [MAX_API_PRIMARY, MAX_API_LEGACY]) {
+            try {
+              const r = await fetch(`${b}/subscriptions`, {
+                method: "POST",
+                headers: { Authorization: TOKEN(), "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+                signal: AbortSignal.timeout(10_000),
+              });
+              if (r.ok) { ctx.logger.info("max-bot webhook auto-subscribed", { base: b, url }); break; }
+            } catch { /* пробуем следующий base */ }
+          }
+        }
+      }
+    } catch (e: any) {
+      ctx.logger.warn?.("max-bot auto-subscribe failed", { error: String(e?.message || e).slice(0, 200) });
+    }
   },
   healthCheck: () => ({
     status: TOKEN() ? "ok" : "degraded",

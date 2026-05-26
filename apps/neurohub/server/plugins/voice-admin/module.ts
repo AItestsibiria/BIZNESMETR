@@ -702,19 +702,22 @@ router.post(
     const wantTts = String(req.query.tts || "").trim() === "1";
     if (wantTts && llmResult.responseText) {
       try {
+        // Eugene 2026-05-26 Босс «доклад/голос на iOS не работает». ROOT CAUSE:
+        // iOS Safari/WKWebView НЕ играет ogg/opus в <audio> (только mp3/aac).
+        // oggopus играют Chrome/Android/Firefox. → отдаём mp3 для iOS, oggopus
+        // остальным. (Yandex v1 mp3 для воспроизведения iOS подходит; на iOS
+        // opus = тишина, так что mp3 хуже точно не сделает.)
+        const _ua = String(req.headers?.["user-agent"] || "");
+        const _isIos = /iPhone|iPad|iPod/.test(_ua) || (/Macintosh/.test(_ua) && /Mobile/.test(_ua));
         const tts = await synthesizeYandexTts({
           text: llmResult.responseText.slice(0, 4500),
           voice: ttsVoice,
           emotion: ttsEmotion,
-          // Eugene 2026-05-25 Босс «озвучка не играет, ошибка mp3». ROOT CAUSE:
-          // Yandex SpeechKit v1 (/speech/v1/tts:synthesize) НЕ отдаёт настоящий
-          // mp3 (mp3 — только в API v3) → байты не игрались как audio/mpeg.
-          // oggopus — штатный формат v1, Chrome/Android/Firefox играют.
-          format: "oggopus",
+          format: _isIos ? "mp3" : "oggopus",
         });
         if (tts.ok && tts.audio) {
           audioBase64 = tts.audio.toString("base64");
-          audioContentType = tts.contentType || "audio/ogg";
+          audioContentType = tts.contentType || (_isIos ? "audio/mpeg" : "audio/ogg");
         }
       } catch (e: any) {
         // TTS — best-effort; не валим весь request если TTS упал
