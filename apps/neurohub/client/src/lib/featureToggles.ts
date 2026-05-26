@@ -26,6 +26,7 @@ export type FeatureKey =
   | "auto-play-tour"
   | "floating-consultant"
   | "cover-highlight"
+  | "globe-3d"
   | "karaoke"
   | "hitech-effects"
   | "particle-fab"
@@ -107,6 +108,8 @@ export const FEATURES: FeatureMeta[] = [
     adminHint: "Bottom-right FAB. Главный entry в Музу-чат. Отключение скрывает чат полностью — пользователь не сможет писать.", category: "ui", defaultEnabled: true },
   { key: "cover-highlight", label: "✨ Подсветка обложек", description: "Розовое свечение на треках с авторской обложкой",
     adminHint: "Ring + shadow на mini-cover (landing) и в swipe-modal. Маркирует custom-cover (не Suno-default).", category: "ui", defaultEnabled: true },
+  { key: "globe-3d", label: "🌍 3D-глобус стран", description: "Настоящий вращающийся 3D-глобус с реальной географией и маркерами стран-слушателей",
+    adminHint: "react-globe.gl + three.js. Lazy-load + ErrorBoundary + WebGL-детект. При ошибке (нет WebGL / не загрузилась CDN-текстура) показывает обычный список стран. Открывается кнопкой «🌍 3D» из панели стран на плеере.", category: "ui", defaultEnabled: true },
   { key: "karaoke", label: "🎤 Караоке-текст", description: "Подсветка строк по таймингу при воспроизведении",
     adminHint: "Activatable через кнопку «Текст» в expanded плеере. Требует track.lyric.", category: "ui", defaultEnabled: true },
   { key: "hitech-effects", label: "✨ Hi-tech эффекты", description: "scan-line / cyber-grid / holographic shimmer на админке и swipe",

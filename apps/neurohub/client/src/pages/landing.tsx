@@ -23,7 +23,13 @@ import { MuzaInfoMenu } from "@/components/muza-info-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { createPortal } from "react-dom";
 import { motion, useAnimation, useDragControls } from "framer-motion";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
+
+// Eugene 2026-05-26 Босс «настоящий 3D-глобус». Lazy-load — тяжёлый chunk
+// (three.js + react-globe.gl ~600KB) грузится только при открытии глобуса,
+// не попадает в main bundle landing. Внутри globe-view — свой ErrorBoundary +
+// WebGL-детект + fallback на список стран, поэтому ошибка не роняет страницу.
+const GlobeView = lazy(() => import("@/components/globe-view"));
 import { useToast } from "@/hooks/use-toast";
 
 // Deep space canvas: Milky Way, bright stars, planets, comets
@@ -695,6 +701,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // должна быть открыта снизу вверх не перемещаться вниз плеера». Отдельный
   // state для player-anchored панели (не конфликтует с hero showCountries).
   const [showPlayerCountries, setShowPlayerCountries] = useState(false);
+  // Eugene 2026-05-26 Босс «настоящий 3D-глобус». Открывается кнопкой «🌍 3D»
+  // из панели стран. Полноэкранный оверлей с вращающейся планетой. Под
+  // feature-toggle "globe-3d" (default ON) — можно выключить без релиза.
+  const [showGlobe, setShowGlobe] = useState(false);
+  const globe3dEnabled = useFeatureEnabled("globe-3d");
   // Eugene 2026-05-22 Босс «в режиме планшета если юзер не спускается вниз
   // плейлист раскрывается вверх с 1 трека внизу и 2 выше зеркальный порядок,
   // если скроллит вниз верхний плейлист исчезает». Reverse-блок 6 треков
@@ -2328,12 +2339,24 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                           >
                             <div className="flex items-center justify-between px-4 py-2.5 border-b border-purple-400/20 bg-purple-500/5">
                               <p className="text-sm font-semibold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent m-0">Нас слушают 🌍</p>
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); closePlayerCountries(); }}
-                                className="text-white/50 hover:text-white text-xl leading-none px-1"
-                                aria-label="Закрыть"
-                              >×</button>
+                              <div className="flex items-center gap-1.5">
+                                {/* Eugene 2026-05-26 Босс «3D-глобус». Кнопка открывает
+                                    полноэкранную планету. Список стран остаётся как fallback. */}
+                                {globe3dEnabled && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); setShowPlayerCountries(false); setShowGlobe(true); }}
+                                    className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-gradient-to-r from-purple-500/30 via-fuchsia-500/30 to-cyan-500/30 border border-purple-400/40 text-white/90 hover:from-purple-500/50 hover:to-cyan-500/50 hover:shadow-[0_0_16px_rgba(124,58,237,0.4)] transition-all"
+                                    title="Открыть 3D-глобус"
+                                  >🌍 3D</button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); closePlayerCountries(); }}
+                                  className="text-white/50 hover:text-white text-xl leading-none px-1"
+                                  aria-label="Закрыть"
+                                >×</button>
+                              </div>
                             </div>
                             {/* Eugene 2026-05-22 Босс «появление как топ-100,
                                 флаг потом название на английском». Staggered
@@ -2364,6 +2387,72 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             </ul>
                           </div>
                         </>
+                      )}
+                      {/* Eugene 2026-05-26 Босс «настоящий 3D-глобус». Полноэкранный
+                          оверлей через портал на body — поверх всего, не зависит от
+                          layout плеера. Device-fit-100 rule: высота через dvh +
+                          safe-area, не вылезает за вьюпорт. Lazy + Suspense + внутренний
+                          ErrorBoundary в globe-view → ошибка не роняет страницу. */}
+                      {showGlobe && globe3dEnabled && createPortal(
+                        <div
+                          className="fixed inset-0 z-[200] flex items-center justify-center bg-gradient-to-br from-[#0a0a17]/95 via-[#1a0f2e]/95 to-[#0a0a17]/95 backdrop-blur-xl"
+                          style={{
+                            paddingTop: "max(env(safe-area-inset-top), 12px)",
+                            paddingBottom: "max(env(safe-area-inset-bottom), 12px)",
+                            paddingLeft: "max(env(safe-area-inset-left), 12px)",
+                            paddingRight: "max(env(safe-area-inset-right), 12px)",
+                          }}
+                          onClick={() => setShowGlobe(false)}
+                          role="dialog"
+                          aria-label="3D-глобус стран"
+                        >
+                          <div
+                            className="relative w-full max-w-[640px] flex flex-col rounded-3xl overflow-hidden border border-purple-500/30 bg-[#0a0a17]/60 shadow-[0_0_48px_rgba(124,58,237,0.35)]"
+                            style={{ height: "min(88dvh, 720px)" }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {/* Шапка */}
+                            <div className="flex items-center justify-between px-4 py-3 border-b border-purple-400/20 bg-purple-500/5 shrink-0">
+                              <h3 className="text-base font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent m-0">
+                                🌍 Нас слушают по всему миру
+                              </h3>
+                              <button
+                                type="button"
+                                onClick={() => setShowGlobe(false)}
+                                className="text-white/60 hover:text-white text-2xl leading-none px-2 -mr-1"
+                                aria-label="Закрыть глобус"
+                              >×</button>
+                            </div>
+                            {/* Сам глобус — занимает основную область */}
+                            <div className="relative flex-1 min-h-0">
+                              <Suspense
+                                fallback={
+                                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                    <div className="text-center">
+                                      <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500 mb-2" />
+                                      <p className="text-xs font-sans text-white/50">Загружаем планету…</p>
+                                    </div>
+                                  </div>
+                                }
+                              >
+                                <GlobeView
+                                  countries={countriesList.map(c => ({
+                                    code: c.country_code,
+                                    name: englishCountryName(c.country_code, c.country),
+                                    n: c.n,
+                                  }))}
+                                />
+                              </Suspense>
+                            </div>
+                            {/* Подпись */}
+                            <div className="px-4 py-2 border-t border-purple-400/20 bg-purple-500/5 shrink-0 text-center">
+                              <p className="text-[11px] font-sans text-white/50 m-0">
+                                Стран: <span className="tabular-nums text-cyan-300 font-bold">{countriesCount}</span> · потяните для вращения, колесо/щипок — зум
+                              </p>
+                            </div>
+                          </div>
+                        </div>,
+                        document.body,
                       )}
                     </div>
                     {/* Eugene 2026-05-22 Босс «зона эквалайзеров между нижней
