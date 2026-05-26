@@ -3212,17 +3212,21 @@ export function FloatingConsultant() {
               <span className="cosmic-note cosmic-note-6">♫</span>
               <span className="cosmic-note cosmic-note-7">♬</span>
             </div>
-            {/* Eugene 2026-05-25 Босс «премиальность и глянцевость». Glossy
-                sheen overlay: светлый блик сверху + тонкий нижний glow. Чисто
-                декоративный, под контентом, не ловит клики. */}
+            {/* Eugene 2026-05-25/26 Босс «премиальность и блестящая глянцевость».
+                Glossy sheen: сильный верхний блик + диагональный glass-streak +
+                бренд-glow. Декоративный, под контентом, не ловит клики. */}
             <div
               aria-hidden="true"
-              className="absolute inset-0 rounded-2xl pointer-events-none -z-[1]"
+              className="absolute inset-0 rounded-2xl pointer-events-none -z-[1] overflow-hidden"
               style={{
                 background:
-                  "linear-gradient(180deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.05) 14%, rgba(255,255,255,0) 38%), radial-gradient(120% 60% at 50% 0%, rgba(168,85,247,0.07) 0%, rgba(255,255,255,0) 60%)",
+                  "linear-gradient(180deg, rgba(255,255,255,0.24) 0%, rgba(255,255,255,0.08) 12%, rgba(255,255,255,0) 36%)," +
+                  "linear-gradient(115deg, rgba(255,255,255,0) 32%, rgba(255,255,255,0.16) 46%, rgba(255,255,255,0.04) 53%, rgba(255,255,255,0) 62%)," +
+                  "radial-gradient(120% 60% at 50% 0%, rgba(168,85,247,0.08) 0%, rgba(255,255,255,0) 60%)",
               }}
             />
+            {/* Движущийся блеск (sheen sweep) — лёгкий glint по диагонали раз в ~7с. */}
+            <div aria-hidden="true" className="chat-gloss-sweep" />
             {/* Eugene 2026-05-18 Босс: диагональная стрелка resize в верхне-левом
                 углу. Drag от угла → размер chat panel меняется (рост влево/вверх).
                 Snap-зоны 30% / 50% / 70% viewport width — магнит ±20px,
