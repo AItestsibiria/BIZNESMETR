@@ -657,7 +657,22 @@ async function openaiToolLoop(o: OpenAIToolLoopOpts): Promise<{ text: string | n
   return { text: null, usage };
 }
 
+// Eugene 2026-05-26 (атомарный разбор «бот называет юзеру тег <user_message>»):
+// гарантированная подстраховка — вычищаем из ОТВЕТА модели любые служебные
+// маркеры обёртки, даже если дешёвая модель их спарротила. Промпт уже не
+// называет тег (priming убран), но это belt-and-suspenders на 100%.
+function sanitizeOutboundReply(text: string | null): string | null {
+  if (text == null) return text;
+  return text
+    .replace(/<\/?user_message>/gi, "")
+    .replace(/<\/?system>/gi, "");
+}
+
 export async function callUnifiedMuzaLLM(opts: UnifiedLLMOpts): Promise<string | null> {
+  return sanitizeOutboundReply(await callUnifiedMuzaLLMInner(opts));
+}
+
+async function callUnifiedMuzaLLMInner(opts: UnifiedLLMOpts): Promise<string | null> {
   const attempts = listAnthropicKeys();
   // Eugene 2026-05-20: убрано raннее return null если attempts.length===0,
   // потому что теперь primary = TimeWeb, Anthropic — fallback. Если ни одного
