@@ -961,7 +961,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       if (list.length === 0) return;
       const idx = list.findIndex((t: any) => t.id === playingId);
       if (idx < 0) return;
-      for (const off of [1, -1, 2, -2]) {
+      // Eugene 2026-05-26 Босс «при частом переключении следующая обложка долго
+      // грузится — нужно прогнозирование, приоритет следующие». Расширили окно и
+      // приоритезируем ВПЕРЁД: следующие 4 треков грузятся первыми, затем 2
+      // предыдущих. + img.decode() прогревает декод-кэш → при swipe мгновенно.
+      for (const off of [1, 2, 3, 4, -1, -2]) {
         const t = list[(idx + off + list.length) % list.length];
         const url = t?.imageUrl;
         if (url && !preloadedCoversRef.current.has(url)) {
@@ -969,6 +973,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           const img = document.createElement("img");
           img.decoding = "async";
           img.src = url;
+          if (typeof img.decode === "function") { img.decode().catch(() => {}); }
         }
       }
     } catch { /* preload best-effort — не роняем рендер */ }
