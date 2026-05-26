@@ -2889,7 +2889,7 @@ export function FloatingConsultant() {
                   {settingsDirty && (
                     <button
                       type="button"
-                      onClick={() => { setSettingsDirty(false); setShowFactSettings(false); }}
+                      onClick={() => { setSettingsDirty(false); setShowFactSettings(false); setExpanded(false); setSmartBubbleText(null); }}
                       className="self-end mt-1 px-3 py-1 rounded-full text-[11px] font-semibold text-emerald-50 bg-emerald-500/30 hover:bg-emerald-500/45 border border-emerald-400/50 transition-colors active:scale-95"
                       aria-label="Подтвердить настройки"
                     >
@@ -2975,11 +2975,9 @@ export function FloatingConsultant() {
             // (оно накладывается на правую часть chat drawer на iPad).
             if (chatOpen) return;
             try { playMuzaChime(); } catch {}
-            const phrase = CLICK_REACTIONS[reactionIdxRef.current % CLICK_REACTIONS.length];
-            reactionIdxRef.current += 1;
-            setReaction(phrase);
-            if (reactionTimerRef.current) window.clearTimeout(reactionTimerRef.current);
-            reactionTimerRef.current = window.setTimeout(() => setReaction(null), 2500);
+            // Eugene 2026-05-26 Босс «Fab только в облачке управления» — аватар
+            // ЧИСТЫЙ: тап просто открывает/закрывает панель-облачко с управлением.
+            // Убрали случайные reaction-фразы (они churn'или баббл = часть дребезга).
             setExpanded(e => { const next = !e; if (next) trackEngagement("consultant_open"); return next; });
           }}
           onMouseEnter={() => setHovered(true)}
