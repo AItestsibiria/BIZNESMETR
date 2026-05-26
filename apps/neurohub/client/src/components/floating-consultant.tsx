@@ -2975,9 +2975,15 @@ export function FloatingConsultant() {
             // (оно накладывается на правую часть chat drawer на iPad).
             if (chatOpen) return;
             try { playMuzaChime(); } catch {}
-            // Eugene 2026-05-26 Босс «Fab только в облачке управления» — аватар
-            // ЧИСТЫЙ: тап просто открывает/закрывает панель-облачко с управлением.
-            // Убрали случайные reaction-фразы (они churn'или баббл = часть дребезга).
+            // Eugene 2026-05-26 Босс «fab должен показывать фразы» — вернули
+            // reaction-фразу при тапе (глюк-дребезг уже закрыт через setBubble,
+            // reaction — отдельный краткий баббл со своим таймером). Управление
+            // при этом по-прежнему в панели-облачке (раскрывается тем же тапом).
+            const phrase = CLICK_REACTIONS[reactionIdxRef.current % CLICK_REACTIONS.length];
+            reactionIdxRef.current += 1;
+            setReaction(phrase);
+            if (reactionTimerRef.current) window.clearTimeout(reactionTimerRef.current);
+            reactionTimerRef.current = window.setTimeout(() => setReaction(null), 2500);
             setExpanded(e => { const next = !e; if (next) trackEngagement("consultant_open"); return next; });
           }}
           onMouseEnter={() => setHovered(true)}
@@ -3186,7 +3192,10 @@ export function FloatingConsultant() {
               // Eugene 2026-05-26 Босс «фон чата убери цвет на 30%, стекло+глянец,
               // прозрачность >50% по умолчанию». Альфа снижена (~30% меньше «тела»):
               // 0=плотно 0.85, 1=полупрозр 0.4, 2=стекло 0.06 (94% прозр., дефолт).
-              backgroundColor: `hsl(var(--background) / ${[0.85, 0.4, 0.06][chatOpacity]})`,
+              // Eugene 2026-05-26 Босс «добавь прозрачности фона чата» (ещё) —
+              // альфа снижена: 0=плотно 0.78, 1=полупрозр 0.32, 2=стекло 0.03
+              // (≈97% прозр., дефолт). Читаемость держит backdrop-blur-3xl.
+              backgroundColor: `hsl(var(--background) / ${[0.78, 0.32, 0.03][chatOpacity]})`,
             }}
           >
             {/* Eugene 2026-05-24 Босс «глубина картинки и облака парящие в
