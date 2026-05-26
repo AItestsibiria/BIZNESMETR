@@ -86,6 +86,7 @@ type GlobeComponentProps = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   rendererConfig?: any;
   globeImageUrl?: string | null;
+  backgroundImageUrl?: string;
   bumpImageUrl?: string | null;
   showAtmosphere?: boolean;
   atmosphereColor?: string;
@@ -476,7 +477,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         controls.zoomSpeed = 0.8;
       }
       // Компактная стартовая позиция — Европа/Россия (наша аудитория).
-      g.pointOfView?.({ lat: 30, lng: 50, altitude: 2.4 }, 0);
+      g.pointOfView?.({ lat: 30, lng: 50, altitude: 1.9 }, 0);
     } catch (e) {
       console.error("[GlobeView] onGlobeReady controls setup failed:", e);
     } finally {
@@ -492,6 +493,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         height={size.h}
         backgroundColor="rgba(0,0,0,0)"
         rendererConfig={{ antialias: true, alpha: true }}
+        backgroundImageUrl="//cdn.jsdelivr.net/npm/three-globe/example/img/night-sky.png"
         globeImageUrl={EARTH_TEXTURE_URL}
         bumpImageUrl={EARTH_BUMP_URL}
         showAtmosphere={true}
