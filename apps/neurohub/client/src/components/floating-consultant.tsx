@@ -1094,6 +1094,13 @@ export function FloatingConsultant() {
   // чат — креативить»). smartHighlight — анимация attention (slight bounce +
   // glow) если Муза уже видна.
   const [smartBubbleText, setSmartBubbleText] = useState<string | null>(null);
+  // Eugene 2026-05-26 КРИТ-ФИКС глюка FAB: ref-зеркало текста баббла. Раньше
+  // smartBubbleText стоял в deps facts-эффекта → setSmartBubbleText (показ факта
+  // + авто-сброс через 9с) перезапускал эффект → таймер пересоздавался → дребезг
+  // «появился-исчез-появился» с одной репликой. Теперь занятость проверяем через
+  // ref, эффект НЕ зависит от текста и не рестартует сам себя.
+  const smartBubbleTextRef = useRef<string | null>(null);
+  useEffect(() => { smartBubbleTextRef.current = smartBubbleText; }, [smartBubbleText]);
   const [smartHighlight, setSmartHighlight] = useState(false);
   // Once-per-session флаги для каждого триггера (не спамим юзера).
   const smartFiredRef = useRef<Set<string>>(new Set());
@@ -1938,7 +1945,9 @@ export function FloatingConsultant() {
         window.setTimeout(() => { try { toastDiv.remove(); } catch {} }, 4600);
       } catch {}
     }
-    // Delay 2 сек чтобы юзер прочитал toast → ТОЛЬКО потом FAB exit animation
+    // Delay 2 сек чтобы юзер прочитал toast → ТОЛЬКО потом FAB exit animation.
+    // Eugene 2026-05-26: пауза до unmount ≥ длительности fade (1100мс), иначе
+    // мягкое затухание обрывается. exiting@1800 → unmount@3000 (gap 1200мс).
     window.setTimeout(() => setExiting(true), 1800);
     window.setTimeout(() => {
       setVisible(false);
@@ -1954,7 +1963,7 @@ export function FloatingConsultant() {
           setVisible(true);
         }, reappearMs);
       }
-    }, 2200);
+    }, 3000);
   };
 
   // Eugene 2026-05-21 Босс «постукивания по экрану — Музa приходит/уходит».
@@ -2336,7 +2345,7 @@ export function FloatingConsultant() {
     if (!visible || chatOpen) return;
     const showFact = () => {
       if (chatOpen) return;
-      if (smartBubbleText) return; // уже занято smart-trigger'ом
+      if (smartBubbleTextRef.current) return; // уже занято smart-trigger'ом (через ref, не closure)
       // Eugene 2026-05-24: смена календарного дня → новый seed + reset seen-set.
       // Так сессия, пережившая полночь, показывает новый дневной порядок фактов.
       const today = Math.floor(Date.now() / 86_400_000);
@@ -2390,7 +2399,9 @@ export function FloatingConsultant() {
     };
     scheduleNext(12_000); // первый показ через 12 сек после mount
     return () => { window.clearTimeout(timer); };
-  }, [visible, chatOpen, smartBubbleText, factSettings.intervalMin, factSettings.cats]);
+    // smartBubbleText НАМЕРЕННО не в deps — иначе эффект рестартует на каждое
+    // изменение текста баббла (дребезг). Занятость берём из smartBubbleTextRef.
+  }, [visible, chatOpen, factSettings.intervalMin, factSettings.cats]);
 
   // Click handler для bubble — opens chat на ТЕКУЩЕЙ странице (overlay
   // через portal, без navigation) + просит Музу развернуть факт.
@@ -2435,7 +2446,10 @@ export function FloatingConsultant() {
         touchAction: dragMode ? "none" : undefined,
         filter: dragMode ? "drop-shadow(0 0 12px rgba(124,58,237,0.5))" : undefined,
       }}
-      className={`transition-opacity duration-500 ${exiting ? "opacity-0 consultant-slide-out" : "opacity-100 consultant-slide-in animate-in fade-in"} ${smartHighlight ? "consultant-attention" : ""}`}
+      /* Eugene 2026-05-26 Босс «нерезкое появление и уход слишком бросается в
+         глаза» — убрали slide-in/out, оставили мягкое плавное затухание (opacity
+         1.1с ease-in-out). Появляется/уходит деликатно, не дёргает взгляд. */
+      className={`transition-opacity duration-[1100ms] ease-in-out ${exiting ? "opacity-0" : "opacity-100 animate-in fade-in duration-[1100ms]"} ${smartHighlight ? "consultant-attention" : ""}`}
       data-testid="floating-consultant"
       // Eugene 2026-05-21 Босс «куклу музу можно перемещать пальцем».
       // Long-press 350ms → drag-mode. Если палец двигается раньше — обычный click/expand.
@@ -2522,17 +2536,30 @@ export function FloatingConsultant() {
             Default-облако удалено — показываем только контекстные smart-bubbles
             (idle 30 сек / form abandon / etc). */}
         {!expanded && !reaction && !chatOpen && smartBubbleText && (
-          <button
-            type="button"
-            onClick={handleBubbleClick}
-            className="absolute bottom-full right-0 mb-2 px-4 py-2.5 backdrop-blur-md border text-[12px] font-medium text-white text-center leading-tight max-w-[180px] animate-in fade-in slide-in-from-bottom-2 duration-300 shadow-lg hover:scale-105 transition-all cursor-pointer bg-gradient-to-br from-pink-500/40 to-purple-500/30 border-pink-300/50 shadow-pink-500/30 hover:from-pink-500/60 hover:to-purple-500/45"
-            style={{
-              borderRadius: "55% 45% 45% 50% / 60% 50% 60% 40%",
-            }}
-            aria-label="Открыть чат с Музой"
+          <div
+            className="absolute bottom-full right-0 mb-2 px-4 py-2.5 pb-6 backdrop-blur-md border text-[12px] font-medium text-white text-center leading-tight max-w-[180px] animate-in fade-in duration-500 shadow-lg transition-all bg-gradient-to-br from-pink-500/40 to-purple-500/30 border-pink-300/50 shadow-pink-500/30"
+            style={{ borderRadius: "55% 45% 45% 50% / 60% 50% 60% 40%" }}
           >
-            {smartBubbleText}
-          </button>
+            {/* Клик по тексту — открыть чат и развернуть факт. */}
+            <button
+              type="button"
+              onClick={handleBubbleClick}
+              className="block w-full text-center cursor-pointer hover:opacity-90 transition-opacity"
+              aria-label="Открыть чат с Музой"
+            >
+              {smartBubbleText}
+            </button>
+            {/* Eugene 2026-05-26 Босс «ок в облачке справа внизу» — закрыть
+                подсказку вручную. Авто-скрытие (9с) при этом тоже работает. */}
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); factClickedRef.current = null; setSmartBubbleText(null); }}
+              className="absolute bottom-1 right-2 px-2 py-0.5 rounded-full bg-white/20 hover:bg-white/35 border border-white/30 text-[10px] font-semibold text-white/90 transition-colors active:scale-95"
+              aria-label="Закрыть подсказку"
+            >
+              ОК
+            </button>
+          </div>
         )}
 
         {/* Click reaction bubble — игровая деловая фраза при нажатии */}
@@ -2738,15 +2765,35 @@ export function FloatingConsultant() {
               </button>
               {showFactSettings && (
                 <div className="self-stretch p-2 rounded-xl bg-white/[0.04] border border-white/[0.08] flex flex-col gap-2 mb-1">
-                  <div className="text-[10px] text-white/60">Раз в:</div>
+                  {/* Eugene 2026-05-26 Босс «частоту показа инфы в настройки, типа
+                      1 в 5 мин». Пресеты + слайдер для тонкой настройки. */}
+                  <div className="text-[10px] text-white/60">
+                    Частота подсказок: <span className="text-white/85 tabular-nums">1 раз в {factSettings.intervalMin} мин</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {[5, 10, 15, 30].map(m => (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => setFactSettings(s => ({ ...s, intervalMin: m }))}
+                        className={`text-[10px] px-2 py-1 rounded-full border transition-all tabular-nums ${
+                          factSettings.intervalMin === m
+                            ? "bg-fuchsia-500/30 border-fuchsia-400/60 text-white"
+                            : "bg-white/[0.04] border-white/[0.10] text-white/50"
+                        }`}
+                      >
+                        {m} мин
+                      </button>
+                    ))}
+                  </div>
                   <input
                     type="range"
                     min={1} max={60} step={1}
                     value={factSettings.intervalMin}
                     onChange={(e) => setFactSettings(s => ({ ...s, intervalMin: parseInt(e.target.value, 10) }))}
                     className="w-full accent-fuchsia-400"
+                    aria-label="Частота показа подсказок (минут)"
                   />
-                  <div className="text-[10px] text-white/70 text-center tabular-nums">{factSettings.intervalMin} мин</div>
                   <div className="text-[10px] text-white/60 mt-1">Показывать:</div>
                   <div className="flex flex-wrap gap-1">
                     {[
