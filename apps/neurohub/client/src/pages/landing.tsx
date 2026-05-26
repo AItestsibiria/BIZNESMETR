@@ -11,7 +11,7 @@ import { CoverDetailsModal } from "@/components/cover-details-modal";
 import { PlanetIcon } from "@/components/plays-counter";
 import { VolumeSlider } from "@/components/volume-slider";
 import { muteBgMusic, unmuteBgMusic } from "@/components/background-music";
-import { setupMediaSessionForTrack, setLockScreenPlaybackState, setLockScreenPosition, loadTrackIntoPlayer, setPlayerVolume } from "@/lib/lockscreen";
+import { setupMediaSessionForTrack, setLockScreenPlaybackState, setLockScreenPosition, loadTrackIntoPlayer, setPlayerVolume, getPersistentPlayerAudio, getPlayerAnalyser } from "@/lib/lockscreen";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 // Eugene 2026-05-21 Босс «panel перенесён в ЛК автора» — import не нужен в landing
@@ -498,6 +498,52 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // Eugene 2026-05-14 Босс «играет, но кнопка пауза отражается». audioRef.paused —
   // прямое свойство, React не re-render. Делаем State + listeners на play/pause events.
   const [isPlayingState, setIsPlayingState] = useState(false);
+  // Eugene 2026-05-26 Босс «эквалайзер основного плеера подстраивается под ритм
+  // музыки» + «прокачай для iOS». Единый rAF-движок 20 баров:
+  // - non-iOS: реальный спектр через AnalyserNode (getPlayerAnalyser) —
+  //   getByteFrequencyData по частотам.
+  // - iOS (analyser=null, createMediaElementSource запрещён — iOS-lock rule):
+  //   прокачанная ЖИВАЯ имитация (rAF-паттерн), выглядит музыкально-реактивно.
+  // Дизайн (цвета/кол-во баров) сохранён — меняем только высоту/прозрачность.
+  const eqBarsRef = useRef<(HTMLDivElement | null)[]>([]);
+  useEffect(() => {
+    const bars = eqBarsRef.current;
+    if (!isPlayingState) {
+      bars.forEach(b => { if (b) { b.style.height = "30%"; b.style.opacity = "0.5"; } });
+      return;
+    }
+    let raf = 0;
+    let analyser: ReturnType<typeof getPlayerAnalyser> = null;
+    let freq: Uint8Array | null = null;
+    try {
+      const audio = getPersistentPlayerAudio();
+      if (audio) analyser = getPlayerAnalyser(audio);
+    } catch { /* iOS / нет графа — имитация ниже */ }
+    if (analyser) freq = new Uint8Array(analyser.frequencyBinCount);
+    const N = bars.length || 20;
+    const tick = () => {
+      if (analyser && freq) {
+        analyser.getByteFrequencyData(freq);
+        const bins = freq.length;
+        for (let i = 0; i < N; i++) {
+          const bin = Math.min(bins - 1, Math.floor((i / N) * bins));
+          const v = freq[bin] / 255;
+          const b = bars[i];
+          if (b) { b.style.height = `${Math.max(8, 12 + v * 100)}%`; b.style.opacity = String(0.55 + v * 0.45); }
+        }
+      } else {
+        const t = performance.now() / 1000;
+        for (let i = 0; i < N; i++) {
+          const s = 0.5 + 0.5 * Math.sin(t * 6 + i * 0.5) * Math.sin(t * 2.3 + i * 0.21);
+          const b = bars[i];
+          if (b) { b.style.height = `${18 + s * 78}%`; b.style.opacity = String(0.55 + s * 0.45); }
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [isPlayingState]);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   // Eugene 2026-05-24 Босс «при нажатии уменьшилась в первоначальное положение».
   // closingId — id трека, у которого expanded карточка сейчас СВОРАЧИВАЕТСЯ.
@@ -2332,13 +2378,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                         return (
                         <div
                           key={i}
-                          className={`flex-1 rounded-full bg-gradient-to-t ${colorClass} equalizer-bar`}
+                          ref={el => { eqBarsRef.current[i] = el; }}
+                          className={`flex-1 rounded-full bg-gradient-to-t ${colorClass}`}
                           style={{
-                            animationDelay: `${(i * 0.05).toFixed(2)}s`,
-                            animationDuration: `${(0.6 + (i % 5) * 0.15).toFixed(2)}s`,
-                            animationPlayState: isPlayingState ? "running" : "paused",
+                            // Высота/прозрачность управляются rAF-движком (реальный
+                            // спектр на non-iOS / живая имитация на iOS). CSS-анимация
+                            // убрана, чтобы не конфликтовать с inline height.
                             height: isPlayingState ? "100%" : "30%",
                             opacity: isPlayingState ? 1 : 0.5,
+                            transition: "height 90ms linear, opacity 90ms linear",
                             willChange: "height, opacity",
                             transform: "translateZ(0)",
                           }}

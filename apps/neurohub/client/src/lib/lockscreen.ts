@@ -236,6 +236,34 @@ function ensureAudioGraph(audio: HTMLAudioElement): GainNode | null {
   }
 }
 
+// Eugene 2026-05-26 Босс «эквалайзер основного плеера подстраивается под ритм
+// музыки». AnalyserNode (getByteFrequencyData) — реальный спектр играющего
+// аудио. Только non-iOS: на iOS createMediaElementSource ЗАПРЕЩЁН (ломает
+// lock-screen, iOS-lock-screen-audio rule) → возвращаем null, эквалайзер падает
+// на CSS-имитацию. Analyser — ответвление от _mediaSource (не трогает основной
+// путь source→gain→destination, звук не меняется).
+let _analyser: AnalyserNode | null = null;
+export function getPlayerAnalyser(audio: HTMLAudioElement): AnalyserNode | null {
+  if (typeof window === "undefined" || isIOS()) return null;
+  const gain = ensureAudioGraph(audio); // создаёт _audioCtx + _mediaSource (non-iOS)
+  if (!gain || !_audioCtx || !_mediaSource) return null;
+  if (_analyser) {
+    if (_audioCtx.state === "suspended") _audioCtx.resume().catch(() => {});
+    return _analyser;
+  }
+  try {
+    _analyser = _audioCtx.createAnalyser();
+    _analyser.fftSize = 64;            // 32 частотных бина — хватает на 20 баров
+    _analyser.smoothingTimeConstant = 0.8; // плавность, без дёрганья
+    _mediaSource.connect(_analyser);   // tap: analyser НЕ подключаем к destination
+    if (_audioCtx.state === "suspended") _audioCtx.resume().catch(() => {});
+    return _analyser;
+  } catch (e) {
+    console.warn("[lockscreen] analyser init failed:", e);
+    return null;
+  }
+}
+
 export function setPlayerVolume(audio: HTMLAudioElement, volume: number): boolean {
   const v = Math.max(0, Math.min(1, volume));
   // audio.volume — works on desktop/Android, noop on iOS (system volume)
