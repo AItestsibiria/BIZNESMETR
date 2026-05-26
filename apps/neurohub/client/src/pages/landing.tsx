@@ -1880,7 +1880,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           <span className="inline-block rounded-full bg-gradient-to-r from-purple-500 via-fuchsia-500 to-cyan-400 p-[1.5px] beta-badge-pulse shadow-[0_0_18px_rgba(217,70,239,0.35)]">
             <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-background/85 text-[11px] font-sans font-bold text-white uppercase tracking-wider whitespace-nowrap drop-shadow-[0_0_4px_rgba(255,255,255,0.4)]">
               <span className="w-1.5 h-1.5 rounded-full bg-fuchsia-400 animate-pulse" />
-              Платформа на тестировании · Platform in beta
+              Платформа Ai на тестировании · Platform Ai in beta
             </span>
           </span>
         </div>

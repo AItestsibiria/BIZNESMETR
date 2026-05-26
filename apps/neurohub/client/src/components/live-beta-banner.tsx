@@ -85,7 +85,7 @@ export function LiveBetaBanner() {
           LIVE
         </span>
         <span className="text-[11px] sm:text-[12px] font-sans text-white/70">
-          Платформа на тестировании · Platform in beta
+          Платформа Ai на тестировании · Platform Ai in beta
         </span>
       </div>
 
