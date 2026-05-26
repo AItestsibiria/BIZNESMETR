@@ -608,7 +608,13 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // Eugene 2026-05-22 Босс: inline счётчик прослушиваний рядом с 🌍 после
   // кнопки «Поделиться» в большом плеере. Источник /api/playlist/stats,
   // обновление каждые 60 сек (как countriesCount).
-  const [totalPlays, setTotalPlays] = useState<number>(0);
+  // Eugene 2026-05-26 Босс «НИКОГДА не 0 ни в каком случае»: инициализируем из
+  // localStorage (последнее реальное значение) → возвращающийся юзер сразу видит
+  // число, а не 0. Обновляем только валидным >0 (см. load ниже).
+  const PLAYS_LS_KEY = "muza_total_plays";
+  const [totalPlays, setTotalPlays] = useState<number>(() => {
+    try { const v = Number(localStorage.getItem(PLAYS_LS_KEY)); return Number.isFinite(v) && v > 0 ? v : 0; } catch { return 0; }
+  });
   // Eugene 2026-05-22 Босс «нажатием на планетку панель не появляется,
   // должна быть открыта снизу вверх не перемещаться вниз плеера». Отдельный
   // state для player-anchored панели (не конфликтует с hero showCountries).
@@ -728,10 +734,33 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     };
   }, [showPlayerTopTracks]);
   useEffect(() => {
-    const load = () => fetch("/api/playlist/stats", { cache: "no-store" }).then(r => r.json()).then(d => { if (typeof d?.totalPlays === "number") setTotalPlays(d.totalPlays); }).catch(() => {});
-    load();
-    const id = setInterval(load, 60_000);
-    return () => clearInterval(id);
+    let cancelled = false;
+    // Eugene 2026-05-26 Босс «НИКОГДА не 0»: r.ok guard + обновляем ТОЛЬКО валидным
+    // числом >0 (сервер вернул 0 / сбой / рестарт деплоя → держим прежнее), +
+    // persist в localStorage, + ретрай первой загрузки с backoff (транзиент не
+    // оставляет 0). Так счётчик никогда не падает в 0.
+    const apply = (n: unknown) => {
+      const v = Number(n);
+      if (cancelled || !Number.isFinite(v) || v <= 0) return false;
+      setTotalPlays(v);
+      try { localStorage.setItem(PLAYS_LS_KEY, String(v)); } catch {}
+      return true;
+    };
+    const loadOnce = () =>
+      fetch("/api/playlist/stats", { cache: "no-store" })
+        .then(r => (r.ok ? r.json() : null))
+        .then(d => apply(d?.totalPlays))
+        .catch(() => false);
+    // Первая загрузка с ретраями (2с/4с/8с) — переживаем окно рестарта.
+    (async () => {
+      for (let i = 0; i < 4; i++) {
+        const ok = await loadOnce();
+        if (ok || cancelled) return;
+        await new Promise(res => setTimeout(res, 2000 * 2 ** i));
+      }
+    })();
+    const id = setInterval(loadOnce, 60_000);
+    return () => { cancelled = true; clearInterval(id); };
   }, []);
   useEffect(() => {
     const load = () => fetch("/api/public/top-cities", { cache: "no-store" }).then(r => r.json()).then(d => setTopCities(d.list || [])).catch(() => {});
@@ -2294,7 +2323,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                         aria-expanded={showPlayerTopTracks}
                       >
                         <span className="text-3xl leading-none pointer-events-none group-hover:opacity-90">🎧</span>
-                        <span className="absolute top-full left-1/2 -translate-x-1/2 mt-2 text-[13px] tabular-nums font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap pointer-events-none group-hover:underline underline-offset-2">{totalPlays.toLocaleString("ru-RU")}</span>
+                        <span className="absolute top-full left-1/2 -translate-x-1/2 mt-2 text-[13px] tabular-nums font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap pointer-events-none group-hover:underline underline-offset-2">{totalPlays > 0 ? totalPlays.toLocaleString("ru-RU") : "…"}</span>
                       </button>
                       {showPlayerTopTracks && (
                         <>
