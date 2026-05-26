@@ -2451,11 +2451,45 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 />
                               </Suspense>
                             </div>
-                            {/* Подпись */}
-                            <div className="px-4 py-2 border-t border-purple-400/20 bg-purple-500/5 shrink-0 text-center">
-                              <p className="text-[11px] font-sans text-white/50 m-0">
-                                Стран: <span className="tabular-nums text-cyan-300 font-bold">{countriesCount}</span> · потяните для вращения, колесо/щипок — зум
-                              </p>
+                            {/* Подпись + кнопки (Босс: слоган под глобусом + 2 кнопки справа) */}
+                            <div className="px-4 py-2.5 border-t border-purple-400/20 bg-purple-500/5 shrink-0 flex items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-[12px] font-display font-bold m-0 leading-tight bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent">
+                                  MuzaAi — Мир Музыки без границ
+                                </p>
+                                <p className="text-[10px] font-sans text-white/45 m-0 leading-tight">
+                                  Стран: <span className="tabular-nums text-cyan-300 font-semibold">{countriesCount}</span> · твоя Муза
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowGlobe(false);
+                                    try { window.dispatchEvent(new CustomEvent("muza:open-chat")); } catch { /* no-op */ }
+                                  }}
+                                  className="px-3 py-1.5 rounded-xl text-[11px] font-semibold text-white bg-gradient-to-r from-purple-500 via-fuchsia-500 to-blue-500 shadow-[0_0_16px_rgba(124,58,237,0.4)] active:scale-95 transition-transform whitespace-nowrap"
+                                >
+                                  Вернуться к Музе
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    const url = `${window.location.origin}/?globecard=1`;
+                                    const shareData = { title: "MuzaAi — Мир Музыки без границ", text: "Нас слушают по всему миру 🌍 Твоя Муза", url };
+                                    try {
+                                      if (navigator.share) { await navigator.share(shareData); return; }
+                                    } catch { /* отменили шеринг — не ошибка */ }
+                                    try {
+                                      await navigator.clipboard.writeText(url);
+                                      toast({ title: "Ссылка скопирована", description: "Поделись Музой 💜" });
+                                    } catch { /* no-op */ }
+                                  }}
+                                  className="px-3 py-1.5 rounded-xl text-[11px] font-semibold text-white bg-white/5 hover:bg-white/10 border border-fuchsia-400/30 active:scale-95 transition-transform whitespace-nowrap"
+                                >
+                                  Поделись Музой
+                                </button>
+                              </div>
                             </div>
                           </div>
                         </div>,
