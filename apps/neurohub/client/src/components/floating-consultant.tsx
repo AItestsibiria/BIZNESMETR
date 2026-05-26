@@ -2029,6 +2029,9 @@ export function FloatingConsultant() {
       }
       if (tapTimestamps.length >= REQUIRED_KNOCKS) {
         tapTimestamps.length = 0;
+        // Eugene 2026-05-26: не дёргаем dismiss при ОТКРЫТОМ чате — иначе 2 тапа
+        // по фону гасят visible → исчезает портал чата («чат сам закрылся»).
+        if (chatOpen) return;
         try { (navigator as any).vibrate?.([15, 40, 15]); } catch {}
         if (visible) {
           // «Уходит» — мягкий exit + не вернётся 60 мин (или больше если повторно)
@@ -2510,7 +2513,11 @@ export function FloatingConsultant() {
     }
   }, [openChat, doSendMessage, authedUser]);
 
-  if (!visible) return null;
+  // Eugene 2026-05-26 (атомарный разбор «чат сам закрывается»): чат-портал НЕ
+  // должен исчезать при скрытии FAB. Раньше `if (!visible) return null` гасил и
+  // чат (он рендерится внутри компонента) → юзер видел «чат сам закрылся».
+  // Теперь держим компонент смонтированным пока открыт чат.
+  if (!visible && !chatOpen) return null;
   if (!featureEnabled) return null;
   // Eugene 2026-05-19 Single-Musa rule: маленькая mouse-follow override'ит большую FAB
   if (mouseFollowActive && !chatOpen && !expanded) return null;
@@ -3225,8 +3232,6 @@ export function FloatingConsultant() {
                   "radial-gradient(120% 60% at 50% 0%, rgba(168,85,247,0.08) 0%, rgba(255,255,255,0) 60%)",
               }}
             />
-            {/* Движущийся блеск (sheen sweep) — лёгкий glint по диагонали раз в ~7с. */}
-            <div aria-hidden="true" className="chat-gloss-sweep" />
             {/* Eugene 2026-05-18 Босс: диагональная стрелка resize в верхне-левом
                 углу. Drag от угла → размер chat panel меняется (рост влево/вверх).
                 Snap-зоны 30% / 50% / 70% viewport width — магнит ±20px,
