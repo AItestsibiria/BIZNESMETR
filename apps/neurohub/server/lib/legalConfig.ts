@@ -24,8 +24,26 @@ export interface LegalConfig {
   inn: string;
   /** ОГРН (13 цифр) или ОГРНИП (15 цифр). Опционально для самозанятого (ИНН достаточно). */
   ogrn: string;
+  /** КПП (9 цифр, только юрлица; у ИП/самозанятого нет). */
+  kpp: string;
   /** Юр.адрес или адрес регистрации ИП (для оферты и чеков). */
   legalAddress: string;
+  /** Фактический адрес (если отличается от юридического). */
+  actualAddress: string;
+
+  // ── Банковские реквизиты (для договоров и счетов юрлицам) ──────────────
+  /** Расчётный счёт (20 цифр). */
+  settlementAccount: string;
+  /** Корреспондентский счёт банка (20 цифр). */
+  corrAccount: string;
+  /** БИК банка (9 цифр). */
+  bik: string;
+  /** Наименование банка. */
+  bankName: string;
+  /** ФИО руководителя (директора). */
+  directorName: string;
+  /** Основание полномочий руководителя (например «на основании Устава»). */
+  directorBasis: string;
   /** Контактный телефон, опубликованный на сайте (E.164 или городской). */
   phone: string;
   /** Контактный email (обращения, поддержка). */
@@ -91,7 +109,15 @@ const LEGAL_DEFAULT: LegalConfig = {
   entityFullName: "Закрытое акционерное общество «Инфолайн»",
   inn: "7017236261",
   ogrn: "1097017005601",
+  kpp: "701701001",
   legalAddress: "634050, г. Томск, пр. Ленина, д. 151/1, корпус 1",
+  actualAddress: "г. Томск, ул. Карла Маркса, д. 7, оф. 519",
+  settlementAccount: "40702810464000007838",
+  corrAccount: "30101810800000000606",
+  bik: "046902606",
+  bankName: "Томское ОСБ № 8616 ПАО Сбербанк, г. Томск",
+  directorName: "Новосёлов Евгений Геннадьевич",
+  directorBasis: "на основании Устава",
   phone: "+7 (3822) 50-36-70",
   email: "hello@muzaai.ru",
   domain: "muzaai.ru",
@@ -119,7 +145,15 @@ export function getLegalConfig(): LegalConfig {
     entityFullName: envOr("LEGAL_ENTITY_FULL_NAME", LEGAL_DEFAULT.entityFullName),
     inn: envOr("LEGAL_INN", LEGAL_DEFAULT.inn),
     ogrn: envOr("LEGAL_OGRN", LEGAL_DEFAULT.ogrn),
+    kpp: envOr("LEGAL_KPP", LEGAL_DEFAULT.kpp),
     legalAddress: envOr("LEGAL_ADDRESS", LEGAL_DEFAULT.legalAddress),
+    actualAddress: envOr("LEGAL_ACTUAL_ADDRESS", LEGAL_DEFAULT.actualAddress),
+    settlementAccount: envOr("LEGAL_RS", LEGAL_DEFAULT.settlementAccount),
+    corrAccount: envOr("LEGAL_KS", LEGAL_DEFAULT.corrAccount),
+    bik: envOr("LEGAL_BIK", LEGAL_DEFAULT.bik),
+    bankName: envOr("LEGAL_BANK", LEGAL_DEFAULT.bankName),
+    directorName: envOr("LEGAL_DIRECTOR", LEGAL_DEFAULT.directorName),
+    directorBasis: envOr("LEGAL_DIRECTOR_BASIS", LEGAL_DEFAULT.directorBasis),
     phone: envOr("LEGAL_PHONE", LEGAL_DEFAULT.phone),
     email: envOr("LEGAL_EMAIL", LEGAL_DEFAULT.email),
     domain: envOr("LEGAL_DOMAIN", LEGAL_DEFAULT.domain),

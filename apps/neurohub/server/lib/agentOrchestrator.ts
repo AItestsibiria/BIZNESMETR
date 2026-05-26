@@ -827,6 +827,53 @@ export function bootstrapDefaultAgents(): void {
     purpose: "Черновики кампаний на одобрение Боссу",
   });
 
+  // Eugene 2026-05-26 Босс «Заведи агента маркетинга — отвечает за ВСЕ продажи
+  // физикам и юрлицам, организует и управляет». Менеджер по продажам — верхний
+  // координатор продаж: ставит задачи маркетинг-агентам, ведёт конверсию до
+  // генерации (B2C через консультанта) и сделки с юрлицами (B2B через
+  // corporate-manager). Подчинён Директору (Director-subordination rule).
+  orchestrator.register({
+    id: "sales-manager",
+    name: "Менеджер по продажам (физлица + юрлица)",
+    channel: "internal",
+    role: "marketing",
+    status: "active",
+    capabilities: [
+      "sales_b2c",          // продажи физлицам (через консультанта Музу)
+      "sales_b2b",          // продажи юрлицам (через corporate-manager)
+      "lead_to_generation", // доведение до генерации (конверсия)
+      "campaign_control",   // постановка задач маркетинг-агентам
+      "revenue_oversight",  // контроль выручки/конверсии (через Деньгу)
+      "pipeline",           // воронка сделок физики/юрлица
+    ],
+    metadata: { brief: "Отвечает за ВСЕ продажи (физлица + юрлица): организует, управляет, доводит до генерации" },
+  });
+  // Управляет маркетинговыми агентами.
+  orchestrator.addEdge("sales-manager", "marketing-orchestrator", "campaign", {
+    purpose: "Постановка задач по кампаниям продаж (физики + юрлица)",
+  });
+  orchestrator.addEdge("sales-manager", "marketing-creative", "campaign", {
+    purpose: "Заказ креатива под продающие кампании",
+  });
+  // B2C: продажи физлицам через консультанта Музу.
+  orchestrator.addEdge("sales-manager", "muza-web", "notify", {
+    purpose: "Продажи физлицам — доведение диалога до генерации",
+  });
+  // Конверсия до генерации (lifecycle) + выручка (Деньга) + рассылки (Почтальон).
+  orchestrator.addEdge("sales-manager", "gen-lifecycle", "data-sync", {
+    purpose: "Контроль конверсии лид → генерация",
+  });
+  orchestrator.addEdge("sales-manager", "denga", "data-sync", {
+    purpose: "Выручка/конверсия/LTV для решений по продажам",
+  });
+  orchestrator.addEdge("sales-manager", "postman", "broadcast", {
+    purpose: "Sales-рассылки физлицам и юрлицам (через Почтальона)",
+  });
+  // Отчёт Директору (для доклада Боссу).
+  orchestrator.addEdge("sales-manager", "muza-admin", "notify", {
+    purpose: "Отчёт по продажам → Директор докладывает Боссу",
+  });
+
   // Регистрируем edges между marketing-orchestrator и channels (см. matrix
   // в docs/AGENT-ORCHESTRATOR-PROPOSALS.md и Agent-orchestrator rule).
   registerDefaultEdges();
