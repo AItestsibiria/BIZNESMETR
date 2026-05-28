@@ -27,6 +27,7 @@ import TelegramCallbackPage from "./pages/telegram-callback";
 import AdminV304Page from "./pages/admin-v304";
 import TemplatesPage from "./pages/templates";
 import GiftCertificatesPage from "./pages/gift-certificates";
+import CorporatePage from "./pages/corporate";
 import BackgroundMusic from "./components/background-music";
 import { ErrorBoundary } from "./components/error-boundary";
 import { PlayerProvider } from "./lib/player-agent";
@@ -96,6 +97,9 @@ function AppContent() {
           <Route path="/admin/v304" component={withBoundary(AdminV304Page, "admin-v304")} />
           <Route path="/templates" component={withBoundary(TemplatesPage, "templates")} />
           <Route path="/gift-cert" component={withBoundary(GiftCertificatesPage, "gift-cert")} />
+          {/* Eugene 2026-05-26 Босс «B2B-подсистема» — ЛК юрлица. Ссылку даёт
+              Музa после register_legal_entity (corporateTools.ts cabinetUrl). */}
+          <Route path="/corporate/:id" component={withBoundary(CorporatePage, "corporate")} />
           <Route component={NotFoundPage} />
         </Switch>
       </Router>
