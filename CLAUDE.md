@@ -649,10 +649,10 @@ Workflow когда Босс приносит Ярс-команду в этот 
 
 **Прослушивание трека засчитывается при выполнении ВСЕХ 3 условий.** Применяется в `/api/playlist/play/:id` и `/api/gen-activity/:id/play` (server/routes.ts → `shouldCountPlay()` line 9771-9803).
 
-**Единый знаменатель (Eugene 2026-05-28):** порог = **10 секунд**, единственная константа `MIN_PLAY_SEC=10` в `shouldCountPlay()` (routes.ts). Per-track plays И общий счётчик читаются из ОДНОГО источника — `gen_activity` (action='play'): `/api/playlist` отдаёт per-track `plays` через `COUNT(*) FROM gen_activity GROUP BY gen_id`, общий счётчик — `COUNT(*) WHERE action='play'`. `meta.plays` (JSON в generations.style) остаётся legacy-кэшем, НЕ источником отображения. Фронт-эмиссия (landing/dashboard/track) — единый паттерн: таймер 10 сек, проверка `currentTime>=10`, `elapsedSec:10`; в landing — через `schedulePlayCount()` (сброс таймера при смене/паузе, эмиссия и при resume через togglePlay).
+**Единый знаменатель (Eugene 2026-05-28):** порог = **5 секунд**, единственная константа `MIN_PLAY_SEC=5` в `shouldCountPlay()` (routes.ts). Per-track plays И общий счётчик читаются из ОДНОГО источника — `gen_activity` (action='play'): `/api/playlist` отдаёт per-track `plays` через `COUNT(*) FROM gen_activity GROUP BY gen_id`, общий счётчик — `COUNT(*) WHERE action='play'`. Совокупность бьётся: SUM(per-track по ВСЕМ gen) == totalPlays (один предикат). `meta.plays` (JSON в generations.style) остаётся legacy-кэшем, НЕ источником отображения. Фронт-эмиссия (landing/dashboard/track) — единый паттерн: таймер 5 сек, проверка `currentTime>=5`, `elapsedSec:5`; в landing — через `schedulePlayCount()` (сброс таймера при смене/паузе, эмиссия и при resume через togglePlay).
 
 Условия:
-1. **10+ секунд воспроизведения.** Frontend плеер передаёт `elapsedSec:10` в body POST после первых 10 сек play. Если поле отсутствует — считаем (backward-compat для старых плееров).
+1. **5+ секунд воспроизведения.** Frontend плеер передаёт `elapsedSec:5` в body POST после первых 5 сек play. Если поле отсутствует — считаем (backward-compat для старых плееров).
 2. **Dedup IP / 10 мин.** Один IP не может прибавить больше 1 play на трек за 10 минут. Проверка через `gen_activity` WHERE ip=? AND action='play' AND created_at > now-10min. **Раньше было 60 мин** — сужено для NAT mobile-операторов РФ (МТС/Билайн/Мегафон выдают один IP тысячам юзеров через NAT → блокировались valid'ные plays).
 3. **Bot UA исключён.** User-Agent matching `/bot|crawler|spider|slurp|curl|wget|httpie|python-requests|java-http|axios|fetch|head/i` → НЕ считаем.
 
@@ -666,7 +666,7 @@ Workflow когда Босс приносит Ярс-команду в этот 
 
 Tuning параметров (если нужно ужесточить):
 - IP-window: 10 мин (можно 24ч для жёсткости, но сломает NAT mobile)
-- Min duration: 10 сек (Босс 2026-05-28; единая константа MIN_PLAY_SEC, можно 15-30 как у Spotify)
+- Min duration: 5 сек (Босс 2026-05-28; единая константа MIN_PLAY_SEC, можно 15-30 как у Spotify)
 - Bot list: можно расширить через ENV `BOT_UA_REGEX`
 - Author-self / admin: можно вернуть фильтрацию если accuracy важнее inclusivity
 

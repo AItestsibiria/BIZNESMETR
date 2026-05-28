@@ -1382,19 +1382,19 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
     setPlayingId(gen.id);
     muteBgMusic();
     if (expandedIdRef.current !== null) setExpandedId(gen.id);
-    // Засчитываем play после 10 сек реального воспроизведения (Босс 2026-05-28
-    // «10 сек и более = прослушивание», единый порог по всему проекту).
+    // Засчитываем play после 5 сек реального воспроизведения (Босс 2026-05-28
+    // «5 сек и более = прослушивание», единый порог по всему проекту).
     const _playGenId = gen.id;
     window.setTimeout(() => {
-      if (audio && !audio.paused && audio.currentTime >= 10) {
+      if (audio && !audio.paused && audio.currentTime >= 5) {
         fetch(`/api/playlist/play/${_playGenId}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ elapsedSec: 10 }),
+          body: JSON.stringify({ elapsedSec: 5 }),
           keepalive: true,
         }).catch(() => {});
       }
-    }, 10000);
+    }, 5000);
     // Timer-tick: UI currentTime + lock-screen scrubber position (throttled 500ms).
     // setLockScreenPosition обязателен — без него iOS scrubber застывает.
     let lastPosUpdate = 0;

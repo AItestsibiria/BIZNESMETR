@@ -1155,23 +1155,23 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     (typeof window !== "undefined" ? (window as any).__muziaiAudio || null : null),
   );
   const timerRef = useRef<number | null>(null);
-  // Эмиссия прослушивания: ЕДИНЫЙ порог 10 сек (Босс «10 сек и более = прослушивание»).
+  // Эмиссия прослушивания: ЕДИНЫЙ порог 5 сек (Босс «5 сек и более = прослушивание»).
   // Один таймер на трек (сбрасывается при смене/паузе); фронт шлёт ОДИН play на
-  // 10-й секунде. Backend дедупит по IP/10мин. Работает и при resume (togglePlay).
+  // 5-й секунде. Backend дедупит по IP/10мин. Работает и при resume (togglePlay).
   const playEmitTimerRef = useRef<number | null>(null);
   const schedulePlayCount = (trackId: number) => {
     if (playEmitTimerRef.current) { clearTimeout(playEmitTimerRef.current); playEmitTimerRef.current = null; }
     playEmitTimerRef.current = window.setTimeout(() => {
       const a = audioRef.current;
-      if (a && !a.paused && a.currentTime >= 10) {
+      if (a && !a.paused && a.currentTime >= 5) {
         fetch(`/api/playlist/play/${trackId}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ elapsedSec: 10 }),
+          body: JSON.stringify({ elapsedSec: 5 }),
           keepalive: true,
         }).catch(() => {});
       }
-    }, 10000);
+    }, 5000);
   };
   const playingTrackRef = useRef<any>(
     (typeof window !== "undefined" ? (window as any).__muziaiTrack || null : null),

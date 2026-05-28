@@ -12695,8 +12695,8 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   // Босс «считай прослушивания админа и автора в общей массе»). Применяется
   // в /api/playlist/play и /api/gen-activity. count=false → НЕ инкрементить.
   // Author-self и admin plays теперь засчитываются (правило обновлено).
-  // Единый порог прослушивания по всему проекту (Босс 2026-05-28): ≥10 сек.
-  const MIN_PLAY_SEC = 10;
+  // Единый порог прослушивания по всему проекту (Босс 2026-05-28): ≥5 сек.
+  const MIN_PLAY_SEC = 5;
   function shouldCountPlay(req: Request, gen: any): { count: boolean; reason?: string } {
     // 1. Bot UA исключить. Eugene 2026-05-18: единый источник через
     // lib/botUa.ts (тот же regex что в visitor-stats / journey / click-stats).
@@ -12704,9 +12704,8 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     if (isBotUserAgent(ua)) {
       return { count: false, reason: "bot-ua" };
     }
-    // 2. Длительность 10+ сек (Босс 2026-05-28 «10 сек и более = прослушивание»,
-    //    единый порог по всему проекту). Поле req.body.elapsedSec из плеера. Если
-    //    не передано — старый плеер, разрешаем (backward compat).
+    // 2. Длительность 5+ сек (единый порог MIN_PLAY_SEC по всему проекту). Поле
+    //    req.body.elapsedSec из плеера. Если не передано — старый плеер, разрешаем.
     const elapsedRaw = (req.body as any)?.elapsedSec;
     if (typeof elapsedRaw === "number" && elapsedRaw < MIN_PLAY_SEC) {
       return { count: false, reason: "too-short" };
