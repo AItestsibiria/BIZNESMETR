@@ -1155,6 +1155,24 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     (typeof window !== "undefined" ? (window as any).__muziaiAudio || null : null),
   );
   const timerRef = useRef<number | null>(null);
+  // Эмиссия прослушивания: ЕДИНЫЙ порог 10 сек (Босс «10 сек и более = прослушивание»).
+  // Один таймер на трек (сбрасывается при смене/паузе); фронт шлёт ОДИН play на
+  // 10-й секунде. Backend дедупит по IP/10мин. Работает и при resume (togglePlay).
+  const playEmitTimerRef = useRef<number | null>(null);
+  const schedulePlayCount = (trackId: number) => {
+    if (playEmitTimerRef.current) { clearTimeout(playEmitTimerRef.current); playEmitTimerRef.current = null; }
+    playEmitTimerRef.current = window.setTimeout(() => {
+      const a = audioRef.current;
+      if (a && !a.paused && a.currentTime >= 10) {
+        fetch(`/api/playlist/play/${trackId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ elapsedSec: 10 }),
+          keepalive: true,
+        }).catch(() => {});
+      }
+    }, 10000);
+  };
   const playingTrackRef = useRef<any>(
     (typeof window !== "undefined" ? (window as any).__muziaiTrack || null : null),
   );
@@ -1815,21 +1833,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       setExpandedId(track.id);
     }
 
-    // Eugene 2026-05-17 (Босс «1% conversion plays/visits»): засчитываем
-    // play только после 5 сек реального воспроизведения. Проверяем audio
-    // НЕ paused через 5 сек и что текущая позиция >= 5. Передаём elapsedSec=5
-    // чтобы backend shouldCountPlay() правило «5+ сек» применилось.
-    const _playTrackId = track.id;
-    window.setTimeout(() => {
-      if (audio && !audio.paused && audio.currentTime >= 5) {
-        fetch(`/api/playlist/play/${_playTrackId}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ elapsedSec: 5 }),
-          keepalive: true,
-        }).catch(() => {});
-      }
-    }, 5000);
+    // Засчитываем play после 10 сек реального воспроизведения (Босс «10 сек и
+    // более»). Единый порог через schedulePlayCount (сброс при смене/паузе).
+    schedulePlayCount(track.id);
 
     // Update current time + lock-screen scrubber position.
     // setLockScreenPosition обязателен для iOS чтобы scrubber на lock-screen
@@ -1901,6 +1907,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             playTrack(track);
           });
         muteBgMusic();
+        // Resume listening тоже засчитывается (Босс): планируем play на 10-й сек.
+        schedulePlayCount(track.id);
         timerRef.current = window.setInterval(() => {
           if (audioRef.current && !audioRef.current.paused) {
             const t = audioRef.current.currentTime;
@@ -1913,6 +1921,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       } else {
         audioRef.current?.pause();
         if (timerRef.current) clearInterval(timerRef.current);
+        if (playEmitTimerRef.current) { clearTimeout(playEmitTimerRef.current); playEmitTimerRef.current = null; }
         unmuteBgMusic();
       }
     } else {

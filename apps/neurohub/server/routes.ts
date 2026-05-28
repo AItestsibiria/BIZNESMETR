@@ -12695,6 +12695,8 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   // Босс «считай прослушивания админа и автора в общей массе»). Применяется
   // в /api/playlist/play и /api/gen-activity. count=false → НЕ инкрементить.
   // Author-self и admin plays теперь засчитываются (правило обновлено).
+  // Единый порог прослушивания по всему проекту (Босс 2026-05-28): ≥10 сек.
+  const MIN_PLAY_SEC = 10;
   function shouldCountPlay(req: Request, gen: any): { count: boolean; reason?: string } {
     // 1. Bot UA исключить. Eugene 2026-05-18: единый источник через
     // lib/botUa.ts (тот же regex что в visitor-stats / journey / click-stats).
@@ -12702,11 +12704,11 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     if (isBotUserAgent(ua)) {
       return { count: false, reason: "bot-ua" };
     }
-    // 2. Длительность 5+ сек (поле req.body.elapsedSec из плеера). Если не
-    //    передано — считаем что плеер старый, разрешаем (backward compat).
-    //    Новые плееры всегда передают elapsedSec.
+    // 2. Длительность 10+ сек (Босс 2026-05-28 «10 сек и более = прослушивание»,
+    //    единый порог по всему проекту). Поле req.body.elapsedSec из плеера. Если
+    //    не передано — старый плеер, разрешаем (backward compat).
     const elapsedRaw = (req.body as any)?.elapsedSec;
-    if (typeof elapsedRaw === "number" && elapsedRaw < 5) {
+    if (typeof elapsedRaw === "number" && elapsedRaw < MIN_PLAY_SEC) {
       return { count: false, reason: "too-short" };
     }
     // 3. Dedup по (gen_id, IP, window). Раньше было 60 мин — но мобильные
@@ -13411,9 +13413,21 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       const sortMode = (req.query.sort as string) || "rating";
       const sortDir = (req.query.dir as string) === "asc" ? 1 : -1;
       const monthAgo = Date.now() - 30 * 24 * 3600 * 1000;
+      // Единый источник прослушиваний (Босс 2026-05-28 «свести к одному
+      // знаменателю»): per-track plays берём из gen_activity COUNT(action='play')
+      // — тот же источник, что и общий счётчик. meta.plays больше не источник
+      // правды для отображения (остаётся legacy-кэш). downloads/category — из meta.
+      const playsByGen = new Map<number, number>();
+      try {
+        const rows = db.all<{ gen_id: number; n: number }>(sql`
+          SELECT gen_id, COUNT(*) AS n FROM gen_activity WHERE action = 'play' GROUP BY gen_id
+        `);
+        for (const r of rows) playsByGen.set(Number(r.gen_id), Number(r.n) || 0);
+      } catch {}
       const scored = available.map(t => {
-        let plays = 0, downloads = 0, category = 'song';
-        try { const m = JSON.parse(t.style || "{}"); plays = m.plays || 0; downloads = m.downloads || 0; category = m.category || 'song'; } catch {}
+        let downloads = 0, category = 'song';
+        try { const m = JSON.parse(t.style || "{}"); downloads = m.downloads || 0; category = m.category || 'song'; } catch {}
+        const plays = playsByGen.get(t.id) || 0;
         // Eugene 2026-05-14 Босс: если voiceType=instrumental — категория
         // ВСЕГДА instrumental (раньше эти треки могли застрять как song).
         // Это вернуло фильтр «Инструментальная» на главной.
