@@ -51,6 +51,13 @@ import {
   type ProtectedAction,
 } from "./lib/adminTwoFactor";
 import { recordAuditEntry, queryAuditLog } from "./lib/adminAuditLog";
+// Eugene 2026-05-28 Босс — durable-lite ядро (workflow). Детерминированный
+// backbone сценариев на SQLite. См. lib/workflowCore.ts + Durable-lite в CLAUDE.md.
+import {
+  executeCommand,
+  getWorkflow,
+  listWorkflows,
+} from "./lib/workflowCore";
 // Eugene 2026-05-23 Босс «явно там ошибки — найди»: atom-level billing audit.
 // Read-only — никаких UPDATE/INSERT/DELETE. См. lib/billingAudit.ts +
 // docs/BILLING-AUDIT-2026-05-23.md.
@@ -6846,6 +6853,72 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
 })();
 </script>
 </body></html>`);
+  });
+
+  // ==================== WORKFLOW (durable-lite ядро) ====================
+  // Детерминированный backbone сценариев. Foundation-only: доменные команды
+  // (lyrics / gift / ...) регистрируются модулями через registerCommand().
+  // Все endpoints — auth + ownership.
+
+  const workflowCommandSchema = z.object({
+    command: z.string().min(1, "Укажите команду"),
+    params: z.unknown().optional(),
+    idempotencyKey: z.string().max(200).optional(),
+  });
+
+  app.post("/api/workflow/command", authMiddleware, async (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).userId as number;
+      const parsed = workflowCommandSchema.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        res.status(400).json({ message: parsed.error.errors?.[0]?.message || "Некорректный запрос" });
+        return;
+      }
+      const out = await executeCommand({
+        userId,
+        command: parsed.data.command,
+        params: parsed.data.params,
+        idempotencyKey: parsed.data.idempotencyKey,
+      });
+      res.status(out.ok ? 200 : 400).json(out);
+    } catch (e) {
+      console.error("[workflow] /api/workflow/command failed:", e);
+      res.status(500).json({ message: "Ошибка выполнения команды" });
+    }
+  });
+
+  app.get("/api/workflow/mine", authMiddleware, (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).userId as number;
+      const type = typeof req.query.type === "string" ? req.query.type : undefined;
+      const status = typeof req.query.status === "string" ? req.query.status : undefined;
+      const items = listWorkflows(userId, { type, status });
+      res.json({ items });
+    } catch (e) {
+      console.error("[workflow] /api/workflow/mine failed:", e);
+      res.status(500).json({ message: "Ошибка получения списка сценариев" });
+    }
+  });
+
+  app.get("/api/workflow/:id", authMiddleware, (req: Request, res: Response) => {
+    try {
+      const userId = (req as any).userId as number;
+      const id = parseInt(String(req.params.id), 10);
+      if (!Number.isFinite(id) || id <= 0) {
+        res.status(400).json({ message: "Некорректный id" });
+        return;
+      }
+      const wf = getWorkflow(id, userId);
+      if (!wf) {
+        // Не раскрываем существование чужого сценария — единый 404.
+        res.status(404).json({ message: "Сценарий не найден" });
+        return;
+      }
+      res.json({ instance: wf.instance, events: wf.events });
+    } catch (e) {
+      console.error("[workflow] /api/workflow/:id failed:", e);
+      res.status(500).json({ message: "Ошибка получения сценария" });
+    }
   });
 
   // ==================== BALANCE ====================

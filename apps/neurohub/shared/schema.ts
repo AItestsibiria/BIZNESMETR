@@ -490,6 +490,50 @@ export const corporateContracts = sqliteTable("corporate_contracts", {
 export type LegalEntity = typeof legalEntities.$inferSelect;
 export type CorporateContract = typeof corporateContracts.$inferSelect;
 
+// ──────────────────────────────────────────────────────────────────────────
+// Durable-lite ядро (workflow) — детерминированный backbone сценариев
+// (lyrics / track / certificate / card / gift). Реализовано на SQLite
+// (better-sqlite3), БЕЗ внешней инфраструктуры (Temporal и т.п.).
+//   - workflow_instances  — состояние одного запущенного сценария
+//   - workflow_events     — таймлайн действий («История действий» для юзера)
+//   - workflow_idempotency — дедуп критичных команд (будущие денежные операции)
+// Engine: server/lib/workflowCore.ts. Доменные команды (lyrics/gift)
+// регистрируются позже другими модулями через registerCommand().
+// ──────────────────────────────────────────────────────────────────────────
+export const workflowInstances = sqliteTable("workflow_instances", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  type: text("type").notNull(),                            // 'lyrics' | 'track' | 'gift' | 'ping' | ...
+  userId: integer("user_id").notNull(),                    // владелец (ownership guard)
+  status: text("status").notNull().default("running"),     // running | completed | failed | cancelled
+  currentStep: text("current_step"),                       // машинно-читаемый шаг
+  contextJson: text("context_json").notNull().default("{}"),
+  resultJson: text("result_json"),
+  errorText: text("error_text"),
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").default(sql`CURRENT_TIMESTAMP`),
+  completedAt: text("completed_at"),
+});
+
+export const workflowEvents = sqliteTable("workflow_events", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  workflowId: integer("workflow_id").notNull(),
+  userId: integer("user_id").notNull(),
+  type: text("type").notNull(),                            // 'started' | 'step' | 'completed' | 'failed' | ...
+  payloadJson: text("payload_json"),
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const workflowIdempotency = sqliteTable("workflow_idempotency", {
+  key: text("key").primaryKey(),
+  workflowId: integer("workflow_id"),
+  resultJson: text("result_json"),
+  createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
+});
+
+export type WorkflowInstance = typeof workflowInstances.$inferSelect;
+export type WorkflowEvent = typeof workflowEvents.$inferSelect;
+export type WorkflowIdempotency = typeof workflowIdempotency.$inferSelect;
+
 export type ChatbotSession = typeof chatbotSessions.$inferSelect;
 export type ChatbotMessage = typeof chatbotMessages.$inferSelect;
 

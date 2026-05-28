@@ -903,6 +903,24 @@ export function bootstrapDefaultAgents(): void {
     purpose: "Отчёт по сделкам с юрлицами Директору",
   });
 
+  // Durable-lite ядро (workflow) — Eugene 2026-05-28. Детерминированный backbone
+  // сценариев (lyrics / track / certificate / card / gift) на SQLite. Доменные
+  // команды регистрируются модулями через registerCommand(). См. lib/workflowCore.ts.
+  orchestrator.register({
+    id: "workflow-core",
+    name: "Durable-lite ядро (workflow)",
+    channel: "internal",
+    role: "tool",
+    status: "active",
+    capabilities: ["workflow", "commands", "idempotency", "audit", "timeline"],
+    metadata: {
+      brief: "Детерминированное ядро сценариев: workflow-инстансы, команды, идемпотентность, аудит/таймлайн",
+    },
+  });
+  orchestrator.addEdge("workflow-core", "muza-admin", "notify", {
+    purpose: "Сбои/таймлайн workflow → Директор",
+  });
+
   // Регистрируем edges между marketing-orchestrator и channels (см. matrix
   // в docs/AGENT-ORCHESTRATOR-PROPOSALS.md и Agent-orchestrator rule).
   registerDefaultEdges();

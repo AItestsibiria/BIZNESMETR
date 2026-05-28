@@ -1393,6 +1393,57 @@ try {
     console.error("[MIGRATION] legal_entities/corporate_contracts failed:", e);
   }
 
+  // Eugene 2026-05-28 Босс — durable-lite ядро (workflow). Детерминированный
+  // backbone сценариев (lyrics / track / certificate / card / gift) на SQLite,
+  // БЕЗ внешней инфраструктуры. Engine: server/lib/workflowCore.ts. Доменные
+  // команды регистрируются позже модулями через registerCommand().
+  //   - workflow_instances   — состояние одного запущенного сценария
+  //   - workflow_events      — таймлайн действий («История действий» юзера)
+  //   - workflow_idempotency — дедуп критичных команд (будущие денежные операции)
+  try {
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS workflow_instances (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT NOT NULL,
+        user_id INTEGER NOT NULL,
+        status TEXT NOT NULL DEFAULT 'running',
+        current_step TEXT,
+        context_json TEXT NOT NULL DEFAULT '{}',
+        result_json TEXT,
+        error_text TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        completed_at TEXT
+      );
+    `);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS workflow_instances_user_idx
+      ON workflow_instances(user_id, type, status)`);
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS workflow_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        workflow_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        type TEXT NOT NULL,
+        payload_json TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS workflow_events_wf_idx
+      ON workflow_events(workflow_id)`);
+    sqlite.exec(`CREATE INDEX IF NOT EXISTS workflow_events_user_idx
+      ON workflow_events(user_id, created_at DESC)`);
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS workflow_idempotency (
+        key TEXT PRIMARY KEY,
+        workflow_id INTEGER,
+        result_json TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+  } catch (e) {
+    console.error("[MIGRATION] workflow durable-lite failed:", e);
+  }
+
   // Eugene 2026-05-23 Босс «Информация о Музе» — публичные разделы продукта
   // + admin CMS + file uploads. См. plugin muza-info/module.ts.
   try {
