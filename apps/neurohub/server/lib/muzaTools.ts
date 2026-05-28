@@ -3729,6 +3729,9 @@ const LONG_TOOL_TIMEOUTS: Record<string, number> = {
   postman_send_campaign: 90_000,
   postman_stats: 15_000,
   postman_inbox: 15_000,
+  // B2B: lookup/register ходят во внешний API Контур.Фокус (до 8 сек).
+  lookup_company_by_inn: 15_000,
+  register_legal_entity: 15_000,
 };
 
 export async function executeTool(name: string, input: any, context: ToolContext): Promise<string> {
@@ -3774,3 +3777,10 @@ export function filterToolsForRole(role: string | null | undefined): ToolDef[] {
 import { CHAT_GENERATION_TOOLS, CHAT_GENERATION_HANDLERS } from "./chatGenerationTools";
 for (const td of CHAT_GENERATION_TOOLS) MUZA_TOOLS.push(td);
 Object.assign(HANDLERS, CHAT_GENERATION_HANDLERS);
+
+// Eugene 2026-05-26 Босс «B2B-подсистема — всё можно из чата». Корпоративные
+// tools (lookup_company_by_inn / register_legal_entity / get_my_legal_entities /
+// generate_corporate_contract) — тем же extension-механизмом. Обёртка поверх
+// Контур.Фокус + invoices + corporate_contracts. См. lib/corporateTools.ts.
+import { initCorporateTools } from "./corporateTools";
+initCorporateTools(MUZA_TOOLS, HANDLERS);

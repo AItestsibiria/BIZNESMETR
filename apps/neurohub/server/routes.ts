@@ -6939,6 +6939,52 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
     res.json(storage.getTransactions(userId));
   });
 
+  // === B2B / корпоративные кабинеты (Eugene 2026-05-26 Босс) ===
+  // Список юрлиц текущего юзера + кабинет ЮЛ (реквизиты, договоры, счета, баланс).
+  app.get("/api/corporate/entities", authMiddleware, (req: Request, res: Response) => {
+    const userId = (req as any).userId;
+    try {
+      const rows = sqliteDb.prepare(`
+        SELECT id, kind, inn, name, full_name, status, balance, created_at
+        FROM legal_entities WHERE user_id = ? ORDER BY id DESC
+      `).all(userId);
+      res.json({ entities: rows });
+    } catch (e: any) {
+      console.error("[corporate/entities]", e?.message || e);
+      res.status(500).json({ message: "Не удалось загрузить юрлица" });
+    }
+  });
+
+  app.get("/api/corporate/cabinet/:id", authMiddleware, (req: Request, res: Response) => {
+    const userId = (req as any).userId;
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) { res.status(400).json({ message: "Некорректный id" }); return; }
+    try {
+      const entity: any = sqliteDb.prepare(`SELECT * FROM legal_entities WHERE id = ?`).get(id);
+      if (!entity) { res.status(404).json({ message: "Кабинет не найден" }); return; }
+      if (entity.user_id !== userId) { res.status(403).json({ message: "Нет доступа к этому кабинету" }); return; }
+      const contracts = sqliteDb.prepare(`
+        SELECT id, number, status, amount_rub, invoice_id, signed_at, created_at
+        FROM corporate_contracts WHERE legal_entity_id = ? ORDER BY id DESC
+      `).all(id);
+      // Счета этого ЮЛ — по meta.legal_entity_id (B2B-счета помечены b2b:true).
+      const invRows = sqliteDb.prepare(`
+        SELECT id, amount_rub, description, status, expires_at, paid_at, meta, created_at
+        FROM invoices WHERE user_id = ? ORDER BY id DESC LIMIT 100
+      `).all(userId) as any[];
+      const invoices = invRows.filter((r) => {
+        try { return JSON.parse(r.meta || "{}").legal_entity_id === id; } catch { return false; }
+      }).map((r) => ({
+        id: r.id, amountRub: r.amount_rub, description: r.description,
+        status: r.status, expiresAt: r.expires_at, paidAt: r.paid_at, createdAt: r.created_at,
+      }));
+      res.json({ entity, contracts, invoices, balance: entity.balance || 0 });
+    } catch (e: any) {
+      console.error("[corporate/cabinet]", e?.message || e);
+      res.status(500).json({ message: "Не удалось загрузить кабинет" });
+    }
+  });
+
   // Update author display name
   // Request name change — sends confirmation email, does NOT change name immediately
   app.post("/api/auth/update-name", authMiddleware, async (req: Request, res: Response) => {

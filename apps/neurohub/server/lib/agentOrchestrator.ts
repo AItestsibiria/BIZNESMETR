@@ -874,6 +874,35 @@ export function bootstrapDefaultAgents(): void {
     purpose: "Отчёт по продажам → Директор докладывает Боссу",
   });
 
+  // === B2B: менеджер корпоративных клиентов + данные ЮЛ (Eugene 2026-05-26) ===
+  orchestrator.register({
+    id: "corporate-manager",
+    name: "Менеджер корпоративных клиентов",
+    channel: "internal",
+    role: "consultant",
+    status: "active",
+    capabilities: ["b2b", "kontur_lookup", "contract", "invoice", "registry"],
+    metadata: { brief: "Регистрация ЮЛ по ИНН (Контур.Фокус), договоры, счета, баланс кабинета ЮЛ" },
+  });
+  orchestrator.register({
+    id: "kontur-focus",
+    name: "Контур.Фокус (данные ЮЛ)",
+    channel: "internal",
+    role: "tool",
+    status: process.env.KONTUR_FOCUS_API_KEY ? "active" : "not_configured",
+    capabilities: ["company_lookup", "inn_lookup"],
+    metadata: { brief: "Подтягивает данные юрлица по ИНН/названию из Контур.Фокус" },
+  });
+  orchestrator.addEdge("sales-manager", "corporate-manager", "data-sync", {
+    purpose: "B2B-продажи юрлицам",
+  });
+  orchestrator.addEdge("corporate-manager", "kontur-focus", "data-sync", {
+    purpose: "Данные ЮЛ по ИНН",
+  });
+  orchestrator.addEdge("corporate-manager", "muza-admin", "notify", {
+    purpose: "Отчёт по сделкам с юрлицами Директору",
+  });
+
   // Регистрируем edges между marketing-orchestrator и channels (см. matrix
   // в docs/AGENT-ORCHESTRATOR-PROPOSALS.md и Agent-orchestrator rule).
   registerDefaultEdges();
