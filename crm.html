@@ -443,13 +443,13 @@ async function crmGet(path){
 }
 
 async function loadDash(){
-  const data=await crmGet('/admin/agency/realty/index.json?api_token='+S.token+'&sort=updated');
+  const data=await crmGet('?'+S.token+'&sort=updated');
   const items=data?.data||demoItems();
   const count=data?.count||items.length;
   document.getElementById('ds-total').textContent=count;
   document.getElementById('ds-active').textContent=Math.round(count*.72);
   document.getElementById('ds-updated').textContent=new Date().toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit'});
-  const ud=await crmGet('/admin/dictionaries/dictionaries/index/Users.User.json?api_token='+S.token);
+  const ud=await crmGet('/admin/dictionaries/dictionaries/index/Users.User.json?'+S.token);
   document.getElementById('ds-users').textContent=ud?.data?.length||'—';
   renderGrid('recent-grid',items.slice(0,6));
   document.querySelectorAll('.bm-reveal').forEach(el=>el.classList.add('in'));
@@ -462,7 +462,7 @@ async function doSearch(reset=true){
   const sort=document.getElementById('f-sort').value;
   const text=document.getElementById('f-text').value.trim();
   document.getElementById('search-spinner').style.display='block';
-  let path='/admin/agency/realty/index.json?api_token='+S.token+'&sort='+sort+'&page='+searchPage;
+  let path='?'+S.token+'&sort='+sort+'&page='+searchPage;
   if(cat)path+='&category_id='+cat;
   const data=await crmGet(path);
   const items=data?.data||demoItems();
@@ -534,7 +534,7 @@ async function chatSend(){
   S.busy=true;document.querySelector('.chat-send').disabled=true;
   addUserMsg(q);chatHistory.push({role:'user',content:q});
   const typing=addTyping();
-  const ctx=await crmGet('/admin/agency/realty/index.json?api_token='+S.token+'&sort=updated');
+  const ctx=await crmGet('?'+S.token+'&sort=updated');
   const items=(ctx?.data||demoItems()).slice(0,12);
   const sys='Ты Алекс — AI-риелтор. CRM: '+S.domain+'. Объекты:\n'+items.map(p=>'- '+JSON.stringify({id:p.id,title:p.title||p.name,price:p.price,area:p.area,address:p.address})).join('\n')+'\nОтвечай кратко (до 120 слов), по-русски, без markdown.';
   try{

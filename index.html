@@ -300,7 +300,7 @@ footer{background:var(--navy);padding:56px 28px 36px}
 <!-- ═══ HERO ═══ -->
 <section class="hero">
   <div class="hero-content">
-    <div class="hero-label"><span class="live-dot"></span>Бета-версия · Бизнесметр.рф</div>
+    <div class="hero-label"><span class="live-dot"></span>Бизнесметр.рф · Онлайн</div>
     <h1 class="hero-h">
       <span class="accent">Бизнесметр</span><br>
       <span class="italic">AI</span>
@@ -339,10 +339,10 @@ footer{background:var(--navy);padding:56px 28px 36px}
 <!-- ═══ STATS ═══ -->
 <div class="stats-bar">
   <div class="stats-wrap">
-    <div class="stat-item reveal"><div class="stat-val"><span id="sv1">0</span><sup>+</sup></div><div class="stat-lbl">источников данных</div></div>
+    <div class="stat-item reveal"><div class="stat-val"><span id="sv1">0</span><sup>+</sup></div><div class="stat-lbl">городов присутствия</div></div>
     <div class="stat-item reveal"><div class="stat-val"><span id="sv2">0</span><sup>K+</sup></div><div class="stat-lbl">объектов в базе</div></div>
-    <div class="stat-item reveal"><div class="stat-val"><span id="sv3">0</span></div><div class="stat-lbl">AI-модулей</div></div>
-    <div class="stat-item reveal"><div class="stat-val"><sup>от</sup><span id="sv4">0</span><sup>$/мес</sup></div><div class="stat-lbl">стартовый план</div></div>
+    <div class="stat-item reveal"><div class="stat-val"><span id="sv3">0</span></div><div class="stat-lbl">направлений работы</div></div>
+    <div class="stat-item reveal"><div class="stat-val"><span id="sv4">0</span></div><div class="stat-lbl">тарифных планов</div></div>
   </div>
 </div>
 
@@ -485,11 +485,11 @@ footer{background:var(--navy);padding:56px 28px 36px}
       <div class="reveal">
         <div class="legal-panel">
           <div class="lp-title"><i class="ti ti-folder-open"></i>Документы по сделке</div>
-          <div class="lp-doc"><i class="ti ti-file-text"></i><strong>Договор аренды</strong><small>v2.1</small><span class="lp-badge lp-ok">готов</span></div>
-          <div class="lp-doc"><i class="ti ti-file-text"></i><strong>Акт приёма-передачи</strong><small>v1.0</small><span class="lp-badge lp-ok">готов</span></div>
-          <div class="lp-doc"><i class="ti ti-file-text"></i><strong>Заявление в Росреестр</strong><small>v1.3</small><span class="lp-badge lp-rev">проверка</span></div>
-          <div class="lp-doc"><i class="ti ti-file-text"></i><strong>Выписка из ЕГРН</strong><small>—</small><span class="lp-badge lp-ok">получена</span></div>
-          <div class="lp-doc"><i class="ti ti-file-text"></i><strong>Согласие собственника</strong><small>v1.0</small><span class="lp-badge lp-rev">черновик</span></div>
+          <div class="lp-doc"><i class="ti ti-file-text"></i><strong>Договор аренды</strong><span class="lp-badge lp-ok">готов</span></div>
+          <div class="lp-doc"><i class="ti ti-file-text"></i><strong>Акт приёма-передачи</strong><span class="lp-badge lp-ok">готов</span></div>
+          <div class="lp-doc"><i class="ti ti-file-text"></i><strong>Заявление в Росреестр</strong><span class="lp-badge lp-rev">проверка</span></div>
+          <div class="lp-doc"><i class="ti ti-file-text"></i><strong>Выписка из ЕГРН</strong><span class="lp-badge lp-ok">получена</span></div>
+          <div class="lp-doc"><i class="ti ti-file-text"></i><strong>Согласие собственника</strong><span class="lp-badge lp-rev">черновик</span></div>
           <div class="lp-ai">
             <div class="lp-ai-label">Задайте вопрос юристу AI</div>
             <input class="lp-ai-input" placeholder="Ваш правовой вопрос..." onkeydown="if(event.key==='Enter'){setMode('legal',null);ask(this.value);this.value=''}">
@@ -617,7 +617,7 @@ function counter(id,to,d=0){
   const step=to/50;
   const t=setInterval(()=>{v=Math.min(v+step,to);el.textContent=Math.round(v);if(v>=to)clearInterval(t)},30);
 }
-setTimeout(()=>{counter('sv1',6);counter('sv2',50);counter('sv3',6);counter('sv4',100)},600);
+setTimeout(()=>{counter('sv1',25);counter('sv2',50);counter('sv3',6);counter('sv4',100)},600);
 
 // Mode
 let mode='search';
