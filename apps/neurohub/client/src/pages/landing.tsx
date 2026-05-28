@@ -2134,17 +2134,21 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const expandPrev = () => {
     const list = filteredMusicRef.current || [];
     if (list.length === 0) return;
-    const idx = list.findIndex(t => t.id === playingId);
+    const anchor = expandedIdRef.current ?? playingId;
+    const idx = list.findIndex(t => t.id === anchor);
     if (idx < 0) return;
     const prev = (idx - 1 + list.length) % list.length;
+    setExpandedId(list[prev].id); // обложка следует за раскрытым треком
     playTrack(list[prev]);
   };
   const expandNext = () => {
     const list = filteredMusicRef.current || [];
     if (list.length === 0) return;
-    const idx = list.findIndex(t => t.id === playingId);
+    const anchor = expandedIdRef.current ?? playingId;
+    const idx = list.findIndex(t => t.id === anchor);
     if (idx < 0) return;
     const next = (idx + 1) % list.length;
+    setExpandedId(list[next].id); // обложка следует за раскрытым треком
     playTrack(list[next]);
   };
 
@@ -3435,10 +3439,14 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               на месте (position по expandedId/track), image
                               читает currentTrack — следует за играющим треком.
                               Так на смартфоне нет визуального прыжка. */}
-                          {((currentTrack as any)?.imageUrl || track.imageUrl) && (
+                          {/* Eugene 2026-05-28 Босс «при нажатии на нижнем плейлисте
+                              вижу обложку играющего, а не выбранного» — раскрытая
+                              обложка показывает ИМЕННО раскрытый (нажатый) трек
+                              (track), не currentTrack. Стрелки двигают expandedId. */}
+                          {track.imageUrl && (
                             <img
-                              key={(currentTrack as any)?.imageUrl || track.imageUrl}
-                              src={((currentTrack as any)?.imageUrl || track.imageUrl) as string}
+                              key={track.imageUrl}
+                              src={track.imageUrl as string}
                               alt=""
                               className="w-full h-full object-cover absolute inset-0 animate-in fade-in duration-500"
                               onError={handleCoverError}
