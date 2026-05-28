@@ -532,10 +532,15 @@ export function CoverDetailsModal({
           </button>
         )}
 
-        {/* Eugene 2026-05-19 Босс «Заднюю панель спрячь за обложкой» —
-            cover-aura (animated conic gradient вокруг обложки) удалён.
-            Только сама обложка — никаких glow / aura / brand-bordering. */}
+        {/* Eugene 2026-05-29 Босс «добавь так же подсветку в свайп основного
+            плеера» — та же подсветка №1 (.cover-aura: пульсирующий шиммер +
+            звёздная разноцветная пыль) за обложкой свайп-режима. Cover-glow-parity rule. */}
         <div className="relative w-full">
+          <div
+            aria-hidden="true"
+            className="absolute -inset-4 sm:-inset-6 rounded-3xl blur-2xl pointer-events-none cover-aura"
+            style={{ opacity: 0.7 }}
+          />
         {/* Обложка с swipe-жестом.
             Eugene 2026-05-18 (iPad Pro overflow fix): max-h-[70dvh] вместо
             85vh + явный object-contain. На iPad Pro portrait/landscape
