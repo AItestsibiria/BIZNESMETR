@@ -1564,6 +1564,23 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     setCurrentPage(p => p !== targetPage ? targetPage : p);
   }, [playingId]);
 
+  // Босс 2026-05-28 «на плеере при нажатии на плейлист отражается текущий трек
+  // (НИЖНИЙ плейлист)». Активную строку нижнего плейлиста мягко прокручиваем в
+  // зону видимости при смене трека — НО только если секция плейлиста уже видна
+  // (не дёргаем юзера от плеера наверху). Подсветка активного — уже есть (isActive).
+  useEffect(() => {
+    if (!playingId) return;
+    const t = window.setTimeout(() => {
+      const section = document.getElementById("playlist-section");
+      if (!section) return;
+      const rect = section.getBoundingClientRect();
+      if (rect.top > window.innerHeight || rect.bottom < 0) return; // секция вне экрана — не трогаем
+      const row = section.querySelector('[data-active-row="true"]') as HTMLElement | null;
+      row?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }, 220);
+    return () => window.clearTimeout(t);
+  }, [playingId, currentPage]);
+
   const playTrack = (track: any) => {
     if (timerRef.current) clearInterval(timerRef.current);
 
@@ -3325,7 +3342,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             const dateStr = dateSource ? new Date(dateSource).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" }) : "";
 
             return (
-              <div key={track.id} data-testid={`button-play-track-${track.id}`}>
+              <div key={track.id} data-testid={`button-play-track-${track.id}`} data-active-row={isActive ? "true" : undefined}>
                 <div
                   className={`flex items-center gap-3 px-4 py-5 transition-colors hover:bg-white/[0.03] ${
                     isMusic ? "cursor-pointer" : ""
