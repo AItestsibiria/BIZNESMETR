@@ -13,6 +13,10 @@ interface MicRecorderProps {
   maxSeconds?: number;
   onRecorded: (file: File) => void;
   disabled?: boolean;
+  // Гейт перед стартом записи (Босс: запись только после авторизации). Если
+  // возвращает false — запись НЕ начинается (вызывающий показывает сообщение
+  // и переводит на авторизацию/регистрацию).
+  beforeStart?: () => boolean | Promise<boolean>;
 }
 
 const DEFAULT_MAX = 30; // ТЗ Eugene 13:42: 30 сек хватает для смысла
@@ -34,7 +38,7 @@ function pickMime(): { mime: string; ext: string } {
   return { mime: "audio/webm", ext: "webm" };
 }
 
-export function MicRecorder({ maxSeconds = DEFAULT_MAX, onRecorded, disabled }: MicRecorderProps) {
+export function MicRecorder({ maxSeconds = DEFAULT_MAX, onRecorded, disabled, beforeStart }: MicRecorderProps) {
   const [state, setState] = useState<"idle" | "recording" | "ready">("idle");
   const [seconds, setSeconds] = useState(0);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
@@ -67,6 +71,12 @@ export function MicRecorder({ maxSeconds = DEFAULT_MAX, onRecorded, disabled }: 
   useEffect(() => () => cleanup(), []);
 
   const start = async () => {
+    // Гейт авторизации (Босс: запись возможна только после авторизации).
+    if (beforeStart) {
+      let ok = false;
+      try { ok = await beforeStart(); } catch { ok = false; }
+      if (!ok) return; // вызывающий показал сообщение + перевёл на авторизацию
+    }
     setError(null);
     chunksRef.current = [];
     setSeconds(0);
@@ -84,6 +94,9 @@ export function MicRecorder({ maxSeconds = DEFAULT_MAX, onRecorded, disabled }: 
       recorderRef.current = rec;
       rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunksRef.current.push(e.data); };
       rec.onstop = () => {
+        // Собираем ПОЛНЫЙ файл из накопленных чанков (Босс «100% получить файл
+        // даже если запись была больше»). Чанки копятся каждую секунду (timeslice),
+        // поэтому длинная/большая запись не теряется и не зависит от единого blob.
         const blob = new Blob(chunksRef.current, { type: mime });
         const url = URL.createObjectURL(blob);
         setAudioUrl(url);
@@ -93,7 +106,9 @@ export function MicRecorder({ maxSeconds = DEFAULT_MAX, onRecorded, disabled }: 
         onRecorded(file);
         cleanup();
       };
-      rec.start();
+      // timeslice 1000мс — чанки эмитятся каждую секунду в chunksRef. Гарантирует
+      // получение файла даже для длинной/большой записи (не единый blob на stop).
+      rec.start(1000);
       setState("recording");
 
       // Eugene 2026-05-24 Босс «при переходе порога 30 сек запись должна
@@ -140,6 +155,8 @@ export function MicRecorder({ maxSeconds = DEFAULT_MAX, onRecorded, disabled }: 
   };
 
   const stop = () => {
+    // Флашим текущий буфер в последний чанк ДО остановки — гарантия полноты файла.
+    try { if (recorderRef.current?.state === "recording") recorderRef.current.requestData(); } catch {}
     try { recorderRef.current?.stop(); } catch {}
   };
 

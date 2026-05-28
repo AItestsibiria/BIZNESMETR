@@ -765,7 +765,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     return () => { window.clearInterval(id); if (quietT) window.clearTimeout(quietT); };
   }, [winkMode]);
 
-  // Morse: моргание «ПРИВЕТ Я МУЗА» (русская азбука Морзе), затем тихо.
+  // Morse: моргание «ПРИВЕТ Я МУЗА» (русская азбука Морзе) ЦИКЛОМ каждые 3 минуты
+  // (Босс 2026-05-28 «3д на плеере моргает азбукой морзе, повторяет через 3 мин,
+  // цикл»). Моргнул сообщение → пауза до 3 мин от начала → повтор. До клика 🌍.
   useEffect(() => {
     if (winkMode !== "morse") return;
     const M: Record<string, string> = {
@@ -773,6 +775,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       П: ".--.", Р: ".-.", Т: "-", У: "..-", Я: ".-.-",
     };
     const DOT = 190, DASH = 560, GAP = 190, LGAP = 520, WGAP = 1200;
+    const CYCLE_MS = 180000; // 3 минуты — период цикла
     const seq: Array<{ on: boolean; d: number }> = [];
     "ПРИВЕТ Я МУЗА".split(" ").forEach((w, wi, words) => {
       w.split("").forEach((ch, ci) => {
@@ -785,15 +788,26 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       });
       if (wi < words.length - 1) seq.push({ on: false, d: WGAP });
     });
+    const msgDur = seq.reduce((a, s) => a + s.d, 0);
+    const MAX_CYCLES = 3; // Босс «при повторном заходе повтор 3 раза»
+    let cycles = 0;
     let i = 0;
     let t = 0;
+    const runOnce = () => { i = 0; step(); };
     const step = () => {
-      if (i >= seq.length) { setMorseOn(false); setWinkMode("off"); return; }
+      if (i >= seq.length) {
+        setMorseOn(false);
+        cycles += 1;
+        // Повтор 3 раза, период 3 мин от начала; затем тихо (или раньше — по клику 🌍).
+        if (cycles >= MAX_CYCLES) { setWinkMode("off"); return; }
+        t = window.setTimeout(runOnce, Math.max(1000, CYCLE_MS - msgDur));
+        return;
+      }
       const s = seq[i++];
       setMorseOn(s.on);
       t = window.setTimeout(step, s.d);
     };
-    step();
+    runOnce();
     return () => { if (t) window.clearTimeout(t); setMorseOn(false); };
   }, [winkMode]);
 

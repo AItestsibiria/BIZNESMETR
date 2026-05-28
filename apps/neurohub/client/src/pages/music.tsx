@@ -1312,6 +1312,17 @@ export default function MusicPage() {
                 <Label className="text-sm text-muted-foreground">🎤 Запись с микрофона (до 30 секунд)</Label>
                 <MicRecorder
                   maxSeconds={30}
+                  beforeStart={() => {
+                    // Босс: запись возможна ТОЛЬКО после авторизации — иначе
+                    // сообщение + перевод на авторизацию/регистрацию.
+                    if (!user) {
+                      toast({ title: "Сначала войдите", description: "Запись доступна после авторизации. Регистрация бесплатна — займёт 30 секунд." });
+                      setShowInlineAuth(true);
+                      try { document.getElementById("inline-auth")?.scrollIntoView({ behavior: "smooth", block: "center" }); } catch {}
+                      return false;
+                    }
+                    return true;
+                  }}
                   onRecorded={async (file) => {
                     setAudioFile(file);
                     setAudioUploadSha(null);
@@ -2568,7 +2579,9 @@ export default function MusicPage() {
 
           {/* Inline auth form - appears when not logged in */}
           {showInlineAuth && !user && (
-            <InlineAuth onSuccess={() => setShowInlineAuth(false)} />
+            <div id="inline-auth">
+              <InlineAuth onSuccess={() => setShowInlineAuth(false)} />
+            </div>
           )}
         </div>
 
