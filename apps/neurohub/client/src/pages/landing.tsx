@@ -2250,7 +2250,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                 <div className={`relative ${coverExpanded ? "md:w-full md:aspect-square" : "w-[88px] h-[88px] sm:w-[90px] sm:h-[90px]"} ${!coverExpanded ? coverSizeClass : ""}`}>
                 <div
                   aria-hidden="true"
-                  className={`absolute -inset-2 rounded-2xl opacity-35 blur-2xl pointer-events-none cover-aura ${coverExpanded ? "md:-inset-3" : ""}`}
+                  className={`absolute -inset-2 rounded-2xl opacity-70 blur-2xl pointer-events-none cover-aura ${coverExpanded ? "md:-inset-3" : ""}`}
                 />
               <div
                 className={`relative bg-gradient-to-br from-purple-500/30 to-blue-500/30 flex items-center justify-center cursor-pointer shadow-lg shadow-purple-500/10 overflow-hidden transition-all duration-300 w-full h-full rounded-xl ${
