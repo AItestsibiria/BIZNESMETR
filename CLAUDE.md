@@ -891,6 +891,18 @@ git checkout 510ab7f -- apps/neurohub/server/routes.ts apps/neurohub/client/src/
 
 Применяется к: обложкам в плеере/плейлисте/дашборде/track-странице + lock-screen artwork. Связано с: Apple-audio-best-practices rule, Cover-glow-parity rule, Frontend-incident-deep-debug rule, Suno-audio-playback rule.
 
+### Cover-glow-editions registry (Eugene 2026-05-28)
+
+**Именованные редакции подсветки обложки. Босс называет номером — я возвращаю точь-в-точь.**
+
+- **Подсветка №1 (первоначальная, эталон)** — brand-aura halo из коммита `7d1cb4e` (восстановлена в `6610d7b`):
+  - `@keyframes coverAuraShift` — шиммер + пульсация: `background-position` (0%50%→…→0%50%) + `transform: rotate(0→360deg)` + `opacity 0.55→0.75→0.65→0.8→0.55`.
+  - `.cover-aura` — `conic-gradient(#7C3AED 0%, #FF006E 25%, #00D4FF 50%, #FBBF24 75%, #7C3AED 100%)` + `background-size: 300% 300%` + `animation: coverAuraShift 8s ease-in-out infinite`.
+  - Основной плеер: `opacity-70` на ауре (`landing.tsx`). Reduced-motion → `animation:none; opacity:0.4`.
+  - Восстановить: `git checkout 7d1cb4e -- ...index.css` (блок coverAuraShift+.cover-aura) или сверить с `6610d7b`.
+
+Когда Босс говорит «подсветка 1» / «сделай 1» / «верни 1» — это эта редакция. Новые редакции добавлять сюда под номерами по мере появления.
+
 ### Cover-glow-parity rule (Eugene 2026-05-25)
 
 **Подсветка (свечение/aura) раскрытой/увеличенной обложки = такая же, как у обложки основного плеера. Один источник свечения — класс `.cover-aura` (анимированный brand-градиент purple→fuchsia→cyan→amber), масштабируется пропорционально размеру обложки.**
