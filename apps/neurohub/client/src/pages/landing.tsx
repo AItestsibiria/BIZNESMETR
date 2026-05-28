@@ -903,46 +903,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const [showPlayerTopTracks, setShowPlayerTopTracks] = useState(false);
   const [playerTopTracksClosing, setPlayerTopTracksClosing] = useState(false);
   const playerTopTracksOpenedAtRef = useRef<number>(0);
-  // Eugene 2026-05-28 — 3D кнопка «🏆 Топ-100» на плеере + панель.
-  // Источник — отдельный fetch /api/playlist?status=main&sort=rating&dir=desc
-  // (top-100 основного плейлиста по прослушиваниям, «главное вверх»: 1 = max).
-  const [showTop100, setShowTop100] = useState(false);
-  const [top100Tracks, setTop100Tracks] = useState<any[]>([]);
-  const [top100Loading, setTop100Loading] = useState(false);
   // Eugene 2026-05-28 — свайп влево/вправо на мини-плеере под глобусом:
   // влево (dx<0) → skipNext, вправо (dx>0) → skipPrev. startX = null когда нет drag.
   const globeMiniSwipeStartXRef = useRef<number | null>(null);
   useEffect(() => {
     if (showPlayerTopTracks) playerTopTracksOpenedAtRef.current = Date.now();
   }, [showPlayerTopTracks]);
-  // Eugene 2026-05-28 — при открытии «🏆 Топ-100»: блокируем скролл body
-  // (cleanup на unmount/закрытие) + грузим топ-100 основного плейлиста.
-  useEffect(() => {
-    if (!showTop100) return;
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    let cancelled = false;
-    setTop100Loading(true);
-    fetch(`/api/playlist?status=main&sort=rating&dir=desc&_=${Date.now()}`, { cache: "no-store" })
-      .then((r) => {
-        if (!r.ok) throw new Error(`top100 HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((data) => {
-        if (cancelled) return;
-        // guard — не-массив (error envelope / 5xx-JSON) не должен попасть в state
-        if (!Array.isArray(data)) { console.warn("[top100] non-array:", data); setTop100Tracks([]); return; }
-        // только музыкальные треки с аудио, первые 100
-        const list = data.filter((t: any) => t && t.type === "music" && t.audioUrl).slice(0, 100);
-        setTop100Tracks(list);
-      })
-      .catch((err) => { if (!cancelled) { console.warn("[top100] fetch failed:", err); } })
-      .finally(() => { if (!cancelled) setTop100Loading(false); });
-    return () => {
-      cancelled = true;
-      document.body.style.overflow = prevOverflow;
-    };
-  }, [showTop100]);
   const closePlayerTopTracks = useCallback(() => {
     if (Date.now() - playerTopTracksOpenedAtRef.current < 500) return;
     if (playerTopTracksClosing) return;
@@ -2462,20 +2428,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   >
                     <Share2 className="w-3.5 h-3.5 text-muted-foreground" />
                   </button>
-                  {/* Eugene 2026-05-28 — 3D кнопка «🏆 Топ-100». Объёмный вид
-                      чистым CSS (perspective + rotateX + слои теней + brand
-                      gradient, без three.js). Touch-target ≥44px. Стоит после
-                      «Поделиться», flex-wrap не даёт перекрыть 🌍/🎧. */}
-                  <button
-                    type="button"
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowTop100(true); }}
-                    className="top100-btn3d shrink-0 h-11 min-w-[44px] px-3 rounded-xl flex items-center justify-center gap-1.5 text-[12px] font-display font-bold text-white whitespace-nowrap select-none"
-                    title="Топ-100 треков по прослушиваниям"
-                    aria-label="Открыть Топ-100 треков"
-                  >
-                    <span className="text-base leading-none">🏆</span>
-                    <span className="leading-none">Топ-100</span>
-                  </button>
                   {/* Eugene 2026-05-22 Босс «цифры стран чуть ниже при нажатии
                       на глобус панель со странами и флагами, нажатие на панель
                       её закрывает, пропорции ширин уравновесь, не выходи за
@@ -2805,87 +2757,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 </button>
                               </div>
                             </div>
-                          </div>
-                        </div>,
-                        document.body,
-                      )}
-                      {/* Eugene 2026-05-28 — оверлей «🏆 Топ-100 треков».
-                          Структура зеркалит globe-портал: fixed inset-0 z-[200],
-                          fit-device (safe-area + dvh), внутренний скролл.
-                          «Главное вверх» — rank 1 (макс прослушиваний) сверху. */}
-                      {showTop100 && createPortal(
-                        <div
-                          className="fixed inset-0 z-[200] flex items-center justify-center bg-gradient-to-br from-[#0a0a17]/95 via-[#1a0f2e]/95 to-[#0a0a17]/95 backdrop-blur-xl"
-                          style={{
-                            paddingTop: "max(env(safe-area-inset-top), 12px)",
-                            paddingBottom: "max(env(safe-area-inset-bottom), 12px)",
-                            paddingLeft: "max(env(safe-area-inset-left), 12px)",
-                            paddingRight: "max(env(safe-area-inset-right), 12px)",
-                          }}
-                          onClick={() => setShowTop100(false)}
-                          role="dialog"
-                          aria-label="Топ-100 треков"
-                        >
-                          <div
-                            className="relative w-full max-w-[560px] flex flex-col rounded-3xl overflow-hidden border border-purple-500/30 bg-[#0a0a17]/60 shadow-[0_0_48px_rgba(124,58,237,0.35)]"
-                            style={{ height: "min(88dvh, 760px)" }}
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            {/* Шапка */}
-                            <div className="flex items-center justify-between px-4 py-3 border-b border-purple-400/20 bg-purple-500/5 shrink-0">
-                              <h3 className="text-base font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent m-0">
-                                🏆 Топ-100 треков
-                              </h3>
-                              <button
-                                type="button"
-                                onClick={() => setShowTop100(false)}
-                                className="text-white/60 hover:text-white text-2xl leading-none px-2 -mr-1"
-                                aria-label="Закрыть Топ-100"
-                              >×</button>
-                            </div>
-                            {/* Список — главное вверх (rank 1 = макс прослушиваний) */}
-                            <ul className="flex-1 min-h-0 overflow-y-auto p-2 m-0 list-none flex flex-col gap-1" style={{ touchAction: "pan-y", WebkitOverflowScrolling: "touch" }}>
-                              {top100Loading && top100Tracks.length === 0 && (
-                                <li className="flex items-center justify-center py-8">
-                                  <div className="inline-block animate-spin rounded-full h-7 w-7 border-b-2 border-purple-500" />
-                                </li>
-                              )}
-                              {!top100Loading && top100Tracks.length === 0 && (
-                                <li className="text-sm text-white/40 text-center py-8">Пока нет данных о прослушиваниях</li>
-                              )}
-                              {top100Tracks.map((t: any, idx: number) => {
-                                const isCur = playingId === t.id;
-                                return (
-                                  <li
-                                    key={`top100-${t.id}`}
-                                    onClick={(e) => { e.stopPropagation(); isCur ? togglePlay(t) : playTrack(t); }}
-                                    className={`flex items-center gap-3 px-2 py-2 rounded-xl cursor-pointer transition-colors ${
-                                      isCur
-                                        ? "bg-gradient-to-r from-purple-500/30 via-fuchsia-500/20 to-cyan-500/20 border border-purple-400/50"
-                                        : "hover:bg-white/[0.06]"
-                                    }`}
-                                  >
-                                    <span className="text-sm font-mono text-white/45 w-7 text-center tabular-nums shrink-0">{idx + 1}</span>
-                                    {/* Обложка — onError НИКОГДА не скрывает; за img стоит <Music/> */}
-                                    <span className="relative w-11 h-11 rounded-lg overflow-hidden bg-white/5 shrink-0 flex items-center justify-center">
-                                      <Music className="w-5 h-5 text-white/40" />
-                                      {t.imageUrl && (
-                                        <img src={t.imageUrl} alt="" className="absolute inset-0 w-full h-full object-cover" onError={handleCoverError} />
-                                      )}
-                                    </span>
-                                    <span className="flex-1 min-w-0 text-[13px] font-sans font-medium bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent truncate">
-                                      {t.displayTitle || (t.prompt || "").slice(0, 40) || "Без названия"}
-                                    </span>
-                                    <span className="text-[13px] tabular-nums font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent shrink-0">
-                                      {(t.plays || 0).toLocaleString("ru-RU")}
-                                    </span>
-                                    <span className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-purple-100 bg-gradient-to-br from-purple-500/35 to-blue-500/30 border border-purple-500/40">
-                                      {isCur && isPlayingState ? <Pause className="w-4 h-4" fill="currentColor" /> : <Play className="w-4 h-4 ml-0.5" fill="currentColor" />}
-                                    </span>
-                                  </li>
-                                );
-                              })}
-                            </ul>
                           </div>
                         </div>,
                         document.body,
