@@ -156,29 +156,9 @@ const Globe = lazy(() => import("react-globe.gl")) as unknown as ComponentType<G
 const EARTH_DAY_URL = "//unpkg.com/three-globe/example/img/earth-day.jpg";
 const EARTH_NIGHT_URL = "//unpkg.com/three-globe/example/img/earth-night.jpg";
 const EARTH_BUMP_URL = "//unpkg.com/three-globe/example/img/earth-topology.png";
-// ЯРКОЕ звёздное поле (Босс «звёзды поярче, не блёклые»). CSS-слой за прозрачным
-// canvas: near-black с нотками MuzaAi + множество чётких ярких звёзд (белые +
-// brand-оттенки). Генерируется один раз при загрузке модуля (детерминированно).
-const STARFIELD_BG = (() => {
-  const layers: string[] = [
-    "radial-gradient(ellipse at 22% 26%, rgba(124,58,237,0.20) 0%, transparent 55%)",
-    "radial-gradient(ellipse at 80% 80%, rgba(0,212,255,0.15) 0%, transparent 60%)",
-  ];
-  const tints = ["255,255,255", "255,255,255", "255,255,255", "190,225,255", "214,180,255", "180,245,255"];
-  let s = 20260526; // seed
-  const rnd = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
-  for (let i = 0; i < 42; i++) {
-    const x = (rnd() * 100).toFixed(2);
-    const y = (rnd() * 100).toFixed(2);
-    const r = (0.7 + rnd() * 1.6).toFixed(2);       // радиус звезды, px
-    const a = (0.55 + rnd() * 0.45).toFixed(2);     // яркость (ярко!)
-    const c = tints[(rnd() * tints.length) | 0];
-    layers.push(
-      `radial-gradient(circle at ${x}% ${y}%, rgba(${c},${a}) 0px, rgba(${c},${a}) ${r}px, transparent ${(Number(r) + 0.8).toFixed(2)}px)`,
-    );
-  }
-  return layers.join(",") + ",#03030a";
-})();
+// Звёздное небо (первоначальный вид — Босс 2026-05-29 «верни первоначальный вид
+// звёзд»): реальная текстура звёздного неба three-globe (night-sky.png).
+const NIGHT_SKY_URL = "//unpkg.com/three-globe/example/img/night-sky.png";
 
 // ───────────────────────────────────────────────────────────────────────────
 // Day/Night шейдер — порт офиц. примера react-globe.gl «Day/Night Cycle».
@@ -1159,8 +1139,12 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       // Near-black с нотками MuzaAi (подложка под звёздный фон, без «вспышки пустоты»
       // пока грузится текстура неба): глубокий космос + лёгкие purple/cyan-блики бренда.
       style={{
-        // Яркое звёздное поле (Босс «звёзды поярче») + нотки MuzaAi, near-black.
-        background: STARFIELD_BG,
+        // Near-black с нотками MuzaAi — подложка под текстуру звёздного неба
+        // (без «вспышки пустоты» пока грузится night-sky.png).
+        background:
+          "radial-gradient(ellipse at 22% 28%, rgba(124,58,237,0.16) 0%, transparent 55%)," +
+          "radial-gradient(ellipse at 80% 78%, rgba(0,212,255,0.12) 0%, transparent 60%)," +
+          "#03030a",
         // Плавное появление сцены + мягкий рост детализации (Босс «плавный»).
         opacity: ready ? 1 : 0,
         filter: texturesReady ? "none" : "saturate(0.78) brightness(0.92)",
@@ -1172,6 +1156,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         width={size.w}
         height={size.h}
         backgroundColor="rgba(0,0,0,0)"
+        backgroundImageUrl={NIGHT_SKY_URL}
         rendererConfig={{ antialias: true, alpha: true }}
         {...(dayNight && texturesReady
           ? { globeMaterial: dayNight.material }
