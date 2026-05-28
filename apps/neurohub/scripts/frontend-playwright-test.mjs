@@ -29,7 +29,17 @@
 // Всегда exit(0).
 
 const BASE_URL = String(process.env.PUBLIC_URL || "https://muzaai.ru").replace(/\/+$/, "");
-const PATHS = ["/", "/music", "/lyrics", "/dashboard"];
+// Все окна генерации (Босс 2026-05-28 «пусть Фронт проверит все окна генерации»):
+// режимы /music (basic/audio/advanced) + /lyrics. ?voice=female форсирует
+// открытие расширенной панели (prefilled → showAdvanced) — проверяем её структуру.
+const PATHS = [
+  "/",
+  "/music?tab=basic",
+  "/music?tab=audio",
+  "/music?tab=advanced&voice=female",
+  "/lyrics",
+  "/dashboard",
+];
 
 // Лимиты — чтобы скрипт не висел дольше child-process timeout (90s) на стороне агента.
 const NAV_TIMEOUT_MS = 15000; // на одну страницу
