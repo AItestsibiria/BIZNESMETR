@@ -1221,20 +1221,30 @@
   animation: cover-bloom-out 280ms cubic-bezier(0.45, 0, 0.55, 1) both;
 }
 
+/* Eugene 2026-05-28 Босс «подсветку раскрытой обложки сделай не квадратной а
+   более волнообразной + замедли вращение в 3 раза». Морфинг border-radius =
+   волнообразный «дышащий» блоб (не квадрат); вращение 8с → 24с (×3 медленнее). */
+@keyframes coverAuraWave {
+  0%, 100% { border-radius: 42% 58% 53% 47% / 47% 42% 58% 53%; }
+  33%      { border-radius: 58% 42% 47% 53% / 53% 58% 42% 47%; }
+  66%      { border-radius: 47% 53% 58% 42% / 42% 47% 53% 58%; }
+}
 .cover-aura-bloom {
   transform-origin: center;
   /* Базовое opacity управляется keyframe (не overrides cover-aura conic-rotation). */
   opacity: 0;
-  /* Eugene 2026-05-24: coverAuraShift 8s (как у main player .cover-aura) —
-     было 12.3s, что давало визуально менее динамичную подсветку. */
+  /* Волнообразный блоб вместо квадрата (Босс 2026-05-28). */
+  border-radius: 42% 58% 53% 47% / 47% 42% 58% 53%;
   animation:
     cover-aura-bloom-in 520ms cubic-bezier(0.22, 1, 0.36, 1) both,
-    coverAuraShift 8s ease-in-out infinite;
+    coverAuraShift 24s linear infinite,
+    coverAuraWave 9s ease-in-out infinite;
 }
 .cover-aura-bloom[data-cover-state="closing"] {
   animation:
     cover-aura-bloom-out 260ms cubic-bezier(0.45, 0, 0.55, 1) both,
-    coverAuraShift 8s ease-in-out infinite;
+    coverAuraShift 24s linear infinite,
+    coverAuraWave 9s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
