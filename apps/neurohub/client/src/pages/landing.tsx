@@ -2058,6 +2058,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const categoryFiltered = categoryFilter === 'all' ? musicTracks : musicTracks.filter(t => (t.category || 'song') === categoryFilter);
   const filteredMusic = categoryFiltered.filter(matchesSearch);
   filteredMusicRef.current = filteredMusic;
+
   const totalPages = Math.max(1, Math.ceil(filteredMusic.length / TRACKS_PER_PAGE));
   const safePage = Math.min(currentPage, totalPages);
 
@@ -2430,19 +2431,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             setShowGlobe(true);
                             setWinkMode("off");
                             try { localStorage.setItem("muza_globe_seen", "1"); } catch { /* no-op */ }
-                            // Босс «автоплей Муза на 3D ТОЛЬКО если плеер НЕ играл.
-                            // Если играл — продолжаем без пауз, непрерывно по правилам
-                            // юзера». Гейт на isPlayingState (активное воспроизведение),
-                            // НЕ на playingId. Запуск в этом user-gesture (iOS требует жест).
-                            try {
-                              if (!isPlayingState) {
-                                const list = filteredMusicRef.current || [];
-                                const muza = list.find((t: any) =>
-                                  /\bмуза\b|\bmuza\b/i.test(String(t.displayTitle || t.prompt || "")));
-                                const pick = muza || list[0];
-                                if (pick) playTrack(pick);
-                              }
-                            } catch { /* no-op */ }
+                            // Автоплей отключён (Босс «автоплей стоп») — мини-плеер
+                            // показывает трек, юзер запускает сам. Непрерывное
+                            // воспроизведение по правилам юзера если уже играло.
                           }
                           else setShowPlayerCountries(v => !v);
                         }}
