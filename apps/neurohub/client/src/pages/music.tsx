@@ -1237,7 +1237,7 @@ export default function MusicPage() {
               </div>
               {/* Voice — 4 равные ячейки, единый shell (Eugene 13:18) */}
               <div className="space-y-2">
-                <Label className="text-sm text-muted-foreground">Голос</Label>
+                <Label className="text-sm text-muted-foreground">🎤 Вокал и голос</Label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-1 rounded-2xl bg-gradient-to-br from-white/[0.03] to-transparent border border-white/[0.06]">
                   <button type="button"
                     className={`h-14 rounded-xl border hardware-button flex flex-col items-center justify-center gap-0.5 text-sm font-medium transition-all ${!instrumental && !isDuet && voice === "female" ? "border-purple-400/60 bg-gradient-to-br from-purple-500/30 to-pink-500/20 text-purple-100 shadow-lg shadow-purple-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
@@ -1698,7 +1698,7 @@ export default function MusicPage() {
               {legacyMode === "simple" ? (
             <>
               <div className="space-y-2">
-                <Label className="text-sm text-muted-foreground">Опишите желаемый трек</Label>
+                <Label className="text-sm text-muted-foreground">📝 Текст / промт — опишите желаемый трек</Label>
                 <Textarea
                   placeholder="Например: энергичная поп-песня о танцах в ночном клубе, с запоминающимся припевом..."
                   value={prompt}
@@ -1709,9 +1709,11 @@ export default function MusicPage() {
                 />
               </div>
 
-              {/* Один стиль */}
+              {/* Один стиль. Eugene 2026-05-28: дубль Темп+Настроение убран —
+                  ниже общий блок «🎚 Настроение и темп» рендерится всегда
+                  (был двойной показ в подвкладке «По описанию»). */}
               <div className="space-y-2">
-                <Label className="text-sm text-muted-foreground">Стиль</Label>
+                <Label className="text-sm text-muted-foreground">🎵 Стиль и жанр</Label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5" data-testid="select-music-style">
                   {styles.map((s, idx) => (
                     <button
@@ -1729,32 +1731,6 @@ export default function MusicPage() {
                     </button>
                   ))}
                 </div>
-
-                {/* Темп + Настроение */}
-                <div className="grid grid-cols-2 gap-3 mt-3">
-                  <div>
-                    <Label className="text-xs text-muted-foreground mb-1.5 block">Темп</Label>
-                    <div className="flex flex-wrap gap-1">
-                      {tempos.map(t => (
-                        <button key={t.value} type="button" onClick={() => setTempo(t.value)}
-                          className={`text-[10px] px-2 py-1 rounded-md border transition-colors ${tempo === t.value ? 'border-blue-500 bg-blue-500/20 text-blue-300' : 'border-white/10 bg-white/5 text-muted-foreground hover:text-white'}`}>
-                          {t.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground mb-1.5 block">Настроение</Label>
-                    <div className="flex flex-wrap gap-1">
-                      {moods.map(m => (
-                        <button key={m.value} type="button" onClick={() => setMood(m.value)}
-                          className={`text-[10px] px-2 py-1 rounded-md border transition-colors ${mood === m.value ? 'border-pink-500 bg-pink-500/20 text-pink-300' : 'border-white/10 bg-white/5 text-muted-foreground hover:text-white'}`}>
-                          {m.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
               </div>
             </>
           ) : (
@@ -1762,7 +1738,7 @@ export default function MusicPage() {
             <>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <Label className="text-sm text-muted-foreground">Текст песни</Label>
+                  <Label className="text-sm text-muted-foreground">📝 Текст песни</Label>
                   {lyrics.trim() && (
                     <button type="button" onClick={() => { navigator.clipboard.writeText(lyrics); setCopiedPrompt(true); setTimeout(() => setCopiedPrompt(false), 2000); }}
                       className="text-[10px] px-2 py-0.5 rounded bg-white/5 text-muted-foreground hover:text-white transition-colors flex items-center gap-1">
@@ -1981,7 +1957,7 @@ export default function MusicPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Мульти-стили — добавляет/убирает в общий пул. Cap 5. */}
                 <div className="space-y-2">
-                  <Label className="text-sm text-muted-foreground">Стили <span className="text-white/40">(до 5, кликом добавить/убрать)</span></Label>
+                  <Label className="text-sm text-muted-foreground">🎵 Стиль и жанр <span className="text-white/40">(до 5, кликом добавить/убрать)</span></Label>
                   <div className="flex flex-wrap gap-2" data-testid="select-music-style">
                     {styles.map((s) => {
                       const isUsed = usedStyles.includes(s.value);
@@ -2034,7 +2010,10 @@ export default function MusicPage() {
                   </div>
                 </div>
 
-                {/* Правая колонка */}
+                {/* Правая колонка. Eugene 2026-05-28: контрол «🎤 Вокал и голос»
+                    вынесен в общий блок ниже (был доступен только в подвкладке
+                    «Свой текст», в «По описанию» отсутствовал → голос не
+                    выбирался). Теперь — один раз для обеих подвкладок. */}
                 <div className="space-y-3 pt-6 sm:pt-0 sm:self-end sm:pb-2">
                   <div className="space-y-2">
                     <Label className="text-sm text-muted-foreground">Автор</Label>
@@ -2046,46 +2025,53 @@ export default function MusicPage() {
                       data-testid="input-author-name"
                     />
                   </div>
+                </div>
+              </div>
+            </>
+          )}
 
-                  {/* Eugene 2026-05-16: убран дубль — был старый Switch
-                      «Инструментальная» + 3 пилюли (Женский/Мужской/Дуэт).
-                      Используем единый 4-карточный picker (как в basic/audio). */}
-                  <div className="space-y-2">
-                    <Label className="text-sm text-muted-foreground">Голос</Label>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-1 rounded-2xl bg-gradient-to-br from-white/[0.03] to-transparent border border-white/[0.06]">
-                      <button type="button"
-                        className={`h-14 rounded-xl border hardware-button flex flex-col items-center justify-center gap-0.5 text-sm font-medium transition-all ${!instrumental && !isDuet && voice === "female" ? "border-purple-400/60 bg-gradient-to-br from-purple-500/30 to-pink-500/20 text-purple-100 shadow-lg shadow-purple-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
-                        onClick={() => { setInstrumental(false); setIsDuet(false); setVoice("female"); }}
-                        data-testid="voice-female">
-                        <span className="text-lg leading-none">👩‍🎤</span>
-                        <span className="text-[11px] leading-none">Женский</span>
-                      </button>
-                      <button type="button"
-                        className={`h-14 rounded-xl border hardware-button flex flex-col items-center justify-center gap-0.5 text-sm font-medium transition-all ${!instrumental && !isDuet && voice === "male" ? "border-blue-400/60 bg-gradient-to-br from-blue-500/30 to-cyan-500/20 text-blue-100 shadow-lg shadow-blue-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
-                        onClick={() => { setInstrumental(false); setIsDuet(false); setVoice("male"); }}
-                        data-testid="voice-male">
-                        <span className="text-lg leading-none">👨‍🎤</span>
-                        <span className="text-[11px] leading-none">Мужской</span>
-                      </button>
-                      <button type="button"
-                        className={`h-14 rounded-xl border hardware-button flex flex-col items-center justify-center gap-0.5 text-sm font-medium transition-all ${isDuet ? "border-pink-400/60 bg-gradient-to-br from-pink-500/30 to-rose-500/20 text-pink-100 shadow-lg shadow-pink-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
-                        onClick={() => { setInstrumental(false); setIsDuet(true); }}
-                        data-testid="voice-duet">
-                        <span className="text-lg leading-none">👩‍🎤👨‍🎤</span>
-                        <span className="text-[11px] leading-none">Дуэт</span>
-                      </button>
-                      <button type="button"
-                        className={`h-14 rounded-xl border hardware-button flex flex-col items-center justify-center gap-0.5 text-sm font-medium transition-all ${instrumental ? "border-amber-400/60 bg-gradient-to-br from-amber-500/30 to-orange-500/20 text-amber-100 shadow-lg shadow-amber-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
-                        onClick={() => { setIsDuet(false); setInstrumental(true); }}
-                        data-testid="switch-instrumental">
-                        <span className="text-lg leading-none">🎻</span>
-                        <span className="text-[11px] leading-none">Инструментал</span>
-                      </button>
-                    </div>
-                    {isDuet && (
-                      <div className="p-3 rounded-lg bg-pink-500/5 border border-pink-500/15 space-y-2">
-                        <p className="text-xs text-pink-300/90 font-medium">Разметьте текст для дуэта:</p>
-                        <pre className="text-[10px] text-muted-foreground/70 leading-relaxed whitespace-pre-wrap font-mono">{`[Verse 1 - Male Voice]
+          {/* === 🎤 Вокал и голос — единый контрол для обеих подвкладок
+              (Eugene 2026-05-28). Один выбор задаёт voiceType
+              (женский/мужской/дуэт/инструментал) + instrumental + isDuet.
+              Раньше picker рендерился только в «Свой текст». */}
+          <div className="pt-1">
+            <p className="text-sm font-display font-semibold gradient-text mb-2">🎤 Вокал и голос</p>
+          </div>
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-1 rounded-2xl bg-gradient-to-br from-white/[0.03] to-transparent border border-white/[0.06]">
+              <button type="button"
+                className={`h-14 rounded-xl border hardware-button flex flex-col items-center justify-center gap-0.5 text-sm font-medium transition-all ${!instrumental && !isDuet && voice === "female" ? "border-purple-400/60 bg-gradient-to-br from-purple-500/30 to-pink-500/20 text-purple-100 shadow-lg shadow-purple-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
+                onClick={() => { setInstrumental(false); setIsDuet(false); setVoice("female"); }}
+                data-testid="voice-female">
+                <span className="text-lg leading-none">👩‍🎤</span>
+                <span className="text-[11px] leading-none">Женский</span>
+              </button>
+              <button type="button"
+                className={`h-14 rounded-xl border hardware-button flex flex-col items-center justify-center gap-0.5 text-sm font-medium transition-all ${!instrumental && !isDuet && voice === "male" ? "border-blue-400/60 bg-gradient-to-br from-blue-500/30 to-cyan-500/20 text-blue-100 shadow-lg shadow-blue-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
+                onClick={() => { setInstrumental(false); setIsDuet(false); setVoice("male"); }}
+                data-testid="voice-male">
+                <span className="text-lg leading-none">👨‍🎤</span>
+                <span className="text-[11px] leading-none">Мужской</span>
+              </button>
+              <button type="button"
+                className={`h-14 rounded-xl border hardware-button flex flex-col items-center justify-center gap-0.5 text-sm font-medium transition-all ${isDuet ? "border-pink-400/60 bg-gradient-to-br from-pink-500/30 to-rose-500/20 text-pink-100 shadow-lg shadow-pink-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
+                onClick={() => { setInstrumental(false); setIsDuet(true); }}
+                data-testid="voice-duet">
+                <span className="text-lg leading-none">👩‍🎤👨‍🎤</span>
+                <span className="text-[11px] leading-none">Дуэт</span>
+              </button>
+              <button type="button"
+                className={`h-14 rounded-xl border hardware-button flex flex-col items-center justify-center gap-0.5 text-sm font-medium transition-all ${instrumental ? "border-amber-400/60 bg-gradient-to-br from-amber-500/30 to-orange-500/20 text-amber-100 shadow-lg shadow-amber-500/30 scale-[1.02]" : "border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:border-white/20 hover:bg-white/10"}`}
+                onClick={() => { setIsDuet(false); setInstrumental(true); }}
+                data-testid="switch-instrumental">
+                <span className="text-lg leading-none">🎻</span>
+                <span className="text-[11px] leading-none">Инструментал</span>
+              </button>
+            </div>
+            {isDuet && (
+              <div className="p-3 rounded-lg bg-pink-500/5 border border-pink-500/15 space-y-2">
+                <p className="text-xs text-pink-300/90 font-medium">Разметьте текст для дуэта:</p>
+                <pre className="text-[10px] text-muted-foreground/70 leading-relaxed whitespace-pre-wrap font-mono">{`[Verse 1 - Male Voice]
 Твои строки для мужского голоса...
 
 [Verse 2 - Female Voice]
@@ -2093,29 +2079,28 @@ export default function MusicPage() {
 
 [Chorus - Duet]
 Поют вместе...`}</pre>
-                        <button
-                          type="button"
-                          className="text-[10px] text-pink-400 hover:text-pink-300 transition-colors"
-                          onClick={() => {
-                            const tpl = `[Verse 1 - Male Voice]\n\n\n[Verse 2 - Female Voice]\n\n\n[Chorus - Duet]\n\n\n[Bridge - Harmonized Duet]\n`;
-                            setLyrics(prev => prev ? prev + "\n\n" + tpl : tpl);
-                            setMode("advanced");
-                          }}
-                        >
-                          → Вставить шаблон в текст
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                </div>
+                <button
+                  type="button"
+                  className="text-[10px] text-pink-400 hover:text-pink-300 transition-colors"
+                  onClick={() => {
+                    const tpl = `[Verse 1 - Male Voice]\n\n\n[Verse 2 - Female Voice]\n\n\n[Chorus - Duet]\n\n\n[Bridge - Harmonized Duet]\n`;
+                    setLyrics(prev => prev ? prev + "\n\n" + tpl : tpl);
+                    setMode("advanced");
+                  }}
+                >
+                  → Вставить шаблон в текст
+                </button>
               </div>
-            </>
-          )}
+            )}
+          </div>
 
-          {/* Настроение + Темп — видно всегда в Текст·Расширенный (Eugene 2026-05-11
-              «текст также расширенно как audio»). Раньше Mood гейтился
-              legacyMode === "advanced", теперь доступен и в «По описанию». */}
+          {/* === 🎚 Настроение и темп — единый блок (Eugene 2026-05-28).
+              Видно всегда в Текст·Расширенный. Настроение/Темп — здесь
+              ровно один раз; BPM (числом) — ниже в «⚙️ Дополнительно».
+              Раньше Mood/Tempo дублировались в подвкладке «По описанию». */}
+          <div className="pt-1">
+            <p className="text-sm font-display font-semibold gradient-text mb-2">🎚 Настроение и темп</p>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label className="text-sm text-muted-foreground">Настроение</Label>
@@ -2157,9 +2142,11 @@ export default function MusicPage() {
             </div>
           </div>
 
-          {/* Для опытных авторов — теперь доступно в обоих sub-tabs Текст·Расширенный.
-              Eugene 2026-05-11: «текст расширенно как audio» — BPM + расширенный
-              стиль (английский prompt) видны и в «По описанию» и в «Свой текст». */}
+          {/* === ⚙️ Дополнительно — раскрывающаяся панель (Eugene 2026-05-28).
+              Доступно в обоих sub-tabs Текст·Расширенный. Внутри: BPM (число),
+              расширенный стиль (английский prompt) и параметры Suno
+              (негатив-теги, странность, вес стиля, версия модели). Каждый
+              параметр — ровно один раз. */}
           <div className="border border-white/[0.06] rounded-xl overflow-hidden">
             <button
               type="button"
@@ -2168,15 +2155,15 @@ export default function MusicPage() {
             >
               <span className="flex items-center gap-2">
                 <Sliders className="w-4 h-4 text-purple-400" />
-                Для опытных авторов
+                ⚙️ Дополнительно — для опытных авторов
               </span>
               <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${showAdvanced ? "rotate-180" : ""}`} />
             </button>
             {showAdvanced && (
               <div className="px-4 pb-4 space-y-4 border-t border-white/[0.06] pt-4 animate-in fade-in slide-in-from-top-2 duration-200">
-                {/* BPM */}
+                {/* BPM — точная скорость (дополняет «🎚 Настроение и темп» выше) */}
                 <div className="space-y-2">
-                  <Label className="text-sm text-muted-foreground">Tempo (BPM)</Label>
+                  <Label className="text-sm text-muted-foreground">Скорость (BPM)</Label>
                   <div className="flex items-center gap-3">
                     <Input
                       type="number"
