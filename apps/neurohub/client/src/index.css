@@ -417,13 +417,16 @@
   animation: detailsPulse 5s ease-in-out infinite;
 }
 
-/* Eugene 2026-05-17 Босс «свет вокруг обложки в фирменных цветах».
-   Eugene 2026-05-26 Босс «светящийся квадрат за обложкой — по периметру,
-   медленно, по часовой»: чистое РАВНОМЕРНОЕ вращение по часовой (16с, linear),
-   без хаотичного переливания/пульсации. Reduced-motion-safe (ниже). */
+/* Подсветка обложки — ПЕРВОНАЧАЛЬНАЯ редакция №1 (Босс 2026-05-29 «найди
+   первоначальную 1 подсветку обложек и запушь»). Возврат к 7d1cb4e: шиммер +
+   пульсация (background-position + rotate + opacity 0.55→0.8), conic
+   brand-gradient, background-size 300%, 8с ease-in-out. Reduced-motion-safe. */
 @keyframes coverAuraShift {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
+  0%   { background-position: 0% 50%; transform: rotate(0deg); opacity: 0.55; }
+  25%  { background-position: 50% 100%; opacity: 0.75; }
+  50%  { background-position: 100% 50%; transform: rotate(180deg); opacity: 0.65; }
+  75%  { background-position: 50% 0%; opacity: 0.8; }
+  100% { background-position: 0% 50%; transform: rotate(360deg); opacity: 0.55; }
 }
 .cover-aura {
   background: conic-gradient(from 0deg,
@@ -432,7 +435,8 @@
     #00D4FF 50%,
     #FBBF24 75%,
     #7C3AED 100%);
-  animation: coverAuraShift 16s linear infinite;
+  background-size: 300% 300%;
+  animation: coverAuraShift 8s ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) {
   .cover-aura {
