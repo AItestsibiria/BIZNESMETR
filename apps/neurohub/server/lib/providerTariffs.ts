@@ -193,12 +193,54 @@ export const TARIFF_HISTORY: ProviderTariff[] = [
   },
 ];
 
+// ───────────────────────────────────────────────────────────────────────────
+// LIVE-тарифы по API (Босс 2026-05-28 «тарифы читать по API через сервисный
+// ключ»). Фоновый рефреш (lib/tariffSource.ts) тянет реальные тарифы провайдера
+// по API (сервисный ключ из env) → кладёт сюда. getTariffAt предпочитает live,
+// иначе — статический каталог (надёжный fallback). Деньга «берёт данные оттуда».
+const liveTariffOverride = new Map<string, { costKopecks: number; at: number; source: string }>();
+
+/** Установить live-тариф (из tariffSource по API). costKopecks для unit. */
+export function setLiveTariff(provider: string, resource: string, costKopecks: number, source = "api"): void {
+  if (!provider || !resource || !(costKopecks >= 0)) return;
+  liveTariffOverride.set(`${provider}::${resource}`, { costKopecks, at: Date.now(), source });
+}
+
+/** Текущие live-overrides (для admin/диагностики). */
+export function getLiveTariffOverrides(): Array<{ provider: string; resource: string; costKopecks: number; at: number; source: string }> {
+  return Array.from(liveTariffOverride.entries()).map(([k, v]) => {
+    const [provider, resource] = k.split("::");
+    return { provider, resource, ...v };
+  });
+}
+
 /**
- * Найти актуальный тариф на момент atTs.
+ * Найти актуальный тариф на момент atTs. Приоритет: live-override (по API,
+ * только для текущего момента) → статический каталог TARIFF_HISTORY.
  * Returns null если нет ни одной записи покрывающей этот момент.
  */
 export function getTariffAt(provider: string, resource: string, atTs: number): ProviderTariff | null {
   const ts = Number(atTs) || Date.now();
+  // Live-override применяется только к «сейчас» (исторические расчёты — по каталогу).
+  const isNow = Math.abs(Date.now() - ts) < 6 * 3600 * 1000;
+  if (isNow) {
+    const ov = liveTariffOverride.get(`${provider}::${resource}`);
+    if (ov) {
+      const base = staticTariffAt(provider, resource, ts);
+      return {
+        id: `live_${provider}_${resource}`,
+        provider, resource,
+        unit: base?.unit || "per_call",
+        costKopecks: ov.costKopecks,
+        validFrom: ov.at,
+        notes: `LIVE по API (${ov.source}) @ ${new Date(ov.at).toISOString()}`,
+      };
+    }
+  }
+  return staticTariffAt(provider, resource, ts);
+}
+
+function staticTariffAt(provider: string, resource: string, ts: number): ProviderTariff | null {
   let best: ProviderTariff | null = null;
   for (const t of TARIFF_HISTORY) {
     if (t.provider !== provider || t.resource !== resource) continue;

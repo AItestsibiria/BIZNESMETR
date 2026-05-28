@@ -77,6 +77,7 @@ import {
   getManualCostHistory as getDengaManualHistory,
   invalidateDengaCache,
 } from "./lib/dengaAgent";
+import { startTariffRefresh, refreshLiveTariffs, tariffSourceStatus } from "./lib/tariffSource";
 import { getCurrentTariffs as getDengaCurrentTariffs, TARIFF_HISTORY as DENGA_TARIFF_HISTORY } from "./lib/providerTariffs";
 // Eugene 2026-05-24: Premium-lyrics rule — 4-step refinement pipeline
 // (Draft → Critique → Refine → Polish) для подписки tier='text_quality'
@@ -4994,6 +4995,26 @@ export async function registerRoutes(
       });
     } catch (e: any) {
       console.error("[DENGA] tariffs error:", e);
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 300) });
+    }
+  });
+
+  // LIVE-тарифы по API (Босс: читать тарифы через сервисный ключ). Фоновый рефреш
+  // на boot + по интервалу (env TARIFF_API_URL/KEY). Деньга берёт данные оттуда.
+  startTariffRefresh();
+  // Статус + ручной рефреш.
+  app.get("/api/admin/v304/denga/tariff-source", requireAdmin, (_req: Request, res: Response) => {
+    try {
+      res.json({ data: tariffSourceStatus(), error: null });
+    } catch (e: any) {
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 300) });
+    }
+  });
+  app.post("/api/admin/v304/denga/tariff-source/refresh", requireAdmin, async (_req: Request, res: Response) => {
+    try {
+      const r = await refreshLiveTariffs();
+      res.json({ data: r, error: null });
+    } catch (e: any) {
       res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 300) });
     }
   });
