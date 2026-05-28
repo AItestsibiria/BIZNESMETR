@@ -429,20 +429,53 @@
   100% { background-position: 0% 50%; transform: rotate(360deg); opacity: 0.55; }
 }
 .cover-aura {
+  /* Контраст + блеск (Босс 2026-05-29): яркие промежуточные стопы между
+     brand-цветами дают «шайн»-полосы (blesk). */
   background: conic-gradient(from 0deg,
     #7C3AED 0%,
+    #c9a8ff 10%,
     #FF006E 25%,
+    #ffb3da 35%,
     #00D4FF 50%,
+    #aef0ff 60%,
     #FBBF24 75%,
+    #fff0bf 85%,
     #7C3AED 100%);
   background-size: 300% 300%;
   animation: coverAuraShift 8s ease-in-out infinite;
+}
+/* Звёздная разноцветная пыль (Босс «блеск как звёздная разноцветная пыль») —
+   мерцающие разноцветные искры поверх ауры; screen-blend для свечения. */
+.cover-aura::after {
+  content: "";
+  position: absolute;
+  inset: -10%;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 18% 22%, #ffffff 0 1.6px, transparent 2.6px),
+    radial-gradient(circle at 73% 16%, #67e8f9 0 1.6px, transparent 2.6px),
+    radial-gradient(circle at 86% 62%, #f0abfc 0 1.6px, transparent 2.6px),
+    radial-gradient(circle at 33% 82%, #fde68a 0 1.6px, transparent 2.6px),
+    radial-gradient(circle at 55% 44%, #ffffff 0 1.2px, transparent 2px),
+    radial-gradient(circle at 9% 60%, #c4b5fd 0 1.2px, transparent 2px),
+    radial-gradient(circle at 64% 78%, #a5f3fc 0 1.2px, transparent 2px),
+    radial-gradient(circle at 42% 12%, #ffffff 0 1px, transparent 1.8px),
+    radial-gradient(circle at 90% 32%, #fbcfe8 0 1px, transparent 1.8px),
+    radial-gradient(circle at 26% 48%, #fff0bf 0 1px, transparent 1.8px);
+  mix-blend-mode: screen;
+  animation: coverAuraSparkle 3.2s ease-in-out infinite;
+}
+@keyframes coverAuraSparkle {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50%      { opacity: 0.95; transform: scale(1.05); }
 }
 @media (prefers-reduced-motion: reduce) {
   .cover-aura {
     animation: none;
     opacity: 0.4;
   }
+  .cover-aura::after { animation: none; opacity: 0.5; }
 }
 
 /* Eugene 2026-05-23 Босс «платформа на тестировании пульсирующей 1 раз
