@@ -40,14 +40,17 @@ const EPOCH = Date.UTC(2024, 0, 1, 0, 0, 0);
 export const TARIFF_HISTORY: ProviderTariff[] = [
   // ===== Suno music generation (через GPTunnel /media/create) =====
   // Базовый цикл — ~22000 копеек (220 ₽) за полный трек (V4.5).
+  // Eugene 2026-05-28 Босс: реальная стоимость Suno-трека = 1-24₽ (диапазон;
+  // коррекция прежней оценки 220₽). Default = 24₽ (верхняя граница, консервативно
+  // для расчёта прибыли); точное значение на трек — через ручной ввод Деньги.
   {
     id: "suno_v1",
     provider: "gptunnel-suno",
     resource: "track",
     unit: "per_call",
-    costKopecks: 22000,
+    costKopecks: 2400,  // 24₽ (диапазон 1-24₽, Босс 2026-05-28)
     validFrom: EPOCH,
-    notes: "Suno V4.5 через GPTunnel — наш cost ≈ 220₽ за трек",
+    notes: "Suno трек ≈ 1-24₽ (Босс 2026-05-28); точно — ручной ввод Деньги",
   },
 
   // ===== Anthropic Claude Haiku 4.5 (LLM Музы) =====
@@ -94,24 +97,29 @@ export const TARIFF_HISTORY: ProviderTariff[] = [
     notes: "DeepSeek Chat output pricing $1.10/1M",
   },
 
-  // ===== TimeWeb Gateway (proxy для Anthropic — pricing same as upstream) =====
+  // ===== TimeWeb Gateway (PRIORITY provider Музы — LLM-chain-order rule) =====
+  // Eugene 2026-05-28 Босс дал РЕАЛЬНЫЕ цены TimeWeb AI (коррекция прежних
+  // Anthropic-оценок; применяется ко ВСЕЙ истории, вкл. раннюю — Босс просил
+  // пересчитать затраты на трек с учётом ранней истории AI-бота):
+  //   Входящие (input)  — 1 080 ₽ / 1 млн токенов
+  //   Исходящие (output) — 270 ₽ / 1 млн токенов
   {
     id: "timeweb_in",
     provider: "timeweb-gateway",
     resource: "input_token",
     unit: "per_1M_tokens",
-    costKopecks: Math.round(0.80 * USD_TO_RUB * 100),
+    costKopecks: 108000,  // 1080₽ за 1M input (Босс 2026-05-28)
     validFrom: EPOCH,
-    notes: "TimeWeb Gateway проксирует Anthropic Haiku 4.5",
+    notes: "TimeWeb AI input — 1080₽/1M (реальная цена, Босс 2026-05-28)",
   },
   {
     id: "timeweb_out",
     provider: "timeweb-gateway",
     resource: "output_token",
     unit: "per_1M_tokens",
-    costKopecks: Math.round(4.00 * USD_TO_RUB * 100),
+    costKopecks: 27000,  // 270₽ за 1M output (Босс 2026-05-28)
     validFrom: EPOCH,
-    notes: "TimeWeb Gateway output (Anthropic upstream)",
+    notes: "TimeWeb AI output — 270₽/1M (реальная цена, Босс 2026-05-28)",
   },
 
   // ===== GPTunnel (last-resort chat) =====

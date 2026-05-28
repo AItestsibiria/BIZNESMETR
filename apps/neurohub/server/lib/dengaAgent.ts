@@ -401,7 +401,7 @@ function attributeChatCostToTracks(
           inputChars: m.textLen * 2,  // rough: input ≈ 2× of output for typical chat
           outputChars: m.textLen,
           createdAtMillis: m.createdAtMillis,
-          provider: "deepseek",
+          provider: "timeweb",
         });
         anonymous += cost;
         if (!perAnonymousChannel[m.channel]) {
@@ -422,7 +422,7 @@ function attributeChatCostToTracks(
         inputChars: m.textLen * 2,
         outputChars: m.textLen,
         createdAtMillis: m.createdAtMillis,
-        provider: "deepseek",
+        provider: "timeweb",
       });
       if (userGens.length === 0) {
         // юзер chat'ит но никогда не сгенерил — copy в "anonymous" bucket
@@ -740,7 +740,7 @@ export function getAnonymousStats(fromIso?: string, toIso?: string): DengaAnonym
       inputChars: m.textLen * 2,
       outputChars: m.textLen,
       createdAtMillis: m.createdAtMillis,
-      provider: "deepseek",
+      provider: "timeweb",
     });
     totalCost += cost;
     if (!byChannel[m.channel]) {
