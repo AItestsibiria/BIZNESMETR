@@ -468,7 +468,7 @@ function VpsSyncTab({ toast }: VpsSyncTabProps = {}) {
       )}
 
       {/* Большая таблица */}
-      <div className="rounded-2xl glass-card border border-purple-500/20 overflow-hidden">
+      <div className="rounded-2xl glass-card border border-purple-500/20 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gradient-to-r from-purple-500/15 via-fuchsia-500/10 to-cyan-500/15 border-b border-purple-500/20">
@@ -506,8 +506,8 @@ function VpsSyncTab({ toast }: VpsSyncTabProps = {}) {
                         <span className="mr-2">{r.emoji}</span>
                         {r.label}
                       </td>
-                      <td className="px-4 py-2.5 font-mono text-xs text-purple-200">{r.prodValue}</td>
-                      <td className="px-4 py-2.5 font-mono text-xs text-cyan-200">{r.cloneValue}</td>
+                      <td className="px-4 py-2.5 font-mono text-xs text-purple-200 break-all">{r.prodValue}</td>
+                      <td className="px-4 py-2.5 font-mono text-xs text-cyan-200 break-all">{r.cloneValue}</td>
                       <td className={`px-4 py-2.5 text-center font-mono text-xs ${badge.cls}`}>
                         {badge.text}
                         {r.note && (

@@ -2353,7 +2353,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               {/* Info + controls */}
               <div className="flex-1 min-w-0">
                 <p className="text-base sm:text-lg font-bold text-white truncate">{currentTrack.displayTitle || currentTrack.prompt?.slice(0, 60)}</p>
-                <p className="text-sm text-purple-300/80 mt-0.5">
+                <p className="text-sm text-purple-300/80 mt-0.5 truncate">
                   {currentTrack.authorName}
                   {currentTrack.styleInfo && <span className="text-purple-300/40 ml-1">· Промт: {currentTrack.styleInfo}</span>}
                 </p>

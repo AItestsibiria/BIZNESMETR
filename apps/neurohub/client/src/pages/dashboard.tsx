@@ -189,7 +189,7 @@ function TopGenStats() {
             {genStats.top?.map((t: any, i: number) => (
               <div key={t.gen_id} className="flex items-center gap-2 py-1 text-[11px] cursor-pointer hover:bg-white/5 rounded px-1" onClick={() => setDetailId(detailId === t.gen_id ? null : t.gen_id)}>
                 <span className="text-muted-foreground w-4">{i+1}</span>
-                <span className="truncate flex-1 text-white">{t.display_title || (t.prompt||'').slice(0,30)}</span>
+                <span className="truncate flex-1 min-w-0 text-white">{t.display_title || (t.prompt||'').slice(0,30)}</span>
                 <span className="text-muted-foreground text-[10px]">{t.type}</span>
                 <span className="text-green-400 font-mono">▶{t.plays}</span>
                 <span className="text-blue-400 font-mono">⬇{t.downloads}</span>
@@ -216,8 +216,8 @@ function TopGenStats() {
             {topDownloads?.rows?.map((t: any, i: number) => (
               <div key={t.gen_id} className="flex items-center gap-2 py-1.5 text-[11px] hover:bg-white/5 rounded px-1">
                 <span className="text-muted-foreground w-5 text-right">{i+1}.</span>
-                <span className="truncate flex-1 text-white">{t.display_title || (t.prompt||'').slice(0,40)}</span>
-                <span className="text-muted-foreground text-[10px]">{t.author_name}</span>
+                <span className="truncate flex-1 min-w-0 text-white">{t.display_title || (t.prompt||'').slice(0,40)}</span>
+                <span className="text-muted-foreground text-[10px] truncate max-w-[100px]">{t.author_name}</span>
                 <span className="text-blue-400 font-mono font-medium">⬇{t.downloads}</span>
               </div>
             ))}
@@ -1537,7 +1537,7 @@ function MyPlaylist({ generations, onUpdate }: { generations?: Generation[]; onU
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-base sm:text-lg font-bold text-white truncate">{current.prompt?.slice(0, 60)}</p>
-              <p className="text-sm text-purple-300/80 mt-0.5">{current.authorName || ""}</p>
+              <p className="text-sm text-purple-300/80 mt-0.5 truncate">{current.authorName || ""}</p>
               <div className="flex items-center gap-2 mt-3">
                 <span className="text-xs text-muted-foreground tabular-nums w-9">{formatDur(currentTime)}</span>
                 <div className="flex-1 h-1.5 rounded-full bg-white/10 overflow-hidden cursor-pointer"
