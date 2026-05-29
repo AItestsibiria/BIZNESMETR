@@ -1288,8 +1288,11 @@ export async function registerRoutes(
       GROUP BY ip ORDER BY visits DESC LIMIT 200
     `).all();
 
-    const byDevice = raw.prepare(`SELECT device, COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors WHERE 1=1${botExtra} GROUP BY device`).all();
-    const byBrowser = raw.prepare(`SELECT browser, COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors WHERE 1=1${botExtra} GROUP BY browser ORDER BY c DESC LIMIT 5`).all();
+    // Eugene 2026-05-29: устройства/браузеры — ТОТ ЖЕ фильтр периода (wherePrefix:
+    // period+domain+bot+real), а не WHERE 1=1 (раньше показывало ВСЁ ВРЕМЯ под
+    // вкладкой «Сегодня» → 119 устройств при 9 уникальных). Единый знаменатель.
+    const byDevice = raw.prepare(`SELECT device, COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors ${wherePrefix} GROUP BY device`).all();
+    const byBrowser = raw.prepare(`SELECT browser, COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors ${wherePrefix} GROUP BY browser ORDER BY c DESC LIMIT 5`).all();
 
     res.json({
       total: total?.c || 0,
@@ -2116,7 +2119,7 @@ export async function registerRoutes(
           }
           db.update(users).set({ telegramId: tgId }).where(eq(users.id, existingUser.id)).run();
           user = existingUser;
-          console.log(`[TG AUTH] Linked tg:${tgId} to user #${user.id} (${user.email})`);
+          console.log(`[TG AUTH] Linked tg:${tgId} to user #${user.id} (${maskEmailForAdmin(user.email || "")})`);
         } else if (tgData.force_create) {
           // Eugene 2026-05-24: anti-fraud cap. До этого не было лимита, бот-сетка
           // могла зарегистрировать unlimited TG-аккаунтов и каждому забрать
@@ -12716,7 +12719,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       // Send code via email
       const sent = await sendResetEmail(email.trim(), resetCode);
       if (!sent) {
-        console.error(`[PASSWORD RESET] Failed to send email to ${email}`);
+        console.error(`[PASSWORD RESET] Failed to send email to ${maskEmailForAdmin(email || "")}`);
       }
 
       res.json({ message: "Код отправлен на email" });
