@@ -717,13 +717,13 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // feature-toggle "globe-3d" (default ON) — можно выключить без релиза.
   const [showGlobe, setShowGlobe] = useState(false);
   const globe3dEnabled = useFeatureEnabled("globe-3d");
-  // Босс «при пересылке открывается этот элемент, через 60 сек предлагает перейти
-  // на MuzaAi.ru, если нет реакции — сам переходит». ?globecard=1 = шаринг-режим.
+  // ?globecard=1 = шаринг-режим (открывается карточка глобуса при пересылке).
+  // Босс 2026-05-29 «глобус сам не закрывается, только юзер его закрывает» —
+  // авто-переход/авто-закрытие убраны (был CTA-блок с редиректом через 12 сек).
   const [globeCardMode] = useState<boolean>(() => {
     try { return new URLSearchParams(window.location.search).get("globecard") === "1"; }
     catch { return false; }
   });
-  const [globeCardCta, setGlobeCardCta] = useState(false);
   // Земля на плеере — «хук для вирусности» (Босс). Первый визит: игривое
   // подмигивание, учащается, НО затихает после 3-го раза до конца дня. Возврат:
   // приветствие морганием азбукой Морзе «ПРИВЕТ Я МУЗА». Клик 🌍 — тихо навсегда.
@@ -828,39 +828,14 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     return () => { if (t) window.clearTimeout(t); setMorseOn(false); };
   }, [winkMode]);
 
-  // Шаринг-режим: открыть карточку глобуса сразу, через 60 сек показать CTA на MuzaAi.ru.
+  // Шаринг-режим: просто открыть карточку глобуса сразу. Босс 2026-05-29 «глобус
+  // сам не закрывается, только юзер его закрывает» — без CTA-таймера и без авто-
+  // перехода на главную (ни по таймеру, ни по окончании трека). Трек по окончании
+  // продолжается обычным автоповтором (handleEnded), глобус остаётся открытым.
   useEffect(() => {
     if (!globeCardMode || !globe3dEnabled) return;
     setShowGlobe(true);
-    const ctaTimer = window.setTimeout(() => setGlobeCardCta(true), 60_000);
-    return () => window.clearTimeout(ctaTimer);
   }, [globeCardMode, globe3dEnabled]);
-
-  // CTA показан → если нет реакции 12 сек, сам переходит на страницу (Босс).
-  // Любое касание/клик отменяет авто-переход (юзер сам решает остаться).
-  useEffect(() => {
-    if (!globeCardCta) return;
-    let cancelled = false;
-    const redirect = window.setTimeout(() => {
-      if (!cancelled) { try { window.location.assign(window.location.origin + "/"); } catch { /* no-op */ } }
-    }, 12_000);
-    const cancel = () => { cancelled = true; window.clearTimeout(redirect); };
-    window.addEventListener("pointerdown", cancel, { once: true });
-    return () => { window.clearTimeout(redirect); window.removeEventListener("pointerdown", cancel); };
-  }, [globeCardCta]);
-
-  // Босс «по окончании трека Муза — переход на главную из земли». В шаринг-режиме
-  // (?globecard=1) когда трек в карточке глобуса доиграл → уходим на главную.
-  // (В обычном режиме остаётся автоповтор по топу через handleEnded.)
-  useEffect(() => {
-    if (!showGlobe || !globeCardMode) return;
-    let audio: HTMLAudioElement | null = null;
-    try { audio = getPersistentPlayerAudio(); } catch { audio = null; }
-    if (!audio) return;
-    const onEnded = () => { try { window.location.assign(window.location.origin + "/"); } catch { /* no-op */ } };
-    audio.addEventListener("ended", onEnded, { once: true });
-    return () => { try { audio?.removeEventListener("ended", onEnded); } catch { /* no-op */ } };
-  }, [showGlobe, globeCardMode]);
   // Eugene 2026-05-22 Босс «в режиме планшета если юзер не спускается вниз
   // плейлист раскрывается вверх с 1 трека внизу и 2 выше зеркальный порядок,
   // если скроллит вниз верхний плейлист исчезает». Reverse-блок 6 треков

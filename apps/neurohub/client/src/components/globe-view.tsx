@@ -230,6 +230,29 @@ type DayNightMaterial = {
   uniforms: any;
 };
 
+// Фазовый шейдер Луны (Босс 2026-05-29: «Луна по правилам астрономии отражает
+// солнце, обратная в тени»). Освещённость фрагмента = dot(мировая нормаль,
+// направление на Солнце): сторона к Солнцу светлая, противоположная — в тени.
+// Видимая фаза (серп/половина/полнолуние) возникает естественно из геометрии.
+const MOON_VERTEX = `
+  varying vec3 vWorldNormal;
+  void main() {
+    vWorldNormal = normalize(mat3(modelMatrix) * normal);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+const MOON_FRAGMENT = `
+  uniform vec3 sunDir; // единичный вектор НА Солнце (мировые координаты)
+  varying vec3 vWorldNormal;
+  void main() {
+    float i = dot(normalize(vWorldNormal), normalize(sunDir));
+    float lit = smoothstep(-0.08, 0.12, i);   // мягкий терминатор Луны
+    vec3 litCol  = vec3(0.90, 0.92, 0.99);    // освещённая сторона
+    vec3 darkCol = vec3(0.03, 0.035, 0.065);  // обратная сторона — в тени
+    gl_FragColor = vec4(mix(darkCol, litCol, lit), 1.0);
+  }
+`;
+
 // Собирает day/night ShaderMaterial (TextureLoader + ShaderMaterial). Текстуры
 // грузятся асинхронно — материал валиден сразу, затем шейдер сам перерисуется.
 // onDay/onNight — колбэки готовности текстур (для поэтапной детализации сцены).
@@ -266,6 +289,41 @@ function buildDayNightMaterial(onDay?: () => void, onNight?: () => void): DayNig
     return { material, uniforms };
   } catch (e) {
     console.error("[GlobeView] buildDayNightMaterial failed:", e);
+    return null;
+  }
+}
+
+// Билборд-спрайт «диск со свечением» (Босс 2026-05-29: «солнце под правильным
+// углом, не эллипсом»). Sprite ВСЕГДА развёрнут к камере → рендерится идеально
+// круглым в любой точке кадра (3D-сфера у края кадра проецируется в эллипс из-за
+// перспективы — поэтому Солнце = светящийся спрайт; Луна = шар с фазовым шейдером).
+function makeDiscSprite(
+  stops: Array<[number, string]>,
+  size: number,
+  additive: boolean,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): any {
+  try {
+    const cvs = document.createElement("canvas");
+    cvs.width = 128;
+    cvs.height = 128;
+    const ctx = cvs.getContext("2d");
+    if (!ctx) return null;
+    const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+    for (const [o, c] of stops) grad.addColorStop(o, c);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 128, 128);
+    const tex = new THREE.CanvasTexture(cvs);
+    const mat = new THREE.SpriteMaterial({
+      map: tex,
+      transparent: true,
+      depthWrite: false,
+      blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+    });
+    const spr = new THREE.Sprite(mat);
+    spr.scale.set(size, size, 1);
+    return spr;
+  } catch {
     return null;
   }
 }
@@ -452,10 +510,13 @@ const FRONT_HALF_DEG = 80;
 const RESTING_ALTITUDE = 2.8; // Босс 2026-05-29: панорамный отъезд — к точке юзера, но не зум вплотную (обзорно)
 // Обзорная (intro) altitude — общий план, чтобы в кадр попали Солнце и Луна.
 const OVERVIEW_ALTITUDE = 3.0;
-// Длительности интро-анимации (Босс: 2с обзор Солнце+Луна → плавный 2с полёт к юзеру).
-const INTRO_OVERVIEW_HOLD_MS = 2000;
-const INTRO_FLY_MS = 10000; // Босс 2026-05-29: плавный полёт к геолокации — 10 сек
-const INTRO_SUNRISE_MS = 3500; // Босс 2026-05-29: «восход» — солнце поднимается из-за края (пан лимб→обзор)
+// Тайминги интро (Босс 2026-05-29): «с 1-го кадра медленно вращается» → восход с
+// мягким вращением → плавный пролёт к геолокации (от 1 до последнего кадра) →
+// непрерывное мягкое вращение. Камеру ведёт единый rAF-режиссёр (см. ниже).
+const SUNRISE_HOLD_MS = 2600;     // восход: медленный показ + лёгкое вращение
+const FLY_MS = 9000;              // плавный пролёт к геолокации
+const SUNRISE_DRIFT_DEG_S = 3.0;  // медленное вращение во время восхода
+const CRUISE_DRIFT_DEG_S = 2.2;   // мягкое непрерывное вращение после прилёта
 
 // prefers-reduced-motion — уважаем системную настройку (без интро-полёта, сразу
 // геолокация). В файле раньше проверки не было — добавлено вместе с интро-анимацией.
@@ -473,6 +534,72 @@ function lngDelta(a: number, b: number): number {
   let d = ((a - b + 180) % 360) - 180;
   if (d < -180) d += 360;
   return d;
+}
+
+// Интерполяция долготы по КРАТЧАЙШЕМУ пути (Босс 2026-05-29: планета НЕ должна
+// «раскручиваться как мяч» — никаких обходов на 300° при пролёте). a→b, t∈[0..1].
+function lerpAngle(a: number, b: number, t: number): number {
+  const d = ((b - a + 540) % 360) - 180; // знаковая кратчайшая разница
+  return a + d * t;
+}
+
+// easeInOutCubic — плавно «от 1 до последнего кадра» (Босс: полёт плавный везде).
+function easeInOutCubic(p: number): number {
+  return p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
+}
+
+// Приветствие Музы на языке юзера (Босс 2026-05-29 «на том языке откуда он»;
+// «5 да» — определять язык). Берём navigator.language (мгновенно, офлайн), с RU-фолбэком.
+const MUZA_GREETINGS: Record<string, string> = {
+  ru: "Привет — Я Муза",
+  uk: "Привіт — Я Муза",
+  be: "Прывітанне — Я Муза",
+  kk: "Сәлем — Мен Муза",
+  en: "Hi — I'm Muza",
+  de: "Hallo — Ich bin Muza",
+  fr: "Salut — Je suis Muza",
+  es: "Hola — Soy Muza",
+  it: "Ciao — Sono Muza",
+  pt: "Oi — Eu sou Muza",
+  pl: "Cześć — Jestem Muza",
+  tr: "Merhaba — Ben Muza",
+  zh: "你好 — 我是 Muza",
+  ja: "こんにちは — ムザだよ",
+  ko: "안녕 — 나는 무자",
+  ar: "مرحبا — أنا موزا",
+};
+function greetingForUser(): string {
+  let lang = "ru";
+  try {
+    lang = ((typeof navigator !== "undefined" && navigator.language) || "ru").slice(0, 2).toLowerCase();
+  } catch {
+    // ignore
+  }
+  return MUZA_GREETINGS[lang] || MUZA_GREETINGS.ru;
+}
+
+// Азбука Морзе (латиница) — для «подмигивания» Музы. Мигаем словом MUZA.
+const MORSE_TABLE: Record<string, string> = {
+  A: ".-", B: "-...", C: "-.-.", D: "-..", E: ".", F: "..-.", G: "--.", H: "....",
+  I: "..", J: ".---", K: "-.-", L: ".-..", M: "--", N: "-.", O: "---", P: ".--.",
+  Q: "--.-", R: ".-.", S: "...", T: "-", U: "..-", V: "...-", W: ".--", X: "-..-",
+  Y: "-.--", Z: "--..",
+};
+// Тайминг-последовательность вкл/выкл для слова (стандартные доли Морзе).
+function morseTimeline(word: string): Array<{ on: boolean; ms: number }> {
+  const DOT = 170, DASH = 510, GAP = 170, LGAP = 470;
+  const seq: Array<{ on: boolean; ms: number }> = [];
+  const letters = word.toUpperCase().split("");
+  letters.forEach((ch, li) => {
+    const code = MORSE_TABLE[ch];
+    if (!code) return;
+    code.split("").forEach((sym, si) => {
+      seq.push({ on: true, ms: sym === "." ? DOT : DASH });
+      if (si < code.length - 1) seq.push({ on: false, ms: GAP });
+    });
+    if (li < letters.length - 1) seq.push({ on: false, ms: LGAP });
+  });
+  return seq;
 }
 
 // hex → rgba-строка с заданной alpha (динамическая яркость маркеров).
@@ -564,6 +691,60 @@ function CountriesFallbackList({ countries }: { countries: GlobeCountry[] }) {
 
 
 // ───────────────────────────────────────────────────────────────────────────
+// Морзе-подмигивание Музы (Босс 2026-05-29): при плавном подходе камеры к точке
+// юзера (его геолокация в центре кадра) Муза «подмигивает» азбукой Морзе в своих
+// фирменных цветах и здоровается на языке юзера. Оверлей по центру глобуса
+// (геолокация при прилёте — в центре). pointer-events-none — не мешает вращению.
+function MorseWink({ text, onDone }: { text: string; onDone: () => void }) {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    const seq = morseTimeline("MUZA");
+    let i = 0;
+    let timer = 0;
+    const step = () => {
+      if (i >= seq.length) {
+        setOn(false);
+        timer = window.setTimeout(onDone, 1600);
+        return;
+      }
+      const s = seq[i++];
+      setOn(s.on);
+      timer = window.setTimeout(step, s.ms);
+    };
+    step();
+    return () => window.clearTimeout(timer);
+  }, [onDone]);
+  return (
+    <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center">
+      <div
+        className="mb-3 h-5 w-5 rounded-full"
+        style={{
+          background:
+            "radial-gradient(circle, #ffffff 0%, #67E8F9 32%, #7C3AED 68%, transparent 100%)",
+          opacity: on ? 1 : 0.08,
+          boxShadow: on
+            ? "0 0 22px 7px rgba(124,58,237,0.85), 0 0 40px 14px rgba(0,212,255,0.5)"
+            : "none",
+          transition: "opacity 70ms linear, box-shadow 70ms linear",
+        }}
+      />
+      <div
+        className="px-4 py-1.5 rounded-full text-sm font-display font-bold tracking-wide whitespace-nowrap"
+        style={{
+          background: "linear-gradient(90deg,#7C3AED,#D946EF,#00D4FF)",
+          WebkitBackgroundClip: "text",
+          backgroundClip: "text",
+          color: "transparent",
+          textShadow: "0 0 18px rgba(124,58,237,0.5)",
+        }}
+      >
+        {text}
+      </div>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 // Внутренний компонент — <Globe> с day/night шейдером, яркостью маркеров
 // (фронт + день/ночь), огоньками столиц ночью и кольцами «приём сигнала».
 function GlobeInner({ points }: { points: GlobePoint[] }) {
@@ -600,10 +781,18 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   const sunMeshRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const moonMeshRef = useRef<any>(null);
+  // Материал Луны (фазовый шейдер) — обновляем uniform sunDir при движении Солнца.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const moonMatRef = useRef<any>(null);
   // Геолокация юзера для стартового обзора (Босс: «открытие глобуса по геолокации»).
+  // Только ref — режиссёр читает его вживую в rAF (без перерендера и гонок таймеров).
   const userLatLngRef = useRef<{ lat: number; lng: number } | null>(null);
-  const [userLatLng, setUserLatLng] = useState<{ lat: number; lng: number } | null>(null);
   const introDoneRef = useRef(false); // интро-полёт выполняется один раз
+  // Камера-режиссёр: юзер сейчас сам вращает (пауза авто-движения) + хук пере-базы круиза.
+  const userInteractingRef = useRef(false);
+  const rebaseCruiseRef = useRef<(() => void) | null>(null);
+  // Морзе-подмигивание Музы на языке юзера (показывается один раз при прилёте).
+  const [wink, setWink] = useState<string | null>(null);
 
   const basePointsRef = useRef<GlobePoint[]>(points);
   useEffect(() => {
@@ -643,18 +832,18 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       } catch {
         // ignore
       }
-      // Освобождаем Солнце/Луну (geometry + material + дети-гало).
+      // Освобождаем Солнце (спрайт: map+material) и Луну (шар: geometry+material).
       try {
         for (const m of [sunMeshRef.current, moonMeshRef.current]) {
           if (!m) continue;
           m.parent?.remove?.(m);
-          m.geometry?.dispose?.();
+          m.material?.map?.dispose?.();
           m.material?.dispose?.();
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (m.children || []).forEach((ch: any) => { ch.geometry?.dispose?.(); ch.material?.dispose?.(); });
+          m.geometry?.dispose?.();
         }
         sunMeshRef.current = null;
         moonMeshRef.current = null;
+        moonMatRef.current = null;
       } catch {
         // ignore
       }
@@ -678,6 +867,13 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         const mp = subLunarPoint(Date.now());
         const c = g.getCoords(mp[1], mp[0], 1.9);
         moonMeshRef.current.position.set(c.x, c.y, c.z);
+      }
+      // Фаза Луны: направление на Солнце в мировых координатах (= нормаль позиции
+      // Солнца от центра сцены). Сторона Луны к Солнцу светлая, обратная — в тени.
+      if (moonMatRef.current && sunMeshRef.current) {
+        const s = sunMeshRef.current.position;
+        const len = Math.hypot(s.x, s.y, s.z) || 1;
+        moonMatRef.current.uniforms.sunDir.value.set(s.x / len, s.y / len, s.z / len);
       }
     } catch {
       // ignore
@@ -713,7 +909,6 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           if (cancelled) return;
           const ll = { lat: pos.coords.latitude, lng: pos.coords.longitude };
           userLatLngRef.current = ll;
-          setUserLatLng(ll);
         },
         () => { /* отказ/ошибка — остаёмся на fallback-обзоре */ },
         { enableHighAccuracy: false, timeout: 6000, maximumAge: 600000 },
@@ -724,103 +919,151 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     return () => { cancelled = true; };
   }, []);
 
-  // Стартовая интро-анимация (Босс 2026-05-29): при открытии глобуса сначала ~2с
-  // показываем «рассвет Солнца и Луны» — обзорный кадр, где видно Солнце и Луну
-  // (точка между субсолярной и подлунной, общий план), затем ПЛАВНО (~2с) летим
-  // камерой к геолокации юзера. reduced-motion → без полёта, сразу геолокация.
-  // Таймер очищается в cleanup (clearTimeout) — нет утечек/гонок при размонтаже.
+  // ── Камера-режиссёр (Босс 2026-05-29, «сделай на 100% правильно»). ЕДИНЫЙ rAF
+  // владеет камерой и каждый кадр пишет pointOfView(..., 0) (мгновенно). Почему так:
+  //   • НЕТ библиотечного autoRotate и НЕТ инерции (enableDamping=false) → планета
+  //     не может «раскрутиться как мяч».
+  //   • Долгота интерполируется КРАТЧАЙШИМ путём (lerpAngle) → камера никогда не
+  //     обходит планету «вокруг» (это и читалось как резкая раскрутка).
+  //   • Геолокация читается ЖИВО (userLatLngRef) внутри цикла → когда координаты
+  //     приходят с задержкой, цель плавно уточняется, без рестарта эффекта/гонок
+  //     таймеров (старый баг: смена userLatLng пересоздавала эффект и сбрасывала полёт).
+  // Фазы: sunrise (медленное вращение + восход) → fly (плавный пролёт к юзеру,
+  // «от 1 до последнего кадра») → cruise (мягкое непрерывное вращение). При прилёте —
+  // подмигивание Морзе. reduced-motion → сразу на цель без движения.
   useEffect(() => {
-    // Босс 2026-05-29: полёт запускается ВСЕГДА при готовности глобуса (раньше был
-    // gated на userLatLng — на шар-ссылках геолокация часто не выдаётся → полёта не
-    // было, глобус статичен). Цель: геолокация юзера; если её нет — топ-страна по
-    // слушателям; иначе разумный дефолт. Выполняется один раз (introDoneRef).
     if (!ready || introDoneRef.current) return;
     const g = globeRef.current;
     if (!g?.pointOfView) return;
-    let target = userLatLng;
-    if (!target) {
-      const top = points.slice().sort((a, b) => (b.weight || 0) - (a.weight || 0))[0];
-      target = top ? { lat: top.lat, lng: top.lng } : { lat: 50, lng: 30 };
-    }
     introDoneRef.current = true;
 
-    // Уважаем prefers-reduced-motion: без обзора и полёта — сразу на цель.
+    const fallbackTarget = (): { lat: number; lng: number } => {
+      const top = basePointsRef.current
+        .slice()
+        .sort((a, b) => (b.weight || 0) - (a.weight || 0))[0];
+      return top ? { lat: top.lat, lng: top.lng } : { lat: 50, lng: 30 };
+    };
+
     if (prefersReducedMotion()) {
+      const t = userLatLngRef.current || fallbackTarget();
       try {
-        g.pointOfView({ lat: target.lat, lng: target.lng, altitude: RESTING_ALTITUDE }, 0);
+        g.pointOfView({ lat: t.lat, lng: t.lng, altitude: RESTING_ALTITUDE }, 0);
       } catch {
         // ignore
       }
       return;
     }
 
-    let flyTimer: number | null = null;
-    let rotTimer: number | null = null;
+    // Старт: терминатор ВОСХОДА на экваторе (subsolar−90° ≈ 6 утра) — лучи Солнца
+    // задевают край Земли. Ставим мгновенно, пока канвас ещё прозрачный (opacity 0→1).
+    let startLng = -90;
     try {
-      // Обзорный кадр: точка между подсолнечной и подлунной (видно Солнце+Луну).
-      // Fallback при недоступности формул — разумный общий план (день по центру).
-      // Босс 2026-05-29: начальный кадр — точка ВОСХОДА (терминатор, экватор):
-      // меридиан восхода = subsolar−90° (~6 утра), видно восход (лучи задевают край
-      // земли) + Луну. Тот же кадр, что выставлен в onGlobeReady → плавно, без прыжка.
-      const overviewLat = 0;
-      let overviewLng = subsolarPoint(Date.now())[0] - 90;
-      try {
-        overviewLng = subsolarPoint(Date.now())[0] - 90;
-      } catch {
-        // fallback-значение выше
-      }
-      // Стадия 1 — ВОСХОД: солнце поднимается из-за края. Плавный пан от лимба
-      // (старт subsolar−110° в onGlobeReady) к обзору (subsolar−90°) за ~3.5с —
-      // солнце «растёт» из сливера до полного. Стадия 2 — плавный пролёт к геолокации.
-      g.pointOfView({ lat: overviewLat, lng: overviewLng, altitude: OVERVIEW_ALTITUDE }, INTRO_SUNRISE_MS);
-      flyTimer = window.setTimeout(() => {
-        try {
-          globeRef.current?.pointOfView?.(
-            { lat: target.lat, lng: target.lng, altitude: RESTING_ALTITUDE },
-            INTRO_FLY_MS,
-          );
-        } catch {
-          // ignore
-        }
-        // Босс 2026-05-29 «продолжая плавный поворот»: после прилёта к геолокации —
-        // МЯГКОЕ авто-вращение (не резкое). Включаем по завершении полёта.
-        rotTimer = window.setTimeout(() => {
-          try {
-            const c = globeRef.current?.controls?.();
-            if (c) { c.autoRotate = true; c.autoRotateSpeed = 0.22; }
-          } catch { /* no-op */ }
-        }, INTRO_FLY_MS + 400);
-      }, INTRO_SUNRISE_MS + INTRO_OVERVIEW_HOLD_MS);
+      startLng = subsolarPoint(Date.now())[0] - 90;
+    } catch {
+      // дефолт выше
+    }
+    const startLat = 0;
+    try {
+      g.pointOfView({ lat: startLat, lng: startLng, altitude: OVERVIEW_ALTITUDE }, 0);
     } catch {
       // ignore
     }
-    return () => {
-      if (flyTimer !== null) window.clearTimeout(flyTimer);
-      if (rotTimer !== null) window.clearTimeout(rotTimer);
-    };
-  }, [ready, userLatLng, points]);
 
-  // Fallback: если геолокация так и не пришла (отказ/таймаут ~6с), после короткого
-  // обзора плавно садимся на resting altitude на текущем обзорном кадре (Солнце+Луна),
-  // чтобы глобус не «завис» на общем плане. Если геолокация появится — основной
-  // интро-effect выше перехватит наводку. Таймер очищается в cleanup.
-  useEffect(() => {
-    if (!ready || userLatLng) return;
-    if (prefersReducedMotion()) return;
-    const settleTimer = window.setTimeout(() => {
-      if (userLatLngRef.current) return; // геолокация подоспела — её ведёт другой effect
+    const t0 = performance.now();
+    let phase: "sunrise" | "fly" | "cruise" = "sunrise";
+    let flyStart = { lat: startLat, lng: startLng, alt: OVERVIEW_ALTITUDE };
+    let flyStartAt = 0;
+    const cruise = { lat: startLat, lng: startLng, alt: RESTING_ALTITUDE, t0: 0 };
+    let winked = false;
+    let raf = 0;
+    let last = 0;
+
+    // Пере-базирование круиз-дрейфа после ручного вращения (Босс: «продолжая плавный
+    // поворот»). Вызывается из обработчика OrbitControls 'end' (см. onGlobeReady).
+    rebaseCruiseRef.current = () => {
+      if (phase !== "cruise") return;
       try {
-        const g = globeRef.current;
-        const pov = g?.pointOfView?.();
+        const pov = globeRef.current?.pointOfView?.();
         if (pov) {
-          g.pointOfView({ lat: pov.lat, lng: pov.lng, altitude: RESTING_ALTITUDE }, INTRO_FLY_MS);
+          cruise.lat = pov.lat;
+          cruise.lng = pov.lng;
+          cruise.alt = pov.altitude;
+          cruise.t0 = performance.now();
         }
       } catch {
         // ignore
       }
-    }, INTRO_OVERVIEW_HOLD_MS + 5000);
-    return () => window.clearTimeout(settleTimer);
-  }, [ready, userLatLng]);
+    };
+
+    const loop = (now: number) => {
+      raf = requestAnimationFrame(loop);
+      if (now - last < 33) return; // ~30fps — мягко и легко
+      last = now;
+      const gg = globeRef.current;
+      if (!gg?.pointOfView) return;
+      // Юзер сам вращает — не мешаем (в круизе пере-базируемся при отпускании).
+      if (userInteractingRef.current) return;
+      const elapsed = now - t0;
+
+      if (phase === "sunrise") {
+        // Медленное вращение с 1-го кадра (Босс): край Земли «проявляет» Солнце.
+        const lng = startLng - (SUNRISE_DRIFT_DEG_S * elapsed) / 1000;
+        try {
+          gg.pointOfView({ lat: startLat, lng, altitude: OVERVIEW_ALTITUDE }, 0);
+        } catch {
+          // ignore
+        }
+        if (elapsed >= SUNRISE_HOLD_MS) {
+          flyStart = { lat: startLat, lng, alt: OVERVIEW_ALTITUDE };
+          flyStartAt = now;
+          phase = "fly";
+        }
+        return;
+      }
+
+      if (phase === "fly") {
+        // Плавный пролёт к геолокации (кратчайший путь по долготе → без раскрутки).
+        const p = Math.min(1, (now - flyStartAt) / FLY_MS);
+        const e = easeInOutCubic(p);
+        const target = userLatLngRef.current || fallbackTarget();
+        const lat = flyStart.lat + (target.lat - flyStart.lat) * e;
+        const lng = lerpAngle(flyStart.lng, target.lng, e);
+        const alt = flyStart.alt + (RESTING_ALTITUDE - flyStart.alt) * e;
+        try {
+          gg.pointOfView({ lat, lng, altitude: alt }, 0);
+        } catch {
+          // ignore
+        }
+        if (p >= 1) {
+          cruise.lat = lat;
+          cruise.lng = lng;
+          cruise.alt = RESTING_ALTITUDE;
+          cruise.t0 = now;
+          phase = "cruise";
+          if (!winked) {
+            winked = true;
+            setWink(greetingForUser()); // подмигивание Морзе на языке юзера
+          }
+        }
+        return;
+      }
+
+      // cruise — мягкое непрерывное вращение (никогда не статика, никогда не «мяч»).
+      const lng = cruise.lng - (CRUISE_DRIFT_DEG_S * (now - cruise.t0)) / 1000;
+      try {
+        gg.pointOfView({ lat: cruise.lat, lng, altitude: cruise.alt }, 0);
+      } catch {
+        // ignore
+      }
+    };
+    raf = requestAnimationFrame(loop);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      rebaseCruiseRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
 
   // Замер размера контейнера + ResizeObserver.
   useEffect(() => {
@@ -1001,83 +1244,75 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       }
       const controls = g.controls?.();
       if (controls) {
-        // Босс 2026-05-29: НЕ «резко крутится» — авто-вращение ВЫКЛ. Камера спокойно
-        // делает интро-полёт от восхода к геолокации, дальше юзер вращает сам.
+        // Босс 2026-05-29 «планета не раскручивается как мяч»: НЕТ авто-вращения и
+        // НЕТ инерции (enableDamping=false). Камеру каждый кадр ведёт rAF-режиссёр;
+        // инерция OrbitControls больше не может «раскрутить» сцену в окне ready=false.
         controls.autoRotate = false;
+        controls.autoRotateSpeed = 0;
+        controls.enableDamping = false;
         controls.enableZoom = true;
         controls.enablePan = false;
         controls.minDistance = 180;
         controls.maxDistance = 600;
         controls.rotateSpeed = 0.7;
         controls.zoomSpeed = 0.8;
+        // Ручное вращение юзером: на 'start' режиссёр уступает камеру, на 'end' —
+        // мягко перенимает дрейф с текущей точки (Босс: «продолжая плавный поворот»).
+        try {
+          controls.addEventListener?.("start", () => {
+            userInteractingRef.current = true;
+          });
+          controls.addEventListener?.("end", () => {
+            userInteractingRef.current = false;
+            rebaseCruiseRef.current?.();
+          });
+        } catch {
+          // ignore
+        }
       }
-      // Стартовый кадр — точка ВОСХОДА (терминатор, экватор): лучи солнца задевают
-      // край земли, виден восход + Луна. Ставим СРАЗУ (duration 0), пока канвас ещё
-      // прозрачный (opacity 0→1) → плавно с первого кадра, без рывка/прыжка.
-      try {
-        // Старт на ЛИМБЕ (subsolar−110°): солнце с лучами только пробивается из-за
-        // края земли (сливер). Дальше intro-эффект плавно «поднимает» его (пан к −90°).
-        const sp0 = subsolarPoint(Date.now());
-        g.pointOfView?.({ lat: 0, lng: sp0[0] - 110, altitude: OVERVIEW_ALTITUDE }, 0);
-      } catch { /* no-op */ }
-      // Видимые 3D-Солнце и Луна (Босс «Солнца и Луну не видно»). Добавляем в
-      // сцену один раз; позиция — над субсолярной/подлунной точками (positionSunMoon).
+      // Начальный кадр (точка восхода) выставляет камера-режиссёр синхронно при ready
+      // — здесь pointOfView НЕ зовём, чтобы не было конфликтующих наводок (это и
+      // давало рывок/раскрутку). Канвас прозрачен (opacity 0→1) до первого кадра.
+
+      // Видимые Солнце и Луна — БИЛБОРД-СПРАЙТЫ (Босс 2026-05-29 «солнце не эллипсом»):
+      // спрайт всегда повёрнут к камере → идеальный круг в любой точке кадра, даже
+      // у самого края (3D-сфера у края проецируется в эллипс из-за перспективы).
       try {
         const scene = g.scene?.();
         if (scene && !sunMeshRef.current) {
-          // Солнце — яркий диск + аддитивное гало.
-          const sun = new THREE.Mesh(
-            new THREE.SphereGeometry(11, 28, 28),
-            new THREE.MeshBasicMaterial({ color: 0xfff1c4 }),
+          const sun = makeDiscSprite(
+            [
+              // Плотное светящееся ЯДРО (тело шара) → мягкая корона/гало (излучает свет).
+              [0.0, "rgba(255,255,255,1)"],
+              [0.16, "rgba(255,246,210,1)"],
+              [0.32, "rgba(255,216,140,0.9)"],
+              [0.6, "rgba(255,190,108,0.4)"],
+              [1.0, "rgba(255,170,80,0)"],
+            ],
+            74,
+            true, // additive — яркое солнечное свечение
           );
-          const glow = new THREE.Mesh(
-            new THREE.SphereGeometry(22, 28, 28),
-            new THREE.MeshBasicMaterial({
-              color: 0xffd27a, transparent: true, opacity: 0.28,
-              blending: THREE.AdditiveBlending, depthWrite: false,
-            }),
-          );
-          sun.add(glow);
-          scene.add(sun);
-          sunMeshRef.current = sun;
+          if (sun) {
+            scene.add(sun);
+            sunMeshRef.current = sun;
+          }
         }
         if (scene && !moonMeshRef.current) {
-          // Луна — серый диск с лёгким холодным свечением по краю.
-          const moon = new THREE.Mesh(
-            new THREE.SphereGeometry(4.2, 28, 28),
-            new THREE.MeshBasicMaterial({ color: 0xd9dbe2 }),
-          );
-          const moonGlow = new THREE.Mesh(
-            new THREE.SphereGeometry(6.4, 24, 24),
-            new THREE.MeshBasicMaterial({
-              color: 0xaab4d6, transparent: true, opacity: 0.18,
-              blending: THREE.AdditiveBlending, depthWrite: false,
-            }),
-          );
-          moon.add(moonGlow);
+          // Луна — ШАР с фазовым шейдером (отражает Солнце, обратная в тени).
+          const moonUniforms = { sunDir: { value: new THREE.Vector3(1, 0, 0) } };
+          const moonMat = new THREE.ShaderMaterial({
+            uniforms: moonUniforms,
+            vertexShader: MOON_VERTEX,
+            fragmentShader: MOON_FRAGMENT,
+          });
+          const moon = new THREE.Mesh(new THREE.SphereGeometry(5, 32, 32), moonMat);
           scene.add(moon);
           moonMeshRef.current = moon;
+          moonMatRef.current = moonMat;
         }
         positionSunMoon();
       } catch (e) {
         console.error("[GlobeView] sun/moon setup failed:", e);
-      }
-
-      // Стартовый кадр перед интро-анимацией (Босс 2026-05-29): обзор «рассвет
-      // Солнца и Луны» — точка между субсолярной и подлунной, общий план, чтобы
-      // видеть Солнце+Луну. Дальнейший плавный полёт к геолокации делает effect
-      // [ready, userLatLng] (после setReady ниже). При reduced-motion или отсутствии
-      // геолокации интро не летит — остаётся этот обзорный/fallback кадр.
-      try {
-        const sp = subsolarPoint(Date.now()); // [lng, lat]
-        const mp = subLunarPoint(Date.now()); // [lng, lat]
-        const overLat = (sp[1] + mp[1]) / 2;
-        const overLng = sp[0] + lngDelta(mp[0], sp[0]) / 2;
-        g.pointOfView?.({ lat: overLat, lng: overLng, altitude: OVERVIEW_ALTITUDE }, 0);
-      } catch {
-        // Fallback: Солнце слева (камера на 90° восточнее субсолярной долготы).
-        const [subLng] = subsolarPoint(Date.now());
-        g.pointOfView?.({ lat: 22, lng: subLng + 90, altitude: OVERVIEW_ALTITUDE }, 0);
       }
     } catch (e) {
       console.error("[GlobeView] onGlobeReady controls setup failed:", e);
@@ -1162,6 +1397,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         ringRepeatPeriod={(d: RingDatum) => d.period}
         ringResolution={64}
       />
+      {wink && <MorseWink text={wink} onDone={() => setWink(null)} />}
     </div>
   );
 }
