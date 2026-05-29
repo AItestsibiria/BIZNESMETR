@@ -3065,10 +3065,11 @@ export function FloatingConsultant() {
         {!expanded && !chatOpen && (
           <button
             type="button"
-            onClick={dismiss}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); dismiss(); }}
             aria-label="Свернуть Музу"
             title={dismissedRef.current === 0 ? "Свернуть на 1 минуту" : "Свернуть на 1 час"}
-            className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-6 h-6 rounded-full bg-black/40 backdrop-blur-sm border border-white/20 text-white/70 hover:text-white hover:bg-black/60 text-[10px] flex items-center justify-center transition-colors"
+            className="absolute -bottom-2 left-1/2 -translate-x-1/2 z-20 w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 via-fuchsia-500 to-cyan-400 border border-white/30 text-white text-sm font-bold flex items-center justify-center shadow-[0_0_12px_rgba(217,70,239,0.55)] active:scale-90 transition-transform"
           >×</button>
         )}
       </div>

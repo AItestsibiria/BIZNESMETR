@@ -2767,7 +2767,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   <button
                                     type="button"
                                     onClick={() => togglePlay(gt)}
-                                    className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-white bg-gradient-to-br from-purple-500 via-fuchsia-500 to-blue-500 shadow-[0_0_14px_rgba(124,58,237,0.45)] active:scale-90 transition-transform"
+                                    className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-white bg-white/20 border border-white/30 hover:bg-white/25 active:scale-90 transition-all"
                                     aria-label={isPlayingState ? "Пауза" : "Слушать"}
                                   >
                                     {isPlayingState ? <Pause className="w-4 h-4" fill="currentColor" /> : <Play className="w-4 h-4 ml-0.5" fill="currentColor" />}
@@ -2811,7 +2811,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                     setShowGlobe(false);
                                     try { window.dispatchEvent(new CustomEvent("muza:open-chat")); } catch { /* no-op */ }
                                   }}
-                                  className="px-3 py-1.5 rounded-xl text-[11px] font-semibold text-white bg-gradient-to-r from-purple-500 via-fuchsia-500 to-blue-500 active:scale-95 transition-transform whitespace-nowrap"
+                                  className="px-3 py-1.5 rounded-xl text-[11px] font-semibold text-white bg-white/10 border border-purple-400/30 hover:bg-white/15 active:scale-95 transition-all whitespace-nowrap"
                                 >
                                   Вернуться к Музе
                                 </button>
@@ -4113,7 +4113,7 @@ export default function LandingPage() {
           Музу как pricing-pill). */}
       <section
         className="relative z-[1] pb-3 sm:pb-8 px-4 overflow-hidden hero-gradient scan-line"
-        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 4.5rem)" }}
+        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 5.625rem)" }}
       >
 
         {/* Decorative equalizer elements */}
