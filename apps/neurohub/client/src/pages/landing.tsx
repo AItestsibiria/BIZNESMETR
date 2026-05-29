@@ -602,6 +602,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // вьюпорта и полностью видим. Измеряемый отступ сверху прижимает плеер к низу
   // первого экрана (заголовок выше, список — ниже скроллом). 0 если не помещается.
   const [playerTopSpacer, setPlayerTopSpacer] = useState(0);
+  // Босс 2026-05-29 «надо чтобы плейлист не видно было» — отступ ПОСЛЕ плеера,
+  // чтобы список начинался ровно за нижним краем первого экрана (off-screen).
+  const [playerBottomSpacer, setPlayerBottomSpacer] = useState(0);
   const currentSpacerRef = useRef(0);
   const bigPlayerRef = useRef<HTMLDivElement | null>(null);
   // Eugene 2026-05-26 Босс «свайп-режим на основном плеере + подсказка на 5 сек +
@@ -1606,6 +1609,35 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       window.removeEventListener("orientationchange", recompute);
     };
   }, [playingId, coverExpanded]);
+
+  // Босс 2026-05-29 «надо чтобы плейлист не видно было» — после применения
+  // верхнего отступа меряем фактический низ карточки плеера и дотягиваем отступ
+  // снизу до низа экрана, чтобы список начинался off-screen (за первым окном).
+  // Только когда юзер вверху (scrollY≈0). Зависит от playerTopSpacer → пересчёт
+  // после того как плеер встал на место.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const recomputeBottom = () => {
+      if (window.scrollY > 20) return;
+      const el = bigPlayerRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      if (rect.height < 40) return;
+      const MB = 24; // mb-6 у карточки плеера
+      const next = Math.max(0, Math.round(window.innerHeight - rect.bottom - MB));
+      setPlayerBottomSpacer((prev) => (Math.abs(prev - next) > 3 ? next : prev));
+    };
+    const raf = requestAnimationFrame(recomputeBottom);
+    const t = window.setTimeout(recomputeBottom, 360);
+    window.addEventListener("resize", recomputeBottom, { passive: true });
+    window.addEventListener("orientationchange", recomputeBottom, { passive: true });
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(t);
+      window.removeEventListener("resize", recomputeBottom);
+      window.removeEventListener("orientationchange", recomputeBottom);
+    };
+  }, [playerTopSpacer, playingId, coverExpanded]);
 
   const playTrack = (track: any) => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -3107,7 +3139,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             части, смести чуть ниже плеера». Spacer между currentTrack big
             player и списком треков — чтобы список не лип к плееру и был
             явно ниже viewport-fold. */}
-        <div className="mt-8 sm:mt-10" aria-hidden="true" />
+        <div aria-hidden="true" style={{ height: playerBottomSpacer }} />
         {/* Eugene 2026-05-16 Босс «убери из меню Новые авторы» — временно
             оставляем только основной плейлист. Backend endpoint остаётся,
             вернём когда исправим UI bug с пустым плейлистом. */}
