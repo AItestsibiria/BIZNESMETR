@@ -2883,10 +2883,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                           role="dialog"
                           aria-label="3D-глобус стран"
                         >
-                          {/* Босс 2026-05-29: фон ВОКРУГ рамки = тот же звёздный космос
-                              с мерцанием, что и внутри (одна сцена). Анимированный
-                              StarfieldCanvas (warp + pulse-мерцание) за карточкой. */}
-                          <div className="absolute inset-0 z-0 pointer-events-none">
+                          {/* Босс 2026-05-29: звёздный фон на ВЕСЬ экран (fixed inset-0 —
+                              покрывает и safe-area поля сверху/снизу в фуллскрине на смартфоне,
+                              а не только контент-бокс). Никаких чёрных полей — фон везде такой
+                              же звёздный, как внутри сцены с планетой. */}
+                          <div className="fixed inset-0 z-0 pointer-events-none">
                             <StarfieldCanvas />
                           </div>
                           <div
