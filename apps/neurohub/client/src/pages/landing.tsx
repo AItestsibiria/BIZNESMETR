@@ -2716,7 +2716,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               >×</button>
                             </div>
                             {/* Сам глобус — занимает основную область */}
-                            <div className="relative flex-1 min-h-0">
+                            {/* Босс 2026-05-29: фуллскрин — но плеер и контролы должны быть
+                                видны на ЛЮБОМ устройстве (Device-fit). Кап высоты области
+                                глобуса (≤58dvh) гарантирует место под шапку + мини-плеер +
+                                кнопки внизу — они не уезжают за край. Глобус остаётся круглым. */}
+                            <div className="relative flex-1 min-h-0 max-h-[58dvh]">
                               <ErrorBoundary
                                 pageName="globe"
                                 fallback={
