@@ -35,11 +35,24 @@ interface DengaAggregates {
   totalCost: number;
   totalChatCost: number;
   anonymousChatCost: number;
+  manualSalesRevenue: number;
   totalProfit: number;
   avgProfitPerTrack: number;
   avgCostPerTrack: number;
   avgRevenuePerTrack: number;
   generatedAt: string;
+}
+
+interface ManualSaleRow {
+  id: number;
+  userId: number | null;
+  amountKopecks: number;
+  trackQty: number;
+  note: string | null;
+  adminId: number | null;
+  createdAt: string | null;
+  userEmail: string | null;
+  userName: string | null;
 }
 
 interface DengaUserStats {
@@ -111,7 +124,7 @@ const PERIOD_LABELS: Record<Period, string> = {
   all: "Всё время",
 };
 
-type SubTab = "summary" | "users" | "tracks" | "anonymous" | "tariffs" | "override";
+type SubTab = "summary" | "users" | "tracks" | "anonymous" | "tariffs" | "override" | "manualSale";
 
 function rub(kopecks: number): string {
   if (!Number.isFinite(kopecks)) return "0 ₽";
@@ -192,6 +205,11 @@ function SummaryCards({ agg }: { agg: DengaAggregates }) {
           <div className="font-mono font-bold text-xl sm:text-2xl bg-gradient-to-r from-blue-400 via-cyan-400 to-emerald-300 bg-clip-text text-transparent">
             {rub(agg.totalRevenue)}
           </div>
+          {agg.manualSalesRevenue > 0 && (
+            <div className="text-[10px] font-sans text-muted-foreground mt-1 whitespace-nowrap">
+              из них ручные: {rub(agg.manualSalesRevenue)}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -829,6 +847,195 @@ function OverrideSubTab() {
 }
 
 // ============================================================
+// Manual sale sub-tab — Eugene 2026-05-29 Босс «ручной ввод продажи».
+// Пакеты продаются офлайн («10 треков — 2990 ₽»). Записываем выручку +
+// начисляем бонус-треки покупателю (если указан). Аноним = только выручка.
+// ============================================================
+function ManualSaleSubTab() {
+  const queryClient = useQueryClient();
+  const [userRef, setUserRef] = useState(""); // email или числовой id
+  const [trackQty, setTrackQty] = useState("10");
+  const [amountRub, setAmountRub] = useState("2990");
+  const [note, setNote] = useState("");
+  const [submitMsg, setSubmitMsg] = useState("");
+
+  const sales = useQuery({
+    queryKey: ["denga-manual-sales"],
+    queryFn: () =>
+      fetcher<ManualSaleRow[]>("/api/admin/v304/denga/manual-sales?limit=50"),
+    refetchOnWindowFocus: false,
+  });
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const ref = userRef.trim();
+      const isNumericId = /^\d+$/.test(ref);
+      const body: Record<string, unknown> = {
+        amountRub: Number(amountRub),
+        trackQty: Number(trackQty),
+        note: note.trim() || undefined,
+      };
+      if (ref) {
+        if (isNumericId) body.userId = Number(ref);
+        else body.email = ref;
+      }
+      const r = await fetch("/api/admin/v304/denga/manual-sale", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const j = await r.json();
+      if (!r.ok || j.ok === false) {
+        throw new Error(j.error || `HTTP ${r.status}`);
+      }
+      return j as { ok: true; id: number; granted: boolean };
+    },
+    onSuccess: (r) => {
+      setSubmitMsg(
+        `✅ Продажа записана (#${r.id})${r.granted ? " · бонус-треки начислены" : " · без начисления (покупатель не указан)"}`,
+      );
+      setNote("");
+      sales.refetch();
+      queryClient.invalidateQueries({ queryKey: ["denga-aggregates"] });
+      queryClient.invalidateQueries({ queryKey: ["denga-users"] });
+    },
+    onError: (e: any) => {
+      setSubmitMsg(`❌ Ошибка: ${e?.message || e}`);
+    },
+  });
+
+  return (
+    <div className="space-y-4">
+      <Card className="glass-card border border-emerald-500/30">
+        <CardContent className="p-4 sm:p-6 space-y-4">
+          <div className="text-sm font-sans text-muted-foreground">
+            Запись офлайн-продажи пакета (например «10 треков — 2990 ₽»). Выручка
+            попадёт в Деньгу <strong>дополнительно</strong> к доходу по трекам.
+            Если указан покупатель (email или ID) — ему начислятся бонус-треки.
+            Без покупателя продажа учитывается только как выручка.
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">
+                Покупатель — email или ID (опционально)
+              </label>
+              <Input
+                placeholder="user@mail.ru или 123"
+                value={userRef}
+                onChange={(e) => setUserRef(e.target.value)}
+                className="bg-white/5 border-emerald-400/30 text-white"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">
+                Кол-во треков (бонус)
+              </label>
+              <Input
+                placeholder="10"
+                value={trackQty}
+                onChange={(e) => setTrackQty(e.target.value.replace(/[^\d]/g, ""))}
+                className="bg-white/5 border-emerald-400/30 text-white font-mono"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground block mb-1">Сумма ₽</label>
+              <Input
+                placeholder="2990"
+                value={amountRub}
+                onChange={(e) => setAmountRub(e.target.value.replace(/[^\d.]/g, ""))}
+                className="bg-white/5 border-emerald-400/30 text-white font-mono"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1">Примечание (опционально)</label>
+            <Textarea
+              placeholder="Например: «оплата на карту, пакет 10 треков»"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              className="bg-white/5 border-emerald-400/30 text-white"
+              rows={2}
+            />
+          </div>
+
+          <div className="flex gap-2 items-center flex-wrap">
+            <Button
+              onClick={() => mutation.mutate()}
+              disabled={!amountRub || mutation.isPending}
+              className="bg-gradient-to-r from-emerald-500 via-green-500 to-cyan-500 text-white shadow-[0_0_24px_rgba(16,185,129,0.45)]"
+            >
+              💵 Записать продажу
+            </Button>
+            {submitMsg && <div className="text-sm">{submitMsg}</div>}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Recent manual sales */}
+      <Card className="glass-card border border-cyan-500/30">
+        <CardContent className="p-4 sm:p-6 space-y-3">
+          <div className="text-sm font-sans font-bold text-white">Последние ручные продажи</div>
+          {sales.isLoading && (
+            <div className="text-sm text-muted-foreground">Загрузка...</div>
+          )}
+          {sales.error && (
+            <div className="text-sm text-red-400">Ошибка: {(sales.error as Error).message}</div>
+          )}
+          {sales.data && sales.data.length === 0 && (
+            <div className="text-sm text-muted-foreground">Пока нет записей.</div>
+          )}
+          {sales.data && sales.data.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-[12px]">
+                <thead>
+                  <tr className="text-left text-muted-foreground border-b border-white/10">
+                    <th className="py-2 pr-3">#</th>
+                    <th className="py-2 pr-3">Покупатель</th>
+                    <th className="py-2 pr-3 text-right">Сумма</th>
+                    <th className="py-2 pr-3 text-right">Треков</th>
+                    <th className="py-2 pr-3">Примечание</th>
+                    <th className="py-2 pr-3">Дата</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sales.data.map((s) => (
+                    <tr key={s.id} className="border-b border-white/5">
+                      <td className="py-2 pr-3 font-mono text-muted-foreground">{s.id}</td>
+                      <td className="py-2 pr-3 min-w-0">
+                        {s.userId != null ? (
+                          <span className="text-purple-300 break-words">
+                            {s.userEmail || s.userName || `ID ${s.userId}`}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">аноним</span>
+                        )}
+                      </td>
+                      <td className="py-2 pr-3 text-right font-mono text-cyan-300 whitespace-nowrap">
+                        {rubPrecise(s.amountKopecks)}
+                      </td>
+                      <td className="py-2 pr-3 text-right font-mono text-emerald-300">{s.trackQty}</td>
+                      <td className="py-2 pr-3 text-muted-foreground break-words max-w-[260px]">
+                        {s.note || "—"}
+                      </td>
+                      <td className="py-2 pr-3 font-mono text-muted-foreground whitespace-nowrap">
+                        {fmtDate(s.createdAt)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================
 // Main tab
 // ============================================================
 export default function DengaTab() {
@@ -935,6 +1142,7 @@ export default function DengaTab() {
             ["anonymous", "👤 Анонимы"],
             ["tariffs", "💵 Тарифы"],
             ["override", "✋ Ручной ввод"],
+            ["manualSale", "💵 Ручная продажа"],
           ] as Array<[SubTab, string]>
         ).map(([key, label]) => (
           <button
@@ -1015,6 +1223,7 @@ export default function DengaTab() {
       {subTab === "anonymous" && <AnonymousSubTab period={period} />}
       {subTab === "tariffs" && <TariffsSubTab />}
       {subTab === "override" && <OverrideSubTab />}
+      {subTab === "manualSale" && <ManualSaleSubTab />}
     </div>
   );
 }

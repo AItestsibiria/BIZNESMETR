@@ -54,9 +54,10 @@ export interface DengaUserStats {
   phone: string | null;
   email: string | null;
   createdAt: string | null;
-  totalRevenue: number;       // что юзер заплатил нам (gen.cost suma)
+  totalRevenue: number;       // что юзер заплатил нам (gen.cost suma + ручные продажи)
   totalCost: number;          // наши провайдерские costs
   profit: number;             // revenue - cost
+  manualSalesRevenue: number; // выручка с ручных продаж (denga_manual_sales)
   tracksCount: number;
   lyricsCount: number;
   coversCount: number;
@@ -108,6 +109,7 @@ export interface DengaAggregates {
   totalCost: number;
   totalChatCost: number;
   anonymousChatCost: number;
+  manualSalesRevenue: number;  // выручка с ручных продаж (denga_manual_sales)
   totalProfit: number;
   avgProfitPerTrack: number;
   avgCostPerTrack: number;
@@ -598,6 +600,10 @@ export function getUserStats(userId: number, fromIso?: string, toIso?: string): 
     chatCostInPeriod += finalChatCost;
   }
 
+  // Eugene 2026-05-29 — ручные продажи этого юзера (период-фильтр), АДДИТИВНО к выручке.
+  const manualSales = getManualSalesRevenue(fromIso, toIso, userId);
+  totalRevenue += manualSales.revenue;
+
   const profit = totalRevenue - totalCost;
   const totalGens = tracksCount + lyricsCount + coversCount;
   const avgProfitPerTrack = tracksCount > 0 ? Math.round(profit / tracksCount) : 0;
@@ -613,6 +619,7 @@ export function getUserStats(userId: number, fromIso?: string, toIso?: string): 
     totalRevenue,
     totalCost,
     profit,
+    manualSalesRevenue: manualSales.revenue,
     tracksCount,
     lyricsCount,
     coversCount,
@@ -844,6 +851,11 @@ export function getAggregates(opts: {
   // это реальный наш расход на провайдеры, без которого нельзя.
   totalCost += anonymousChatCost;
 
+  // Eugene 2026-05-29 — ручные продажи (пакеты офлайн), АДДИТИВНО к выручке.
+  // Per-track числа НЕ меняем — это отдельный канал revenue без generation.
+  const manualSales = getManualSalesRevenue(opts.fromIso, opts.toIso);
+  totalRevenue += manualSales.revenue;
+
   const totalProfit = totalRevenue - totalCost;
   const avgProfitPerTrack = totalTracks > 0 ? Math.round(totalProfit / totalTracks) : 0;
   const avgCostPerTrack = totalTracks > 0 ? Math.round(totalCost / totalTracks) : 0;
@@ -861,6 +873,7 @@ export function getAggregates(opts: {
     totalCost,
     totalChatCost,
     anonymousChatCost,
+    manualSalesRevenue: manualSales.revenue,
     totalProfit,
     avgProfitPerTrack,
     avgCostPerTrack,
@@ -952,6 +965,130 @@ export function listTracksWithStats(opts: {
  * Manual cost override. Idempotent — добавляет новую запись (latest wins).
  * Аудит-лог — на стороне endpoint (через recordAuditEntry).
  */
+/**
+ * Eugene 2026-05-29 — выручка с ручных продаж (denga_manual_sales).
+ * SUM(amount_kopecks) + count, опционально фильтр по диапазону created_at и user_id.
+ * Отдельный канал выручки: пакеты продаются офлайн, у них нет generation,
+ * поэтому per-track revenue (gen.cost) их не видит. Прибавляется к totalRevenue
+ * АДДИТИВНО, не меняя per-track числа.
+ */
+export function getManualSalesRevenue(
+  fromIso?: string,
+  toIso?: string,
+  userId?: number,
+): { revenue: number; count: number } {
+  try {
+    const db = rawDb();
+    const where: string[] = [];
+    const params: any[] = [];
+    if (fromIso) {
+      where.push(`created_at >= ?`);
+      params.push(fromIso);
+    }
+    if (toIso) {
+      where.push(`created_at < ?`);
+      params.push(toIso);
+    }
+    if (userId != null && Number.isFinite(userId)) {
+      where.push(`user_id = ?`);
+      params.push(userId);
+    }
+    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+    const row = db
+      .prepare(
+        `SELECT COALESCE(SUM(amount_kopecks), 0) AS revenue, COUNT(*) AS cnt
+         FROM denga_manual_sales ${whereSql}`,
+      )
+      .get(...params) as any;
+    return { revenue: Number(row?.revenue) || 0, count: Number(row?.cnt) || 0 };
+  } catch (e: any) {
+    console.warn("[denga] getManualSalesRevenue failed:", e?.message || e);
+    return { revenue: 0, count: 0 };
+  }
+}
+
+export interface ManualSaleRow {
+  id: number;
+  userId: number | null;
+  amountKopecks: number;
+  trackQty: number;
+  note: string | null;
+  adminId: number | null;
+  createdAt: string | null;
+  userEmail: string | null;
+  userName: string | null;
+}
+
+/**
+ * Eugene 2026-05-29 — записать ручную продажу пакета (офлайн). Возвращает id
+ * вставленной строки. Все значения через параметризованные запросы.
+ */
+export function insertManualSale(opts: {
+  userId: number | null;
+  amountKopecks: number;
+  trackQty: number;
+  note?: string | null;
+  adminId: number | null;
+}): { ok: boolean; id?: number; error?: string } {
+  try {
+    const db = rawDb();
+    const info = db
+      .prepare(
+        `INSERT INTO denga_manual_sales (user_id, amount_kopecks, track_qty, note, admin_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        opts.userId != null && Number.isFinite(opts.userId) ? opts.userId : null,
+        Math.round(opts.amountKopecks),
+        Math.round(opts.trackQty),
+        opts.note ? String(opts.note).slice(0, 1000) : null,
+        opts.adminId != null && Number.isFinite(opts.adminId) ? opts.adminId : null,
+        new Date().toISOString(),
+      );
+    invalidateDengaCache();
+    return { ok: true, id: Number(info?.lastInsertRowid) || undefined };
+  } catch (e: any) {
+    console.warn("[denga] insertManualSale failed:", e?.message || e);
+    return { ok: false, error: String(e?.message || e).slice(0, 300) };
+  }
+}
+
+/**
+ * Eugene 2026-05-29 — последние ручные продажи (для admin UI списка),
+ * с email/именем покупателя если user_id известен.
+ */
+export function listManualSales(limit: number = 50): ManualSaleRow[] {
+  try {
+    const db = rawDb();
+    const lim = Math.max(1, Math.min(500, Math.round(limit) || 50));
+    const rows = db
+      .prepare(
+        `SELECT s.id, s.user_id AS userId, s.amount_kopecks AS amountKopecks,
+                s.track_qty AS trackQty, s.note, s.admin_id AS adminId,
+                s.created_at AS createdAt, u.email AS userEmail, u.name AS userName
+         FROM denga_manual_sales s
+         LEFT JOIN users u ON u.id = s.user_id
+         ORDER BY s.id DESC
+         LIMIT ?`,
+      )
+      .all(lim) as any[];
+    return rows.map((r) => ({
+      id: Number(r.id),
+      userId: r.userId != null ? Number(r.userId) : null,
+      amountKopecks: Number(r.amountKopecks) || 0,
+      trackQty: Number(r.trackQty) || 0,
+      note: r.note ?? null,
+      adminId: r.adminId != null ? Number(r.adminId) : null,
+      createdAt: r.createdAt ?? null,
+      userEmail: r.userEmail ?? null,
+      userName: r.userName ?? null,
+    }));
+  } catch (e: any) {
+    console.warn("[denga] listManualSales failed:", e?.message || e);
+    return [];
+  }
+}
+
 export function setManualCost(opts: {
   genId: number;
   adminId: number;

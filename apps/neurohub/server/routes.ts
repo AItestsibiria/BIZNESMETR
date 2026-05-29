@@ -75,6 +75,8 @@ import {
   searchUsers as searchDengaUsers,
   setManualCost as setDengaManualCost,
   getManualCostHistory as getDengaManualHistory,
+  insertManualSale as insertDengaManualSale,
+  listManualSales as listDengaManualSales,
   invalidateDengaCache,
 } from "./lib/dengaAgent";
 import { startTariffRefresh, refreshLiveTariffs, tariffSourceStatus } from "./lib/tariffSource";
@@ -4981,6 +4983,88 @@ export async function registerRoutes(
     } catch (e: any) {
       console.error("[DENGA] manual-cost error:", e);
       res.status(500).json({ ok: false, error: String(e?.message || e).slice(0, 300) });
+    }
+  });
+
+  // Eugene 2026-05-29 Босс «Деньга — ручной ввод продажи». Платформа продаёт
+  // пакеты офлайн («10 треков — 2990 ₽»). У пакета нет generation → отдельный
+  // канал ручной выручки + начисление бонус-треков покупателю.
+  // user_id может быть null (аноним/оффлайн = только выручка, без начисления).
+  app.post("/api/admin/v304/denga/manual-sale", requireAdmin, (req: Request, res: Response) => {
+    try {
+      // Resolve user: userId > email lookup > null (anonymous)
+      let userId: number | null = null;
+      const rawUserId = req.body?.userId;
+      if (rawUserId != null && String(rawUserId).trim() !== "") {
+        const uid = parseInt(String(rawUserId), 10);
+        if (Number.isFinite(uid)) userId = uid;
+      }
+      if (userId == null && req.body?.email && String(req.body.email).trim() !== "") {
+        const found = storage.getUserByEmail(String(req.body.email).toLowerCase().trim());
+        if (found) userId = Number(found.id);
+      }
+      const userResolved = userId != null;
+
+      // Validate amount
+      const amountRub = Number(req.body?.amountRub);
+      if (!Number.isFinite(amountRub) || amountRub < 0) {
+        return res.status(400).json({ ok: false, error: "Сумма ₽ должна быть числом >= 0" });
+      }
+      const amountKopecks = Math.round(amountRub * 100);
+
+      // Validate trackQty (clamp 0..100)
+      let trackQty = parseInt(String(req.body?.trackQty ?? 0), 10);
+      if (!Number.isFinite(trackQty)) trackQty = 0;
+      trackQty = Math.max(0, Math.min(100, trackQty));
+
+      const note = req.body?.note ? String(req.body.note).slice(0, 1000) : null;
+      const adminId = (req as any).session?.userId || (req as any).user?.id || 0;
+
+      const ins = insertDengaManualSale({ userId, amountKopecks, trackQty, note, adminId });
+      if (!ins.ok || ins.id == null) {
+        return res.status(500).json({ ok: false, error: ins.error || "INSERT failed" });
+      }
+
+      // Grant bonus tracks if user resolved (parameterized UPDATE — no string interpolation)
+      let granted = false;
+      if (userResolved && trackQty > 0) {
+        try {
+          sqliteDb
+            .prepare(`UPDATE users SET bonus_tracks = COALESCE(bonus_tracks, 0) + ? WHERE id = ?`)
+            .run(trackQty, userId);
+          granted = true;
+        } catch (ge: any) {
+          console.error("[DENGA] manual-sale grant error:", ge);
+        }
+      }
+
+      try {
+        recordAuditEntry({
+          req,
+          action: "create",
+          entity: "denga_manual_sale",
+          entityKey: `sale-${ins.id}`,
+          after: { userId, amountKopecks, trackQty, note },
+        });
+      } catch {}
+
+      invalidateDengaCache();
+      res.json({ ok: true, id: ins.id, granted });
+    } catch (e: any) {
+      console.error("[DENGA] manual-sale error:", e);
+      res.status(500).json({ ok: false, error: String(e?.message || e).slice(0, 300) });
+    }
+  });
+
+  // Recent manual sales (для admin UI списка)
+  app.get("/api/admin/v304/denga/manual-sales", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 50));
+      const rows = listDengaManualSales(limit);
+      res.json({ data: rows, error: null });
+    } catch (e: any) {
+      console.error("[DENGA] manual-sales list error:", e);
+      res.status(500).json({ data: null, error: String(e?.message || e).slice(0, 300) });
     }
   });
 

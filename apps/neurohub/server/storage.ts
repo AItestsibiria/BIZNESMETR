@@ -839,6 +839,22 @@ try {
     CREATE INDEX IF NOT EXISTS idx_denga_manual_gen ON denga_manual_costs(gen_id, id DESC);
     CREATE INDEX IF NOT EXISTS idx_denga_manual_user ON denga_manual_costs(user_id, id DESC);
 
+    -- Eugene 2026-05-29 Босс «Деньга — ручной ввод продажи». Платформа продаёт
+    -- пакеты офлайн («10 треков — 2990 ₽»). У пакета нет generation → выручку
+    -- считать неоткуда (Деньга считает revenue только из generations.cost).
+    -- Отдельный канал ручной выручки + начисление бонус-треков покупателю.
+    -- user_id nullable (аноним/оффлайн продажа = только выручка, без начисления).
+    CREATE TABLE IF NOT EXISTS denga_manual_sales (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER,                       -- nullable (аноним/оффлайн)
+      amount_kopecks INTEGER NOT NULL,       -- выручка в копейках (2990 ₽ = 299000)
+      track_qty INTEGER NOT NULL DEFAULT 0,  -- сколько бонус-треков начислено
+      note TEXT,
+      admin_id INTEGER,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_denga_manual_sales_user ON denga_manual_sales(user_id, id DESC);
+
     -- Incident tracking — auto-detect + auto-resolve.
     CREATE TABLE IF NOT EXISTS incidents (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
