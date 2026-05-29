@@ -454,7 +454,7 @@ const RESTING_ALTITUDE = 2.4;
 const OVERVIEW_ALTITUDE = 3.0;
 // Длительности интро-анимации (Босс: 2с обзор Солнце+Луна → плавный 2с полёт к юзеру).
 const INTRO_OVERVIEW_HOLD_MS = 2000;
-const INTRO_FLY_MS = 2000;
+const INTRO_FLY_MS = 10000; // Босс 2026-05-29: плавный полёт к геолокации — 10 сек
 
 // prefers-reduced-motion — уважаем системную настройку (без интро-полёта, сразу
 // геолокация). В файле раньше проверки не было — добавлено вместе с интро-анимацией.
@@ -602,6 +602,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // Геолокация юзера для стартового обзора (Босс: «открытие глобуса по геолокации»).
   const userLatLngRef = useRef<{ lat: number; lng: number } | null>(null);
   const [userLatLng, setUserLatLng] = useState<{ lat: number; lng: number } | null>(null);
+  const introDoneRef = useRef(false); // интро-полёт выполняется один раз
 
   const basePointsRef = useRef<GlobePoint[]>(points);
   useEffect(() => {
@@ -728,14 +729,24 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // камерой к геолокации юзера. reduced-motion → без полёта, сразу геолокация.
   // Таймер очищается в cleanup (clearTimeout) — нет утечек/гонок при размонтаже.
   useEffect(() => {
-    if (!ready || !userLatLng) return;
+    // Босс 2026-05-29: полёт запускается ВСЕГДА при готовности глобуса (раньше был
+    // gated на userLatLng — на шар-ссылках геолокация часто не выдаётся → полёта не
+    // было, глобус статичен). Цель: геолокация юзера; если её нет — топ-страна по
+    // слушателям; иначе разумный дефолт. Выполняется один раз (introDoneRef).
+    if (!ready || introDoneRef.current) return;
     const g = globeRef.current;
     if (!g?.pointOfView) return;
+    let target = userLatLng;
+    if (!target) {
+      const top = points.slice().sort((a, b) => (b.weight || 0) - (a.weight || 0))[0];
+      target = top ? { lat: top.lat, lng: top.lng } : { lat: 50, lng: 30 };
+    }
+    introDoneRef.current = true;
 
-    // Уважаем prefers-reduced-motion: без обзора и полёта — сразу на юзера.
+    // Уважаем prefers-reduced-motion: без обзора и полёта — сразу на цель.
     if (prefersReducedMotion()) {
       try {
-        g.pointOfView({ lat: userLatLng.lat, lng: userLatLng.lng, altitude: RESTING_ALTITUDE }, 0);
+        g.pointOfView({ lat: target.lat, lng: target.lng, altitude: RESTING_ALTITUDE }, 0);
       } catch {
         // ignore
       }
@@ -762,7 +773,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       flyTimer = window.setTimeout(() => {
         try {
           globeRef.current?.pointOfView?.(
-            { lat: userLatLng.lat, lng: userLatLng.lng, altitude: RESTING_ALTITUDE },
+            { lat: target.lat, lng: target.lng, altitude: RESTING_ALTITUDE },
             INTRO_FLY_MS,
           );
         } catch {
@@ -775,7 +786,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     return () => {
       if (flyTimer !== null) window.clearTimeout(flyTimer);
     };
-  }, [ready, userLatLng]);
+  }, [ready, userLatLng, points]);
 
   // Fallback: если геолокация так и не пришла (отказ/таймаут ~6с), после короткого
   // обзора плавно садимся на resting altitude на текущем обзорном кадре (Солнце+Луна),

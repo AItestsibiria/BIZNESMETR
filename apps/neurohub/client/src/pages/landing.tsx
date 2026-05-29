@@ -2729,13 +2729,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 </Suspense>
                               </ErrorBoundary>
                               {/* Шаринг-CTA (через 60 сек): предлагает перейти на MuzaAi.ru */}
-                              {globeCardCta && (
-                                <div className="absolute inset-x-3 bottom-3 z-10 rounded-2xl border border-fuchsia-400/40 bg-[#0a0a17]/90 backdrop-blur-md px-4 py-3 shadow-[0_0_24px_rgba(217,70,239,0.4)] flex items-center justify-between gap-3 cover-bloom">
-                                  <p className="text-[12px] font-sans text-white/80 m-0 min-w-0">
-                                    Хочешь больше музыки? <span className="text-fuchsia-300 font-semibold">MuzaAi.ru</span>
-                                  </p>
-                                </div>
-                              )}
+                              {/* Босс 2026-05-29 «убери весь блок» — CTA «Хочешь больше музыки» убран полностью. */}
                             </div>
                             {/* Мини-плеер под глобусом (Босс: автоплей «Муза» → автоповтор по топу) */}
                             {(() => {
