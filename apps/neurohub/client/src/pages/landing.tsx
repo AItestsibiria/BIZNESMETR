@@ -602,6 +602,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // coverExpanded — column-layout активного плеера: cover full-width сверху,
   // controls под ним. False = row-layout (current default).
   const [coverExpanded, setCoverExpanded] = useState(false);
+  // Босс 2026-05-29 (Page-device-adaptation п.2): основной плеер — внизу ПЕРВОГО
+  // вьюпорта и полностью видим. Измеряемый отступ сверху прижимает плеер к низу
+  // первого экрана (заголовок выше, список — ниже скроллом). 0 если не помещается.
+  const [playerTopSpacer, setPlayerTopSpacer] = useState(0);
+  const currentSpacerRef = useRef(0);
+  const bigPlayerRef = useRef<HTMLDivElement | null>(null);
   // Eugene 2026-05-26 Босс «свайп-режим на основном плеере + подсказка на 5 сек +
   // стильные стрелки». Свайп влево/вправо по обложке = след/пред трек. Подсказка
   // (стрелки + «свайп») показывается 5с при загрузке плеера.
@@ -1571,6 +1577,38 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     return () => window.clearTimeout(t);
   }, [playingId, currentPage]);
 
+  // Босс 2026-05-29 (Page-device-adaptation п.2): прижимаем основной плеер к низу
+  // ПЕРВОГО вьюпорта. Меряем плеер и подбираем отступ сверху так, чтобы его низ
+  // совпал с низом первого экрана — только когда юзер вверху (scrollY≈0). Контент
+  // (заголовок плейлиста) остаётся выше, список — ниже скроллом. 0 если плеер не
+  // влезает (тогда естественная позиция, без обрезки). Пересчёт на resize/rotate.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const recompute = () => {
+      if (window.scrollY > 20) return;
+      const el = bigPlayerRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      if (rect.height < 40) return;
+      const target = window.innerHeight - 12; // низ плеера ≈ низ вьюпорта (12px «воздух»)
+      const next = Math.max(0, Math.round(currentSpacerRef.current + (target - rect.bottom)));
+      if (Math.abs(next - currentSpacerRef.current) > 3) {
+        currentSpacerRef.current = next;
+        setPlayerTopSpacer(next);
+      }
+    };
+    const raf = requestAnimationFrame(recompute);
+    const t = window.setTimeout(recompute, 320); // после загрузки обложки/шрифтов
+    window.addEventListener("resize", recompute, { passive: true });
+    window.addEventListener("orientationchange", recompute, { passive: true });
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(t);
+      window.removeEventListener("resize", recompute);
+      window.removeEventListener("orientationchange", recompute);
+    };
+  }, [playingId, coverExpanded]);
+
   const playTrack = (track: any) => {
     if (timerRef.current) clearInterval(timerRef.current);
 
@@ -2231,9 +2269,13 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           </div>
         )}
 
+        {/* Босс 2026-05-29 (Page-device-adaptation п.2): измеряемый отступ прижимает
+            плеер к низу ПЕРВОГО вьюпорта. Заголовок «Плейлист сообщества» и hero-бейдж
+            остаются выше (видны), список — ниже скроллом. 0 если плеер не влезает. */}
+        <div aria-hidden="true" style={{ height: playerTopSpacer }} className="shrink-0" />
         {/* Big player — full-width, visible details */}
         {currentTrack && (
-          <div className="glass-card rounded-2xl p-5 mb-6 border border-white/[0.06] relative">
+          <div ref={bigPlayerRef} className="glass-card rounded-2xl p-5 mb-6 border border-white/[0.06] relative">
             {/* Eugene 2026-05-21 Босс: «Плей и S в наложении». S смещена дальше от
                 края (top-3 right-3 = 12px) + меньше на mobile (w-9 h-9 vs sm:w-11 h-11).
                 Применено в обоих местах S — main player FAB + inline expanded. */}
@@ -4075,7 +4117,10 @@ export default function LandingPage() {
           HeroEqualizer (mt-8 → 0), уменьшен h1, убран «Узнать больше»
           (переехал под плеер), убран stats-блок с «от 99₽» (переехал под
           Музу как pricing-pill). */}
-      <section className="relative z-[1] pt-12 sm:pt-16 pb-6 sm:pb-8 px-4 overflow-hidden hero-gradient scan-line">
+      <section
+        className="relative z-[1] pb-6 sm:pb-8 px-4 overflow-hidden hero-gradient scan-line"
+        style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 4.5rem)" }}
+      >
 
         {/* Decorative equalizer elements */}
         <div className="absolute top-20 left-10 opacity-20 hidden lg:block z-[1]">
