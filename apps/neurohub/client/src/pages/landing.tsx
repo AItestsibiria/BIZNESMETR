@@ -2271,6 +2271,60 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const playingIdRef = useRef<number | null>(null);
   playingIdRef.current = playingId;
 
+  // Продолжение воспроизведения после перезагрузки (Босс 2026-05-29). Короткий рестарт
+  // сервера переживает авто-восстановление (onAudioError, до 4 попыток). Для полной
+  // перезагрузки страницы — запоминаем трек+секунду в localStorage и продолжаем с неё.
+  useEffect(() => {
+    const save = () => {
+      try {
+        const a = audioRef.current;
+        const id = playingIdRef.current;
+        if (id != null && a && a.currentTime > 1) {
+          localStorage.setItem("muza_resume", JSON.stringify({ id, t: a.currentTime, at: Date.now() }));
+        }
+      } catch { /* no-op */ }
+    };
+    const iv = window.setInterval(save, 3000);
+    window.addEventListener("pagehide", save);
+    window.addEventListener("beforeunload", save);
+    return () => {
+      window.clearInterval(iv);
+      window.removeEventListener("pagehide", save);
+      window.removeEventListener("beforeunload", save);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const resumeDoneRef = useRef(false);
+  useEffect(() => {
+    if (resumeDoneRef.current) return;
+    if (!tracks || tracks.length === 0) return;
+    let saved: { id: number; t: number; at: number } | null = null;
+    try { saved = JSON.parse(localStorage.getItem("muza_resume") || "null"); } catch { saved = null; }
+    if (!saved || saved.id == null || Date.now() - (saved.at || 0) > 6 * 3600 * 1000) {
+      resumeDoneRef.current = true;
+      return;
+    }
+    const tr = tracks.find((t: any) => t.id === saved!.id);
+    if (!tr) return; // плейлист может ещё догружаться — попробуем на следующем апдейте
+    resumeDoneRef.current = true;
+    const applySeek = () => {
+      const a = audioRef.current;
+      if (!a || !saved || saved.t <= 0) return;
+      const f = () => { try { a.currentTime = saved!.t; } catch { /* no-op */ } };
+      if (a.readyState >= 1) f(); else a.addEventListener("loadedmetadata", f, { once: true });
+    };
+    try { playTrack(tr); applySeek(); } catch { /* no-op */ }
+    // Фолбэк, если автоплей заблокирован браузером — продолжим по первому жесту.
+    const onGesture = () => {
+      window.removeEventListener("pointerdown", onGesture);
+      const a = audioRef.current;
+      if (a && a.paused) { try { playTrack(tr); applySeek(); } catch { /* no-op */ } }
+    };
+    window.addEventListener("pointerdown", onGesture, { once: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tracks]);
+
   if (tracks.length === 0) {
     // Eugene 2026-05-25 Босс «пропал плеер плейлист». НЕ возвращаем null —
     // иначе исчезает вся секция вместе с #playlist-section (IO-target для
