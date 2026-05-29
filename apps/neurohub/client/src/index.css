@@ -466,6 +466,13 @@
   background-size: 300% 300%;
   animation: coverAuraShift 8s ease-in-out infinite;
 }
+/* Босс 2026-05-29: на свайпе поворот светового потока в 3 раза медленнее (24с). */
+.cover-aura-slow {
+  animation-duration: 24s;
+}
+.cover-aura-slow::after {
+  animation-duration: 9.6s;
+}
 /* Звёздная разноцветная пыль (Босс «блеск как звёздная разноцветная пыль») —
    мерцающие разноцветные искры поверх ауры; screen-blend для свечения. */
 .cover-aura::after {

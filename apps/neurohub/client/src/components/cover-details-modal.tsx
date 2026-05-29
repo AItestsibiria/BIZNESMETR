@@ -536,11 +536,14 @@ export function CoverDetailsModal({
             плеера» — та же подсветка №1 (.cover-aura: пульсирующий шиммер +
             звёздная разноцветная пыль) за обложкой свайп-режима. Cover-glow-parity rule. */}
         <div className="relative w-full">
-          <div
-            aria-hidden="true"
-            className="absolute -inset-4 sm:-inset-6 rounded-3xl blur-2xl pointer-events-none cover-aura"
-            style={{ opacity: 0.7 }}
-          />
+          {/* Босс 2026-05-29: на свайпе подсветка ТУСКЛЕЕ (родитель opacity 0.4 множит
+              пульс) + поворот светового потока в 3 раза медленнее (.cover-aura-slow). */}
+          <div className="absolute -inset-4 sm:-inset-6 pointer-events-none" style={{ opacity: 0.4 }}>
+            <div
+              aria-hidden="true"
+              className="absolute inset-0 rounded-3xl blur-2xl cover-aura cover-aura-slow"
+            />
+          </div>
         {/* Обложка с swipe-жестом.
             Eugene 2026-05-18 (iPad Pro overflow fix): max-h-[70dvh] вместо
             85vh + явный object-contain. На iPad Pro portrait/landscape
