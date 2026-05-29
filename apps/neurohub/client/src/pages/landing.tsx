@@ -724,6 +724,72 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     try { return new URLSearchParams(window.location.search).get("globecard") === "1"; }
     catch { return false; }
   });
+  // Полноэкранный режим 3D-сцены (Босс 2026-05-29 «кнопка Космос и Земля на полный
+  // экран»). Fullscreen API на карточке оверлея; в фуллскрине Муза-FAB (вне карточки)
+  // не отображается браузером → «Муза появляется только НЕ в полноэкранном режиме».
+  const globeCardRef = useRef<HTMLDivElement | null>(null);
+  const [globeFullscreen, setGlobeFullscreen] = useState(false);
+  // Плавный выход из режима (Босс 2026-05-29 «не резкое сворачивание — плавно 1 сек»)
+  // + защита от случайного тапа (500мс после открытия не закрываем).
+  const [globeClosing, setGlobeClosing] = useState(false);
+  const globeOpenedAtRef = useRef(0);
+  const globeCloseTimerRef = useRef<number | null>(null);
+  const globeTapStartRef = useRef<{ x: number; y: number; t: number } | null>(null);
+
+  useEffect(() => {
+    if (showGlobe) { globeOpenedAtRef.current = Date.now(); setGlobeClosing(false); }
+  }, [showGlobe]);
+
+  useEffect(() => {
+    const onFs = () => {
+      const doc = document as unknown as { fullscreenElement?: Element; webkitFullscreenElement?: Element };
+      setGlobeFullscreen(!!(doc.fullscreenElement || doc.webkitFullscreenElement));
+    };
+    document.addEventListener("fullscreenchange", onFs);
+    document.addEventListener("webkitfullscreenchange", onFs as EventListener);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFs);
+      document.removeEventListener("webkitfullscreenchange", onFs as EventListener);
+    };
+  }, []);
+
+  // Плавное закрытие: 1с fade-out → unmount (Босс). Защита от случайного тапа.
+  const closeGlobe = () => {
+    if (Date.now() - globeOpenedAtRef.current < 500) return; // случайный тап сразу после открытия
+    if (globeClosing) return;
+    try {
+      const doc = document as unknown as {
+        fullscreenElement?: Element; webkitFullscreenElement?: Element;
+        exitFullscreen?: () => Promise<void>; webkitExitFullscreen?: () => void;
+      };
+      if (doc.fullscreenElement || doc.webkitFullscreenElement) {
+        (doc.exitFullscreen || doc.webkitExitFullscreen)?.call(doc);
+      }
+    } catch { /* no-op */ }
+    setGlobeClosing(true);
+    if (globeCloseTimerRef.current) window.clearTimeout(globeCloseTimerRef.current);
+    globeCloseTimerRef.current = window.setTimeout(() => {
+      setShowGlobe(false);
+      setGlobeClosing(false);
+    }, 1000);
+  };
+
+  const toggleGlobeFullscreen = () => {
+    const el = globeCardRef.current;
+    if (!el) return;
+    try {
+      const doc = document as unknown as {
+        fullscreenElement?: Element; webkitFullscreenElement?: Element;
+        exitFullscreen?: () => Promise<void>; webkitExitFullscreen?: () => void;
+      };
+      const elx = el as HTMLDivElement & { webkitRequestFullscreen?: () => void };
+      if (doc.fullscreenElement || doc.webkitFullscreenElement) {
+        (doc.exitFullscreen || doc.webkitExitFullscreen)?.call(doc);
+      } else {
+        (elx.requestFullscreen || elx.webkitRequestFullscreen)?.call(elx);
+      }
+    } catch { /* no-op */ }
+  };
   // Земля на плеере — «хук для вирусности» (Босс). Первые 3 ВИЗИТА — моргает на
   // каждый новый заход (игривое подмигивание / Морзе-приветствие у вернувшихся);
   // с 4-го визита — максимум 1 раз в сутки. Клик 🌍 — тихо навсегда.
@@ -2652,14 +2718,16 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                           ErrorBoundary в globe-view → ошибка не роняет страницу. */}
                       {showGlobe && globe3dEnabled && createPortal(
                         <div
-                          className="fixed inset-0 z-[200] flex items-center justify-center bg-[#03030a]"
+                          className="fixed inset-0 z-[200] flex items-center justify-center bg-[#03030a] transition-opacity duration-1000 ease-out"
                           style={{
                             paddingTop: "max(env(safe-area-inset-top), 12px)",
                             paddingBottom: "max(env(safe-area-inset-bottom), 12px)",
                             paddingLeft: "max(env(safe-area-inset-left), 12px)",
                             paddingRight: "max(env(safe-area-inset-right), 12px)",
+                            // Босс 2026-05-29 «не резкое сворачивание — плавно 1 сек».
+                            opacity: globeClosing ? 0 : 1,
                           }}
-                          onClick={() => setShowGlobe(false)}
+                          onClick={closeGlobe}
                           role="dialog"
                           aria-label="3D-глобус стран"
                         >
@@ -2670,7 +2738,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             <StarfieldCanvas />
                           </div>
                           <div
-                            className="relative z-10 w-full h-full max-w-none flex flex-col rounded-2xl overflow-hidden border border-purple-500/20 shadow-[0_0_48px_rgba(124,58,237,0.35)]"
+                            ref={globeCardRef}
+                            className="relative z-10 w-full h-full max-w-none flex flex-col rounded-2xl overflow-hidden border border-purple-500/20 shadow-[0_0_48px_rgba(124,58,237,0.35)] transition-transform duration-1000 ease-out"
                             style={{
                               // Босс 2026-05-29 «на планшете беда с размером — сделай на весь
                               // экран, авто-формат под устройство»: карточка h-full заполняет
@@ -2679,22 +2748,35 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               // Фон ПРОЗРАЧНЫЙ → звёздный StarfieldCanvas (за карточкой) виден
                               // в полосах шапки/плеера так же, как внутри 3D-окна (Босс «фон на
                               // всякий звёзды как и внутри окна 3д»). Глобус остаётся круглым
-                              // (react-globe.gl авто-фит по контейнеру).
+                              // (react-globe.gl авто-фит по контейнеру). В фуллскрине ref —
+                              // элемент Fullscreen API. Плавное сворачивание (Босс «моушн 1 сек»).
                               background: "transparent",
+                              transform: globeClosing ? "scale(0.96)" : "scale(1)",
                             }}
                             onClick={(e) => e.stopPropagation()}
                           >
                             {/* Шапка */}
-                            <div className="flex items-center justify-between px-4 py-3 border-b border-purple-400/20 shrink-0">
-                              <h3 className="text-base font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent m-0">
+                            <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-purple-400/20 shrink-0">
+                              <h3 className="min-w-0 truncate text-base font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent m-0">
                                 🌍 Нас слушают по всему миру
                               </h3>
-                              <button
-                                type="button"
-                                onClick={() => setShowGlobe(false)}
-                                className="text-white/60 hover:text-white text-2xl leading-none px-2 -mr-1"
-                                aria-label="Закрыть глобус"
-                              >×</button>
+                              <div className="flex items-center gap-2 shrink-0">
+                                {/* Босс 2026-05-29 «большая кнопка Космос и Земля на полный экран» */}
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); toggleGlobeFullscreen(); }}
+                                  className="px-3.5 py-2 rounded-xl text-[13px] font-bold text-white bg-gradient-to-r from-purple-500/70 via-fuchsia-500/60 to-cyan-500/60 border border-white/20 hover:from-purple-500/90 hover:to-cyan-500/80 active:scale-95 transition-all whitespace-nowrap shadow-[0_0_18px_rgba(124,58,237,0.45)]"
+                                  aria-label={globeFullscreen ? "Выйти из полного экрана" : "Космос и Земля — на весь экран"}
+                                >
+                                  {globeFullscreen ? "✦ Свернуть" : "✦ Космос и Земля"}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); closeGlobe(); }}
+                                  className="text-white/60 hover:text-white text-2xl leading-none px-2 -mr-1"
+                                  aria-label="Закрыть глобус"
+                                >×</button>
+                              </div>
                             </div>
                             {/* Сам глобус — занимает основную область */}
                             {/* Босс 2026-05-29 «на планшете беда — на весь экран»: область
