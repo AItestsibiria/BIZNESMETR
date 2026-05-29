@@ -778,7 +778,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // Двойной тап — на области глобуса. Одиночный тап/backdrop/× больше НЕ закрывают.
   useEffect(() => {
     if (!showGlobe) return;
-    const onWheel = () => closeGlobe();
+    // Колесо мыши закрывает; pinch на трекпаде (ctrlKey+wheel) — НЕ закрывает (это зум).
+    const onWheel = (e: Event) => { if ((e as WheelEvent).ctrlKey) return; closeGlobe(); };
     const onKey = () => closeGlobe();
     window.addEventListener("wheel", onWheel, { passive: true });
     window.addEventListener("keydown", onKey);

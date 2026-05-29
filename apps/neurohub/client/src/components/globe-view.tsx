@@ -1120,7 +1120,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         } else {
           if (cityEl.textContent !== city) cityEl.textContent = city;
           cityEl.style.left = `${sc.x}px`;
-          cityEl.style.top = `${sc.y + 16}px`;
+          cityEl.style.top = `${sc.y + 7}px`; // строго рядом с Морзе-точкой (Босс 2026-05-29)
           cityEl.style.opacity = "0.95";
         }
       }
@@ -1488,9 +1488,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         controls.autoRotate = false;
         controls.autoRotateSpeed = 0;
         controls.enableDamping = false;
-        // Зум колесом ВЫКЛ (Босс 2026-05-29: колесо мыши = закрытие 3D-окна; зум —
-        // через кнопки +/− в плеере). enablePan тоже выкл.
-        controls.enableZoom = false;
+        // Зум ПАЛЬЦАМИ (pinch) включён (Босс 2026-05-29). Колесо мыши на десктопе
+        // дополнительно закрывает окно (wheel-listener), pinch на тач-экране — зумит.
+        controls.enableZoom = true;
         controls.enablePan = false;
         controls.minDistance = 180;
         controls.maxDistance = 600;
