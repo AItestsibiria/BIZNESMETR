@@ -1563,16 +1563,18 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // влезает (тогда естественная позиция, без обрезки). Пересчёт на resize/rotate.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const FLOAT_GAP = 20; // «парящий» отступ снизу (Босс «плеер чтобы парил, отступ снизу»)
     const recompute = () => {
       if (window.scrollY > 20) return;
       const el = bigPlayerRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
       if (rect.height < 40) return;
+      // «Парящий» зазор снизу (Босс «плеер ещё повыше парить») — ~12% высоты
+      // экрана, минимум 48px. Плеер уезжает выше, ближе к заголовку.
+      const floatGap = Math.max(48, Math.round(window.innerHeight * 0.12));
       // Низ ПОЛНОГО блока плеера ≈ низ вьюпорта минус «парящий» зазор. rect.bottom
       // включает всю карточку (обложка, контролы, «Создай в том же стиле»).
-      const target = window.innerHeight - FLOAT_GAP;
+      const target = window.innerHeight - floatGap;
       const next = Math.max(0, Math.round(currentSpacerRef.current + (target - rect.bottom)));
       if (Math.abs(next - currentSpacerRef.current) > 3) {
         currentSpacerRef.current = next;
