@@ -1072,7 +1072,23 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         hide();
         return;
       }
-      const front = Math.abs(lngDelta(anchor.lng, pov.lng ?? 0)) <= 85; // не на обороте
+      // Видна ТОЛЬКО снаружи планеты, НЕ сквозь неё (Босс 2026-05-29). Корректная
+      // проверка перекрытия диском: точка видна, если её нормаль направлена к камере
+      // дальше лимба → dot(нормаль_точки, нормаль_камеры) > R/dist = cos(угла лимба).
+      let front = false;
+      try {
+        const cam = gg.camera?.();
+        const pc = gg.getCoords?.(anchor.lat, anchor.lng, 0); // точка на поверхности (мир)
+        if (cam?.position && pc) {
+          const cp = cam.position;
+          const pl = Math.hypot(pc.x, pc.y, pc.z) || 1;
+          const cl = Math.hypot(cp.x, cp.y, cp.z) || 1;
+          const nDotC = (pc.x * cp.x + pc.y * cp.y + pc.z * cp.z) / (pl * cl);
+          front = nDotC > 100 / cl; // перед лимбом → видно снаружи планеты
+        }
+      } catch {
+        front = false;
+      }
       // Новый проход (точка вошла во фронт) → перезапуск моргания + показ флага 3 сек.
       if (front && !winkWasFront) { morseRestart(); flagShownAt = performance.now(); }
       winkWasFront = front;
