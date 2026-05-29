@@ -742,6 +742,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   const morseTimerRef = useRef<number | null>(null);
   // Целевая высота камеры для ПЛАВНОГО зума (кнопки +/− меняют её, круиз едет к ней).
   const zoomTargetRef = useRef<number | null>(null);
+  // Режим полёта (Босс 2026-05-29): "ai" — многовариантная режиссура (Солнце/Земля/Луна);
+  // "classic" — классический обзор Земли по параллели юзера, без диагональной режиссуры.
+  const flightModeRef = useRef<"classic" | "ai">("ai");
 
   const basePointsRef = useRef<GlobePoint[]>(points);
   useEffect(() => {
@@ -906,6 +909,16 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     };
     window.addEventListener("muza:globe-zoom", onZoom as EventListener);
     return () => window.removeEventListener("muza:globe-zoom", onZoom as EventListener);
+  }, []);
+
+  // Переключение режима полёта из плеера (кнопки «Полёт» / «Полёт Ai»).
+  useEffect(() => {
+    const onFlight = (e: Event) => {
+      const m = (e as CustomEvent).detail?.mode;
+      if (m === "classic" || m === "ai") flightModeRef.current = m;
+    };
+    window.addEventListener("muza:globe-flight", onFlight as EventListener);
+    return () => window.removeEventListener("muza:globe-flight", onFlight as EventListener);
   }, []);
 
   // ── Камера-режиссёр (Босс 2026-05-29, «сделай на 100% правильно»). ЕДИНЫЙ rAF
@@ -1166,8 +1179,17 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           if (zoomTargetRef.current == null) zoomTargetRef.current = CRUISE_ALTITUDE;
           phase = "cruise"; // точка остаётся моргающей при каждом проходе над страной
         }
+      } else if (flightModeRef.current === "classic") {
+        // ПОЛЁТ (классика, Босс 2026-05-29): спокойный обзор Земли по параллели ШИРОТЫ
+        // ЮЗЕРА, в одну сторону, БЕЗ диагональной режиссуры и «дыхания». Полюса не показываем.
+        const uLat = userLatLngRef.current?.lat ?? cruise.lat;
+        cruise.lat += (Math.max(-48, Math.min(48, uLat)) - cruise.lat) * 0.01;
+        lat = Math.max(-52, Math.min(52, cruise.lat));
+        const tgt = zoomTargetRef.current ?? CRUISE_ALTITUDE;
+        cruise.alt += (tgt - cruise.alt) * 0.1;
+        alt = cruise.alt;
       } else {
-        // СЦЕНА-РЕЖИССЁР (Босс 2026-05-29 «многовариантность пролётов, удиви режиссурой»).
+        // ПОЛЁТ Ai — СЦЕНА-РЕЖИССЁР (Босс 2026-05-29 «многовариантность пролётов»).
         // Круговое движение всегда в ОДНУ сторону. ОБЯЗАТЕЛЬНЫЕ точки каждый раз:
         //   ПРОЛЁТ 1 (круг 0) — Солнце на ЭКВАТОРЕ: вход слева → выход справа;
         //   ПРОЛЁТ 2 (круг 1) — КОРОНА Солнца у верхнего лимба (половина над Землёй).

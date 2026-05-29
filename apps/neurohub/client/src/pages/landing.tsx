@@ -740,6 +740,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const [globeCoverExpanded, setGlobeCoverExpanded] = useState(false);
   // 🎧 Топ-100 плейлиста в плеере 3D (как на основном плеере)
   const [globeTopOpen, setGlobeTopOpen] = useState(false);
+  // Режим полёта 3D: "ai" — многовариантная режиссура (default), "classic" — обзор без диагонали.
+  const [globeFlight, setGlobeFlight] = useState<"classic" | "ai">("ai");
   // В полноэкранном режиме (Босс 2026-05-29 «через 3 сек плеер исчезает и появляется
   // при контакте»): авто-скрытие шапки/плеера/подвала после 3с бездействия.
   const [globeUiHidden, setGlobeUiHidden] = useState(false);
@@ -3097,6 +3099,19 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                     className="shrink-0 h-10 w-10 sm:h-11 sm:w-11 rounded-full flex items-center justify-center text-base bg-transparent border border-white/30 hover:border-white/60 active:scale-90 transition-all"
                                     aria-label={globeFullscreen ? "Свернуть" : "Полный экран — Космос и Земля"}
                                   >{globeFullscreen ? "🗗" : "⛶"}</button>
+                                  {/* Полёт (классический обзор) / Полёт Ai (многовариантная режиссура). Босс 2026-05-29. */}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); setGlobeFlight("classic"); try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "classic" } })); } catch { /* no-op */ } }}
+                                    className={`shrink-0 h-10 px-2.5 rounded-full flex items-center justify-center text-[11px] font-semibold transition-all whitespace-nowrap border ${globeFlight === "classic" ? "text-white border-cyan-300/80 bg-cyan-400/10" : "text-white/85 border-white/30 hover:border-white/60"}`}
+                                    aria-label="Полёт — классический обзор Земли"
+                                  >Полёт</button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); setGlobeFlight("ai"); try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "ai" } })); } catch { /* no-op */ } }}
+                                    className={`shrink-0 h-10 px-2.5 rounded-full flex items-center justify-center gap-1 text-[11px] font-semibold transition-all whitespace-nowrap border ${globeFlight === "ai" ? "text-white border-fuchsia-300/80 bg-fuchsia-400/10" : "text-white/85 border-white/30 hover:border-white/60"}`}
+                                    aria-label="Полёт Ai — режиссура с Солнцем, Землёй и Луной"
+                                  >Полёт <span className="font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">Ai</span></button>
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); try { window.dispatchEvent(new CustomEvent("muza:open-chat")); } catch { /* no-op */ } closeGlobe(); }}
