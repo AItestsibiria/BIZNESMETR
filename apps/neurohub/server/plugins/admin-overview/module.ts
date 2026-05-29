@@ -2642,6 +2642,91 @@ const adminOverviewModule: Module = {
         }
       },
     },
+    // Eugene 2026-05-29 Босс «агенты Фрон и Бэк сами ночью тестят сайт, Директор
+    // докладывает утром». Бэк-тестер раз/день ~04:30 МСК (Фрон уже бежит ~05 МСК
+    // с playwright). Критичные → алерт сразу; сводка утром (director-morning-qa).
+    // Gate BACKEND_QA_CRON !== "0". try/catch, never throw.
+    {
+      name: "backend-qa-daily",
+      schedule: "every_hour",
+      handler: async () => {
+        try {
+          if (process.env.BACKEND_QA_CRON === "0") return;
+          const mskMin = new Date().getUTCMinutes();
+          const mskHour = (new Date().getUTCHours() + 3) % 24;
+          if (mskHour !== 4 || mskMin < 30) return; // раз/день ~04:30 МСК
+          if (!shouldRunDaily("backend-qa-daily", mskHour, 4)) return;
+          const qa = await import("../../lib/backendQaAgent");
+          const report = await qa.runBackendQaScan();
+          const crit = report.bySeverity?.critical || 0;
+          const high = report.bySeverity?.high || 0;
+          console.log(`[BACKEND-QA-DAILY] open=${report.openCount}, critical=${crit}, high=${high}`);
+          if (crit > 0) {
+            const { notifyBoss } = await import("../../lib/directorDigest");
+            const top = (report.items || [])
+              .filter((i) => i.severity === "critical" || i.severity === "high")
+              .slice(0, 6)
+              .map((i) => `• <b>[${i.severity}]</b> ${String(i.title || "").slice(0, 140)}`)
+              .join("\n");
+            await notifyBoss(
+              `🛠 <b>Бэк-тестер — критичные баги бэкенда (04:30 МСК)</b>\n` +
+              `Критичных: ${crit}, высоких: ${high}, открытых: ${report.openCount}\n\n${top}`,
+            );
+          }
+        } catch (e) {
+          console.error("[BACKEND-QA-DAILY job]", e);
+        }
+      },
+    },
+    // Eugene 2026-05-29 Босс «Директор докладывает о найденных багах утром +
+    // цепочка подтверждения/воплощения». Сводный утренний доклад ~09:00 МСК:
+    // Фрон + Бэк находки за ночь + предложения фиксов + инструкция к подтверждению
+    // (Босс подтверждает в claude.ai/code → Claude воплощает по Yars-admin-confirmation
+    // rule; авто-применение кода без ревью запрещено правилами проекта).
+    // Gate MORNING_QA_REPORT !== "0". try/catch, never throw.
+    {
+      name: "director-morning-qa",
+      schedule: "every_hour",
+      handler: async () => {
+        try {
+          if (process.env.MORNING_QA_REPORT === "0") return;
+          const mskHour = (new Date().getUTCHours() + 3) % 24;
+          if (!shouldRunDaily("director-morning-qa", mskHour, 9)) return; // раз/день ~09 МСК
+          const fe = await import("../../lib/frontendQaAgent");
+          const be = await import("../../lib/backendQaAgent");
+          let feR: any = null;
+          try { feR = await fe.getLatestFrontendQaReport(); } catch { /* no-op */ }
+          let beR: any = null;
+          try { beR = be.getLatestBackendQaReport(); } catch { /* no-op */ }
+          const feOpen = feR?.openCount || 0;
+          const feCrit = feR?.criticalCount || 0;
+          const beOpen = beR?.openCount || 0;
+          const beCrit = beR?.bySeverity?.critical || 0;
+          const beHigh = beR?.bySeverity?.high || 0;
+          const feTop = (feR?.items || [])
+            .filter((i: any) => i.severity === "critical" || i.severity === "high")
+            .slice(0, 5)
+            .map((i: any) => `• <b>[${i.severity}]</b> ${String(i.message || "").slice(0, 110)}${i.fixProposal ? `\n  💡 ${String(i.fixProposal).slice(0, 140)}` : ""}`)
+            .join("\n");
+          const beTop = (beR?.items || [])
+            .filter((i: any) => i.severity === "critical" || i.severity === "high")
+            .slice(0, 5)
+            .map((i: any) => `• <b>[${i.severity}]</b> ${String(i.title || "").slice(0, 130)}`)
+            .join("\n");
+          const { notifyBoss } = await import("../../lib/directorDigest");
+          const msg =
+            `☀️ <b>Доброе утро! Ночной автотест сайта (09:00 МСК)</b>\n\n` +
+            `🧪 <b>Фронт</b> (Фрон, по устройствам): открытых ${feOpen}, критичных ${feCrit}\n` +
+            (feTop ? feTop + "\n" : "Критичных фронт-багов нет 🟢\n") +
+            `\n🛠 <b>Бэк</b> (Бэк): открытых ${beOpen}, критичных ${beCrit}, высоких ${beHigh}\n` +
+            (beTop ? beTop + "\n" : "Критичных бэк-багов нет 🟢\n") +
+            `\n👉 <b>Чтобы починить:</b> открой claude.ai/code и скажи какие баги воплощать — Claude применит фиксы и запушит (код-правки проходят твоё подтверждение, авто без ревью не применяются).`;
+          await notifyBoss(msg);
+        } catch (e) {
+          console.error("[DIRECTOR-MORNING-QA job]", e);
+        }
+      },
+    },
   ],
   onLoad: async (ctx) => {
     // Eugene 2026-05-14 Босс: при старте — одноразовая зачистка зависших.
