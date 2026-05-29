@@ -455,6 +455,7 @@ const OVERVIEW_ALTITUDE = 3.0;
 // Длительности интро-анимации (Босс: 2с обзор Солнце+Луна → плавный 2с полёт к юзеру).
 const INTRO_OVERVIEW_HOLD_MS = 2000;
 const INTRO_FLY_MS = 10000; // Босс 2026-05-29: плавный полёт к геолокации — 10 сек
+const INTRO_SUNRISE_MS = 3500; // Босс 2026-05-29: «восход» — солнце поднимается из-за края (пан лимб→обзор)
 
 // prefers-reduced-motion — уважаем системную настройку (без интро-полёта, сразу
 // геолокация). В файле раньше проверки не было — добавлено вместе с интро-анимацией.
@@ -767,8 +768,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       } catch {
         // fallback-значение выше
       }
-      // Подержать обзор без перехода, затем плавно лететь к геолокации.
-      g.pointOfView({ lat: overviewLat, lng: overviewLng, altitude: OVERVIEW_ALTITUDE }, 0);
+      // Стадия 1 — ВОСХОД: солнце поднимается из-за края. Плавный пан от лимба
+      // (старт subsolar−110° в onGlobeReady) к обзору (subsolar−90°) за ~3.5с —
+      // солнце «растёт» из сливера до полного. Стадия 2 — плавный пролёт к геолокации.
+      g.pointOfView({ lat: overviewLat, lng: overviewLng, altitude: OVERVIEW_ALTITUDE }, INTRO_SUNRISE_MS);
       flyTimer = window.setTimeout(() => {
         try {
           globeRef.current?.pointOfView?.(
@@ -778,7 +781,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         } catch {
           // ignore
         }
-      }, INTRO_OVERVIEW_HOLD_MS);
+      }, INTRO_SUNRISE_MS + INTRO_OVERVIEW_HOLD_MS);
     } catch {
       // ignore
     }
@@ -1002,8 +1005,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       // край земли, виден восход + Луна. Ставим СРАЗУ (duration 0), пока канвас ещё
       // прозрачный (opacity 0→1) → плавно с первого кадра, без рывка/прыжка.
       try {
+        // Старт на ЛИМБЕ (subsolar−110°): солнце с лучами только пробивается из-за
+        // края земли (сливер). Дальше intro-эффект плавно «поднимает» его (пан к −90°).
         const sp0 = subsolarPoint(Date.now());
-        g.pointOfView?.({ lat: 0, lng: sp0[0] - 90, altitude: OVERVIEW_ALTITUDE }, 0);
+        g.pointOfView?.({ lat: 0, lng: sp0[0] - 110, altitude: OVERVIEW_ALTITUDE }, 0);
       } catch { /* no-op */ }
       // Видимые 3D-Солнце и Луна (Босс «Солнца и Луну не видно»). Добавляем в
       // сцену один раз; позиция — над субсолярной/подлунной точками (positionSunMoon).
