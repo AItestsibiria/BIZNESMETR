@@ -2541,7 +2541,7 @@ const adminOverviewModule: Module = {
         try {
           if (process.env.FERZ_CRON === "0") return;
           const mskHour = (new Date().getUTCHours() + 3) % 24;
-          if (!shouldRunDaily("ferz-daily", mskHour, 4)) return; // раз/день ~04 МСК
+          if (!shouldRunDaily("ferz-daily", mskHour, 2)) return; // раз/день ~02 МСК (после Фрон/Бэк 01:00 — Ферзь агрегирует их находки)
           const ferz = await import("../../lib/ferzAgent");
           const report = await ferz.runFerzAnalysis();
           const crit = report.severityCounts.critical || 0;
@@ -2577,7 +2577,7 @@ const adminOverviewModule: Module = {
         try {
           if (process.env.FRONTEND_QA_CRON === "0") return;
           const mskHour = (new Date().getUTCHours() + 3) % 24;
-          if (!shouldRunDaily("frontend-qa-daily", mskHour, 5)) return; // раз/день ~05 МСК
+          if (!shouldRunDaily("frontend-qa-daily", mskHour, 1)) return; // раз/день ~01:00 МСК (ночной автотест)
           const qa = await import("../../lib/frontendQaAgent");
           const report = await qa.runFrontendQaScan();
           const crit = report.criticalCount || 0;
@@ -2654,8 +2654,8 @@ const adminOverviewModule: Module = {
           if (process.env.BACKEND_QA_CRON === "0") return;
           const mskMin = new Date().getUTCMinutes();
           const mskHour = (new Date().getUTCHours() + 3) % 24;
-          if (mskHour !== 4 || mskMin < 30) return; // раз/день ~04:30 МСК
-          if (!shouldRunDaily("backend-qa-daily", mskHour, 4)) return;
+          if (mskHour !== 1 || mskMin < 20) return; // раз/день ~01:20 МСК (после Фрон 01:00)
+          if (!shouldRunDaily("backend-qa-daily", mskHour, 1)) return;
           const qa = await import("../../lib/backendQaAgent");
           const report = await qa.runBackendQaScan();
           const crit = report.bySeverity?.critical || 0;
@@ -2691,7 +2691,7 @@ const adminOverviewModule: Module = {
         try {
           if (process.env.MORNING_QA_REPORT === "0") return;
           const mskHour = (new Date().getUTCHours() + 3) % 24;
-          if (!shouldRunDaily("director-morning-qa", mskHour, 9)) return; // раз/день ~09 МСК
+          if (!shouldRunDaily("director-morning-qa", mskHour, 3)) return; // раз/день ~03:00 МСК (доклад)
           const fe = await import("../../lib/frontendQaAgent");
           const be = await import("../../lib/backendQaAgent");
           let feR: any = null;
@@ -2715,7 +2715,7 @@ const adminOverviewModule: Module = {
             .join("\n");
           const { notifyBoss } = await import("../../lib/directorDigest");
           const msg =
-            `☀️ <b>Доброе утро! Ночной автотест сайта (09:00 МСК)</b>\n\n` +
+            `☀️ <b>Ночной автотест сайта — доклад (03:00 МСК)</b>\n\n` +
             `🧪 <b>Фронт</b> (Фрон, по устройствам): открытых ${feOpen}, критичных ${feCrit}\n` +
             (feTop ? feTop + "\n" : "Критичных фронт-багов нет 🟢\n") +
             `\n🛠 <b>Бэк</b> (Бэк): открытых ${beOpen}, критичных ${beCrit}, высоких ${beHigh}\n` +

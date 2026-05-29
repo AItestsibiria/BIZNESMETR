@@ -471,6 +471,43 @@ async function buildLlmSummary(
  * Запускает полный аудит, складывает отчёт в `ferz_reports`, возвращает отчёт.
  * Никогда не throw'ит — при ошибке любого сигнала просто пропускает его.
  */
+// Eugene 2026-05-29 Босс «Фрон и Бэк докладывают Ферзю, он суть Директору по верхам».
+// Ферзь подтягивает последние отчёты фронт- и бэк-тестеров как свои сигналы → его
+// сводка (и доклад Директора) включают баги фронта/бэка «по верхам».
+async function analyzeFrontendQa(findings: FerzFinding[]): Promise<void> {
+  try {
+    const { getLatestFrontendQaReport } = await import("./frontendQaAgent");
+    const r: any = await getLatestFrontendQaReport();
+    const crit = r?.criticalCount || 0;
+    const open = r?.openCount || 0;
+    if (crit > 0) {
+      const top = (r?.items || [])
+        .filter((i: any) => i.severity === "critical" || i.severity === "high")
+        .slice(0, 4).map((i: any) => String(i.message || "").slice(0, 90)).join("; ");
+      findings.push({ severity: "critical", area: "frontend", title: "Фронт-баги (Фрон-тестер)", detail: `Критичные баги фронта за ночь. ${top}`, metric: `${crit} крит / ${open} открытых` });
+    } else if (open > 0) {
+      findings.push({ severity: "low", area: "frontend", title: "Фронт-замечания", detail: `Открытых фронт-замечаний: ${open} (некритичные).`, metric: `${open} открытых` });
+    }
+  } catch { /* no-op */ }
+}
+async function analyzeBackendQa(findings: FerzFinding[]): Promise<void> {
+  try {
+    const { getLatestBackendQaReport } = await import("./backendQaAgent");
+    const r: any = getLatestBackendQaReport();
+    const crit = r?.bySeverity?.critical || 0;
+    const high = r?.bySeverity?.high || 0;
+    const open = r?.openCount || 0;
+    if (crit > 0 || high > 0) {
+      const top = (r?.items || [])
+        .filter((i: any) => i.severity === "critical" || i.severity === "high")
+        .slice(0, 4).map((i: any) => String(i.title || "").slice(0, 90)).join("; ");
+      findings.push({ severity: crit > 0 ? "critical" : "high", area: "backend", title: "Бэк-баги (Бэк-тестер)", detail: top || "Найдены баги бэкенда за ночь.", metric: `${crit} крит / ${high} высоких / ${open} открытых` });
+    } else if (open > 0) {
+      findings.push({ severity: "low", area: "backend", title: "Бэк-замечания", detail: `Открытых бэк-замечаний: ${open} (некритичные).`, metric: `${open} открытых` });
+    }
+  } catch { /* no-op */ }
+}
+
 export async function runFerzAnalysis(opts?: { period?: string; useLlm?: boolean }): Promise<FerzReport> {
   ensureFerzTable();
   const period = opts?.period || "today";
@@ -487,6 +524,9 @@ export async function runFerzAnalysis(opts?: { period?: string; useLlm?: boolean
   analyzeLLM(findings);
   analyzePayments(findings, fromIso);
   analyzeDb(findings);
+  // Фрон/Бэк докладывают Ферзю (их находки → сигналы Ферзя).
+  await analyzeFrontendQa(findings);
+  await analyzeBackendQa(findings);
 
   // Сортировка по severity (critical → low).
   findings.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
