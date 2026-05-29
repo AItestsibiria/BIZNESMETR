@@ -183,11 +183,26 @@ function scanEnvDesync(): void {
     const raw = fs.readFileSync(ENV_FILE, "utf-8");
     const fileEnv: Record<string, string> = {};
     for (const line of raw.split(/\r?\n/)) {
-      const t = line.trim();
+      let t = line.trim();
       if (!t || t.startsWith("#")) continue;
+      if (t.startsWith("export ")) t = t.slice(7).trim();
       const eq = t.indexOf("=");
       if (eq <= 0) continue;
-      fileEnv[t.slice(0, eq).trim()] = t.slice(eq + 1);
+      const key = t.slice(0, eq).trim();
+      // Eugene 2026-05-29 (Босс — env_desynced ×1027 TELEGRAM_BOT_TOKEN): нормализуем
+      // значение КАК dotenv, иначе ложный рассинхрон — runtime (process.env) уже
+      // очищен dotenv (снятые парные кавычки, trim), а сырое значение из файла с
+      // кавычками/пробелами с ним не совпадает (PITFALLS #12). Сначала trim, затем
+      // снимаем ПАРНЫЕ кавычки.
+      let val = t.slice(eq + 1).trim();
+      if (
+        val.length >= 2 &&
+        ((val[0] === '"' && val[val.length - 1] === '"') ||
+          (val[0] === "'" && val[val.length - 1] === "'"))
+      ) {
+        val = val.slice(1, -1);
+      }
+      fileEnv[key] = val;
     }
     const KEYS = ["GPTUNNEL_API_KEY", "SMTP_PASS", "TELEGRAM_BOT_TOKEN"];
     const desynced = KEYS.filter((k) => fileEnv[k] && fileEnv[k] !== process.env[k]);
@@ -206,6 +221,20 @@ function scanEnvDesync(): void {
       evidence: { desynced, pid: process.pid },
       dedupeKey: "env_desynced",
     });
+    // Босс 2026-05-29: «о проблемах с ключами — критическое уведомление». Реальный
+    // рассинхрон секретов → алерт по ВСЕМ каналам (TG+email) через directorAlert
+    // (дедуп 30 мин — cron каждую минуту НЕ спамит).
+    import("../../lib/directorDigest")
+      .then((m) =>
+        m.directorAlert(
+          "env-desynced-secrets",
+          `🔑 <b>Рассинхрон секретов: runtime ≠ .env</b>\n` +
+            `Ключи: ${desynced.join(", ")}\n` +
+            `Причина: pm2 не подхватил свежий .env (PITFALLS #14).\n` +
+            `Чинить: /#/admin → 🔑 Секреты → 🔄 Restart pm2 (или pm2 restart).`,
+        ),
+      )
+      .catch(() => {});
   } catch {
     // Ignore — fs/permissions.
   }
