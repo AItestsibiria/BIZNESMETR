@@ -43,12 +43,14 @@
   --chart-3: 187 92% 41%;
   --chart-4: 43 74% 49%;
   --chart-5: 27 87% 55%;
-  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  /* Eugene 2026-05-29: self-host — 'Inter Variable' (от @fontsource-variable/inter)
+     первым, 'Inter' как fallback. */
+  --font-sans: 'Inter Variable', 'Inter', system-ui, -apple-system, sans-serif;
   --font-serif: Georgia, serif;
   --font-mono: 'JetBrains Mono', monospace;
   /* Display-шрифт для cosmic / DJ hi-tech акцентов (Eugene 2026-05-09).
-     Default: Space Grotesk. Сменить — в index.html и здесь. */
-  --font-display: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+     Default: Space Grotesk (self-host @fontsource/space-grotesk). */
+  --font-display: 'Space Grotesk', 'Inter Variable', 'Inter', system-ui, sans-serif;
   --radius: .625rem;
   --shadow-2xs: 0px 1px 2px 0px hsl(0 0% 0% / 0.04);
   --shadow-xs: 0px 1px 3px 0px hsl(0 0% 0% / 0.06);

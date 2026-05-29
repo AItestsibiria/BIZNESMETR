@@ -1,5 +1,12 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
+// Eugene 2026-05-29: self-host шрифтов (вместо Google Fonts CDN) — быстрее первый
+// рендер, работает за VPN/в РФ без риска блокировки CDN. woff2 бандлятся Vite.
+import "@fontsource-variable/inter";
+import "@fontsource/space-grotesk/400.css";
+import "@fontsource/space-grotesk/500.css";
+import "@fontsource/space-grotesk/600.css";
+import "@fontsource/space-grotesk/700.css";
 import "./index.css";
 import { initPixels, trackPageView } from "./lib/pixels";
 import { captureLeadTouch } from "./lib/tracking";

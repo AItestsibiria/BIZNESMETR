@@ -187,9 +187,8 @@
          (например «Поздравление на 30 лет») может стать tel:link. -->
     <meta name="format-detection" content="telephone=no,address=no,email=no" />
     <link rel="manifest" href="/manifest.json" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Eugene 2026-05-29: шрифты self-hosted через @fontsource (см. main.tsx),
+         Google Fonts CDN убран — быстрее, без внешней зависимости/риска блокировки. -->
   </head>
   <body>
     <div id="root"></div>
