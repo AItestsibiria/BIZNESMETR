@@ -719,6 +719,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // Материал Луны (фазовый шейдер) — обновляем uniform sunDir при движении Солнца.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const moonMatRef = useRef<any>(null);
+  // Глубокое 3D-звёздное поле (THREE.Points) — параллакс/«бесконечная глубина» за глобусом.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const deepStarsRef = useRef<any>(null);
   // Геолокация юзера для стартового обзора (Босс: «открытие глобуса по геолокации»).
   // Только ref — режиссёр читает его вживую в rAF (без перерендера и гонок таймеров).
   const userLatLngRef = useRef<{ lat: number; lng: number } | null>(null);
@@ -798,6 +801,20 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         sunMeshRef.current = null;
         moonMeshRef.current = null;
         moonMatRef.current = null;
+      } catch {
+        // ignore
+      }
+      // Освобождаем слои глубокого звёздного поля (Group → Points: geometry+material).
+      try {
+        const grp = deepStarsRef.current;
+        if (grp) {
+          for (const child of grp.children || []) {
+            child.geometry?.dispose?.();
+            child.material?.dispose?.();
+          }
+          grp.parent?.remove?.(grp);
+        }
+        deepStarsRef.current = null;
       } catch {
         // ignore
       }
@@ -1541,6 +1558,59 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           scene.add(moon);
           moonMeshRef.current = moon;
           moonMatRef.current = moonMat;
+        }
+        // Бесконечно глубокое небо (Босс 2026-05-29 «небо бесконечно глубоким»):
+        // три слоя THREE.Points на радиусах далеко за камерой (max 600). Камера
+        // орбитит → ближние слои сдвигаются быстрее дальних = параллакс = ощущение
+        // бесконечной глубины. Плоская текстура неба остаётся «на бесконечности» фоном.
+        if (scene && !deepStarsRef.current) {
+          const group = new THREE.Group();
+          // Слои: [радиус, количество, размер, яркость] — дальше = мельче и тусклее.
+          const layers: Array<[number, number, number, number]> = [
+            [900, 1400, 2.4, 0.95],
+            [1600, 1100, 3.6, 0.7],
+            [2600, 800, 5.2, 0.45],
+          ];
+          for (const [radius, count, size, opacity] of layers) {
+            const pos = new Float32Array(count * 3);
+            const col = new Float32Array(count * 3);
+            for (let i = 0; i < count; i++) {
+              // Равномерная сфера (метод обратного косинуса).
+              const u = Math.random();
+              const v = Math.random();
+              const theta = 2 * Math.PI * u;
+              const phi = Math.acos(2 * v - 1);
+              const r = radius * (0.85 + Math.random() * 0.3);
+              const sx = r * Math.sin(phi) * Math.cos(theta);
+              const sy = r * Math.sin(phi) * Math.sin(theta);
+              const sz = r * Math.cos(phi);
+              pos[i * 3] = sx;
+              pos[i * 3 + 1] = sy;
+              pos[i * 3 + 2] = sz;
+              // Лёгкий разброс оттенка: бело-голубой / бело-тёплый.
+              const warm = Math.random();
+              col[i * 3] = 0.78 + warm * 0.22;
+              col[i * 3 + 1] = 0.82 + warm * 0.14;
+              col[i * 3 + 2] = 0.95 + (1 - warm) * 0.05;
+            }
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+            geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+            const mat = new THREE.PointsMaterial({
+              size,
+              sizeAttenuation: true,
+              transparent: true,
+              opacity,
+              vertexColors: true,
+              depthWrite: false,
+              blending: THREE.AdditiveBlending,
+            });
+            const pts = new THREE.Points(geo, mat);
+            pts.frustumCulled = false;
+            group.add(pts);
+          }
+          scene.add(group);
+          deepStarsRef.current = group;
         }
         positionSunMoon();
       } catch (e) {
