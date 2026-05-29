@@ -2959,9 +2959,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); setGlobeTopOpen(v => !v); }}
-                                    className="shrink-0 h-10 w-10 sm:h-11 sm:w-11 rounded-full flex items-center justify-center text-lg bg-transparent border border-white/30 hover:border-white/60 active:scale-90 transition-all"
+                                    className="shrink-0 relative h-10 w-10 sm:h-11 sm:w-11 rounded-full flex items-center justify-center text-lg bg-transparent border border-white/30 hover:border-white/60 active:scale-90 transition-all"
                                     aria-label="Топ-100 плейлиста" aria-expanded={globeTopOpen}
-                                  >🎧</button>
+                                  >
+                                    🎧
+                                    <span className="absolute top-full left-1/2 -translate-x-1/2 mt-0.5 text-[11px] tabular-nums font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap pointer-events-none">{totalPlays > 0 ? totalPlays.toLocaleString("ru-RU") : "…"}</span>
+                                  </button>
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); try { window.dispatchEvent(new CustomEvent("muza:globe-zoom", { detail: { dir: -1 } })); } catch { /* no-op */ } }}
@@ -3060,7 +3063,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                     <p className="text-sm font-semibold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent m-0">Топ 100 плейлиста</p>
                                     <button type="button" onClick={(e) => { e.stopPropagation(); setGlobeTopOpen(false); }} className="text-white/50 hover:text-white text-xl leading-none px-1" aria-label="Закрыть">×</button>
                                   </div>
-                                  <ul className="overflow-y-auto p-2 m-0 list-none flex flex-col gap-1" style={{ touchAction: "pan-y", WebkitOverflowScrolling: "touch" }}>
+                                  <ul className="overflow-y-auto p-2 m-0 list-none flex flex-col-reverse gap-1" style={{ touchAction: "pan-y", WebkitOverflowScrolling: "touch" }}>
                                     {(() => {
                                       const top = [...filteredMusic].sort((a: any, b: any) => (b.plays || 0) - (a.plays || 0)).slice(0, 100);
                                       if (top.length === 0) return (<li className="text-xs text-white/40 text-center py-3">Пока нет данных</li>);
