@@ -908,10 +908,8 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   const zoomTargetRef = useRef<number | null>(null);
   // Режим полёта (Босс 2026-05-29): "ai" — многовариантная режиссура (Солнце/Земля/Луна);
   // "classic" — классический обзор Земли по параллели юзера, без диагональной режиссуры.
-  // На смартфоне по умолчанию «Полёт» (classic), на планшете/ПК — «Полёт Ai» (Босс 2026-05-29).
-  const flightModeRef = useRef<"classic" | "ai">(
-    typeof window !== "undefined" && window.innerWidth < 768 ? "classic" : "ai",
-  );
+  // По умолчанию ВЕЗДЕ «Полёт» (classic); «Полёт Ai» включается кнопкой (Босс 2026-05-29).
+  const flightModeRef = useRef<"classic" | "ai">("classic");
 
   const basePointsRef = useRef<GlobePoint[]>(points);
   useEffect(() => {

@@ -740,10 +740,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const [globeCoverExpanded, setGlobeCoverExpanded] = useState(false);
   // 🎧 Топ-100 плейлиста в плеере 3D (как на основном плеере)
   const [globeTopOpen, setGlobeTopOpen] = useState(false);
-  // Режим полёта 3D: на смартфоне по умолчанию "classic" (Полёт), иначе "ai" (Полёт Ai). Босс 2026-05-29.
-  const [globeFlight, setGlobeFlight] = useState<"classic" | "ai">(() => {
-    try { return window.innerWidth < 768 ? "classic" : "ai"; } catch { return "ai"; }
-  });
+  // Режим полёта 3D: по умолчанию ВСЕГДА "classic" (Полёт); "ai" (Полёт Ai) — по кнопке. Босс 2026-05-29.
+  const [globeFlight, setGlobeFlight] = useState<"classic" | "ai">(() => "classic");
   // В полноэкранном режиме (Босс 2026-05-29 «через 3 сек плеер исчезает и появляется
   // при контакте»): авто-скрытие шапки/плеера/подвала после 3с бездействия.
   const [globeUiHidden, setGlobeUiHidden] = useState(false);
@@ -3025,7 +3023,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                     <span className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg bg-white/5 flex items-center justify-center shrink-0"><Music className="w-5 h-5 text-white/40" /></span>
                                   )}
                                   <div
-                                    className="min-w-0 max-w-[26vw] sm:max-w-[200px]"
+                                    className="min-w-0 max-w-[38vw] sm:max-w-[240px]"
                                     data-globe-title
                                     title="Удерживай или правый клик — откроется плейлист"
                                     onContextMenu={(e) => {
@@ -3043,19 +3041,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                       <p className="truncate text-[10px] sm:text-[11px] font-sans text-white/45 m-0 leading-tight">{gt.authorName}</p>
                                     ) : null}
                                   </div>
-                                  {/* Левая группа: зум +/−. */}
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); try { window.dispatchEvent(new CustomEvent("muza:globe-zoom", { detail: { dir: -1 } })); } catch { /* no-op */ } }}
-                                    className="shrink-0 h-10 w-10 sm:h-11 sm:w-11 rounded-full flex items-center justify-center text-xl leading-none text-white/85 bg-transparent border border-white/30 hover:border-white/60 active:scale-90 transition-all"
-                                    aria-label="Приблизить"
-                                  >+</button>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); try { window.dispatchEvent(new CustomEvent("muza:globe-zoom", { detail: { dir: 1 } })); } catch { /* no-op */ } }}
-                                    className="shrink-0 h-10 w-10 sm:h-11 sm:w-11 rounded-full flex items-center justify-center text-xl leading-none text-white/85 bg-transparent border border-white/30 hover:border-white/60 active:scale-90 transition-all"
-                                    aria-label="Отдалить"
-                                  >−</button>
                                   </div>
                                   {/* ЦЕНТР (col2) — переключение трека ВЛЕВО/ВПРАВО от Play; Play
                                       СТРОГО по центру экрана (Босс 2026-05-29). Прозрачные контур-кнопки. */}
