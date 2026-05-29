@@ -965,10 +965,26 @@ function DirectorVoiceReport() {
   const [dailyOpen, setDailyOpen] = useState<{ id: number; text: string } | null>(null);
   const [dailyGen, setDailyGen] = useState(false);
 
+  // Босс 2026-05-29: «аудио-кнопка моргает при заходе, если свежий доклад».
+  const [hasFresh, setHasFresh] = useState(false);
+  function markReportsSeen() {
+    try { localStorage.setItem("director_report_seen_at", String(Date.now())); } catch {}
+    setHasFresh(false);
+  }
   async function loadSaved() {
     try {
       const r = await fetch("/api/admin/v304/director/voice-reports?kind=voice", { credentials: "include" });
-      if (r.ok) setSaved((await r.json()).data?.reports || []);
+      if (r.ok) {
+        const reports = (await r.json()).data?.reports || [];
+        setSaved(reports);
+        // Свежий = новейший сохранённый доклад не прослушан (createdAt > seen) и не
+        // старше 36ч (ночной 03:00 ещё актуален днём). → кнопка моргает при заходе.
+        try {
+          const newest = reports.reduce((m: number, x: any) => Math.max(m, Number(x?.createdAt) || 0), 0);
+          const seen = Number(localStorage.getItem("director_report_seen_at") || "0");
+          setHasFresh(newest > 0 && newest > seen && Date.now() - newest < 36 * 3600_000);
+        } catch { /* no-op */ }
+      }
     } catch {}
   }
   async function loadDaily() {
@@ -995,6 +1011,7 @@ function DirectorVoiceReport() {
   useEffect(() => { loadSaved(); loadDaily(); }, []);
 
   async function playSaved(id: number) {
+    markReportsSeen();
     try {
       const r = await fetch(`/api/admin/v304/director/voice-report/saved/${id}`, { credentials: "include" });
       if (!r.ok) throw new Error(`${r.status}`);
@@ -1012,6 +1029,7 @@ function DirectorVoiceReport() {
   }
 
   async function generateReport() {
+    markReportsSeen();
     setLoading(true);
     setErr(null);
     try {
@@ -1061,9 +1079,10 @@ function DirectorVoiceReport() {
         <button
           onClick={generateReport}
           disabled={loading}
-          className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 via-fuchsia-500 to-cyan-500 text-white text-sm font-bold shadow-[0_0_24px_rgba(217,70,239,0.45)] hover:shadow-[0_0_32px_rgba(124,58,237,0.55)] transition-shadow disabled:opacity-50"
+          className={`px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 via-fuchsia-500 to-cyan-500 text-white text-sm font-bold shadow-[0_0_24px_rgba(217,70,239,0.45)] hover:shadow-[0_0_32px_rgba(124,58,237,0.55)] transition-shadow disabled:opacity-50 ${hasFresh ? "animate-pulse ring-2 ring-fuchsia-300 ring-offset-2 ring-offset-transparent" : ""}`}
+          title={hasFresh ? "Свежий ночной доклад готов — нажми, чтобы прослушать" : undefined}
         >
-          {loading ? "⏳ Собираю..." : "🎤 Доложи итоги"}
+          {hasFresh && !loading ? "🔴 " : ""}{loading ? "⏳ Собираю..." : "🎤 Доложи итоги"}
         </button>
         <select
           value={period}
