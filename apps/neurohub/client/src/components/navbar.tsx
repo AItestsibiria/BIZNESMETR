@@ -256,6 +256,8 @@ export default function Navbar() {
             className="md:hidden text-muted-foreground hover:text-white p-2"
             onClick={() => setMobileOpen(!mobileOpen)}
             data-testid="button-mobile-menu"
+            aria-label={mobileOpen ? "Закрыть меню" : "Открыть меню"}
+            aria-expanded={mobileOpen}
           >
             {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>

@@ -28,6 +28,35 @@
 //   { ok, skipped, partial?, reason?, devicesTested, issues: [{page, kind, message}], checkedAt }
 // Всегда exit(0).
 
+import { existsSync, readdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
+// Eugene 2026-05-29 (предложение #3 из аудита): версия chromium на VPS может не
+// совпадать с версией пакета playwright → default launch падает, реальный прогон
+// молча пропускается. Ищем ЛЮБОЙ установленный chromium и запускаем через
+// executablePath, чтобы Фрон-агент прогонялся даже при рассинхроне версий.
+function findInstalledChromium() {
+  try {
+    const roots = [];
+    if (process.env.PLAYWRIGHT_BROWSERS_PATH) roots.push(process.env.PLAYWRIGHT_BROWSERS_PATH);
+    roots.push(join(homedir(), ".cache", "ms-playwright"));
+    for (const root of roots) {
+      if (!existsSync(root)) continue;
+      const dirs = readdirSync(root).filter((d) => d.startsWith("chromium")).sort().reverse();
+      for (const d of dirs) {
+        for (const c of [
+          join(root, d, "chrome-linux", "chrome"),
+          join(root, d, "chrome-linux", "headless_shell"),
+        ]) {
+          if (existsSync(c)) return c;
+        }
+      }
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
 const BASE_URL = String(process.env.PUBLIC_URL || "https://muzaai.ru").replace(/\/+$/, "");
 // Все окна генерации (Босс 2026-05-28 «пусть Фронт проверит все окна генерации»):
 // режимы /music (basic/audio/advanced) + /lyrics. ?voice=female форсирует
@@ -120,6 +149,29 @@ function buildDeviceProfiles(devices) {
           "Mozilla/5.0 (iPad; CPU OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
       }),
     },
+    // Eugene 2026-05-29 (предложение #4): реальный Android-профиль + альбомный планшет.
+    {
+      label: "Pixel 7 (Android)",
+      ctx: pick("Pixel 7", {
+        viewport: { width: 412, height: 915 },
+        deviceScaleFactor: 2.625,
+        isMobile: true,
+        hasTouch: true,
+        userAgent:
+          "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+      }),
+    },
+    {
+      label: "iPad альбомная",
+      ctx: pick("iPad (gen 7) landscape", {
+        viewport: { width: 1024, height: 768 },
+        deviceScaleFactor: 2,
+        isMobile: true,
+        hasTouch: true,
+        userAgent:
+          "Mozilla/5.0 (iPad; CPU OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
+      }),
+    },
   ];
   // Добавляем QA-метку к UA каждого профиля (чтобы сервер мог отличить QA-трафик).
   for (const p of profiles) {
@@ -157,16 +209,36 @@ async function main() {
     });
   };
 
+  const launchOpts = {
+    headless: true,
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+  };
   try {
-    browser = await chromium.launch({
-      headless: true,
-      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
-    });
+    browser = await chromium.launch(launchOpts);
   } catch (e) {
+    // Версия chromium рассинхронена с пакетом → пробуем найти установленный и
+    // запустить через executablePath (предложение #3).
+    const alt = findInstalledChromium();
+    if (alt) {
+      try {
+        browser = await chromium.launch({ ...launchOpts, executablePath: alt });
+      } catch (e2) {
+        out({
+          ok: true,
+          skipped: true,
+          reason: "chromium_launch_failed (alt): " + String(e2?.message || e2).slice(0, 180),
+          devicesTested: [],
+          issues: [],
+        });
+        return;
+      }
+    }
+  }
+  if (!browser) {
     out({
       ok: true,
       skipped: true,
-      reason: "chromium_launch_failed: " + String(e?.message || e).slice(0, 200),
+      reason: "chromium_launch_failed (no browser/executable found)",
       devicesTested: [],
       issues: [],
     });
