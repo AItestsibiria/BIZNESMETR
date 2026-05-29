@@ -51,6 +51,7 @@ import {
 // ниже THREE используется через локальный any-каст (THREE_ANY).
 // @ts-expect-error — нет @types/three; runtime-импорт валиден, типы добавим вместе с @types/three.
 import * as THREE_NS from "three";
+import { GlobeLoader } from "@/components/globe-loader";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const THREE: any = THREE_NS as any;
 
@@ -1079,16 +1080,7 @@ export default function GlobeView({ countries }: { countries: GlobeCountry[] }) 
   return (
     <div className="relative w-full h-full">
       <GlobeErrorBoundary fallback={fallback}>
-        <Suspense
-          fallback={
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="text-center">
-                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500 mb-2" />
-                <p className="text-xs font-sans text-white/50">Загружаем планету…</p>
-              </div>
-            </div>
-          }
-        >
+        <Suspense fallback={<GlobeLoader />}>
           <GlobeInner points={points} />
         </Suspense>
       </GlobeErrorBoundary>
