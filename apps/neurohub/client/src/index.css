@@ -238,6 +238,18 @@
   opacity: 1;
 }
 
+/* Статичный спокойный вариант ободка (Босс 2026-05-29 «по периметру, вариант 1»):
+   без переливания, мягкая прозрачность ~35% — премиальный градиентный контур
+   по периметру плеера, не отвлекает. Свечение ::after остаётся. */
+.gradient-border-static::before {
+  animation: none;
+  background-position: 35% 50%;
+  opacity: 0.4;
+}
+.gradient-border-static:hover::before {
+  opacity: 0.55;
+}
+
 /* Глубокое мягкое свечение позади формы для «магического» вида */
 .gradient-border::after {
   content: '';

@@ -2268,7 +2268,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         <div aria-hidden="true" style={{ height: playerTopSpacer }} className="shrink-0" />
         {/* Big player — full-width, visible details */}
         {currentTrack && (
-          <div ref={bigPlayerRef} data-main-player className="glass-card rounded-2xl p-5 mb-6 border border-white/[0.06] relative">
+          <div ref={bigPlayerRef} data-main-player className="gradient-border gradient-border-static p-5 mb-6 relative">
             {/* Eugene 2026-05-21 Босс: «Плей и S в наложении». S смещена дальше от
                 края (top-3 right-3 = 12px) + меньше на mobile (w-9 h-9 vs sm:w-11 h-11).
                 Применено в обоих местах S — main player FAB + inline expanded. */}
