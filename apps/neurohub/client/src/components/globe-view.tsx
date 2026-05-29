@@ -1864,8 +1864,8 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             vertexShader: MOON_VERTEX,
             fragmentShader: MOON_FRAGMENT,
           });
-          // Луна в 2 раза меньше (Босс 2026-05-29 «в 2 раза меньше с ближнего ракурса»): radius 5→2.5.
-          const moon = new THREE.Mesh(new THREE.SphereGeometry(2.5, 32, 32), moonMat);
+          // Луна увеличена ×2 (Босс 2026-05-29 «увеличь Луну в 2 раза»): radius 2.5→5.0.
+          const moon = new THREE.Mesh(new THREE.SphereGeometry(5.0, 32, 32), moonMat);
           scene.add(moon);
           moonMeshRef.current = moon;
           moonMatRef.current = moonMat;
