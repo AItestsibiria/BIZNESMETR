@@ -880,7 +880,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 const raw = String(d.city || d.locality || "").split(",")[0].trim();
                 const cleaned = raw
                   .replace(
-                    /\b(городской округ|муниципальн\w*|сельск\w*|поселени\w*|район|округ|область|край|автономн\w*|district|county|oblast|okrug|raion|krai|region|prefecture|province|municipalit\w*)\b/gi,
+                    /\b(городской округ|муниципальн\w*|сельск\w*|поселени\w*|район|округ|область|край|автономн\w*|district|county|oblast|okrug|raion|krai|region|prefecture|province|municipalit\w*|gorodsk\w*|selsk\w*|poseleni\w*|munitsipaln\w*|avtonomn\w*)\b/gi,
                     " ",
                   )
                   .replace(/\s+/g, " ")

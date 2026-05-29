@@ -3068,8 +3068,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                     <SkipForward className="w-5 h-5" />
                                   </button>
                                   </div>
-                                  {/* ПРАВАЯ колонка (col3) — остальные кнопки, к правому краю. */}
-                                  <div className="min-w-0 flex flex-wrap items-center justify-end gap-1.5 sm:gap-2 justify-self-end">
+                                  {/* ПРАВАЯ колонка (col3) — все кнопки в ОДНУ строку, к правому краю
+                                      (Босс 2026-05-29: не расширять панель вертикально, в балансе). */}
+                                  <div className="min-w-0 flex flex-nowrap items-center justify-end gap-1.5 sm:gap-2 justify-self-end overflow-x-auto">
                                   {/* Правый кластер — ВСЕ кнопки в плеере (Босс 2026-05-29):
                                       🎧 топ-100 · зум +/− · полноэкранный · вернуться · поделиться.
                                       Все прозрачные (контур), компактные. */}
