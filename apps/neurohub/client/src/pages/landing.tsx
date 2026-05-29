@@ -25,6 +25,7 @@ import { createPortal } from "react-dom";
 import { motion, useAnimation, useDragControls } from "framer-motion";
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { GlobeLoader } from "@/components/globe-loader";
 
 // Eugene 2026-05-26 Босс «настоящий 3D-глобус». Lazy-load — тяжёлый chunk
 // (three.js + react-globe.gl ~600KB) грузится только при открытии глобуса,
@@ -2692,16 +2693,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   </div>
                                 }
                               >
-                                <Suspense
-                                  fallback={
-                                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                      <div className="text-center">
-                                        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500 mb-2" />
-                                        <p className="text-xs font-sans text-white/50">Загружаем планету…</p>
-                                      </div>
-                                    </div>
-                                  }
-                                >
+                                <Suspense fallback={<GlobeLoader />}>
                                   <GlobeView
                                     countries={countriesList.map(c => ({
                                       code: c.country_code,
