@@ -345,11 +345,9 @@ function makeSunFlareSprite(size: number): any {
       map: tex,
       transparent: true,
       depthWrite: false,
-      depthTest: false, // всегда поверх — Солнце видимо при ЛЮБОМ повороте (Босс)
       blending: THREE.AdditiveBlending,
     });
     const spr = new THREE.Sprite(mat);
-    spr.renderOrder = 10;
     spr.scale.set(size, size, 1);
     return spr;
   } catch {
@@ -1230,57 +1228,38 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         // ignore
       }
 
-      // Декоративные Солнце и Луна — ВСЕГДА видимы при любом повороте (Босс 2026-05-29
-      // «при всех условиях солнце видимым с правого угла, луна параллельно с учётом
-      // панорамы, пусть танцуют»). Позиционируем в КАМЕРА-относительных координатах:
-      // Солнце — правый верхний угол, Луна — левее (параллельно), оба «танцуют» (мягкая
-      // осцилляция офсетов). Солнце — слепящая вспышка с вращающимися лучами + пульс.
+      // АСТРОНОМИЧЕСКИЙ блик Солнца (Босс 2026-05-29: всё астрономически — Солнце/Луна
+      // по реальным точкам, видимость по ФАЗЕ поворота Земли; при коррекции позиции
+      // Земли кадр меняется астрономически). Позиции ставит positionSunMoon (субсолярная/
+      // подлунная точки) — Солнце/Луна перекрываются диском Земли при повороте (depthTest).
+      // Здесь только модуляция яркости вспышки: пик у лимба (кресует), спад наружу,
+      // гаснет вглубь за диск; лучи «играют» (вращение material.rotation) + пульс.
       try {
-        const cam = g.camera?.();
         const sun = sunMeshRef.current;
-        if (cam?.matrixWorld && cam.position) {
-          const e = cam.matrixWorld.elements;
+        const cam = g.camera?.();
+        if (sun && cam?.position) {
           const cp = cam.position;
           const camDist = Math.hypot(cp.x, cp.y, cp.z) || 1;
-          const rx = e[0], ry = e[1], rz = e[2];       // right камеры
-          const ux = e[4], uy = e[5], uz = e[6];       // up камеры
-          const fx = -e[8], fy = -e[9], fz = -e[10];   // forward (камера→центр)
-          const tsec = now / 1000;
-          const fwd = camDist; // плоскость центра Земли → объект сбоку, не перекрыт диском
-          if (sun) {
-            const sR = camDist * (0.74 + 0.05 * Math.sin(tsec * 0.5)); // правее (танец)
-            const sU = camDist * (0.52 + 0.05 * Math.cos(tsec * 0.42)); // выше (танец)
-            sun.position.set(
-              cp.x + fx * fwd + rx * sR + ux * sU,
-              cp.y + fy * fwd + ry * sR + uy * sU,
-              cp.z + fz * fwd + rz * sR + uz * sU,
-            );
-            const pulse = 0.9 + 0.1 * Math.sin(tsec * 1.2);
-            const s = 72 * pulse;
-            sun.scale.set(s, s, 1);
-            if (sun.material) {
-              sun.material.opacity = Math.min(1, 0.85 * pulse + 0.12);
-              sun.material.rotation = (now / 9000) % (Math.PI * 2); // лучи «играют»
-            }
-          }
-          const moon = moonMeshRef.current;
-          if (moon) {
-            const mR = camDist * (-0.66 + 0.05 * Math.cos(tsec * 0.4)); // левее (параллельно)
-            const mU = camDist * (0.34 + 0.05 * Math.sin(tsec * 0.36));
-            moon.position.set(
-              cp.x + fx * fwd + rx * mR + ux * mU,
-              cp.y + fy * fwd + ry * mR + uy * mU,
-              cp.z + fz * fwd + rz * mR + uz * mU,
-            );
-            moon.scale.set(5, 5, 5); // крупнее, чтобы читалась на расстоянии угла
-            // Фаза Луны — освещена со стороны (декоративного) Солнца.
-            if (moonMatRef.current && sun) {
-              const dx = sun.position.x - moon.position.x;
-              const dy = sun.position.y - moon.position.y;
-              const dz = sun.position.z - moon.position.z;
-              const dl = Math.hypot(dx, dy, dz) || 1;
-              moonMatRef.current.uniforms.sunDir.value.set(dx / dl, dy / dl, dz / dl);
-            }
+          const vEx = -cp.x / camDist, vEy = -cp.y / camDist, vEz = -cp.z / camDist;
+          const spp = sun.position;
+          let sx = spp.x - cp.x, sy = spp.y - cp.y, sz = spp.z - cp.z;
+          const sl = Math.hypot(sx, sy, sz) || 1;
+          sx /= sl; sy /= sl; sz /= sl;
+          const align = Math.max(-1, Math.min(1, vEx * sx + vEy * sy + vEz * sz));
+          const look = Math.max(0, align);
+          const sunAngle = Math.acos(align);
+          const earthAng = Math.asin(Math.min(1, 100 / camDist));
+          const d = sunAngle - earthAng;
+          const sigma = earthAng * 0.6 + 0.02;
+          const limbPeak = Math.exp(-Math.pow((d + earthAng * 0.15) / sigma, 2));
+          const occl = d < -earthAng ? Math.max(0, 1 + (d + earthAng) / earthAng) : 1;
+          const pulseSun = 0.92 + 0.08 * Math.sin(now / 360);
+          const intensity = Math.max(0, Math.min(1.7, look * (0.3 + 1.25 * limbPeak) * occl * pulseSun));
+          const s = 64 * (0.4 + 1.5 * intensity);
+          sun.scale.set(s, s, 1);
+          if (sun.material) {
+            sun.material.opacity = Math.max(0.18, Math.min(1, 0.2 + 0.95 * intensity));
+            sun.material.rotation = (now / 9000) % (Math.PI * 2); // лучи «играют»
           }
         }
       } catch {
@@ -1456,10 +1435,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             uniforms: moonUniforms,
             vertexShader: MOON_VERTEX,
             fragmentShader: MOON_FRAGMENT,
-            depthTest: false, // всегда видима (параллельно Солнцу, при любом повороте)
           });
-          const moon = new THREE.Mesh(new THREE.SphereGeometry(5, 32, 32), moonMat);
-          moon.renderOrder = 9;
+          // Луна в 2 раза меньше (Босс 2026-05-29 «в 2 раза меньше с ближнего ракурса»): radius 5→2.5.
+          const moon = new THREE.Mesh(new THREE.SphereGeometry(2.5, 32, 32), moonMat);
           scene.add(moon);
           moonMeshRef.current = moon;
           moonMatRef.current = moonMat;
