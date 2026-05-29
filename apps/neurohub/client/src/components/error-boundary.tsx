@@ -3,10 +3,15 @@
 // ТЗ Eugene 2026-05-07: «Реши тотально проблему» с /dashboard черный.
 
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { isChunkLoadError, reloadOnceForChunk } from "@/lib/chunkReload";
 
 interface Props {
   children: ReactNode;
   pageName?: string;
+  // Eugene 2026-05-29: компактный фолбэк для локальных boundary (напр. вокруг
+  // 3D-глобуса) — чтобы сбой виджета не показывал полноэкранную страницу-ошибку,
+  // а деградировал только в своей зоне. Если не задан — полноэкранный фолбэк.
+  fallback?: ReactNode;
 }
 
 interface State {
@@ -25,6 +30,10 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
     this.setState({ info });
+    // Eugene 2026-05-29 (Босс): ChunkLoadError (старый lazy-чанк после деплоя) —
+    // не показываем фолбэк, а один guarded reload берёт свежий бандл. Если
+    // reload уже был недавно (guard) — падаем в обычный фолбэк ниже.
+    if (isChunkLoadError(error)) { reloadOnceForChunk(); }
     // Помимо UI — записываем в консоль для F12
     console.error(`[ErrorBoundary] ${this.props.pageName ?? "page"}:`, error, info);
     // И отправляем на сервер для логирования (best-effort)
@@ -46,6 +55,8 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (!this.state.hasError) return this.props.children;
+    // Компактный фолбэк (локальный boundary вокруг виджета) — без полноэкранной страницы.
+    if (this.props.fallback !== undefined) return this.props.fallback;
     const err = this.state.error;
     // Eugene 2026-05-26 Босс «при сбое — страница в стиле MuzaAi (как на главной),
     // ошибки в админ + анализ, а для меня слева внизу круг → по тапу вижу ошибки».

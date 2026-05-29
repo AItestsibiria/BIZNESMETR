@@ -7,6 +7,7 @@ import { installAudioBus } from "./lib/audio-bus";
 import { registerServiceWorker } from "./lib/registerSW";
 import { installUserJourney } from "./lib/user-journey";
 import { ErrorBoundary } from "./components/error-boundary";
+import { isChunkLoadError, reloadOnceForChunk } from "./lib/chunkReload";
 
 if (!window.location.hash) {
   window.location.hash = "#/";
@@ -45,6 +46,21 @@ try { registerServiceWorker(); } catch (e) { console.warn("[startup] registerSer
 // каждые 5 сек. Используется (1) admin-аналитикой и (2) smart-триггерами
 // Музы (slow-thinking, form-abandon → подсказка появляется).
 try { installUserJourney(); } catch (e) { console.warn("[startup] installUserJourney failed", e); }
+
+// Eugene 2026-05-29 (Босс) «Секунду — что-то сбойнуло» при заходе во время
+// деплоя — корень: ChunkLoadError lazy-чанка (3D-глобус) у вкладки, открытой
+// ДО деплоя (старые hash-чанки удалены → 404). Авто-восстановление: один
+// guarded reload берёт свежий index.html (no-store) → новые хэши → чинится
+// само, без действий юзера. См. lib/chunkReload.ts (sessionStorage-guard от петли).
+try {
+  window.addEventListener("vite:preloadError", () => { reloadOnceForChunk(); });
+  window.addEventListener("error", (e) => {
+    if (isChunkLoadError((e as any)?.error ?? (e as any)?.message)) reloadOnceForChunk();
+  });
+  window.addEventListener("unhandledrejection", (e) => {
+    if (isChunkLoadError((e as PromiseRejectionEvent)?.reason)) reloadOnceForChunk();
+  });
+} catch (e) { console.warn("[startup] chunk-reload guard failed", e); }
 
 // Eugene 2026-05-25 (Босс) — ТОТАЛЬНАЯ защита от чёрного экрана: оборачиваем
 // всё дерево App в top-level ErrorBoundary. Раньше boundary стоял только на

@@ -24,6 +24,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { createPortal } from "react-dom";
 import { motion, useAnimation, useDragControls } from "framer-motion";
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 // Eugene 2026-05-26 Босс «настоящий 3D-глобус». Lazy-load — тяжёлый chunk
 // (three.js + react-globe.gl ~600KB) грузится только при открытии глобуса,
@@ -2635,24 +2636,33 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             </div>
                             {/* Сам глобус — занимает основную область */}
                             <div className="relative flex-1 min-h-0">
-                              <Suspense
+                              <ErrorBoundary
+                                pageName="globe"
                                 fallback={
-                                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                    <div className="text-center">
-                                      <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500 mb-2" />
-                                      <p className="text-xs font-sans text-white/50">Загружаем планету…</p>
-                                    </div>
+                                  <div className="absolute inset-0 flex items-center justify-center text-center p-4">
+                                    <p className="text-xs font-sans text-white/50 max-w-[240px]">Не удалось загрузить 3D-глобус. Обнови страницу 💜</p>
                                   </div>
                                 }
                               >
-                                <GlobeView
-                                  countries={countriesList.map(c => ({
-                                    code: c.country_code,
-                                    name: englishCountryName(c.country_code, c.country),
-                                    n: c.n,
-                                  }))}
-                                />
-                              </Suspense>
+                                <Suspense
+                                  fallback={
+                                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                                      <div className="text-center">
+                                        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500 mb-2" />
+                                        <p className="text-xs font-sans text-white/50">Загружаем планету…</p>
+                                      </div>
+                                    </div>
+                                  }
+                                >
+                                  <GlobeView
+                                    countries={countriesList.map(c => ({
+                                      code: c.country_code,
+                                      name: englishCountryName(c.country_code, c.country),
+                                      n: c.n,
+                                    }))}
+                                  />
+                                </Suspense>
+                              </ErrorBoundary>
                               {/* Шаринг-CTA (через 60 сек): предлагает перейти на MuzaAi.ru */}
                               {globeCardCta && (
                                 <div className="absolute inset-x-3 bottom-3 z-10 rounded-2xl border border-fuchsia-400/40 bg-[#0a0a17]/90 backdrop-blur-md px-4 py-3 shadow-[0_0_24px_rgba(217,70,239,0.4)] flex items-center justify-between gap-3 cover-bloom">
