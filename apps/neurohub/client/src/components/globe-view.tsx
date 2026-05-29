@@ -157,9 +157,6 @@ const Globe = lazy(() => import("react-globe.gl")) as unknown as ComponentType<G
 const EARTH_DAY_URL = "//unpkg.com/three-globe/example/img/earth-day.jpg";
 const EARTH_NIGHT_URL = "//unpkg.com/three-globe/example/img/earth-night.jpg";
 const EARTH_BUMP_URL = "//unpkg.com/three-globe/example/img/earth-topology.png";
-// Звёздное небо (первоначальный вид — Босс 2026-05-29 «верни первоначальный вид
-// звёзд»): реальная текстура звёздного неба three-globe (night-sky.png).
-const NIGHT_SKY_URL = "//unpkg.com/three-globe/example/img/night-sky.png";
 
 // ───────────────────────────────────────────────────────────────────────────
 // Day/Night шейдер — порт офиц. примера react-globe.gl «Day/Night Cycle».
@@ -1565,15 +1562,11 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       ref={wrapRef}
       className="absolute inset-0"
       data-testid="globe-3d-canvas"
-      // Near-black с нотками MuzaAi (подложка под звёздный фон, без «вспышки пустоты»
-      // пока грузится текстура неба): глубокий космос + лёгкие purple/cyan-блики бренда.
+      // Босс 2026-05-29: фон ЧЁРНЫЙ + летящие звёзды. Подложка прозрачная → проступает
+      // анимированный StarfieldCanvas (warp = летящие звёзды) из оверлея; статичная
+      // текстура неба убрана (см. ниже backgroundImageUrl).
       style={{
-        // Near-black с нотками MuzaAi — подложка под текстуру звёздного неба
-        // (без «вспышки пустоты» пока грузится night-sky.png).
-        background:
-          "radial-gradient(ellipse at 22% 28%, rgba(124,58,237,0.16) 0%, transparent 55%)," +
-          "radial-gradient(ellipse at 80% 78%, rgba(0,212,255,0.12) 0%, transparent 60%)," +
-          "#03030a",
+        background: "transparent",
         // Плавное появление сцены + мягкий рост детализации (Босс «плавный»).
         opacity: ready ? 1 : 0,
         filter: texturesReady ? "none" : "saturate(0.78) brightness(0.92)",
@@ -1585,7 +1578,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         width={size.w}
         height={size.h}
         backgroundColor="rgba(0,0,0,0)"
-        backgroundImageUrl={NIGHT_SKY_URL}
+        backgroundImageUrl={null}
         rendererConfig={{ antialias: true, alpha: true }}
         {...(dayNight && texturesReady
           ? { globeMaterial: dayNight.material }

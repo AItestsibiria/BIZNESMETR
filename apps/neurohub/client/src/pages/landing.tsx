@@ -2872,7 +2872,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                           ErrorBoundary в globe-view → ошибка не роняет страницу. */}
                       {showGlobe && globe3dEnabled && createPortal(
                         <div
-                          className="fixed inset-0 z-[200] flex items-center justify-center bg-[#03030a] transition-opacity duration-1000 ease-out"
+                          className="fixed inset-0 z-[200] flex items-center justify-center bg-black transition-opacity duration-1000 ease-out"
                           style={{
                             paddingTop: "max(env(safe-area-inset-top), 12px)",
                             paddingBottom: "max(env(safe-area-inset-bottom), 12px)",
