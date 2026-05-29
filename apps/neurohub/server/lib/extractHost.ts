@@ -23,8 +23,21 @@ export type KnownDomain = (typeof KNOWN_DOMAINS)[number];
 export type DomainBucket = KnownDomain | "other";
 
 /**
+ * Ребренд (Eugene 2026-05-29): muziai.ru — СТАРОЕ имя того же проекта, что и
+ * muzaai.ru (домен сменился 15.05.2026). Сводим к одному host, чтобы per-domain
+ * аналитика не расщепляла один проект на два бакета. podaripesnu.ru —
+ * ОТДЕЛЬНЫЙ проект, его НЕ объединяем.
+ */
+const HOST_ALIASES: Record<string, string> = {
+  "muziai.ru": "muzaai.ru",
+};
+function applyHostAlias(host: string): string {
+  return HOST_ALIASES[host] ?? host;
+}
+
+/**
  * Возвращает нормализованный host из запроса или null если headers отсутствуют.
- * Без port, без `www.`, lowercase.
+ * Без port, без `www.`, lowercase, с ребренд-алиасом (muziai.ru → muzaai.ru).
  */
 export function extractHost(req: Pick<Request, "headers"> | { headers: Record<string, unknown> } | null | undefined): string | null {
   if (!req || !req.headers) return null;
@@ -35,7 +48,7 @@ export function extractHost(req: Pick<Request, "headers"> | { headers: Record<st
   // Убираем port и www-префикс.
   const noWww = first.replace(/^www\./, "");
   const noPort = noWww.split(":")[0];
-  return noPort || null;
+  return noPort ? applyHostAlias(noPort) : null;
 }
 
 /**
@@ -44,7 +57,7 @@ export function extractHost(req: Pick<Request, "headers"> | { headers: Record<st
  */
 export function hostToBucket(host: string | null | undefined): DomainBucket {
   if (!host) return "other";
-  const norm = host.toLowerCase().replace(/^www\./, "").split(":")[0];
+  const norm = applyHostAlias(host.toLowerCase().replace(/^www\./, "").split(":")[0]);
   for (const d of KNOWN_DOMAINS) {
     if (norm === d) return d;
   }
@@ -56,7 +69,7 @@ export function hostToBucket(host: string | null | undefined): DomainBucket {
  */
 export function isKnownDomain(host: string | null | undefined): host is KnownDomain {
   if (!host) return false;
-  const norm = host.toLowerCase().replace(/^www\./, "").split(":")[0];
+  const norm = applyHostAlias(host.toLowerCase().replace(/^www\./, "").split(":")[0]);
   return (KNOWN_DOMAINS as readonly string[]).includes(norm);
 }
 
