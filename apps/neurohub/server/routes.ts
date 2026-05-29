@@ -1246,7 +1246,7 @@ export async function registerRoutes(
         MAX(country) as name,
         MAX(country) as country,
         COUNT(DISTINCT COALESCE(fingerprint, ip)) as visitors,
-        COALESCE(SUM(visits), 0) as visits
+        COUNT(*) as visits
       FROM visitors
       ${wherePrefix} AND country IS NOT NULL AND country != ''
       GROUP BY country_code
@@ -1261,7 +1261,7 @@ export async function registerRoutes(
         MAX(country) as country,
         (city || ', ' || COALESCE(MAX(country), '')) as name,
         COUNT(DISTINCT COALESCE(fingerprint, ip)) as visitors,
-        COALESCE(SUM(visits), 0) as visits
+        COUNT(*) as visits
       FROM visitors
       ${wherePrefix} AND city IS NOT NULL AND city != ''
       GROUP BY city, country_code
@@ -13117,7 +13117,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
                  WHEN 'Туркменистан' THEN 'Turkmenistan'
                  ELSE country
                END AS country,
-               COALESCE(SUM(visits), 0) AS visits
+               COUNT(*) AS visits
         FROM visitors
         WHERE country_code IS NOT NULL AND country_code != ''
           AND ${realVisitors}
@@ -13126,7 +13126,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         LIMIT 10
       `).all() as any[];
       const cities: Array<{ city: string; countryCode: string; visits: number }> = rawSql.prepare(`
-        SELECT city, COALESCE(country_code, '??') AS countryCode, COALESCE(SUM(visits), 0) AS visits
+        SELECT city, COALESCE(country_code, '??') AS countryCode, COUNT(*) AS visits
         FROM visitors
         WHERE city IS NOT NULL AND city != ''
           AND ${realVisitors}
@@ -13134,7 +13134,7 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
         ORDER BY visits DESC
         LIMIT 10
       `).all() as any[];
-      const totalRow = rawSql.prepare(`SELECT COALESCE(SUM(visits), 0) AS total FROM visitors WHERE ${realVisitors}`).get() as { total: number };
+      const totalRow = rawSql.prepare(`SELECT COUNT(*) AS total FROM visitors WHERE ${realVisitors}`).get() as { total: number };
       const totalCountriesRow = rawSql.prepare(`
         SELECT COUNT(DISTINCT country_code) AS cnt FROM visitors
         WHERE country_code IS NOT NULL AND country_code != ''

@@ -566,7 +566,7 @@ function buildPeriodMetrics(
     sql`SELECT count(DISTINCT fingerprint) as c FROM visitors WHERE ${sinceCondition} AND ${visitorsHostCond} AND ${botExcl} AND ${realExcl}`,
   );
   const visitorsTotal = countSafe(
-    sql`SELECT COALESCE(SUM(visits), 0) as c FROM visitors WHERE ${sinceCondition} AND ${visitorsHostCond} AND ${botExcl} AND ${realExcl}`,
+    sql`SELECT COUNT(*) as c FROM visitors WHERE ${sinceCondition} AND ${visitorsHostCond} AND ${botExcl} AND ${realExcl}`,
   );
 
   return {
