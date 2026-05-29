@@ -555,10 +555,10 @@ const MORSE_TABLE: Record<string, string> = {
   Q: "--.-", R: ".-.", S: "...", T: "-", U: "..-", V: "...-", W: ".--", X: "-..-",
   Y: "-.--", Z: "--..",
 };
-// Тайминг-последовательность вкл/выкл для слова (доли Морзе, ускорены чтобы
-// «MUZA» уложилась в 5 сек — Босс 2026-05-29 «только на 5 сек ... и исчезает»).
+// Тайминг-последовательность вкл/выкл для слова (доли Морзе). Последовательность
+// зацикливается на всё окно показа (Босс 2026-05-29 «10 сек Морзе»).
 function morseTimeline(word: string): Array<{ on: boolean; ms: number }> {
-  const DOT = 120, DASH = 360, GAP = 120, LGAP = 360;
+  const DOT = 150, DASH = 450, GAP = 150, LGAP = 450;
   const seq: Array<{ on: boolean; ms: number }> = [];
   const letters = word.toUpperCase().split("");
   letters.forEach((ch, li) => {
@@ -675,7 +675,10 @@ function MorseWink({ onDone }: { onDone: () => void }) {
     let stepTimer = 0;
     const step = () => {
       if (i >= seq.length) {
+        // Зацикливаем: пауза ~700 мс и снова с начала — Морзе мигает все 10 сек.
+        i = 0;
         setOn(false);
+        stepTimer = window.setTimeout(step, 700);
         return;
       }
       const s = seq[i++];
@@ -683,11 +686,11 @@ function MorseWink({ onDone }: { onDone: () => void }) {
       stepTimer = window.setTimeout(step, s.ms);
     };
     step();
-    // Жёсткий лимит видимости 5 сек: гаснет и исчезает, дальше глобус по плану.
+    // Жёсткий лимит видимости 10 сек: гаснет и исчезает, дальше глобус по плану.
     const hideTimer = window.setTimeout(() => {
       setOn(false);
       onDone();
-    }, 5000);
+    }, 10000);
     return () => {
       window.clearTimeout(stepTimer);
       window.clearTimeout(hideTimer);
