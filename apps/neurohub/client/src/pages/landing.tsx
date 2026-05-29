@@ -1575,15 +1575,21 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       if (rect.height < 40) return;
       // «Парящий» зазор снизу (Босс «плеер ещё повыше парить») — ~12% высоты
       // экрана, минимум 48px. Плеер уезжает выше, ближе к заголовку.
-      const floatGap = Math.max(20, Math.min(Math.round(window.innerHeight * 0.07), 72));
-      // Низ ПОЛНОГО блока плеера ≈ низ вьюпорта минус «парящий» зазор. rect.bottom
-      // включает всю карточку (обложка, контролы, «Создай в том же стиле»).
-      const target = window.innerHeight - floatGap;
-      const next = Math.max(0, Math.round(currentSpacerRef.current + (target - rect.bottom)));
-      if (Math.abs(next - currentSpacerRef.current) > 3) {
-        currentSpacerRef.current = next;
-        setPlayerTopSpacer(next);
+      const MB = 24; // mb-6 у карточки плеера
+      // Низ заголовка = верх карточки, если бы верхнего отступа не было.
+      const regionTop = rect.top - currentSpacerRef.current;
+      const available = window.innerHeight - regionTop;
+      // Босс 2026-05-29: центрируем карточку (с её нижним mb) между заголовком и
+      // низом ПЕРВОГО экрана — равные отступы сверху и снизу.
+      const gap = Math.max(0, Math.round((available - rect.height - MB) / 2));
+      if (Math.abs(gap - currentSpacerRef.current) > 3) {
+        currentSpacerRef.current = gap;
+        setPlayerTopSpacer(gap);
       }
+      // Нижний отступ: список начинается ровно за нижним краем экрана (off-screen),
+      // плейлист не «захватывается» в первом окне.
+      const bottom = Math.max(0, Math.round(available - gap - rect.height - MB));
+      setPlayerBottomSpacer((prev) => (Math.abs(prev - bottom) > 3 ? bottom : prev));
     };
     const raf = requestAnimationFrame(recompute);
     const t1 = window.setTimeout(recompute, 320);
@@ -1609,35 +1615,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       window.removeEventListener("orientationchange", recompute);
     };
   }, [playingId, coverExpanded]);
-
-  // Босс 2026-05-29 «надо чтобы плейлист не видно было» — после применения
-  // верхнего отступа меряем фактический низ карточки плеера и дотягиваем отступ
-  // снизу до низа экрана, чтобы список начинался off-screen (за первым окном).
-  // Только когда юзер вверху (scrollY≈0). Зависит от playerTopSpacer → пересчёт
-  // после того как плеер встал на место.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const recomputeBottom = () => {
-      if (window.scrollY > 20) return;
-      const el = bigPlayerRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      if (rect.height < 40) return;
-      const MB = 24; // mb-6 у карточки плеера
-      const next = Math.max(0, Math.round(window.innerHeight - rect.bottom - MB));
-      setPlayerBottomSpacer((prev) => (Math.abs(prev - next) > 3 ? next : prev));
-    };
-    const raf = requestAnimationFrame(recomputeBottom);
-    const t = window.setTimeout(recomputeBottom, 360);
-    window.addEventListener("resize", recomputeBottom, { passive: true });
-    window.addEventListener("orientationchange", recomputeBottom, { passive: true });
-    return () => {
-      cancelAnimationFrame(raf);
-      window.clearTimeout(t);
-      window.removeEventListener("resize", recomputeBottom);
-      window.removeEventListener("orientationchange", recomputeBottom);
-    };
-  }, [playerTopSpacer, playingId, coverExpanded]);
 
   const playTrack = (track: any) => {
     if (timerRef.current) clearInterval(timerRef.current);
@@ -2834,7 +2811,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                     setShowGlobe(false);
                                     try { window.dispatchEvent(new CustomEvent("muza:open-chat")); } catch { /* no-op */ }
                                   }}
-                                  className="px-3 py-1.5 rounded-xl text-[11px] font-semibold text-white bg-gradient-to-r from-purple-500 via-fuchsia-500 to-blue-500 shadow-[0_0_16px_rgba(124,58,237,0.4)] active:scale-95 transition-transform whitespace-nowrap"
+                                  className="px-3 py-1.5 rounded-xl text-[11px] font-semibold text-white bg-gradient-to-r from-purple-500 via-fuchsia-500 to-blue-500 active:scale-95 transition-transform whitespace-nowrap"
                                 >
                                   Вернуться к Музе
                                 </button>
