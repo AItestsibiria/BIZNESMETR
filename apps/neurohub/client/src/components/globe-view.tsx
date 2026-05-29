@@ -737,6 +737,8 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   const winkDotRef = useRef<HTMLDivElement | null>(null);
   const winkCityRef = useRef<HTMLDivElement | null>(null);
   const cityNameRef = useRef<string>(""); // название города юзера (без доп. слов)
+  const countryCodeRef = useRef<string>(""); // ISO-код страны (для эмодзи-флага, сам код не показываем)
+  const winkFlagRef = useRef<HTMLDivElement | null>(null); // флаг страны (эмодзи, виден 3 сек на проходе)
   const morseTimerRef = useRef<number | null>(null);
   // Целевая высота камеры для ПЛАВНОГО зума (кнопки +/− меняют её, круиз едет к ней).
   const zoomTargetRef = useRef<number | null>(null);
@@ -869,6 +871,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 // Только название города, без доп. слов (Босс 2026-05-29). Маленькое
                 // поселение → ближайший город (city), иначе locality. Регион/страну НЕ пишем.
                 cityNameRef.current = String(d.city || d.locality || "").trim().replace(/\s+/g, "-");
+                countryCodeRef.current = String(d.countryCode || "").trim().toUpperCase();
               })
               .catch(() => {
                 /* нет сети/политика — подпись просто не покажется */
@@ -962,6 +965,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     // фокуса камеры: при входе точки во фронт перезапускаем Морзе с начала.
     let winkWasFront = false;
     let morseRestart: () => void = () => {};
+    let flagShownAt = -1e9; // момент входа точки во фронт — флаг виден 3 сек
     // ЕДИНЫЙ дрейф долготы (Босс 2026-05-29 «с 1-го кадра плавно ВСЕГДА двигается и
     // только в ОДНУ сторону»): lng = driftBaseLng − GLOBAL_DRIFT·(now−driftBaseT).
     // Постоянная скорость, одна сторона. Фазы меняют ТОЛЬКО широту и высоту.
@@ -1019,9 +1023,11 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     const updateWinkDot = (gg: any) => {
       const dot = winkDotRef.current;
       const cityEl = winkCityRef.current;
+      const flagEl = winkFlagRef.current;
       const hide = () => {
         if (dot) dot.style.opacity = "0";
         if (cityEl) cityEl.style.opacity = "0";
+        if (flagEl) flagEl.style.opacity = "0";
       };
       if (!dot) return;
       const anchor = winkAnchorRef.current;
@@ -1041,8 +1047,8 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         return;
       }
       const front = Math.abs(lngDelta(anchor.lng, pov.lng ?? 0)) <= 85; // не на обороте
-      // Новый проход (точка вошла во фронт) → перезапуск моргания с начала.
-      if (front && !winkWasFront) morseRestart();
+      // Новый проход (точка вошла во фронт) → перезапуск моргания + показ флага 3 сек.
+      if (front && !winkWasFront) { morseRestart(); flagShownAt = performance.now(); }
       winkWasFront = front;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let sc: any = null;
@@ -1074,6 +1080,20 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           cityEl.style.left = `${sc.x}px`;
           cityEl.style.top = `${sc.y + 16}px`;
           cityEl.style.opacity = "0.95";
+        }
+      }
+      // Флаг страны (эмодзи) над точкой — виден 3 сек при входе во фронт (Босс 2026-05-29:
+      // флаг нужен, код не нужен). isoToFlag → regional-indicator эмодзи.
+      if (flagEl) {
+        const flag = isoToFlag(countryCodeRef.current);
+        const show = !!flag && performance.now() - flagShownAt < 3000;
+        if (!show) {
+          flagEl.style.opacity = "0";
+        } else {
+          if (flagEl.textContent !== flag) flagEl.textContent = flag;
+          flagEl.style.left = `${sc.x}px`;
+          flagEl.style.top = `${sc.y - 22}px`;
+          flagEl.style.opacity = "1";
         }
       }
     };
@@ -1575,6 +1595,21 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           backgroundClip: "text",
           color: "transparent",
           textShadow: "0 0 16px rgba(124,58,237,0.45)",
+          transition: "opacity 220ms ease",
+          willChange: "left, top, opacity",
+        }}
+      />
+      {/* Флаг страны (эмодзи) над точкой — виден 3 сек на проходе (Босс 2026-05-29). */}
+      <div
+        ref={winkFlagRef}
+        className="pointer-events-none absolute z-20 whitespace-nowrap"
+        style={{
+          left: 0,
+          top: 0,
+          opacity: 0,
+          transform: "translate(-50%, -100%)",
+          fontSize: 22,
+          filter: "drop-shadow(0 0 6px rgba(124,58,237,0.5))",
           transition: "opacity 220ms ease",
           willChange: "left, top, opacity",
         }}
