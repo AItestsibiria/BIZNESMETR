@@ -2839,6 +2839,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   >
                                     <SkipForward className="w-4 h-4" />
                                   </button>
+                                  {/* Босс 2026-05-29 «плей и управление в центр плеера» — спейсер
+                                      справа: название (flex-1) слева + спейсер (flex-1) справа →
+                                      контролы prev/play/next по центру бара. */}
+                                  <div className="flex-1" aria-hidden="true" />
                                 </div>
                               );
                             })()}

@@ -757,13 +757,13 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     try {
       // Обзорный кадр: точка между подсолнечной и подлунной (видно Солнце+Луну).
       // Fallback при недоступности формул — разумный общий план (день по центру).
-      let overviewLat = 15;
+      // Босс 2026-05-29: начальная сцена ориентирована на ЭКВАТОР (lat 0).
+      const overviewLat = 0;
       let overviewLng = subsolarPoint(Date.now())[0];
       try {
         const sp = subsolarPoint(Date.now()); // [lng, lat]
         const mp = subLunarPoint(Date.now()); // [lng, lat]
-        overviewLat = (sp[1] + mp[1]) / 2;
-        // Середина по долготе с учётом перехода через ±180° (кратчайшая дуга).
+        // Долгота — середина между Солнцем и Луной (оба попадают в кадр), широта = экватор.
         overviewLng = sp[0] + lngDelta(mp[0], sp[0]) / 2;
       } catch {
         // fallback-значения выше
