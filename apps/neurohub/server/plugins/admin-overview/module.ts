@@ -2692,6 +2692,13 @@ const adminOverviewModule: Module = {
           if (process.env.MORNING_QA_REPORT === "0") return;
           const mskHour = (new Date().getUTCHours() + 3) % 24;
           if (!shouldRunDaily("director-morning-qa", mskHour, 3)) return; // раз/день ~03:00 МСК (доклад)
+          // Босс «доклад 03:00 автоматически формируется» — генерим+сохраняем полный
+          // голос-доклад Директора (посетители/плеи/выручка/Ферзь-суть/баги) заранее,
+          // чтобы при заходе Босс сразу слушал готовый (+ аудио-кнопка моргает — фронт).
+          try {
+            const { buildDirectorSummary } = await import("../../lib/directorVoiceReport");
+            await buildDirectorSummary({ period: "today" });
+          } catch (e) { console.error("[MORNING-QA voice-report]", e); }
           const fe = await import("../../lib/frontendQaAgent");
           const be = await import("../../lib/backendQaAgent");
           let feR: any = null;
