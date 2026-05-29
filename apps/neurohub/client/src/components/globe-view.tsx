@@ -548,36 +548,6 @@ function easeInOutCubic(p: number): number {
   return p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
 }
 
-// Приветствие Музы на языке юзера (Босс 2026-05-29 «на том языке откуда он»;
-// «5 да» — определять язык). Берём navigator.language (мгновенно, офлайн), с RU-фолбэком.
-const MUZA_GREETINGS: Record<string, string> = {
-  ru: "Привет — Я Муза",
-  uk: "Привіт — Я Муза",
-  be: "Прывітанне — Я Муза",
-  kk: "Сәлем — Мен Муза",
-  en: "Hi — I'm Muza",
-  de: "Hallo — Ich bin Muza",
-  fr: "Salut — Je suis Muza",
-  es: "Hola — Soy Muza",
-  it: "Ciao — Sono Muza",
-  pt: "Oi — Eu sou Muza",
-  pl: "Cześć — Jestem Muza",
-  tr: "Merhaba — Ben Muza",
-  zh: "你好 — 我是 Muza",
-  ja: "こんにちは — ムザだよ",
-  ko: "안녕 — 나는 무자",
-  ar: "مرحبا — أنا موزا",
-};
-function greetingForUser(): string {
-  let lang = "ru";
-  try {
-    lang = ((typeof navigator !== "undefined" && navigator.language) || "ru").slice(0, 2).toLowerCase();
-  } catch {
-    // ignore
-  }
-  return MUZA_GREETINGS[lang] || MUZA_GREETINGS.ru;
-}
-
 // Азбука Морзе (латиница) — для «подмигивания» Музы. Мигаем словом MUZA.
 const MORSE_TABLE: Record<string, string> = {
   A: ".-", B: "-...", C: "-.-.", D: "-..", E: ".", F: "..-.", G: "--.", H: "....",
@@ -585,9 +555,10 @@ const MORSE_TABLE: Record<string, string> = {
   Q: "--.-", R: ".-.", S: "...", T: "-", U: "..-", V: "...-", W: ".--", X: "-..-",
   Y: "-.--", Z: "--..",
 };
-// Тайминг-последовательность вкл/выкл для слова (стандартные доли Морзе).
+// Тайминг-последовательность вкл/выкл для слова (доли Морзе, ускорены чтобы
+// «MUZA» уложилась в 5 сек — Босс 2026-05-29 «только на 5 сек ... и исчезает»).
 function morseTimeline(word: string): Array<{ on: boolean; ms: number }> {
-  const DOT = 170, DASH = 510, GAP = 170, LGAP = 470;
+  const DOT = 120, DASH = 360, GAP = 120, LGAP = 360;
   const seq: Array<{ on: boolean; ms: number }> = [];
   const letters = word.toUpperCase().split("");
   letters.forEach((ch, li) => {
@@ -693,53 +664,49 @@ function CountriesFallbackList({ countries }: { countries: GlobeCountry[] }) {
 // ───────────────────────────────────────────────────────────────────────────
 // Морзе-подмигивание Музы (Босс 2026-05-29): при плавном подходе камеры к точке
 // юзера (его геолокация в центре кадра) Муза «подмигивает» азбукой Морзе в своих
-// фирменных цветах и здоровается на языке юзера. Оверлей по центру глобуса
-// (геолокация при прилёте — в центре). pointer-events-none — не мешает вращению.
-function MorseWink({ text, onDone }: { text: string; onDone: () => void }) {
+// фирменных цветах. Босс «надпись убери, только на 5 сек ... и исчезает дальше по
+// плану» — без текста, мигает Морзе «MUZA» и через 5 сек гаснет. Оверлей по центру
+// глобуса (геолокация при прилёте — в центре). pointer-events-none — не мешает.
+function MorseWink({ onDone }: { onDone: () => void }) {
   const [on, setOn] = useState(false);
   useEffect(() => {
     const seq = morseTimeline("MUZA");
     let i = 0;
-    let timer = 0;
+    let stepTimer = 0;
     const step = () => {
       if (i >= seq.length) {
         setOn(false);
-        timer = window.setTimeout(onDone, 1600);
         return;
       }
       const s = seq[i++];
       setOn(s.on);
-      timer = window.setTimeout(step, s.ms);
+      stepTimer = window.setTimeout(step, s.ms);
     };
     step();
-    return () => window.clearTimeout(timer);
+    // Жёсткий лимит видимости 5 сек: гаснет и исчезает, дальше глобус по плану.
+    const hideTimer = window.setTimeout(() => {
+      setOn(false);
+      onDone();
+    }, 5000);
+    return () => {
+      window.clearTimeout(stepTimer);
+      window.clearTimeout(hideTimer);
+    };
   }, [onDone]);
   return (
-    <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center">
+    <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
       <div
-        className="mb-3 h-5 w-5 rounded-full"
+        className="h-6 w-6 rounded-full"
         style={{
           background:
             "radial-gradient(circle, #ffffff 0%, #67E8F9 32%, #7C3AED 68%, transparent 100%)",
-          opacity: on ? 1 : 0.08,
+          opacity: on ? 1 : 0.06,
           boxShadow: on
-            ? "0 0 22px 7px rgba(124,58,237,0.85), 0 0 40px 14px rgba(0,212,255,0.5)"
+            ? "0 0 26px 9px rgba(124,58,237,0.9), 0 0 46px 16px rgba(0,212,255,0.55)"
             : "none",
-          transition: "opacity 70ms linear, box-shadow 70ms linear",
+          transition: "opacity 60ms linear, box-shadow 60ms linear",
         }}
       />
-      <div
-        className="px-4 py-1.5 rounded-full text-sm font-display font-bold tracking-wide whitespace-nowrap"
-        style={{
-          background: "linear-gradient(90deg,#7C3AED,#D946EF,#00D4FF)",
-          WebkitBackgroundClip: "text",
-          backgroundClip: "text",
-          color: "transparent",
-          textShadow: "0 0 18px rgba(124,58,237,0.5)",
-        }}
-      >
-        {text}
-      </div>
     </div>
   );
 }
@@ -791,8 +758,8 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // Камера-режиссёр: юзер сейчас сам вращает (пауза авто-движения) + хук пере-базы круиза.
   const userInteractingRef = useRef(false);
   const rebaseCruiseRef = useRef<(() => void) | null>(null);
-  // Морзе-подмигивание Музы на языке юзера (показывается один раз при прилёте).
-  const [wink, setWink] = useState<string | null>(null);
+  // Морзе-подмигивание Музы (показывается один раз при прилёте, 5 сек, без текста).
+  const [wink, setWink] = useState(false);
 
   const basePointsRef = useRef<GlobePoint[]>(points);
   useEffect(() => {
@@ -1042,7 +1009,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           phase = "cruise";
           if (!winked) {
             winked = true;
-            setWink(greetingForUser()); // подмигивание Морзе на языке юзера
+            setWink(true); // подмигивание Морзе на 5 сек в точке геолокации
           }
         }
         return;
@@ -1397,7 +1364,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         ringRepeatPeriod={(d: RingDatum) => d.period}
         ringResolution={64}
       />
-      {wink && <MorseWink text={wink} onDone={() => setWink(null)} />}
+      {wink && <MorseWink onDone={() => setWink(false)} />}
     </div>
   );
 }
