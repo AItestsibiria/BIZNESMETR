@@ -2690,11 +2690,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             <StarfieldCanvas />
                           </div>
                           <div
-                            className="relative z-10 w-full max-w-[640px] flex flex-col rounded-3xl overflow-hidden border border-purple-500/30 shadow-[0_0_48px_rgba(124,58,237,0.35)]"
+                            className="relative z-10 w-full h-full max-w-none flex flex-col rounded-2xl overflow-hidden border border-purple-500/20 shadow-[0_0_48px_rgba(124,58,237,0.35)]"
                             style={{
-                              height: "min(88dvh, 720px)",
-                              // Босс 2026-05-29: фон карточки = тот же дип-космос, что внутри
-                              // глобуса (#03030a + brand-радиалы) → одна непрерывная сцена.
+                              // Босс 2026-05-29 «полностью раскрыть 3D-сцену на экран, в
+                              // пропорциях»: сцена на весь вьюпорт (w/h-full). Глобус остаётся
+                              // круглым (react-globe.gl авто-фит по контейнеру). Фон = тот же
+                              // дип-космос, звёзды StarfieldCanvas видны по краям → одна сцена.
                               background:
                                 "radial-gradient(ellipse at 22% 28%, rgba(124,58,237,0.16) 0%, transparent 55%)," +
                                 "radial-gradient(ellipse at 80% 78%, rgba(0,212,255,0.12) 0%, transparent 60%)," +
