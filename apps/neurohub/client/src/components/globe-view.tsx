@@ -855,6 +855,32 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     return () => { cancelled = true; };
   }, []);
 
+  // Зум +/− из плеера (Босс 2026-05-29 «кнопки + zoom −»): меняем altitude камеры.
+  // На время плавного зума уступаем режиссёру (userInteractingRef), затем
+  // пере-базируем круиз — высота сохраняется (как при ручном pinch-зуме).
+  useEffect(() => {
+    const onZoom = (e: Event) => {
+      const g = globeRef.current;
+      if (!g?.pointOfView) return;
+      try {
+        const dir = ((e as CustomEvent).detail?.dir as number) || 0;
+        const pov = g.pointOfView();
+        if (!pov) return;
+        const next = Math.max(1.3, Math.min(4.5, (pov.altitude || 2.5) + dir * 0.45));
+        userInteractingRef.current = true; // пауза режиссёра на время зума
+        g.pointOfView({ lat: pov.lat, lng: pov.lng, altitude: next }, 320);
+        window.setTimeout(() => {
+          userInteractingRef.current = false;
+          rebaseCruiseRef.current?.(); // синхронизируем круиз с новой высотой
+        }, 380);
+      } catch {
+        // ignore
+      }
+    };
+    window.addEventListener("muza:globe-zoom", onZoom as EventListener);
+    return () => window.removeEventListener("muza:globe-zoom", onZoom as EventListener);
+  }, []);
+
   // ── Камера-режиссёр (Босс 2026-05-29, «сделай на 100% правильно»). ЕДИНЫЙ rAF
   // владеет камерой и каждый кадр пишет pointOfView(..., 0) (мгновенно). Почему так:
   //   • НЕТ библиотечного autoRotate и НЕТ инерции (enableDamping=false) → планета

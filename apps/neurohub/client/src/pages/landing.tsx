@@ -735,6 +735,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const globeOpenedAtRef = useRef(0);
   const globeCloseTimerRef = useRef<number | null>(null);
   const globeTapStartRef = useRef<{ x: number; y: number; t: number } | null>(null);
+  // Раскрытие обложки в центре (Босс 2026-05-29 «плавно разворачивается/сворачивается»)
+  const [globeCoverExpanded, setGlobeCoverExpanded] = useState(false);
+  // 🎧 Топ-100 плейлиста в плеере 3D (как на основном плеере)
+  const [globeTopOpen, setGlobeTopOpen] = useState(false);
 
   useEffect(() => {
     if (showGlobe) { globeOpenedAtRef.current = Date.now(); setGlobeClosing(false); }
@@ -2758,7 +2762,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             {/* Шапка */}
                             <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-purple-400/20 shrink-0">
                               <h3 className="min-w-0 truncate text-base font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent m-0">
-                                🌍 Нас слушают по всему миру
+                                🌍 MuzaAi in The World
                               </h3>
                               <div className="flex items-center gap-2 shrink-0">
                                 {/* Босс 2026-05-29 «большая кнопка Космос и Земля на полный экран» */}
@@ -2782,8 +2786,20 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             {/* Босс 2026-05-29 «на планшете беда — на весь экран»: область
                                 глобуса flex-1 min-h-0 ЗАПОЛНЯЕТ всё свободное место между
                                 шапкой и плеером на любом устройстве (нет фикс. высоты → нет
-                                чёрных полос). Плеер+футер (shrink-0) всегда прижаты к низу. */}
-                            <div className="relative flex-1 min-h-0">
+                                чёрных полос). Плеер+футер (shrink-0) всегда прижаты к низу.
+                                Тап (НЕ драг) по области глобуса → плавный выход из режима
+                                (Босс «любое неслучайное нажатие на окно»); драг = вращение. */}
+                            <div
+                              className="relative flex-1 min-h-0"
+                              onPointerDown={(e) => { globeTapStartRef.current = { x: e.clientX, y: e.clientY, t: Date.now() }; }}
+                              onPointerUp={(e) => {
+                                const s = globeTapStartRef.current;
+                                globeTapStartRef.current = null;
+                                if (!s) return;
+                                const moved = Math.hypot(e.clientX - s.x, e.clientY - s.y);
+                                if (moved < 10 && Date.now() - s.t < 400) closeGlobe();
+                              }}
+                            >
                               <ErrorBoundary
                                 pageName="globe"
                                 fallback={
@@ -2802,8 +2818,26 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   />
                                 </Suspense>
                               </ErrorBoundary>
-                              {/* Шаринг-CTA (через 60 сек): предлагает перейти на MuzaAi.ru */}
-                              {/* Босс 2026-05-29 «убери весь блок» — CTA «Хочешь больше музыки» убран полностью. */}
+                              {/* Зум +/− (Босс 2026-05-29). stopPropagation на pointer —
+                                  чтобы тап по кнопке не закрывал режим (tap-to-close выше). */}
+                              <div
+                                className="absolute right-3 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-2"
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onPointerUp={(e) => e.stopPropagation()}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); try { window.dispatchEvent(new CustomEvent("muza:globe-zoom", { detail: { dir: -1 } })); } catch { /* no-op */ } }}
+                                  className="w-11 h-11 rounded-full bg-white/10 border border-white/20 text-white text-2xl leading-none flex items-center justify-center hover:bg-white/20 active:scale-90 transition-all backdrop-blur-sm"
+                                  aria-label="Приблизить"
+                                >+</button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); try { window.dispatchEvent(new CustomEvent("muza:globe-zoom", { detail: { dir: 1 } })); } catch { /* no-op */ } }}
+                                  className="w-11 h-11 rounded-full bg-white/10 border border-white/20 text-white text-2xl leading-none flex items-center justify-center hover:bg-white/20 active:scale-90 transition-all backdrop-blur-sm"
+                                  aria-label="Отдалить"
+                                >−</button>
+                              </div>
                             </div>
                             {/* Мини-плеер под глобусом (Босс: автоплей «Муза» → автоповтор по топу) */}
                             {(() => {
@@ -2814,7 +2848,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 // (вертикальный скролл работает), горизонтальный drag
                                 // → skipPrev/skipNext (Swipe-row-spring-back pattern).
                                 <div
-                                  className="px-4 py-2 border-t border-purple-400/15 shrink-0 flex items-center gap-2"
+                                  className="px-4 py-2 border-t border-purple-400/15 shrink-0 flex items-center justify-center gap-2 sm:gap-3"
                                   style={{ touchAction: "pan-y" }}
                                   onPointerDown={(e) => {
                                     globeMiniSwipeStartXRef.current = e.clientX;
@@ -2848,22 +2882,23 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                     try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* no-op */ }
                                   }}
                                 >
-                                  {/* Босс 2026-05-29: блок обложки+названия СЛЕВА (как на плеере 1),
-                                      контролы — справа. Клик по обложке раскрывает её (свайп-режим,
-                                      как на основном плеере). */}
+                                  {/* Босс 2026-05-29: обложка+название ВПЛОТНУЮ к центральной кнопке
+                                      плей → группа [обложка][название][контролы ×3][🎧] центрируется
+                                      (justify-center на контейнере). Клик по обложке — плавное
+                                      раскрытие в центре экрана (см. оверлей ниже). */}
                                   {gt.imageUrl ? (
                                     <img
                                       src={gt.imageUrl}
                                       alt=""
-                                      onClick={() => setDetailsOpen(true)}
-                                      className="w-9 h-9 rounded-lg object-cover shrink-0 cursor-pointer hover:scale-105 transition-transform"
+                                      onClick={(e) => { e.stopPropagation(); setGlobeCoverExpanded(true); }}
+                                      className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg object-cover shrink-0 cursor-pointer hover:scale-105 transition-transform"
                                       onError={handleCoverError}
                                     />
                                   ) : (
-                                    <span className="w-9 h-9 rounded-lg bg-white/5 flex items-center justify-center shrink-0"><Music className="w-4 h-4 text-white/40" /></span>
+                                    <span className="w-12 h-12 sm:w-14 sm:h-14 rounded-lg bg-white/5 flex items-center justify-center shrink-0"><Music className="w-5 h-5 text-white/40" /></span>
                                   )}
                                   <div
-                                    className="min-w-0 flex-1"
+                                    className="min-w-0 max-w-[26vw] sm:max-w-[200px]"
                                     data-globe-title
                                     title="Удерживай или правый клик — откроется плейлист"
                                     onContextMenu={(e) => {
@@ -2873,39 +2908,45 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                       window.setTimeout(() => document.getElementById("playlist-section")?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
                                     }}
                                   >
-                                    <p className="truncate text-[12px] font-sans font-medium m-0 bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent">
+                                    <p className="truncate text-[13px] sm:text-sm font-sans font-medium m-0 bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent">
                                       {gt.displayTitle || gt.prompt?.slice(0, 40) || "Муза"}
                                     </p>
-                                    <p className="truncate text-[10px] font-sans text-white/40 m-0">← свайп · удержи название для плейлиста →</p>
                                   </div>
+                                  {/* Контролы ×3 (Босс «кнопки в 3 раза увеличь по горизонту») */}
                                   <button
                                     type="button"
-                                    onClick={skipPrev}
-                                    className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white/80 bg-white/5 hover:bg-white/15 active:scale-90 transition-all border border-white/10"
+                                    onClick={(e) => { e.stopPropagation(); skipPrev(); }}
+                                    className="shrink-0 w-14 h-14 sm:w-20 sm:h-20 rounded-full flex items-center justify-center text-white/85 bg-white/5 hover:bg-white/15 active:scale-90 transition-all border border-white/10"
                                     aria-label="Предыдущий трек"
                                   >
-                                    <SkipBack className="w-4 h-4" />
+                                    <SkipBack className="w-7 h-7 sm:w-9 sm:h-9" />
                                   </button>
                                   <button
                                     type="button"
-                                    onClick={() => togglePlay(gt)}
-                                    className="shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-white bg-white/20 border border-white/30 hover:bg-white/25 active:scale-90 transition-all"
+                                    onClick={(e) => { e.stopPropagation(); togglePlay(gt); }}
+                                    className="shrink-0 w-16 h-16 sm:w-24 sm:h-24 rounded-full flex items-center justify-center text-white bg-white/20 border border-white/30 hover:bg-white/25 active:scale-90 transition-all shadow-[0_0_24px_rgba(124,58,237,0.4)]"
                                     aria-label={isPlayingState ? "Пауза" : "Слушать"}
                                   >
-                                    {isPlayingState ? <Pause className="w-4 h-4" fill="currentColor" /> : <Play className="w-4 h-4 ml-0.5" fill="currentColor" />}
+                                    {isPlayingState ? <Pause className="w-8 h-8 sm:w-11 sm:h-11" fill="currentColor" /> : <Play className="w-8 h-8 sm:w-11 sm:h-11 ml-1" fill="currentColor" />}
                                   </button>
                                   <button
                                     type="button"
-                                    onClick={skipNext}
-                                    className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white/80 bg-white/5 hover:bg-white/15 active:scale-90 transition-all border border-white/10"
+                                    onClick={(e) => { e.stopPropagation(); skipNext(); }}
+                                    className="shrink-0 w-14 h-14 sm:w-20 sm:h-20 rounded-full flex items-center justify-center text-white/85 bg-white/5 hover:bg-white/15 active:scale-90 transition-all border border-white/10"
                                     aria-label="Следующий трек"
                                   >
-                                    <SkipForward className="w-4 h-4" />
+                                    <SkipForward className="w-7 h-7 sm:w-9 sm:h-9" />
                                   </button>
-                                  {/* Босс 2026-05-29 «плей и управление в центр плеера» — спейсер
-                                      справа: название (flex-1) слева + спейсер (flex-1) справа →
-                                      контролы prev/play/next по центру бара. */}
-                                  <div className="flex-1" aria-hidden="true" />
+                                  {/* 🎧 Топ-100 справа от «вперёд» (как на основном плеере) */}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); setGlobeTopOpen(v => !v); }}
+                                    className="shrink-0 relative h-12 w-12 sm:h-14 sm:w-14 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform"
+                                    aria-label="Топ-100 плейлиста"
+                                    aria-expanded={globeTopOpen}
+                                  >
+                                    <span className="text-3xl sm:text-4xl leading-none pointer-events-none">🎧</span>
+                                  </button>
                                 </div>
                               );
                             })()}
@@ -2949,6 +2990,73 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 </button>
                               </div>
                             </div>
+                            {/* Раскрытие обложки в центре (Босс 2026-05-29 «плавно
+                                разворачивается и сворачивается, моушн»). Рендерится всегда —
+                                плавный open/close через opacity+scale (transition в обе стороны). */}
+                            {(() => {
+                              const g = tracks.find((t: any) => t.id === playingId);
+                              const img = g?.imageUrl;
+                              return (
+                                <div
+                                  className="absolute inset-0 z-30 flex items-center justify-center p-6 transition-all duration-500 ease-out"
+                                  style={{
+                                    background: globeCoverExpanded ? "rgba(3,3,10,0.85)" : "rgba(3,3,10,0)",
+                                    backdropFilter: globeCoverExpanded ? "blur(10px)" : "blur(0px)",
+                                    WebkitBackdropFilter: globeCoverExpanded ? "blur(10px)" : "blur(0px)",
+                                    opacity: globeCoverExpanded ? 1 : 0,
+                                    pointerEvents: globeCoverExpanded ? "auto" : "none",
+                                  }}
+                                  onClick={(e) => { e.stopPropagation(); setGlobeCoverExpanded(false); }}
+                                  aria-hidden={!globeCoverExpanded}
+                                >
+                                  {img ? (
+                                    <img
+                                      src={img}
+                                      alt=""
+                                      onError={handleCoverError}
+                                      className="rounded-2xl object-cover shadow-[0_0_70px_rgba(124,58,237,0.55)] transition-transform duration-500 ease-out"
+                                      style={{
+                                        maxWidth: "min(86vw, 70dvh)",
+                                        maxHeight: "70dvh",
+                                        transform: globeCoverExpanded ? "scale(1)" : "scale(0.3)",
+                                      }}
+                                    />
+                                  ) : null}
+                                </div>
+                              );
+                            })()}
+                            {/* 🎧 Топ-100 плейлиста (как на основном плеере): из filteredMusic */}
+                            {globeTopOpen && (
+                              <>
+                                <div className="absolute inset-0 z-30" onClick={(e) => { e.stopPropagation(); setGlobeTopOpen(false); }} aria-hidden="true" />
+                                <div
+                                  className="absolute z-40 bottom-28 right-4 w-[300px] max-w-[80vw] max-h-[58dvh] bg-background/[0.32] backdrop-blur-md border-2 border-purple-400/40 rounded-2xl shadow-2xl shadow-purple-500/20 flex flex-col overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <div className="flex items-center justify-between px-4 py-2.5 border-b border-purple-400/20 bg-purple-500/5 shrink-0">
+                                    <p className="text-sm font-semibold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent m-0">Топ 100 плейлиста</p>
+                                    <button type="button" onClick={(e) => { e.stopPropagation(); setGlobeTopOpen(false); }} className="text-white/50 hover:text-white text-xl leading-none px-1" aria-label="Закрыть">×</button>
+                                  </div>
+                                  <ul className="overflow-y-auto p-2 m-0 list-none flex flex-col gap-1" style={{ touchAction: "pan-y", WebkitOverflowScrolling: "touch" }}>
+                                    {(() => {
+                                      const top = [...filteredMusic].sort((a: any, b: any) => (b.plays || 0) - (a.plays || 0)).slice(0, 100);
+                                      if (top.length === 0) return (<li className="text-xs text-white/40 text-center py-3">Пока нет данных</li>);
+                                      return top.map((t: any, idx: number) => (
+                                        <li
+                                          key={`globe-top-${t.id}`}
+                                          onClick={(e) => { e.stopPropagation(); playTrack(t); }}
+                                          className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${playingId === t.id ? "bg-gradient-to-r from-purple-500/30 via-fuchsia-500/20 to-cyan-500/20 border border-purple-400/50" : "hover:bg-white/[0.06]"}`}
+                                        >
+                                          <span className="text-xs font-mono text-white/40 w-6 tabular-nums shrink-0">{idx + 1}</span>
+                                          <span className="flex-1 min-w-0 text-[13px] font-sans font-medium bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent truncate">{t.displayTitle || (t.prompt || "").slice(0, 40) || "Без названия"}</span>
+                                          <span className="text-[13px] tabular-nums font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent shrink-0">{(t.plays || 0).toLocaleString("ru-RU")}</span>
+                                        </li>
+                                      ));
+                                    })()}
+                                  </ul>
+                                </div>
+                              </>
+                            )}
                           </div>
                         </div>,
                         document.body,
