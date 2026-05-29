@@ -2450,7 +2450,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   (purple→fuchsia→cyan→amber conic gradient + blur + slow spin
                   + pulse opacity). Обложка остаётся резкой внутри. */}
               {/* Eugene 2026-05-18 — обёртка cover+S; cover-square даёт фиксированный размер обложки, S-кнопка идёт после и не выпадает за wrapper. */}
-              <div className={`relative shrink-0 flex flex-col ${coverExpanded ? "md:w-full md:max-w-[min(100%,55dvh)] md:mx-auto" : "w-[88px] sm:w-[90px]"}`}>
+              <div className={`relative shrink-0 flex flex-col ${coverExpanded ? "md:w-full md:max-w-[min(100%,46dvh)] md:mx-auto" : "w-[88px] sm:w-[90px]"}`}>
                 {/* Eugene 2026-05-18 Босс «обложка -25% базово + desktop resize».
                     Mobile: w-[60px] (было 80) / sm:w-[72px] (было 96). Desktop:
                     coverSize state управляет (75/100/125%). */}
@@ -2909,7 +2909,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 // (вертикальный скролл работает), горизонтальный drag
                                 // → skipPrev/skipNext (Swipe-row-spring-back pattern).
                                 <div
-                                  className="px-3 py-1.5 border-t border-purple-400/15 shrink-0 flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 transition-opacity duration-300"
+                                  className="px-3 py-1.5 border-t border-purple-400/15 shrink-0 flex items-center gap-2 transition-opacity duration-300"
                                   style={{ touchAction: "pan-y", opacity: globeUiHidden ? 0 : 1, pointerEvents: globeUiHidden ? "none" : "auto" }}
                                   onPointerDown={(e) => {
                                     globeMiniSwipeStartXRef.current = e.clientX;
@@ -2947,6 +2947,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                       плей → группа [обложка][название][контролы ×3][🎧] центрируется
                                       (justify-center на контейнере). Клик по обложке — плавное
                                       раскрытие в центре экрана (см. оверлей ниже). */}
+                                  {/* ЛЕВАЯ секция (flex-1) — симметрична правой → Play СТРОГО в центре экрана (Босс 2026-05-29). */}
+                                  <div className="flex-1 min-w-0 flex items-center gap-1.5 sm:gap-2">
                                   {gt.imageUrl ? (
                                     <img
                                       src={gt.imageUrl}
@@ -2987,6 +2989,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   >
                                     <SkipBack className="w-5 h-5" />
                                   </button>
+                                  </div>
+                                  {/* ЦЕНТР — Play строго по центру экрана (между двумя flex-1). */}
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); togglePlay(gt); }}
@@ -2995,6 +2999,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   >
                                     {isPlayingState ? <Pause className="w-5 h-5 sm:w-6 sm:h-6" fill="currentColor" /> : <Play className="w-5 h-5 sm:w-6 sm:h-6 ml-0.5" fill="currentColor" />}
                                   </button>
+                                  {/* ПРАВАЯ секция (flex-1, justify-end) — симметрична левой. */}
+                                  <div className="flex-1 min-w-0 flex flex-wrap items-center justify-end gap-1.5 sm:gap-2">
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); skipNext(); }}
@@ -3051,6 +3057,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                     className="shrink-0 h-10 px-3 rounded-full flex items-center justify-center gap-1 text-[11px] font-semibold text-white/85 bg-transparent border border-fuchsia-300/45 hover:border-fuchsia-300/80 active:scale-95 transition-all whitespace-nowrap"
                                     aria-label="Поделись Музой"
                                   >Поделись <span className="font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">Музой</span></button>
+                                  </div>
                                 </div>
                               );
                             })()}
