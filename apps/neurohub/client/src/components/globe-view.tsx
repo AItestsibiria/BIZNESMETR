@@ -883,6 +883,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // Камера-режиссёр: юзер сейчас сам вращает (пауза авто-движения) + хук пере-базы круиза.
   const userInteractingRef = useRef(false);
   const rebaseCruiseRef = useRef<(() => void) | null>(null);
+  // Удержание камеры по двойному тапу (Босс 2026-05-29): после двойного тапа по планете
+  // камера держит текущую позицию/траекторию до нового входа в режим или пока юзер сам
+  // не сменит позицию (перетаскивание/зум).
+  const holdRef = useRef(false);
   // Морзе-подмигивание Музы: светящаяся точка ЗАКРЕПЛЕНА в точке геолокации
   // (проекция координаты в экран каждый кадр), без текста. По мере отъезда камеры
   // точка пропорционально уменьшается. Управление через ref'ы (без перерендера).
@@ -1113,6 +1117,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         const dir = ((e as CustomEvent).detail?.dir as number) || 0;
         const cur = zoomTargetRef.current ?? (g.pointOfView()?.altitude ?? 2.5);
         zoomTargetRef.current = Math.max(1.3, Math.min(4.5, cur + dir * 0.4));
+        holdRef.current = false; // зум — смена позиции юзером → снимаем удержание
       } catch {
         // ignore
       }
@@ -1125,7 +1130,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   useEffect(() => {
     const onFlight = (e: Event) => {
       const m = (e as CustomEvent).detail?.mode;
-      if (m === "classic" || m === "ai") flightModeRef.current = m;
+      if (m === "classic" || m === "ai") {
+        flightModeRef.current = m;
+        holdRef.current = false; // новый вход в режим снимает удержание
+      }
     };
     window.addEventListener("muza:globe-flight", onFlight as EventListener);
     return () => window.removeEventListener("muza:globe-flight", onFlight as EventListener);
@@ -1403,6 +1411,8 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       updatePlanetScreens(gg);
       // Во время самого жеста — камеру ведёт OrbitControls (юзер steering'ует).
       if (userInteractingRef.current) return;
+      // Удержание по двойному тапу — камера стоит на месте до смены режима/позиции.
+      if (holdRef.current) return;
       const elapsed = now - t0;
       // ЕДИНЫЙ дрейф долготы — одна сторона, постоянная скорость, с 1-го кадра.
       // (classic-режим переопределяет lng, наводя камеру на середину Солнце–Луна.)
@@ -1594,6 +1604,41 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     return () => {
       el.removeEventListener("pointermove", onMove);
       el.removeEventListener("pointerleave", onLeave);
+    };
+  }, []);
+
+  // Двойной тап по планете → удержание камеры (Босс 2026-05-29). Чистый двойной тап
+  // (без сдвига) ставит holdRef=true; перетаскивание/зум/смена режима его снимают.
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    let downX = 0, downY = 0, downT = 0, moved = false;
+    let lastTapT = 0, lastTapX = 0, lastTapY = 0;
+    const onDown = (e: PointerEvent) => {
+      downX = e.clientX; downY = e.clientY; downT = performance.now(); moved = false;
+    };
+    const onMove = (e: PointerEvent) => {
+      if (Math.hypot(e.clientX - downX, e.clientY - downY) > 10) moved = true;
+    };
+    const onUp = (e: PointerEvent) => {
+      const dur = performance.now() - downT;
+      const dist = Math.hypot(e.clientX - downX, e.clientY - downY);
+      if (moved || dist > 10 || dur > 300) { lastTapT = 0; return; } // это не чистый тап
+      const t = performance.now();
+      if (t - lastTapT <= 350 && Math.hypot(e.clientX - lastTapX, e.clientY - lastTapY) <= 30) {
+        holdRef.current = true; // двойной тап → держим текущую позицию
+        lastTapT = 0;
+      } else {
+        lastTapT = t; lastTapX = e.clientX; lastTapY = e.clientY;
+      }
+    };
+    el.addEventListener("pointerdown", onDown);
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerup", onUp);
+    return () => {
+      el.removeEventListener("pointerdown", onDown);
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerup", onUp);
     };
   }, []);
 
@@ -1802,15 +1847,36 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         controls.rotateSpeed = 0.7;
         controls.zoomSpeed = 0.8;
         // Взаимодействие НИКОГДА не останавливает полёт (Босс 2026-05-29), только меняет
-        // траекторию: во время жеста камеру ведёт OrbitControls, на 'end' сразу rebase —
-        // дрейф продолжается с новой точки (юзер «перенаправил» полёт, не остановил).
+        // траекторию: во время жеста камеру ведёт OrbitControls, на 'end' — если позиция
+        // реально изменилась (перетаскивание/зум) → rebase + снятие удержания. Чистый тап
+        // (без сдвига) НЕ ребейзит и НЕ снимает hold — он обрабатывается двойным тапом.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let gestureStartPov: any = null;
         try {
           controls.addEventListener?.("start", () => {
             userInteractingRef.current = true;
+            try { gestureStartPov = globeRef.current?.pointOfView?.(); } catch { gestureStartPov = null; }
           });
           controls.addEventListener?.("end", () => {
             userInteractingRef.current = false;
-            rebaseCruiseRef.current?.();
+            let moved = true;
+            try {
+              const pov = globeRef.current?.pointOfView?.();
+              if (pov && gestureStartPov) {
+                const dLng = Math.abs(((pov.lng - gestureStartPov.lng + 540) % 360) - 180);
+                moved =
+                  Math.abs(pov.lat - gestureStartPov.lat) > 0.4 ||
+                  dLng > 0.4 ||
+                  Math.abs(pov.altitude - gestureStartPov.altitude) > 0.02;
+              }
+            } catch {
+              moved = true;
+            }
+            if (moved) {
+              // Юзер сменил позицию → снимаем удержание и продолжаем полёт с новой точки.
+              holdRef.current = false;
+              rebaseCruiseRef.current?.();
+            }
           });
         } catch {
           // ignore
