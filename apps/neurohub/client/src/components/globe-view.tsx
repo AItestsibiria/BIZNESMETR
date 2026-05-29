@@ -757,16 +757,15 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     try {
       // Обзорный кадр: точка между подсолнечной и подлунной (видно Солнце+Луну).
       // Fallback при недоступности формул — разумный общий план (день по центру).
-      // Босс 2026-05-29: начальная сцена ориентирована на ЭКВАТОР (lat 0).
+      // Босс 2026-05-29: начальный кадр — точка ВОСХОДА (терминатор, экватор):
+      // меридиан восхода = subsolar−90° (~6 утра), видно восход (лучи задевают край
+      // земли) + Луну. Тот же кадр, что выставлен в onGlobeReady → плавно, без прыжка.
       const overviewLat = 0;
-      let overviewLng = subsolarPoint(Date.now())[0];
+      let overviewLng = subsolarPoint(Date.now())[0] - 90;
       try {
-        const sp = subsolarPoint(Date.now()); // [lng, lat]
-        const mp = subLunarPoint(Date.now()); // [lng, lat]
-        // Долгота — середина между Солнцем и Луной (оба попадают в кадр), широта = экватор.
-        overviewLng = sp[0] + lngDelta(mp[0], sp[0]) / 2;
+        overviewLng = subsolarPoint(Date.now())[0] - 90;
       } catch {
-        // fallback-значения выше
+        // fallback-значение выше
       }
       // Подержать обзор без перехода, затем плавно лететь к геолокации.
       g.pointOfView({ lat: overviewLat, lng: overviewLng, altitude: OVERVIEW_ALTITUDE }, 0);
@@ -989,8 +988,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       }
       const controls = g.controls?.();
       if (controls) {
-        controls.autoRotate = true;
-        controls.autoRotateSpeed = 0.6;
+        // Босс 2026-05-29: НЕ «резко крутится» — авто-вращение ВЫКЛ. Камера спокойно
+        // делает интро-полёт от восхода к геолокации, дальше юзер вращает сам.
+        controls.autoRotate = false;
         controls.enableZoom = true;
         controls.enablePan = false;
         controls.minDistance = 180;
@@ -998,6 +998,13 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         controls.rotateSpeed = 0.7;
         controls.zoomSpeed = 0.8;
       }
+      // Стартовый кадр — точка ВОСХОДА (терминатор, экватор): лучи солнца задевают
+      // край земли, виден восход + Луна. Ставим СРАЗУ (duration 0), пока канвас ещё
+      // прозрачный (opacity 0→1) → плавно с первого кадра, без рывка/прыжка.
+      try {
+        const sp0 = subsolarPoint(Date.now());
+        g.pointOfView?.({ lat: 0, lng: sp0[0] - 90, altitude: OVERVIEW_ALTITUDE }, 0);
+      } catch { /* no-op */ }
       // Видимые 3D-Солнце и Луна (Босс «Солнца и Луну не видно»). Добавляем в
       // сцену один раз; позиция — над субсолярной/подлунной точками (positionSunMoon).
       try {
