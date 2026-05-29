@@ -1167,14 +1167,15 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         }
       } else {
         // cruise: 1-й круг — по широте юзера; ПОСЛЕ полного оборота (360°) — мягкий
-        // свип по ПАРАЛЛЕЛЯМ (Босс 2026-05-29 «на 1 проход круга, далее параллели»).
+        // свип по ПАРАЛЛЕЛЯМ (Босс 2026-05-29). НЕ залетаем на полюса авто-движением
+        // (|lat| ≤ 52) — к полюсам только если юзер сам повернёт (OrbitControls).
         const deg = (GLOBAL_DRIFT_DEG_S * (now - cruiseStartT)) / 1000;
         let latOsc = 0;
         if (deg > 360) {
           const tt = (now - cruiseStartT) / 1000;
-          latOsc = 22 * Math.sin(tt * 0.04); // медленный свип параллелей ±22°
+          latOsc = 16 * Math.sin(tt * 0.04); // медленный свип параллелей ±16°
         }
-        lat = Math.max(-78, Math.min(78, cruise.lat + latOsc));
+        lat = Math.max(-52, Math.min(52, cruise.lat + latOsc));
         const tgt = zoomTargetRef.current ?? CRUISE_ALTITUDE;
         cruise.alt += (tgt - cruise.alt) * 0.1;
         alt = cruise.alt;

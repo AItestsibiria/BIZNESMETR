@@ -2902,11 +2902,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             }}
                             onClick={(e) => e.stopPropagation()}
                           >
-                            {/* Шапка — только заголовок (закрытие через плеер/двойной тап/
-                                скролл/клавиатуру). В фуллскрине авто-скрывается через 3с. */}
+                            {/* Шапка — только заголовок. В фуллскрине скрывается СРАЗУ и плавно
+                                (Босс 2026-05-29 «фуллскрин сразу плавно включается»); плеер — через 3с. */}
                             <div
-                              className="flex items-center justify-center gap-2 px-4 py-3 border-b border-purple-400/20 shrink-0 transition-opacity duration-300"
-                              style={{ opacity: globeUiHidden ? 0 : 1, pointerEvents: globeUiHidden ? "none" : "auto" }}
+                              className="flex items-center justify-center gap-2 px-4 py-3 border-b border-purple-400/20 shrink-0 transition-opacity duration-500"
+                              style={{ opacity: (globeUiHidden || globeFullscreen) ? 0 : 1, pointerEvents: (globeUiHidden || globeFullscreen) ? "none" : "auto" }}
                             >
                               <h3 className="min-w-0 truncate text-base font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent m-0">
                                 🌍 MuzaAi in The World
@@ -2963,7 +2963,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 // (вертикальный скролл работает), горизонтальный drag
                                 // → skipPrev/skipNext (Swipe-row-spring-back pattern).
                                 <div
-                                  className="px-3 py-1.5 border-t border-purple-400/15 shrink-0 flex items-center gap-2 transition-opacity duration-300"
+                                  className="px-3 py-1.5 border-t border-purple-400/15 shrink-0 grid grid-cols-[1fr_auto_1fr] items-center gap-2 transition-opacity duration-300"
                                   style={{ touchAction: "pan-y", opacity: globeUiHidden ? 0 : 1, pointerEvents: globeUiHidden ? "none" : "auto" }}
                                   onPointerDown={(e) => {
                                     globeMiniSwipeStartXRef.current = e.clientX;
@@ -3001,8 +3001,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                       плей → группа [обложка][название][контролы ×3][🎧] центрируется
                                       (justify-center на контейнере). Клик по обложке — плавное
                                       раскрытие в центре экрана (см. оверлей ниже). */}
-                                  {/* ЛЕВАЯ секция (flex-1) — симметрична правой → Play СТРОГО в центре экрана (Босс 2026-05-29). */}
-                                  <div className="flex-1 min-w-0 flex items-center gap-1.5 sm:gap-2">
+                                  {/* ЛЕВАЯ колонка (col1) — обложка + название/автор (Босс 2026-05-29: слева от Play). */}
+                                  <div className="min-w-0 flex items-center gap-1.5 sm:gap-2 justify-self-start">
                                   {gt.imageUrl ? (
                                     <img
                                       src={gt.imageUrl}
@@ -3033,8 +3033,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                       <p className="truncate text-[10px] sm:text-[11px] font-sans text-white/45 m-0 leading-tight">{gt.authorName}</p>
                                     ) : null}
                                   </div>
-                                  {/* Контролы — ПРОЗРАЧНЫЕ, только контур (Босс 2026-05-29
-                                      «кнопки прозрачные, только контур; высота в 2 раза меньше»). */}
+                                  </div>
+                                  {/* ЦЕНТР (col2) — переключение трека ВЛЕВО/ВПРАВО от Play; Play
+                                      СТРОГО по центру экрана (Босс 2026-05-29). Прозрачные контур-кнопки. */}
+                                  <div className="flex items-center gap-2 sm:gap-3 justify-self-center">
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); skipPrev(); }}
@@ -3043,8 +3045,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   >
                                     <SkipBack className="w-5 h-5" />
                                   </button>
-                                  </div>
-                                  {/* ЦЕНТР — Play строго по центру экрана (между двумя flex-1). */}
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); togglePlay(gt); }}
@@ -3053,8 +3053,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   >
                                     {isPlayingState ? <Pause className="w-5 h-5 sm:w-6 sm:h-6" fill="currentColor" /> : <Play className="w-5 h-5 sm:w-6 sm:h-6 ml-0.5" fill="currentColor" />}
                                   </button>
-                                  {/* ПРАВАЯ секция (flex-1, justify-end) — симметрична левой. */}
-                                  <div className="flex-1 min-w-0 flex flex-wrap items-center justify-end gap-1.5 sm:gap-2">
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); skipNext(); }}
@@ -3063,6 +3061,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   >
                                     <SkipForward className="w-5 h-5" />
                                   </button>
+                                  </div>
+                                  {/* ПРАВАЯ колонка (col3) — остальные кнопки, к правому краю. */}
+                                  <div className="min-w-0 flex flex-wrap items-center justify-end gap-1.5 sm:gap-2 justify-self-end">
                                   {/* Правый кластер — ВСЕ кнопки в плеере (Босс 2026-05-29):
                                       🎧 топ-100 · зум +/− · полноэкранный · вернуться · поделиться.
                                       Все прозрачные (контур), компактные. */}
