@@ -789,9 +789,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   }, [showGlobe]);
 
   useEffect(() => {
+    // Реальный Fullscreen API завершился (ESC/системно) → синхронизируем в false.
+    // НЕ ставим true здесь: на iPhone Safari Element.requestFullscreen не работает
+    // (только video) → используем псевдо-фуллскрин (state из toggle, см. ниже).
     const onFs = () => {
       const doc = document as unknown as { fullscreenElement?: Element; webkitFullscreenElement?: Element };
-      setGlobeFullscreen(!!(doc.fullscreenElement || doc.webkitFullscreenElement));
+      if (!(doc.fullscreenElement || doc.webkitFullscreenElement)) setGlobeFullscreen(false);
     };
     document.addEventListener("fullscreenchange", onFs);
     document.addEventListener("webkitfullscreenchange", onFs as EventListener);
@@ -822,21 +825,28 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     }, 1000);
   };
 
+  // Полноэкранный режим. Состояние ведём САМИ (оптимистично) — на iPhone Safari
+  // Element.requestFullscreen не поддерживается (только video), поэтому реальный FS
+  // может не включиться, но псевдо-фуллскрин (иммерсивный режим + авто-скрытие
+  // контролов) работает везде. На iPad/desktop дополнительно зовём реальный FS.
   const toggleGlobeFullscreen = () => {
+    const willEnter = !globeFullscreen;
+    setGlobeFullscreen(willEnter);
     const el = globeCardRef.current;
-    if (!el) return;
     try {
       const doc = document as unknown as {
         fullscreenElement?: Element; webkitFullscreenElement?: Element;
         exitFullscreen?: () => Promise<void>; webkitExitFullscreen?: () => void;
       };
-      const elx = el as HTMLDivElement & { webkitRequestFullscreen?: () => void };
-      if (doc.fullscreenElement || doc.webkitFullscreenElement) {
+      if (willEnter) {
+        const elx = el as (HTMLDivElement & { webkitRequestFullscreen?: () => void }) | null;
+        const p = elx?.requestFullscreen?.call(elx);
+        if (p && typeof p.catch === "function") p.catch(() => {}); // iPhone отклонит — ок, псевдо-режим
+        else if (elx?.webkitRequestFullscreen) { try { elx.webkitRequestFullscreen(); } catch { /* no-op */ } }
+      } else if (doc.fullscreenElement || doc.webkitFullscreenElement) {
         (doc.exitFullscreen || doc.webkitExitFullscreen)?.call(doc);
-      } else {
-        (elx.requestFullscreen || elx.webkitRequestFullscreen)?.call(elx);
       }
-    } catch { /* no-op */ }
+    } catch { /* no-op — остаётся псевдо-фуллскрин */ }
   };
   // Земля на плеере — «хук для вирусности» (Босс). Первые 3 ВИЗИТА — моргает на
   // каждый новый заход (игривое подмигивание / Морзе-приветствие у вернувшихся);
@@ -2962,6 +2972,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                     <p className="truncate text-[13px] sm:text-sm font-sans font-medium m-0 bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent">
                                       {gt.displayTitle || gt.prompt?.slice(0, 40) || "Муза"}
                                     </p>
+                                    {/* Автор под названием (Босс 2026-05-29: место свободно). */}
+                                    {gt.authorName ? (
+                                      <p className="truncate text-[10px] sm:text-[11px] font-sans text-white/45 m-0 leading-tight">{gt.authorName}</p>
+                                    ) : null}
                                   </div>
                                   {/* Контролы — ПРОЗРАЧНЫЕ, только контур (Босс 2026-05-29
                                       «кнопки прозрачные, только контур; высота в 2 раза меньше»). */}
@@ -3022,9 +3036,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); try { window.dispatchEvent(new CustomEvent("muza:open-chat")); } catch { /* no-op */ } closeGlobe(); }}
-                                    className="shrink-0 h-10 px-3 rounded-full flex items-center justify-center text-[11px] font-semibold text-white/85 bg-transparent border border-purple-300/45 hover:border-purple-300/80 active:scale-95 transition-all whitespace-nowrap"
+                                    className="shrink-0 ml-auto h-10 px-3 rounded-full flex items-center justify-center gap-1 text-[11px] font-semibold text-white/85 bg-transparent border border-purple-300/45 hover:border-purple-300/80 active:scale-95 transition-all whitespace-nowrap"
                                     aria-label="Вернуться к Музе"
-                                  >Вернуться</button>
+                                  >Вернуться к <span className="font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">Музе</span></button>
                                   <button
                                     type="button"
                                     onClick={async (e) => {
@@ -3034,9 +3048,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                       try { if (navigator.share) { await navigator.share(shareData); return; } } catch { /* отменили шеринг */ }
                                       try { await navigator.clipboard.writeText(url); toast({ title: "Ссылка скопирована", description: "Поделись Музой 💜" }); } catch { /* no-op */ }
                                     }}
-                                    className="shrink-0 h-10 px-3 rounded-full flex items-center justify-center text-[11px] font-semibold text-white/85 bg-transparent border border-fuchsia-300/45 hover:border-fuchsia-300/80 active:scale-95 transition-all whitespace-nowrap"
+                                    className="shrink-0 h-10 px-3 rounded-full flex items-center justify-center gap-1 text-[11px] font-semibold text-white/85 bg-transparent border border-fuchsia-300/45 hover:border-fuchsia-300/80 active:scale-95 transition-all whitespace-nowrap"
                                     aria-label="Поделись Музой"
-                                  >Поделись</button>
+                                  >Поделись <span className="font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">Музой</span></button>
                                 </div>
                               );
                             })()}
