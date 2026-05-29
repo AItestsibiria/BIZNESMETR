@@ -593,15 +593,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     if (expandedId !== null) expandedAtRef.current = Date.now();
   }, [expandedId]);
   const expandedIdRef = useRef<number | null>(null);
-  // Босс 2026-05-29 «при переключении трека на основном плеере он не должен
-  // скролить страницу до раскрытого плеера (плеер 2)». Флаг подавляет авто-скролл
-  // к активной строке (эффект ниже), когда трек переключён КНОПКАМИ плеера
-  // (skipPrev/skipNext/expandPrev/expandNext), а не тапом по строке плейлиста.
-  const suppressRowScrollRef = useRef(false);
-  // Босс 2026-05-29 «при новой загрузке страница пролетает вниз до текущего трека».
-  // НЕ скроллим к активной строке при первичном (восстановленном) playingId — только
-  // при последующих сменах трека (тап по строке плейлиста).
-  const activeRowScrollReadyRef = useRef(false);
   // Eugene 2026-05-16 Босс «кнопка раскрыть (expand) на плееры везде».
   // coverExpanded — column-layout активного плеера: cover full-width сверху,
   // controls под ним. False = row-layout (current default).
@@ -1560,29 +1551,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     setCurrentPage(p => p !== targetPage ? targetPage : p);
   }, [playingId]);
 
-  // Босс 2026-05-28 «на плеере при нажатии на плейлист отражается текущий трек
-  // (НИЖНИЙ плейлист)». Активную строку нижнего плейлиста мягко прокручиваем в
-  // зону видимости при смене трека — НО только если секция плейлиста уже видна
-  // (не дёргаем юзера от плеера наверху). Подсветка активного — уже есть (isActive).
-  useEffect(() => {
-    if (!playingId) return;
-    // Босс 2026-05-29: при первичной загрузке (восстановление трека) НЕ скроллим —
-    // иначе страница «пролетает вниз» к текущему треку при заходе.
-    if (!activeRowScrollReadyRef.current) { activeRowScrollReadyRef.current = true; return; }
-    // Босс 2026-05-29: трек переключён КНОПКАМИ плеера (skip/expand) → НЕ скроллим
-    // страницу к активной строке/раскрытому плееру 2. Скролл оставляем только для
-    // тапа по строке плейлиста (исходный смысл правила 2026-05-28).
-    if (suppressRowScrollRef.current) { suppressRowScrollRef.current = false; return; }
-    const t = window.setTimeout(() => {
-      const section = document.getElementById("playlist-section");
-      if (!section) return;
-      const rect = section.getBoundingClientRect();
-      if (rect.top > window.innerHeight || rect.bottom < 0) return; // секция вне экрана — не трогаем
-      const row = section.querySelector('[data-active-row="true"]') as HTMLElement | null;
-      row?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    }, 220);
-    return () => window.clearTimeout(t);
-  }, [playingId, currentPage]);
+  // Босс 2026-05-29 «при работе с кнопками и плейлистом плеера 1 страница не
+  // должна скролить вниз; выбор трека из верхнего плейлиста включает трек без
+  // скрола». Авто-скролл к активной строке УБРАН полностью. Отражение текущего
+  // трека остаётся через подсветку (isActive) — без прокрутки страницы.
 
   // Босс 2026-05-29 (Page-device-adaptation п.2): прижимаем основной плеер к низу
   // ПЕРВОГО вьюпорта. Меряем плеер и подбираем отступ сверху так, чтобы его низ
@@ -1591,13 +1563,16 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // влезает (тогда естественная позиция, без обрезки). Пересчёт на resize/rotate.
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const FLOAT_GAP = 20; // «парящий» отступ снизу (Босс «плеер чтобы парил, отступ снизу»)
     const recompute = () => {
       if (window.scrollY > 20) return;
       const el = bigPlayerRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
       if (rect.height < 40) return;
-      const target = window.innerHeight - 12; // низ плеера ≈ низ вьюпорта (12px «воздух»)
+      // Низ ПОЛНОГО блока плеера ≈ низ вьюпорта минус «парящий» зазор. rect.bottom
+      // включает всю карточку (обложка, контролы, «Создай в том же стиле»).
+      const target = window.innerHeight - FLOAT_GAP;
       const next = Math.max(0, Math.round(currentSpacerRef.current + (target - rect.bottom)));
       if (Math.abs(next - currentSpacerRef.current) > 3) {
         currentSpacerRef.current = next;
@@ -1605,12 +1580,25 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       }
     };
     const raf = requestAnimationFrame(recompute);
-    const t = window.setTimeout(recompute, 320); // после загрузки обложки/шрифтов
+    const t1 = window.setTimeout(recompute, 320);
+    const t2 = window.setTimeout(recompute, 800); // после поздней загрузки обложки/шрифтов
+    // ResizeObserver: если высота карточки меняется (обложка догрузилась, заголовок
+    // перенёсся, expand) — пересчитываем, чтобы низ плеера не уезжал за экран (фикс
+    // обрезки на планшете). Изменение spacer не меняет высоту карточки → нет петли.
+    let ro: ResizeObserver | undefined;
+    try {
+      if (typeof ResizeObserver !== "undefined" && bigPlayerRef.current) {
+        ro = new ResizeObserver(() => recompute());
+        ro.observe(bigPlayerRef.current);
+      }
+    } catch { /* no-op */ }
     window.addEventListener("resize", recompute, { passive: true });
     window.addEventListener("orientationchange", recompute, { passive: true });
     return () => {
       cancelAnimationFrame(raf);
-      window.clearTimeout(t);
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+      try { ro?.disconnect(); } catch { /* no-op */ }
       window.removeEventListener("resize", recompute);
       window.removeEventListener("orientationchange", recompute);
     };
@@ -1982,7 +1970,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   };
 
   const skipNext = () => {
-    suppressRowScrollRef.current = true; // переключение с плеера — не скроллим к плееру 2
     // Eugene 2026-05-19 «Playlist-strict-selection rule»: ТОЛЬКО filtered.
     const musicTracks = filteredMusicRef.current || [];
     if (musicTracks.length === 0) return;
@@ -2164,7 +2151,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const paginatedMusic = filteredMusic.slice((safePage - 1) * TRACKS_PER_PAGE, safePage * TRACKS_PER_PAGE);
 
   const skipPrev = () => {
-    suppressRowScrollRef.current = true; // переключение с плеера — не скроллим к плееру 2
     // Eugene 2026-05-19 «Playlist-strict-selection rule»: ТОЛЬКО filtered.
     const list = filteredMusicRef.current || [];
     if (list.length === 0) return;
@@ -2189,7 +2175,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // currentTrack.imageUrl (см. render блок), так что картинка обновляется
   // на новый трек, но позиция стабильна.
   const expandPrev = () => {
-    suppressRowScrollRef.current = true; // переключение с плеера — не скроллим к плееру 2
     const list = filteredMusicRef.current || [];
     if (list.length === 0) return;
     const anchor = expandedIdRef.current ?? playingId;
@@ -2200,7 +2185,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     playTrack(list[prev]);
   };
   const expandNext = () => {
-    suppressRowScrollRef.current = true; // переключение с плеера — не скроллим к плееру 2
     const list = filteredMusicRef.current || [];
     if (list.length === 0) return;
     const anchor = expandedIdRef.current ?? playingId;
