@@ -751,12 +751,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       if (globeUiHideTimerRef.current) window.clearTimeout(globeUiHideTimerRef.current);
       return;
     }
+    // Вход в фуллскрин (Босс 2026-05-29 «плеер и всё остальное уходит за 1с»): СРАЗУ
+    // прячем весь UI (fade 1с, см. transition-opacity duration-1000). Появляется при
+    // контакте (касание/мышь/клавиша), затем снова прячется после 2.5с бездействия.
+    setGlobeUiHidden(true);
     const arm = () => {
       setGlobeUiHidden(false);
       if (globeUiHideTimerRef.current) window.clearTimeout(globeUiHideTimerRef.current);
-      globeUiHideTimerRef.current = window.setTimeout(() => setGlobeUiHidden(true), 3000);
+      globeUiHideTimerRef.current = window.setTimeout(() => setGlobeUiHidden(true), 2500);
     };
-    arm();
     document.addEventListener("pointermove", arm);
     document.addEventListener("pointerdown", arm);
     document.addEventListener("keydown", arm);
@@ -2905,8 +2908,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             {/* Шапка — только заголовок. В фуллскрине скрывается СРАЗУ и плавно
                                 (Босс 2026-05-29 «фуллскрин сразу плавно включается»); плеер — через 3с. */}
                             <div
-                              className="flex items-center justify-center gap-2 px-4 py-3 border-b border-purple-400/20 shrink-0 transition-opacity duration-500"
-                              style={{ opacity: (globeUiHidden || globeFullscreen) ? 0 : 1, pointerEvents: (globeUiHidden || globeFullscreen) ? "none" : "auto" }}
+                              className="flex items-center justify-center gap-2 px-4 py-3 border-b border-purple-400/20 shrink-0 transition-opacity duration-1000"
+                              style={{ opacity: globeUiHidden ? 0 : 1, pointerEvents: globeUiHidden ? "none" : "auto" }}
                             >
                               <h3 className="min-w-0 truncate text-base font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent m-0">
                                 🌍 MuzaAi in The World
@@ -2963,7 +2966,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 // (вертикальный скролл работает), горизонтальный drag
                                 // → skipPrev/skipNext (Swipe-row-spring-back pattern).
                                 <div
-                                  className="px-3 py-1.5 border-t border-purple-400/15 shrink-0 grid grid-cols-[1fr_auto_1fr] items-center gap-2 transition-opacity duration-300"
+                                  className="px-3 py-1.5 border-t border-purple-400/15 shrink-0 grid grid-cols-[1fr_auto_1fr] items-center gap-2 transition-opacity duration-1000"
                                   style={{ touchAction: "pan-y", opacity: globeUiHidden ? 0 : 1, pointerEvents: globeUiHidden ? "none" : "auto" }}
                                   onPointerDown={(e) => {
                                     globeMiniSwipeStartXRef.current = e.clientX;
@@ -3118,7 +3121,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             })()}
                             {/* Подвал — только слоган + счётчик стран (кнопки перенесены в плеер). */}
                             <div
-                              className="px-4 py-1.5 border-t border-purple-400/20 shrink-0 flex items-center justify-center gap-2 text-center transition-opacity duration-300"
+                              className="px-4 py-1.5 border-t border-purple-400/20 shrink-0 flex items-center justify-center gap-2 text-center transition-opacity duration-1000"
                               style={{ opacity: globeUiHidden ? 0 : 1, pointerEvents: globeUiHidden ? "none" : "auto" }}
                             >
                               <p className="text-[11px] font-display font-bold m-0 leading-tight bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent">
