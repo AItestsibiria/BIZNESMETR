@@ -537,7 +537,7 @@ const FRONT_HALF_DEG = 80;
 // (точка пропорционально уменьшается, Морзе «Пока, Твоя Муза») → мягкое вращение.
 const OVERVIEW_ALTITUDE = 3.0;    // обзор на восходе (видно Солнце и Луну)
 const ARRIVE_ALTITUDE = 1.95;     // близкий подход к геолокации (точка крупно)
-const CRUISE_ALTITUDE = 3.2;      // панорамный обзор после отъезда
+const CRUISE_ALTITUDE = 3.6;      // панорамный обзор после отъезда (Луна+Земля+Солнце в кадре)
 const SUNRISE_HOLD_MS = 2600;     // восход: медленный показ + лёгкое вращение
 const FLY_MS = 9000;              // плавный пролёт к геолокации
 const ARRIVE_HOLD_MS = 3200;      // пауза у точки (Морзе-приветствие)
@@ -736,7 +736,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   const winkAnchorRef = useRef<{ lat: number; lng: number } | null>(null);
   const winkDotRef = useRef<HTMLDivElement | null>(null);
   const winkCityRef = useRef<HTMLDivElement | null>(null);
-  const cityNameRef = useRef<string>(""); // название города юзера (англ.), обратный геокодинг
+  const cityNameRef = useRef<string>(""); // название города юзера (без доп. слов)
   const morseTimerRef = useRef<number | null>(null);
   // Целевая высота камеры для ПЛАВНОГО зума (кнопки +/− меняют её, круиз едет к ней).
   const zoomTargetRef = useRef<number | null>(null);
@@ -807,12 +807,13 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     try {
       if (sunMeshRef.current) {
         const sp = subsolarPoint(Date.now());
-        const c = g.getCoords(sp[1], sp[0], 3.0); // (lat, lng, altitude≈3 радиуса)
+        // Ближе к Земле (Босс 2026-05-29: панорама Луна+Земля+Солнце в кадре) — 3.0→2.2.
+        const c = g.getCoords(sp[1], sp[0], 2.2);
         sunMeshRef.current.position.set(c.x, c.y, c.z);
       }
       if (moonMeshRef.current) {
         const mp = subLunarPoint(Date.now());
-        const c = g.getCoords(mp[1], mp[0], 1.9);
+        const c = g.getCoords(mp[1], mp[0], 1.5);
         moonMeshRef.current.position.set(c.x, c.y, c.z);
       }
       // Фаза Луны: направление на Солнце в мировых координатах (= нормаль позиции
@@ -865,8 +866,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
               .then((r) => (r.ok ? r.json() : null))
               .then((d) => {
                 if (cancelled || !d) return;
-                // «Одним словом» (Босс 2026-05-29): пробелы → дефис (Saint Petersburg → Saint-Petersburg).
-                cityNameRef.current = String(d.city || d.locality || d.principalSubdivision || "").trim().replace(/\s+/g, "-");
+                // Только название города, без доп. слов (Босс 2026-05-29). Маленькое
+                // поселение → ближайший город (city), иначе locality. Регион/страну НЕ пишем.
+                cityNameRef.current = String(d.city || d.locality || "").trim().replace(/\s+/g, "-");
               })
               .catch(() => {
                 /* нет сети/политика — подпись просто не покажется */
@@ -955,6 +957,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     let holdAt = 0;
     let departAt = 0;
     const cruise = { lat: startLat, alt: CRUISE_ALTITUDE };
+    let cruiseStartT = 0; // старт круиза — для «1 круг, далее по параллелям»
     // Повтор моргания на КАЖДОМ проходе геолокации (Босс 2026-05-29) — без смены
     // фокуса камеры: при входе точки во фронт перезапускаем Морзе с начала.
     let winkWasFront = false;
@@ -1138,12 +1141,20 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         if (p >= 1) {
           cruise.lat = arrive.lat;
           cruise.alt = CRUISE_ALTITUDE;
+          cruiseStartT = now;
           if (zoomTargetRef.current == null) zoomTargetRef.current = CRUISE_ALTITUDE;
           phase = "cruise"; // точка остаётся моргающей при каждом проходе над страной
         }
       } else {
-        // cruise: широта фикс, высота ПЛАВНО едет к цели зума (без скачков).
-        lat = cruise.lat;
+        // cruise: 1-й круг — по широте юзера; ПОСЛЕ полного оборота (360°) — мягкий
+        // свип по ПАРАЛЛЕЛЯМ (Босс 2026-05-29 «на 1 проход круга, далее параллели»).
+        const deg = (GLOBAL_DRIFT_DEG_S * (now - cruiseStartT)) / 1000;
+        let latOsc = 0;
+        if (deg > 360) {
+          const tt = (now - cruiseStartT) / 1000;
+          latOsc = 22 * Math.sin(tt * 0.04); // медленный свип параллелей ±22°
+        }
+        lat = Math.max(-78, Math.min(78, cruise.lat + latOsc));
         const tgt = zoomTargetRef.current ?? CRUISE_ALTITUDE;
         cruise.alt += (tgt - cruise.alt) * 0.1;
         alt = cruise.alt;
