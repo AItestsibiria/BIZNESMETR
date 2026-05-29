@@ -1248,6 +1248,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     (typeof window !== "undefined" ? (window as any).__muziaiAudio || null : null),
   );
   const timerRef = useRef<number | null>(null);
+  // Восстановление воспроизведения при ошибке потока (Босс 2026-05-29 «без сбоев,
+  // не прерываясь»): счётчик попыток + текущий error-handler (для дедупа listener'ов).
+  const audioRecoverCountRef = useRef(0);
+  const audioErrorHandlerRef = useRef<(() => void) | null>(null);
+  // Стабильный сброс счётчика попыток при успешном возобновлении ('playing').
+  const resetRecoverRef = useRef(() => { audioRecoverCountRef.current = 0; });
   // Эмиссия прослушивания: ЕДИНЫЙ порог 5 сек (Босс «5 сек и более = прослушивание»).
   // Один таймер на трек (сбрасывается при смене/паузе); фронт шлёт ОДИН play на
   // 5-й секунде. Backend дедупит по IP/10мин. Работает и при resume (togglePlay).
@@ -1967,12 +1973,42 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     // раз → playTrack вызывается N раз → переключение глючит.
     try { audio.removeEventListener('ended', handleEnded); } catch {}
     audio.addEventListener('ended', handleEnded);
-    audio.addEventListener('error', () => {
+    // Восстановление при ошибке потока (Босс 2026-05-29 «плейлист без сбоев, не
+    // прерываясь»): раньше любая ошибка СТОПила плеер. Теперь — перезагрузка потока
+    // и возврат на ту же позицию (до 4 попыток с backoff); стоп только если не вышло.
+    // Дедуп: снимаем предыдущий error-handler (раньше копились дубли при каждом playTrack).
+    audioRecoverCountRef.current = 0;
+    try { if (audioErrorHandlerRef.current) audio.removeEventListener('error', audioErrorHandlerRef.current); } catch {}
+    try { audio.removeEventListener('playing', resetRecoverRef.current); } catch {}
+    const onAudioError = () => {
       if (audioRef.current !== audio) return;
+      if (audioRecoverCountRef.current < 4) {
+        audioRecoverCountRef.current += 1;
+        const pos = audio.currentTime || 0;
+        const attempt = audioRecoverCountRef.current;
+        window.setTimeout(() => {
+          if (audioRef.current !== audio) return;
+          try {
+            audio.load();
+            const onMeta = () => {
+              audio.removeEventListener('loadedmetadata', onMeta);
+              try { if (pos > 0 && isFinite(pos)) audio.currentTime = pos; } catch { /* no-op */ }
+              audio.play().catch(() => {});
+            };
+            audio.addEventListener('loadedmetadata', onMeta);
+            audio.play().catch(() => {});
+          } catch { /* no-op */ }
+        }, 400 * attempt);
+        return;
+      }
+      // Восстановить не удалось — останавливаем.
       if (timerRef.current) clearInterval(timerRef.current);
       setPlayingId(null);
       unmuteBgMusic();
-    });
+    };
+    audioErrorHandlerRef.current = onAudioError;
+    audio.addEventListener('error', onAudioError);
+    audio.addEventListener('playing', resetRecoverRef.current);
 
 
     // MediaSession уже настроена через setupMediaSessionForTrack SYNC выше —
