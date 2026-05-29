@@ -883,6 +883,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // Камера-режиссёр: юзер сейчас сам вращает (пауза авто-движения) + хук пере-базы круиза.
   const userInteractingRef = useRef(false);
   const rebaseCruiseRef = useRef<(() => void) | null>(null);
+  // После взаимодействия юзера — пауза 60 сек, затем плавный возврат в свой режим (Босс
+  // 2026-05-29). lastInteractAt — момент отпускания; pendingResume — ждём возврата.
+  const lastInteractAtRef = useRef<number>(0);
+  const pendingResumeRef = useRef<boolean>(false);
   // Морзе-подмигивание Музы: светящаяся точка ЗАКРЕПЛЕНА в точке геолокации
   // (проекция координаты в экран каждый кадр), без текста. По мере отъезда камеры
   // точка пропорционально уменьшается. Управление через ref'ы (без перерендера).
@@ -1401,8 +1405,15 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       // Точка геолокации якорится каждый кадр (в т.ч. во время ручного вращения).
       updateWinkDot(gg);
       updatePlanetScreens(gg);
-      // Юзер сам вращает — камеру не трогаем (в круизе пере-базируемся при отпускании).
+      // Юзер сам вращает — камеру не трогаем.
       if (userInteractingRef.current) return;
+      // После отпускания — пауза 60 сек на обзор юзера (камера стоит, где он оставил).
+      // По истечении — один rebase: дрейф продолжается с текущей точки = плавный возврат.
+      if (pendingResumeRef.current) {
+        if (now - lastInteractAtRef.current < 60_000) return;
+        rebaseCruiseRef.current?.();
+        pendingResumeRef.current = false;
+      }
       const elapsed = now - t0;
       // ЕДИНЫЙ дрейф долготы — одна сторона, постоянная скорость, с 1-го кадра.
       // (classic-режим переопределяет lng, наводя камеру на середину Солнце–Луна.)
@@ -1801,15 +1812,18 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         controls.maxDistance = 600;
         controls.rotateSpeed = 0.7;
         controls.zoomSpeed = 0.8;
-        // Ручное вращение юзером: на 'start' режиссёр уступает камеру, на 'end' —
-        // мягко перенимает дрейф с текущей точки (Босс: «продолжая плавный поворот»).
+        // Ручное вращение юзером: на 'start' режиссёр уступает камеру. На 'end' НЕ
+        // возобновляем сразу — даём юзеру 60 сек на свой обзор, затем плавный возврат
+        // в свой режим (Босс 2026-05-29). Возврат с rebase делает сам цикл по таймеру.
         try {
           controls.addEventListener?.("start", () => {
             userInteractingRef.current = true;
+            pendingResumeRef.current = false;
           });
           controls.addEventListener?.("end", () => {
             userInteractingRef.current = false;
-            rebaseCruiseRef.current?.();
+            lastInteractAtRef.current = performance.now();
+            pendingResumeRef.current = true;
           });
         } catch {
           // ignore
