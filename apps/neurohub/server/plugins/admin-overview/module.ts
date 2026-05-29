@@ -835,7 +835,10 @@ function scheduleRestart(): void {
 function maskValue(value: string): { length: number; first8: string; hasLeadingSpace: boolean } {
   return {
     length: value.length,
-    first8: value.slice(0, 8),
+    // Eugene 2026-05-29 (Secrets-admin-only §1): отдаём только 4 симв., не 8 —
+    // 8 символов от коротких секретов (ROBO-пароли 8–32) материально ослабляли их.
+    // Имя поля оставлено (общий контракт UI), но контент урезан до first4.
+    first8: value.slice(0, 4),
     hasLeadingSpace: value.startsWith(" "),
   };
 }
@@ -1807,7 +1810,9 @@ router.get("/secrets", requireAdmin, async (_req, res) => {
       name,
       configured: !!val,
       length: val.length,
-      masked: val ? `${val.slice(0, 4)}…${val.slice(-3)}` : null,
+      // Eugene 2026-05-29 (Secrets-admin-only §1): без суффикса last3 — только
+      // первые 4 символа + длина (first4+last3 раскрывал слишком много).
+      masked: val ? `${val.slice(0, 4)}…` : null,
     };
   });
   res.json({ data: { envFileMtime: mtime, items }, error: null });

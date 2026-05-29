@@ -1210,11 +1210,14 @@ export async function registerRoutes(
     // Eugene 2026-05-24 Босс «Czechia» — + is_bot=0.
     const realFilter = " AND fingerprint NOT LIKE 'daily_%' AND ip != '0.0.0.0' AND user_agent IS NOT NULL AND user_agent != ''" + isBotFilter;
     const botExtra = (botExclSql ? ` AND ${botExclSql}` : "") + realFilter;
-    const today = new Date().toISOString().slice(0, 10);
-    const week = new Date(Date.now() - 7 * 86400000).toISOString();
+    // Eugene 2026-05-29: «сегодня»/«неделя» через getPeriodRange (cut-off 20:00 МСК) —
+    // единый знаменатель с периодом ниже и другими вкладками (раньше today=UTC-дата
+    // через date(last_visit) → карточка расходилась с period-видом и master-dashboard).
+    const rToday = getPeriodRange("today");
+    const rWeek = getPeriodRange("week");
     const total = raw.prepare(`SELECT COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors WHERE 1=1${botExtra}`).get() as any;
-    const todayC = raw.prepare(`SELECT COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors WHERE date(last_visit) = ?${botExtra}`).get(today) as any;
-    const weekC = raw.prepare(`SELECT COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors WHERE last_visit >= ?${botExtra}`).get(week) as any;
+    const todayC = raw.prepare(`SELECT COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors WHERE last_visit >= ? AND last_visit < ?${botExtra}`).get(rToday.fromIso, rToday.toIso) as any;
+    const weekC = raw.prepare(`SELECT COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors WHERE last_visit >= ? AND last_visit < ?${botExtra}`).get(rWeek.fromIso, rWeek.toIso) as any;
 
     // Сводки с учётом фильтра периода + домена.
     const periodTotal = raw.prepare(`SELECT COUNT(DISTINCT COALESCE(fingerprint, ip)) as c FROM visitors ${combinedWhere}`).get() as any;
