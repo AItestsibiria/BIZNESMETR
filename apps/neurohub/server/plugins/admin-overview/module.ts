@@ -2727,6 +2727,24 @@ const adminOverviewModule: Module = {
         }
       },
     },
+    // Eugene 2026-05-29 Босс «как уведомить если сбой сайта» — dead-man's-switch:
+    // сервер пингует внешний бесплатный аптайм-сервис (Healthchecks.io) раз/мин.
+    // Пока сайт жив — пинги идут. Упал процесс/VPS/nginx → пинги прекратились →
+    // внешний сервис САМ через grace-период шлёт Боссу алерт (TG/email/СМС/звонок),
+    // НЕЗАВИСИМО от нашего сервера. Это ЕДИНСТВЕННЫЙ способ поймать полный down
+    // (внутренний код мёртв вместе с сервером). Босс заводит бесплатный чек и
+    // ставит HEARTBEAT_URL в .env. Если env пуст — no-op. Never throws.
+    {
+      name: "heartbeat-ping",
+      schedule: "every_minute",
+      handler: async () => {
+        try {
+          const url = process.env.HEARTBEAT_URL;
+          if (!url || !/^https?:\/\//.test(url)) return;
+          await fetch(url, { method: "GET", signal: AbortSignal.timeout(8000) }).catch(() => {});
+        } catch { /* never throw */ }
+      },
+    },
   ],
   onLoad: async (ctx) => {
     // Eugene 2026-05-14 Босс: при старте — одноразовая зачистка зависших.
