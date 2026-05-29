@@ -709,6 +709,8 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   const morseWordRef = useRef<string>("MUZA");     // что мигаем (приветствие → прощание)
   const winkAnchorRef = useRef<{ lat: number; lng: number } | null>(null);
   const winkDotRef = useRef<HTMLDivElement | null>(null);
+  const winkCityRef = useRef<HTMLDivElement | null>(null);
+  const cityNameRef = useRef<string>(""); // название города юзера (англ.), обратный геокодинг
   const morseTimerRef = useRef<number | null>(null);
 
   const basePointsRef = useRef<GlobePoint[]>(points);
@@ -826,6 +828,23 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           if (cancelled) return;
           const ll = { lat: pos.coords.latitude, lng: pos.coords.longitude };
           userLatLngRef.current = ll;
+          // Обратный геокодинг → название города НА АНГЛИЙСКОМ (Босс 2026-05-29).
+          // Клиентский запрос без ключа; мягкий фолбэк — нет сети/города → без подписи.
+          try {
+            fetch(
+              `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${ll.lat}&longitude=${ll.lng}&localityLanguage=en`,
+            )
+              .then((r) => (r.ok ? r.json() : null))
+              .then((d) => {
+                if (cancelled || !d) return;
+                cityNameRef.current = String(d.city || d.locality || d.principalSubdivision || "");
+              })
+              .catch(() => {
+                /* нет сети/политика — подпись просто не покажется */
+              });
+          } catch {
+            // ignore
+          }
         },
         () => { /* отказ/ошибка — остаёмся на fallback-обзоре */ },
         { enableHighAccuracy: false, timeout: 6000, maximumAge: 600000 },
@@ -941,10 +960,15 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const updateWinkDot = (gg: any) => {
       const dot = winkDotRef.current;
+      const cityEl = winkCityRef.current;
+      const hide = () => {
+        if (dot) dot.style.opacity = "0";
+        if (cityEl) cityEl.style.opacity = "0";
+      };
       if (!dot) return;
       const anchor = winkAnchorRef.current;
       if (!winkActiveRef.current || !anchor) {
-        dot.style.opacity = "0";
+        hide();
         return;
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -955,7 +979,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         pov = null;
       }
       if (!pov) {
-        dot.style.opacity = "0";
+        hide();
         return;
       }
       const front = Math.abs(lngDelta(anchor.lng, pov.lng ?? 0)) <= 85; // не на обороте
@@ -967,7 +991,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         sc = null;
       }
       if (!front || !sc) {
-        dot.style.opacity = "0";
+        hide();
         return;
       }
       const scale = Math.max(0.3, Math.min(1.1, ARRIVE_ALTITUDE / (pov.altitude || ARRIVE_ALTITUDE)));
@@ -978,6 +1002,19 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       dot.style.boxShadow = morseOnRef.current
         ? "0 0 16px 5px rgba(124,58,237,0.92), 0 0 30px 10px rgba(0,212,255,0.55)"
         : "none";
+      // Подпись города (англ.) под точкой — ровная (не мигает), читаемая. Уходит
+      // вместе с окончанием Морзе (winkActiveRef=false → hide() выше). Босс 2026-05-29.
+      if (cityEl) {
+        const city = cityNameRef.current;
+        if (!city) {
+          cityEl.style.opacity = "0";
+        } else {
+          if (cityEl.textContent !== city) cityEl.textContent = city;
+          cityEl.style.left = `${sc.x}px`;
+          cityEl.style.top = `${sc.y + 16}px`;
+          cityEl.style.opacity = "0.95";
+        }
+      }
     };
 
     const loop = (now: number) => {
@@ -1445,6 +1482,27 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             "radial-gradient(circle, #ffffff 0%, #67E8F9 34%, #7C3AED 70%, transparent 100%)",
           transition: "opacity 60ms linear, box-shadow 60ms linear",
           willChange: "left, top, transform, opacity",
+        }}
+      />
+      {/* Название города юзера (англ.) при подходе — фирменные цвета MuzaAi.
+          Появляется у точки и уходит вместе с окончанием Морзе (Босс 2026-05-29). */}
+      <div
+        ref={winkCityRef}
+        className="pointer-events-none absolute z-20 font-display font-bold whitespace-nowrap"
+        style={{
+          left: 0,
+          top: 0,
+          opacity: 0,
+          transform: "translate(-50%, 0)",
+          fontSize: 13,
+          letterSpacing: 0.3,
+          background: "linear-gradient(90deg,#7C3AED,#D946EF,#00D4FF)",
+          WebkitBackgroundClip: "text",
+          backgroundClip: "text",
+          color: "transparent",
+          textShadow: "0 0 16px rgba(124,58,237,0.45)",
+          transition: "opacity 220ms ease",
+          willChange: "left, top, opacity",
         }}
       />
     </div>
