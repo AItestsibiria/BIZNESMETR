@@ -2734,13 +2734,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   <p className="text-[12px] font-sans text-white/80 m-0 min-w-0">
                                     Хочешь больше музыки? <span className="text-fuchsia-300 font-semibold">MuzaAi.ru</span>
                                   </p>
-                                  <button
-                                    type="button"
-                                    onClick={() => { try { window.location.assign(window.location.origin + "/"); } catch { /* no-op */ } }}
-                                    className="shrink-0 px-3 py-1.5 rounded-xl text-[11px] font-bold text-white bg-gradient-to-r from-purple-500 via-fuchsia-500 to-blue-500 shadow-[0_0_14px_rgba(124,58,237,0.45)] active:scale-95 transition-transform whitespace-nowrap"
-                                  >
-                                    Перейти →
-                                  </button>
                                 </div>
                               )}
                             </div>
