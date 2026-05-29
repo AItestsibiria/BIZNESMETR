@@ -446,6 +446,27 @@ const MARKER_COLORS = [BRAND_PURPLE, BRAND_CYAN, BRAND_FUCHSIA, "#A78BFA", "#67E
 // долгота в пределах ±FRONT_HALF_DEG от меридиана камеры (pointOfView().lng).
 const FRONT_HALF_DEG = 80;
 
+// Resting altitude камеры — «отдыхающее» расстояние после интро/наводки на юзера.
+// Босс 2026-05-29: «глобус чуть меньше + больше зазоры слева/справа» → дальше
+// камера (2.0 → 2.4, +20%) → Земля визуально меньше, симметричные отступы по бокам.
+const RESTING_ALTITUDE = 2.4;
+// Обзорная (intro) altitude — общий план, чтобы в кадр попали Солнце и Луна.
+const OVERVIEW_ALTITUDE = 3.0;
+// Длительности интро-анимации (Босс: 2с обзор Солнце+Луна → плавный 2с полёт к юзеру).
+const INTRO_OVERVIEW_HOLD_MS = 2000;
+const INTRO_FLY_MS = 2000;
+
+// prefers-reduced-motion — уважаем системную настройку (без интро-полёта, сразу
+// геолокация). В файле раньше проверки не было — добавлено вместе с интро-анимацией.
+function prefersReducedMotion(): boolean {
+  if (typeof window === "undefined" || !window.matchMedia) return false;
+  try {
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  } catch {
+    return false;
+  }
+}
+
 // Нормализует разницу долгот в диапазон [-180, 180].
 function lngDelta(a: number, b: number): number {
   let d = ((a - b + 180) % 360) - 180;
@@ -701,14 +722,81 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     return () => { cancelled = true; };
   }, []);
 
-  // Когда геолокация получена и глобус готов — плавно наводим камеру на юзера.
+  // Стартовая интро-анимация (Босс 2026-05-29): при открытии глобуса сначала ~2с
+  // показываем «рассвет Солнца и Луны» — обзорный кадр, где видно Солнце и Луну
+  // (точка между субсолярной и подлунной, общий план), затем ПЛАВНО (~2с) летим
+  // камерой к геолокации юзера. reduced-motion → без полёта, сразу геолокация.
+  // Таймер очищается в cleanup (clearTimeout) — нет утечек/гонок при размонтаже.
   useEffect(() => {
     if (!ready || !userLatLng) return;
+    const g = globeRef.current;
+    if (!g?.pointOfView) return;
+
+    // Уважаем prefers-reduced-motion: без обзора и полёта — сразу на юзера.
+    if (prefersReducedMotion()) {
+      try {
+        g.pointOfView({ lat: userLatLng.lat, lng: userLatLng.lng, altitude: RESTING_ALTITUDE }, 0);
+      } catch {
+        // ignore
+      }
+      return;
+    }
+
+    let flyTimer: number | null = null;
     try {
-      globeRef.current?.pointOfView?.({ lat: userLatLng.lat, lng: userLatLng.lng, altitude: 2.0 }, 1200);
+      // Обзорный кадр: точка между подсолнечной и подлунной (видно Солнце+Луну).
+      // Fallback при недоступности формул — разумный общий план (день по центру).
+      let overviewLat = 15;
+      let overviewLng = subsolarPoint(Date.now())[0];
+      try {
+        const sp = subsolarPoint(Date.now()); // [lng, lat]
+        const mp = subLunarPoint(Date.now()); // [lng, lat]
+        overviewLat = (sp[1] + mp[1]) / 2;
+        // Середина по долготе с учётом перехода через ±180° (кратчайшая дуга).
+        overviewLng = sp[0] + lngDelta(mp[0], sp[0]) / 2;
+      } catch {
+        // fallback-значения выше
+      }
+      // Подержать обзор без перехода, затем плавно лететь к геолокации.
+      g.pointOfView({ lat: overviewLat, lng: overviewLng, altitude: OVERVIEW_ALTITUDE }, 0);
+      flyTimer = window.setTimeout(() => {
+        try {
+          globeRef.current?.pointOfView?.(
+            { lat: userLatLng.lat, lng: userLatLng.lng, altitude: RESTING_ALTITUDE },
+            INTRO_FLY_MS,
+          );
+        } catch {
+          // ignore
+        }
+      }, INTRO_OVERVIEW_HOLD_MS);
     } catch {
       // ignore
     }
+    return () => {
+      if (flyTimer !== null) window.clearTimeout(flyTimer);
+    };
+  }, [ready, userLatLng]);
+
+  // Fallback: если геолокация так и не пришла (отказ/таймаут ~6с), после короткого
+  // обзора плавно садимся на resting altitude на текущем обзорном кадре (Солнце+Луна),
+  // чтобы глобус не «завис» на общем плане. Если геолокация появится — основной
+  // интро-effect выше перехватит наводку. Таймер очищается в cleanup.
+  useEffect(() => {
+    if (!ready || userLatLng) return;
+    if (prefersReducedMotion()) return;
+    const settleTimer = window.setTimeout(() => {
+      if (userLatLngRef.current) return; // геолокация подоспела — её ведёт другой effect
+      try {
+        const g = globeRef.current;
+        const pov = g?.pointOfView?.();
+        if (pov) {
+          g.pointOfView({ lat: pov.lat, lng: pov.lng, altitude: RESTING_ALTITUDE }, INTRO_FLY_MS);
+        }
+      } catch {
+        // ignore
+      }
+    }, INTRO_OVERVIEW_HOLD_MS + 5000);
+    return () => window.clearTimeout(settleTimer);
   }, [ready, userLatLng]);
 
   // Замер размера контейнера + ResizeObserver.
@@ -942,16 +1030,21 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         console.error("[GlobeView] sun/moon setup failed:", e);
       }
 
-      // Стартовый обзор: если уже есть геолокация юзера — на неё (Босс «открытие
-      // по геолокации»). Иначе Солнце СЛЕВА — камера на 90° восточнее субсолярной
-      // долготы → освещённая сторона на левом лимбе, терминатор по центру (видно
-      // рассвет/закат). altitude 2.0 — глобус крупный, с отступами слева/справа.
-      const u = userLatLngRef.current;
-      if (u) {
-        g.pointOfView?.({ lat: u.lat, lng: u.lng, altitude: 2.0 }, 0);
-      } else {
+      // Стартовый кадр перед интро-анимацией (Босс 2026-05-29): обзор «рассвет
+      // Солнца и Луны» — точка между субсолярной и подлунной, общий план, чтобы
+      // видеть Солнце+Луну. Дальнейший плавный полёт к геолокации делает effect
+      // [ready, userLatLng] (после setReady ниже). При reduced-motion или отсутствии
+      // геолокации интро не летит — остаётся этот обзорный/fallback кадр.
+      try {
+        const sp = subsolarPoint(Date.now()); // [lng, lat]
+        const mp = subLunarPoint(Date.now()); // [lng, lat]
+        const overLat = (sp[1] + mp[1]) / 2;
+        const overLng = sp[0] + lngDelta(mp[0], sp[0]) / 2;
+        g.pointOfView?.({ lat: overLat, lng: overLng, altitude: OVERVIEW_ALTITUDE }, 0);
+      } catch {
+        // Fallback: Солнце слева (камера на 90° восточнее субсолярной долготы).
         const [subLng] = subsolarPoint(Date.now());
-        g.pointOfView?.({ lat: 22, lng: subLng + 90, altitude: 2.0 }, 0);
+        g.pointOfView?.({ lat: 22, lng: subLng + 90, altitude: OVERVIEW_ALTITUDE }, 0);
       }
     } catch (e) {
       console.error("[GlobeView] onGlobeReady controls setup failed:", e);
