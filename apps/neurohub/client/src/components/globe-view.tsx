@@ -157,6 +157,8 @@ const Globe = lazy(() => import("react-globe.gl")) as unknown as ComponentType<G
 const EARTH_DAY_URL = "//unpkg.com/three-globe/example/img/earth-day.jpg";
 const EARTH_NIGHT_URL = "//unpkg.com/three-globe/example/img/earth-night.jpg";
 const EARTH_BUMP_URL = "//unpkg.com/three-globe/example/img/earth-topology.png";
+// Звёздное небо ВНУТРИ окна глобуса (Босс: внутри окна — звёздное небо и Земля).
+const NIGHT_SKY_URL = "//unpkg.com/three-globe/example/img/night-sky.png";
 
 // ───────────────────────────────────────────────────────────────────────────
 // Day/Night шейдер — порт офиц. примера react-globe.gl «Day/Night Cycle».
@@ -741,7 +743,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   const zoomTargetRef = useRef<number | null>(null);
   // Режим полёта (Босс 2026-05-29): "ai" — многовариантная режиссура (Солнце/Земля/Луна);
   // "classic" — классический обзор Земли по параллели юзера, без диагональной режиссуры.
-  const flightModeRef = useRef<"classic" | "ai">("ai");
+  // На смартфоне по умолчанию «Полёт» (classic), на планшете/ПК — «Полёт Ai» (Босс 2026-05-29).
+  const flightModeRef = useRef<"classic" | "ai">(
+    typeof window !== "undefined" && window.innerWidth < 768 ? "classic" : "ai",
+  );
 
   const basePointsRef = useRef<GlobePoint[]>(points);
   useEffect(() => {
@@ -1562,9 +1567,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       ref={wrapRef}
       className="absolute inset-0"
       data-testid="globe-3d-canvas"
-      // Босс 2026-05-29: фон ЧЁРНЫЙ + летящие звёзды. Подложка прозрачная → проступает
-      // анимированный StarfieldCanvas (warp = летящие звёзды) из оверлея; статичная
-      // текстура неба убрана (см. ниже backgroundImageUrl).
+      // Босс 2026-05-29: ВНУТРИ окна — звёздное небо (текстура NIGHT_SKY) + Земля.
+      // Подложка прозрачная: во время загрузки текстуры проступает чёрный фон с
+      // летящими звёздами (StarfieldCanvas) ЗА окном.
       style={{
         background: "transparent",
         // Плавное появление сцены + мягкий рост детализации (Босс «плавный»).
@@ -1578,7 +1583,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         width={size.w}
         height={size.h}
         backgroundColor="rgba(0,0,0,0)"
-        backgroundImageUrl={null}
+        backgroundImageUrl={NIGHT_SKY_URL}
         rendererConfig={{ antialias: true, alpha: true }}
         {...(dayNight && texturesReady
           ? { globeMaterial: dayNight.material }

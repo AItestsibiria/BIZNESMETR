@@ -740,8 +740,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const [globeCoverExpanded, setGlobeCoverExpanded] = useState(false);
   // 🎧 Топ-100 плейлиста в плеере 3D (как на основном плеере)
   const [globeTopOpen, setGlobeTopOpen] = useState(false);
-  // Режим полёта 3D: "ai" — многовариантная режиссура (default), "classic" — обзор без диагонали.
-  const [globeFlight, setGlobeFlight] = useState<"classic" | "ai">("ai");
+  // Режим полёта 3D: на смартфоне по умолчанию "classic" (Полёт), иначе "ai" (Полёт Ai). Босс 2026-05-29.
+  const [globeFlight, setGlobeFlight] = useState<"classic" | "ai">(() => {
+    try { return window.innerWidth < 768 ? "classic" : "ai"; } catch { return "ai"; }
+  });
   // В полноэкранном режиме (Босс 2026-05-29 «через 3 сек плеер исчезает и появляется
   // при контакте»): авто-скрытие шапки/плеера/подвала после 3с бездействия.
   const [globeUiHidden, setGlobeUiHidden] = useState(false);
