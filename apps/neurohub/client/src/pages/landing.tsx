@@ -724,34 +724,39 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     try { return new URLSearchParams(window.location.search).get("globecard") === "1"; }
     catch { return false; }
   });
-  // Земля на плеере — «хук для вирусности» (Босс). Первый визит: игривое
-  // подмигивание, учащается, НО затихает после 3-го раза до конца дня. Возврат:
-  // приветствие морганием азбукой Морзе «ПРИВЕТ Я МУЗА». Клик 🌍 — тихо навсегда.
+  // Земля на плеере — «хук для вирусности» (Босс). Первые 3 ВИЗИТА — моргает на
+  // каждый новый заход (игривое подмигивание / Морзе-приветствие у вернувшихся);
+  // с 4-го визита — максимум 1 раз в сутки. Клик 🌍 — тихо навсегда.
   const [winkMode, setWinkMode] = useState<"off" | "playful" | "morse">("off");
   const [winkLevel, setWinkLevel] = useState(0);
   const [morseOn, setMorseOn] = useState(false);
   const WINK_DUR = [3.4, 2.3, 1.5, 0.95]; // сек — чем выше уровень, тем быстрее
 
   useEffect(() => {
-    let seen = false, firstVisit = true, quietToday = false, shownToday = false;
+    let seen = false, firstVisit = true, quietToday = false, shownToday = false, visitCount = 0;
     const today = new Date().toDateString();
     try {
       seen = !!localStorage.getItem("muza_globe_seen");
       firstVisit = !localStorage.getItem("muza_first_visit");
       quietToday = localStorage.getItem("muza_wink_quiet_date") === today;
       shownToday = localStorage.getItem("muza_wink_shown_date") === today;
+      visitCount = (parseInt(localStorage.getItem("muza_visit_count") || "0", 10) || 0) + 1;
+      localStorage.setItem("muza_visit_count", String(visitCount));
     } catch { /* no-op */ }
     if (seen) return; // юзер уже открывал глобус — не отвлекаем
-    // Босс 2026-05-29: «глобус моргает каждый раз при новой загрузке» — по правилу
-    // моргание ограничено: максимум ОДИН раз в день (первая загрузка дня), а не на
-    // каждый refresh. Дальше тихо до следующего дня (или пока не откроет глобус).
-    if (shownToday) return;
+    // Босс 2026-05-29: первые 3 ВИЗИТА — моргает на КАЖДЫЙ новый заход (хук для новых
+    // юзеров). Начиная с 4-го визита — максимум 1 раз в сутки (первый заход дня).
+    const hookWindow = visitCount <= 3;
+    if (!hookWindow && shownToday) return;
     try { localStorage.setItem("muza_wink_shown_date", today); } catch { /* no-op */ }
     if (firstVisit) {
       try { localStorage.setItem("muza_first_visit", today); } catch { /* no-op */ }
       setWinkMode("playful");
+    } else if (hookWindow) {
+      // Возврат в окне хука (визиты 2-3): приветствие Морзе на КАЖДЫЙ заход.
+      setWinkMode("morse");
     } else {
-      // Возврат: приветствие Морзе один раз за сессию.
+      // После 3 визитов: приветствие Морзе один раз за сессию, иначе playful если не тихо.
       let greeted = false;
       try { greeted = !!sessionStorage.getItem("muza_morse_session"); } catch { /* no-op */ }
       if (!greeted) {
