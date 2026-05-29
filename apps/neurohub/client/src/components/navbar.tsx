@@ -40,8 +40,7 @@ function playCosmicChime() {
   } catch {}
 }
 import { useAuth } from "@/lib/auth";
-import { Music, Menu, X, LogOut, LayoutDashboard, User, Settings } from "lucide-react";
-import { FeatureTogglesPanel } from "@/components/feature-toggles-panel";
+import { Music, Menu, X, LogOut, LayoutDashboard, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import GiftBadge from "@/components/gift-badge";
 import {
@@ -74,7 +73,6 @@ export default function Navbar() {
   const [adminBal, setAdminBal] = useState<{ available: boolean; balance?: number; suno?: { estimatedTracks: number; pricePerTrack: number } } | null>(null);
   const [yandexUsage, setYandexUsage] = useState<{ totalMinutes: number; estimatedSpentRub: number; total: number; ok: boolean } | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     if (!user) { setIsAdmin(false); setAdminBal(null); setYandexUsage(null); return; }
@@ -125,7 +123,6 @@ export default function Navbar() {
 
   return (
     <>
-    <FeatureTogglesPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     <nav
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
         isLanding ? "nav-glass" : "nav-glass border-b border-white/[0.06]"
@@ -225,14 +222,6 @@ export default function Navbar() {
                         <LayoutDashboard className="w-4 h-4" />
                         Личный кабинет
                       </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => setSettingsOpen(true)}
-                      className="cursor-pointer"
-                      data-testid="button-settings"
-                    >
-                      <Settings className="w-4 h-4 mr-2" />
-                      Настройки интерфейса
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem
