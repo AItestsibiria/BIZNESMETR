@@ -873,7 +873,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 if (cancelled || !d) return;
                 // Только название города, без доп. слов (Босс 2026-05-29). Маленькое
                 // поселение → ближайший город (city), иначе locality. Регион/страну НЕ пишем.
-                cityNameRef.current = String(d.city || d.locality || "").trim().replace(/\s+/g, "-");
+                // Только ОДНО слово — название города (напр. «Tomsk»). Отсекаем регион/
+                // уточнения после запятой; пробелы→дефис (Босс 2026-05-29).
+                cityNameRef.current = String(d.city || d.locality || "").split(",")[0].trim().replace(/\s+/g, "-");
                 countryCodeRef.current = String(d.countryCode || "").trim().toUpperCase();
               })
               .catch(() => {

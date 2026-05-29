@@ -3006,8 +3006,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                       плей → группа [обложка][название][контролы ×3][🎧] центрируется
                                       (justify-center на контейнере). Клик по обложке — плавное
                                       раскрытие в центре экрана (см. оверлей ниже). */}
-                                  {/* ЛЕВАЯ колонка (col1) — обложка + название/автор (Босс 2026-05-29: слева от Play). */}
-                                  <div className="min-w-0 flex items-center gap-1.5 sm:gap-2 justify-self-start">
+                                  {/* ЛЕВАЯ колонка (col1) — обложка + название/автор. Босс 2026-05-29:
+                                      блок начинается ОТ кнопки (prev) и идёт влево → justify-self-end. */}
+                                  <div className="min-w-0 flex items-center gap-1.5 sm:gap-2 justify-self-end">
                                   {gt.imageUrl ? (
                                     <img
                                       src={gt.imageUrl}
