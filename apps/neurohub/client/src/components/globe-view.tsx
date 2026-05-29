@@ -504,19 +504,19 @@ const MARKER_COLORS = [BRAND_PURPLE, BRAND_CYAN, BRAND_FUCHSIA, "#A78BFA", "#67E
 // долгота в пределах ±FRONT_HALF_DEG от меридиана камеры (pointOfView().lng).
 const FRONT_HALF_DEG = 80;
 
-// Resting altitude камеры — «отдыхающее» расстояние после интро/наводки на юзера.
-// Босс 2026-05-29: «глобус чуть меньше + больше зазоры слева/справа» → дальше
-// камера (2.0 → 2.4, +20%) → Земля визуально меньше, симметричные отступы по бокам.
-const RESTING_ALTITUDE = 2.8; // Босс 2026-05-29: панорамный отъезд — к точке юзера, но не зум вплотную (обзорно)
-// Обзорная (intro) altitude — общий план, чтобы в кадр попали Солнце и Луна.
-const OVERVIEW_ALTITUDE = 3.0;
-// Тайминги интро (Босс 2026-05-29): «с 1-го кадра медленно вращается» → восход с
-// мягким вращением → плавный пролёт к геолокации (от 1 до последнего кадра) →
-// непрерывное мягкое вращение. Камеру ведёт единый rAF-режиссёр (см. ниже).
+// Тайминги/высоты интро (Босс 2026-05-29). Камеру ведёт единый rAF-режиссёр:
+// восход (медленное вращение с 1-го кадра) → пролёт к геолокации (близкий подход)
+// → пауза у точки (Морзе-приветствие из светящейся точки) → ПАНОРАМНЫЙ ОТЪЁЗД
+// (точка пропорционально уменьшается, Морзе «Пока, Твоя Муза») → мягкое вращение.
+const OVERVIEW_ALTITUDE = 3.0;    // обзор на восходе (видно Солнце и Луну)
+const ARRIVE_ALTITUDE = 1.95;     // близкий подход к геолокации (точка крупно)
+const CRUISE_ALTITUDE = 3.2;      // панорамный обзор после отъезда
 const SUNRISE_HOLD_MS = 2600;     // восход: медленный показ + лёгкое вращение
 const FLY_MS = 9000;              // плавный пролёт к геолокации
+const ARRIVE_HOLD_MS = 3200;      // пауза у точки (Морзе-приветствие)
+const DEPART_MS = 8000;           // панорамный отъезд (Морзе «Пока, Твоя Муза»)
 const SUNRISE_DRIFT_DEG_S = 3.0;  // медленное вращение во время восхода
-const CRUISE_DRIFT_DEG_S = 2.2;   // мягкое непрерывное вращение после прилёта
+const CRUISE_DRIFT_DEG_S = 2.0;   // мягкое непрерывное вращение
 
 // prefers-reduced-motion — уважаем системную настройку (без интро-полёта, сразу
 // геолокация). В файле раньше проверки не было — добавлено вместе с интро-анимацией.
@@ -534,13 +534,6 @@ function lngDelta(a: number, b: number): number {
   let d = ((a - b + 180) % 360) - 180;
   if (d < -180) d += 360;
   return d;
-}
-
-// Интерполяция долготы по КРАТЧАЙШЕМУ пути (Босс 2026-05-29: планета НЕ должна
-// «раскручиваться как мяч» — никаких обходов на 300° при пролёте). a→b, t∈[0..1].
-function lerpAngle(a: number, b: number, t: number): number {
-  const d = ((b - a + 540) % 360) - 180; // знаковая кратчайшая разница
-  return a + d * t;
 }
 
 // easeInOutCubic — плавно «от 1 до последнего кадра» (Босс: полёт плавный везде).
@@ -662,59 +655,6 @@ function CountriesFallbackList({ countries }: { countries: GlobeCountry[] }) {
 
 
 // ───────────────────────────────────────────────────────────────────────────
-// Морзе-подмигивание Музы (Босс 2026-05-29): при плавном подходе камеры к точке
-// юзера (его геолокация в центре кадра) Муза «подмигивает» азбукой Морзе в своих
-// фирменных цветах. Босс «надпись убери, только на 5 сек ... и исчезает дальше по
-// плану» — без текста, мигает Морзе «MUZA» и через 5 сек гаснет. Оверлей по центру
-// глобуса (геолокация при прилёте — в центре). pointer-events-none — не мешает.
-function MorseWink({ onDone }: { onDone: () => void }) {
-  const [on, setOn] = useState(false);
-  useEffect(() => {
-    const seq = morseTimeline("MUZA");
-    let i = 0;
-    let stepTimer = 0;
-    const step = () => {
-      if (i >= seq.length) {
-        // Зацикливаем: пауза ~700 мс и снова с начала — Морзе мигает все 10 сек.
-        i = 0;
-        setOn(false);
-        stepTimer = window.setTimeout(step, 700);
-        return;
-      }
-      const s = seq[i++];
-      setOn(s.on);
-      stepTimer = window.setTimeout(step, s.ms);
-    };
-    step();
-    // Жёсткий лимит видимости 10 сек: гаснет и исчезает, дальше глобус по плану.
-    const hideTimer = window.setTimeout(() => {
-      setOn(false);
-      onDone();
-    }, 10000);
-    return () => {
-      window.clearTimeout(stepTimer);
-      window.clearTimeout(hideTimer);
-    };
-  }, [onDone]);
-  return (
-    <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
-      <div
-        className="h-6 w-6 rounded-full"
-        style={{
-          background:
-            "radial-gradient(circle, #ffffff 0%, #67E8F9 32%, #7C3AED 68%, transparent 100%)",
-          opacity: on ? 1 : 0.06,
-          boxShadow: on
-            ? "0 0 26px 9px rgba(124,58,237,0.9), 0 0 46px 16px rgba(0,212,255,0.55)"
-            : "none",
-          transition: "opacity 60ms linear, box-shadow 60ms linear",
-        }}
-      />
-    </div>
-  );
-}
-
-// ───────────────────────────────────────────────────────────────────────────
 // Внутренний компонент — <Globe> с day/night шейдером, яркостью маркеров
 // (фронт + день/ночь), огоньками столиц ночью и кольцами «приём сигнала».
 function GlobeInner({ points }: { points: GlobePoint[] }) {
@@ -761,8 +701,15 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // Камера-режиссёр: юзер сейчас сам вращает (пауза авто-движения) + хук пере-базы круиза.
   const userInteractingRef = useRef(false);
   const rebaseCruiseRef = useRef<(() => void) | null>(null);
-  // Морзе-подмигивание Музы (показывается один раз при прилёте, 5 сек, без текста).
-  const [wink, setWink] = useState(false);
+  // Морзе-подмигивание Музы: светящаяся точка ЗАКРЕПЛЕНА в точке геолокации
+  // (проекция координаты в экран каждый кадр), без текста. По мере отъезда камеры
+  // точка пропорционально уменьшается. Управление через ref'ы (без перерендера).
+  const winkActiveRef = useRef(false);            // окно показа точки
+  const morseOnRef = useRef(false);               // текущий импульс Морзе (вкл/выкл)
+  const morseWordRef = useRef<string>("MUZA");     // что мигаем (приветствие → прощание)
+  const winkAnchorRef = useRef<{ lat: number; lng: number } | null>(null);
+  const winkDotRef = useRef<HTMLDivElement | null>(null);
+  const morseTimerRef = useRef<number | null>(null);
 
   const basePointsRef = useRef<GlobePoint[]>(points);
   useEffect(() => {
@@ -893,8 +840,8 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // владеет камерой и каждый кадр пишет pointOfView(..., 0) (мгновенно). Почему так:
   //   • НЕТ библиотечного autoRotate и НЕТ инерции (enableDamping=false) → планета
   //     не может «раскрутиться как мяч».
-  //   • Долгота интерполируется КРАТЧАЙШИМ путём (lerpAngle) → камера никогда не
-  //     обходит планету «вокруг» (это и читалось как резкая раскрутка).
+  //   • Долгота движется ТОЛЬКО в естественную сторону вращения Земли (на восток =
+  //     убывание долготы камеры) → нет хода «против вращения» и резкой раскрутки.
   //   • Геолокация читается ЖИВО (userLatLngRef) внутри цикла → когда координаты
   //     приходят с задержкой, цель плавно уточняется, без рестарта эффекта/гонок
   //     таймеров (старый баг: смена userLatLng пересоздавала эффект и сбрасывала полёт).
@@ -917,22 +864,17 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     if (prefersReducedMotion()) {
       const t = userLatLngRef.current || fallbackTarget();
       try {
-        g.pointOfView({ lat: t.lat, lng: t.lng, altitude: RESTING_ALTITUDE }, 0);
+        g.pointOfView({ lat: t.lat, lng: t.lng, altitude: CRUISE_ALTITUDE }, 0);
       } catch {
         // ignore
       }
       return;
     }
 
-    // Старт: терминатор ВОСХОДА на экваторе (subsolar−90° ≈ 6 утра) — лучи Солнца
-    // задевают край Земли. Ставим мгновенно, пока канвас ещё прозрачный (opacity 0→1).
-    let startLng = -90;
-    try {
-      startLng = subsolarPoint(Date.now())[0] - 90;
-    } catch {
-      // дефолт выше
-    }
-    const startLat = 0;
+    // Первый кадр (Босс 2026-05-29): Тихий океан и Россия (центр ~150°E, сев. широты).
+    // Ставим мгновенно, пока канвас прозрачный (opacity 0→1) → плавно с 1-го кадра.
+    const startLng = 150; // Тихий океан + Дальний Восток России в кадре
+    const startLat = 45;  // показываем Россию
     try {
       g.pointOfView({ lat: startLat, lng: startLng, altitude: OVERVIEW_ALTITUDE }, 0);
     } catch {
@@ -940,11 +882,15 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     }
 
     const t0 = performance.now();
-    let phase: "sunrise" | "fly" | "cruise" = "sunrise";
+    let phase: "sunrise" | "fly" | "hold" | "depart" | "cruise" = "sunrise";
     let flyStart = { lat: startLat, lng: startLng, alt: OVERVIEW_ALTITUDE };
     let flyStartAt = 0;
-    const cruise = { lat: startLat, lng: startLng, alt: RESTING_ALTITUDE, t0: 0 };
-    let winked = false;
+    let flyDeltaLng = 0; // естественный (восточный) ход: только убывание долготы
+    const arrive = { lat: startLat, lng: startLng };
+    let holdAt = 0;
+    let departAt = 0;
+    let departLng = startLng;
+    const cruise = { lat: startLat, lng: startLng, alt: CRUISE_ALTITUDE, t0: 0 };
     let raf = 0;
     let last = 0;
 
@@ -965,18 +911,89 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       }
     };
 
+    // Драйвер Морзе: мигает morseWordRef (приветствие у точки → прощание на отъезде),
+    // зацикливается, выставляет morseOnRef для DOM-точки. Стоп при winkActiveRef=false.
+    const startMorse = () => {
+      let mi = 0;
+      let mseq = morseTimeline(morseWordRef.current);
+      const stepMorse = () => {
+        if (!winkActiveRef.current) {
+          morseOnRef.current = false;
+          return;
+        }
+        if (mi >= mseq.length) {
+          mi = 0;
+          mseq = morseTimeline(morseWordRef.current); // подхватывает смену слова
+          morseOnRef.current = false;
+          morseTimerRef.current = window.setTimeout(stepMorse, 650);
+          return;
+        }
+        const s = mseq[mi++];
+        morseOnRef.current = s.on;
+        morseTimerRef.current = window.setTimeout(stepMorse, s.ms);
+      };
+      stepMorse();
+    };
+
+    // Якорим светящуюся точку в координате геолокации (проекция в экран каждый кадр).
+    // По мере отъезда (рост altitude) точка пропорционально уменьшается. На обратной
+    // стороне глобуса — скрыта. Прямое изменение стиля DOM (без перерендера React).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const updateWinkDot = (gg: any) => {
+      const dot = winkDotRef.current;
+      if (!dot) return;
+      const anchor = winkAnchorRef.current;
+      if (!winkActiveRef.current || !anchor) {
+        dot.style.opacity = "0";
+        return;
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let pov: any = null;
+      try {
+        pov = gg.pointOfView?.();
+      } catch {
+        pov = null;
+      }
+      if (!pov) {
+        dot.style.opacity = "0";
+        return;
+      }
+      const front = Math.abs(lngDelta(anchor.lng, pov.lng ?? 0)) <= 85; // не на обороте
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let sc: any = null;
+      try {
+        sc = gg.getScreenCoords?.(anchor.lat, anchor.lng, 0.02);
+      } catch {
+        sc = null;
+      }
+      if (!front || !sc) {
+        dot.style.opacity = "0";
+        return;
+      }
+      const scale = Math.max(0.3, Math.min(1.1, ARRIVE_ALTITUDE / (pov.altitude || ARRIVE_ALTITUDE)));
+      dot.style.left = `${sc.x}px`;
+      dot.style.top = `${sc.y}px`;
+      dot.style.transform = `translate(-50%, -50%) scale(${scale})`;
+      dot.style.opacity = morseOnRef.current ? "1" : "0.07";
+      dot.style.boxShadow = morseOnRef.current
+        ? "0 0 16px 5px rgba(124,58,237,0.92), 0 0 30px 10px rgba(0,212,255,0.55)"
+        : "none";
+    };
+
     const loop = (now: number) => {
       raf = requestAnimationFrame(loop);
       if (now - last < 33) return; // ~30fps — мягко и легко
       last = now;
       const gg = globeRef.current;
       if (!gg?.pointOfView) return;
-      // Юзер сам вращает — не мешаем (в круизе пере-базируемся при отпускании).
+      // Точка геолокации якорится каждый кадр (в т.ч. во время ручного вращения).
+      updateWinkDot(gg);
+      // Юзер сам вращает — камеру не трогаем (в круизе пере-базируемся при отпускании).
       if (userInteractingRef.current) return;
       const elapsed = now - t0;
 
       if (phase === "sunrise") {
-        // Медленное вращение с 1-го кадра (Босс): край Земли «проявляет» Солнце.
+        // Естественный ход Земли (на восток = убывание долготы камеры) с 1-го кадра.
         const lng = startLng - (SUNRISE_DRIFT_DEG_S * elapsed) / 1000;
         try {
           gg.pointOfView({ lat: startLat, lng, altitude: OVERVIEW_ALTITUDE }, 0);
@@ -984,7 +1001,11 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           // ignore
         }
         if (elapsed >= SUNRISE_HOLD_MS) {
+          const target = userLatLngRef.current || fallbackTarget();
           flyStart = { lat: startLat, lng, alt: OVERVIEW_ALTITUDE };
+          // Естественный (восточный) путь к цели = ТОЛЬКО убывание долготы (без хода
+          // против вращения Земли). Для юзеров западнее 150°E путь короткий.
+          flyDeltaLng = (((lng - target.lng) % 360) + 360) % 360;
           flyStartAt = now;
           phase = "fly";
         }
@@ -992,33 +1013,71 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       }
 
       if (phase === "fly") {
-        // Плавный пролёт к геолокации (кратчайший путь по долготе → без раскрутки).
+        // Плавный пролёт к геолокации естественным ходом (без раскрутки против Земли).
         const p = Math.min(1, (now - flyStartAt) / FLY_MS);
         const e = easeInOutCubic(p);
         const target = userLatLngRef.current || fallbackTarget();
         const lat = flyStart.lat + (target.lat - flyStart.lat) * e;
-        const lng = lerpAngle(flyStart.lng, target.lng, e);
-        const alt = flyStart.alt + (RESTING_ALTITUDE - flyStart.alt) * e;
+        const lng = flyStart.lng - flyDeltaLng * e;
+        const alt = flyStart.alt + (ARRIVE_ALTITUDE - flyStart.alt) * e;
         try {
           gg.pointOfView({ lat, lng, altitude: alt }, 0);
         } catch {
           // ignore
         }
         if (p >= 1) {
-          cruise.lat = lat;
-          cruise.lng = lng;
-          cruise.alt = RESTING_ALTITUDE;
-          cruise.t0 = now;
-          phase = "cruise";
-          if (!winked) {
-            winked = true;
-            setWink(true); // подмигивание Морзе на 5 сек в точке геолокации
-          }
+          arrive.lat = lat;
+          arrive.lng = lng;
+          winkAnchorRef.current = { lat, lng };
+          winkActiveRef.current = true;
+          morseWordRef.current = "MUZA"; // приветствие Морзе из точки геолокации
+          startMorse();
+          holdAt = now;
+          phase = "hold";
         }
         return;
       }
 
-      // cruise — мягкое непрерывное вращение (никогда не статика, никогда не «мяч»).
+      if (phase === "hold") {
+        // Пауза у точки: мягкий естественный дрейф, точка крупно, Морзе-приветствие.
+        const lng = arrive.lng - (CRUISE_DRIFT_DEG_S * 0.5 * (now - holdAt)) / 1000;
+        try {
+          gg.pointOfView({ lat: arrive.lat, lng, altitude: ARRIVE_ALTITUDE }, 0);
+        } catch {
+          // ignore
+        }
+        if (now - holdAt >= ARRIVE_HOLD_MS) {
+          departAt = now;
+          departLng = lng;
+          morseWordRef.current = "POKA TVOYA MUZA"; // прощание Морзе на отъезде
+          phase = "depart";
+        }
+        return;
+      }
+
+      if (phase === "depart") {
+        // Панорамный отъезд: altitude ARRIVE→CRUISE, точка пропорционально уменьшается.
+        const p = Math.min(1, (now - departAt) / DEPART_MS);
+        const e = easeInOutCubic(p);
+        const alt = ARRIVE_ALTITUDE + (CRUISE_ALTITUDE - ARRIVE_ALTITUDE) * e;
+        const lng = departLng - (CRUISE_DRIFT_DEG_S * (now - departAt)) / 1000;
+        try {
+          gg.pointOfView({ lat: arrive.lat, lng, altitude: alt }, 0);
+        } catch {
+          // ignore
+        }
+        if (p >= 1) {
+          cruise.lat = arrive.lat;
+          cruise.lng = lng;
+          cruise.alt = CRUISE_ALTITUDE;
+          cruise.t0 = now;
+          winkActiveRef.current = false; // прощание завершено — точка гаснет
+          phase = "cruise";
+        }
+        return;
+      }
+
+      // cruise — мягкое непрерывное вращение в естественную сторону (не статика, не «мяч»).
       const lng = cruise.lng - (CRUISE_DRIFT_DEG_S * (now - cruise.t0)) / 1000;
       try {
         gg.pointOfView({ lat: cruise.lat, lng, altitude: cruise.alt }, 0);
@@ -1030,6 +1089,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
 
     return () => {
       cancelAnimationFrame(raf);
+      if (morseTimerRef.current !== null) window.clearTimeout(morseTimerRef.current);
+      winkActiveRef.current = false;
+      morseOnRef.current = false;
       rebaseCruiseRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1367,7 +1429,24 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         ringRepeatPeriod={(d: RingDatum) => d.period}
         ringResolution={64}
       />
-      {wink && <MorseWink onDone={() => setWink(false)} />}
+      {/* Светящаяся точка Морзе — закреплена в точке геолокации (позиция/масштаб/
+          мигание выставляет режиссёр напрямую через ref). База 6px (в 4× меньше),
+          фирменные цвета MuzaAi. По мере отъезда камеры — пропорционально меньше. */}
+      <div
+        ref={winkDotRef}
+        className="pointer-events-none absolute z-20 rounded-full"
+        style={{
+          left: 0,
+          top: 0,
+          width: 6,
+          height: 6,
+          opacity: 0,
+          background:
+            "radial-gradient(circle, #ffffff 0%, #67E8F9 34%, #7C3AED 70%, transparent 100%)",
+          transition: "opacity 60ms linear, box-shadow 60ms linear",
+          willChange: "left, top, transform, opacity",
+        }}
+      />
     </div>
   );
 }
