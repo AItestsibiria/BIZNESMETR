@@ -8,6 +8,7 @@ import { registerServiceWorker } from "./lib/registerSW";
 import { installUserJourney } from "./lib/user-journey";
 import { ErrorBoundary } from "./components/error-boundary";
 import { isChunkLoadError, reloadOnceForChunk } from "./lib/chunkReload";
+import { installAutoRecenter } from "./lib/autoRecenter";
 
 if (!window.location.hash) {
   window.location.hash = "#/";
@@ -61,6 +62,11 @@ try {
     if (isChunkLoadError((e as PromiseRejectionEvent)?.reason)) reloadOnceForChunk();
   });
 } catch (e) { console.warn("[startup] chunk-reload guard failed", e); }
+
+// Eugene 2026-05-29 (Босс) Page-device-adaptation п.4: горизонтальный сдвиг
+// страницы (overscroll/случайный свайп вбок) — через 2с без взаимодействия
+// страница плавно центруется обратно. No-op если нет горизонтального overflow.
+try { installAutoRecenter(); } catch (e) { console.warn("[startup] installAutoRecenter failed", e); }
 
 // Eugene 2026-05-25 (Босс) — ТОТАЛЬНАЯ защита от чёрного экрана: оборачиваем
 // всё дерево App в top-level ErrorBoundary. Раньше boundary стоял только на
