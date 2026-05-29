@@ -1645,23 +1645,24 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           willChange: "left, top, transform, opacity",
         }}
       />
-      {/* Название города юзера (англ.) при подходе — фирменные цвета MuzaAi.
-          Появляется у точки и уходит вместе с окончанием Морзе (Босс 2026-05-29). */}
+      {/* Название города юзера — ПРИВЯЗАНО к точке геолокации, остаётся на ней пока
+          камера удаляется (Босс 2026-05-29). Шрифт мелкий (~в 3 раза меньше), «земной»
+          градиент blue→cyan→emerald, как счётчик стран на плеере 1. */}
       <div
         ref={winkCityRef}
-        className="pointer-events-none absolute z-20 font-display font-bold whitespace-nowrap"
+        className="pointer-events-none absolute z-20 font-sans font-semibold whitespace-nowrap"
         style={{
           left: 0,
           top: 0,
           opacity: 0,
           transform: "translate(-50%, 0)",
-          fontSize: 13,
-          letterSpacing: 0.3,
-          background: "linear-gradient(90deg,#7C3AED,#D946EF,#00D4FF)",
+          fontSize: 6,
+          letterSpacing: 0.2,
+          background: "linear-gradient(90deg,#60a5fa,#22d3ee,#6ee7b7)",
           WebkitBackgroundClip: "text",
           backgroundClip: "text",
           color: "transparent",
-          textShadow: "0 0 16px rgba(124,58,237,0.45)",
+          textShadow: "0 0 6px rgba(34,211,238,0.4)",
           transition: "opacity 220ms ease",
           willChange: "left, top, opacity",
         }}

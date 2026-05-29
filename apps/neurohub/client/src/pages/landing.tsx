@@ -3008,7 +3008,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                       раскрытие в центре экрана (см. оверлей ниже). */}
                                   {/* ЛЕВАЯ колонка (col1) — обложка + название/автор. Босс 2026-05-29:
                                       блок начинается ОТ кнопки (prev) и идёт влево → justify-self-end. */}
-                                  <div className="min-w-0 flex items-center gap-1.5 sm:gap-2 justify-self-end">
+                                  <div className="min-w-0 flex items-center gap-2.5 sm:gap-3 justify-self-end">
                                   {gt.imageUrl ? (
                                     <img
                                       src={gt.imageUrl}
@@ -3039,16 +3039,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                       <p className="truncate text-[10px] sm:text-[11px] font-sans text-white/45 m-0 leading-tight">{gt.authorName}</p>
                                     ) : null}
                                   </div>
-                                  {/* Левая группа (по смыслам, в балансе с правой): 🎧 топ-100 + зум +/−. */}
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); setGlobeTopOpen(v => !v); }}
-                                    className="shrink-0 relative h-10 w-10 sm:h-11 sm:w-11 rounded-full flex items-center justify-center text-lg bg-transparent border border-white/30 hover:border-white/60 active:scale-90 transition-all"
-                                    aria-label="Топ-100 плейлиста" aria-expanded={globeTopOpen}
-                                  >
-                                    🎧
-                                    <span className="absolute top-full left-1/2 -translate-x-1/2 mt-0.5 text-[11px] tabular-nums font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap pointer-events-none">{totalPlays > 0 ? totalPlays.toLocaleString("ru-RU") : "…"}</span>
-                                  </button>
+                                  {/* Левая группа: зум +/−. */}
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); try { window.dispatchEvent(new CustomEvent("muza:globe-zoom", { detail: { dir: -1 } })); } catch { /* no-op */ } }}
@@ -3092,7 +3083,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   </div>
                                   {/* ПРАВАЯ колонка (col3) — все кнопки в ОДНУ строку, к правому краю
                                       (Босс 2026-05-29: не расширять панель вертикально, в балансе). */}
-                                  <div className="min-w-0 flex flex-nowrap items-center justify-start gap-1.5 sm:gap-2 justify-self-start overflow-x-auto">
+                                  <div className="min-w-0 flex flex-nowrap items-center justify-start gap-2.5 sm:gap-3 justify-self-start overflow-x-auto">
                                   {/* Правая группа (по смыслам): полноэкранный · Полёт · Полёт Ai
                                       · вернуться · поделиться. 🎧 и зум перенесены в левую группу. */}
                                   <button
@@ -3101,6 +3092,16 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                     className="shrink-0 h-10 w-10 sm:h-11 sm:w-11 rounded-full flex items-center justify-center text-base bg-transparent border border-white/30 hover:border-white/60 active:scale-90 transition-all"
                                     aria-label={globeFullscreen ? "Свернуть" : "Полный экран — Космос и Земля"}
                                   >{globeFullscreen ? "🗗" : "⛶"}</button>
+                                  {/* 🎧 Топ-100 + счётчик прослушиваний — справа после фуллскрина (Босс 2026-05-29). */}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); setGlobeTopOpen(v => !v); }}
+                                    className="shrink-0 relative h-10 w-10 sm:h-11 sm:w-11 rounded-full flex items-center justify-center text-lg bg-transparent border border-white/30 hover:border-white/60 active:scale-90 transition-all"
+                                    aria-label="Топ-100 плейлиста" aria-expanded={globeTopOpen}
+                                  >
+                                    🎧
+                                    <span className="absolute top-full left-1/2 -translate-x-1/2 mt-0.5 text-[11px] tabular-nums font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap pointer-events-none">{totalPlays > 0 ? totalPlays.toLocaleString("ru-RU") : "…"}</span>
+                                  </button>
                                   {/* Полёт (классический обзор) / Полёт Ai (многовариантная режиссура). Босс 2026-05-29. */}
                                   <button
                                     type="button"
@@ -3202,7 +3203,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                       return top.map((t: any, idx: number) => (
                                         <li
                                           key={`globe-top-${t.id}`}
-                                          onClick={(e) => { e.stopPropagation(); playTrack(t); }}
+                                          onClick={(e) => { e.stopPropagation(); playTrack(t); window.setTimeout(() => setGlobeTopOpen(false), 2000); }}
                                           className={`flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors ${playingId === t.id ? "bg-gradient-to-r from-purple-500/30 via-fuchsia-500/20 to-cyan-500/20 border border-purple-400/50" : "hover:bg-white/[0.06]"}`}
                                         >
                                           <span className="text-xs font-mono text-white/40 w-6 tabular-nums shrink-0">{idx + 1}</span>
