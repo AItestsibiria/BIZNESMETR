@@ -206,11 +206,13 @@ function loadGenerations(opts: {
   const where: string[] = ["deleted_at IS NULL"];
   const params: any[] = [];
   if (opts.fromIso) {
-    where.push("created_at >= ?");
+    // Eugene 2026-05-29 (аудит периодов): datetime() обе стороны — created_at
+    // (пробел) vs ISO ('T'); без этого записи дня терялись.
+    where.push("datetime(created_at) >= datetime(?)");
     params.push(opts.fromIso);
   }
   if (opts.toIso) {
-    where.push("created_at < ?");
+    where.push("datetime(created_at) < datetime(?)");
     params.push(opts.toIso);
   }
   if (opts.userId != null) {

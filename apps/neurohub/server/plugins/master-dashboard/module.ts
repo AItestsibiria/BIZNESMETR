@@ -380,14 +380,18 @@ function buildRangeCondition(
   until: string | null,
 ): any {
   // Возвращает фрагмент типа `created_at >= X AND created_at < Y` или `1=1`.
+  // Eugene 2026-05-29 (аудит «истина по периодам»): обе стороны через datetime() —
+  // created_at = CURRENT_TIMESTAMP ('YYYY-MM-DD HH:MM:SS', пробел), границы = ISO с 'T'.
+  // Без datetime() лексическое сравнение (space<'T') теряло записи текущего дня →
+  // плеи/регистрации в Сводке не бились с gen-stats. Как в рабочем gen-stats.
   if (since && until) {
-    return sql`${sql.raw(column)} >= ${since} AND ${sql.raw(column)} < ${until}`;
+    return sql`datetime(${sql.raw(column)}) >= datetime(${since}) AND datetime(${sql.raw(column)}) < datetime(${until})`;
   }
   if (since) {
-    return sql`${sql.raw(column)} >= ${since}`;
+    return sql`datetime(${sql.raw(column)}) >= datetime(${since})`;
   }
   if (until) {
-    return sql`${sql.raw(column)} < ${until}`;
+    return sql`datetime(${sql.raw(column)}) < datetime(${until})`;
   }
   return sql`1=1`;
 }
