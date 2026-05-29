@@ -931,6 +931,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // Eugene 2026-05-28 — свайп влево/вправо на мини-плеере под глобусом:
   // влево (dx<0) → skipNext, вправо (dx>0) → skipPrev. startX = null когда нет drag.
   const globeMiniSwipeStartXRef = useRef<number | null>(null);
+  // Босс 2026-05-29: long-press на названии трека в 3D → показать плейлист плеера 1.
+  const globeTitleHoldRef = useRef<number | null>(null);
   useEffect(() => {
     if (showPlayerTopTracks) playerTopTracksOpenedAtRef.current = Date.now();
   }, [showPlayerTopTracks]);
@@ -2676,12 +2678,20 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                           aria-label="3D-глобус стран"
                         >
                           <div
-                            className="relative w-full max-w-[640px] flex flex-col rounded-3xl overflow-hidden border border-purple-500/30 bg-[#0a0a17]/60 shadow-[0_0_48px_rgba(124,58,237,0.35)]"
-                            style={{ height: "min(88dvh, 720px)" }}
+                            className="relative w-full max-w-[640px] flex flex-col rounded-3xl overflow-hidden border border-purple-500/30 shadow-[0_0_48px_rgba(124,58,237,0.35)]"
+                            style={{
+                              height: "min(88dvh, 720px)",
+                              // Босс 2026-05-29: фон карточки = тот же дип-космос, что внутри
+                              // глобуса (#03030a + brand-радиалы) → одна непрерывная сцена.
+                              background:
+                                "radial-gradient(ellipse at 22% 28%, rgba(124,58,237,0.16) 0%, transparent 55%)," +
+                                "radial-gradient(ellipse at 80% 78%, rgba(0,212,255,0.12) 0%, transparent 60%)," +
+                                "#03030a",
+                            }}
                             onClick={(e) => e.stopPropagation()}
                           >
                             {/* Шапка */}
-                            <div className="flex items-center justify-between px-4 py-3 border-b border-purple-400/20 bg-purple-500/5 shrink-0">
+                            <div className="flex items-center justify-between px-4 py-3 border-b border-purple-400/20 shrink-0">
                               <h3 className="text-base font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent m-0">
                                 🌍 Нас слушают по всему миру
                               </h3>
@@ -2737,13 +2747,27 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 // (вертикальный скролл работает), горизонтальный drag
                                 // → skipPrev/skipNext (Swipe-row-spring-back pattern).
                                 <div
-                                  className="px-4 py-2 border-t border-purple-400/15 bg-black/25 shrink-0 flex items-center gap-2"
+                                  className="px-4 py-2 border-t border-purple-400/15 shrink-0 flex items-center gap-2"
                                   style={{ touchAction: "pan-y" }}
                                   onPointerDown={(e) => {
                                     globeMiniSwipeStartXRef.current = e.clientX;
                                     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* no-op */ }
+                                    // Босс 2026-05-29: long-press на названии → плейлист плеера 1.
+                                    if ((e.target as HTMLElement)?.closest?.("[data-globe-title]")) {
+                                      globeTitleHoldRef.current = window.setTimeout(() => {
+                                        globeTitleHoldRef.current = null;
+                                        setShowGlobe(false);
+                                        window.setTimeout(() => document.getElementById("playlist-section")?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
+                                      }, 500);
+                                    }
+                                  }}
+                                  onPointerMove={(e) => {
+                                    if (globeTitleHoldRef.current && globeMiniSwipeStartXRef.current != null && Math.abs(e.clientX - globeMiniSwipeStartXRef.current) > 8) {
+                                      window.clearTimeout(globeTitleHoldRef.current); globeTitleHoldRef.current = null;
+                                    }
                                   }}
                                   onPointerUp={(e) => {
+                                    if (globeTitleHoldRef.current) { window.clearTimeout(globeTitleHoldRef.current); globeTitleHoldRef.current = null; }
                                     const startX = globeMiniSwipeStartXRef.current;
                                     globeMiniSwipeStartXRef.current = null;
                                     try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* no-op */ }
@@ -2752,10 +2776,41 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                     if (Math.abs(dx) > 50) { dx < 0 ? skipNext() : skipPrev(); }
                                   }}
                                   onPointerCancel={(e) => {
+                                    if (globeTitleHoldRef.current) { window.clearTimeout(globeTitleHoldRef.current); globeTitleHoldRef.current = null; }
                                     globeMiniSwipeStartXRef.current = null;
                                     try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* no-op */ }
                                   }}
                                 >
+                                  {/* Босс 2026-05-29: блок обложки+названия СЛЕВА (как на плеере 1),
+                                      контролы — справа. Клик по обложке раскрывает её (свайп-режим,
+                                      как на основном плеере). */}
+                                  {gt.imageUrl ? (
+                                    <img
+                                      src={gt.imageUrl}
+                                      alt=""
+                                      onClick={() => setDetailsOpen(true)}
+                                      className="w-9 h-9 rounded-lg object-cover shrink-0 cursor-pointer hover:scale-105 transition-transform"
+                                      onError={handleCoverError}
+                                    />
+                                  ) : (
+                                    <span className="w-9 h-9 rounded-lg bg-white/5 flex items-center justify-center shrink-0"><Music className="w-4 h-4 text-white/40" /></span>
+                                  )}
+                                  <div
+                                    className="min-w-0 flex-1"
+                                    data-globe-title
+                                    title="Удерживай или правый клик — откроется плейлист"
+                                    onContextMenu={(e) => {
+                                      // Босс 2026-05-29: правый клик мышью тоже открывает плейлист плеера 1.
+                                      e.preventDefault();
+                                      setShowGlobe(false);
+                                      window.setTimeout(() => document.getElementById("playlist-section")?.scrollIntoView({ behavior: "smooth", block: "start" }), 120);
+                                    }}
+                                  >
+                                    <p className="truncate text-[12px] font-sans font-medium m-0 bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent">
+                                      {gt.displayTitle || gt.prompt?.slice(0, 40) || "Муза"}
+                                    </p>
+                                    <p className="truncate text-[10px] font-sans text-white/40 m-0">← свайп · удержи название для плейлиста →</p>
+                                  </div>
                                   <button
                                     type="button"
                                     onClick={skipPrev}
@@ -2780,22 +2835,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   >
                                     <SkipForward className="w-4 h-4" />
                                   </button>
-                                  {gt.imageUrl ? (
-                                    <img src={gt.imageUrl} alt="" className="w-9 h-9 rounded-lg object-cover shrink-0 ml-1" onError={handleCoverError} />
-                                  ) : (
-                                    <span className="w-9 h-9 rounded-lg bg-white/5 flex items-center justify-center shrink-0 ml-1"><Music className="w-4 h-4 text-white/40" /></span>
-                                  )}
-                                  <div className="min-w-0 flex-1">
-                                    <p className="truncate text-[12px] font-sans font-medium m-0 bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent">
-                                      {gt.displayTitle || gt.prompt?.slice(0, 40) || "Муза"}
-                                    </p>
-                                    <p className="truncate text-[10px] font-sans text-white/40 m-0">← свайп для переключения →</p>
-                                  </div>
                                 </div>
                               );
                             })()}
                             {/* Подпись + кнопки (Босс: слоган под глобусом + 2 кнопки справа) */}
-                            <div className="px-4 py-2.5 border-t border-purple-400/20 bg-purple-500/5 shrink-0 flex items-center justify-between gap-3">
+                            <div className="px-4 py-2.5 border-t border-purple-400/20 shrink-0 flex items-center justify-between gap-3">
                               <div className="min-w-0">
                                 <p className="text-[12px] font-display font-bold m-0 leading-tight bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent">
                                   MuzaAi — Мир Музыки без границ
