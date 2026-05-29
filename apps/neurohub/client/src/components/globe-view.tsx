@@ -865,7 +865,8 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
               .then((r) => (r.ok ? r.json() : null))
               .then((d) => {
                 if (cancelled || !d) return;
-                cityNameRef.current = String(d.city || d.locality || d.principalSubdivision || "");
+                // «Одним словом» (Босс 2026-05-29): пробелы → дефис (Saint Petersburg → Saint-Petersburg).
+                cityNameRef.current = String(d.city || d.locality || d.principalSubdivision || "").trim().replace(/\s+/g, "-");
               })
               .catch(() => {
                 /* нет сети/политика — подпись просто не покажется */
@@ -1085,7 +1086,20 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       if (phase === "sunrise") {
         lat = startLat;
         alt = OVERVIEW_ALTITUDE;
-        if (elapsed >= SUNRISE_HOLD_MS) { flyStartAt = now; phase = "fly"; }
+        if (elapsed >= SUNRISE_HOLD_MS) {
+          // Активируем точку+город+Морзе уже НА ПОДЛЁТЕ (Босс 2026-05-29: подпись
+          // города при приближении и до прохода над страной; точка моргает в течении
+          // прохода над страной). winkActiveRef больше НЕ гасим — точка моргает на
+          // каждом проходе (updateWinkDot прячет её, когда страна на обратной стороне).
+          const t1 = userLatLngRef.current || fallbackTarget();
+          arrive.lat = t1.lat;
+          winkAnchorRef.current = { lat: t1.lat, lng: t1.lng };
+          winkActiveRef.current = true;
+          morseWordRef.current = "MUZA";
+          startMorse();
+          flyStartAt = now;
+          phase = "fly";
+        }
       } else if (phase === "fly") {
         // Приближение к геолокации: меняем ТОЛЬКО широту и высоту (долгота — общий дрейф).
         const p = Math.min(1, (now - flyStartAt) / FLY_MS);
@@ -1096,10 +1110,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         if (p >= 1) {
           const t2 = userLatLngRef.current || fallbackTarget();
           arrive.lat = t2.lat;
-          winkAnchorRef.current = { lat: t2.lat, lng: t2.lng };
-          winkActiveRef.current = true;
-          morseWordRef.current = "MUZA"; // приветствие Морзе из точки геолокации
-          startMorse();
+          winkAnchorRef.current = { lat: t2.lat, lng: t2.lng }; // уточняем (геолокация могла прийти позже)
           holdAt = now;
           phase = "hold";
         }
@@ -1108,7 +1119,6 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         alt = ARRIVE_ALTITUDE;
         if (now - holdAt >= ARRIVE_HOLD_MS) {
           departAt = now;
-          morseWordRef.current = "POKA TVOYA MUZA"; // прощание Морзе на отъезде
           phase = "depart";
         }
       } else if (phase === "depart") {
@@ -1121,8 +1131,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           cruise.lat = arrive.lat;
           cruise.alt = CRUISE_ALTITUDE;
           if (zoomTargetRef.current == null) zoomTargetRef.current = CRUISE_ALTITUDE;
-          winkActiveRef.current = false; // прощание завершено — точка гаснет
-          phase = "cruise";
+          phase = "cruise"; // точка остаётся моргающей при каждом проходе над страной
         }
       } else {
         // cruise: широта фикс, высота ПЛАВНО едет к цели зума (без скачков).
