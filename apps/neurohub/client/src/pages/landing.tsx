@@ -733,14 +733,20 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const WINK_DUR = [3.4, 2.3, 1.5, 0.95]; // сек — чем выше уровень, тем быстрее
 
   useEffect(() => {
-    let seen = false, firstVisit = true, quietToday = false;
+    let seen = false, firstVisit = true, quietToday = false, shownToday = false;
     const today = new Date().toDateString();
     try {
       seen = !!localStorage.getItem("muza_globe_seen");
       firstVisit = !localStorage.getItem("muza_first_visit");
       quietToday = localStorage.getItem("muza_wink_quiet_date") === today;
+      shownToday = localStorage.getItem("muza_wink_shown_date") === today;
     } catch { /* no-op */ }
     if (seen) return; // юзер уже открывал глобус — не отвлекаем
+    // Босс 2026-05-29: «глобус моргает каждый раз при новой загрузке» — по правилу
+    // моргание ограничено: максимум ОДИН раз в день (первая загрузка дня), а не на
+    // каждый refresh. Дальше тихо до следующего дня (или пока не откроет глобус).
+    if (shownToday) return;
+    try { localStorage.setItem("muza_wink_shown_date", today); } catch { /* no-op */ }
     if (firstVisit) {
       try { localStorage.setItem("muza_first_visit", today); } catch { /* no-op */ }
       setWinkMode("playful");
