@@ -1166,19 +1166,32 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           phase = "cruise"; // точка остаётся моргающей при каждом проходе над страной
         }
       } else {
-        // cruise: 1-й круг — по широте юзера; ПОСЛЕ полного оборота (360°) — мягкий
-        // свип по ПАРАЛЛЕЛЯМ (Босс 2026-05-29). НЕ залетаем на полюса авто-движением
-        // (|lat| ≤ 52) — к полюсам только если юзер сам повернёт (OrbitControls).
+        // СЦЕНА-РЕЖИССЁР (Босс 2026-05-29 «удиви режиссурой»). Круговое движение по
+        // параллелям всегда в ОДНУ сторону; каждый КРУГ — своя сцена по широте:
+        //   круг 1 — широта юзера; круг 2 — Солнце у ВЕРХНЕГО лимба (кресует половиной);
+        //   круг 3 — по ЭКВАТОРУ (Солнце справа→налево); круг 4+ — вариативность (наклон).
+        // НИКОГДА на полюса авто-движением (|lat| ≤ 52) — к полюсам только сам юзер.
         const deg = (GLOBAL_DRIFT_DEG_S * (now - cruiseStartT)) / 1000;
-        let latOsc = 0;
-        if (deg > 360) {
-          const tt = (now - cruiseStartT) / 1000;
-          latOsc = 16 * Math.sin(tt * 0.04); // медленный свип параллелей ±16°
+        const circle = Math.floor(deg / 360);
+        let sceneLat = cruise.lat;
+        if (circle === 1) {
+          let sLat = 10;
+          try { sLat = subsolarPoint(Date.now())[1]; } catch { /* no-op */ }
+          sceneLat = sLat - 70; // субсолярная к верхнему лимбу → Солнце кресует
+        } else if (circle === 2) {
+          sceneLat = 0; // экватор
+        } else if (circle >= 3) {
+          const seed = circle * 47;
+          sceneLat = ((seed % 90) - 45) * 0.9; // диагональные наклоны ±~40°, новое каждый круг
         }
-        lat = Math.max(-52, Math.min(52, cruise.lat + latOsc));
+        sceneLat = Math.max(-50, Math.min(50, sceneLat));
+        cruise.lat += (sceneLat - cruise.lat) * 0.008; // плавно ведём широту к сцене
+        lat = Math.max(-52, Math.min(52, cruise.lat));
         const tgt = zoomTargetRef.current ?? CRUISE_ALTITUDE;
         cruise.alt += (tgt - cruise.alt) * 0.1;
-        alt = cruise.alt;
+        // Диагональное приближение/удаление (Босс): лёгкое «дыхание» высоты + смена широты.
+        const tt = (now - cruiseStartT) / 1000;
+        alt = Math.max(2.4, cruise.alt + 0.28 * Math.sin(tt * 0.03));
       }
 
       try {
