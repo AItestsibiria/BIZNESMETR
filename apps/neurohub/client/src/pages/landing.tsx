@@ -2672,7 +2672,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                           ErrorBoundary в globe-view → ошибка не роняет страницу. */}
                       {showGlobe && globe3dEnabled && createPortal(
                         <div
-                          className="fixed inset-0 z-[200] flex items-center justify-center bg-gradient-to-br from-[#0a0a17]/95 via-[#1a0f2e]/95 to-[#0a0a17]/95 backdrop-blur-xl"
+                          className="fixed inset-0 z-[200] flex items-center justify-center bg-[#03030a]"
                           style={{
                             paddingTop: "max(env(safe-area-inset-top), 12px)",
                             paddingBottom: "max(env(safe-area-inset-bottom), 12px)",
@@ -2683,8 +2683,14 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                           role="dialog"
                           aria-label="3D-глобус стран"
                         >
+                          {/* Босс 2026-05-29: фон ВОКРУГ рамки = тот же звёздный космос
+                              с мерцанием, что и внутри (одна сцена). Анимированный
+                              StarfieldCanvas (warp + pulse-мерцание) за карточкой. */}
+                          <div className="absolute inset-0 z-0 pointer-events-none">
+                            <StarfieldCanvas />
+                          </div>
                           <div
-                            className="relative w-full max-w-[640px] flex flex-col rounded-3xl overflow-hidden border border-purple-500/30 shadow-[0_0_48px_rgba(124,58,237,0.35)]"
+                            className="relative z-10 w-full max-w-[640px] flex flex-col rounded-3xl overflow-hidden border border-purple-500/30 shadow-[0_0_48px_rgba(124,58,237,0.35)]"
                             style={{
                               height: "min(88dvh, 720px)",
                               // Босс 2026-05-29: фон карточки = тот же дип-космос, что внутри
