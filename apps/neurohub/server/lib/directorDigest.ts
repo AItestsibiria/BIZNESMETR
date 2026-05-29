@@ -89,6 +89,18 @@ export async function notifyBoss(text: string): Promise<void> {
   if (!tgOk) await notifyBossEmail(text);
 }
 
+// Eugene 2026-05-29 Босс «критический сбой — по ВСЕМ каналам связи, приоритет max»
+// (Директор не доложила о сбое VPS). В отличие от notifyBoss (TG, email только при
+// сбое TG) — критический алерт уходит в TG И email ОДНОВРЕМЕННО (не fallback), с
+// пометкой 🚨. ВАЖНО: если упал сам процесс/VPS — внутренний алерт физически не
+// отправится (репортёр умирает с сервером); полный down ловит только ВНЕШНИЙ
+// аптайм-мониторинг (см. docs/strategy + рекомендацию Боссу).
+export async function notifyBossCritical(text: string): Promise<void> {
+  const msg = "🚨🚨🚨 <b>КРИТИЧЕСКИЙ СБОЙ</b> (приоритет max)\n" + text;
+  try { notifyBossTelegram(msg); } catch { /* no-op */ }
+  try { await notifyBossEmail(msg); } catch { /* no-op */ }
+}
+
 // Eugene 2026-05-25 Рек 4: единый dedup-канал критических алертов Директора.
 // gen.escalated / a1.alert / escalation-high / critical-scan — все через
 // directorAlert → один и тот же key не чаще windowMs (нет спама от 4 источников).
@@ -102,7 +114,8 @@ export function directorAlert(key: string, text: string, windowMs = 30 * 60_000)
   if (alertDedup.size > 500) {
     for (const [k, t] of alertDedup) if (now - t > 6 * 3600_000) alertDedup.delete(k);
   }
-  void notifyBoss(text);
+  // Босс 2026-05-29: критический канал Директора шлёт по ВСЕМ каналам (TG+email).
+  void notifyBossCritical(text);
 }
 
 const one = (q: string, ...a: any[]): any => {
