@@ -431,6 +431,156 @@ function subLunarPoint(dt: number): [number, number] {
   return [lng, dec];
 }
 
+// ───────────────────────────────────────────────────────────────────────────
+// Планеты (Меркурий/Венера/Марс/Юпитер/Сатурн) — низкоточная геоцентрическая
+// эфемерида по Полю Шлютеру (orbital elements as fn of дня от эпохи 1999-12-31.0).
+// Возвращает подпланетную точку [lng°, lat°] (точка Земли, где планета в зените) —
+// тот же приём, что для Луны (subLunarPoint), → единый кадр со Солнцем/Луной/звёздами.
+type OrbElem = {
+  N: [number, number]; // долгота восходящего узла [base, /день]
+  i: [number, number]; // наклонение
+  w: [number, number]; // аргумент перигелия
+  a: number; // большая полуось (а.е.)
+  e: [number, number]; // эксцентриситет
+  M: [number, number]; // средняя аномалия
+};
+
+const PLANET_ELEMENTS: Record<string, OrbElem> = {
+  mercury: { N: [48.3313, 3.24587e-5], i: [7.0047, 5.0e-8], w: [29.1241, 1.01444e-5], a: 0.387098, e: [0.205635, 5.59e-10], M: [168.6562, 4.0923344368] },
+  venus:   { N: [76.6799, 2.4659e-5],  i: [3.3946, 2.75e-8], w: [54.891, 1.38374e-5],  a: 0.72333,  e: [0.006773, -1.302e-9], M: [48.0052, 1.6021302244] },
+  mars:    { N: [49.5574, 2.11081e-5], i: [1.8497, -1.78e-8], w: [286.5016, 2.92961e-5], a: 1.523688, e: [0.093405, 2.516e-9], M: [18.6021, 0.5240207766] },
+  jupiter: { N: [100.4542, 2.76854e-5], i: [1.303, -1.557e-7], w: [273.8777, 1.64505e-5], a: 5.20256, e: [0.048498, 4.469e-9], M: [19.895, 0.0830853001] },
+  saturn:  { N: [113.6634, 2.3898e-5], i: [2.4886, -1.081e-7], w: [339.3939, 2.97661e-5], a: 9.55475, e: [0.055546, -9.499e-9], M: [316.967, 0.0334442282] },
+};
+
+function rev(x: number): number {
+  return ((x % 360) + 360) % 360;
+}
+
+// Дни от эпохи Шлютера (2000 Jan 0.0 UT = JD 2451543.5).
+function schlyterDay(dt: number): number {
+  return dt / 86400000 + 2440587.5 - 2451543.5;
+}
+
+// Геоцентрические RA/Dec планеты [deg, deg].
+function planetRaDec(el: OrbElem, d: number): [number, number] {
+  const rad = Math.PI / 180;
+  // Солнце (для перевода гелиоцентрических → геоцентрических: xs, ys).
+  const ws = 282.9404 + 4.70935e-5 * d;
+  const es = 0.016709 - 1.151e-9 * d;
+  const Ms = rev(356.047 + 0.9856002585 * d);
+  const Es = Ms + (es / rad) * Math.sin(Ms * rad) * (1 + es * Math.cos(Ms * rad));
+  const xvs = Math.cos(Es * rad) - es;
+  const yvs = Math.sqrt(1 - es * es) * Math.sin(Es * rad);
+  const vs = Math.atan2(yvs, xvs) / rad;
+  const rs = Math.sqrt(xvs * xvs + yvs * yvs);
+  const lonsun = (vs + ws) * rad;
+  const xs = rs * Math.cos(lonsun);
+  const ys = rs * Math.sin(lonsun);
+  // Планета.
+  const N = el.N[0] + el.N[1] * d;
+  const i = el.i[0] + el.i[1] * d;
+  const w = el.w[0] + el.w[1] * d;
+  const a = el.a;
+  const e = el.e[0] + el.e[1] * d;
+  const M = rev(el.M[0] + el.M[1] * d);
+  let E = M + (e / rad) * Math.sin(M * rad) * (1 + e * Math.cos(M * rad));
+  for (let k = 0; k < 2; k++) {
+    E = E - (E - (e / rad) * Math.sin(E * rad) - M) / (1 - e * Math.cos(E * rad));
+  }
+  const xv = a * (Math.cos(E * rad) - e);
+  const yv = a * Math.sqrt(1 - e * e) * Math.sin(E * rad);
+  const v = Math.atan2(yv, xv) / rad;
+  const r = Math.sqrt(xv * xv + yv * yv);
+  const vw = (v + w) * rad;
+  const Nr = N * rad;
+  const ir = i * rad;
+  const xh = r * (Math.cos(Nr) * Math.cos(vw) - Math.sin(Nr) * Math.sin(vw) * Math.cos(ir));
+  const yh = r * (Math.sin(Nr) * Math.cos(vw) + Math.cos(Nr) * Math.sin(vw) * Math.cos(ir));
+  const zh = r * (Math.sin(vw) * Math.sin(ir));
+  // Геоцентрические эклиптические.
+  const xg = xh + xs;
+  const yg = yh + ys;
+  const zg = zh;
+  // Эклиптика → экватор.
+  const ecl = (23.4393 - 3.563e-7 * d) * rad;
+  const xe = xg;
+  const ye = yg * Math.cos(ecl) - zg * Math.sin(ecl);
+  const ze = yg * Math.sin(ecl) + zg * Math.cos(ecl);
+  const ra = rev(Math.atan2(ye, xe) / rad);
+  const dec = Math.atan2(ze, Math.sqrt(xe * xe + ye * ye)) / rad;
+  return [ra, dec];
+}
+
+// Подпланетная точка [lng°, lat°] (RA/Dec → lng через GMST, как у Луны).
+function subPlanetPoint(planetKey: string, dt: number): [number, number] {
+  const el = PLANET_ELEMENTS[planetKey];
+  if (!el) return [0, 0];
+  const [ra, dec] = planetRaDec(el, schlyterDay(dt));
+  const dJ2000 = dt / 86400000 + 2440587.5 - 2451545.0;
+  const gmst = (280.4606 + 360.9856473 * dJ2000) % 360;
+  let lng = ((ra - gmst + 180) % 360) - 180;
+  if (lng < -180) lng += 360;
+  return [lng, dec];
+}
+
+// Спрайт планеты — мягкий цветной диск с лёгким гало (виден как «звезда-планета»).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function makePlanetSprite(rgb: [number, number, number], size: number): any {
+  try {
+    const N = 64;
+    const cvs = document.createElement("canvas");
+    cvs.width = N;
+    cvs.height = N;
+    const ctx = cvs.getContext("2d");
+    if (!ctx) return null;
+    const c = N / 2;
+    const [r, g, b] = rgb;
+    const grad = ctx.createRadialGradient(c, c, 0, c, c, c);
+    grad.addColorStop(0.0, "rgba(255,255,255,1)");
+    grad.addColorStop(0.28, `rgba(${r},${g},${b},1)`);
+    grad.addColorStop(0.6, `rgba(${r},${g},${b},0.5)`);
+    grad.addColorStop(1.0, `rgba(${r},${g},${b},0)`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, N, N);
+    const tex = new THREE.CanvasTexture(cvs);
+    const mat = new THREE.SpriteMaterial({
+      map: tex,
+      transparent: true,
+      depthWrite: false,
+      depthTest: true, // прячется за Землёй (нельзя видеть планету сквозь планету)
+      blending: THREE.AdditiveBlending,
+    });
+    const spr = new THREE.Sprite(mat);
+    spr.scale.set(size, size, 1);
+    return spr;
+  } catch {
+    return null;
+  }
+}
+
+// Цвет + относительный размер каждой планеты (характерный вид на небе).
+const PLANET_STYLE: Record<string, { rgb: [number, number, number]; size: number }> = {
+  mercury: { rgb: [200, 200, 205], size: 26 },
+  venus:   { rgb: [255, 246, 224], size: 40 },
+  mars:    { rgb: [255, 122, 78], size: 30 },
+  jupiter: { rgb: [240, 222, 184], size: 38 },
+  saturn:  { rgb: [240, 224, 168], size: 34 },
+};
+
+// Радиус (мир) дальней небесной сферы для планет: ЗА Солнцем (Солнце ≈ 100·(1+2.2)=320)
+// и в толще звёздного поля. 1500 → планеты «на звёздном небе», за Солнцем.
+const PLANET_WORLD_RADIUS = 1500;
+
+// Названия планет на английском (подпись при наведении — Босс 2026-05-29).
+const PLANET_NAMES: Record<string, string> = {
+  mercury: "Mercury",
+  venus: "Venus",
+  mars: "Mars",
+  jupiter: "Jupiter",
+  saturn: "Saturn",
+};
+
 // Нормаль поверхности в (lat,lng) — базис Polar2Cartesian как в шейдере.
 function surfaceNormal(lat: number, lng: number): [number, number, number] {
   const theta = ((90 - lng) * Math.PI) / 180;
@@ -722,6 +872,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // Глубокое 3D-звёздное поле (THREE.Points) — параллакс/«бесконечная глубина» за глобусом.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const deepStarsRef = useRef<any>(null);
+  // Планеты (Меркурий/Венера/Марс/Юпитер/Сатурн) — спрайты на дальней небесной сфере,
+  // позиции по реальной геоцентрической эфемериде (RA/Dec → подпланетная точка).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const planetsRef = useRef<Array<{ key: string; mesh: any }>>([]);
   // Геолокация юзера для стартового обзора (Босс: «открытие глобуса по геолокации»).
   // Только ref — режиссёр читает его вживую в rAF (без перерендера и гонок таймеров).
   const userLatLngRef = useRef<{ lat: number; lng: number } | null>(null);
@@ -741,6 +895,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   const cityNameRef = useRef<string>(""); // название города юзера (без доп. слов)
   const countryCodeRef = useRef<string>(""); // ISO-код страны (для эмодзи-флага, сам код не показываем)
   const winkFlagRef = useRef<HTMLDivElement | null>(null); // флаг страны (эмодзи, виден 3 сек на проходе)
+  // Подпись планеты при наведении (Босс 2026-05-29). Экранные позиции планет считаются
+  // каждый кадр в rAF (planetScreenRef), pointermove ищет ближайшую видимую → показывает имя.
+  const planetLabelRef = useRef<HTMLDivElement | null>(null);
+  const planetScreenRef = useRef<Array<{ key: string; x: number; y: number; r: number; visible: boolean }>>([]);
   const morseTimerRef = useRef<number | null>(null);
   // Целевая высота камеры для ПЛАВНОГО зума (кнопки +/− меняют её, круиз едет к ней).
   const zoomTargetRef = useRef<number | null>(null);
@@ -818,6 +976,17 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       } catch {
         // ignore
       }
+      // Освобождаем спрайты планет (map + material).
+      try {
+        for (const p of planetsRef.current) {
+          p.mesh.parent?.remove?.(p.mesh);
+          p.mesh.material?.map?.dispose?.();
+          p.mesh.material?.dispose?.();
+        }
+        planetsRef.current = [];
+      } catch {
+        // ignore
+      }
       try { cheapMat?.dispose?.(); } catch { /* ignore */ }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -839,6 +1008,16 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         const mp = subLunarPoint(Date.now());
         const c = g.getCoords(mp[1], mp[0], 1.5);
         moonMeshRef.current.position.set(c.x, c.y, c.z);
+      }
+      // Планеты — на дальней сфере (alt = R/100−1), по подпланетной точке (RA/Dec).
+      if (planetsRef.current.length) {
+        const palt = PLANET_WORLD_RADIUS / 100 - 1;
+        const now = Date.now();
+        for (const p of planetsRef.current) {
+          const pp = subPlanetPoint(p.key, now);
+          const c = g.getCoords(pp[1], pp[0], palt);
+          p.mesh.position.set(c.x, c.y, c.z);
+        }
       }
       // Фаза Луны: направление на Солнце в мировых координатах (= нормаль позиции
       // Солнца от центра сцены). Сторона Луны к Солнцу светлая, обратная — в тени.
@@ -1012,7 +1191,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     let morseRestart: () => void = () => {};
     let flagShownAt = -1e9; // момент входа точки во фронт — флаг виден 3 сек
     // ЕДИНЫЙ дрейф долготы (Босс 2026-05-29 «с 1-го кадра плавно ВСЕГДА двигается и
-    // только в ОДНУ сторону»): lng = driftBaseLng − GLOBAL_DRIFT·(now−driftBaseT).
+    // только в ОДНУ сторону»): lng = driftBaseLng + GLOBAL_DRIFT·(now−driftBaseT).
+    // Знак «+»: камера дрейфует на восток → неподвижное Солнце идёт по экрану
+    // СПРАВА НАЛЕВО = с востока на запад (Босс 2026-05-29, как реальное небо).
     // Постоянная скорость, одна сторона. Фазы меняют ТОЛЬКО широту и высоту.
     let driftBaseLng = startLng;
     let driftBaseT = t0;
@@ -1159,6 +1340,58 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       }
     };
 
+    // Экранные позиции планет + видимость (не за Землёй) — для hover-подписи.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const updatePlanetScreens = (gg: any) => {
+      const arr = planetScreenRef.current;
+      arr.length = 0;
+      if (!planetsRef.current.length || !gg?.getScreenCoords) return;
+      let camPos: { x: number; y: number; z: number } | null = null;
+      let cl = 1;
+      try {
+        const cam = gg.camera?.();
+        const pos = cam?.position;
+        if (pos) {
+          camPos = { x: pos.x, y: pos.y, z: pos.z };
+          cl = Math.hypot(pos.x, pos.y, pos.z) || 1;
+        }
+      } catch {
+        camPos = null;
+      }
+      const palt = PLANET_WORLD_RADIUS / 100 - 1;
+      const cosAlpha = camPos ? Math.sqrt(Math.max(0, 1 - (100 / cl) * (100 / cl))) : 1;
+      const now = Date.now();
+      for (const p of planetsRef.current) {
+        const pp = subPlanetPoint(p.key, now);
+        let visible = true;
+        try {
+          const c0 = camPos;
+          if (c0) {
+            const pc = gg.getCoords?.(pp[1], pp[0], palt);
+            if (pc) {
+              const dpx = pc.x - c0.x, dpy = pc.y - c0.y, dpz = pc.z - c0.z;
+              const dpl = Math.hypot(dpx, dpy, dpz) || 1;
+              // Угол между «камера→центр Земли» и «камера→планета»: внутри диска Земли = скрыта.
+              const dotv = (-c0.x * dpx - c0.y * dpy - c0.z * dpz) / (cl * dpl);
+              if (dotv > cosAlpha) visible = false;
+            }
+          }
+        } catch {
+          visible = true;
+        }
+        let sc: { x: number; y: number } | null = null;
+        try {
+          sc = gg.getScreenCoords?.(pp[1], pp[0], palt);
+        } catch {
+          sc = null;
+        }
+        if (sc) {
+          const style = PLANET_STYLE[p.key];
+          arr.push({ key: p.key, x: sc.x, y: sc.y, r: Math.max(16, (style?.size ?? 30) * 0.6), visible });
+        }
+      }
+    };
+
     const loop = (now: number) => {
       raf = requestAnimationFrame(loop);
       if (now - last < 33) return; // ~30fps — мягко и легко
@@ -1167,11 +1400,13 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       if (!gg?.pointOfView) return;
       // Точка геолокации якорится каждый кадр (в т.ч. во время ручного вращения).
       updateWinkDot(gg);
+      updatePlanetScreens(gg);
       // Юзер сам вращает — камеру не трогаем (в круизе пере-базируемся при отпускании).
       if (userInteractingRef.current) return;
       const elapsed = now - t0;
       // ЕДИНЫЙ дрейф долготы — одна сторона, постоянная скорость, с 1-го кадра.
-      const lng = driftBaseLng - (GLOBAL_DRIFT_DEG_S * (now - driftBaseT)) / 1000;
+      // (classic-режим переопределяет lng, наводя камеру на середину Солнце–Луна.)
+      let lng = driftBaseLng + (GLOBAL_DRIFT_DEG_S * (now - driftBaseT)) / 1000;
       let lat = startLat;
       let alt = OVERVIEW_ALTITUDE;
 
@@ -1227,18 +1462,29 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           phase = "cruise"; // точка остаётся моргающей при каждом проходе над страной
         }
       } else if (flightModeRef.current === "classic") {
-        // ПОЛЁТ (классика, Босс 2026-05-29): спокойный обзор Земли по параллели ШИРОТЫ
-        // ЮЗЕРА, в одну сторону, БЕЗ диагональной режиссуры и «дыхания». Полюса не показываем.
-        const uLat = userLatLngRef.current?.lat ?? cruise.lat;
-        cruise.lat += (Math.max(-48, Math.min(48, uLat)) - cruise.lat) * 0.01;
+        // ПОЛЁТ (классика, Босс 2026-05-29): такой РАКУРС, чтобы Солнце И Луна были в
+        // кадре не менее 50% времени. Камера наводится на СЕРЕДИНУ между подсолнечной и
+        // подлунной точками (по широте и долготе), с лёгким качанием для «полёта».
+        const nowT = Date.now();
+        let sLat = 0, sLng = 0, mLat = 0, mLng = 0;
+        try { const s = subsolarPoint(nowT); sLng = s[0]; sLat = s[1]; } catch { /* no-op */ }
+        try { const m = subLunarPoint(nowT); mLng = m[0]; mLat = m[1]; } catch { /* no-op */ }
+        const midLat = (sLat + mLat) / 2;
+        const dL = ((mLng - sLng + 540) % 360) - 180; // кратчайшая дуга Солнце→Луна
+        const midLng = sLng + dL / 2; // середина по долготе
+        cruise.lat += (Math.max(-46, Math.min(46, midLat)) - cruise.lat) * 0.02;
         lat = Math.max(-52, Math.min(52, cruise.lat));
-        const tgt = zoomTargetRef.current ?? CRUISE_ALTITUDE;
-        cruise.alt += (tgt - cruise.alt) * 0.1;
+        // Долгота — у середины Солнце/Луна + медленное качание ±14° (оба светила в кадре).
+        const sweep = 14 * Math.sin(((now - cruiseStartT) / 1000) * 0.06);
+        lng = midLng + sweep;
+        // Отъезд назад, чтобы оба светила (на радиусах 250–320) поместились в кадр.
+        const tgt = Math.max(zoomTargetRef.current ?? CRUISE_ALTITUDE, 3.6);
+        cruise.alt += (tgt - cruise.alt) * 0.04;
         alt = cruise.alt;
       } else {
         // ПОЛЁТ Ai — СЦЕНА-РЕЖИССЁР (Босс 2026-05-29 «многовариантность пролётов»).
         // Круговое движение всегда в ОДНУ сторону. ОБЯЗАТЕЛЬНЫЕ точки каждый раз:
-        //   ПРОЛЁТ 1 (круг 0) — Солнце на ЭКВАТОРЕ: вход слева → выход справа;
+        //   ПРОЛЁТ 1 (круг 0) — Солнце на ЭКВАТОРЕ: вход справа → выход слева (восток→запад);
         //   ПРОЛЁТ 2 (круг 1) — КОРОНА Солнца у верхнего лимба (половина над Землёй).
         // Далее (круг 2+) — многовариантность, НОВОЕ каждый раз (sessionSeed). Полюса
         // НЕ показываем явно авто-движением (|lat| ≤ 50). Вмешательство юзера — через rebase.
@@ -1246,7 +1492,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         const circle = Math.floor(deg / 360);
         let sceneLat = cruise.lat;
         if (circle === 0) {
-          sceneLat = 0; // ПРОЛЁТ 1: экватор (Солнце слева→направо)
+          sceneLat = 0; // ПРОЛЁТ 1: экватор (Солнце справа→налево, восток→запад)
         } else if (circle === 1) {
           let sLat = 10;
           try { sLat = subsolarPoint(Date.now())[1]; } catch { /* no-op */ }
@@ -1308,6 +1554,46 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         // ignore
       }
       window.removeEventListener("resize", measure);
+    };
+  }, []);
+
+  // Hover-подпись планеты (Босс 2026-05-29 «при наведении на планету показывай название»).
+  useEffect(() => {
+    const el = wrapRef.current;
+    const label = planetLabelRef.current;
+    if (!el || !label) return;
+    const onMove = (e: PointerEvent) => {
+      const rect = el.getBoundingClientRect();
+      const px = e.clientX - rect.left;
+      const py = e.clientY - rect.top;
+      let best: { key: string; x: number; y: number } | null = null;
+      let bestD = Infinity;
+      for (const p of planetScreenRef.current) {
+        if (!p.visible) continue;
+        const d = Math.hypot(px - p.x, py - p.y);
+        if (d <= p.r && d < bestD) {
+          bestD = d;
+          best = { key: p.key, x: p.x, y: p.y };
+        }
+      }
+      if (best) {
+        const name = PLANET_NAMES[best.key] || best.key;
+        if (label.textContent !== name) label.textContent = name;
+        label.style.left = `${best.x}px`;
+        label.style.top = `${best.y - 16}px`;
+        label.style.opacity = "1";
+      } else {
+        label.style.opacity = "0";
+      }
+    };
+    const onLeave = () => {
+      label.style.opacity = "0";
+    };
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerleave", onLeave);
+    return () => {
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerleave", onLeave);
     };
   }, []);
 
@@ -1566,10 +1852,11 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         if (scene && !deepStarsRef.current) {
           const group = new THREE.Group();
           // Слои: [радиус, количество, размер, яркость] — дальше = мельче и тусклее.
+          // Отодвинуты ЗА Солнце (≈320) и за планеты (1500) — «небо бесконечно глубоко».
           const layers: Array<[number, number, number, number]> = [
-            [900, 1400, 2.4, 0.95],
-            [1600, 1100, 3.6, 0.7],
-            [2600, 800, 5.2, 0.45],
+            [1300, 1500, 4.0, 0.95],
+            [2400, 1200, 7.0, 0.7],
+            [3800, 900, 11.0, 0.45],
           ];
           for (const [radius, count, size, opacity] of layers) {
             const pos = new Float32Array(count * 3);
@@ -1611,6 +1898,19 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           }
           scene.add(group);
           deepStarsRef.current = group;
+        }
+        // Планеты на дальней небесной сфере (Босс 2026-05-29: «видеть Меркурий, Венеру,
+        // Марс, Юпитер, Сатурн астрономически»). Позиция — по реальной эфемериде каждую
+        // минуту (positionSunMoon). depthTest=true → за Землёй планета скрыта.
+        if (scene && planetsRef.current.length === 0) {
+          for (const key of Object.keys(PLANET_STYLE)) {
+            const st = PLANET_STYLE[key];
+            const spr = makePlanetSprite(st.rgb, st.size);
+            if (spr) {
+              scene.add(spr);
+              planetsRef.current.push({ key, mesh: spr });
+            }
+          }
         }
         positionSunMoon();
       } catch (e) {
@@ -1747,6 +2047,23 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           fontSize: 22,
           filter: "drop-shadow(0 0 6px rgba(124,58,237,0.5))",
           transition: "opacity 220ms ease",
+          willChange: "left, top, opacity",
+        }}
+      />
+      {/* Подпись планеты при наведении (Босс 2026-05-29) — название на английском. */}
+      <div
+        ref={planetLabelRef}
+        className="pointer-events-none absolute z-30 font-sans font-semibold whitespace-nowrap"
+        style={{
+          left: 0,
+          top: 0,
+          opacity: 0,
+          transform: "translate(-50%, -100%)",
+          fontSize: 12,
+          letterSpacing: 0.3,
+          color: "#fff",
+          textShadow: "0 0 8px rgba(0,0,0,0.9), 0 0 14px rgba(124,58,237,0.6)",
+          transition: "opacity 140ms ease",
           willChange: "left, top, opacity",
         }}
       />
