@@ -3039,6 +3039,28 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                       <p className="truncate text-[10px] sm:text-[11px] font-sans text-white/45 m-0 leading-tight">{gt.authorName}</p>
                                     ) : null}
                                   </div>
+                                  {/* Левая группа (по смыслам, в балансе с правой): 🎧 топ-100 + зум +/−. */}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); setGlobeTopOpen(v => !v); }}
+                                    className="shrink-0 relative h-10 w-10 sm:h-11 sm:w-11 rounded-full flex items-center justify-center text-lg bg-transparent border border-white/30 hover:border-white/60 active:scale-90 transition-all"
+                                    aria-label="Топ-100 плейлиста" aria-expanded={globeTopOpen}
+                                  >
+                                    🎧
+                                    <span className="absolute top-full left-1/2 -translate-x-1/2 mt-0.5 text-[11px] tabular-nums font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap pointer-events-none">{totalPlays > 0 ? totalPlays.toLocaleString("ru-RU") : "…"}</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); try { window.dispatchEvent(new CustomEvent("muza:globe-zoom", { detail: { dir: -1 } })); } catch { /* no-op */ } }}
+                                    className="shrink-0 h-10 w-10 sm:h-11 sm:w-11 rounded-full flex items-center justify-center text-xl leading-none text-white/85 bg-transparent border border-white/30 hover:border-white/60 active:scale-90 transition-all"
+                                    aria-label="Приблизить"
+                                  >+</button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); try { window.dispatchEvent(new CustomEvent("muza:globe-zoom", { detail: { dir: 1 } })); } catch { /* no-op */ } }}
+                                    className="shrink-0 h-10 w-10 sm:h-11 sm:w-11 rounded-full flex items-center justify-center text-xl leading-none text-white/85 bg-transparent border border-white/30 hover:border-white/60 active:scale-90 transition-all"
+                                    aria-label="Отдалить"
+                                  >−</button>
                                   </div>
                                   {/* ЦЕНТР (col2) — переключение трека ВЛЕВО/ВПРАВО от Play; Play
                                       СТРОГО по центру экрана (Босс 2026-05-29). Прозрачные контур-кнопки. */}
@@ -3070,31 +3092,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   </div>
                                   {/* ПРАВАЯ колонка (col3) — все кнопки в ОДНУ строку, к правому краю
                                       (Босс 2026-05-29: не расширять панель вертикально, в балансе). */}
-                                  <div className="min-w-0 flex flex-nowrap items-center justify-end gap-1.5 sm:gap-2 justify-self-end overflow-x-auto">
-                                  {/* Правый кластер — ВСЕ кнопки в плеере (Босс 2026-05-29):
-                                      🎧 топ-100 · зум +/− · полноэкранный · вернуться · поделиться.
-                                      Все прозрачные (контур), компактные. */}
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); setGlobeTopOpen(v => !v); }}
-                                    className="shrink-0 relative h-10 w-10 sm:h-11 sm:w-11 rounded-full flex items-center justify-center text-lg bg-transparent border border-white/30 hover:border-white/60 active:scale-90 transition-all"
-                                    aria-label="Топ-100 плейлиста" aria-expanded={globeTopOpen}
-                                  >
-                                    🎧
-                                    <span className="absolute top-full left-1/2 -translate-x-1/2 mt-0.5 text-[11px] tabular-nums font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap pointer-events-none">{totalPlays > 0 ? totalPlays.toLocaleString("ru-RU") : "…"}</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); try { window.dispatchEvent(new CustomEvent("muza:globe-zoom", { detail: { dir: -1 } })); } catch { /* no-op */ } }}
-                                    className="shrink-0 h-10 w-10 sm:h-11 sm:w-11 rounded-full flex items-center justify-center text-xl leading-none text-white/85 bg-transparent border border-white/30 hover:border-white/60 active:scale-90 transition-all"
-                                    aria-label="Приблизить"
-                                  >+</button>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); try { window.dispatchEvent(new CustomEvent("muza:globe-zoom", { detail: { dir: 1 } })); } catch { /* no-op */ } }}
-                                    className="shrink-0 h-10 w-10 sm:h-11 sm:w-11 rounded-full flex items-center justify-center text-xl leading-none text-white/85 bg-transparent border border-white/30 hover:border-white/60 active:scale-90 transition-all"
-                                    aria-label="Отдалить"
-                                  >−</button>
+                                  <div className="min-w-0 flex flex-nowrap items-center justify-start gap-1.5 sm:gap-2 justify-self-start overflow-x-auto">
+                                  {/* Правая группа (по смыслам): полноэкранный · Полёт · Полёт Ai
+                                      · вернуться · поделиться. 🎧 и зум перенесены в левую группу. */}
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); toggleGlobeFullscreen(); }}
