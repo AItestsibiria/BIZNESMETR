@@ -1815,6 +1815,17 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           // ignore
         }
       }
+      // Дальняя плоскость камеры — за глубоким звёздным небом (звёзды на 150 000–330 000,
+      // Босс 2026-05-29 «граница звёзд за пределы Юпитера ×100»). Иначе они отсекаются.
+      try {
+        const cam = g.camera?.();
+        if (cam) {
+          cam.far = Math.max(cam.far || 0, 500000);
+          cam.updateProjectionMatrix?.();
+        }
+      } catch {
+        // ignore
+      }
       // Начальный кадр (точка восхода) выставляет камера-режиссёр синхронно при ready
       // — здесь pointOfView НЕ зовём, чтобы не было конфликтующих наводок (это и
       // давало рывок/раскрутку). Канвас прозрачен (opacity 0→1) до первого кадра.
@@ -1845,18 +1856,17 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           moonMeshRef.current = moon;
           moonMatRef.current = moonMat;
         }
-        // Бесконечно глубокое небо (Босс 2026-05-29 «небо бесконечно глубоким»):
-        // три слоя THREE.Points на радиусах далеко за камерой (max 600). Камера
-        // орбитит → ближние слои сдвигаются быстрее дальних = параллакс = ощущение
-        // бесконечной глубины. Плоская текстура неба остаётся «на бесконечности» фоном.
+        // Бесконечно глубокое небо (Босс 2026-05-29). Звёзды отодвинуты ДАЛЕКО ЗА планеты
+        // (Юпитер на 1500) — на ~100× (150 000+), как реальное небо «на бесконечности».
+        // sizeAttenuation:false → звёзды остаются видимыми крошечными точками на любой
+        // дистанции (иначе на 150к они исчезнут). Параллакс почти нулевой = фон-небосвод.
         if (scene && !deepStarsRef.current) {
           const group = new THREE.Group();
-          // Слои: [радиус, количество, размер, яркость] — дальше = мельче и тусклее.
-          // Отодвинуты ЗА Солнце (≈320) и за планеты (1500) — «небо бесконечно глубоко».
+          // Слои: [радиус, количество, размер(px), яркость]. Радиусы ≫ Юпитера (1500).
           const layers: Array<[number, number, number, number]> = [
-            [1300, 1500, 4.0, 0.95],
-            [2400, 1200, 7.0, 0.7],
-            [3800, 900, 11.0, 0.45],
+            [150000, 1600, 1.7, 0.95],
+            [230000, 1300, 2.3, 0.8],
+            [330000, 1000, 2.9, 0.62],
           ];
           for (const [radius, count, size, opacity] of layers) {
             const pos = new Float32Array(count * 3);
@@ -1885,7 +1895,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
             const mat = new THREE.PointsMaterial({
               size,
-              sizeAttenuation: true,
+              sizeAttenuation: false, // постоянный размер в px → видны и на 150 000+
               transparent: true,
               opacity,
               vertexColors: true,
