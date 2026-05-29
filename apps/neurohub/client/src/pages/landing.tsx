@@ -1572,7 +1572,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       if (rect.height < 40) return;
       // «Парящий» зазор снизу (Босс «плеер ещё повыше парить») — ~12% высоты
       // экрана, минимум 48px. Плеер уезжает выше, ближе к заголовку.
-      const floatGap = Math.max(48, Math.round(window.innerHeight * 0.12));
+      const floatGap = Math.max(20, Math.min(Math.round(window.innerHeight * 0.07), 72));
       // Низ ПОЛНОГО блока плеера ≈ низ вьюпорта минус «парящий» зазор. rect.bottom
       // включает всю карточку (обложка, контролы, «Создай в том же стиле»).
       const target = window.innerHeight - floatGap;
@@ -2225,7 +2225,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         <h2 className="text-2xl sm:text-3xl font-display font-bold text-center mb-3 tracking-tight">
           <span className="gradient-text">Плейлист сообщества</span>
         </h2>
-        <p className="text-center text-sm sm:text-base font-sans text-muted-foreground mb-8 flex items-center justify-center gap-2 flex-wrap">Треки, созданные авторами <span className="inline-flex items-center gap-1"><span className="inline-block w-4 h-4 rounded bg-gradient-to-br from-purple-600 via-violet-500 to-blue-500 flex items-center justify-center"><svg viewBox="0 0 24 24" className="w-2.5 h-2.5" fill="none"><path d="M3 12c1.5-3 3-5 4.5-3s2 4 3.5 2 2.5-5 4-3 2 4 3.5 2 2.5-4 3.5-2" stroke="white" strokeWidth="3" strokeLinecap="round" /></svg></span><span className="font-bold tracking-tight"><span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent">Muza</span><span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">Ai</span></span></span></p>
+        <p className="text-center text-sm sm:text-base font-sans text-muted-foreground mb-3 sm:mb-8 flex items-center justify-center gap-2 flex-wrap">Треки, созданные авторами <span className="inline-flex items-center gap-1"><span className="inline-block w-4 h-4 rounded bg-gradient-to-br from-purple-600 via-violet-500 to-blue-500 flex items-center justify-center"><svg viewBox="0 0 24 24" className="w-2.5 h-2.5" fill="none"><path d="M3 12c1.5-3 3-5 4.5-3s2 4 3.5 2 2.5-5 4-3 2 4 3.5 2 2.5-4 3.5-2" stroke="white" strokeWidth="3" strokeLinecap="round" /></svg></span><span className="font-bold tracking-tight"><span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent">Muza</span><span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">Ai</span></span></span></p>
 
         {/* Eugene 2026-05-22 Босс «в режиме планшета плейлист раскрывается
             вверх с 1 трека внизу и 2 выше, зеркальный порядок, при scroll
@@ -4103,7 +4103,7 @@ export default function LandingPage() {
           (переехал под плеер), убран stats-блок с «от 99₽» (переехал под
           Музу как pricing-pill). */}
       <section
-        className="relative z-[1] pb-6 sm:pb-8 px-4 overflow-hidden hero-gradient scan-line"
+        className="relative z-[1] pb-3 sm:pb-8 px-4 overflow-hidden hero-gradient scan-line"
         style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 4.5rem)" }}
       >
 
@@ -4125,12 +4125,12 @@ export default function LandingPage() {
               «Муза» + «MuzaAi» — критичный SEO-сигнал для Яндекс/Google.
               Eugene 2026-05-22 — h1 уменьшен (text-3xl sm:text-4xl lg:text-5xl)
               чтобы плеер влез в первый экран. */}
-          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-display font-bold mb-4 leading-tight tracking-tight" data-testid="text-hero-title">
+          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-display font-bold mb-2 sm:mb-4 leading-tight tracking-tight" data-testid="text-hero-title">
             <span className="bg-gradient-to-r from-purple-400 via-violet-300 to-blue-400 bg-clip-text text-transparent neon-text">Muza</span><span className="bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent neon-text">Ai</span>
             <span className="text-foreground"> · создай песню с ИИ за минуту</span>
           </h1>
 
-          <p className="text-sm sm:text-base text-muted-foreground max-w-xl mx-auto mb-5 leading-relaxed">
+          <p className="text-sm sm:text-base text-muted-foreground max-w-xl mx-auto mb-3 sm:mb-5 leading-relaxed">
             Создай за 1 минуту уникальную Песню для себя или в Подарок
           </p>
 
