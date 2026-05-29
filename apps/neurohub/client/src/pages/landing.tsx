@@ -2690,7 +2690,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             <StarfieldCanvas />
                           </div>
                           <div
-                            className="relative z-10 w-full h-full max-w-none flex flex-col rounded-2xl overflow-hidden border border-purple-500/20 shadow-[0_0_48px_rgba(124,58,237,0.35)]"
+                            className="relative z-10 w-full max-w-none flex flex-col rounded-2xl overflow-hidden border border-purple-500/20 shadow-[0_0_48px_rgba(124,58,237,0.35)]"
                             style={{
                               // Босс 2026-05-29 «полностью раскрыть 3D-сцену на экран, в
                               // пропорциях»: сцена на весь вьюпорт (w/h-full). Глобус остаётся
@@ -2720,7 +2720,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 ЗАПОЛНЯЕТ всё свободное место (без капа — иначе снизу пустая
                                 полоса). Плеер+футер (shrink-0) прижаты к низу. min-h-0 даёт
                                 глобусу ужаться на низких экранах → контролы всегда видны. */}
-                            <div className="relative flex-1 min-h-0">
+                            <div className="relative h-[56dvh] min-h-0">
                               <ErrorBoundary
                                 pageName="globe"
                                 fallback={

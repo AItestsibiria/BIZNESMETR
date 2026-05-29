@@ -755,6 +755,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     }
 
     let flyTimer: number | null = null;
+    let rotTimer: number | null = null;
     try {
       // Обзорный кадр: точка между подсолнечной и подлунной (видно Солнце+Луну).
       // Fallback при недоступности формул — разумный общий план (день по центру).
@@ -781,12 +782,21 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         } catch {
           // ignore
         }
+        // Босс 2026-05-29 «продолжая плавный поворот»: после прилёта к геолокации —
+        // МЯГКОЕ авто-вращение (не резкое). Включаем по завершении полёта.
+        rotTimer = window.setTimeout(() => {
+          try {
+            const c = globeRef.current?.controls?.();
+            if (c) { c.autoRotate = true; c.autoRotateSpeed = 0.22; }
+          } catch { /* no-op */ }
+        }, INTRO_FLY_MS + 400);
       }, INTRO_SUNRISE_MS + INTRO_OVERVIEW_HOLD_MS);
     } catch {
       // ignore
     }
     return () => {
       if (flyTimer !== null) window.clearTimeout(flyTimer);
+      if (rotTimer !== null) window.clearTimeout(rotTimer);
     };
   }, [ready, userLatLng, points]);
 
