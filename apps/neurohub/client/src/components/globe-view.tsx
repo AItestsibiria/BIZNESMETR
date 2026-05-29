@@ -1195,6 +1195,41 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         // ignore
       }
 
+      // Динамический блик Солнца (Босс 2026-05-29, референс «рассвет из космоса»):
+      // когда Солнце у КРАЯ Земли и камера смотрит в его сторону (сквозь лимб) —
+      // яркие лучи к кадру (большой блик); на тангенциальных углах (рассвет/закат
+      // вбок) свечение меньше; глубоко за Землёй спрайт перекрыт globe-мешем (depth).
+      try {
+        const sun = sunMeshRef.current;
+        const cam = g.camera?.();
+        if (sun && cam?.position) {
+          const cp = cam.position;
+          const camDist = Math.hypot(cp.x, cp.y, cp.z) || 1;
+          // camera→центр Земли (камера всегда смотрит в центр сцены)
+          const vEx = -cp.x / camDist, vEy = -cp.y / camDist, vEz = -cp.z / camDist;
+          // camera→Солнце
+          const spp = sun.position;
+          let sx = spp.x - cp.x, sy = spp.y - cp.y, sz = spp.z - cp.z;
+          const sl = Math.hypot(sx, sy, sz) || 1;
+          sx /= sl; sy /= sl; sz /= sl;
+          const align = Math.max(-1, Math.min(1, vEx * sx + vEy * sy + vEz * sz));
+          const look = Math.max(0, align);                       // 0..1 — смотрим ли на Солнце
+          const sunAngle = Math.acos(align);                     // смещение Солнца от центра кадра
+          const earthAng = Math.asin(Math.min(1, 100 / camDist)); // угловой радиус Земли
+          const limbPeak = Math.exp(
+            -Math.pow((sunAngle - earthAng) / (earthAng * 0.5 + 1e-3), 2),
+          ); // пик при солнце на лимбе
+          const intensity = Math.max(0, Math.min(1.5, look * (0.5 + 1.0 * limbPeak)));
+          const s = 74 * (0.5 + 1.0 * intensity); // размер блика
+          sun.scale.set(s, s, 1);
+          if (sun.material) {
+            sun.material.opacity = Math.max(0.28, Math.min(1, 0.32 + 0.7 * intensity));
+          }
+        }
+      } catch {
+        // ignore
+      }
+
       const sunDir = sunDirRef.current;
       const pts = basePointsRef.current;
       if (pts.length === 0) {
