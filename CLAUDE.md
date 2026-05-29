@@ -4283,6 +4283,12 @@ Every endpoint returns the same envelope — no exceptions:
 
 Never break this shape. On success, set `data` and leave `error` null. On failure, set `error` and leave `data` null. Never expose stack traces or internal error messages to the client.
 
+#### API-envelope-new-endpoints rule (Eugene 2026-05-29, #12 аудита)
+
+**Реальность neurohub:** канон `{ data, error }` соблюдён ~наполовину. Из 1456 `res.json` сосуществуют 3 формы: `{ data, error }` ~685, `{ ok, ... }` ~295, `{ message }` ~178. Клиент читает под каждый свой endpoint → поломок нет, но это дрейф.
+
+**Правило:** РАБОЧИЕ endpoint'ы НЕ переписываем (риск регрессии на 1456 точках). Любой **НОВЫЙ** endpoint отдаёт ответ через `ok(res, data[, status])` / `fail(res, error[, status])` из `apps/neurohub/server/lib/apiResponse.ts` (форма `{ data, error }`). Так конвенция перестаёт расползаться. Связано с: No-duplicates rule (единый хелпер, не плодить), Reuse-working-solutions rule.
+
 ---
 
 ## Conventions
