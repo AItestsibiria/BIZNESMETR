@@ -12958,11 +12958,13 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
   }
   function getCurrentPlaysSum(): number {
     try {
+      // Eugene 2026-05-29 (аудит плеев): источник milestone/фейерверка — ЕДИНЫЙ
+      // знаменатель gen_activity (как счётчик на сайте /api/playlist/stats), а НЕ
+      // legacy meta.plays из generations.style — иначе фейерверк срабатывал не на
+      // той цифре, что видит юзер. Play-counting single-source rule.
       const rawSql: any = (db as any).$client || sqliteDb;
       const row = rawSql.prepare(
-        `SELECT COALESCE(SUM(CAST(json_extract(style, '$.plays') AS INTEGER)), 0) AS total
-         FROM generations WHERE type='music' AND deleted_at IS NULL AND status='done' AND is_public=1
-           AND style LIKE '{%' AND json_valid(style)=1`
+        `SELECT COUNT(*) AS total FROM gen_activity WHERE action='play'`
       ).get() as { total: number };
       return Number(row?.total || 0);
     } catch { return 0; }
