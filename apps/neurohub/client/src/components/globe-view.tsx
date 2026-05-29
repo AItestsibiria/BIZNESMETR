@@ -955,6 +955,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     let holdAt = 0;
     let departAt = 0;
     const cruise = { lat: startLat, alt: CRUISE_ALTITUDE };
+    // Повтор моргания на КАЖДОМ проходе геолокации (Босс 2026-05-29) — без смены
+    // фокуса камеры: при входе точки во фронт перезапускаем Морзе с начала.
+    let winkWasFront = false;
+    let morseRestart: () => void = () => {};
     // ЕДИНЫЙ дрейф долготы (Босс 2026-05-29 «с 1-го кадра плавно ВСЕГДА двигается и
     // только в ОДНУ сторону»): lng = driftBaseLng − GLOBAL_DRIFT·(now−driftBaseT).
     // Постоянная скорость, одна сторона. Фазы меняют ТОЛЬКО широту и высоту.
@@ -985,6 +989,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     const startMorse = () => {
       let mi = 0;
       let mseq = morseTimeline(morseWordRef.current);
+      morseRestart = () => { mi = 0; mseq = morseTimeline(morseWordRef.current); };
       const stepMorse = () => {
         if (!winkActiveRef.current) {
           morseOnRef.current = false;
@@ -1033,6 +1038,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         return;
       }
       const front = Math.abs(lngDelta(anchor.lng, pov.lng ?? 0)) <= 85; // не на обороте
+      // Новый проход (точка вошла во фронт) → перезапуск моргания с начала.
+      if (front && !winkWasFront) morseRestart();
+      winkWasFront = front;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let sc: any = null;
       try {
