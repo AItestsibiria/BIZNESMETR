@@ -247,7 +247,7 @@ export function ShareQRSection() {
           </div>
 
           {/* Actions */}
-          <div className="flex items-center gap-3 mt-6">
+          <div className="flex flex-wrap items-center justify-center gap-3 mt-6">
             <button
               onClick={handleCopyQR}
               className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium border border-white/10 bg-white/5 text-muted-foreground hover:text-white hover:bg-white/10 transition-colors"
