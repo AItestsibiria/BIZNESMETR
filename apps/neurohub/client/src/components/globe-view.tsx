@@ -293,32 +293,59 @@ function buildDayNightMaterial(onDay?: () => void, onNight?: () => void): DayNig
   }
 }
 
-// Билборд-спрайт «диск со свечением» (Босс 2026-05-29: «солнце под правильным
-// углом, не эллипсом»). Sprite ВСЕГДА развёрнут к камере → рендерится идеально
-// круглым в любой точке кадра (3D-сфера у края кадра проецируется в эллипс из-за
-// перспективы — поэтому Солнце = светящийся спрайт; Луна = шар с фазовым шейдером).
-function makeDiscSprite(
-  stops: Array<[number, string]>,
-  size: number,
-  additive: boolean,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): any {
+// Слепящая вспышка Солнца (Босс 2026-05-29 «надо чтобы прям слепило, играли лучи»):
+// Sprite ВСЕГДА развёрнут к камере → круглый в любой точке кадра (3D-сфера у края
+// проецируется в эллипс). Луна — шар с фазовым шейдером (см. ниже).
+// белое ядро + аддитивное гало + лучи-спайки (starburst). Лучи «играют» (вращение
+// material.rotation в rAF), яркость переменная (модуляция scale/opacity по лимбу).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function makeSunFlareSprite(size: number): any {
   try {
+    const N = 256;
     const cvs = document.createElement("canvas");
-    cvs.width = 128;
-    cvs.height = 128;
+    cvs.width = N;
+    cvs.height = N;
     const ctx = cvs.getContext("2d");
     if (!ctx) return null;
-    const grad = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-    for (const [o, c] of stops) grad.addColorStop(o, c);
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 128, 128);
+    const c = N / 2;
+    // Гало (bloom): белое ядро → тёплое свечение → прозрачно.
+    const halo = ctx.createRadialGradient(c, c, 0, c, c, c);
+    halo.addColorStop(0.0, "rgba(255,255,255,1)");
+    halo.addColorStop(0.1, "rgba(255,250,236,1)");
+    halo.addColorStop(0.24, "rgba(255,226,150,0.85)");
+    halo.addColorStop(0.5, "rgba(255,192,112,0.35)");
+    halo.addColorStop(1.0, "rgba(255,170,80,0)");
+    ctx.fillStyle = halo;
+    ctx.fillRect(0, 0, N, N);
+    // Лучи-спайки (слепящий starburst), аддитивно поверх гало.
+    ctx.translate(c, c);
+    ctx.globalCompositeOperation = "lighter";
+    const rays = 12;
+    for (let i = 0; i < rays; i++) {
+      const ang = (i / rays) * Math.PI * 2;
+      const long = i % 2 === 0 ? c * 0.97 : c * 0.6;
+      const w = i % 2 === 0 ? 5 : 3;
+      ctx.save();
+      ctx.rotate(ang);
+      const g = ctx.createLinearGradient(0, 0, long, 0);
+      g.addColorStop(0, "rgba(255,255,255,0.95)");
+      g.addColorStop(0.5, "rgba(255,226,150,0.32)");
+      g.addColorStop(1, "rgba(255,200,120,0)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(0, -w);
+      ctx.lineTo(long, 0);
+      ctx.lineTo(0, w);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
     const tex = new THREE.CanvasTexture(cvs);
     const mat = new THREE.SpriteMaterial({
       map: tex,
       transparent: true,
       depthWrite: false,
-      blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+      blending: THREE.AdditiveBlending,
     });
     const spr = new THREE.Sprite(mat);
     spr.scale.set(size, size, 1);
@@ -515,8 +542,7 @@ const SUNRISE_HOLD_MS = 2600;     // восход: медленный показ
 const FLY_MS = 9000;              // плавный пролёт к геолокации
 const ARRIVE_HOLD_MS = 3200;      // пауза у точки (Морзе-приветствие)
 const DEPART_MS = 8000;           // панорамный отъезд (Морзе «Пока, Твоя Муза»)
-const SUNRISE_DRIFT_DEG_S = 3.0;  // медленное вращение во время восхода
-const CRUISE_DRIFT_DEG_S = 2.0;   // мягкое непрерывное вращение
+const GLOBAL_DRIFT_DEG_S = 2.2;   // ЕДИНАЯ постоянная скорость вращения в ОДНУ сторону
 
 // prefers-reduced-motion — уважаем системную настройку (без интро-полёта, сразу
 // геолокация). В файле раньше проверки не было — добавлено вместе с интро-анимацией.
@@ -712,6 +738,8 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   const winkCityRef = useRef<HTMLDivElement | null>(null);
   const cityNameRef = useRef<string>(""); // название города юзера (англ.), обратный геокодинг
   const morseTimerRef = useRef<number | null>(null);
+  // Целевая высота камеры для ПЛАВНОГО зума (кнопки +/− меняют её, круиз едет к ней).
+  const zoomTargetRef = useRef<number | null>(null);
 
   const basePointsRef = useRef<GlobePoint[]>(points);
   useEffect(() => {
@@ -855,24 +883,17 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     return () => { cancelled = true; };
   }, []);
 
-  // Зум +/− из плеера (Босс 2026-05-29 «кнопки + zoom −»): меняем altitude камеры.
-  // На время плавного зума уступаем режиссёру (userInteractingRef), затем
-  // пере-базируем круиз — высота сохраняется (как при ручном pinch-зуме).
+  // Зум +/− из плеера (Босс 2026-05-29 «зум скачки убрать — при каждом нажатии
+  // плавно изменяется размер»). Меняем ТОЛЬКО целевую высоту; круиз сам плавно
+  // едет к ней каждый кадр (без скачков, без pointOfView-перехода/паузы режиссёра).
   useEffect(() => {
     const onZoom = (e: Event) => {
       const g = globeRef.current;
       if (!g?.pointOfView) return;
       try {
         const dir = ((e as CustomEvent).detail?.dir as number) || 0;
-        const pov = g.pointOfView();
-        if (!pov) return;
-        const next = Math.max(1.3, Math.min(4.5, (pov.altitude || 2.5) + dir * 0.45));
-        userInteractingRef.current = true; // пауза режиссёра на время зума
-        g.pointOfView({ lat: pov.lat, lng: pov.lng, altitude: next }, 320);
-        window.setTimeout(() => {
-          userInteractingRef.current = false;
-          rebaseCruiseRef.current?.(); // синхронизируем круиз с новой высотой
-        }, 380);
+        const cur = zoomTargetRef.current ?? (g.pointOfView()?.altitude ?? 2.5);
+        zoomTargetRef.current = Math.max(1.3, Math.min(4.5, cur + dir * 0.4));
       } catch {
         // ignore
       }
@@ -928,28 +949,30 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
 
     const t0 = performance.now();
     let phase: "sunrise" | "fly" | "hold" | "depart" | "cruise" = "sunrise";
-    let flyStart = { lat: startLat, lng: startLng, alt: OVERVIEW_ALTITUDE };
     let flyStartAt = 0;
-    let flyDeltaLng = 0; // естественный (восточный) ход: только убывание долготы
-    const arrive = { lat: startLat, lng: startLng };
+    const arrive = { lat: startLat };
     let holdAt = 0;
     let departAt = 0;
-    let departLng = startLng;
-    const cruise = { lat: startLat, lng: startLng, alt: CRUISE_ALTITUDE, t0: 0 };
+    const cruise = { lat: startLat, alt: CRUISE_ALTITUDE };
+    // ЕДИНЫЙ дрейф долготы (Босс 2026-05-29 «с 1-го кадра плавно ВСЕГДА двигается и
+    // только в ОДНУ сторону»): lng = driftBaseLng − GLOBAL_DRIFT·(now−driftBaseT).
+    // Постоянная скорость, одна сторона. Фазы меняют ТОЛЬКО широту и высоту.
+    let driftBaseLng = startLng;
+    let driftBaseT = t0;
     let raf = 0;
     let last = 0;
 
-    // Пере-базирование круиз-дрейфа после ручного вращения (Босс: «продолжая плавный
-    // поворот»). Вызывается из обработчика OrbitControls 'end' (см. onGlobeReady).
+    // Rebase после ручного вращения/зума (OrbitControls 'end'): продолжаем дрейф с
+    // текущей точки (без сброса), сохраняем широту и высоту (высота → цель зума).
     rebaseCruiseRef.current = () => {
-      if (phase !== "cruise") return;
       try {
         const pov = globeRef.current?.pointOfView?.();
         if (pov) {
+          driftBaseLng = pov.lng;
+          driftBaseT = performance.now();
           cruise.lat = pov.lat;
-          cruise.lng = pov.lng;
           cruise.alt = pov.altitude;
-          cruise.t0 = performance.now();
+          zoomTargetRef.current = pov.altitude;
         }
       } catch {
         // ignore
@@ -1054,96 +1077,63 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       // Юзер сам вращает — камеру не трогаем (в круизе пере-базируемся при отпускании).
       if (userInteractingRef.current) return;
       const elapsed = now - t0;
+      // ЕДИНЫЙ дрейф долготы — одна сторона, постоянная скорость, с 1-го кадра.
+      const lng = driftBaseLng - (GLOBAL_DRIFT_DEG_S * (now - driftBaseT)) / 1000;
+      let lat = startLat;
+      let alt = OVERVIEW_ALTITUDE;
 
       if (phase === "sunrise") {
-        // Естественный ход Земли (на восток = убывание долготы камеры) с 1-го кадра.
-        const lng = startLng - (SUNRISE_DRIFT_DEG_S * elapsed) / 1000;
-        try {
-          gg.pointOfView({ lat: startLat, lng, altitude: OVERVIEW_ALTITUDE }, 0);
-        } catch {
-          // ignore
-        }
-        if (elapsed >= SUNRISE_HOLD_MS) {
-          const target = userLatLngRef.current || fallbackTarget();
-          flyStart = { lat: startLat, lng, alt: OVERVIEW_ALTITUDE };
-          // Естественный (восточный) путь к цели = ТОЛЬКО убывание долготы (без хода
-          // против вращения Земли). Для юзеров западнее 150°E путь короткий.
-          flyDeltaLng = (((lng - target.lng) % 360) + 360) % 360;
-          flyStartAt = now;
-          phase = "fly";
-        }
-        return;
-      }
-
-      if (phase === "fly") {
-        // Плавный пролёт к геолокации естественным ходом (без раскрутки против Земли).
+        lat = startLat;
+        alt = OVERVIEW_ALTITUDE;
+        if (elapsed >= SUNRISE_HOLD_MS) { flyStartAt = now; phase = "fly"; }
+      } else if (phase === "fly") {
+        // Приближение к геолокации: меняем ТОЛЬКО широту и высоту (долгота — общий дрейф).
         const p = Math.min(1, (now - flyStartAt) / FLY_MS);
         const e = easeInOutCubic(p);
         const target = userLatLngRef.current || fallbackTarget();
-        const lat = flyStart.lat + (target.lat - flyStart.lat) * e;
-        const lng = flyStart.lng - flyDeltaLng * e;
-        const alt = flyStart.alt + (ARRIVE_ALTITUDE - flyStart.alt) * e;
-        try {
-          gg.pointOfView({ lat, lng, altitude: alt }, 0);
-        } catch {
-          // ignore
-        }
+        lat = startLat + (target.lat - startLat) * e;
+        alt = OVERVIEW_ALTITUDE + (ARRIVE_ALTITUDE - OVERVIEW_ALTITUDE) * e;
         if (p >= 1) {
-          arrive.lat = lat;
-          arrive.lng = lng;
-          winkAnchorRef.current = { lat, lng };
+          const t2 = userLatLngRef.current || fallbackTarget();
+          arrive.lat = t2.lat;
+          winkAnchorRef.current = { lat: t2.lat, lng: t2.lng };
           winkActiveRef.current = true;
           morseWordRef.current = "MUZA"; // приветствие Морзе из точки геолокации
           startMorse();
           holdAt = now;
           phase = "hold";
         }
-        return;
-      }
-
-      if (phase === "hold") {
-        // Пауза у точки: мягкий естественный дрейф, точка крупно, Морзе-приветствие.
-        const lng = arrive.lng - (CRUISE_DRIFT_DEG_S * 0.5 * (now - holdAt)) / 1000;
-        try {
-          gg.pointOfView({ lat: arrive.lat, lng, altitude: ARRIVE_ALTITUDE }, 0);
-        } catch {
-          // ignore
-        }
+      } else if (phase === "hold") {
+        lat = arrive.lat;
+        alt = ARRIVE_ALTITUDE;
         if (now - holdAt >= ARRIVE_HOLD_MS) {
           departAt = now;
-          departLng = lng;
           morseWordRef.current = "POKA TVOYA MUZA"; // прощание Морзе на отъезде
           phase = "depart";
         }
-        return;
-      }
-
-      if (phase === "depart") {
-        // Панорамный отъезд: altitude ARRIVE→CRUISE, точка пропорционально уменьшается.
+      } else if (phase === "depart") {
+        // Панорамный отъезд: высота ARRIVE→CRUISE (точка пропорционально уменьшается).
         const p = Math.min(1, (now - departAt) / DEPART_MS);
         const e = easeInOutCubic(p);
-        const alt = ARRIVE_ALTITUDE + (CRUISE_ALTITUDE - ARRIVE_ALTITUDE) * e;
-        const lng = departLng - (CRUISE_DRIFT_DEG_S * (now - departAt)) / 1000;
-        try {
-          gg.pointOfView({ lat: arrive.lat, lng, altitude: alt }, 0);
-        } catch {
-          // ignore
-        }
+        lat = arrive.lat;
+        alt = ARRIVE_ALTITUDE + (CRUISE_ALTITUDE - ARRIVE_ALTITUDE) * e;
         if (p >= 1) {
           cruise.lat = arrive.lat;
-          cruise.lng = lng;
           cruise.alt = CRUISE_ALTITUDE;
-          cruise.t0 = now;
+          if (zoomTargetRef.current == null) zoomTargetRef.current = CRUISE_ALTITUDE;
           winkActiveRef.current = false; // прощание завершено — точка гаснет
           phase = "cruise";
         }
-        return;
+      } else {
+        // cruise: широта фикс, высота ПЛАВНО едет к цели зума (без скачков).
+        lat = cruise.lat;
+        const tgt = zoomTargetRef.current ?? CRUISE_ALTITUDE;
+        cruise.alt += (tgt - cruise.alt) * 0.1;
+        alt = cruise.alt;
       }
 
-      // cruise — мягкое непрерывное вращение в естественную сторону (не статика, не «мяч»).
-      const lng = cruise.lng - (CRUISE_DRIFT_DEG_S * (now - cruise.t0)) / 1000;
       try {
-        gg.pointOfView({ lat: cruise.lat, lng, altitude: cruise.alt }, 0);
+        gg.pointOfView({ lat, lng, altitude: alt }, 0);
       } catch {
         // ignore
       }
@@ -1221,35 +1211,42 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         // ignore
       }
 
-      // Динамический блик Солнца (Босс 2026-05-29, референс «рассвет из космоса»):
-      // когда Солнце у КРАЯ Земли и камера смотрит в его сторону (сквозь лимб) —
-      // яркие лучи к кадру (большой блик); на тангенциальных углах (рассвет/закат
-      // вбок) свечение меньше; глубоко за Землёй спрайт перекрыт globe-мешем (depth).
+      // Динамический СЛЕПЯЩИЙ блик Солнца (Босс 2026-05-29 «надо чтобы прям слепило,
+      // играли лучи» + «переменная яркость в зависимости от центра Солнца и линии
+      // Земли»). Яркость = look(камера смотрит на Солнце) × кривая по знаковому
+      // расстоянию ЦЕНТРА Солнца до ЛИНИИ лимба (d=sunAngle−earthAng): пик у самого
+      // края (кресует), мягкий спад наружу, гаснет вглубь за диск. Лучи «играют»
+      // (медленное вращение material.rotation) + лёгкий пульс. Диапазон широкий —
+      // на кресте слепит. Глубоко за Землёй спрайт перекрыт globe-мешем (depthTest).
       try {
         const sun = sunMeshRef.current;
         const cam = g.camera?.();
         if (sun && cam?.position) {
           const cp = cam.position;
           const camDist = Math.hypot(cp.x, cp.y, cp.z) || 1;
-          // camera→центр Земли (камера всегда смотрит в центр сцены)
           const vEx = -cp.x / camDist, vEy = -cp.y / camDist, vEz = -cp.z / camDist;
-          // camera→Солнце
           const spp = sun.position;
           let sx = spp.x - cp.x, sy = spp.y - cp.y, sz = spp.z - cp.z;
           const sl = Math.hypot(sx, sy, sz) || 1;
           sx /= sl; sy /= sl; sz /= sl;
           const align = Math.max(-1, Math.min(1, vEx * sx + vEy * sy + vEz * sz));
-          const look = Math.max(0, align);                       // 0..1 — смотрим ли на Солнце
-          const sunAngle = Math.acos(align);                     // смещение Солнца от центра кадра
-          const earthAng = Math.asin(Math.min(1, 100 / camDist)); // угловой радиус Земли
-          const limbPeak = Math.exp(
-            -Math.pow((sunAngle - earthAng) / (earthAng * 0.5 + 1e-3), 2),
-          ); // пик при солнце на лимбе
-          const intensity = Math.max(0, Math.min(1.5, look * (0.5 + 1.0 * limbPeak)));
-          const s = 74 * (0.5 + 1.0 * intensity); // размер блика
+          const look = Math.max(0, align);
+          const sunAngle = Math.acos(align);
+          const earthAng = Math.asin(Math.min(1, 100 / camDist));
+          const d = sunAngle - earthAng; // <0 центр за диском, ~0 на линии Земли, >0 снаружи
+          const sigma = earthAng * 0.6 + 0.02;
+          // Пик чуть ВНУТРЬ (d≈−0.15·earthAng) — момент «креста», когда слепит сильнее.
+          const limbPeak = Math.exp(-Math.pow((d + earthAng * 0.15) / sigma, 2));
+          // Гаснет вглубь за диск (там globe-меш и так перекрывает).
+          const occl = d < -earthAng ? Math.max(0, 1 + (d + earthAng) / earthAng) : 1;
+          // Лёгкий пульс «играющих» лучей.
+          const pulseSun = 0.92 + 0.08 * Math.sin(now / 360);
+          const intensity = Math.max(0, Math.min(1.7, look * (0.3 + 1.25 * limbPeak) * occl * pulseSun));
+          const s = 64 * (0.4 + 1.5 * intensity); // слепящий разброс размера
           sun.scale.set(s, s, 1);
           if (sun.material) {
-            sun.material.opacity = Math.max(0.28, Math.min(1, 0.32 + 0.7 * intensity));
+            sun.material.opacity = Math.max(0.18, Math.min(1, 0.2 + 0.95 * intensity));
+            sun.material.rotation = (now / 9000) % (Math.PI * 2); // лучи «играют»
           }
         }
       } catch {
@@ -1410,18 +1407,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       try {
         const scene = g.scene?.();
         if (scene && !sunMeshRef.current) {
-          const sun = makeDiscSprite(
-            [
-              // Плотное светящееся ЯДРО (тело шара) → мягкая корона/гало (излучает свет).
-              [0.0, "rgba(255,255,255,1)"],
-              [0.16, "rgba(255,246,210,1)"],
-              [0.32, "rgba(255,216,140,0.9)"],
-              [0.6, "rgba(255,190,108,0.4)"],
-              [1.0, "rgba(255,170,80,0)"],
-            ],
-            74,
-            true, // additive — яркое солнечное свечение
-          );
+          const sun = makeSunFlareSprite(74); // слепящая вспышка с лучами
           if (sun) {
             scene.add(sun);
             sunMeshRef.current = sun;
