@@ -2995,6 +2995,11 @@ export function FloatingConsultant() {
           }}
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
+          onDoubleClick={(e) => {
+            // Eugene 2026-05-29 Босс «либо двойной клик по FAB закрывает её».
+            e.preventDefault();
+            dismiss();
+          }}
           onPointerDown={(e) => {
             // Eugene 2026-05-20: drag-to-expand для mouse/pen/touch (1 палец).
             if (e.isPrimary) {
@@ -3069,7 +3074,7 @@ export function FloatingConsultant() {
             onClick={(e) => { e.stopPropagation(); dismiss(); }}
             aria-label="Свернуть Музу"
             title={dismissedRef.current === 0 ? "Свернуть на 1 минуту" : "Свернуть на 1 час"}
-            className="absolute -bottom-2 left-1/2 -translate-x-1/2 z-20 w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 via-fuchsia-500 to-cyan-400 border border-white/30 text-white text-sm font-bold flex items-center justify-center shadow-[0_0_12px_rgba(217,70,239,0.55)] active:scale-90 transition-transform"
+            className="absolute -bottom-2 left-1/2 -translate-x-1/2 z-20 w-8 h-8 rounded-full bg-[#1a0f2e]/55 backdrop-blur-sm border border-purple-400/40 text-white/90 text-sm font-bold flex items-center justify-center hover:bg-[#1a0f2e]/80 active:scale-90 transition-all"
           >×</button>
         )}
       </div>
