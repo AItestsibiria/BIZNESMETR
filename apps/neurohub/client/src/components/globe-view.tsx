@@ -1377,7 +1377,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         controls.autoRotate = false;
         controls.autoRotateSpeed = 0;
         controls.enableDamping = false;
-        controls.enableZoom = true;
+        // Зум колесом ВЫКЛ (Босс 2026-05-29: колесо мыши = закрытие 3D-окна; зум —
+        // через кнопки +/− в плеере). enablePan тоже выкл.
+        controls.enableZoom = false;
         controls.enablePan = false;
         controls.minDistance = 180;
         controls.maxDistance = 600;

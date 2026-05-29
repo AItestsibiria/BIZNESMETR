@@ -735,10 +735,54 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const globeOpenedAtRef = useRef(0);
   const globeCloseTimerRef = useRef<number | null>(null);
   const globeTapStartRef = useRef<{ x: number; y: number; t: number } | null>(null);
+  const globeLastTapRef = useRef(0); // детекция ДВОЙНОГО тапа (закрытие 3D-окна)
   // Раскрытие обложки в центре (Босс 2026-05-29 «плавно разворачивается/сворачивается»)
   const [globeCoverExpanded, setGlobeCoverExpanded] = useState(false);
   // 🎧 Топ-100 плейлиста в плеере 3D (как на основном плеере)
   const [globeTopOpen, setGlobeTopOpen] = useState(false);
+  // В полноэкранном режиме (Босс 2026-05-29 «через 3 сек плеер исчезает и появляется
+  // при контакте»): авто-скрытие шапки/плеера/подвала после 3с бездействия.
+  const [globeUiHidden, setGlobeUiHidden] = useState(false);
+  const globeUiHideTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!globeFullscreen) {
+      setGlobeUiHidden(false);
+      if (globeUiHideTimerRef.current) window.clearTimeout(globeUiHideTimerRef.current);
+      return;
+    }
+    const arm = () => {
+      setGlobeUiHidden(false);
+      if (globeUiHideTimerRef.current) window.clearTimeout(globeUiHideTimerRef.current);
+      globeUiHideTimerRef.current = window.setTimeout(() => setGlobeUiHidden(true), 3000);
+    };
+    arm();
+    document.addEventListener("pointermove", arm);
+    document.addEventListener("pointerdown", arm);
+    document.addEventListener("keydown", arm);
+    return () => {
+      document.removeEventListener("pointermove", arm);
+      document.removeEventListener("pointerdown", arm);
+      document.removeEventListener("keydown", arm);
+      if (globeUiHideTimerRef.current) window.clearTimeout(globeUiHideTimerRef.current);
+    };
+  }, [globeFullscreen]);
+
+  // Закрытие 3D-окна (Босс 2026-05-29 «только: вернуться к музе, 2 тапа на экране,
+  // скролл мыши и клавиатура»): колесо мыши и любая клавиша → плавное закрытие.
+  // Двойной тап — на области глобуса. Одиночный тап/backdrop/× больше НЕ закрывают.
+  useEffect(() => {
+    if (!showGlobe) return;
+    const onWheel = () => closeGlobe();
+    const onKey = () => closeGlobe();
+    window.addEventListener("wheel", onWheel, { passive: true });
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("wheel", onWheel);
+      window.removeEventListener("keydown", onKey);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showGlobe]);
 
   useEffect(() => {
     if (showGlobe) { globeOpenedAtRef.current = Date.now(); setGlobeClosing(false); }
@@ -2731,7 +2775,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             // Босс 2026-05-29 «не резкое сворачивание — плавно 1 сек».
                             opacity: globeClosing ? 0 : 1,
                           }}
-                          onClick={closeGlobe}
                           role="dialog"
                           aria-label="3D-глобус стран"
                         >
@@ -2759,28 +2802,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             }}
                             onClick={(e) => e.stopPropagation()}
                           >
-                            {/* Шапка */}
-                            <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-purple-400/20 shrink-0">
+                            {/* Шапка — только заголовок (закрытие через плеер/двойной тап/
+                                скролл/клавиатуру). В фуллскрине авто-скрывается через 3с. */}
+                            <div
+                              className="flex items-center justify-center gap-2 px-4 py-3 border-b border-purple-400/20 shrink-0 transition-opacity duration-300"
+                              style={{ opacity: globeUiHidden ? 0 : 1, pointerEvents: globeUiHidden ? "none" : "auto" }}
+                            >
                               <h3 className="min-w-0 truncate text-base font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent m-0">
                                 🌍 MuzaAi in The World
                               </h3>
-                              <div className="flex items-center gap-2 shrink-0">
-                                {/* Босс 2026-05-29 «большая кнопка Космос и Земля на полный экран» */}
-                                <button
-                                  type="button"
-                                  onClick={(e) => { e.stopPropagation(); toggleGlobeFullscreen(); }}
-                                  className="px-3.5 py-2 rounded-xl text-[13px] font-bold text-white bg-gradient-to-r from-purple-500/70 via-fuchsia-500/60 to-cyan-500/60 border border-white/20 hover:from-purple-500/90 hover:to-cyan-500/80 active:scale-95 transition-all whitespace-nowrap shadow-[0_0_18px_rgba(124,58,237,0.45)]"
-                                  aria-label={globeFullscreen ? "Выйти из полного экрана" : "Космос и Земля — на весь экран"}
-                                >
-                                  {globeFullscreen ? "✦ Свернуть" : "✦ Космос и Земля"}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={(e) => { e.stopPropagation(); closeGlobe(); }}
-                                  className="text-white/60 hover:text-white text-2xl leading-none px-2 -mr-1"
-                                  aria-label="Закрыть глобус"
-                                >×</button>
-                              </div>
                             </div>
                             {/* Сам глобус — занимает основную область */}
                             {/* Босс 2026-05-29 «на планшете беда — на весь экран»: область
@@ -2797,7 +2827,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 globeTapStartRef.current = null;
                                 if (!s) return;
                                 const moved = Math.hypot(e.clientX - s.x, e.clientY - s.y);
-                                if (moved < 10 && Date.now() - s.t < 400) closeGlobe();
+                                if (moved >= 10 || Date.now() - s.t >= 400) return; // драг (вращение) — не тап
+                                // Босс 2026-05-29: закрывает ТОЛЬКО ДВОЙНОЙ тап (2 тапа на экране).
+                                const nowT = Date.now();
+                                if (nowT - globeLastTapRef.current < 400) { globeLastTapRef.current = 0; closeGlobe(); }
+                                else { globeLastTapRef.current = nowT; }
                               }}
                             >
                               <ErrorBoundary
@@ -2818,26 +2852,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   />
                                 </Suspense>
                               </ErrorBoundary>
-                              {/* Зум +/− (Босс 2026-05-29). stopPropagation на pointer —
-                                  чтобы тап по кнопке не закрывал режим (tap-to-close выше). */}
-                              <div
-                                className="absolute right-3 top-1/2 -translate-y-1/2 z-20 flex flex-col gap-2"
-                                onPointerDown={(e) => e.stopPropagation()}
-                                onPointerUp={(e) => e.stopPropagation()}
-                              >
-                                <button
-                                  type="button"
-                                  onClick={(e) => { e.stopPropagation(); try { window.dispatchEvent(new CustomEvent("muza:globe-zoom", { detail: { dir: -1 } })); } catch { /* no-op */ } }}
-                                  className="w-11 h-11 rounded-full bg-white/10 border border-white/20 text-white text-2xl leading-none flex items-center justify-center hover:bg-white/20 active:scale-90 transition-all backdrop-blur-sm"
-                                  aria-label="Приблизить"
-                                >+</button>
-                                <button
-                                  type="button"
-                                  onClick={(e) => { e.stopPropagation(); try { window.dispatchEvent(new CustomEvent("muza:globe-zoom", { detail: { dir: 1 } })); } catch { /* no-op */ } }}
-                                  className="w-11 h-11 rounded-full bg-white/10 border border-white/20 text-white text-2xl leading-none flex items-center justify-center hover:bg-white/20 active:scale-90 transition-all backdrop-blur-sm"
-                                  aria-label="Отдалить"
-                                >−</button>
-                              </div>
+                              {/* Зум +/− перенесён в плеер (Босс 2026-05-29 «все кнопки в плеере»). */}
                             </div>
                             {/* Мини-плеер под глобусом (Босс: автоплей «Муза» → автоповтор по топу) */}
                             {(() => {
@@ -2848,8 +2863,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 // (вертикальный скролл работает), горизонтальный drag
                                 // → skipPrev/skipNext (Swipe-row-spring-back pattern).
                                 <div
-                                  className="px-4 py-2 border-t border-purple-400/15 shrink-0 flex items-center justify-center gap-2 sm:gap-3"
-                                  style={{ touchAction: "pan-y" }}
+                                  className="px-3 py-1.5 border-t border-purple-400/15 shrink-0 flex flex-wrap items-center justify-center gap-1.5 sm:gap-2 transition-opacity duration-300"
+                                  style={{ touchAction: "pan-y", opacity: globeUiHidden ? 0 : 1, pointerEvents: globeUiHidden ? "none" : "auto" }}
                                   onPointerDown={(e) => {
                                     globeMiniSwipeStartXRef.current = e.clientX;
                                     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* no-op */ }
@@ -2912,83 +2927,91 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                       {gt.displayTitle || gt.prompt?.slice(0, 40) || "Муза"}
                                     </p>
                                   </div>
-                                  {/* Контролы ×3 (Босс «кнопки в 3 раза увеличь по горизонту») */}
+                                  {/* Контролы — ПРОЗРАЧНЫЕ, только контур (Босс 2026-05-29
+                                      «кнопки прозрачные, только контур; высота в 2 раза меньше»). */}
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); skipPrev(); }}
-                                    className="shrink-0 w-14 h-14 sm:w-20 sm:h-20 rounded-full flex items-center justify-center text-white/85 bg-white/5 hover:bg-white/15 active:scale-90 transition-all border border-white/10"
+                                    className="shrink-0 w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center text-white/85 bg-transparent border border-white/35 hover:border-white/70 active:scale-90 transition-all"
                                     aria-label="Предыдущий трек"
                                   >
-                                    <SkipBack className="w-7 h-7 sm:w-9 sm:h-9" />
+                                    <SkipBack className="w-5 h-5" />
                                   </button>
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); togglePlay(gt); }}
-                                    className="shrink-0 w-16 h-16 sm:w-24 sm:h-24 rounded-full flex items-center justify-center text-white bg-white/20 border border-white/30 hover:bg-white/25 active:scale-90 transition-all shadow-[0_0_24px_rgba(124,58,237,0.4)]"
+                                    className="shrink-0 w-12 h-12 sm:w-14 sm:h-14 rounded-full flex items-center justify-center text-white bg-transparent border-2 border-white/55 hover:border-white/90 active:scale-90 transition-all"
                                     aria-label={isPlayingState ? "Пауза" : "Слушать"}
                                   >
-                                    {isPlayingState ? <Pause className="w-8 h-8 sm:w-11 sm:h-11" fill="currentColor" /> : <Play className="w-8 h-8 sm:w-11 sm:h-11 ml-1" fill="currentColor" />}
+                                    {isPlayingState ? <Pause className="w-5 h-5 sm:w-6 sm:h-6" fill="currentColor" /> : <Play className="w-5 h-5 sm:w-6 sm:h-6 ml-0.5" fill="currentColor" />}
                                   </button>
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); skipNext(); }}
-                                    className="shrink-0 w-14 h-14 sm:w-20 sm:h-20 rounded-full flex items-center justify-center text-white/85 bg-white/5 hover:bg-white/15 active:scale-90 transition-all border border-white/10"
+                                    className="shrink-0 w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center text-white/85 bg-transparent border border-white/35 hover:border-white/70 active:scale-90 transition-all"
                                     aria-label="Следующий трек"
                                   >
-                                    <SkipForward className="w-7 h-7 sm:w-9 sm:h-9" />
+                                    <SkipForward className="w-5 h-5" />
                                   </button>
-                                  {/* 🎧 Топ-100 справа от «вперёд» (как на основном плеере) */}
+                                  {/* Правый кластер — ВСЕ кнопки в плеере (Босс 2026-05-29):
+                                      🎧 топ-100 · зум +/− · полноэкранный · вернуться · поделиться.
+                                      Все прозрачные (контур), компактные. */}
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); setGlobeTopOpen(v => !v); }}
-                                    className="shrink-0 relative h-12 w-12 sm:h-14 sm:w-14 flex items-center justify-center hover:scale-110 active:scale-95 transition-transform"
-                                    aria-label="Топ-100 плейлиста"
-                                    aria-expanded={globeTopOpen}
-                                  >
-                                    <span className="text-3xl sm:text-4xl leading-none pointer-events-none">🎧</span>
-                                  </button>
+                                    className="shrink-0 h-10 w-10 sm:h-11 sm:w-11 rounded-full flex items-center justify-center text-lg bg-transparent border border-white/30 hover:border-white/60 active:scale-90 transition-all"
+                                    aria-label="Топ-100 плейлиста" aria-expanded={globeTopOpen}
+                                  >🎧</button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); try { window.dispatchEvent(new CustomEvent("muza:globe-zoom", { detail: { dir: -1 } })); } catch { /* no-op */ } }}
+                                    className="shrink-0 h-10 w-10 sm:h-11 sm:w-11 rounded-full flex items-center justify-center text-xl leading-none text-white/85 bg-transparent border border-white/30 hover:border-white/60 active:scale-90 transition-all"
+                                    aria-label="Приблизить"
+                                  >+</button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); try { window.dispatchEvent(new CustomEvent("muza:globe-zoom", { detail: { dir: 1 } })); } catch { /* no-op */ } }}
+                                    className="shrink-0 h-10 w-10 sm:h-11 sm:w-11 rounded-full flex items-center justify-center text-xl leading-none text-white/85 bg-transparent border border-white/30 hover:border-white/60 active:scale-90 transition-all"
+                                    aria-label="Отдалить"
+                                  >−</button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); toggleGlobeFullscreen(); }}
+                                    className="shrink-0 h-10 w-10 sm:h-11 sm:w-11 rounded-full flex items-center justify-center text-base bg-transparent border border-white/30 hover:border-white/60 active:scale-90 transition-all"
+                                    aria-label={globeFullscreen ? "Свернуть" : "Полный экран — Космос и Земля"}
+                                  >{globeFullscreen ? "🗗" : "⛶"}</button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); try { window.dispatchEvent(new CustomEvent("muza:open-chat")); } catch { /* no-op */ } closeGlobe(); }}
+                                    className="shrink-0 h-10 px-3 rounded-full flex items-center justify-center text-[11px] font-semibold text-white/85 bg-transparent border border-purple-300/45 hover:border-purple-300/80 active:scale-95 transition-all whitespace-nowrap"
+                                    aria-label="Вернуться к Музе"
+                                  >Вернуться</button>
+                                  <button
+                                    type="button"
+                                    onClick={async (e) => {
+                                      e.stopPropagation();
+                                      const url = `${window.location.origin}/?globecard=1`;
+                                      const shareData = { title: "MuzaAi — Мир Музыки без границ", text: "Нас слушают по всему миру 🌍 Твоя Муза", url };
+                                      try { if (navigator.share) { await navigator.share(shareData); return; } } catch { /* отменили шеринг */ }
+                                      try { await navigator.clipboard.writeText(url); toast({ title: "Ссылка скопирована", description: "Поделись Музой 💜" }); } catch { /* no-op */ }
+                                    }}
+                                    className="shrink-0 h-10 px-3 rounded-full flex items-center justify-center text-[11px] font-semibold text-white/85 bg-transparent border border-fuchsia-300/45 hover:border-fuchsia-300/80 active:scale-95 transition-all whitespace-nowrap"
+                                    aria-label="Поделись Музой"
+                                  >Поделись</button>
                                 </div>
                               );
                             })()}
-                            {/* Подпись + кнопки (Босс: слоган под глобусом + 2 кнопки справа) */}
-                            <div className="px-4 py-2.5 border-t border-purple-400/20 shrink-0 flex items-center justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="text-[12px] font-display font-bold m-0 leading-tight bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent">
-                                  MuzaAi — Мир Музыки без границ
-                                </p>
-                                <p className="text-[10px] font-sans text-white/45 m-0 leading-tight">
-                                  Стран: <span className="tabular-nums text-cyan-300 font-semibold">{countriesCount}</span> · твоя Муза
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-2 shrink-0">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setShowGlobe(false);
-                                    try { window.dispatchEvent(new CustomEvent("muza:open-chat")); } catch { /* no-op */ }
-                                  }}
-                                  className="px-3 py-1.5 rounded-xl text-[11px] font-semibold text-white bg-white/10 border border-purple-400/30 hover:bg-white/15 active:scale-95 transition-all whitespace-nowrap"
-                                >
-                                  Вернуться к Музе
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={async () => {
-                                    const url = `${window.location.origin}/?globecard=1`;
-                                    const shareData = { title: "MuzaAi — Мир Музыки без границ", text: "Нас слушают по всему миру 🌍 Твоя Муза", url };
-                                    try {
-                                      if (navigator.share) { await navigator.share(shareData); return; }
-                                    } catch { /* отменили шеринг — не ошибка */ }
-                                    try {
-                                      await navigator.clipboard.writeText(url);
-                                      toast({ title: "Ссылка скопирована", description: "Поделись Музой 💜" });
-                                    } catch { /* no-op */ }
-                                  }}
-                                  className="px-3 py-1.5 rounded-xl text-[11px] font-semibold text-white bg-white/5 hover:bg-white/10 border border-fuchsia-400/30 active:scale-95 transition-transform whitespace-nowrap"
-                                >
-                                  Поделись Музой
-                                </button>
-                              </div>
+                            {/* Подвал — только слоган + счётчик стран (кнопки перенесены в плеер). */}
+                            <div
+                              className="px-4 py-1.5 border-t border-purple-400/20 shrink-0 flex items-center justify-center gap-2 text-center transition-opacity duration-300"
+                              style={{ opacity: globeUiHidden ? 0 : 1, pointerEvents: globeUiHidden ? "none" : "auto" }}
+                            >
+                              <p className="text-[11px] font-display font-bold m-0 leading-tight bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent">
+                                MuzaAi — Мир Музыки без границ
+                              </p>
+                              <span className="text-[10px] font-sans text-white/45 leading-tight">
+                                · Стран: <span className="tabular-nums text-cyan-300 font-semibold">{countriesCount}</span>
+                              </span>
                             </div>
                             {/* Раскрытие обложки в центре (Босс 2026-05-29 «плавно
                                 разворачивается и сворачивается, моушн»). Рендерится всегда —
