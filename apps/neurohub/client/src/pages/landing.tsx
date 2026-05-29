@@ -2908,8 +2908,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             {/* Шапка — только заголовок. В фуллскрине скрывается СРАЗУ и плавно
                                 (Босс 2026-05-29 «фуллскрин сразу плавно включается»); плеер — через 3с. */}
                             <div
-                              className="flex items-center justify-center gap-2 px-4 py-3 border-b border-purple-400/20 shrink-0 transition-opacity duration-1000"
-                              style={{ opacity: globeUiHidden ? 0 : 1, pointerEvents: globeUiHidden ? "none" : "auto" }}
+                              className="flex items-center justify-center gap-2 px-4 py-3 border-b border-purple-400/20 shrink-0 transition-all duration-1000"
+                              style={{ opacity: globeUiHidden ? 0 : 1, pointerEvents: globeUiHidden ? "none" : "auto", transform: globeUiHidden ? "translateY(-120%)" : "translateY(0)" }}
                             >
                               <h3 className="min-w-0 truncate text-base font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent m-0">
                                 🌍 MuzaAi in The World
@@ -2966,8 +2966,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 // (вертикальный скролл работает), горизонтальный drag
                                 // → skipPrev/skipNext (Swipe-row-spring-back pattern).
                                 <div
-                                  className="px-3 py-1.5 border-t border-purple-400/15 shrink-0 grid grid-cols-[1fr_auto_1fr] items-center gap-2 transition-opacity duration-1000"
-                                  style={{ touchAction: "pan-y", opacity: globeUiHidden ? 0 : 1, pointerEvents: globeUiHidden ? "none" : "auto" }}
+                                  className="px-3 py-1.5 border-t border-purple-400/15 shrink-0 grid grid-cols-[1fr_auto_1fr] items-center gap-2 transition-all duration-1000"
+                                  style={{ touchAction: "pan-y", opacity: globeUiHidden ? 0 : 1, pointerEvents: globeUiHidden ? "none" : "auto", transform: globeUiHidden ? "translateY(130%)" : "translateY(0)" }}
                                   onPointerDown={(e) => {
                                     globeMiniSwipeStartXRef.current = e.clientX;
                                     try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* no-op */ }
@@ -3121,8 +3121,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             })()}
                             {/* Подвал — только слоган + счётчик стран (кнопки перенесены в плеер). */}
                             <div
-                              className="px-4 py-1.5 border-t border-purple-400/20 shrink-0 flex items-center justify-center gap-2 text-center transition-opacity duration-1000"
-                              style={{ opacity: globeUiHidden ? 0 : 1, pointerEvents: globeUiHidden ? "none" : "auto" }}
+                              className="px-4 py-1.5 border-t border-purple-400/20 shrink-0 flex items-center justify-center gap-2 text-center transition-all duration-1000"
+                              style={{ opacity: globeUiHidden ? 0 : 1, pointerEvents: globeUiHidden ? "none" : "auto", transform: globeUiHidden ? "translateY(130%)" : "translateY(0)" }}
                             >
                               <p className="text-[11px] font-display font-bold m-0 leading-tight bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent">
                                 MuzaAi — Мир Музыки без границ
