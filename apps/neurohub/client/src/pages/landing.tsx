@@ -598,6 +598,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // к активной строке (эффект ниже), когда трек переключён КНОПКАМИ плеера
   // (skipPrev/skipNext/expandPrev/expandNext), а не тапом по строке плейлиста.
   const suppressRowScrollRef = useRef(false);
+  // Босс 2026-05-29 «при новой загрузке страница пролетает вниз до текущего трека».
+  // НЕ скроллим к активной строке при первичном (восстановленном) playingId — только
+  // при последующих сменах трека (тап по строке плейлиста).
+  const activeRowScrollReadyRef = useRef(false);
   // Eugene 2026-05-16 Босс «кнопка раскрыть (expand) на плееры везде».
   // coverExpanded — column-layout активного плеера: cover full-width сверху,
   // controls под ним. False = row-layout (current default).
@@ -1562,6 +1566,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // (не дёргаем юзера от плеера наверху). Подсветка активного — уже есть (isActive).
   useEffect(() => {
     if (!playingId) return;
+    // Босс 2026-05-29: при первичной загрузке (восстановление трека) НЕ скроллим —
+    // иначе страница «пролетает вниз» к текущему треку при заходе.
+    if (!activeRowScrollReadyRef.current) { activeRowScrollReadyRef.current = true; return; }
     // Босс 2026-05-29: трек переключён КНОПКАМИ плеера (skip/expand) → НЕ скроллим
     // страницу к активной строке/раскрытому плееру 2. Скролл оставляем только для
     // тапа по строке плейлиста (исходный смысл правила 2026-05-28).
@@ -2275,7 +2282,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         <div aria-hidden="true" style={{ height: playerTopSpacer }} className="shrink-0" />
         {/* Big player — full-width, visible details */}
         {currentTrack && (
-          <div ref={bigPlayerRef} className="glass-card rounded-2xl p-5 mb-6 border border-white/[0.06] relative">
+          <div ref={bigPlayerRef} data-main-player className="glass-card rounded-2xl p-5 mb-6 border border-white/[0.06] relative">
             {/* Eugene 2026-05-21 Босс: «Плей и S в наложении». S смещена дальше от
                 края (top-3 right-3 = 12px) + меньше на mobile (w-9 h-9 vs sm:w-11 h-11).
                 Применено в обоих местах S — main player FAB + inline expanded. */}
