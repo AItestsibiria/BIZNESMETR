@@ -1315,6 +1315,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // только обновляем метаданные (plays, displayTitle, imageUrl).
   const sortModeRef = useRef(sortMode);
   useEffect(() => { sortModeRef.current = sortMode; }, [sortMode]);
+  // Eugene 2026-05-30 (аудит CRITICAL): рефы playlistKind/sortDir для refresh-эффекта
+  // с пустыми deps. Без них замыкание ловило начальное значение → 5-мин refresh и
+  // visibility/focus-refetch дёргали `?sort=...` БЕЗ `status=` (сервер дефолтил на
+  // status=main) и со стейлом dir → треки из main подмешивались в `new`, ломая
+  // Playlist-strict-selection + Playlist-category-no-mix.
+  const playlistKindRef = useRef(playlistKind);
+  useEffect(() => { playlistKindRef.current = playlistKind; }, [playlistKind]);
+  const sortDirRef = useRef(sortDir);
+  useEffect(() => { sortDirRef.current = sortDir; }, [sortDir]);
   const mergePlaylist = useCallback((incoming: any[]) => {
     setTracks(prev => {
       if (sortModeRef.current !== "random") return incoming;
@@ -1547,7 +1556,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     // mergePlaylist, чтобы для random сохранять текущий порядок.
     // Eugene 2026-05-20: r.ok + Array.isArray guard (frontend-audit fix).
     const safeMergeRefresh = () => {
-      fetch(`/api/playlist?sort=${sortModeRef.current}&dir=${sortDir}&seed=${playlistSeedRef.current}&_=${Date.now()}`, { cache: 'no-store' })
+      fetch(`/api/playlist?status=${playlistKindRef.current}&sort=${sortModeRef.current}&dir=${sortDirRef.current}&seed=${playlistSeedRef.current}&_=${Date.now()}`, { cache: 'no-store' })
         .then(r => {
           if (!r.ok) throw new Error(`playlist HTTP ${r.status}`);
           return r.json();
@@ -3554,7 +3563,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   if (mode === "random") {
                     setSortMode("random");
                     trackChoice("random");
-                    fetch(`/api/playlist?sort=random&dir=desc`)
+                    fetch(`/api/playlist?status=${playlistKind}&sort=random&dir=desc&seed=${playlistSeedRef.current}`)
                       .then(r => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
                       .then(d => { if (!Array.isArray(d)) throw new Error("not-array"); setTracks(d); })
                       .catch(() => {}); // bad response → не перезаписываем tracks мусором (плеер не исчезает)
