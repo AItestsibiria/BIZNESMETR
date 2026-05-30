@@ -27,6 +27,7 @@ import { motion, useDragControls, AnimatePresence } from "framer-motion";
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { GlobeLoader } from "@/components/globe-loader";
+import { SolarLabel } from "@/components/solar-label";
 
 // Eugene 2026-05-26 Босс «настоящий 3D-глобус». Lazy-load — тяжёлый chunk
 // (three.js + react-globe.gl ~600KB) грузится только при открытии глобуса,
@@ -2976,6 +2977,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   />
                                 </Suspense>
                               </ErrorBoundary>
+                              {/* Solar planet label overlay (Босс 2026-05-30 п.1+2):
+                                  «При пролете полупрозрачную надпись на Английском —
+                                  название планеты в Стиле Муза Ай. При вращении в сторону
+                                  земли явно видная». Position fixed — поверх canvas. */}
+                              <SolarLabel />
                               {/* Зум +/− перенесён в плеер (Босс 2026-05-29 «все кнопки в плеере»). */}
                             </div>
                             {/* Мини-плеер под глобусом (Босс: автоплей «Муза» → автоповтор по топу) */}

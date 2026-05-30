@@ -52,6 +52,7 @@ import {
 // @ts-expect-error — нет @types/three; runtime-импорт валиден, типы добавим вместе с @types/three.
 import * as THREE_NS from "three";
 import { GlobeLoader } from "@/components/globe-loader";
+import { setSolarLabelState, clearSolarLabelState } from "@/components/solar-label";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const THREE: any = THREE_NS as any;
 
@@ -898,9 +899,13 @@ const PLANET_STYLE: Record<string, { rgb: [number, number, number]; size: number
 const PLANET_WORLD_RADIUS = 1500;
 
 // Названия планет на английском (подпись при наведении — Босс 2026-05-29).
+// Расширено 2026-05-30 (Босс п.1 «При пролете полупрозрачную надпись на Английском
+// — название планеты в Стиле Муза Ай»): добавлены Moon и Earth для solar-тура.
 const PLANET_NAMES: Record<string, string> = {
+  moon: "Moon",
   mercury: "Mercury",
   venus: "Venus",
+  earth: "Earth",
   mars: "Mars",
   jupiter: "Jupiter",
   saturn: "Saturn",
@@ -2189,6 +2194,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         if (m === "solar" && flightModeRef.current === "solar") {
           solarRestartRef.current = true;
         }
+        // Босс 2026-05-30: при ВЫХОДЕ из solar — сбросить planet label overlay.
+        if (flightModeRef.current === "solar" && m !== "solar") {
+          try { clearSolarLabelState(); } catch { /* no-op */ }
+        }
         flightModeRef.current = m;
         holdRef.current = false; // новый вход в режим снимает удержание
       }
@@ -3082,6 +3091,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                     solarStepIdx = 0;
                     solarStepStartCamPos = null;
                     flightModeRef.current = "classic";
+                    try { clearSolarLabelState(); } catch { /* no-op */ }
                     rebaseCruiseRef.current?.();
                   } else {
                     solarStepStartT = now;
@@ -3099,6 +3109,121 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                     ctrl.update?.();
                   }
                 } catch { /* no-op */ }
+
+                // ── Free-zoom flythrough «с любой планеты до любой в Сис» (Босс 2026-05-30 п.3).
+                // Если юзер зумит ВНУТРИ orbit-фазы и расстояние камеры до target
+                // превышает orbitR×2.8 → переход к следующему шагу (zoom-out → skip forward).
+                // Расстояние < orbitR×0.35 → переход к предыдущему шагу (zoom-in → skip back).
+                // Это позволяет пинч/колесом перепрыгивать между планетами в любом
+                // направлении, сохраняя sequential-тур по умолчанию.
+                try {
+                  // Чекаем только в orbit-фазе (approach уже сам ведёт камеру).
+                  if (phaseT >= step.approachMs && !isBelt) {
+                    const cp = camera.position;
+                    const dx = cp.x - targetPos.x;
+                    const dy = cp.y - targetPos.y;
+                    const dz = cp.z - targetPos.z;
+                    const camDist = Math.hypot(dx, dy, dz);
+                    // Zoom-out skip: камера далеко за орбитой → следующая планета.
+                    if (camDist > orbitR * 2.8 && solarStepIdx < SOLAR_TOUR.length - 1) {
+                      // Dispose текущей планеты + спутников.
+                      if (isPlanet && tourMesh) {
+                        try {
+                          tourMesh.group.parent?.remove?.(tourMesh.group);
+                          for (const child of tourMesh.group.children || []) {
+                            child.geometry?.dispose?.();
+                            child.material?.dispose?.();
+                          }
+                        } catch { /* no-op */ }
+                        solarMeshesRef.current[planetKey] = null;
+                        for (const sk of satellitesOf(planetKey)) {
+                          const s = solarSatellitesRef.current[sk];
+                          if (s) {
+                            try { s.mesh.geometry?.dispose?.(); s.mat?.dispose?.(); } catch { /* no-op */ }
+                            solarSatellitesRef.current[sk] = null;
+                          }
+                        }
+                        const sprEntry = planetsRef.current.find((p) => p.key === planetKey);
+                        if (sprEntry?.mesh) sprEntry.mesh.visible = true;
+                      }
+                      solarStepIdx += 1;
+                      solarStepStartT = now;
+                      solarStepStartCamPos = { x: cp.x, y: cp.y, z: cp.z };
+                    }
+                    // Zoom-in skip: камера вплотную к target → предыдущая планета (если есть).
+                    // Только если на orbit ≥ 2 секунды (защита от случайного перепрыга).
+                    else if (camDist < orbitR * 0.35 && (phaseT - step.approachMs) > 2000 && solarStepIdx > 0) {
+                      if (isPlanet && tourMesh) {
+                        try {
+                          tourMesh.group.parent?.remove?.(tourMesh.group);
+                          for (const child of tourMesh.group.children || []) {
+                            child.geometry?.dispose?.();
+                            child.material?.dispose?.();
+                          }
+                        } catch { /* no-op */ }
+                        solarMeshesRef.current[planetKey] = null;
+                        for (const sk of satellitesOf(planetKey)) {
+                          const s = solarSatellitesRef.current[sk];
+                          if (s) {
+                            try { s.mesh.geometry?.dispose?.(); s.mat?.dispose?.(); } catch { /* no-op */ }
+                            solarSatellitesRef.current[sk] = null;
+                          }
+                        }
+                        const sprEntry = planetsRef.current.find((p) => p.key === planetKey);
+                        if (sprEntry?.mesh) sprEntry.mesh.visible = true;
+                      }
+                      solarStepIdx -= 1;
+                      solarStepStartT = now;
+                      solarStepStartCamPos = { x: cp.x, y: cp.y, z: cp.z };
+                    }
+                  }
+                } catch { /* no-op */ }
+
+                // ── Solar planet label overlay (Босс 2026-05-30 п.1+2).
+                // Проекция world target → screen 2D через camera.project(). Earth/return
+                // — opacity 1.0 + scale 1.15 (явно видна). Остальные — 0.55, плавный
+                // fade-in в конце approach, fade-out перед сменой шага.
+                // Reuse-working-solutions: тот же паттерн что planetScreenRef.
+                try {
+                  const labelName = PLANET_NAMES[planetKey] || "";
+                  // Пояса и return — label не показываем (там нет конкретной планеты).
+                  if (!labelName || isBelt || planetKey === "return") {
+                    setSolarLabelState({ name: "", screenX: null, screenY: null, opacity: 0, scale: 1 });
+                  } else {
+                    const cam = gg.camera?.();
+                    const rect = wrapRef.current?.getBoundingClientRect?.();
+                    if (cam && rect) {
+                      const vec = new THREE.Vector3(targetPos.x, targetPos.y, targetPos.z);
+                      vec.project(cam);
+                      // vec.z в [-1..1] — за камерой если > 1 (или dot < 0 в view space).
+                      const inFront = vec.z < 1.0 && vec.z > -1.0;
+                      const sx = rect.left + ((vec.x + 1) / 2) * rect.width;
+                      const sy = rect.top + ((1 - vec.y) / 2) * rect.height;
+                      // Базовая прозрачность.
+                      const isEarthSpecial = planetKey === "earth";
+                      const baseOpacity = isEarthSpecial ? 1.0 : 0.55;
+                      // Fade-in в первые 500мс approach, full в orbit, fade-out
+                      // в последние 500мс до смены шага.
+                      let fadeMul = 1;
+                      if (phaseT < 500) {
+                        fadeMul = phaseT / 500;
+                      } else if (phaseT > stepDuration - 500) {
+                        fadeMul = Math.max(0, (stepDuration - phaseT) / 500);
+                      }
+                      const opacity = inFront ? baseOpacity * fadeMul : 0;
+                      const scale = isEarthSpecial ? 1.15 : 1.0;
+                      setSolarLabelState({
+                        name: labelName,
+                        screenX: inFront ? sx : null,
+                        screenY: inFront ? sy : null,
+                        opacity,
+                        scale,
+                      });
+                    }
+                  }
+                } catch {
+                  /* Player-render-resilience: label не критичен — режим без него работает. */
+                }
               }
             }
           }
@@ -3138,6 +3263,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           solarStepIdx = 0;
           solarStepStartCamPos = null;
           flightModeRef.current = "classic";
+          try { clearSolarLabelState(); } catch { /* no-op */ }
         }
         // Управляем камерой напрямую.
         return;
