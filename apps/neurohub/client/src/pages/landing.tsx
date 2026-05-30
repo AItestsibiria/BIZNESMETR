@@ -3292,18 +3292,41 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 </div>
                               );
                             })()}
-                            {/* Босс 2026-05-30: 3D-кнопки «↩ к Музе / 📤 Музой» — НИЖЕ плеера
-                                (не поверх), стиль повторяет плеерные (h-10 rounded-full text-[11px]).
-                                shrink-0 — не растягивает globe-area, кнопки всегда видны. */}
+                            {/* Босс 2026-05-30: 3D-кнопки НИЖЕ плеера (плеер всегда сверху всех
+                                кнопок), стиль минималистский — прозрачные с контурами + tooltip-title.
+                                Flex-wrap: 5 кнопок переносятся на 2 строки если не помещаются.
+                                Полёт/ПолётAi/🪐 — переключают режим, ↩/📤 — навигация. */}
                             <div
-                              className="shrink-0 px-3 py-2 flex flex-row items-center justify-center gap-2 border-t border-purple-400/15"
+                              className="shrink-0 px-3 py-2 flex flex-row flex-wrap items-center justify-center gap-1.5 border-t border-purple-400/15"
                               style={{ paddingBottom: globeFullscreen ? "max(env(safe-area-inset-bottom), 8px)" : "8px" }}
                             >
                               <button
                                 type="button"
+                                onClick={(e) => { e.stopPropagation(); setGlobeFlight("classic"); setFlightLabel({ key: "classic", shownAt: Date.now() }); try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "classic" } })); } catch { /* no-op */ } }}
+                                className={`relative shrink-0 h-9 px-2.5 rounded-full flex items-center justify-center text-[11px] font-semibold transition-all whitespace-nowrap border bg-transparent active:scale-95 ${globeFlight === "classic" ? "text-white border-cyan-300/85" : "text-white/80 border-white/25 hover:border-white/55"}`}
+                                aria-label="Полёт — классический обзор Земли"
+                                title="Полёт — классический обзор Земли с дрейфом"
+                              >Полёт</button>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setGlobeFlight("ai"); setFlightLabel({ key: "ai", shownAt: Date.now() }); try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "ai" } })); } catch { /* no-op */ } }}
+                                className={`relative shrink-0 h-9 px-2.5 rounded-full flex items-center justify-center gap-1 text-[11px] font-semibold transition-all whitespace-nowrap border bg-transparent active:scale-95 ${globeFlight === "ai" ? "text-white border-fuchsia-300/85" : "text-white/80 border-white/25 hover:border-white/55"}`}
+                                aria-label="Полёт Ai"
+                                title="Полёт Ai — режиссура Земля + Солнце + Луна в кадре"
+                              >Полёт <span className="font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">Ai</span></button>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setSolarWizardOpen(true); setFlightLabel({ key: "solar", shownAt: Date.now() }); }}
+                                className={`relative shrink-0 h-9 px-2.5 rounded-full flex items-center justify-center gap-1 text-[11px] font-semibold transition-all whitespace-nowrap border bg-transparent active:scale-95 ${globeFlight === "solar" ? "text-white border-purple-300/85" : "text-white/80 border-white/25 hover:border-white/55"}`}
+                                aria-label="Полёт по Солнечной системе"
+                                title="Полёт по Солнечной системе — wizard выбора планет и трека"
+                              >🪐 Солнечная</button>
+                              <button
+                                type="button"
                                 onClick={(e) => { e.stopPropagation(); if (globeFullscreen) toggleGlobeFullscreen(); }}
-                                className="flex-1 max-w-[180px] shrink-0 h-10 px-2.5 rounded-full flex items-center justify-center gap-1 text-[11px] font-semibold transition-all whitespace-nowrap border text-white/85 border-purple-300/50 hover:border-purple-300/90 bg-purple-400/10 active:scale-95"
-                                aria-label={globeFullscreen ? "Вернуться к Музе — выйти из полноэкранного режима" : "К плейлисту Музы"}
+                                className="shrink-0 h-9 px-2.5 rounded-full flex items-center justify-center gap-1 text-[11px] font-semibold transition-all whitespace-nowrap border bg-transparent text-white/80 border-purple-300/50 hover:border-purple-300/85 active:scale-95"
+                                aria-label={globeFullscreen ? "Вернуться к Музе" : "К плейлисту Музы"}
+                                title={globeFullscreen ? "Свернуть 3D и вернуться к Музе" : "Вернуться к плейлисту Музы"}
                               >↩ к <span className="font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">Музе</span></button>
                               <button
                                 type="button"
@@ -3314,8 +3337,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   try { if (navigator.share) { await navigator.share(shareData); return; } } catch { /* отменили шеринг */ }
                                   try { await navigator.clipboard.writeText(url); toast({ title: "Ссылка скопирована", description: "Поделись Музой 💜" }); } catch { /* no-op */ }
                                 }}
-                                className="flex-1 max-w-[180px] shrink-0 h-10 px-2.5 rounded-full flex items-center justify-center gap-1 text-[11px] font-semibold transition-all whitespace-nowrap border text-white/85 border-fuchsia-300/50 hover:border-fuchsia-300/90 bg-fuchsia-400/10 active:scale-95"
-                                aria-label="Поделись Музой — отправить ссылку на 3D-глобус"
+                                className="shrink-0 h-9 px-2.5 rounded-full flex items-center justify-center gap-1 text-[11px] font-semibold transition-all whitespace-nowrap border bg-transparent text-white/80 border-fuchsia-300/50 hover:border-fuchsia-300/85 active:scale-95"
+                                aria-label="Поделись Музой"
+                                title="Поделись ссылкой на 3D-глобус MuzaAi"
                               >📤 <span className="font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">Музой</span></button>
                             </div>
                             {/* Подвал — только слоган + счётчик стран (кнопки перенесены в плеер). */}
