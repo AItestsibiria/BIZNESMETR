@@ -53,6 +53,17 @@ import {
 import * as THREE_NS from "three";
 import { GlobeLoader } from "@/components/globe-loader";
 import { setSolarLabelState, clearSolarLabelState } from "@/components/solar-label";
+// Каталог реальных звёзд + созвездий (Босс 2026-05-30, VirtualSky-style hover-tooltip).
+import {
+  BRIGHT_STARS,
+  CONSTELLATIONS,
+  raDecToVec3,
+  magToSize,
+  magToOpacity,
+  spectralToColor,
+  getStarById,
+  type StarRecord,
+} from "@/lib/skyCatalog";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const THREE: any = THREE_NS as any;
 
@@ -1909,6 +1920,15 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // каждый кадр в rAF (planetScreenRef), pointermove ищет ближайшую видимую → показывает имя.
   const planetLabelRef = useRef<HTMLDivElement | null>(null);
   const planetScreenRef = useRef<Array<{ key: string; x: number; y: number; r: number; visible: boolean }>>([]);
+  // Босс 2026-05-30 (VirtualSky-style hover): экранные координаты ярких звёзд +
+  // метаданные для tooltip. Считаются каждый кадр в rAF (как planetScreenRef),
+  // pointermove ищет ближайшую → шлёт `muza:sky-hover` событие.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const brightStarsRef = useRef<any>(null);
+  const starsScreenRef = useRef<Array<{ star: StarRecord; x: number; y: number; r: number; visible: boolean }>>([]);
+  // Last hovered sky entity (для дедупа `muza:sky-hover`-событий).
+  const lastSkyHoverRef = useRef<string | null>(null);
+  const skyHoverThrottleRef = useRef<number>(0);
   const morseTimerRef = useRef<number | null>(null);
   // Целевая высота камеры для ПЛАВНОГО зума (кнопки +/− меняют её, круиз едет к ней).
   const zoomTargetRef = useRef<number | null>(null);
