@@ -2,7 +2,7 @@ import { registerAudio, pauseAllExcept } from "../lib/audio-bus";
 import { useLocation, useRoute } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { useFeatureEnabled } from "@/lib/featureToggles";
-import { PenLine, Music, Image, Sparkles, ArrowRight, Zap, Download, Mic, Play, Pause, SkipForward, SkipBack, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Share2, Repeat, Repeat1, Maximize } from "lucide-react";
+import { PenLine, Music, Image, Sparkles, ArrowRight, Zap, Download, Mic, Play, Pause, SkipForward, SkipBack, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Share2, Repeat, Repeat1, Maximize, X } from "lucide-react";
 import { StudioMicEq } from "@/components/studio-mic-eq";
 import { ShareQRSection, TrackShareQR } from "@/components/share-qr";
 import { KaraokeLyrics } from "@/components/karaoke-lyrics";
@@ -4103,8 +4103,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 showPercent={false}
                               />
                             </div>
-                            <button className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors" onClick={() => setExpandedId(null)}>
-                              <ChevronDown className="w-4 h-4 text-white/70" />
+                            {/* Босс 2026-05-30: аккуратная заметная кнопка «Свернуть» — на меню плеера, чтобы не зависеть от тапа по обложке. */}
+                            <button
+                              className="shrink-0 h-9 px-2.5 rounded-full bg-fuchsia-500/15 border border-fuchsia-400/50 text-fuchsia-200 hover:bg-fuchsia-500/25 hover:border-fuchsia-300/80 active:scale-95 transition-all flex items-center gap-1 text-[11px] font-medium"
+                              onClick={() => setExpandedId(null)}
+                              title="Свернуть обложку"
+                              aria-label="Свернуть обложку"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                              <span>Свернуть</span>
                             </button>
                           </div>
 
