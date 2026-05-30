@@ -899,6 +899,11 @@ function makePlanetSprite(rgb: [number, number, number], size: number): any {
     });
     const spr = new THREE.Sprite(mat);
     spr.scale.set(size, size, 1);
+    // Босс 2026-05-30 субагент ROOT CAUSE «планеты не видны»: на дистанции 1500
+    // world-units Three.js Frustum.intersectsSprite() возвращает false при
+    // некоторых ракурсах камеры → sprite cull'ится. Звёздные слои выше уже
+    // имеют frustumCulled=false по той же причине — здесь забыли. Fix.
+    spr.frustumCulled = false;
     return spr;
   } catch {
     return null;
@@ -2331,16 +2336,18 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       // Reuse solar-тура: override на одну планету. buildSolarTour прочитает
       // singleSolarKeyRef.current и построит [planet, return] (без Луны/поясов).
       singleSolarKeyRef.current = key;
-      // Если уже в solar-туре — restart на новую планету.
-      if (flightModeRef.current === "solar") {
-        solarRestartRef.current = true;
-      } else {
-        // Если мы выходим из moon/sun — restoreEarthCamera (тот же pattern что в onFlight).
-        if (flightModeRef.current === "moon" || flightModeRef.current === "sun") {
-          try { restoreEarthCameraRef.current?.(); } catch { /* no-op */ }
-        }
-        flightModeRef.current = "solar";
+      // Босс 2026-05-30 субагент ROOT CAUSE «тап планеты → возврат на Землю»:
+      // solarInitDone/solarStepIdx живут в rAF-closure. При выходе из solar в
+      // classic dispose делается, но solarInitDone остаётся stale=true. Следующий
+      // tap читает старый solarStepIdx (часто 'return') → restoreEarthCameraRef.
+      // FIX: ВСЕГДА solarRestartRef=true при tap-to-fly — buildSolarTour rebuild'ит
+      // и сбрасывает stepIdx=0. Никаких stale state.
+      if (flightModeRef.current === "moon" || flightModeRef.current === "sun") {
+        try { restoreEarthCameraRef.current?.(); } catch { /* no-op */ }
       }
+      flightModeRef.current = "solar";
+      solarRestartRef.current = true;
+      userInteractingRef.current = false;
       holdRef.current = false;
     };
     window.addEventListener("muza:globe-fly-to", onFlyTo as EventListener);
