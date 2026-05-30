@@ -2280,6 +2280,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         }
         flightModeRef.current = m;
         holdRef.current = false; // новый вход в режим снимает удержание
+        // Босс 2026-05-30 субагент: ROOT CAUSE «Поехали → ничего» — OrbitControls
+        // touch-end после тапа кнопки оставляет userInteractingRef=true, rAF на
+        // следующем tick'е skip'ает solar/moon ветку. Принудительно сбрасываем.
+        userInteractingRef.current = false;
       }
     };
     window.addEventListener("muza:globe-flight", onFlight as EventListener);

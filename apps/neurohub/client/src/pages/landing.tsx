@@ -4203,17 +4203,24 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           open={solarWizardOpen}
           originPoint={solarWizardOrigin}
           onClose={() => setSolarWizardOpen(false)}
-          onLaunch={({ track }) => {
+          onLaunch={({ track, moonOnly }) => {
             setSolarWizardOpen(false);
-            // 1. Переключаем режим полёта на solar.
-            setGlobeFlight("solar");
-            // Босс 2026-05-30 ревизия: тур стартует ТОЛЬКО здесь (не на открытии wizard).
-            // dispatch flight=solar → globe-view запускает buildSolarTour с prefs из localStorage
-            // (которые wizard только что сохранил через savePrefs + dispatch solar-prefs).
-            try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "solar" } })); } catch { /* no-op */ }
-            // Визуальное подтверждение Боссу «тур запущен» — без него юзер не понимает что
-            // что-то произошло (особенно при silent track / Гагарин). Toast через label-overlay.
-            setFlightLabel({ key: "solar", shownAt: Date.now() });
+            // Босс 2026-05-30 субагент: race condition guard — requestAnimationFrame
+            // даёт 1 frame на cleanup (OrbitControls touch-end + React re-render),
+            // иначе rAF в globe-view ловит userInteractingRef=true и skip'ает
+            // solar-ветку. ROOT CAUSE «Поехали → ничего не происходит».
+            requestAnimationFrame(() => {
+              if (moonOnly) {
+                // Если выбрана только Луна — fly-to Moon вместо общего solar-тура.
+                setGlobeFlight("classic"); // visual: возврат, реальный полёт — fly-to moon
+                try { window.dispatchEvent(new CustomEvent("muza:globe-fly-to", { detail: { key: "moon" } })); } catch { /* no-op */ }
+                setFlightLabel({ key: "moon", shownAt: Date.now() });
+              } else {
+                setGlobeFlight("solar");
+                try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "solar" } })); } catch { /* no-op */ }
+                setFlightLabel({ key: "solar", shownAt: Date.now() });
+              }
+            });
             try {
               toast({
                 title: "🚀 Полёт начат",

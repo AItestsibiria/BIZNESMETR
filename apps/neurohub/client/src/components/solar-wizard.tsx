@@ -169,7 +169,7 @@ type PlaylistTrack = {
 interface SolarWizardProps {
   open: boolean;
   onClose: () => void;
-  onLaunch: (args: { prefs: SolarPrefs; track: PlaylistTrack | null }) => void;
+  onLaunch: (args: { prefs: SolarPrefs; track: PlaylistTrack | null; moonOnly?: boolean }) => void;
   /**
    * Точка-источник «откуда вырастает» wizard (центр кнопки «🪐 Солнечная»
    * в viewport-координатах). Используется как transform-origin для popover
@@ -326,16 +326,11 @@ export function SolarWizard({ open, onClose, onLaunch, originPoint }: SolarWizar
     try {
       window.dispatchEvent(new CustomEvent("muza:globe-solar-prefs", { detail: finalPrefs }));
     } catch { /* no-op */ }
-    // Босс 2026-05-30: если выбрана ТОЛЬКО Луна — запускаем tap-to-fly Moon
-    // (event `muza:globe-fly-to {key:"moon"}` уже обрабатывается в globe-view.tsx),
-    // а не общий solar-тур. landing.tsx через onLaunch всё равно установит
-    // globeFlight="solar" — для visual-active border, но реальный полёт — fly-to.
-    if (finalPrefs.planets.length === 1 && finalPrefs.planets[0] === "moon") {
-      try {
-        window.dispatchEvent(new CustomEvent("muza:globe-fly-to", { detail: { key: "moon" } }));
-      } catch { /* no-op */ }
-    }
-    onLaunch({ prefs: finalPrefs, track: selectedTrack });
+    // Босс 2026-05-30: передаём флаг moonOnly в onLaunch — landing решит какой
+    // event dispatch'ить (избегаем race: предыдущая логика dispatch'ила fly-to
+    // ЗДЕСЬ, потом onLaunch ставил solar mode — race перетирал moon на solar).
+    const moonOnly = finalPrefs.planets.length === 1 && finalPrefs.planets[0] === "moon";
+    onLaunch({ prefs: finalPrefs, track: selectedTrack, moonOnly });
   };
 
   const handleBackdropClick = (e: React.MouseEvent) => {
