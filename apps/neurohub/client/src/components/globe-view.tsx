@@ -2444,15 +2444,16 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       // Reuse solar-тура: override на одну планету. buildSolarTour прочитает
       // singleSolarKeyRef.current и построит [planet, return] (без Луны/поясов).
       singleSolarKeyRef.current = key;
-      // Босс 2026-05-30 субагент ROOT CAUSE «тап планеты → возврат на Землю»:
-      // solarInitDone/solarStepIdx живут в rAF-closure. При выходе из solar в
-      // classic dispose делается, но solarInitDone остаётся stale=true. Следующий
-      // tap читает старый solarStepIdx (часто 'return') → restoreEarthCameraRef.
-      // FIX: ВСЕГДА solarRestartRef=true при tap-to-fly — buildSolarTour rebuild'ит
-      // и сбрасывает stepIdx=0. Никаких stale state.
-      if (flightModeRef.current === "moon" || flightModeRef.current === "sun") {
-        try { restoreEarthCameraRef.current?.(); } catch { /* no-op */ }
-      }
+      // Босс 2026-05-30 ROOT CAUSE НАЙДЕН (логи on-screen overlay):
+      //   [onFlyTo] received key=mars mode=moon
+      //   [restoreEarthCamera] CALLED ← ВЫЗЫВАЛСЯ ПРИНУДИТЕЛЬНО!
+      //   [rAF/solar] entered ← solar тур стартовал, НО камера уже на Земле
+      // restoreEarthCameraRef() прыгал камеру на Землю → solar тур начинался
+      // с уже-на-Земле позиции → визуально юзер видел Землю с label планеты.
+      // FIX: НЕ восстанавливать камеру — solar тур сам долетит к нужной планете
+      // от ТЕКУЩЕЙ позиции камеры (где бы она ни была — moon orbit / sun orbit).
+      // buildSolarTour строит [planet, return] — APPROACH-этап плавно интерполирует
+      // от current cam pos к planet pos.
       flightModeRef.current = "solar";
       solarRestartRef.current = true;
       userInteractingRef.current = false;
