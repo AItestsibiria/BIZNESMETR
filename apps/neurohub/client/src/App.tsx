@@ -57,7 +57,11 @@ if (typeof window !== 'undefined') {
 
 function AppContent() {
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    // Eugene 2026-05-30 (Фрон-агент 8 находок overflow на 4 страницах):
+    // overflow-x-clip + max-w-full + min-w-0 на root-обёртку — глобальный
+    // страховой клип от горизонтального overflow (Layout-fit-no-overlap +
+    // Device-fit-100 rules). См. также #root + html/body в index.css.
+    <div className="min-h-screen bg-background text-foreground overflow-x-clip max-w-full min-w-0">
       <Router hook={useHashLocation}>
         <Navbar />
         <Switch>

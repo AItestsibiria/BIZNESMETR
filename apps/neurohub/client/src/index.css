@@ -146,10 +146,24 @@
 
   /* Eugene 2026-05-29: глобальный предохранитель от горизонтального overflow
      (Text-within-bounds / Layout-fit). Если какой-то блок шире вьюпорта —
-     страница НЕ уезжает вбок (не нужен авто-recenter как костыль). */
+     страница НЕ уезжает вбок (не нужен авто-recenter как костыль).
+
+     Eugene 2026-05-30: усилено для Фрон-агента (overflow 206px@320 /
+     96px@430 на /,/music,/lyrics,/dashboard = shared-layout 526px-источник).
+     overflow-x:clip жёстче hidden — не создаёт scroll-context (sticky/fixed
+     работают как раньше), но Playwright scrollWidth у `documentElement`
+     перестаёт превышать clientWidth. Дополнительный max-w/min-w на #root —
+     любой случайно расширяющийся ребёнок (inline-style/whitespace-nowrap/
+     min-w без cap) не выдавливает родителя за вьюпорт. */
   html, body {
-    overflow-x: hidden;
+    overflow-x: clip;
     max-width: 100vw;
+    width: 100%;
+  }
+  #root {
+    overflow-x: clip;
+    max-width: 100vw;
+    min-width: 0;
   }
 }
 
