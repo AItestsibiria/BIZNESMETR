@@ -178,6 +178,8 @@ const DAY_NIGHT_FRAGMENT = `
   uniform sampler2D nightTexture;
   uniform vec2 sunPosition;
   uniform vec2 globeRotation;
+  uniform float uWarmGlow; // 0..1 — тёплое сияние Солнца на видимой стороне (Босс 2026-05-30)
+  uniform float uTime;     // секунды — медленная анимация «нитей света»
   varying vec3 vNormal;
   varying vec2 vUv;
 
@@ -218,6 +220,23 @@ const DAY_NIGHT_FRAGMENT = `
     vec3 nightBoost = lights + vec3(0.045, 0.055, 0.10);
     float blendFactor = smoothstep(-0.12, 0.12, intensity);
     vec3 col = mix(nightBoost, dayColor.rgb, blendFactor);
+    // Босс 2026-05-30: «лёгкие нити света тепло доходят до видимой от солнца части планеты».
+    // intensity > 0 — дневная сторона. dayFace 0..1, максимум там где Солнце в зените.
+    float dayFace = smoothstep(0.0, 0.55, intensity);
+    // «Нити» — медленные тёплые волны яркости по дневной стороне (uTime даёт жизнь).
+    // Псевдо-шум через sin-комбинацию + лёгкая зависимость от vUv (текстурные координаты).
+    float w1 = sin(vUv.x * 12.3 + uTime * 0.55) * 0.5 + 0.5;
+    float w2 = sin(vUv.y * 9.7 - uTime * 0.42 + 1.7) * 0.5 + 0.5;
+    float threads = w1 * w2; // 0..1, медленно плывущие пятна
+    vec3 warmTint = vec3(1.00, 0.78, 0.48); // мягкое тёплое золото
+    // Базовое тёплое сияние видимой стороны (всегда мало) + усиление при закате (uWarmGlow).
+    float warmA = (0.08 + 0.35 * uWarmGlow) * dayFace * (0.6 + 0.4 * threads);
+    col = mix(col, warmTint, warmA);
+    // На самом терминаторе (intensity ≈ 0) добавляем оранжевый ободок «солнечная корона
+    // на лимбе планеты» — Босс 2026-05-30 «слегка оранжево добавь в рассвет/закат».
+    float term = 1.0 - smoothstep(0.0, 0.18, abs(intensity));
+    vec3 sunsetCol = vec3(1.00, 0.55, 0.22);
+    col = mix(col, sunsetCol, term * (0.18 + 0.55 * uWarmGlow));
     gl_FragColor = vec4(col, 1.0);
   }
 `;
@@ -341,6 +360,7 @@ const SUN_NOISE_2D = `
 `;
 const SUN_CORONA_FRAGMENT = SUN_NOISE_2D + `
   uniform float uTime;
+  uniform float uSunsetBoost; // 0..1 — Солнце касается лимба Земли (Босс 2026-05-30)
   varying vec2 vUv;
   void main() {
     vec2 c = vUv - 0.5;        // -0.5..0.5
@@ -356,15 +376,21 @@ const SUN_CORONA_FRAGMENT = SUN_NOISE_2D + `
     streak = clamp(streak * 3.6 - 0.25, 0.0, 1.0); // больше «волосков», но всё ещё избирательно
     // Переменная длина каждого «волоска» по углу (низкая частота).
     // Босс 2026-05-30: «длина лучей 1,5-3 раз разной длины» — 0.30..1.00 даёт ×3.3 разброс.
+    // На закате/рассвете лучи плавно удлиняются (uSunsetBoost) — закат «грандиозный».
     float lenN = fbm2(vec2(ang * 5.5, t * 0.35 + 2.1));
-    float maxR = 0.30 + lenN * 0.70; // длина 0.30..1.00 — короткие и длинные рядом
+    float lenScale = 1.0 + uSunsetBoost * 0.55; // до +55% длины
+    float maxR = clamp((0.30 + lenN * 0.70) * lenScale, 0.30, 1.00);
     // Профиль яркости: яркий у лимба, плавно гаснет к концу волоска.
     float fadeIn  = smoothstep(0.42, 0.50, r);
     float fadeOut = 1.0 - smoothstep(maxR * 0.68, maxR, r);
     float profile = fadeIn * fadeOut;
-    float alpha = profile * streak * 0.95;
+    float brightScale = 1.0 + uSunsetBoost * 0.65; // ярче на закате
+    float alpha = profile * streak * 0.95 * brightScale;
     // Босс 2026-05-30: «цвет солнца и лучей смешай с белым» — оба конца градиента ближе к белому.
     vec3 col = mix(vec3(1.00, 0.70, 0.40), vec3(1.00, 0.98, 0.92), streak);
+    // На закате цвет смещается в тёплый оранжевый («слегка оранжево» — Босс).
+    vec3 sunset = mix(vec3(1.00, 0.45, 0.18), vec3(1.00, 0.78, 0.45), streak);
+    col = mix(col, sunset, uSunsetBoost * 0.55);
     gl_FragColor = vec4(col, alpha);
   }
 `;
@@ -382,7 +408,7 @@ function makeSunGroup(radius: number): { group: any; body: any; bodyMat: any; co
     const bodyGeo = new THREE.SphereGeometry(radius, 64, 64);
     const body = new THREE.Mesh(bodyGeo, bodyMat);
     const coronaMat = new THREE.ShaderMaterial({
-      uniforms: { uTime: { value: 0 } },
+      uniforms: { uTime: { value: 0 }, uSunsetBoost: { value: 0 } },
       vertexShader: BILLBOARD_VERTEX,
       fragmentShader: SUN_CORONA_FRAGMENT,
       transparent: true,
@@ -432,6 +458,8 @@ function buildDayNightMaterial(onDay?: () => void, onNight?: () => void): DayNig
       nightTexture: { value: nightTex },
       sunPosition: { value: new THREE.Vector2() },
       globeRotation: { value: new THREE.Vector2() },
+      uWarmGlow: { value: 0 }, // 0..1 — закат/рассвет, обновляется rAF (Босс 2026-05-30)
+      uTime: { value: 0 },     // секунды — медленная «жизнь» тёплых нитей света
     };
     const material = new THREE.ShaderMaterial({
       uniforms,
@@ -1074,6 +1102,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // 3-минутный таймер: после rotate юзером (с движением) → драфт от его ракурса
   // 3 мин, потом сценарий возобновляется (cycle_pano с начала). Босс 2026-05-30.
   const aiResumeAtRef = useRef<number>(0);
+  // Sunset/sunrise boost (Босс 2026-05-30 «когда солнце задевает край земли — плавно
+  // увеличить яркость и длину лучей»). 0..1 — плавно тянем к target в rAF.
+  const sunsetBoostRef = useRef<number>(0);
   // Морзе-подмигивание Музы: светящаяся точка ЗАКРЕПЛЕНА в точке геолокации
   // (проекция координаты в экран каждый кадр), без текста. По мере отъезда камеры
   // точка пропорционально уменьшается. Управление через ref'ы (без перерендера).
@@ -1409,6 +1440,11 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     let aiPanoLat = 0;           // Pano lat (средняя sun/moon, clamp ±45)
     let aiInitDone = false;      // первый кадр AI: lock Sun + compute Pano
     let lastFlightMode: "classic" | "ai" = flightModeRef.current;
+    // Босс 2026-05-30: плавность ВСЕХ переходов. Сохраняем lng/lat входа в continents,
+    // чтобы первые 2.5с делать easeInOutCubic переход к новой траектории, без рывка.
+    let aiContStartLng = 0;
+    let aiContStartLat = 0;
+    let aiContInitDone = false;
     const sessionSeed = Math.floor(Math.random() * 997); // «каждый раз по-новому» (многовариантность с 3-го круга)
     // Повтор моргания на КАЖДОМ проходе геолокации (Босс 2026-05-29) — без смены
     // фокуса камеры: при входе точки во фронт перезапускаем Морзе с начала.
@@ -1729,6 +1765,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           aiResumeAtRef.current = 0;
           aiSubPhase = "";
           aiCyclesDone = 0;
+          aiContInitDone = false;
           lastFlightMode = flightModeRef.current;
         }
         if (!aiInitDone) {
@@ -1746,13 +1783,16 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           } else {
             aiPanoLng = u0.lng + sd * 0.4; // 40% пути от юзера к Солнцу — оба в кадре
           }
-          // Снимаем сразу к Pano (без intro): cruise = Pano-позиция.
-          cruise.lat = aiPanoLat;
-          cruise.lng = aiPanoLng;
-          cruise.alt = OVERVIEW_ALTITUDE;
+          // Босс 2026-05-30 «движения плавные, никаких резких разворотов»:
+          // НЕ зануляем cruise мгновенно — cycle_pano плавно подтянет cruise→Pano.
+          // Это убирает «прыжок» камеры при первом входе в режим.
+          if (!Number.isFinite(cruise.lat) || cruise.lat === 0) cruise.lat = aiPanoLat;
+          if (!Number.isFinite(cruise.lng) || cruise.lng === 0) cruise.lng = aiPanoLng;
+          if (!Number.isFinite(cruise.alt) || cruise.alt === 0) cruise.alt = OVERVIEW_ALTITUDE;
           aiSubPhase = "cycle_pano";
           aiPhaseStartT = now;
           aiCyclesDone = 0;
+          aiContInitDone = false;
           aiInitDone = true;
         }
         const user = userLatLngRef.current || fallbackTarget();
@@ -1825,6 +1865,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
               if (aiCyclesDone >= 2) {
                 aiSubPhase = "continents";
                 aiPhaseStartT = now;
+                aiContInitDone = false;
               } else {
                 aiSubPhase = "cycle_pano";
                 aiPhaseStartT = now;
@@ -1833,15 +1874,29 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           } else if (aiSubPhase === "continents") {
             // Панорамный east→west облёт. Одна скорость ~3°/сек west. Lat плавно
             // наводится на ближайший континент (выгодный ракурс «по ходу пролёта»).
-            // Стартуем с lng юзера (его континент первым), без снижения. Зациклено.
+            // Босс 2026-05-30 «никаких резких разворотов»: первые 2.5с — плавный
+            // easeInOutCubic переход от точки входа (cruise.lng) к live-формуле
+            // (user.lng - 3*tt). Без этого был мгновенный jump panoLng→user.lng.
             const tt = (now - aiPhaseStartT) / 1000;
-            lng = user.lng - 3 * tt;
+            if (!aiContInitDone) {
+              aiContStartLng = cruise.lng;
+              aiContStartLat = cruise.lat;
+              aiContInitDone = true;
+            }
+            const liveLng = user.lng - 3 * tt;
+            const dLc = ((liveLng - aiContStartLng + 540) % 360) - 180;
+            const blendP = Math.min(1, tt / 2.5);
+            const blendE = easeInOutCubic(blendP);
+            lng = aiContStartLng + dLc * blendE;
             const targetLat = continentLatAtLng(lng);
             cruise.lat += (targetLat - cruise.lat) * 0.02;
             cruise.lng = lng;
             cruise.alt += (panoAlt - cruise.alt) * 0.03;
             lat = cruise.lat;
             alt = cruise.alt;
+            // Подавляем `aiContStartLat` неиспользование без логики, оставляем
+            // на случай будущего lat-blend (сейчас lat и так плавно тянется через 0.02).
+            void aiContStartLat;
           }
         }
       }
@@ -2008,11 +2063,52 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         const t = now * 0.001;
         if (sunMatRef.current?.uniforms?.uTime) sunMatRef.current.uniforms.uTime.value = t;
         if (sunCoronaMatRef.current?.uniforms?.uTime) sunCoronaMatRef.current.uniforms.uTime.value = t;
+        // uTime для day-night шейдера — медленная анимация «нитей света» на дневной стороне.
+        if (dayNight?.uniforms?.uTime) dayNight.uniforms.uTime.value = t;
         // Билборд короны: ориентируем mesh лицом к камере — лучи всегда радиальны
         // от диска Солнца с любого ракурса (как сцена с фото протуберанцев).
         const corona = sunCoronaMeshRef.current;
         const camera = g.camera?.();
         if (corona && camera) corona.quaternion.copy(camera.quaternion);
+        // ──────────────────────────────────────────────────────────────────────
+        // Босс 2026-05-30: «когда солнце задевает край земли — плавно увеличить
+        // яркость и длину лучей. Рассвет/закат самое грандиозное действие».
+        // Считаем визуальный угол Солнце↔центр-Земли с точки зрения камеры.
+        // Если он близок к угловому радиусу Земли — Солнце на лимбе → boost ≈ 1.
+        // Лимб ±20% — плавный спад к 0 (smoothstep вне зоны).
+        // ──────────────────────────────────────────────────────────────────────
+        let target = 0;
+        if (camera && sunMeshRef.current) {
+          const camP = camera.position;
+          const sunP = sunMeshRef.current.position;
+          const dEarth = Math.hypot(camP.x, camP.y, camP.z);
+          const dSun = Math.hypot(camP.x - sunP.x, camP.y - sunP.y, camP.z - sunP.z);
+          if (dEarth > 100.5 && dSun > 1) {
+            // Угол между (cam→Earth) и (cam→Sun).
+            const dx1 = -camP.x, dy1 = -camP.y, dz1 = -camP.z;
+            const dx2 = sunP.x - camP.x, dy2 = sunP.y - camP.y, dz2 = sunP.z - camP.z;
+            const cosAng = (dx1 * dx2 + dy1 * dy2 + dz1 * dz2) / (dEarth * dSun);
+            const ang = Math.acos(Math.max(-1, Math.min(1, cosAng)));
+            // Угловой радиус Земли с точки зрения камеры (R=100).
+            const angR = Math.asin(Math.min(1, 100 / dEarth));
+            // Расстояние от Солнца до лимба Земли (в радианах).
+            const delta = Math.abs(ang - angR);
+            // Boost максимум 1 на самом лимбе, плавно гаснет на ±35% угр.радиуса.
+            const band = angR * 0.35;
+            target = 1 - Math.min(1, delta / band);
+            // Защита: если Солнце глубоко за Землёй (ang < angR - band) — boost 0.
+            if (ang < angR - band) target = 0;
+          }
+        }
+        // Плавный exponential lerp (decay ≈ 0.4с при 30fps).
+        sunsetBoostRef.current += (target - sunsetBoostRef.current) * 0.08;
+        const sb = sunsetBoostRef.current;
+        if (sunCoronaMatRef.current?.uniforms?.uSunsetBoost) {
+          sunCoronaMatRef.current.uniforms.uSunsetBoost.value = sb;
+        }
+        if (dayNight?.uniforms?.uWarmGlow) {
+          dayNight.uniforms.uWarmGlow.value = sb;
+        }
       } catch {
         // ignore
       }
