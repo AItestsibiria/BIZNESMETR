@@ -367,15 +367,26 @@ const SUN_CORONA_FRAGMENT = SUN_NOISE_2D + `
   void main() {
     vec2 c = vUv - 0.5;        // -0.5..0.5
     float r = length(c) * 2.0;  // 0 центр .. 1 край плана
-    if (r < 0.42 || r > 1.0) discard;
+    // Босс 2026-05-30: «усиль в 3 раза концентрацию лучей в сторону камеры» —
+    // на пике окклюзии Солнце «слепит» прямо в зрителя: жёсткая белая вспышка
+    // в центре плана, видимая даже за лимбом Земли (depthTest=false на короне).
+    float centerBurst = (1.0 - smoothstep(0.0, 0.55, r)) * uFlareIntensity;
+    if (r < 0.42) {
+      // Внутри диска Солнца — только central flash, без волосков.
+      vec3 burstCol = mix(vec3(1.00, 0.92, 0.72), vec3(1.00, 1.00, 0.96), centerBurst);
+      gl_FragColor = vec4(burstCol, centerBurst * 0.95);
+      return;
+    }
+    if (r > 1.0) discard;
     float ang = atan(c.y, c.x);  // -pi..pi
     float t = uTime;
     // Направленный flare (Босс 2026-05-30 «3д»): когда Солнце «задевает» Землю с т.зр.
     // камеры, лучи В НАПРАВЛЕНИИ ВИДИМОЙ части кадра становятся ярче и длиннее.
-    // Сужающийся конус через pow(aligned, 3.0) — острый пучок света наружу из-за лимба.
+    // ×3 КОНЦЕНТРАЦИЯ В КАМЕРУ (Босс 2026-05-30): pow 3→9 — узкий острый пучок,
+    // как настоящий lens-flare с фотографии заходящего за горизонт Солнца.
     vec2 pixDir = (length(c) > 0.001) ? normalize(c) : vec2(1.0, 0.0);
     float aligned = max(0.0, dot(pixDir, uFlareDir));
-    float coneSharp = pow(aligned, 3.0);
+    float coneSharp = pow(aligned, 9.0);
     float flareBoost = coneSharp * uFlareIntensity;
     // Угловая текстура из высокочастотного шума → тонкие радиальные «волоски».
     // Босс 2026-05-30: «плотность лучей увеличить в 2 раза» — повышены частоты + понижен порог.
@@ -388,15 +399,15 @@ const SUN_CORONA_FRAGMENT = SUN_NOISE_2D + `
     // Переменная длина каждого «волоска» по углу (низкая частота).
     // Босс 2026-05-30: «длина лучей 1,5-3 раз разной длины» — 0.30..1.00 даёт ×3.3 разброс.
     // На закате/рассвете лучи плавно удлиняются (uSunsetBoost) — закат «грандиозный».
-    // В flare-направлении удлиняются ещё сильнее (до +200% поверх sunset).
+    // В flare-направлении длина и яркость утраиваются (Босс 2026-05-30 «×3 концентрация»).
     float lenN = fbm2(vec2(ang * 5.5, t * 0.35 + 2.1));
-    float lenScale = 1.0 + uSunsetBoost * 0.55 + flareBoost * 2.0;
+    float lenScale = 1.0 + uSunsetBoost * 0.55 + flareBoost * 6.0;   // до ×7 в пучке
     float maxR = clamp((0.30 + lenN * 0.70) * lenScale, 0.30, 1.50);
     // Профиль яркости: яркий у лимба, плавно гаснет к концу волоска.
     float fadeIn  = smoothstep(0.42, 0.50, r);
     float fadeOut = 1.0 - smoothstep(maxR * 0.68, maxR, r);
     float profile = fadeIn * fadeOut;
-    float brightScale = 1.0 + uSunsetBoost * 0.65 + flareBoost * 1.8; // вспышка ярче в направлении flare
+    float brightScale = 1.0 + uSunsetBoost * 0.65 + flareBoost * 5.4; // вспышка ×3 ярче
     float alpha = profile * streak * 0.95 * brightScale;
     // Босс 2026-05-30: «цвет солнца и лучей смешай с белым» — оба конца градиента ближе к белому.
     vec3 col = mix(vec3(1.00, 0.70, 0.40), vec3(1.00, 0.98, 0.92), streak);
