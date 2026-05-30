@@ -13,6 +13,7 @@ import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
+import { ADMIN_PERIODS, type PeriodId, filterByPeriod, periodLabel } from "@/lib/adminPeriods";
 
 type ProfileRow = {
   id: number;
@@ -71,6 +72,8 @@ export function UserProfilesTab({ toast }: { toast?: any }) {
   const [hasUser, setHasUser] = useState<"all" | "yes" | "no">("all");
   const [search, setSearch] = useState<string>("");
   const [openId, setOpenId] = useState<number | null>(null);
+  // Eugene 2026-05-30: canonical period chips по lastSeen.
+  const [period, setPeriod] = useState<PeriodId>("today");
 
   const query = useMemo(() => {
     const params = new URLSearchParams();
@@ -86,6 +89,29 @@ export function UserProfilesTab({ toast }: { toast?: any }) {
     queryFn: () => fetcherRaw<ListResponse>(`/api/admin/v304/user-profiles?${query}`),
     refetchInterval: 60_000,
   });
+
+  const itemsInPeriod = useMemo(
+    () => filterByPeriod(listQ.data?.items ?? [], period, (it) => it.lastSeen),
+    [listQ.data, period],
+  );
+
+  function copyAllProfiles() {
+    const lines: string[] = [];
+    lines.push(`👤 Профили (last seen ${periodLabel(period)})`);
+    lines.push(`🕐 ${new Date().toLocaleString("ru-RU")}`);
+    lines.push(`Записей: ${itemsInPeriod.length}`);
+    for (const p of itemsInPeriod) {
+      lines.push("");
+      lines.push(`#${p.id} · visitorId ${p.visitorId.slice(0, 12)}… · ${p.userId ? `user:#${p.userId}` : "анон"}`);
+      if (p.userName || p.userEmail || p.userPhone) {
+        lines.push(`  👤 ${p.userName || "—"} · ${p.userEmail || "—"} · ${p.userPhone || "—"}`);
+      }
+      lines.push(`  🌍 ${p.ipCountry || "—"}${p.ipCity ? ` / ${p.ipCity}` : ""}${p.ipRegion ? ` (${p.ipRegion})` : ""} · IP ${p.ip || "—"}${p.ipAsn ? ` · ASN ${p.ipAsn}` : ""}`);
+      lines.push(`  🖥 ${p.device || "—"} · ${p.os || "—"} · ${p.browser || "—"}`);
+      lines.push(`  Визитов: ${p.visitCount} · первый ${fmtDate(p.firstSeen)} · последний ${fmtDate(p.lastSeen)}`);
+    }
+    navigator.clipboard?.writeText(lines.join("\n")).then(() => toast?.({ title: "Скопировано", description: `${itemsInPeriod.length} профилей` }));
+  }
 
   return (
     <div className="space-y-4">
@@ -136,11 +162,33 @@ export function UserProfilesTab({ toast }: { toast?: any }) {
               🔄 Обновить
             </button>
             <button
+              onClick={copyAllProfiles}
+              className="text-xs font-sans px-3 py-1.5 rounded-md bg-fuchsia-500/15 border border-fuchsia-500/40 text-fuchsia-200 hover:bg-fuchsia-500/25"
+            >
+              📋 Скопировать ВСЕ
+            </button>
+            <button
               onClick={() => copyJson(listQ.data, toast)}
               className="text-xs font-sans px-3 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-white/80"
             >
-              📋 Копировать
+              📋 JSON
             </button>
+          </div>
+          {/* Eugene 2026-05-30 canonical period chips (по last seen) */}
+          <div className="flex flex-wrap items-center gap-1 mb-3">
+            <span className="text-[10px] text-white/50 font-semibold">Last seen:</span>
+            {ADMIN_PERIODS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setPeriod(p.id)}
+                className={`text-[11px] px-2.5 py-1 rounded-md border ${
+                  period === p.id
+                    ? "bg-purple-500/20 text-purple-200 border-purple-400/50"
+                    : "bg-white/5 border-white/10 text-white/60 hover:bg-white/10"
+                }`}
+              >{p.label}</button>
+            ))}
           </div>
 
           {/* === Summary === */}
@@ -158,7 +206,7 @@ export function UserProfilesTab({ toast }: { toast?: any }) {
             </div>
           ) : listQ.error ? (
             <div className="text-xs text-rose-300">Ошибка: {String(listQ.error)}</div>
-          ) : listQ.data && listQ.data.items.length > 0 ? (
+          ) : listQ.data && itemsInPeriod.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-[11px] font-sans">
                 <thead>
@@ -174,7 +222,7 @@ export function UserProfilesTab({ toast }: { toast?: any }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {listQ.data.items.map((p) => {
+                  {itemsInPeriod.map((p) => {
                     const isOpen = openId === p.id;
                     return (
                       <>

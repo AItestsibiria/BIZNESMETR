@@ -18,6 +18,7 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
+import { ADMIN_PERIODS, type PeriodId, filterByPeriod, periodLabel } from "@/lib/adminPeriods";
 
 // ---------- types ----------
 
@@ -170,6 +171,8 @@ export function AuthorsTab({ toast }: { toast?: any }) {
   const [sort, setSort] = useState<SortKey>("registered");
   const [page, setPage] = useState(1);
   const [openUserId, setOpenUserId] = useState<number | null>(null);
+  // Eugene 2026-05-30: canonical period selector (client-side фильтр по createdAt автора).
+  const [period, setPeriod] = useState<PeriodId>("today");
 
   const queryStr = useMemo(() => {
     const p = new URLSearchParams();
@@ -186,6 +189,28 @@ export function AuthorsTab({ toast }: { toast?: any }) {
     queryFn: () => fetchJson<ListResponse>(`/api/admin/v304/authors?${queryStr}`),
     refetchInterval: 60_000,
   });
+
+  const itemsInPeriod = useMemo(
+    () => filterByPeriod(listQ.data?.items ?? [], period, (a) => a.createdAt),
+    [listQ.data, period],
+  );
+
+  function copyAllAuthors() {
+    const lines: string[] = [];
+    lines.push(`👥 Авторы — отчёт (статус: ${status}, период: ${periodLabel(period)})`);
+    lines.push(`🕐 ${new Date().toLocaleString("ru-RU")}`);
+    lines.push(`Показано в окне: ${itemsInPeriod.length} (всего на странице ${listQ.data?.items.length || 0})`);
+    for (const a of itemsInPeriod) {
+      lines.push("");
+      lines.push(`#${a.id} · ${a.name}${a.role !== "user" ? ` · роль:${a.role}` : ""}${a.blocked ? " · 🚫 BLOCKED" : ""}`);
+      lines.push(`  📧 ${a.email || "—"} · 📱 ${a.phone || "—"}${a.phoneVerified ? " ✓" : ""}`);
+      lines.push(`  Страна: ${a.country || a.countryCode || "—"}${a.lastCity ? ` (${a.lastCity})` : ""}`);
+      lines.push(`  Треков: ${a.gens} (done ${a.gensDone}, error ${a.gensError}) · бонусов: ${a.bonusTracks}`);
+      lines.push(`  Оплат: ${a.payments} · потрачено ${(a.spent / 100).toLocaleString("ru-RU")} ₽ · баланс ${(a.balance / 100).toLocaleString("ru-RU")} ₽`);
+      lines.push(`  Создан: ${fmtDate(a.createdAt)} · last seen: ${fmtDate(a.lastSeenAt)}`);
+    }
+    navigator.clipboard?.writeText(lines.join("\n")).then(() => toast?.({ title: "Скопировано", description: `${itemsInPeriod.length} авторов` }));
+  }
 
   return (
     <div className="space-y-4">
@@ -260,11 +285,33 @@ export function AuthorsTab({ toast }: { toast?: any }) {
               🔄
             </button>
             <button
+              onClick={copyAllAuthors}
+              className="text-[11px] font-sans px-2.5 py-1.5 rounded-md bg-fuchsia-500/15 border border-fuchsia-500/40 text-fuchsia-200 hover:bg-fuchsia-500/25"
+            >
+              📋 Скопировать ВСЕ
+            </button>
+            <button
               onClick={() => copyJson(listQ.data, toast)}
               className="text-[11px] font-sans px-2.5 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-white/80"
             >
-              📋 Копировать
+              📋 JSON
             </button>
+          </div>
+          {/* Eugene 2026-05-30 canonical period chips (client-side фильтр createdAt) */}
+          <div className="flex flex-wrap items-center gap-1 mb-3">
+            <span className="text-[10px] text-white/50 font-semibold">Период регистрации:</span>
+            {ADMIN_PERIODS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setPeriod(p.id)}
+                className={`text-[11px] px-2.5 py-1 rounded-md border ${
+                  period === p.id
+                    ? "bg-purple-500/20 text-purple-200 border-purple-400/50"
+                    : "bg-white/5 border-white/10 text-white/60 hover:bg-white/10"
+                }`}
+              >{p.label}</button>
+            ))}
           </div>
 
           {/* === Summary === */}
@@ -289,9 +336,9 @@ export function AuthorsTab({ toast }: { toast?: any }) {
             </div>
           ) : listQ.error ? (
             <div className="text-xs text-rose-300">Ошибка: {String(listQ.error)}</div>
-          ) : listQ.data && listQ.data.items.length > 0 ? (
+          ) : listQ.data && itemsInPeriod.length > 0 ? (
             <div className="space-y-2">
-              {listQ.data.items.map((a) => (
+              {itemsInPeriod.map((a) => (
                 <AuthorCard
                   key={a.id}
                   author={a}

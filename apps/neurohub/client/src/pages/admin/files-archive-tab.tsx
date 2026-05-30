@@ -4,8 +4,9 @@
 // Brand-style consistency rule: gradient-text, glass-card, font-mono для ID и
 // размеров. Copy-reports-button rule на любые выводы JSON.
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { apiRequest } from "@/lib/queryClient";
+import { ADMIN_PERIODS, type PeriodId, filterByPeriod, periodLabel } from "@/lib/adminPeriods";
 
 type ImagePreset = "avatar" | "cover" | "banner" | "logo" | "product" | "custom" | "all";
 
@@ -61,6 +62,28 @@ export function FilesArchiveTab({ toast }: { toast: any }) {
   const [loading, setLoading] = useState(false);
   const [previewItem, setPreviewItem] = useState<GeneratedFile | null>(null);
   const [regenerating, setRegenerating] = useState<number | null>(null);
+  // Eugene 2026-05-30: canonical period chips по createdAt.
+  const [period, setPeriod] = useState<PeriodId>("today");
+
+  const itemsInPeriod = useMemo(
+    () => filterByPeriod(items, period, (it) => it.createdAt),
+    [items, period],
+  );
+
+  function copyAllFiles() {
+    const lines: string[] = [];
+    lines.push(`📁 Архив файлов — отчёт (${view === "archived" ? "Архив" : "Активные"} · ${typeFilter} · ${periodLabel(period)})`);
+    lines.push(`🕐 ${new Date().toLocaleString("ru-RU")}`);
+    lines.push(`Записей: ${itemsInPeriod.length}`);
+    for (const it of itemsInPeriod) {
+      lines.push("");
+      lines.push(`#${it.id} · ${it.type} · ${it.provider || "?"}/${it.model || "?"} · ${it.width || "?"}×${it.height || "?"} · ${fmtSize(it.fileSizeBytes)}`);
+      lines.push(`  Создан: ${fmtTime(it.createdAt)}${it.usedAs ? ` · применён как ${it.usedAs}` : ""}`);
+      lines.push(`  Промпт: ${(it.prompt || "").slice(0, 250).replace(/\s+/g, " ")}`);
+      lines.push(`  URL: ${it.fileUrl}`);
+    }
+    navigator.clipboard.writeText(lines.join("\n")).then(() => notify(`📋 Скопировано: ${itemsInPeriod.length} файлов`, "success"));
+  }
 
   async function loadList() {
     setLoading(true);
@@ -183,11 +206,34 @@ export function FilesArchiveTab({ toast }: { toast: any }) {
           </div>
 
           <button
+            onClick={copyAllFiles}
+            disabled={loading || itemsInPeriod.length === 0}
+            className="ml-auto px-3 py-1.5 rounded-lg bg-fuchsia-500/15 border border-fuchsia-500/40 text-fuchsia-200 text-xs font-sans hover:bg-fuchsia-500/25 disabled:opacity-50"
+          >
+            📋 Скопировать ВСЕ
+          </button>
+          <button
             onClick={() => loadList()}
-            className="ml-auto px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-xs font-sans hover:bg-white/10"
+            className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white text-xs font-sans hover:bg-white/10"
           >
             🔄 Обновить
           </button>
+        </div>
+        {/* Eugene 2026-05-30 canonical period chips (по createdAt) */}
+        <div className="flex flex-wrap items-center gap-1 mt-3">
+          <span className="text-[10px] text-white/50 font-semibold">Период:</span>
+          {ADMIN_PERIODS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setPeriod(p.id)}
+              className={`text-[11px] px-2.5 py-1 rounded-md border ${
+                period === p.id
+                  ? "bg-purple-500/20 text-purple-200 border-purple-400/50"
+                  : "bg-white/5 border-white/10 text-white/60 hover:bg-white/10"
+              }`}
+            >{p.label}</button>
+          ))}
         </div>
       </div>
 
@@ -195,8 +241,8 @@ export function FilesArchiveTab({ toast }: { toast: any }) {
       <div className="glass-card rounded-2xl border border-purple-500/20 overflow-hidden">
         {loading ? (
           <div className="text-center py-12 text-sm font-sans text-muted-foreground">Загрузка...</div>
-        ) : items.length === 0 ? (
-          <div className="text-center py-12 text-sm font-sans text-muted-foreground">Пусто.</div>
+        ) : itemsInPeriod.length === 0 ? (
+          <div className="text-center py-12 text-sm font-sans text-muted-foreground">Пусто за {periodLabel(period)}.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm font-sans">
@@ -214,7 +260,7 @@ export function FilesArchiveTab({ toast }: { toast: any }) {
                 </tr>
               </thead>
               <tbody>
-                {items.map((it) => (
+                {itemsInPeriod.map((it) => (
                   <tr key={it.id} className="border-b border-white/5 hover:bg-white/[0.02]">
                     <td className="px-3 py-2 font-mono text-xs text-purple-300">{it.id}</td>
                     <td className="px-3 py-2">

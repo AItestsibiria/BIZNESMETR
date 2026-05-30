@@ -238,11 +238,38 @@ export default function MultiDomainStatsTab() {
               </Button>
               <Button
                 variant="outline"
-                className="border-purple-400/40 hover:bg-purple-500/20"
-                onClick={() => copyToClipboard(JSON.stringify(agg ?? local ?? {}, null, 2))}
+                className="border-fuchsia-400/40 bg-fuchsia-500/15 text-fuchsia-200 hover:bg-fuchsia-500/25"
+                onClick={() => {
+                  const lines: string[] = [];
+                  lines.push(`🌐 Все домены — отчёт`);
+                  lines.push(`🕐 ${new Date().toLocaleString("ru-RU")}`);
+                  lines.push(`Peers: ${reachableCount}/${peersConfigured} доступны`);
+                  lines.push("");
+                  if (totals) {
+                    lines.push(`ИТОГО: юзеров ${num(totals.users)} · визитов ${num(totals.visitsUnique)} · треков ${num(totals.musicDone)} · плеев ${num(totals.plays)} · оплат ${num(totals.payments)} · выручка ${rub(totals.paidRubTotal)}`);
+                    lines.push("");
+                  }
+                  lines.push(`Per-domain (${rows.length}):`);
+                  for (const r of rows) {
+                    if (r.reachable) {
+                      lines.push(`  ${r.domain}${r.isLocal ? " (local)" : ""} · юзеры ${num(r.users)} · визиты ${num(r.visits)} · треки ${num(r.gens)} · плеи ${num(r.plays)} · оплаты ${num(r.payments)} · выручка ${rub(r.rub)} · статус ${r.status}`);
+                    } else {
+                      lines.push(`  ${r.domain} · 🔴 НЕДОСТУПЕН · статус ${r.status}${r.errorMessage ? ` · ${r.errorMessage}` : ""}`);
+                    }
+                  }
+                  copyToClipboard(lines.join("\n"));
+                }}
                 data-testid="multi-domain-copy"
               >
-                📋 Скопировать
+                📋 Скопировать ВСЕ
+              </Button>
+              <Button
+                variant="outline"
+                className="border-purple-400/40 hover:bg-purple-500/20"
+                onClick={() => copyToClipboard(JSON.stringify(agg ?? local ?? {}, null, 2))}
+                data-testid="multi-domain-copy-json"
+              >
+                📋 JSON
               </Button>
             </div>
           </div>

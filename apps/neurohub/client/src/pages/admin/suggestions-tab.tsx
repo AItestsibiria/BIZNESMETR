@@ -226,6 +226,27 @@ export default function SuggestionsTab({ toast }: { toast: any }) {
                 />
               </label>
             )}
+            {/* Eugene 2026-05-30 canonical period chips */}
+            <div className="flex flex-wrap gap-1 items-center">
+              {ADMIN_PERIODS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setPeriod(p.id)}
+                  className={`px-2.5 py-1 rounded-md text-xs font-medium border ${
+                    period === p.id
+                      ? "bg-purple-500/20 text-purple-200 border-purple-400/50"
+                      : "bg-white/5 border-white/10 text-white/60 hover:bg-white/10"
+                  }`}
+                >{p.label}</button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={copyAllReport}
+              disabled={isLoading}
+              className="text-[11px] px-2 py-1 rounded-md bg-fuchsia-500/15 border border-fuchsia-500/40 text-fuchsia-200 hover:bg-fuchsia-500/25 disabled:opacity-50 ml-auto"
+            >📋 Скопировать ВСЕ</button>
           </div>
 
           {isLoading && (
@@ -236,14 +257,14 @@ export default function SuggestionsTab({ toast }: { toast: any }) {
 
           {sub === "clusters" && !isLoading && (
             <div className="space-y-3">
-              {(data?.clusters ?? []).length === 0 && (
+              {clustersInPeriod.length === 0 && (
                 <div className="text-white/50 text-sm py-6 text-center">
-                  Нет кластеров с порогом ≥ {threshold}
+                  Нет кластеров с порогом ≥ {threshold} за {periodLabel(period)}
                 </div>
               )}
-              {(data?.clusters ?? []).map((c) => {
+              {clustersInPeriod.map((c) => {
                 const isOpen = expandedCluster === c.cluster_key;
-                const items = (data?.items ?? []).filter((i) => i.cluster_key === c.cluster_key);
+                const items = itemsInPeriod.filter((i) => i.cluster_key === c.cluster_key);
                 return (
                   <div key={c.cluster_key} className="glass-card rounded-xl p-4 border border-amber-500/30">
                     <div className="flex items-start justify-between gap-3 mb-2">
@@ -296,10 +317,10 @@ export default function SuggestionsTab({ toast }: { toast: any }) {
 
           {sub !== "clusters" && !isLoading && (
             <div className="space-y-2">
-              {(data?.items ?? []).length === 0 && (
-                <div className="text-white/50 text-sm py-6 text-center">Список пуст</div>
+              {itemsInPeriod.length === 0 && (
+                <div className="text-white/50 text-sm py-6 text-center">Список пуст за {periodLabel(period)}</div>
               )}
-              {(data?.items ?? []).map((it) => (
+              {itemsInPeriod.map((it) => (
                 <div key={it.id} className="glass-card rounded-xl p-3 border border-purple-500/20">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">

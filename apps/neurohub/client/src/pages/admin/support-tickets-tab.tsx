@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
+import { ADMIN_PERIODS, type PeriodId, filterByPeriod, periodLabel } from "@/lib/adminPeriods";
 
 type Ticket = {
   id: string;
@@ -96,6 +97,8 @@ export default function SupportTicketsTab({ toast }: { toast: any }) {
   const [q, setQ] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [resolutionNote, setResolutionNote] = useState("");
+  // Eugene 2026-05-30: canonical period selector (client-side фильтр createdAt).
+  const [period, setPeriod] = useState<PeriodId>("today");
 
   // Read ?ticket=xxx from hash to auto-open ticket (Telegram alert deep-link).
   useEffect(() => {
@@ -126,14 +129,14 @@ export default function SupportTicketsTab({ toast }: { toast: any }) {
     refetchInterval: 15_000,
   });
 
-  // Frontend-filter 'active' = open + in_progress.
+  // Frontend-filter 'active' = open + in_progress + period.
   const tickets = useMemo(() => {
     const all = data?.tickets || [];
-    if (statusFilter === "active") {
-      return all.filter(t => t.status === "open" || t.status === "in_progress");
-    }
-    return all;
-  }, [data, statusFilter]);
+    const byStatus = statusFilter === "active"
+      ? all.filter(t => t.status === "open" || t.status === "in_progress")
+      : all;
+    return filterByPeriod(byStatus, period, (t) => t.createdAt);
+  }, [data, statusFilter, period]);
 
   const onSetStatus = async (id: string, status: string, extra?: any) => {
     try {
@@ -166,14 +169,23 @@ export default function SupportTicketsTab({ toast }: { toast: any }) {
   };
 
   const copyReport = () => {
-    const lines = tickets.map(t =>
-      `#${t.id.slice(0, 8)} · ${t.status} · ${t.priority} · ${t.channel || "—"} · ${t.user?.name || (t.userId ? `user-${t.userId}` : "anon")} · ${(t.subject || "").slice(0, 60)} · ${fmtTime(t.createdAt)}`
-    );
-    const text = `🆘 Обращения (${tickets.length})\n${lines.join("\n")}`;
-    navigator.clipboard.writeText(text).then(() => {
+    const lines: string[] = [];
+    lines.push(`🆘 Обращения — отчёт (${statusFilter} · ${periodLabel(period)})`);
+    lines.push(`🕐 ${new Date().toLocaleString("ru-RU")}`);
+    lines.push(`Всего: ${tickets.length}`);
+    for (const t of tickets) {
+      lines.push("");
+      lines.push(`#${t.id.slice(0, 8)} · ${t.status} · ${t.priority} · канал:${t.channel || "—"}`);
+      lines.push(`  Автор: ${t.user?.name || (t.userId ? `user-${t.userId}` : "анонимный")}${t.user?.email ? ` · ${t.user.email}` : ""}`);
+      lines.push(`  Тема: ${t.subject || "—"}`);
+      if (t.reason) lines.push(`  Причина: ${t.reason}`);
+      lines.push(`  Создано: ${fmtTime(t.createdAt)}${t.resolvedAt ? ` · решено: ${fmtTime(t.resolvedAt)}` : ""}`);
+      lines.push(`  sessionId: ${t.sessionId}`);
+    }
+    navigator.clipboard.writeText(lines.join("\n")).then(() => {
       const btn = document.getElementById("support-copy-report");
       if (btn) {
-        const orig = btn.textContent || "📋 Копировать";
+        const orig = btn.textContent || "📋 Скопировать ВСЕ";
         btn.textContent = "✅ Скопировано";
         setTimeout(() => { btn.textContent = orig; }, 1500);
       }
@@ -195,9 +207,9 @@ export default function SupportTicketsTab({ toast }: { toast: any }) {
             <button
               id="support-copy-report"
               onClick={copyReport}
-              className="ml-auto text-xs px-3 py-1.5 rounded-md bg-white/5 border border-purple-400/20 hover:bg-purple-500/20 text-purple-200"
+              className="ml-auto text-xs px-3 py-1.5 rounded-md bg-fuchsia-500/15 border border-fuchsia-500/40 text-fuchsia-200 hover:bg-fuchsia-500/25"
             >
-              📋 Копировать
+              📋 Скопировать ВСЕ
             </button>
           </CardTitle>
           <p className="text-xs text-muted-foreground mt-1">
@@ -243,6 +255,22 @@ export default function SupportTicketsTab({ toast }: { toast: any }) {
               placeholder="по теме / id…"
               className="text-xs h-8 px-3 rounded-md bg-white/5 border border-white/10 text-white placeholder:text-white/30 max-w-[200px]"
             />
+            {/* Eugene 2026-05-30 canonical period chips */}
+            <div className="flex flex-wrap items-center gap-1 sm:ml-2">
+              <span className="text-xs text-white/40">Период:</span>
+              {ADMIN_PERIODS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setPeriod(p.id)}
+                  className={`text-xs px-2.5 py-1 rounded-md border ${
+                    period === p.id
+                      ? "bg-purple-500/20 text-purple-200 border-purple-400/50"
+                      : "bg-white/5 border-white/10 text-white/60 hover:bg-white/10"
+                  }`}
+                >{p.label}</button>
+              ))}
+            </div>
           </div>
 
           {/* Tickets table */}

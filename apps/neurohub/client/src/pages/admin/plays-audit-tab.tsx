@@ -193,10 +193,50 @@ export default function PlaysAuditTab() {
                   <Button
                     variant="outline"
                     size="sm"
+                    onClick={() => {
+                      const d = detail.data!;
+                      const lines: string[] = [];
+                      lines.push(`📊 Аудит прослушиваний — трек #${d.generationId}`);
+                      lines.push(`🕐 ${new Date().toLocaleString("ru-RU")}`);
+                      lines.push(`Название: ${d.title}`);
+                      lines.push(`Автор: ${d.authorName || "—"} (userId ${d.authorUserId}${d.authorRole ? `, ${d.authorRole}` : ""})`);
+                      lines.push(`Статус: ${d.status} · isPublic ${d.isPublic} · создан: ${d.createdAt || "—"}`);
+                      lines.push("");
+                      lines.push(`Показано юзеру (meta.plays): ${d.metaPlays}`);
+                      lines.push(`Реально попыток: ${d.rawActivity.totalAttempts}`);
+                      lines.push(`Успешных: ${d.rawActivity.successful}`);
+                      lines.push("");
+                      lines.push("Разбивка отказов:");
+                      for (const [reason, count] of Object.entries(d.rawActivity.rejected)) {
+                        if (count > 0) lines.push(`  ${REASON_LABELS[reason] || reason}: ${count}`);
+                      }
+                      lines.push("");
+                      lines.push(`Диагноз: ${d.diagnosis}`);
+                      if (d.recommendations?.length) {
+                        lines.push("");
+                        lines.push("Рекомендации:");
+                        for (const r of d.recommendations) lines.push(`  • ${r}`);
+                      }
+                      if (d.last20Activities?.length) {
+                        lines.push("");
+                        lines.push(`Последние ${d.last20Activities.length} событий:`);
+                        for (const a of d.last20Activities) {
+                          lines.push(`  ${a.ts || "—"} · ${a.action} · ip ${a.ip || "—"} · geo ${a.geo || "—"} · host ${a.host || "—"}`);
+                        }
+                      }
+                      copyToClipboard(lines.join("\n"));
+                    }}
+                    className="bg-fuchsia-500/15 border-fuchsia-400/40 text-fuchsia-200 hover:bg-fuchsia-500/25"
+                  >
+                    📋 Скопировать ВСЕ
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={() => copyToClipboard(JSON.stringify(detail.data, null, 2))}
                     className="bg-white/5 border-amber-400/30 text-amber-300 hover:bg-amber-500/20"
                   >
-                    📋 Копировать
+                    📋 JSON
                   </Button>
                 </div>
 

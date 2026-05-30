@@ -126,6 +126,7 @@ export default function NpsTab(_props: { toast?: any }) {
                   </button>
                 ))}
               </div>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
