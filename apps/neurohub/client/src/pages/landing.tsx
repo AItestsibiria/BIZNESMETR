@@ -2602,6 +2602,16 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   </div>
                 )}
               </div>
+              {/* Босс 2026-05-30 «Смартфон 3д кнопку полный экран поставь под обложкой
+                  без увеличения зоны» — absolute -bottom-2 НЕ расширяет flex-col, кнопка
+                  выходит за нижнюю границу обложки. Только mobile (sm:hidden), на десктопе
+                  fullscreen остаётся в правой колонке плеера. */}
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); toggleGlobeFullscreen(); }}
+                className="sm:hidden absolute -bottom-2 left-1/2 -translate-x-1/2 z-20 w-7 h-7 rounded-full flex items-center justify-center text-[11px] leading-none bg-gradient-to-br from-purple-500/85 to-fuchsia-500/85 border border-white/35 shadow-[0_0_10px_rgba(124,58,237,0.55)] active:scale-90 transition"
+                aria-label={globeFullscreen ? "Свернуть 3D Космос" : "3D Космос — полный экран"}
+              >{globeFullscreen ? "🗗" : "⛶"}</button>
               </div>
               {/* Eugene 2026-05-18 Босс «desktop: размер обложки настраиваемый +
                   S под обложку». S-кнопка только на desktop (md+). На mobile S
