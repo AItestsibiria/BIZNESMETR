@@ -3626,6 +3626,45 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             Listener на 'muza:milestone-1000' — 8 brand ракет с brust искрами. */}
         <Fireworks />
 
+        {/* Eugene 2026-05-30 v3 Босс «multi-select UI — 2-шаговый wizard».
+            Шаг 1 — «Куда летим?» (планеты + опции). Шаг 2 — «Под какой трек?»
+            (Гагарин/silent default + раскрывашка топ-100 MuzaAi). При «🚀 Поехали!»
+            wizard сохраняет prefs в localStorage + emits `muza:globe-solar-prefs`,
+            здесь — dispatch flight=solar + playTrack(selected). */}
+        <SolarWizard
+          open={solarWizardOpen}
+          onClose={() => setSolarWizardOpen(false)}
+          onLaunch={({ track }) => {
+            setSolarWizardOpen(false);
+            // 1. Переключаем режим полёта на solar.
+            setGlobeFlight("solar");
+            try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "solar" } })); } catch { /* no-op */ }
+            // 2. Если выбран трек — запускаем через persistent player. Persistent-audio-only rule:
+            //    audio управляется только из landing.tsx через playTrack(). track null = silent (Гагарин).
+            if (track) {
+              try {
+                // Найти трек в текущем плейлисте (filteredMusic) — иначе используем как есть.
+                const found = (filteredMusic || []).find((t: any) => String(t.id) === String(track.id));
+                if (found) {
+                  playTrack(found);
+                } else {
+                  // Track из топ-100 может не быть в текущем filteredMusic (другая category/sort).
+                  // playTrack принимает объект — у него есть id/displayTitle/imageUrl + audioUrl.
+                  // Если audioUrl отсутствует — fallback на полный fetch конкретного трека:
+                  fetch(`/api/playlist?status=main&sort=rating&dir=desc&limit=100&_=${Date.now()}`, { cache: "no-store" })
+                    .then((r) => r.ok ? r.json() : Promise.reject(`HTTP ${r.status}`))
+                    .then((list) => {
+                      if (!Array.isArray(list)) return;
+                      const full = list.find((t: any) => String(t.id) === String(track.id));
+                      if (full) playTrack(full);
+                    })
+                    .catch(() => { /* silent — тур всё равно запустится */ });
+                }
+              } catch { /* silent */ }
+            }
+          }}
+        />
+
         {/* Track count + page info */}
         {filteredMusic.length > 0 && (
           <div className="flex items-center justify-between text-xs text-muted-foreground px-1 mb-2">

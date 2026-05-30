@@ -1896,24 +1896,23 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   const solarBeltKuiperRef = useRef<any>(null);
   // Restart-on-click (Босс 2026-05-30 v2): повторный клик «🪐 Солнечная» во время тура → reset.
   const solarRestartRef = useRef<boolean>(false);
-  // Пользовательские предпочтения тура (multi-select UI в плеере). Подгружаются из
-  // localStorage `muza:sis-prefs`, обновляются через CustomEvent `muza:globe-solar-prefs`.
+  // Пользовательские предпочтения тура (2-шаговый wizard в плеере, Босс v3).
+  // Подгружаются из localStorage `muza:sis-prefs`, обновляются через
+  // CustomEvent `muza:globe-solar-prefs`. Новый формат: `planets: string[]` (массив
+  // ключей выбранных планет). Старый формат (innerPlanets/outerPlanets/shortTour
+  // booleans) поддерживается через адаптацию в load-handler ниже.
   const solarPrefsRef = useRef<{
-    innerPlanets: boolean;     // Меркурий+Венера+Земля+Марс
-    outerPlanets: boolean;     // Юпитер+Сатурн+Уран+Нептун
-    satellites: boolean;       // показывать спутники планет
-    mainBelt: boolean;         // главный пояс астероидов
-    kuiperBelt: boolean;       // пояс Койпера
+    planets: string[];           // выбранные ключи: ["mercury","venus","earth","mars","jupiter","saturn","uranus","neptune"]
+    satellites: boolean;         // показывать спутники планет
+    mainBelt: boolean;           // главный пояс астероидов
+    kuiperBelt: boolean;         // пояс Койпера
     saturnThroughRings: boolean; // Сатурн — сквозь кольца (vs обычная орбита)
-    shortTour: boolean;        // короткий тур (без Урана/Нептуна и поясов)
   }>({
-    innerPlanets: true,
-    outerPlanets: true,
+    planets: ["mercury", "venus", "earth", "mars", "jupiter", "saturn", "uranus", "neptune"],
     satellites: true,
     mainBelt: true,
     kuiperBelt: false,
     saturnThroughRings: true,
-    shortTour: false,
   });
 
   const basePointsRef = useRef<GlobePoint[]>(points);
@@ -2198,24 +2197,65 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     return () => window.removeEventListener("muza:globe-flight", onFlight as EventListener);
   }, []);
 
-  // Multi-select preferences (Босс 2026-05-30 v2). Подгружаем сохранённое значение
-  // при mount + слушаем CustomEvent `muza:globe-solar-prefs` от UI плеера.
+  // Multi-select preferences (Босс 2026-05-30 v3 — wizard). Подгружаем сохранённое
+  // значение при mount + слушаем CustomEvent `muza:globe-solar-prefs` от UI плеера.
+  // Нормализатор: понимает И новый формат (`planets: string[]`), И legacy
+  // (`innerPlanets/outerPlanets/shortTour` booleans) — для обратной совместимости с
+  // юзерами у которых уже сохранены старые prefs в localStorage.
   useEffect(() => {
+    const VALID_PLANETS = ["mercury", "venus", "earth", "mars", "jupiter", "saturn", "uranus", "neptune"];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const normalize = (raw: any) => {
+      if (!raw || typeof raw !== "object") return null;
+      // Базовый план — текущее состояние + bool-поля сразу из raw.
+      const next: typeof solarPrefsRef.current = {
+        planets: solarPrefsRef.current.planets,
+        satellites: typeof raw.satellites === "boolean" ? raw.satellites : solarPrefsRef.current.satellites,
+        mainBelt: typeof raw.mainBelt === "boolean" ? raw.mainBelt : solarPrefsRef.current.mainBelt,
+        kuiperBelt: typeof raw.kuiperBelt === "boolean" ? raw.kuiperBelt : solarPrefsRef.current.kuiperBelt,
+        saturnThroughRings: typeof raw.saturnThroughRings === "boolean" ? raw.saturnThroughRings : solarPrefsRef.current.saturnThroughRings,
+      };
+      // Новый формат: `planets: string[]` имеет приоритет.
+      if (Array.isArray(raw.planets)) {
+        const filtered = raw.planets.filter((k: unknown) => typeof k === "string" && VALID_PLANETS.includes(k as string));
+        if (filtered.length > 0) {
+          next.planets = filtered;
+          return next;
+        }
+      }
+      // Legacy формат: innerPlanets/outerPlanets/shortTour → планеты.
+      if (typeof raw.innerPlanets === "boolean" || typeof raw.outerPlanets === "boolean" || typeof raw.shortTour === "boolean") {
+        const inner = raw.innerPlanets !== false;
+        const outer = raw.outerPlanets !== false;
+        const short = !!raw.shortTour;
+        const planets: string[] = [];
+        if (inner) planets.push("mercury", "venus", "earth", "mars");
+        if (outer) {
+          planets.push("jupiter", "saturn");
+          if (!short) planets.push("uranus", "neptune");
+        }
+        if (planets.length > 0) next.planets = planets;
+        return next;
+      }
+      // raw без planets и без legacy полей — возвращаем merge только bool-полей.
+      return next;
+    };
     // Initial load из localStorage.
     try {
       const raw = localStorage.getItem("muza:sis-prefs");
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object") {
-          solarPrefsRef.current = { ...solarPrefsRef.current, ...parsed };
-        }
+        const merged = normalize(parsed);
+        if (merged) solarPrefsRef.current = merged;
       }
     } catch { /* ignore */ }
     const onPrefs = (e: Event) => {
       const detail = (e as CustomEvent).detail;
-      if (!detail || typeof detail !== "object") return;
-      solarPrefsRef.current = { ...solarPrefsRef.current, ...detail };
-      try { localStorage.setItem("muza:sis-prefs", JSON.stringify(solarPrefsRef.current)); } catch { /* ignore */ }
+      const merged = normalize(detail);
+      if (merged) {
+        solarPrefsRef.current = merged;
+        try { localStorage.setItem("muza:sis-prefs", JSON.stringify(merged)); } catch { /* ignore */ }
+      }
     };
     window.addEventListener("muza:globe-solar-prefs", onPrefs as EventListener);
     return () => window.removeEventListener("muza:globe-solar-prefs", onPrefs as EventListener);
@@ -2310,38 +2350,29 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     let solarInitDone = false;
     type SolarStepKey = "moon" | "mercury" | "venus" | "earth" | "mars" | "jupiter" | "saturn" | "uranus" | "neptune" | "main_belt" | "kuiper_belt" | "return";
     type SolarStep = { key: SolarStepKey; approachMs: number; orbitMs: number };
-    // Динамически собираем тур по prefs. Босс 2026-05-30 v2: каждый запуск читает
-    // текущее состояние solarPrefsRef.current → сценарий перестраивается.
+    // Динамически собираем тур по prefs. Босс 2026-05-30 v3 (wizard): каждый запуск
+    // читает solarPrefsRef.current → сценарий перестраивается. Порядок планет —
+    // от Солнца к границе системы (Меркурий→Нептун), независимо от порядка чекбоксов.
     const buildSolarTour = (): SolarStep[] => {
       const prefs = solarPrefsRef.current;
       const seq: SolarStep[] = [];
       // Луна — всегда первая (это «зачин» тура).
       seq.push({ key: "moon", approachMs: 8000, orbitMs: 16000 });
-      // Внутренние планеты.
-      if (prefs.innerPlanets) {
-        seq.push({ key: "mercury", approachMs: 5000, orbitMs: 10000 });
-        seq.push({ key: "venus",   approachMs: 5000, orbitMs: 10000 });
-        seq.push({ key: "earth",   approachMs: 3000, orbitMs: 0     });
-        seq.push({ key: "mars",    approachMs: 5000, orbitMs: 10000 });
-      }
-      // Главный пояс астероидов — между внутренними и внешними (Mars→Jupiter).
-      if (prefs.mainBelt && !prefs.shortTour) {
-        seq.push({ key: "main_belt", approachMs: 5000, orbitMs: 0 });
-      }
-      // Внешние планеты — газовые и ледяные гиганты.
-      if (prefs.outerPlanets) {
-        seq.push({ key: "jupiter", approachMs: 8000, orbitMs: 18000 });
-        seq.push({ key: "saturn",  approachMs: 8000, orbitMs: 18000 });
-        // Уран/Нептун — только если НЕ shortTour.
-        if (!prefs.shortTour) {
-          seq.push({ key: "uranus",  approachMs: 6000, orbitMs: 12000 });
-          seq.push({ key: "neptune", approachMs: 6000, orbitMs: 12000 });
-        }
-      }
-      // Пояс Койпера — за Нептуном (включается только если пользователь явно выбрал).
-      if (prefs.kuiperBelt && !prefs.shortTour) {
-        seq.push({ key: "kuiper_belt", approachMs: 5000, orbitMs: 0 });
-      }
+      const has = (k: string) => Array.isArray(prefs.planets) && prefs.planets.includes(k);
+      // Внутренние (по астрономическому порядку).
+      if (has("mercury")) seq.push({ key: "mercury", approachMs: 5000, orbitMs: 10000 });
+      if (has("venus"))   seq.push({ key: "venus",   approachMs: 5000, orbitMs: 10000 });
+      if (has("earth"))   seq.push({ key: "earth",   approachMs: 3000, orbitMs: 0     });
+      if (has("mars"))    seq.push({ key: "mars",    approachMs: 5000, orbitMs: 10000 });
+      // Главный пояс — между Марсом и Юпитером.
+      if (prefs.mainBelt) seq.push({ key: "main_belt", approachMs: 5000, orbitMs: 0 });
+      // Внешние.
+      if (has("jupiter")) seq.push({ key: "jupiter", approachMs: 8000, orbitMs: 18000 });
+      if (has("saturn"))  seq.push({ key: "saturn",  approachMs: 8000, orbitMs: 18000 });
+      if (has("uranus"))  seq.push({ key: "uranus",  approachMs: 6000, orbitMs: 12000 });
+      if (has("neptune")) seq.push({ key: "neptune", approachMs: 6000, orbitMs: 12000 });
+      // Пояс Койпера — за Нептуном.
+      if (prefs.kuiperBelt) seq.push({ key: "kuiper_belt", approachMs: 5000, orbitMs: 0 });
       // Возврат — всегда.
       seq.push({ key: "return", approachMs: 8000, orbitMs: 0 });
       return seq;
