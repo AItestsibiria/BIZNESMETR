@@ -563,12 +563,15 @@ function Step1Body({
         <div className="grid grid-cols-2 gap-2">
           {PLANETS.map((p) => {
             const checked = prefs.planets.includes(p.key);
+            // Босс 2026-05-30: «Планеты цветные как есть» (procedural-иконки
+            // остаются), но border/bg в стиле 3D-плеера — нейтральные пока
+            // не выбраны, brand-gradient fill при selected.
             return (
               <label
                 key={p.key}
                 className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border cursor-pointer transition-all active:scale-[0.97] ${checked
-                  ? "border-cyan-300/60 bg-cyan-400/10"
-                  : "border-white/15 bg-white/5 hover:bg-white/10"}`}
+                  ? "border-white/40 bg-gradient-to-r from-purple-500/15 via-fuchsia-500/15 to-cyan-500/15 text-white"
+                  : "bg-transparent border-white/25 hover:border-white/55 text-white/80"}`}
               >
                 <input
                   type="checkbox"
@@ -576,10 +579,8 @@ function Step1Body({
                   onChange={() => onTogglePlanet(p.key)}
                   className="w-4 h-4 accent-purple-500 cursor-pointer"
                 />
-                {/* Босс 2026-05-30: «вид планеты/спутника как в реале» —
-                    procedural-иконка с реальными цветами тела. */}
                 <PlanetMiniIcon planetKey={p.key} size={22} />
-                <span className="text-sm font-medium text-white truncate">{p.label}</span>
+                <span className={`text-sm font-medium truncate ${checked ? "bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent font-display font-bold" : ""}`}>{p.label}</span>
               </label>
             );
           })}
