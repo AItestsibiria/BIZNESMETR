@@ -65,7 +65,7 @@ export function BackToMuzaButton({
     <button
       type="button"
       onClick={handleClick}
-      className={`shrink-0 ${sizeClasses} rounded-full flex items-center justify-center gap-1.5 font-sans font-semibold whitespace-nowrap border bg-transparent text-white/85 border-purple-300/50 hover:border-purple-300/85 active:scale-95 transition-all ${className}`}
+      className={`shrink-0 ${sizeClasses} rounded-full flex items-center justify-center gap-1.5 font-sans font-semibold whitespace-nowrap border bg-transparent text-white/85 border-white/25 hover:border-white/55 active:scale-95 transition-all ${className}`}
       aria-label={ariaLabel}
       title={title}
     >

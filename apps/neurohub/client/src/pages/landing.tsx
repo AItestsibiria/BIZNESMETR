@@ -37,6 +37,7 @@ import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react"
 import { ErrorBoundary } from "@/components/error-boundary";
 import { GlobeLoader } from "@/components/globe-loader";
 import { SolarLabel } from "@/components/solar-label";
+import { TappableBodyPulse } from "@/components/tappable-body-pulse";
 // Eugene 2026-05-30 — кнопка «Сохранить» с offline-режимом для Capacitor/PWA
 import { SaveTrackButton } from "@/components/save-track-button";
 import { canSaveToDevice } from "@/lib/platform";
@@ -3168,6 +3169,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   название планеты в Стиле Муза Ай. При вращении в сторону
                                   земли явно видная». Position fixed — поверх canvas. */}
                               <SolarLabel />
+                              {/* Босс 2026-05-30 п.1: «Планеты, Луна иногда переливаются
+                                  в стиле музы — пульсируют 3 раза привлекая внимание
+                                  чтоб юзер захотел нажать». Pulse каждые 15-20с на
+                                  случайное видимое тело (не Земля). Brand gradient,
+                                  pointer-events:none — не блокирует tap-to-fly. */}
+                              <TappableBodyPulse enabled={showGlobe} />
                               {/* Tap-to-fly label (Босс 2026-05-30 «Нажатие на планету
                                   на небе либо луну: начинается твой облёт и летим!
                                   И солнце тоже в списке»). Появляется при тапе по
@@ -3270,8 +3277,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   </div>
                                   </div>
                                   {/* ЦЕНТР (col2) — переключение трека ВЛЕВО/ВПРАВО от Play; Play
-                                      СТРОГО по центру экрана (Босс 2026-05-29). Прозрачные контур-кнопки. */}
+                                      СТРОГО по центру экрана (Босс 2026-05-29). Прозрачные контур-кнопки.
+                                      Босс 2026-05-30 п.3: 🎧 счётчик прослушиваний — СЛЕВА от кнопки
+                                      «назад» (был под 🎧 в col3 → перенесён). */}
                                   <div className="flex items-center gap-2 sm:gap-3 justify-self-center">
+                                  <span
+                                    className="shrink-0 text-[11px] font-bold tabular-nums bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap select-none"
+                                    aria-label={`Прослушиваний: ${totalPlays.toLocaleString("ru-RU")}`}
+                                    title="Прослушиваний всего"
+                                  >🎧 {totalPlays > 0 ? totalPlays.toLocaleString("ru-RU") : "…"}</span>
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); skipPrev(); }}
@@ -3308,7 +3322,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                     className="shrink-0 h-10 w-10 sm:h-11 sm:w-11 rounded-full flex items-center justify-center text-base bg-transparent border border-white/30 hover:border-white/60 active:scale-90 transition-all"
                                     aria-label={globeFullscreen ? "Свернуть" : "Полный экран — Космос и Земля"}
                                   >{globeFullscreen ? "🗗" : "⛶"}</button>
-                                  {/* 🎧 Топ-100 + счётчик прослушиваний — справа после фуллскрина (Босс 2026-05-29). */}
+                                  {/* 🎧 Топ-100 — справа после фуллскрина. Босс 2026-05-30 п.3:
+                                      счётчик прослушиваний перенесён слева от SkipBack (col2);
+                                      здесь остаётся только кнопка-триггер списка топ-100. */}
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); setGlobeTopOpen(v => !v); }}
@@ -3316,7 +3332,6 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                     aria-label="Топ-100 плейлиста" aria-expanded={globeTopOpen}
                                   >
                                     🎧
-                                    <span className="absolute top-full left-1/2 -translate-x-1/2 mt-0.5 text-[11px] tabular-nums font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap pointer-events-none">{totalPlays > 0 ? totalPlays.toLocaleString("ru-RU") : "…"}</span>
                                   </button>
                                   {/* Босс 2026-05-30: дубль flight-кнопок (Полёт/Полёт Ai/🪐 Солнечная)
                                       УДАЛЁН из overflow-x-auto строки контролов — они дублировались с shrink-0
@@ -3348,14 +3363,14 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); setGlobeFlight("classic"); setFlightLabel({ key: "classic", shownAt: Date.now() }); try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "classic" } })); } catch { /* no-op */ } }}
-                                className={`relative shrink-0 h-8 sm:h-9 md:h-10 px-2 sm:px-2.5 md:px-3 rounded-full flex items-center justify-center text-[10px] sm:text-[11px] md:text-xs font-semibold transition-all whitespace-nowrap border active:scale-95 ${globeFlight === "classic" ? "text-white border-cyan-300/85 bg-gradient-to-r from-purple-500/12 via-fuchsia-500/12 to-cyan-500/12" : "text-white/80 border-white/25 hover:border-white/55 bg-transparent"}`}
+                                className={`relative shrink-0 h-8 sm:h-9 md:h-10 px-2 sm:px-2.5 md:px-3 rounded-full flex items-center justify-center text-[10px] sm:text-[11px] md:text-xs font-semibold transition-all whitespace-nowrap border active:scale-95 ${globeFlight === "classic" ? "text-white border-white/40 bg-gradient-to-r from-purple-500/15 via-fuchsia-500/15 to-cyan-500/15" : "text-white/80 border-white/25 hover:border-white/55 bg-transparent"}`}
                                 aria-label="Полёт — классический обзор Земли"
                                 title="Полёт — классический обзор Земли с дрейфом"
                               >Полёт</button>
                               <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); setGlobeFlight("ai"); setFlightLabel({ key: "ai", shownAt: Date.now() }); try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "ai" } })); } catch { /* no-op */ } }}
-                                className={`relative shrink-0 h-8 sm:h-9 md:h-10 px-2 sm:px-2.5 md:px-3 rounded-full flex items-center justify-center gap-1 text-[10px] sm:text-[11px] md:text-xs font-semibold transition-all whitespace-nowrap border active:scale-95 ${globeFlight === "ai" ? "text-white border-fuchsia-300/85 bg-gradient-to-r from-purple-500/12 via-fuchsia-500/12 to-cyan-500/12" : "text-white/80 border-white/25 hover:border-white/55 bg-transparent"}`}
+                                className={`relative shrink-0 h-8 sm:h-9 md:h-10 px-2 sm:px-2.5 md:px-3 rounded-full flex items-center justify-center gap-1 text-[10px] sm:text-[11px] md:text-xs font-semibold transition-all whitespace-nowrap border active:scale-95 ${globeFlight === "ai" ? "text-white border-white/40 bg-gradient-to-r from-purple-500/15 via-fuchsia-500/15 to-cyan-500/15" : "text-white/80 border-white/25 hover:border-white/55 bg-transparent"}`}
                                 aria-label="Полёт Ai"
                                 title="Полёт Ai — режиссура Земля + Солнце + Луна в кадре"
                               >Полёт <span className="font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">Ai</span></button>
@@ -3373,7 +3388,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "solar" } })); } catch { /* no-op */ }
                                   setSolarWizardOpen(true);
                                 }}
-                                className={`relative shrink-0 h-8 sm:h-9 md:h-10 px-2 sm:px-2.5 md:px-3 rounded-full flex items-center justify-center gap-1 text-[10px] sm:text-[11px] md:text-xs font-semibold transition-all whitespace-nowrap border active:scale-95 ${globeFlight === "solar" ? "text-white border-purple-300/85 bg-gradient-to-r from-purple-500/12 via-fuchsia-500/12 to-cyan-500/12" : "text-white/80 border-white/25 hover:border-white/55 bg-transparent"}`}
+                                className={`relative shrink-0 h-8 sm:h-9 md:h-10 px-2 sm:px-2.5 md:px-3 rounded-full flex items-center justify-center gap-1 text-[10px] sm:text-[11px] md:text-xs font-semibold transition-all whitespace-nowrap border active:scale-95 ${globeFlight === "solar" ? "text-white border-white/40 bg-gradient-to-r from-purple-500/15 via-fuchsia-500/15 to-cyan-500/15" : "text-white/80 border-white/25 hover:border-white/55 bg-transparent"}`}
                                 aria-label="Полёт по Солнечной системе"
                                 title="Полёт по Солнечной системе — wizard выбора планет и трека"
                               >🪐 Солнечная</button>

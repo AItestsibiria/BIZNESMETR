@@ -1866,6 +1866,11 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // переходе из solar в classic/ai/moon — иначе planet-meshes останутся внутри
   // глобуса (Mars/Mercury на orbitR=10 могут быть видны изнутри Земли как артефакт).
   const disposeAllSolarRef = useRef<(() => void) | null>(null);
+  // Reset moon/sun-tour state — устраняет баг «нажатие на Луну/Солнце не приводит к
+  // полёту» (moonInitDone в rAF closure оставался true с прошлого захода → phaseT
+  // превышал APPROACH+ORBIT+RETURN → тур мгновенно пропускался). Босс 2026-05-30.
+  const moonResetRef = useRef<(() => void) | null>(null);
+  const sunResetRef = useRef<(() => void) | null>(null);
   // Удержание камеры по двойному тапу (Босс 2026-05-29): после двойного тапа по планете
   // камера держит текущую позицию/траекторию до нового входа в режим или пока юзер сам
   // не сменит позицию (перетаскивание/зум).
@@ -2271,6 +2276,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         try { clearSolarLabelState(); } catch { /* no-op */ }
         singleSolarKeyRef.current = null;
         flightModeRef.current = "moon";
+        // Босс 2026-05-30 fix «нажатие на Луну не привело к полёту» — сбросить
+        // moonInitDone иначе rAF пропустит тур (phaseT > APPROACH+ORBIT+RETURN).
+        try { moonResetRef.current?.(); } catch { /* no-op */ }
         holdRef.current = false;
         return;
       }
@@ -2279,6 +2287,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         try { clearSolarLabelState(); } catch { /* no-op */ }
         singleSolarKeyRef.current = null;
         flightModeRef.current = "sun";
+        try { sunResetRef.current?.(); } catch { /* no-op */ }
         holdRef.current = false;
         return;
       }
@@ -2451,6 +2460,8 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     let moonInitDone = false;
     let moonStartT = 0;
     let moonStartCamPos: { x: number; y: number; z: number } | null = null;
+    // Reset-callback expose'нут в ref для onFlyTo (Босс 2026-05-30 fix).
+    moonResetRef.current = () => { moonInitDone = false; moonStartT = 0; moonStartCamPos = null; };
     // ── Sun-tour state (Босс 2026-05-30 «И солнце тоже в списке»): tap-to-fly
     // к Солнцу. Подлетаем НЕ ВПЛОТНУЮ (150 ед. от центра, Солнце R=100),
     // орбита 16с, возврат к Земле. Mirror moon-pattern; меняется тело (sunMeshRef)
@@ -2459,6 +2470,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     let sunInitDone = false;
     let sunStartT = 0;
     let sunStartCamPos: { x: number; y: number; z: number } | null = null;
+    sunResetRef.current = () => { sunInitDone = false; sunStartT = 0; sunStartCamPos = null; };
     // ── Solar tour state (Босс 2026-05-30 vote #2 → v2 2026-05-30): tour из выбранных
     // подрежимов (multi-select). Default ~210с полный, ~150с короткий.
     // Каждый шаг — approach (eased) → orbit (circular) → next. Approach запоминает
