@@ -106,29 +106,25 @@ export function TappableHitboxes({ enabled }: Props) {
           0%, 100% { opacity: 0.35; transform: translate(-50%, -50%) scale(1); }
           50%      { opacity: 0.75; transform: translate(-50%, -50%) scale(1.06); }
         }
+        /* Босс 2026-05-30 «от кругов обещал уйти» — hitbox-зона ПОЛНОСТЬЮ
+           прозрачная. Без border, без glow, без анимации. Только tap-target.
+           Пульсация-guidance отдельным компонентом TappableBodyPulse (тонкая
+           аура без круга). */
         .muza-hitbox-btn {
           position: absolute;
           border-radius: 9999px;
-          background: radial-gradient(circle, rgba(124,58,237,0.22) 0%, rgba(217,70,239,0.16) 55%, rgba(0,212,255,0.12) 80%, transparent 100%);
-          /* Босс 2026-05-30: гарантированно видимый — purple border + сильный glow */
-          border: 2px solid rgba(196,181,253,0.70);
-          box-shadow: 0 0 20px rgba(124,58,237,0.80), inset 0 0 14px rgba(217,70,239,0.22);
+          background: transparent;
+          border: 0;
+          box-shadow: none;
           cursor: pointer;
           pointer-events: auto;
-          will-change: transform, opacity;
-          animation: muza-hitbox-breathe 2.6s ease-in-out infinite;
-          backdrop-filter: blur(1px);
-          -webkit-backdrop-filter: blur(1px);
           -webkit-tap-highlight-color: transparent;
           touch-action: manipulation;
           padding: 0;
         }
         .muza-hitbox-btn:active {
-          transform: translate(-50%, -50%) scale(0.92) !important;
-          background: radial-gradient(circle, rgba(124,58,237,0.45) 0%, rgba(217,70,239,0.30) 55%, rgba(0,212,255,0.20) 80%, transparent 100%);
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .muza-hitbox-btn { animation: none; opacity: 0.45; }
+          /* лёгкая обратная связь при тапе — еле заметный glow */
+          background: radial-gradient(circle, rgba(217,70,239,0.18) 0%, transparent 70%);
         }
       `}</style>
       <div className="absolute inset-0 pointer-events-none z-50" aria-hidden="false">

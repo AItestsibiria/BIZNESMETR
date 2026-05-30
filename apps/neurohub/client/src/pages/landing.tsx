@@ -3215,6 +3215,18 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 // Босс 2026-05-30 «свайп только в зоне звёздного поля под планетой,
                                 // на ней свайпа нет, а то кручу и треки пляшут». Определяем стартовала
                                 // ли точка ВНУТРИ Земли (приблизительно — диск ~40% min(w,h) по центру).
+                                // Босс 2026-05-30 ROOT CAUSE «тап планеты → Земля»: если
+                                // юзер тапнул TappableHitboxes-кнопку — она dispatch'ит
+                                // muza:globe-fly-to сама. НЕ нужно ставить globeTapStartRef
+                                // — иначе parent.onPointerUp найдёт «best body» в snapshot
+                                // (часто другую соседнюю планету в tolerance 50px) →
+                                // ВТОРОЙ конкурирующий dispatch → onFlyTo получает 2 события
+                                // подряд → последнее перетирает state → fallback к Земле.
+                                const tgtEl = e.target as HTMLElement;
+                                if (tgtEl && (tgtEl.classList?.contains?.("muza-hitbox-btn") || tgtEl.closest?.(".muza-hitbox-btn"))) {
+                                  globeTapStartRef.current = null;
+                                  return;
+                                }
                                 const tgt = e.currentTarget as HTMLElement;
                                 const rect = tgt.getBoundingClientRect();
                                 const cx = rect.left + rect.width / 2;
