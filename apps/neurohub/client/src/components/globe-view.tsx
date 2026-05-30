@@ -901,6 +901,274 @@ const PLANET_NAMES: Record<string, string> = {
   saturn: "Saturn",
 };
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Полёт «Солнечная система» (Босс 2026-05-30, vote #2). Шар-меши планет с
+// процедурными шейдерами создаются ЛЕНИВО при подлёте и dispose'ятся при
+// переходе к следующей планете. NASA-точные базовые цвета (D65 sunlight):
+//   Mercury — серый с кратерами        Venus  — кремовый с турбулентной облачностью
+//   Mars    — красный с polar caps     Jupiter — горизонтальные полосы + Red Spot
+//   Saturn  — пастельный + кольца (наклон 26.7°)
+// Размеры МАСШТАБИРОВАНЫ для визуального эффекта (НЕ NASA-real), Юпитер ≈ 10×
+// Меркурия — близко к реальному пропорциональному соотношению (×28 на самом деле).
+// ──────────────────────────────────────────────────────────────────────────────
+
+// Радиусы tour-меша каждой планеты (в world-units). Используются ТОЛЬКО в
+// "solar" режиме, в обычном виде планета — спрайт-точка на дальней сфере.
+const SOLAR_PLANET_RADIUS: Record<string, number> = {
+  mercury: 3.0,
+  venus: 4.0,
+  mars: 3.5,
+  jupiter: 10.0,
+  saturn: 8.0,
+};
+
+// Общий vertex-shader для всех planet-tour-meshes (тот же что Moon).
+const PLANET_VERTEX = MOON_VERTEX;
+
+// Mercury — серый с густыми кратерами (Worley × 3 масштаба, NASA stylized).
+const PLANET_FRAGMENT_MERCURY = SUN_NOISE + `
+  uniform vec3 sunDir;
+  varying vec3 vWorldNormal;
+  varying vec3 vPos;
+  void main() {
+    float i = dot(normalize(vWorldNormal), normalize(sunDir));
+    float lit = smoothstep(-0.08, 0.12, i);
+    vec3 litCol  = vec3(0.78, 0.78, 0.80);    // серый Mercury rgb (200,200,205)
+    vec3 darkCol = vec3(0.02, 0.02, 0.03);
+    vec3 base = mix(darkCol, litCol, lit);
+    vec3 p = normalize(vPos);
+    // Кратеры — гуще чем у Луны (Mercury тяжелее кратеризован, NASA fact).
+    float c1 = worley3(p * 5.0);
+    float c2 = worley3(p * 14.0);
+    float c3 = worley3(p * 28.0);
+    float crater1 = smoothstep(0.0, 0.18, c1) * (1.0 - smoothstep(0.18, 0.40, c1));
+    float crater2 = smoothstep(0.0, 0.12, c2) * (1.0 - smoothstep(0.12, 0.30, c2));
+    float crater3 = smoothstep(0.0, 0.08, c3) * (1.0 - smoothstep(0.08, 0.18, c3));
+    float shadow = max(crater1 * 0.7, max(crater2 * 0.55, crater3 * 0.4));
+    base *= 1.0 - shadow * 0.6 * lit;
+    // Микро-вариация регалита.
+    float reg = fbm3(p * 40.0) * 0.05;
+    base *= 0.96 + reg;
+    gl_FragColor = vec4(base, 1.0);
+  }
+`;
+
+// Venus — кремовый шар с турбулентной облачностью (fbm + анимация).
+const PLANET_FRAGMENT_VENUS = SUN_NOISE + `
+  uniform vec3 sunDir;
+  uniform float time;
+  varying vec3 vWorldNormal;
+  varying vec3 vPos;
+  void main() {
+    float i = dot(normalize(vWorldNormal), normalize(sunDir));
+    float lit = smoothstep(-0.08, 0.12, i);
+    vec3 litCol  = vec3(1.00, 0.96, 0.88);    // кремовый Venus rgb (255,246,224)
+    vec3 darkCol = vec3(0.06, 0.05, 0.04);
+    vec3 base = mix(darkCol, litCol, lit);
+    vec3 p = normalize(vPos);
+    // Турбулентные облака — fbm3 с медленной анимацией (Венера: super-rotation атмосферы).
+    float t = time * 0.05;
+    float clouds1 = fbm3(p * 3.0 + vec3(t, 0.0, 0.0));
+    float clouds2 = fbm3(p * 7.0 + vec3(0.0, t * 0.6, 0.0));
+    float cloudPattern = clouds1 * 0.6 + clouds2 * 0.4;
+    // Тёплые тёмные полосы (более горячие участки).
+    vec3 warmCloud = vec3(0.92, 0.78, 0.55);
+    base = mix(base, warmCloud, smoothstep(0.45, 0.75, cloudPattern) * lit * 0.55);
+    // Светлые яркие полосы (отражённый свет верхней атмосферы).
+    base += vec3(0.18, 0.15, 0.10) * smoothstep(0.65, 0.85, clouds1) * lit;
+    gl_FragColor = vec4(base, 1.0);
+  }
+`;
+
+// Mars — красный с polar caps (sin(lat) > 0.7 → белый CO2-лёд).
+const PLANET_FRAGMENT_MARS = SUN_NOISE + `
+  uniform vec3 sunDir;
+  varying vec3 vWorldNormal;
+  varying vec3 vPos;
+  void main() {
+    float i = dot(normalize(vWorldNormal), normalize(sunDir));
+    float lit = smoothstep(-0.08, 0.12, i);
+    vec3 litCol  = vec3(0.90, 0.45, 0.28);    // марсианский красный rgb (255,122,78)
+    vec3 darkCol = vec3(0.04, 0.02, 0.01);
+    vec3 base = mix(darkCol, litCol, lit);
+    vec3 p = normalize(vPos);
+    // Polar caps: |y| > 0.75 → белый CO2-лёд.
+    float polar = smoothstep(0.75, 0.90, abs(p.y));
+    vec3 polarCol = vec3(0.95, 0.96, 0.98);
+    base = mix(base, polarCol, polar * lit * 0.85);
+    // Тёмные пятна (Valles Marineris, Hellas Basin) — fbm.
+    float n = fbm3(p * 5.0);
+    float darkPatch = smoothstep(0.55, 0.75, n);
+    vec3 rust = vec3(0.50, 0.20, 0.10);
+    base = mix(base, rust, darkPatch * lit * 0.35);
+    // Мелкие кратеры (Mars тоже кратеризован).
+    float c = worley3(p * 20.0);
+    float crater = smoothstep(0.0, 0.10, c) * (1.0 - smoothstep(0.10, 0.22, c));
+    base *= 1.0 - crater * 0.35 * lit;
+    gl_FragColor = vec4(base, 1.0);
+  }
+`;
+
+// Jupiter — горизонтальные полосы (color bands по широте) + Great Red Spot.
+const PLANET_FRAGMENT_JUPITER = SUN_NOISE + `
+  uniform vec3 sunDir;
+  uniform float time;
+  varying vec3 vWorldNormal;
+  varying vec3 vPos;
+  void main() {
+    float i = dot(normalize(vWorldNormal), normalize(sunDir));
+    float lit = smoothstep(-0.08, 0.12, i);
+    vec3 p = normalize(vPos);
+    // Базовый цвет Юпитера rgb (240,222,184) — пастельный жёлто-бежевый.
+    vec3 baseCol = vec3(0.94, 0.87, 0.72);
+    // Горизонтальные полосы — функция широты (p.y). Чередование zone/belt.
+    float lat = p.y;
+    float bandPattern = sin(lat * 18.0 + fbm3(p * 4.0) * 1.5);
+    // Зоны (zones, светлые) и пояса (belts, тёмные оранжево-коричневые).
+    vec3 zoneCol = vec3(0.96, 0.90, 0.76);
+    vec3 beltCol = vec3(0.62, 0.40, 0.22);
+    baseCol = mix(beltCol, zoneCol, smoothstep(-0.3, 0.3, bandPattern));
+    // Турбулентность облаков (анимация — атмосфера Юпитера крутится).
+    float t = time * 0.08;
+    float turb = fbm3(vec3(p.x * 8.0 + t, p.y * 12.0, p.z * 8.0));
+    baseCol *= 0.85 + turb * 0.3;
+    // Great Red Spot — гауссиан в области (~22°S, специфическая долгота).
+    vec3 spotCenter = normalize(vec3(0.4, -0.38, 0.83));
+    float spotD = length(p - spotCenter);
+    float spot = exp(-spotD * spotD * 18.0);
+    vec3 redSpotCol = vec3(0.78, 0.28, 0.16);
+    baseCol = mix(baseCol, redSpotCol, spot * 0.85);
+    // Полярные зоны — слегка темнее, голубоватые.
+    float polar = smoothstep(0.70, 0.95, abs(p.y));
+    baseCol = mix(baseCol, vec3(0.45, 0.42, 0.40), polar * 0.4);
+    vec3 base = baseCol * lit + vec3(0.025, 0.020, 0.015) * (1.0 - lit);
+    gl_FragColor = vec4(base, 1.0);
+  }
+`;
+
+// Saturn — пастельный бежевый с тонкими полосами (полосы менее контрастные чем Jupiter).
+const PLANET_FRAGMENT_SATURN = SUN_NOISE + `
+  uniform vec3 sunDir;
+  uniform float time;
+  varying vec3 vWorldNormal;
+  varying vec3 vPos;
+  void main() {
+    float i = dot(normalize(vWorldNormal), normalize(sunDir));
+    float lit = smoothstep(-0.08, 0.12, i);
+    vec3 p = normalize(vPos);
+    // Saturn rgb (240,224,168) — пастельный жёлто-бежевый.
+    vec3 baseCol = vec3(0.94, 0.88, 0.66);
+    // Полосы слабее чем у Jupiter (Saturn band contrast ~3× ниже).
+    float lat = p.y;
+    float bandPattern = sin(lat * 14.0 + fbm3(p * 3.0) * 1.0);
+    vec3 zoneCol = vec3(0.96, 0.91, 0.72);
+    vec3 beltCol = vec3(0.78, 0.66, 0.42);
+    baseCol = mix(beltCol, zoneCol, smoothstep(-0.4, 0.4, bandPattern));
+    float t = time * 0.04;
+    float turb = fbm3(vec3(p.x * 6.0 + t, p.y * 10.0, p.z * 6.0));
+    baseCol *= 0.88 + turb * 0.22;
+    // Полярные шестиугольник (Saturn hexagonal storm у северного полюса) — мягкое затемнение.
+    float polar = smoothstep(0.75, 0.95, abs(p.y));
+    baseCol = mix(baseCol, vec3(0.55, 0.50, 0.40), polar * 0.45);
+    vec3 base = baseCol * lit + vec3(0.030, 0.025, 0.018) * (1.0 - lit);
+    gl_FragColor = vec4(base, 1.0);
+  }
+`;
+
+// Кольца Сатурна — procedural pattern с Cassini division (тёмная щель ~70%).
+const SATURN_RINGS_VERTEX = `
+  varying vec2 vUv;
+  varying vec3 vPos;
+  void main() {
+    vUv = uv;
+    vPos = position;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+const SATURN_RINGS_FRAGMENT = `
+  varying vec2 vUv;
+  varying vec3 vPos;
+  void main() {
+    // Радиус от центра в плоскости XZ.
+    float r = length(vPos.xz);
+    // Нормализованный 0..1 (inner..outer).
+    // RingGeometry UV: vUv.x = угол, vUv.y = радиус 0..1.
+    float ringR = vUv.y;
+    // Тонкие концентрические кольца — синусоида высокой частоты.
+    float fine = 0.5 + 0.5 * sin(ringR * 180.0);
+    fine = pow(fine, 0.7);
+    // Главные кольца (A, B, C divisions).
+    float bring = smoothstep(0.05, 0.10, ringR) * (1.0 - smoothstep(0.40, 0.45, ringR)); // C+B
+    float cassini = 1.0 - (smoothstep(0.43, 0.47, ringR) * (1.0 - smoothstep(0.50, 0.54, ringR))); // Cassini gap ~70% inner
+    float aring = smoothstep(0.54, 0.58, ringR) * (1.0 - smoothstep(0.90, 0.95, ringR)); // A ring
+    float density = (bring * 0.85 + aring * 0.75) * cassini;
+    density *= 0.6 + fine * 0.4;
+    // Цвет колец — пастельный бежево-жёлтый, чуть прозрачнее Сатурна.
+    vec3 ringCol = vec3(0.88, 0.82, 0.65);
+    float alpha = density;
+    // Внутренний край и внешний край — мягкий fadeout.
+    alpha *= smoothstep(0.02, 0.08, ringR) * (1.0 - smoothstep(0.93, 0.99, ringR));
+    if (alpha < 0.02) discard;
+    gl_FragColor = vec4(ringCol, alpha);
+  }
+`;
+
+// Создать шар-меш планеты с procedural шейдером. Возвращает {mesh, material, ringsGroup?}.
+// ringsGroup присутствует только у Saturn.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function makeSolarPlanetMesh(key: string): { group: any; bodyMat: any; ringsMat?: any } | null {
+  try {
+    const radius = SOLAR_PLANET_RADIUS[key];
+    if (!radius) return null;
+    let fragment: string;
+    let hasTime = false;
+    switch (key) {
+      case "mercury": fragment = PLANET_FRAGMENT_MERCURY; break;
+      case "venus":   fragment = PLANET_FRAGMENT_VENUS;   hasTime = true; break;
+      case "mars":    fragment = PLANET_FRAGMENT_MARS;    break;
+      case "jupiter": fragment = PLANET_FRAGMENT_JUPITER; hasTime = true; break;
+      case "saturn":  fragment = PLANET_FRAGMENT_SATURN;  hasTime = true; break;
+      default: return null;
+    }
+    const uniforms: Record<string, { value: unknown }> = {
+      sunDir: { value: new THREE.Vector3(1, 0, 0) },
+    };
+    if (hasTime) uniforms.time = { value: 0 };
+    const bodyMat = new THREE.ShaderMaterial({
+      uniforms,
+      vertexShader: PLANET_VERTEX,
+      fragmentShader: fragment,
+    });
+    const group = new THREE.Group();
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 48, 48), bodyMat);
+    group.add(mesh);
+    // Saturn — добавить кольца (наклон 26.7°, диаметр inner=1.4×R, outer=2.3×R).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let ringsMat: any;
+    if (key === "saturn") {
+      const innerR = radius * 1.4;
+      const outerR = radius * 2.3;
+      ringsMat = new THREE.ShaderMaterial({
+        uniforms: {},
+        vertexShader: SATURN_RINGS_VERTEX,
+        fragmentShader: SATURN_RINGS_FRAGMENT,
+        side: THREE.DoubleSide,
+        transparent: true,
+        depthWrite: false,
+      });
+      const ringGeom = new THREE.RingGeometry(innerR, outerR, 128, 1);
+      const ringMesh = new THREE.Mesh(ringGeom, ringsMat);
+      // Кольца изначально в плоскости XY → поворачиваем в XZ + наклон 26.7° (Saturn axial tilt).
+      ringMesh.rotation.x = Math.PI / 2;
+      ringMesh.rotation.y = THREE.MathUtils.degToRad(26.7);
+      group.add(ringMesh);
+    }
+    return { group, bodyMat, ringsMat };
+  } catch {
+    return null;
+  }
+}
+
 // Нормаль поверхности в (lat,lng) — базис Polar2Cartesian как в шейдере.
 function surfaceNormal(lat: number, lng: number): [number, number, number] {
   const theta = ((90 - lng) * Math.PI) / 180;
@@ -1271,7 +1539,11 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // Режим полёта (Босс 2026-05-29): "ai" — многовариантная режиссура (Солнце/Земля/Луна);
   // "classic" — классический обзор Земли по параллели юзера, без диагональной режиссуры.
   // По умолчанию ВЕЗДЕ «Полёт» (classic); «Полёт Ai» включается кнопкой (Босс 2026-05-29).
-  const flightModeRef = useRef<"classic" | "ai" | "moon">("classic");
+  const flightModeRef = useRef<"classic" | "ai" | "moon" | "solar">("classic");
+  // Solar tour state — current tour-mesh каждой планеты (lazy, dispose'ится при transition).
+  // Sat key → {group, bodyMat, ringsMat?}. Только во время "solar" режима.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const solarMeshesRef = useRef<Record<string, { group: any; bodyMat: any; ringsMat?: any } | null>>({});
 
   const basePointsRef = useRef<GlobePoint[]>(points);
   useEffect(() => {
@@ -1334,6 +1606,21 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         sunCoronaMeshRef.current = null;
         moonMeshRef.current = null;
         moonMatRef.current = null;
+        // Solar tour meshes (lazy-created planet spheres, могли остаться если unmount
+        // случился в середине тура).
+        for (const k of Object.keys(solarMeshesRef.current)) {
+          const tm = solarMeshesRef.current[k];
+          if (tm) {
+            try {
+              tm.group.parent?.remove?.(tm.group);
+              for (const child of tm.group.children || []) {
+                child.geometry?.dispose?.();
+                child.material?.dispose?.();
+              }
+            } catch { /* no-op */ }
+          }
+          solarMeshesRef.current[k] = null;
+        }
       } catch {
         // ignore
       }
@@ -1501,7 +1788,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   useEffect(() => {
     const onFlight = (e: Event) => {
       const m = (e as CustomEvent).detail?.mode;
-      if (m === "classic" || m === "ai" || m === "moon") {
+      if (m === "classic" || m === "ai" || m === "moon" || m === "solar") {
         flightModeRef.current = m;
         holdRef.current = false; // новый вход в режим снимает удержание
       }
@@ -1583,12 +1870,32 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     let aiPanoLng = 0;           // вычисленная Pano lng (user + sun компромисс)
     let aiPanoLat = 0;           // Pano lat (средняя sun/moon, clamp ±45)
     let aiInitDone = false;      // первый кадр AI: lock Sun + compute Pano
-    let lastFlightMode: "classic" | "ai" | "moon" = flightModeRef.current;
+    let lastFlightMode: "classic" | "ai" | "moon" | "solar" = flightModeRef.current;
     // ── Moon-tour state (Босс 2026-05-30 «облёт вокруг луны, посмотреть кратеры»):
     // sub-phase: approach (8с) → orbit (30с, 1.5 круга) → return (8с) → classic.
     let moonInitDone = false;
     let moonStartT = 0;
     let moonStartCamPos: { x: number; y: number; z: number } | null = null;
+    // ── Solar tour state (Босс 2026-05-30 vote #2): tour по 7 объектам ~140с.
+    // tourStep: 0=Moon, 1=Mercury, 2=Venus, 3=Earth, 4=Mars, 5=Jupiter, 6=Saturn, 7=Return→classic.
+    // Каждый шаг — approach (eased) → orbit (circular) → next. Approach запоминает
+    // startCamPos на текущей точке камеры (плавный переход между планетами).
+    let solarStepIdx = 0;
+    let solarStepStartT = 0;
+    let solarStepStartCamPos: { x: number; y: number; z: number } | null = null;
+    let solarInitDone = false;
+    // Сценарий: [key, approachMs, orbitMs]. Total = sum of (approach + orbit) + return.
+    const SOLAR_TOUR: Array<{ key: "moon" | "mercury" | "venus" | "earth" | "mars" | "jupiter" | "saturn" | "return"; approachMs: number; orbitMs: number }> = [
+      { key: "moon",    approachMs: 8000, orbitMs: 16000 }, // 24с
+      { key: "mercury", approachMs: 5000, orbitMs: 10000 }, // 15с
+      { key: "venus",   approachMs: 5000, orbitMs: 10000 }, // 15с
+      { key: "earth",   approachMs: 3000, orbitMs: 0 },     // 3с (view from outside)
+      { key: "mars",    approachMs: 5000, orbitMs: 10000 }, // 15с
+      { key: "jupiter", approachMs: 8000, orbitMs: 14000 }, // 22с
+      { key: "saturn",  approachMs: 8000, orbitMs: 16000 }, // 24с (через кольца)
+      { key: "return",  approachMs: 8000, orbitMs: 0 },     // 8с → classic
+    ];
+    // Общее время: 24+15+15+3+15+22+24+8 = 126с. Близко к target ~140с.
     // Босс 2026-05-30: плавность ВСЕХ переходов. Сохраняем lng/lat входа в continents,
     // чтобы первые 2.5с делать easeInOutCubic переход к новой траектории, без рывка.
     let aiContStartLng = 0;
@@ -1986,6 +2293,220 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           flightModeRef.current = "classic";
         }
         // Пропускаем pointOfView в конце loop — управляем камерой напрямую.
+        return;
+      } else if (flightModeRef.current === "solar") {
+        // ── ТУР ПО СОЛНЕЧНОЙ СИСТЕМЕ (Босс 2026-05-30, vote #2). Полёт через
+        // 7 объектов ~126 секунд: Луна → Меркурий → Венера → Земля → Марс →
+        // Юпитер → Сатурн (через кольца) → возврат → classic. Каждый шаг:
+        // approach (eased lerp от текущей позиции камеры) → orbit (circular).
+        // Lazy creation tour-меша при approach + dispose при transition к next.
+        try {
+          const camera = gg.camera?.();
+          const scene = gg.scene?.();
+          if (!camera || !scene) {
+            flightModeRef.current = "classic";
+          } else {
+            if (!solarInitDone) {
+              const cp = camera.position;
+              solarStepStartCamPos = { x: cp.x, y: cp.y, z: cp.z };
+              solarStepStartT = now;
+              solarStepIdx = 0;
+              solarInitDone = true;
+            }
+            const step = SOLAR_TOUR[solarStepIdx];
+            if (!step) {
+              flightModeRef.current = "classic";
+            } else {
+              const phaseT = now - solarStepStartT;
+              const stepDuration = step.approachMs + step.orbitMs;
+
+              // Helper: получить world-position target для текущей планеты.
+              // Moon → moonMeshRef.position; planets → planet-mesh.position (если
+              // в solar-режиме уже создан) ИЛИ позиция спрайта из planetsRef.
+              // Earth = центр сцены (0,0,0). Return = startCamPos (полёт назад).
+              const getTargetPos = (key: string): { x: number; y: number; z: number } | null => {
+                if (key === "earth") return { x: 0, y: 0, z: 0 };
+                if (key === "return") {
+                  // Возврат к Земле — целимся в точку на ~250 ед. от центра,
+                  // достаточно далеко чтобы classic-режим подхватил круиз.
+                  return { x: 0, y: 0, z: 250 };
+                }
+                if (key === "moon") {
+                  const mp = moonMeshRef.current?.position;
+                  return mp ? { x: mp.x, y: mp.y, z: mp.z } : null;
+                }
+                // Для планет — берём позицию из planetsRef (спрайт расположен по
+                // подпланетной точке на дальней сфере). Это даст направление, но
+                // мы притягиваем планету ближе: масштабируем вектор от центра.
+                const entry = planetsRef.current.find((p) => p.key === key);
+                if (!entry?.mesh?.position) return null;
+                const fp = entry.mesh.position;
+                // Подтягиваем планету ближе к Земле (PLANET_WORLD_RADIUS=1500 → ставим на 180-220).
+                // Сохраняем направление — масштабируем длину вектора.
+                const d = Math.hypot(fp.x, fp.y, fp.z) || 1;
+                const scale = 200 / d;
+                return { x: fp.x * scale, y: fp.y * scale, z: fp.z * scale };
+              };
+
+              // Lazy-создание tour-меша для текущей планеты (Mercury/Venus/Mars/Jupiter/Saturn).
+              const planetKey = step.key;
+              const isPlanet = planetKey === "mercury" || planetKey === "venus" || planetKey === "mars" || planetKey === "jupiter" || planetKey === "saturn";
+              let tourMesh: { group: any; bodyMat: any; ringsMat?: any } | null = null;
+              if (isPlanet) {
+                tourMesh = solarMeshesRef.current[planetKey] || null;
+                if (!tourMesh) {
+                  const made = makeSolarPlanetMesh(planetKey);
+                  if (made) {
+                    const tgt = getTargetPos(planetKey);
+                    if (tgt) {
+                      made.group.position.set(tgt.x, tgt.y, tgt.z);
+                      scene.add(made.group);
+                      solarMeshesRef.current[planetKey] = made;
+                      tourMesh = made;
+                      // Также спрячем спрайт-маркер этой планеты на время tour-визита.
+                      const sprEntry = planetsRef.current.find((p) => p.key === planetKey);
+                      if (sprEntry?.mesh) sprEntry.mesh.visible = false;
+                    }
+                  }
+                }
+                // Обновить sunDir uniform (планета освещается от Солнца).
+                if (tourMesh?.bodyMat?.uniforms?.sunDir && sunMeshRef.current) {
+                  const s = sunMeshRef.current.position;
+                  const len = Math.hypot(s.x, s.y, s.z) || 1;
+                  tourMesh.bodyMat.uniforms.sunDir.value.set(s.x / len, s.y / len, s.z / len);
+                }
+                // time uniform (для анимированных Venus/Jupiter/Saturn).
+                if (tourMesh?.bodyMat?.uniforms?.time) {
+                  tourMesh.bodyMat.uniforms.time.value = (now - solarStepStartT) / 1000;
+                }
+              }
+
+              const targetPos = getTargetPos(planetKey);
+              if (!targetPos) {
+                // Не смогли определить target — переходим к следующему шагу.
+                solarStepIdx += 1;
+                solarStepStartT = now;
+                const cpos = camera.position;
+                solarStepStartCamPos = { x: cpos.x, y: cpos.y, z: cpos.z };
+              } else {
+                // Радиус орбиты — зависит от планеты (планеты разных размеров).
+                let orbitR = 12;
+                if (planetKey === "moon") orbitR = 12;
+                else if (planetKey === "mercury" || planetKey === "mars") orbitR = 8;
+                else if (planetKey === "venus") orbitR = 10;
+                else if (planetKey === "jupiter") orbitR = 24;
+                else if (planetKey === "saturn") orbitR = 22; // ближе чем Jupiter для эффекта «через кольца»
+                else if (planetKey === "earth") orbitR = 220;
+                else if (planetKey === "return") orbitR = 280;
+
+                if (phaseT < step.approachMs) {
+                  // APPROACH: eased lerp от startCamPos до точки рядом с target.
+                  const p = Math.min(1, phaseT / step.approachMs);
+                  const e = easeInOutCubic(p);
+                  const sp = solarStepStartCamPos || { x: 0, y: 0, z: 0 };
+                  // Подлёт «в сторону» target — точка на дистанции orbitR от target,
+                  // в направлении от target к startCamPos.
+                  const dx = sp.x - targetPos.x;
+                  const dy = sp.y - targetPos.y;
+                  const dz = sp.z - targetPos.z;
+                  const dL = Math.hypot(dx, dy, dz) || 1;
+                  const ux = dx / dL, uy = dy / dL, uz = dz / dL;
+                  const tx = targetPos.x + ux * orbitR;
+                  const ty = targetPos.y + uy * orbitR;
+                  const tz = targetPos.z + uz * orbitR;
+                  camera.position.set(
+                    sp.x + (tx - sp.x) * e,
+                    sp.y + (ty - sp.y) * e,
+                    sp.z + (tz - sp.z) * e,
+                  );
+                  camera.lookAt(targetPos.x, targetPos.y, targetPos.z);
+                } else if (phaseT < stepDuration && step.orbitMs > 0) {
+                  // ORBIT: круги вокруг target. Для Saturn — траектория проходит через
+                  // плоскость колец (синус с большой амплитудой по Y).
+                  const ot = (phaseT - step.approachMs) / 1000;
+                  const orbitSec = step.orbitMs / 1000;
+                  const turns = planetKey === "jupiter" || planetKey === "saturn" ? 1.0 : 1.2;
+                  const omega = (turns * 2 * Math.PI) / orbitSec;
+                  const ang = ot * omega;
+                  // Y-amplitude: для Saturn — большая (через кольца, перекрываем plane ring),
+                  // для остальных — мягкое волнообразное колебание.
+                  const yAmp = planetKey === "saturn" ? orbitR * 0.45 : orbitR * 0.18;
+                  const yWave = Math.sin(ot * 0.35) * yAmp;
+                  camera.position.set(
+                    targetPos.x + Math.cos(ang) * orbitR,
+                    targetPos.y + yWave,
+                    targetPos.z + Math.sin(ang) * orbitR,
+                  );
+                  camera.lookAt(targetPos.x, targetPos.y, targetPos.z);
+                } else {
+                  // Шаг завершён — переход к следующему.
+                  // Dispose tour-меша текущей планеты (если был создан).
+                  if (isPlanet && tourMesh) {
+                    try {
+                      tourMesh.group.parent?.remove?.(tourMesh.group);
+                      // Dispose всех children (body + rings).
+                      for (const child of tourMesh.group.children || []) {
+                        child.geometry?.dispose?.();
+                        child.material?.dispose?.();
+                      }
+                    } catch { /* no-op */ }
+                    solarMeshesRef.current[planetKey] = null;
+                    // Вернуть видимость спрайта.
+                    const sprEntry = planetsRef.current.find((p) => p.key === planetKey);
+                    if (sprEntry?.mesh) sprEntry.mesh.visible = true;
+                  }
+                  solarStepIdx += 1;
+                  if (solarStepIdx >= SOLAR_TOUR.length) {
+                    // Тур завершён — переключаемся в classic.
+                    solarInitDone = false;
+                    solarStepIdx = 0;
+                    solarStepStartCamPos = null;
+                    flightModeRef.current = "classic";
+                    rebaseCruiseRef.current?.();
+                  } else {
+                    solarStepStartT = now;
+                    const cpos = camera.position;
+                    solarStepStartCamPos = { x: cpos.x, y: cpos.y, z: cpos.z };
+                  }
+                }
+
+                // OrbitControls target на текущий объект (gestural feel).
+                try {
+                  const ctrl = (gg as any).controls?.();
+                  if (ctrl?.target && phaseT < stepDuration - 500) {
+                    ctrl.target.set(targetPos.x, targetPos.y, targetPos.z);
+                    ctrl.update?.();
+                  }
+                } catch { /* no-op */ }
+              }
+            }
+          }
+        } catch {
+          // Любая ошибка — gracefully fallback в classic (Player-render-resilience rule).
+          // Dispose всех созданных tour-меш'ей.
+          try {
+            for (const k of Object.keys(solarMeshesRef.current)) {
+              const tm = solarMeshesRef.current[k];
+              if (tm) {
+                tm.group.parent?.remove?.(tm.group);
+                for (const child of tm.group.children || []) {
+                  child.geometry?.dispose?.();
+                  child.material?.dispose?.();
+                }
+              }
+              solarMeshesRef.current[k] = null;
+            }
+            // Вернуть видимость всех спрайтов.
+            for (const p of planetsRef.current) {
+              if (p.mesh) p.mesh.visible = true;
+            }
+          } catch { /* no-op */ }
+          solarInitDone = false;
+          solarStepIdx = 0;
+          solarStepStartCamPos = null;
+          flightModeRef.current = "classic";
+        }
+        // Пропускаем pointOfView — управляем камерой напрямую.
         return;
       } else if (flightModeRef.current === "ai") {
         // ПОЛЁТ Ai (Босс 2026-05-30 «Это режим Полёта»): sun-moon framing —

@@ -742,7 +742,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // 🎧 Топ-100 плейлиста в плеере 3D (как на основном плеере)
   const [globeTopOpen, setGlobeTopOpen] = useState(false);
   // Режим полёта 3D: по умолчанию ВСЕГДА "classic" (Полёт); "ai" (Полёт Ai) — по кнопке. Босс 2026-05-29.
-  const [globeFlight, setGlobeFlight] = useState<"classic" | "ai">(() => "classic");
+  // "solar" — Полёт по Солнечной системе (Босс 2026-05-30 vote #2): tour ~126с через
+  // Луна → Меркурий → Венера → Земля → Марс → Юпитер → Сатурн → возврат.
+  const [globeFlight, setGlobeFlight] = useState<"classic" | "ai" | "solar">(() => "classic");
   // В полноэкранном режиме (Босс 2026-05-29 «через 3 сек плеер исчезает и появляется
   // при контакте»): авто-скрытие шапки/плеера/подвала после 3с бездействия.
   const [globeUiHidden, setGlobeUiHidden] = useState(false);
@@ -3114,6 +3116,14 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                     className={`shrink-0 h-10 px-2.5 rounded-full flex items-center justify-center gap-1 text-[11px] font-semibold transition-all whitespace-nowrap border ${globeFlight === "ai" ? "text-white border-fuchsia-300/80 bg-fuchsia-400/10" : "text-white/85 border-white/30 hover:border-white/60"}`}
                                     aria-label="Полёт Ai — режиссура с Солнцем, Землёй и Луной"
                                   >Полёт <span className="font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">Ai</span></button>
+                                  {/* Полёт «Солнечная система» (Босс 2026-05-30 vote #2): tour ~126с через
+                                      Луна → Меркурий → Венера → Земля → Марс → Юпитер → Сатурн → возврат. */}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); setGlobeFlight("solar"); try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "solar" } })); } catch { /* no-op */ } }}
+                                    className={`shrink-0 h-10 px-2.5 rounded-full flex items-center justify-center gap-1 text-[11px] font-semibold transition-all whitespace-nowrap border ${globeFlight === "solar" ? "text-white border-purple-300/80 bg-purple-400/10" : "text-white/85 border-white/30 hover:border-white/60"}`}
+                                    aria-label="Полёт по Солнечной системе — тур через Луну и планеты"
+                                  >🪐 Солнечная</button>
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); try { window.dispatchEvent(new CustomEvent("muza:open-chat")); } catch { /* no-op */ } closeGlobe(); }}
