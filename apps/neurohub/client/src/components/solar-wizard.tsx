@@ -41,10 +41,13 @@ export type SolarPrefs = {
 };
 
 // ────────────────────────────────────────────────────────────
-// Каталог планет (8 шт).
+// Каталог планет/спутников.
+// Босс 2026-05-30: «Луна должна быть первой» + «вид планеты/спутника как
+// в реале» — иконки procedural CSS (radial-gradient под реальные цвета тел).
 // ────────────────────────────────────────────────────────────
 
 const PLANETS: Array<{ key: string; label: string; emoji: string }> = [
+  { key: "moon",    label: "Луна",     emoji: "🌙" },
   { key: "mercury", label: "Меркурий", emoji: "☿" },
   { key: "venus",   label: "Венера",   emoji: "♀" },
   { key: "earth",   label: "Земля",    emoji: "🌍" },
@@ -55,7 +58,88 @@ const PLANETS: Array<{ key: string; label: string; emoji: string }> = [
   { key: "neptune", label: "Нептун",   emoji: "♆" },
 ];
 
+// Луна — спутник, при single-select запускает tap-to-fly Moon, в групповом туре
+// идёт первой остановкой. Остальные 8 — планеты (для тура solar).
+const PLANET_ONLY_KEYS = PLANETS.filter((p) => p.key !== "moon").map((p) => p.key);
 const ALL_PLANET_KEYS = PLANETS.map((p) => p.key);
+
+// Procedural CSS-иконки тел (Босс 2026-05-30 «как в реале», простые radial-градиенты,
+// без HD-текстур). Кольцо Сатурна — pseudo-element через box-shadow ring.
+const PLANET_VISUALS: Record<string, { background: string; ring?: boolean }> = {
+  moon: {
+    background:
+      "radial-gradient(circle at 35% 35%, #f5f5f0 0%, #d8d4c8 45%, #8a8478 100%)",
+  },
+  mercury: {
+    background:
+      "radial-gradient(circle at 35% 35%, #c9c0b5 0%, #998b7a 50%, #5a4f44 100%)",
+  },
+  venus: {
+    background:
+      "radial-gradient(circle at 35% 35%, #fff3cf 0%, #e9c878 50%, #a87a3a 100%)",
+  },
+  earth: {
+    background:
+      "radial-gradient(circle at 35% 35%, #6fc3ff 0%, #2978c8 45%, #134a82 100%)",
+  },
+  mars: {
+    background:
+      "radial-gradient(circle at 35% 35%, #ff8a55 0%, #c4502a 50%, #7a2e15 100%)",
+  },
+  jupiter: {
+    background:
+      "linear-gradient(180deg, #d9b78a 0%, #b88a5a 18%, #e0c498 35%, #9a6c40 52%, #d0a070 70%, #b88a5a 88%, #8a5e36 100%)",
+  },
+  saturn: {
+    background:
+      "radial-gradient(circle at 35% 35%, #f5e2b0 0%, #d4b878 50%, #8a6e3a 100%)",
+    ring: true,
+  },
+  uranus: {
+    background:
+      "radial-gradient(circle at 35% 35%, #b8f0ee 0%, #76c8cf 50%, #3a78a0 100%)",
+  },
+  neptune: {
+    background:
+      "radial-gradient(circle at 35% 35%, #6f9cff 0%, #2e54c0 50%, #1a306e 100%)",
+  },
+};
+
+/**
+ * Маленькая procedural-иконка планеты/спутника. Радиальный градиент под реальные
+ * цвета тела (Босс 2026-05-30 «как в реале»). Для Сатурна — overlay-кольцо.
+ */
+export function PlanetMiniIcon({ planetKey, size = 28 }: { planetKey: string; size?: number }) {
+  const vis = PLANET_VISUALS[planetKey];
+  if (!vis) return null;
+  return (
+    <span
+      className="relative shrink-0 inline-block rounded-full"
+      style={{
+        width: size,
+        height: size,
+        background: vis.background,
+        boxShadow: "inset -2px -2px 4px rgba(0,0,0,0.35), 0 0 6px rgba(255,255,255,0.08)",
+      }}
+      aria-hidden="true"
+    >
+      {vis.ring && (
+        <span
+          className="absolute left-1/2 top-1/2"
+          style={{
+            width: size * 1.55,
+            height: size * 0.42,
+            transform: "translate(-50%, -50%) rotate(-18deg)",
+            borderRadius: "50%",
+            border: "1.5px solid rgba(245, 226, 176, 0.85)",
+            boxShadow: "inset 0 0 2px rgba(245, 226, 176, 0.4)",
+            pointerEvents: "none",
+          }}
+        />
+      )}
+    </span>
+  );
+}
 
 const DEFAULT_PREFS: SolarPrefs = {
   planets: ALL_PLANET_KEYS,
@@ -156,10 +240,20 @@ export function SolarWizard({ open, onClose, onLaunch }: SolarWizardProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  const allPlanetsSelected = useMemo(() => prefs.planets.length === ALL_PLANET_KEYS.length, [prefs.planets]);
+  // «Все планеты» = 8 планет от Меркурия до Нептуна (без Луны — она спутник,
+  // выбирается отдельно из списка). Чекбокс «Все планеты выбраны» подсвечивается,
+  // если ВСЕ 8 планетных ключей в prefs (Луна опциональна, не влияет на match).
+  const allPlanetsSelected = useMemo(() => {
+    return PLANET_ONLY_KEYS.every((k) => prefs.planets.includes(k));
+  }, [prefs.planets]);
 
   const handleSelectAllPlanets = () => {
-    setPrefs((p) => ({ ...p, planets: [...ALL_PLANET_KEYS] }));
+    // Сохраняем уже отмеченную Луну если была — просто добавляем все планеты.
+    setPrefs((p) => {
+      const set = new Set(p.planets);
+      PLANET_ONLY_KEYS.forEach((k) => set.add(k));
+      return { ...p, planets: Array.from(set) };
+    });
     setStep(2);
   };
 
@@ -217,6 +311,15 @@ export function SolarWizard({ open, onClose, onLaunch }: SolarWizardProps) {
     try {
       window.dispatchEvent(new CustomEvent("muza:globe-solar-prefs", { detail: finalPrefs }));
     } catch { /* no-op */ }
+    // Босс 2026-05-30: если выбрана ТОЛЬКО Луна — запускаем tap-to-fly Moon
+    // (event `muza:globe-fly-to {key:"moon"}` уже обрабатывается в globe-view.tsx),
+    // а не общий solar-тур. landing.tsx через onLaunch всё равно установит
+    // globeFlight="solar" — для visual-active border, но реальный полёт — fly-to.
+    if (finalPrefs.planets.length === 1 && finalPrefs.planets[0] === "moon") {
+      try {
+        window.dispatchEvent(new CustomEvent("muza:globe-fly-to", { detail: { key: "moon" } }));
+      } catch { /* no-op */ }
+    }
     onLaunch({ prefs: finalPrefs, track: selectedTrack });
   };
 
@@ -417,7 +520,9 @@ function Step1Body({
                   onChange={() => onTogglePlanet(p.key)}
                   className="w-4 h-4 accent-purple-500 cursor-pointer"
                 />
-                <span className="text-lg shrink-0">{p.emoji}</span>
+                {/* Босс 2026-05-30: «вид планеты/спутника как в реале» —
+                    procedural-иконка с реальными цветами тела. */}
+                <PlanetMiniIcon planetKey={p.key} size={22} />
                 <span className="text-sm font-medium text-white truncate">{p.label}</span>
               </label>
             );

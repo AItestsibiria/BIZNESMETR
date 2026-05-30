@@ -2247,6 +2247,44 @@ Reference: lockscreen.ts `setPlayerVolume`, landing.tsx volume useEffect + playT
 
 Связано с: Player-tap-actions rule, Persistent-audio-only rule.
 
+### Unified-back-share-buttons rule (Eugene 2026-05-30)
+
+**Все кнопки «Вернуться к Музе» и «Поделись Музой» — через переиспользуемые
+компоненты `<BackToMuzaButton>` и `<ShareMuzaButton>`. Не вводить inline
+дубли с emoji ↩ / 📤 — только lucide-иконки `Undo2` / `Share2`.**
+
+Файлы:
+- `apps/neurohub/client/src/components/back-to-muza-button.tsx`
+- `apps/neurohub/client/src/components/share-muza-button.tsx`
+
+Style: `h-8 sm:h-9 md:h-10 px-2 sm:px-2.5 md:px-3 rounded-full bg-transparent border`
++ adaptive `text-[10px] sm:text-[11px] md:text-xs` под устройство (iPhone SE
+≤375 → h-8/text-10; mobile 376-639 → h-9/text-11; tablet/desktop ≥640 → h-10/text-xs).
+Border: BackToMuza — `border-purple-300/50`, Share — `border-fuchsia-300/50`.
+Active state у flight-mode кнопок (см. Brand-style consistency rule) — 12%
+brand-gradient fill (`from-purple-500/12 via-fuchsia-500/12 to-cyan-500/12`), не ярко.
+
+Дефолтное поведение `<BackToMuzaButton>`: диспатчит `muza:close-globe` +
+плавный scroll к `#playlist-section` через 100мс. Переопределяется через
+`onClick` (для случаев, где нужно ДО закрытия выполнить fullscreen-exit
+или иные cleanup-операции). Anti-pattern, который правило закрывает: на 3D
+строке кнопок «↩ к Музе» делала только `toggleGlobeFullscreen()` если
+fullscreen — в нон-фуллскрин клик не приводил к выходу на главную, юзер
+видел открытие меню режима полёта.
+
+Дефолтное поведение `<ShareMuzaButton>`: `${origin}/?globecard=1` через
+Web Share API (с silent fallback на clipboard + toast).
+
+Применяется к: 3D globe controls (landing.tsx), шапкам страниц, modals,
+footer'у плеера, dashboard. НЕ применяется к: специальным кнопкам с другой
+семантикой («Скрыть», «Закрыть ×» — там cross-icon X из lucide).
+
+Аудит при code review: `grep -rn "↩\|📤" apps/neurohub/client/src/pages apps/neurohub/client/src/components` — должны остаться только в `back-to-muza-button.tsx` / `share-muza-button.tsx` docstrings и контентных строках (новости / KB), НЕ в кнопках.
+
+Связано с: Brand-style consistency rule (palette + lucide), Layout-fit-no-overlap
+rule (adaptive sizing + flex-wrap), No-duplicates rule (один компонент, не inline
+копии), Reuse-working-solutions rule.
+
 ### Layout-fit-no-overlap rule (Eugene 2026-05-21, **применяется ко всему проекту**)
 
 **Любой текст и UI-элемент ВСЕГДА вписывается в свои рамки и НЕ накладывается на смежные/параллельные элементы — на ЛЮБОМ устройстве и разрешении.**

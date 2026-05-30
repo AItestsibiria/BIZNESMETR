@@ -1,0 +1,96 @@
+// Eugene 2026-05-30 (Босс «кнопки в едином стиле»):
+// Единый компонент кнопки «Поделись Музой» — Web Share API + clipboard fallback.
+//
+// Default url = `${origin}/?globecard=1`, default title = «MuzaAi — Мир Музыки
+// без границ», text = «Нас слушают по всему миру 🌍 Твоя Муза».
+//
+// CLAUDE.md: Unified-back-share-buttons rule. Стиль — прозрачный контур
+// (brand fuchsia), lucide Share2 (НЕ emoji 📤), adaptive sizing под устройство.
+
+import { Share2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+
+export interface ShareMuzaButtonProps {
+  /** URL для шеринга (default — `${window.location.origin}/?globecard=1`). */
+  url?: string;
+  /** Заголовок в Web Share API. */
+  title?: string;
+  /** Текст в Web Share API. */
+  text?: string;
+  /** primary = крупнее на десктопе; compact = всегда минимальный размер. */
+  variant?: "primary" | "compact";
+  /** Дополнительные классы. */
+  className?: string;
+  /** Label рядом с иконкой. */
+  label?: React.ReactNode;
+  /** Aria-label. */
+  ariaLabel?: string;
+  /** Title. */
+  titleAttr?: string;
+}
+
+export function ShareMuzaButton({
+  url,
+  title = "MuzaAi — Мир Музыки без границ",
+  text = "Нас слушают по всему миру 🌍 Твоя Муза",
+  variant = "primary",
+  className = "",
+  label,
+  ariaLabel = "Поделись Музой",
+  titleAttr = "Поделись ссылкой на MuzaAi",
+}: ShareMuzaButtonProps) {
+  const { toast } = useToast();
+
+  const handleClick = async (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    const shareUrl =
+      url ??
+      (typeof window !== "undefined"
+        ? `${window.location.origin}/?globecard=1`
+        : "https://muzaai.ru/?globecard=1");
+    const shareData: ShareData = { title, text, url: shareUrl };
+    try {
+      if (typeof navigator !== "undefined" && navigator.share) {
+        await navigator.share(shareData);
+        return;
+      }
+    } catch {
+      /* юзер отменил шеринг — это норма */
+    }
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard) {
+        await navigator.clipboard.writeText(shareUrl);
+        toast({
+          title: "Ссылка скопирована",
+          description: "Поделись Музой 💜",
+        });
+      }
+    } catch {
+      /* no-op */
+    }
+  };
+
+  const sizeClasses =
+    variant === "compact"
+      ? "h-8 px-2 text-[10px]"
+      : "h-8 sm:h-9 md:h-10 px-2 sm:px-2.5 md:px-3 text-[10px] sm:text-[11px] md:text-xs";
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      className={`shrink-0 ${sizeClasses} rounded-full flex items-center justify-center gap-1.5 font-sans font-semibold whitespace-nowrap border bg-transparent text-white/85 border-fuchsia-300/50 hover:border-fuchsia-300/85 active:scale-95 transition-all ${className}`}
+      aria-label={ariaLabel}
+      title={titleAttr}
+    >
+      <Share2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" aria-hidden="true" />
+      {label ?? (
+        <span className="font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">
+          Музой
+        </span>
+      )}
+    </button>
+  );
+}
+
+export default ShareMuzaButton;
