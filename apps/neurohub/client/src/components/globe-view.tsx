@@ -2890,6 +2890,38 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       } catch { /* no-op */ }
     };
 
+    // Босс 2026-05-30 (VirtualSky-style hover): экранные координаты ярких звёзд.
+    // Тот же паттерн что updatePlanetScreens, но без horizon-check (звёзды на
+    // огромной сфере 280000 — за Землёй их «не загораживает», depthTest шейдером
+    // отсекает невидимое автоматически). Считаем только проекцию camera-projection.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const updateStarsScreens = (gg: any) => {
+      const arr = starsScreenRef.current;
+      arr.length = 0;
+      if (!BRIGHT_STARS.length) return;
+      let cam: { project?: (v: { x: number; y: number; z: number }) => void } | null = null;
+      try { cam = gg?.camera?.() ?? null; } catch { cam = null; }
+      const el = wrapRef.current;
+      if (!cam || !el) return;
+      const rect = el.getBoundingClientRect();
+      const STAR_R = 280000;
+      // Чтобы не пересоздавать Vector3 каждый кадр, используем один-два scratch'а.
+      // На 50 звёзд это копеечно, но всё равно good practice.
+      for (const s of BRIGHT_STARS) {
+        try {
+          const v = raDecToVec3(s.ra, s.dec, STAR_R);
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (v as any).project(cam);
+          if (v.z >= 1) continue; // за far plane / за камерой
+          const sx = (v.x * 0.5 + 0.5) * rect.width;
+          const sy = (-v.y * 0.5 + 0.5) * rect.height;
+          // Радиус попадания — крупнее для ярких звёзд (магнитуда < 1 = легче попасть).
+          const hitR = Math.max(8, 14 - s.mag * 1.2);
+          arr.push({ star: s, x: sx, y: sy, r: hitR, visible: true });
+        } catch { /* no-op */ }
+      }
+    };
+
     const loop = (now: number) => {
       raf = requestAnimationFrame(loop);
       if (now - last < 33) return; // ~30fps — мягко и легко
@@ -2899,6 +2931,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       // Точка геолокации якорится каждый кадр (в т.ч. во время ручного вращения).
       updateWinkDot(gg);
       updatePlanetScreens(gg);
+      updateStarsScreens(gg);
       // Во время самого жеста — камеру ведёт OrbitControls (юзер steering'ует).
       if (userInteractingRef.current) return;
       // Удержание по двойному тапу — камера стоит на месте до смены режима/позиции.
@@ -3912,10 +3945,32 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   }, []);
 
   // Hover-подпись планеты (Босс 2026-05-29 «при наведении на планету показывай название»).
+  // Босс 2026-05-30 расширено: также детектим РЕАЛЬНЫЕ звёзды (BRIGHT_STARS) и
+  // диспатчим custom event `muza:sky-hover` с метаданными (имя, Bayer, созвездие,
+  // mag). Tooltip-компонент в landing.tsx слушает это событие → рендерит glass-card.
+  // Throttle 80мс — не каждый frame, чтобы не грузить main thread.
   useEffect(() => {
     const el = wrapRef.current;
     const label = planetLabelRef.current;
     if (!el || !label) return;
+    const dispatchSkyHover = (
+      payload: { type: "star"; star: StarRecord; x: number; y: number } |
+               { type: "planet"; key: string; name: string; x: number; y: number } |
+               null,
+    ) => {
+      try {
+        // Дедуп: не шлём одно и то же событие подряд.
+        const key = payload
+          ? (payload.type === "star" ? `star:${payload.star.id}` : `planet:${payload.key}`)
+          : null;
+        if (key === lastSkyHoverRef.current) return;
+        lastSkyHoverRef.current = key;
+        const ev = new CustomEvent("muza:sky-hover", {
+          detail: payload === null ? null : { ...payload },
+        });
+        window.dispatchEvent(ev);
+      } catch { /* no-op */ }
+    };
     const onMove = (e: PointerEvent) => {
       const rect = el.getBoundingClientRect();
       const px = e.clientX - rect.left;
@@ -3939,9 +3994,38 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       } else {
         label.style.opacity = "0";
       }
+
+      // Throttle dispatch до 80мс — для custom event `muza:sky-hover`.
+      const now = performance.now();
+      if (now - skyHoverThrottleRef.current < 80) return;
+      skyHoverThrottleRef.current = now;
+
+      // Планета приоритетнее звезды (если попали в обе — показываем планету).
+      if (best) {
+        const name = PLANET_NAMES[best.key] || best.key;
+        dispatchSkyHover({ type: "planet", key: best.key, name, x: e.clientX, y: e.clientY });
+        return;
+      }
+      // Ищем ближайшую звезду в радиусе попадания.
+      let bestStar: { star: StarRecord; x: number; y: number } | null = null;
+      let bestSD = Infinity;
+      for (const s of starsScreenRef.current) {
+        if (!s.visible) continue;
+        const d = Math.hypot(px - s.x, py - s.y);
+        if (d <= s.r && d < bestSD) {
+          bestSD = d;
+          bestStar = { star: s.star, x: s.x, y: s.y };
+        }
+      }
+      if (bestStar) {
+        dispatchSkyHover({ type: "star", star: bestStar.star, x: e.clientX, y: e.clientY });
+      } else {
+        dispatchSkyHover(null);
+      }
     };
     const onLeave = () => {
       label.style.opacity = "0";
+      dispatchSkyHover(null);
     };
     el.addEventListener("pointermove", onMove);
     el.addEventListener("pointerleave", onLeave);
