@@ -12,6 +12,7 @@ import { PlanetIcon } from "@/components/plays-counter";
 import { VolumeSlider } from "@/components/volume-slider";
 import { muteBgMusic, unmuteBgMusic } from "@/components/background-music";
 import { setupMediaSessionForTrack, setLockScreenPlaybackState, setLockScreenPosition, loadTrackIntoPlayer, setPlayerVolume, getPersistentPlayerAudio, getPlayerAnalyser } from "@/lib/lockscreen";
+import { debugLog } from "@/lib/debugLog";
 import { getTrackEnvelope } from "@/lib/audioEnvelope";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";

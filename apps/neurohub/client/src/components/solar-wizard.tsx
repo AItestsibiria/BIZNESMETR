@@ -228,7 +228,7 @@ function savePrefs(p: SolarPrefs): void {
 // Компонент.
 // ────────────────────────────────────────────────────────────
 
-export function SolarWizard({ open, onClose, onLaunch, originPoint }: SolarWizardProps) {
+export function SolarWizard({ open, onClose, onLaunch, originPoint, preselectKey }: SolarWizardProps) {
   const [step, setStep] = useState<1 | 2>(1);
   const [prefs, setPrefs] = useState<SolarPrefs>(() => loadPrefs());
   const [topListOpen, setTopListOpen] = useState(false);
@@ -240,11 +240,21 @@ export function SolarWizard({ open, onClose, onLaunch, originPoint }: SolarWizar
   useEffect(() => {
     if (open) {
       setStep(1);
-      setPrefs(loadPrefs());
+      const loaded = loadPrefs();
+      // Босс 2026-05-30 (Вариант A): тап планеты в 3D-globe → wizard открывается
+      // с этой планетой preselected (override saved prefs). Юзер видит свой выбор
+      // отмеченным, может скорректировать (добавить/убрать) или сразу «🚀 Поехали».
+      // Если preselectKey совпадает с одной из планет (включая Луну) — planets=[key].
+      // 'sun' / 'earth' / unknown — стандартный flow без override.
+      if (preselectKey && ALL_PLANET_KEYS.includes(preselectKey)) {
+        setPrefs({ ...loaded, planets: [preselectKey] });
+      } else {
+        setPrefs(loaded);
+      }
       setTopListOpen(false);
       setSelectedTrack(null);
     }
-  }, [open]);
+  }, [open, preselectKey]);
 
   const openedAtRef = useRef<number>(0);
   useEffect(() => {

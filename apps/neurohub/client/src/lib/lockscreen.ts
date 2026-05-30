@@ -63,6 +63,8 @@
 // === Legacy ===
 //   setLockScreenTrack — теперь sync wrapper для setupMediaSessionForTrack
 
+import { debugLog } from "./debugLog";
+
 export interface TrackMeta {
   id: number | string;
   title: string;
@@ -146,6 +148,7 @@ export function getPersistentPlayerAudio(): HTMLAudioElement | null {
   document.body.appendChild(audio);
   // Сохраняем как cross-page global для обратной совместимости.
   try { (window as any).__muziaiAudio = audio; } catch {}
+  debugLog("[Audio] persistent <audio> создан (singleton в DOM)");
   return audio;
 }
 
@@ -292,6 +295,7 @@ export function isVolumeControlSupported(): boolean {
 export function loadTrackIntoPlayer(url: string): HTMLAudioElement | null {
   const audio = getPersistentPlayerAudio();
   if (!audio) return null;
+  debugLog(`[Audio] loadTrack url=${url.length > 80 ? url.slice(0, 80) + "..." : url}`);
   // Pause first — не оставляем decoder busy на старом src.
   try { if (!audio.paused) audio.pause(); } catch {}
   // Detach old listeners — caller повесит свежие (track-specific).
