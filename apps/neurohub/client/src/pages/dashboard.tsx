@@ -186,7 +186,10 @@ function TopGenStats() {
         <>
           {genStats.totals && <div className="flex gap-3 mb-3 text-[11px]"><span>▶{genStats.totals.plays||0}</span><span>⬇{genStats.totals.downloads||0}</span><span>📋{genStats.totals.copies||0}</span><span>↗{genStats.totals.shares||0}</span></div>}
           <div className="space-y-1">
-            {genStats.top?.map((t: any, i: number) => (
+            {/* Eugene 2026-05-30 Босс «Статистика по прослушиваниям не корректно
+                отражена от большего к меньшему» — frontend safety sort даже если
+                backend вернул иначе. Backend уже ORDER BY plays DESC. */}
+            {genStats.top?.slice().sort((a: any, b: any) => (b.plays || 0) - (a.plays || 0)).map((t: any, i: number) => (
               <div key={t.gen_id} className="flex items-center gap-2 py-1 text-[11px] cursor-pointer hover:bg-white/5 rounded px-1" onClick={() => setDetailId(detailId === t.gen_id ? null : t.gen_id)}>
                 <span className="text-muted-foreground w-4">{i+1}</span>
                 <span className="truncate flex-1 min-w-0 text-white">{t.display_title || (t.prompt||'').slice(0,30)}</span>
@@ -213,12 +216,15 @@ function TopGenStats() {
             <p className="text-[11px] text-muted-foreground mb-3">Всего скачиваний: <span className="text-blue-400 font-medium">{topDownloads.totalDownloads}</span></p>
           )}
           <div className="space-y-1">
+            {/* Eugene 2026-05-30 Босс «Статистика скачиванию тоже 1 столбец
+                скачивания, 2 прослушиваний у скачанных» — добавлена колонка ▶plays. */}
             {topDownloads?.rows?.map((t: any, i: number) => (
               <div key={t.gen_id} className="flex items-center gap-2 py-1.5 text-[11px] hover:bg-white/5 rounded px-1">
                 <span className="text-muted-foreground w-5 text-right">{i+1}.</span>
                 <span className="truncate flex-1 min-w-0 text-white">{t.display_title || (t.prompt||'').slice(0,40)}</span>
                 <span className="text-muted-foreground text-[10px] truncate max-w-[100px]">{t.author_name}</span>
                 <span className="text-blue-400 font-mono font-medium">⬇{t.downloads}</span>
+                <span className="text-green-400 font-mono font-medium">▶{t.plays || 0}</span>
               </div>
             ))}
             {topDownloads?.rows?.length === 0 && <p className="text-xs text-muted-foreground text-center py-4">Нет скачиваний</p>}

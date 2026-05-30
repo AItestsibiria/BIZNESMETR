@@ -3073,8 +3073,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 чёрных полос). Плеер+футер (shrink-0) всегда прижаты к низу.
                                 Тап (НЕ драг) по области глобуса → плавный выход из режима
                                 (Босс «любое неслучайное нажатие на окно»); драг = вращение. */}
+                            {/* Eugene 2026-05-30 Босс «Планета не входит в кадр,
+                                должны быть отступы» — padding на globe-area, чтобы
+                                диск Земли не упирался в края Card. react-globe.gl
+                                auto-resize впишется в padded box. */}
                             <div
-                              className="relative flex-1 min-h-0"
+                              className="relative flex-1 min-h-0 px-2 sm:px-3 md:px-4 py-2"
                               onPointerDown={(e) => {
                                 // Босс 2026-05-30 «свайп только в зоне звёздного поля под планетой,
                                 // на ней свайпа нет, а то кручу и треки пляшут». Определяем стартовала

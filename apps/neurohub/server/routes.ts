@@ -9509,6 +9509,9 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
       const r = getPeriodRange(period);
       dateFilter = `AND datetime(ga.created_at) >= datetime('${r.fromIso}') AND datetime(ga.created_at) < datetime('${r.toIso}')`;
     }
+    // Eugene 2026-05-30 Босс «Статистика по прослушиваниям не корректно отражена
+    // от большего к меньшему» — sort строго по plays DESC (раньше было ORDER BY
+    // total DESC = sum of all actions, что давало непредсказуемый порядок по plays).
     const top = raw.prepare(`SELECT ga.gen_id, g.display_title, g.prompt, g.type, g.author_name,
       SUM(CASE WHEN ga.action='play' THEN 1 ELSE 0 END) as plays,
       SUM(CASE WHEN ga.action='download' THEN 1 ELSE 0 END) as downloads,
@@ -9517,7 +9520,7 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
       COUNT(*) as total
       FROM gen_activity ga JOIN generations g ON ga.gen_id = g.id
       WHERE g.user_id = ? ${dateFilter}
-      GROUP BY ga.gen_id ORDER BY total DESC LIMIT 10`).all(userId);
+      GROUP BY ga.gen_id ORDER BY plays DESC, total DESC LIMIT 10`).all(userId);
     const totalsDateFilter = dateFilter.replace(/ga\./g, '');
     const totals = raw.prepare(`SELECT
       SUM(CASE WHEN ga.action='play' THEN 1 ELSE 0 END) as plays,
@@ -9539,9 +9542,17 @@ h2{background:linear-gradient(135deg,#8b5cf6,#3b82f6);-webkit-background-clip:te
       const r = getPeriodRange(period);
       dateFilter = `AND datetime(ga.created_at) >= datetime('${r.fromIso}') AND datetime(ga.created_at) < datetime('${r.toIso}')`;
     }
+    // Eugene 2026-05-30 Босс «Статистика скачиванию тоже 1 столбец скачивания,
+    // 2 прослушиваний у скачанных» — добавлена колонка plays через LEFT JOIN
+    // subquery (counts всех plays per gen за тот же период, без фильтра по action).
+    const playsDateFilter = period && period !== 'all'
+      ? `WHERE action='play' AND ${dateFilter.replace(/ga\./g, '').replace(/^AND /, '')}`
+      : `WHERE action='play'`;
     const rows = raw.prepare(`SELECT ga.gen_id, g.display_title, g.prompt, g.type, g.author_name,
-      COUNT(*) as downloads, MAX(ga.created_at) as last_download
+      COUNT(*) as downloads, MAX(ga.created_at) as last_download,
+      COALESCE(p.plays, 0) as plays
       FROM gen_activity ga JOIN generations g ON ga.gen_id = g.id
+      LEFT JOIN (SELECT gen_id, COUNT(*) as plays FROM gen_activity ${playsDateFilter} GROUP BY gen_id) p ON p.gen_id = ga.gen_id
       WHERE ga.action='download' AND g.user_id = ? ${dateFilter}
       GROUP BY ga.gen_id ORDER BY downloads DESC LIMIT 20`).all(userId);
     const totalDownloads = raw.prepare(`SELECT COUNT(*) as total
