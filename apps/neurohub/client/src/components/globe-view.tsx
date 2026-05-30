@@ -361,61 +361,58 @@ const SUN_NOISE_2D = `
 const SUN_CORONA_FRAGMENT = SUN_NOISE_2D + `
   uniform float uTime;
   uniform float uSunsetBoost;     // 0..1 — Солнце касается лимба Земли (Босс 2026-05-30)
-  uniform float uFlareIntensity;  // 0..1 — пик в момент полу-окклюзии Солнца Землёй (Босс 2026-05-30)
-  uniform vec2  uFlareDir;        // unit-vec в plane-space, куда направлен flare (от Земли к видимой части кадра)
+  uniform float uFlareIntensity;  // 0..1 — парабола от occlusion: 0-50% рост, 50-100% спад
+  uniform vec2  uFlareDir;        // unit-vec в plane-space, куда направлен flare
+  uniform float uPulse;           // 0.95..1.05 — heart-pulse «дыхание» короны (живость)
   varying vec2 vUv;
   void main() {
-    vec2 c = vUv - 0.5;        // -0.5..0.5
-    float r = length(c) * 2.0;  // 0 центр .. 1 край плана
-    // Босс 2026-05-30: «усиль в 3 раза концентрацию лучей в сторону камеры» —
-    // на пике окклюзии Солнце «слепит» прямо в зрителя: жёсткая белая вспышка
-    // в центре плана, видимая даже за лимбом Земли (depthTest=false на короне).
+    vec2 c = vUv - 0.5;
+    float r = length(c) * 2.0;
+    // Босс 2026-05-30: «лучи из центра солнца направлены в сторону камеры, ослепляя юзера»
+    // На пике occlusion — белая «слепящая» вспышка в центре плана (центр Sun).
     float centerBurst = (1.0 - smoothstep(0.0, 0.55, r)) * uFlareIntensity;
     if (r < 0.42) {
-      // Внутри диска Солнца — только central flash, без волосков.
       vec3 burstCol = mix(vec3(1.00, 0.92, 0.72), vec3(1.00, 1.00, 0.96), centerBurst);
       gl_FragColor = vec4(burstCol, centerBurst * 0.95);
       return;
     }
     if (r > 1.0) discard;
-    float ang = atan(c.y, c.x);  // -pi..pi
+    float ang = atan(c.y, c.x);
     float t = uTime;
-    // Направленный flare (Босс 2026-05-30 «3д»): когда Солнце «задевает» Землю с т.зр.
-    // камеры, лучи В НАПРАВЛЕНИИ ВИДИМОЙ части кадра становятся ярче и длиннее.
-    // ×3 КОНЦЕНТРАЦИЯ В КАМЕРУ (Босс 2026-05-30): pow 3→9 — узкий острый пучок,
-    // как настоящий lens-flare с фотографии заходящего за горизонт Солнца.
+    // ── Направленный пучок (×3 концентрация в камеру, Босс 2026-05-30) ──
     vec2 pixDir = (length(c) > 0.001) ? normalize(c) : vec2(1.0, 0.0);
     float aligned = max(0.0, dot(pixDir, uFlareDir));
     float coneSharp = pow(aligned, 9.0);
     float flareBoost = coneSharp * uFlareIntensity;
-    // Угловая текстура из высокочастотного шума → тонкие радиальные «волоски».
-    // Босс 2026-05-30: «плотность лучей увеличить в 2 раза» — повышены частоты + понижен порог.
-    float s1 = fbm2(vec2(ang * 22.0, t * 0.55));
-    float s2 = fbm2(vec2(ang * 50.0, t * 1.3 + 7.3));
+    // ── Угловая текстура «волосков»: плотные радиальные лучи. ──
+    // Босс 2026-05-30: добавь живости — высокочастотный шум движется во времени по углу.
+    float s1 = fbm2(vec2(ang * 22.0 + t * 0.6, t * 0.55));
+    float s2 = fbm2(vec2(ang * 50.0 + t * 1.4, t * 1.3 + 7.3));
     float streak = pow(s1, 1.5) * pow(s2, 1.1);
-    streak = clamp(streak * 3.6 - 0.25, 0.0, 1.0); // больше «волосков», но всё ещё избирательно
-    // В flare-зоне волоски «сгущаются» — порог опускается ещё ниже → больше лучей.
+    streak = clamp(streak * 3.6 - 0.25, 0.0, 1.0);
     streak = clamp(streak + flareBoost * 0.35, 0.0, 1.0);
-    // Переменная длина каждого «волоска» по углу (низкая частота).
-    // Босс 2026-05-30: «длина лучей 1,5-3 раз разной длины» — 0.30..1.00 даёт ×3.3 разброс.
-    // На закате/рассвете лучи плавно удлиняются (uSunsetBoost) — закат «грандиозный».
-    // В flare-направлении длина и яркость утраиваются (Босс 2026-05-30 «×3 концентрация»).
-    float lenN = fbm2(vec2(ang * 5.5, t * 0.35 + 2.1));
-    float lenScale = 1.0 + uSunsetBoost * 0.55 + flareBoost * 6.0;   // до ×7 в пучке
-    float maxR = clamp((0.30 + lenN * 0.70) * lenScale, 0.30, 1.50);
-    // Профиль яркости: яркий у лимба, плавно гаснет к концу волоска.
+    // ── Языки пламени (Босс 2026-05-30 «острые края пламени в форме угла, в движении») ──
+    // Две частоты + pow — рваные кончики разной длины с острыми пиками, бегут по углу.
+    float lenN1 = fbm2(vec2(ang * 4.0  + t * 0.45, t * 0.4));
+    float lenN2 = fbm2(vec2(ang * 18.0 + t * 1.10, t * 0.7 + 3.3));
+    float lenN = lenN1 * 0.65 + lenN2 * 0.35;
+    lenN = pow(lenN, 1.5); // острее пики — кончики «языков» резче, угол ярче
+    // ── БАЗА (Босс 2026-05-30 «как сейчас ярко в связке с землёй — поставь базовым») ──
+    // Базовая lenScale = 1.8 + pulse «дыхание» ±5%. Flare поверх — ещё ×3 (×6 в формуле).
+    float lenScale = 1.8 * uPulse + uSunsetBoost * 0.35 + flareBoost * 6.0;
+    float maxR = clamp((0.30 + lenN * 0.85) * lenScale, 0.30, 1.55);
+    // Острый кончик: fadeOut жёстче на конце луча (угол пламени).
     float fadeIn  = smoothstep(0.42, 0.50, r);
-    float fadeOut = 1.0 - smoothstep(maxR * 0.68, maxR, r);
+    float fadeOut = 1.0 - smoothstep(maxR * 0.78, maxR, r);
     float profile = fadeIn * fadeOut;
-    float brightScale = 1.0 + uSunsetBoost * 0.65 + flareBoost * 5.4; // вспышка ×3 ярче
+    // Базовая brightScale = 1.65 (бывший пик) + pulse + flare поверх ×3.
+    float brightScale = 1.65 * uPulse + uSunsetBoost * 0.35 + flareBoost * 5.4;
     float alpha = profile * streak * 0.95 * brightScale;
-    // Босс 2026-05-30: «цвет солнца и лучей смешай с белым» — оба конца градиента ближе к белому.
+    // Цвет короны.
     vec3 col = mix(vec3(1.00, 0.70, 0.40), vec3(1.00, 0.98, 0.92), streak);
-    // На закате цвет смещается в тёплый оранжевый («слегка оранжево» — Босс).
     vec3 sunset = mix(vec3(1.00, 0.45, 0.18), vec3(1.00, 0.78, 0.45), streak);
     col = mix(col, sunset, uSunsetBoost * 0.55);
-    // Вспышка в направлении flare — почти белый горячий свет.
-    col = mix(col, vec3(1.00, 0.96, 0.88), flareBoost * 0.65);
+    col = mix(col, vec3(1.00, 0.96, 0.88), flareBoost * 0.65); // слепящая вспышка
     gl_FragColor = vec4(col, alpha);
   }
 `;
@@ -436,8 +433,9 @@ function makeSunGroup(radius: number): { group: any; body: any; bodyMat: any; co
       uniforms: {
         uTime: { value: 0 },
         uSunsetBoost: { value: 0 },
-        uFlareIntensity: { value: 0 },                  // 0..1 — пик в полу-окклюзии
-        uFlareDir: { value: new THREE.Vector2(1, 0) },  // unit-vec в plane-space (от Земли к Sun)
+        uFlareIntensity: { value: 0 },
+        uFlareDir: { value: new THREE.Vector2(1, 0) },
+        uPulse: { value: 1 },                            // heart-pulse «дыхание» (Босс 2026-05-30)
       },
       vertexShader: BILLBOARD_VERTEX,
       fragmentShader: SUN_CORONA_FRAGMENT,
@@ -2147,15 +2145,15 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             // Sunset boost: пик на лимбе (|delta|=0), затухает за angR*0.35.
             const sunsetBand = angR * 0.35;
             sunsetTarget = Math.max(0, 1 - Math.abs(delta) / sunsetBand);
-            // FLARE (Босс 2026-05-30): пик при полу-окклюзии (delta ≈ -flareBand/2).
-            // Растёт от delta=0 (лимб) к delta=-flareBand/2 (центр Sun под лимбом),
-            // потом затухает к delta=-flareBand (полное скрытие). Симметрично:
-            // окно [-flareBand, +flareBand*0.2] чтобы flare начинался слегка ДО касания
-            // и пик был именно когда центр Sun уже под лимбом.
+            // FLARE через ОККЛЮЗИЮ (Босс 2026-05-30 «0-50 рост, 50-100 спад до базы»):
+            // occlusion 0..1 — нормированная «глубина захода» Sun за лимб Земли.
+            // Парабола 4·x·(1−x) даёт пик при occlusion=0.5 и плавный спад к 0 и 1.
+            // Окно симметрично: flareBand вокруг лимба покрывает заход И выход.
             const flareBand = angR * 0.6;
-            const center = -flareBand * 0.5; // delta при пике
-            const dist = Math.abs(delta - center);
-            flareTarget = Math.max(0, 1 - dist / (flareBand * 0.6));
+            const occlusion = Math.max(0, Math.min(1, (-delta) / flareBand + 0.5));
+            flareTarget = 4 * occlusion * (1 - occlusion);
+            // За пределами окна (Sun давно вне Земли или полностью за ней) — 0.
+            if (delta > flareBand * 0.5 || delta < -flareBand * 1.5) flareTarget = 0;
             // Направление flare в screen-space (camera right/up axes).
             // Earth — в начале координат; Sun — в sunP. Проецируем оба на плоскость
             // камеры (компоненты вдоль camera.right и camera.up).
@@ -2207,6 +2205,17 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             flareDirRef.current.x,
             flareDirRef.current.y,
           );
+        }
+        // Heart-pulse «дыхание» короны (Босс 2026-05-30 «добавь живости картине»).
+        // 3-сек период, lub+dub как в plays-counter — мягкая модуляция 0.95..1.05.
+        const HB_PERIOD_MS = 3000;
+        const hbPhase = (now % HB_PERIOD_MS) / HB_PERIOD_MS;
+        const lub = Math.exp(-Math.pow((hbPhase - 0.08) / 0.05, 2));
+        const dub = 0.7 * Math.exp(-Math.pow((hbPhase - 0.22) / 0.055, 2));
+        const heart = Math.min(1, lub + dub);
+        const pulse = 0.95 + 0.10 * heart;
+        if (sunCoronaMatRef.current?.uniforms?.uPulse) {
+          sunCoronaMatRef.current.uniforms.uPulse.value = pulse;
         }
         if (dayNight?.uniforms?.uWarmGlow) {
           dayNight.uniforms.uWarmGlow.value = sb;
