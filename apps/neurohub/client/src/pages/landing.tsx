@@ -42,6 +42,7 @@ import { TappableBodyPulse } from "@/components/tappable-body-pulse";
 // небесных тел — onClick гарантированно dispatch'ит fly-to, обходя
 // ненадёжную tap-detection в onPointerUp. См. tappable-hitboxes.tsx.
 import { TappableHitboxes } from "@/components/tappable-hitboxes";
+import { ScreenDebugOverlay } from "@/components/screen-debug-overlay";
 // createPortal для tapFlyLabel — уже импортирован выше (line 34).
 // Выносим label в document.body z-[300] чтобы перекрывать portal-row
 // кнопок (z-[210]) и wizard (z-[250]).
@@ -3360,6 +3361,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   контейнер pointer-events:none — swipe/rotate
                                   в пустом небе НЕ блокируются. */}
                               <TappableHitboxes enabled={showGlobe} />
+                              <ScreenDebugOverlay />
                               {/* Tap-to-fly label (Босс 2026-05-30 «Нажатие на планету
                                   на небе либо луну: начинается твой облёт и летим!
                                   И солнце тоже в списке»). Появляется при тапе по
