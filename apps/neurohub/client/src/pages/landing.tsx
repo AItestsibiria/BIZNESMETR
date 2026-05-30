@@ -22,7 +22,7 @@ import { Fireworks } from "@/components/fireworks";
 import { MuzaInfoMenu } from "@/components/muza-info-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { createPortal } from "react-dom";
-import { motion, useAnimation, useDragControls } from "framer-motion";
+import { motion, useDragControls, AnimatePresence } from "framer-motion";
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { GlobeLoader } from "@/components/globe-loader";
@@ -674,7 +674,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const [showCountries, setShowCountries] = useState(false);
   // Eugene 2026-05-16 Босс: панель стран — drag (тап+движение), long-press
   // (~500ms) исчезает, release → snap обратно в исходное место (0,0).
-  const countriesDragControls = useAnimation();
+  // Eugene 2026-05-30: spring-back реализован через framer-motion `dragSnapToOrigin`,
+  // useAnimation-контроллер больше не нужен (освобождает `animate=` для open/close-fade).
   // Eugene 2026-05-21 Босс: «список городов скроллим пальцем, panel на месте».
   // useDragControls + dragListener={false} → drag активируется ТОЛЬКО через
   // явный .start(e) из header'а. Body (ul со странами) получает native scroll.
@@ -3998,24 +3999,36 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               )}
                               <>
                                 <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowCountries(v => !v); }} className="text-[10px] px-2 py-1 rounded-full bg-white/5 text-white/60 border border-white/10 hover:bg-white/10 hover:text-white/90 transition-colors cursor-pointer" title="Нас слушают">🌍 {countriesCount}</button>
-                                {showCountries && createPortal(
+                                {createPortal(
                                   /* Eugene 2026-05-21 Босс (final): spring-back + close на tap вне panel.
                                      Backdrop transparent (видимости не надо) + onPointerDown/onClick с
                                      target===currentTarget — закрывает только при касании самого backdrop,
-                                     не bubbled events от panel. */
-                                  <div
-                                    onPointerDown={(e) => { if (e.target === e.currentTarget) { setShowCountries(false); setShowCitiesPanel(false); } }}
-                                    onClick={(e) => { if (e.target === e.currentTarget) { setShowCountries(false); setShowCitiesPanel(false); } }}
-                                    style={{position:'fixed',inset:0,zIndex:99999,background:'transparent',display:'flex',alignItems:'flex-end',justifyContent:'center',padding:'16px'}}
-                                  >
+                                     не bubbled events от panel.
+                                     Eugene 2026-05-30 Босс: плавное открытие/закрытие (fade + slide-up
+                                     220ms ease-out) — AnimatePresence + motion.div initial/animate/exit. */
+                                  <AnimatePresence>
+                                    {showCountries && (
                                     <motion.div
+                                      key="countries-panel-backdrop"
+                                      initial={{ opacity: 0 }}
+                                      animate={{ opacity: 1 }}
+                                      exit={{ opacity: 0 }}
+                                      transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+                                      onPointerDown={(e) => { if (e.target === e.currentTarget) { setShowCountries(false); setShowCitiesPanel(false); } }}
+                                      onClick={(e) => { if (e.target === e.currentTarget) { setShowCountries(false); setShowCitiesPanel(false); } }}
+                                      style={{position:'fixed',inset:0,zIndex:99999,background:'transparent',display:'flex',alignItems:'flex-end',justifyContent:'center',padding:'16px'}}
+                                    >
+                                    <motion.div
+                                      initial={{ opacity: 0, y: 16, scale: 0.98 }}
+                                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                                      exit={{ opacity: 0, y: 12, scale: 0.98 }}
+                                      transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
                                       drag
                                       dragListener={false}
                                       dragControls={countriesDragHandle}
                                       dragMomentum={false}
                                       dragElastic={0.15}
-                                      animate={countriesDragControls}
-                                      onDragEnd={() => countriesDragControls.start({ x: 0, y: 0, transition: { type: "spring", stiffness: 300, damping: 25 } })}
+                                      dragSnapToOrigin
                                       onPointerDown={(e) => { e.stopPropagation(); }}
                                       onClick={(e) => e.stopPropagation()}
                                       style={{width:'auto',minWidth:'200px',maxWidth:'min(400px,calc(100vw-32px))',maxHeight:'70vh',display:'flex',flexDirection:'column',borderRadius:'16px',background:'rgba(18,18,22,0.72)',backdropFilter:'blur(40px) saturate(180%)',WebkitBackdropFilter:'blur(40px) saturate(180%)',border:'1px solid rgba(168,85,247,0.3)',boxShadow:'0 2px 16px rgba(0,0,0,0.3), 0 25px 50px -12px rgba(124,58,237,0.25), inset 0 0.5px 0 rgba(255,255,255,0.06)',pointerEvents:'auto'}}>
@@ -4077,7 +4090,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                       )}
                                       </div> {/* /scrollable body */}
                                     </motion.div>
-                                  </div>,
+                                    </motion.div>
+                                    )}
+                                  </AnimatePresence>,
                                   document.body
                                 )}
                               </>
