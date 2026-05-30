@@ -1899,7 +1899,14 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // Режим полёта (Босс 2026-05-29): "ai" — многовариантная режиссура (Солнце/Земля/Луна);
   // "classic" — классический обзор Земли по параллели юзера, без диагональной режиссуры.
   // По умолчанию ВЕЗДЕ «Полёт» (classic); «Полёт Ai» включается кнопкой (Босс 2026-05-29).
-  const flightModeRef = useRef<"classic" | "ai" | "moon" | "solar">("classic");
+  const flightModeRef = useRef<"classic" | "ai" | "moon" | "solar" | "sun">("classic");
+  // Tap-to-fly (Босс 2026-05-30 «Нажатие на планету на небе либо луну: начинается
+  // твой облёт и летим! И солнце тоже в списке»). Когда юзер тапает по планете на
+  // звёздном небе — мы переиспользуем solar-тур, но только для ОДНОЙ выбранной
+  // планеты (без Луны, без поясов, без спутников). Этот ref переопределяет
+  // buildSolarTour: если задан → тур = [singleKey, return], иначе обычный prefs.
+  // Reuse-working-solutions: не плодим параллельный single-planet режим.
+  const singleSolarKeyRef = useRef<string | null>(null);
   // Solar tour state — current tour-mesh каждой планеты (lazy, dispose'ится при transition).
   // Sat key → {group, bodyMat, ringsMat?}. Только во время "solar" режима.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2203,10 +2210,16 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   useEffect(() => {
     const onFlight = (e: Event) => {
       const m = (e as CustomEvent).detail?.mode;
-      if (m === "classic" || m === "ai" || m === "moon" || m === "solar") {
+      if (m === "classic" || m === "ai" || m === "moon" || m === "solar" || m === "sun") {
         // Если попросили snanva "solar" а мы уже в "solar" — флаг restart.
         if (m === "solar" && flightModeRef.current === "solar") {
           solarRestartRef.current = true;
+        }
+        // Tap-to-fly cleanup: явный «🪐 Солнечная» из плеера → сбрасываем
+        // single-key override (если он остался от tap-to-fly), чтобы запустить
+        // ПОЛНЫЙ тур по выбранным prefs, а не залипнуть на одной планете.
+        if (m === "solar") {
+          singleSolarKeyRef.current = null;
         }
         // Босс 2026-05-30: при ВЫХОДЕ из solar — сбросить planet label overlay
         // + ВОССТАНОВИТЬ КАМЕРУ к Земле (иначе controls.target застрял на последней
@@ -2216,10 +2229,17 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           try { disposeAllSolarRef.current?.(); } catch { /* no-op */ }
           try { clearSolarLabelState(); } catch { /* no-op */ }
           try { restoreEarthCameraRef.current?.(); } catch { /* no-op */ }
+          // Tap-to-fly: при выходе из solar сбрасываем single-key override,
+          // чтобы следующий обычный solar-тур не залип на одной планете.
+          singleSolarKeyRef.current = null;
         }
         // Аналогично для moon-тура: controls.target остался на Луне — pointOfView
         // не сбрасывает его сам, и Земля смещена из центра. restoreEarthCamera фиксит.
         if (flightModeRef.current === "moon" && m !== "moon") {
+          try { restoreEarthCameraRef.current?.(); } catch { /* no-op */ }
+        }
+        // Sun-тур: тот же fix что moon (controls.target застрял на Солнце).
+        if (flightModeRef.current === "sun" && m !== "sun") {
           try { restoreEarthCameraRef.current?.(); } catch { /* no-op */ }
         }
         flightModeRef.current = m;
@@ -2227,7 +2247,61 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       }
     };
     window.addEventListener("muza:globe-flight", onFlight as EventListener);
-    return () => window.removeEventListener("muza:globe-flight", onFlight as EventListener);
+
+    // Tap-to-fly (Босс 2026-05-30 «Нажатие на планету на небе либо луну: начинается
+    // твой облёт и летим! И солнце тоже в списке»). Событие от landing.tsx
+    // onPointerUp по globe-overlay: `muza:globe-fly-to {key: "moon"|"sun"|"mercury"|...}`.
+    // Roуting:
+    //   moon → flightMode "moon" (готовый 46-сек тур)
+    //   sun  → flightMode "sun" (новый, 8с подлёт + 16с орбита + 8с возврат)
+    //   планеты → flightMode "solar" + singleSolarKeyRef = key
+    //             (buildSolarTour видит override и строит [planet, return])
+    //   earth → ничего (мы и так на Земле)
+    const onFlyTo = (e: Event) => {
+      const key = (e as CustomEvent).detail?.key as string | undefined;
+      if (!key) return;
+      if (key === "earth") return; // мы дома, ничего не делаем
+      if (key === "moon") {
+        // Reuse существующего moon-тура (mode "moon" уже работает).
+        try { disposeAllSolarRef.current?.(); } catch { /* no-op */ }
+        try { clearSolarLabelState(); } catch { /* no-op */ }
+        singleSolarKeyRef.current = null;
+        flightModeRef.current = "moon";
+        holdRef.current = false;
+        return;
+      }
+      if (key === "sun") {
+        try { disposeAllSolarRef.current?.(); } catch { /* no-op */ }
+        try { clearSolarLabelState(); } catch { /* no-op */ }
+        singleSolarKeyRef.current = null;
+        flightModeRef.current = "sun";
+        holdRef.current = false;
+        return;
+      }
+      // Планеты — Mercury/Venus/Mars/Jupiter/Saturn/Uranus/Neptune.
+      const VALID_PLANETS = ["mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune"];
+      if (!VALID_PLANETS.includes(key)) return;
+      // Reuse solar-тура: override на одну планету. buildSolarTour прочитает
+      // singleSolarKeyRef.current и построит [planet, return] (без Луны/поясов).
+      singleSolarKeyRef.current = key;
+      // Если уже в solar-туре — restart на новую планету.
+      if (flightModeRef.current === "solar") {
+        solarRestartRef.current = true;
+      } else {
+        // Если мы выходим из moon/sun — restoreEarthCamera (тот же pattern что в onFlight).
+        if (flightModeRef.current === "moon" || flightModeRef.current === "sun") {
+          try { restoreEarthCameraRef.current?.(); } catch { /* no-op */ }
+        }
+        flightModeRef.current = "solar";
+      }
+      holdRef.current = false;
+    };
+    window.addEventListener("muza:globe-fly-to", onFlyTo as EventListener);
+
+    return () => {
+      window.removeEventListener("muza:globe-flight", onFlight as EventListener);
+      window.removeEventListener("muza:globe-fly-to", onFlyTo as EventListener);
+    };
   }, []);
 
   // Multi-select preferences (Босс 2026-05-30 v3 — wizard). Подгружаем сохранённое
@@ -2367,12 +2441,20 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     let aiPanoLng = 0;           // вычисленная Pano lng (user + sun компромисс)
     let aiPanoLat = 0;           // Pano lat (средняя sun/moon, clamp ±45)
     let aiInitDone = false;      // первый кадр AI: lock Sun + compute Pano
-    let lastFlightMode: "classic" | "ai" | "moon" | "solar" = flightModeRef.current;
+    let lastFlightMode: "classic" | "ai" | "moon" | "solar" | "sun" = flightModeRef.current;
     // ── Moon-tour state (Босс 2026-05-30 «облёт вокруг луны, посмотреть кратеры»):
     // sub-phase: approach (8с) → orbit (30с, 1.5 круга) → return (8с) → classic.
     let moonInitDone = false;
     let moonStartT = 0;
     let moonStartCamPos: { x: number; y: number; z: number } | null = null;
+    // ── Sun-tour state (Босс 2026-05-30 «И солнце тоже в списке»): tap-to-fly
+    // к Солнцу. Подлетаем НЕ ВПЛОТНУЮ (150 ед. от центра, Солнце R=100),
+    // орбита 16с, возврат к Земле. Mirror moon-pattern; меняется тело (sunMeshRef)
+    // и ORBIT_R (Солнце огромное — отступ от поверхности ~150 → корональные лучи
+    // видны во всём кадре, не выжигают камеру).
+    let sunInitDone = false;
+    let sunStartT = 0;
+    let sunStartCamPos: { x: number; y: number; z: number } | null = null;
     // ── Solar tour state (Босс 2026-05-30 vote #2 → v2 2026-05-30): tour из выбранных
     // подрежимов (multi-select). Default ~210с полный, ~150с короткий.
     // Каждый шаг — approach (eased) → orbit (circular) → next. Approach запоминает
@@ -2387,6 +2469,21 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     // читает solarPrefsRef.current → сценарий перестраивается. Порядок планет —
     // от Солнца к границе системы (Меркурий→Нептун), независимо от порядка чекбоксов.
     const buildSolarTour = (): SolarStep[] => {
+      // Tap-to-fly override (Босс 2026-05-30): если задан singleSolarKeyRef —
+      // тур = [одна планета, return]. Без Луны, без поясов, без спутников.
+      // Это позволяет переиспользовать solar-pipeline для tap-to-fly без
+      // создания параллельного "single" режима (Reuse-working-solutions rule).
+      const singleKey = singleSolarKeyRef.current;
+      if (singleKey) {
+        const isOuter = singleKey === "jupiter" || singleKey === "saturn"
+                     || singleKey === "uranus"  || singleKey === "neptune";
+        const approach = isOuter ? 8000 : 6000;
+        const orbit = 16000; // ~16с орбита — достаточно увидеть планету со всех сторон
+        return [
+          { key: singleKey as SolarStepKey, approachMs: approach, orbitMs: orbit },
+          { key: "return", approachMs: 8000, orbitMs: 0 },
+        ];
+      }
       const prefs = solarPrefsRef.current;
       const seq: SolarStep[] = [];
       // Луна — всегда первая (это «зачин» тура).
@@ -2675,6 +2772,51 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           arr.push({ key: p.key, x: sc.x, y: sc.y, r: Math.max(16, (style?.size ?? 30) * 0.6), visible });
         }
       }
+      // Tap-to-fly (Босс 2026-05-30): добавляем Moon и Sun в список tappable bodies.
+      // Они НЕ часть planetsRef (там только Schlyter-планеты), но их 3D-меши есть
+      // в сцене (moonMeshRef / sunMeshRef). Проецируем их центр в screen-coords
+      // через camera + canvas-helper. Tolerance r ~ 40 для Moon (она ближе), ~80
+      // для Sun (он огромный). Visible — всегда true (Moon/Sun не за Землёй в
+      // обычной camera-pose), полагаемся на rendering сцены.
+      try {
+        const cam = gg.camera?.();
+        if (cam && camPos) {
+          const projectToScreen = (wx: number, wy: number, wz: number): { x: number; y: number } | null => {
+            try {
+              const v = new THREE_NS.Vector3(wx, wy, wz);
+              v.project(cam);
+              const el = wrapRef.current;
+              if (!el) return null;
+              const rect = el.getBoundingClientRect();
+              const sx = (v.x * 0.5 + 0.5) * rect.width;
+              const sy = (-v.y * 0.5 + 0.5) * rect.height;
+              // v.z >= 1 → за камерой / за far plane (невидимо)
+              if (v.z >= 1) return null;
+              return { x: sx, y: sy };
+            } catch {
+              return null;
+            }
+          };
+          const moon = moonMeshRef.current;
+          if (moon?.position) {
+            const mp = moon.position;
+            const sc = projectToScreen(mp.x, mp.y, mp.z);
+            if (sc) arr.push({ key: "moon", x: sc.x, y: sc.y, r: 40, visible: true });
+          }
+          const sun = sunMeshRef.current;
+          if (sun?.position) {
+            const sp = sun.position;
+            const sc = projectToScreen(sp.x, sp.y, sp.z);
+            if (sc) arr.push({ key: "sun", x: sc.x, y: sc.y, r: 80, visible: true });
+          }
+        }
+      } catch { /* no-op — Player-render-resilience */ }
+      // Tap-to-fly: публикуем snapshot в window для landing.tsx tap-detection.
+      // Read-only, обновляется каждый кадр. Никаких секретов, только x/y/r/key.
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (window as any).__muziaiPlanetScreen = arr;
+      } catch { /* no-op */ }
     };
 
     const loop = (now: number) => {
@@ -2871,6 +3013,97 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           try { restoreEarthCameraRef.current?.(); } catch { /* no-op */ }
         }
         // Пропускаем pointOfView в конце loop — управляем камерой напрямую.
+        return;
+      } else if (flightModeRef.current === "sun") {
+        // ── ТУР К СОЛНЦУ (Босс 2026-05-30 «И солнце тоже в списке»). Reuse pattern
+        // moon-тура: approach 8с → orbit 16с → return 8с (=32с total). Солнце-body
+        // R=15 единиц, корона расширяется до ~3R (плоскость билборда 7R × 7R, лучи
+        // ~3R от лимба). Останавливаемся на ORBIT_R=55 от центра — это ~40 от лимба
+        // тела, корональные лучи (длина 1.5-3R) видны во всём кадре, плазма заполняет
+        // обзор, не выжигая камеру вплотную. Орбита 1 круг за 16с (медленный пролёт).
+        try {
+          const camera = gg.camera?.();
+          const sun = sunMeshRef.current;
+          if (!camera || !sun) {
+            flightModeRef.current = "classic";
+            try { restoreEarthCameraRef.current?.(); } catch { /* no-op */ }
+          } else {
+            if (!sunInitDone) {
+              const cp = camera.position;
+              sunStartCamPos = { x: cp.x, y: cp.y, z: cp.z };
+              sunStartT = now;
+              sunInitDone = true;
+            }
+            const phaseT = now - sunStartT;
+            const sunPos = sun.position;
+            const APPROACH_MS = 8000;
+            const ORBIT_MS = 16000;
+            const RETURN_MS = 8000;
+            const ORBIT_R = 55; // 55 от центра Солнца (тело R=15, корона до R*3=45)
+            if (phaseT < APPROACH_MS) {
+              // Approach: ease к точке «перед» Солнцем со стороны камеры.
+              const p = phaseT / APPROACH_MS;
+              const e = easeInOutCubic(p);
+              const sp = sunStartCamPos || { x: 0, y: 0, z: 0 };
+              const dx = sp.x - sunPos.x;
+              const dy = sp.y - sunPos.y;
+              const dz = sp.z - sunPos.z;
+              const dL = Math.hypot(dx, dy, dz) || 1;
+              const ux = dx / dL, uy = dy / dL, uz = dz / dL;
+              const tx = sunPos.x + ux * ORBIT_R;
+              const ty = sunPos.y + uy * ORBIT_R;
+              const tz = sunPos.z + uz * ORBIT_R;
+              camera.position.set(
+                sp.x + (tx - sp.x) * e,
+                sp.y + (ty - sp.y) * e,
+                sp.z + (tz - sp.z) * e,
+              );
+              camera.lookAt(sunPos.x, sunPos.y, sunPos.z);
+            } else if (phaseT < APPROACH_MS + ORBIT_MS) {
+              // Orbit: 1 круг за 16с (медленный, чтобы юзер успел рассмотреть корону).
+              const ot = (phaseT - APPROACH_MS) / 1000;
+              const omega = (Math.PI * 2) / 16; // 1 оборот за 16с
+              const ang = ot * omega;
+              const cy = Math.sin(ot * 0.2) * 10; // волнистая высота ±10 (тело R=15 + корона)
+              camera.position.set(
+                sunPos.x + Math.cos(ang) * ORBIT_R,
+                sunPos.y + cy,
+                sunPos.z + Math.sin(ang) * ORBIT_R,
+              );
+              camera.lookAt(sunPos.x, sunPos.y, sunPos.z);
+            } else if (phaseT < APPROACH_MS + ORBIT_MS + RETURN_MS) {
+              // Return: камера обратно к стартовой позиции (около Земли).
+              const p = (phaseT - APPROACH_MS - ORBIT_MS) / RETURN_MS;
+              const e = easeInOutCubic(p);
+              const cp = camera.position;
+              const sp = sunStartCamPos || { x: 0, y: 0, z: 0 };
+              camera.position.set(
+                cp.x + (sp.x - cp.x) * e,
+                cp.y + (sp.y - cp.y) * e,
+                cp.z + (sp.z - cp.z) * e,
+              );
+              camera.lookAt(0, 0, 0);
+            } else {
+              // Завершено — переключаемся в classic, мгновенно восстанавливаем Землю.
+              sunInitDone = false;
+              sunStartCamPos = null;
+              flightModeRef.current = "classic";
+              try { restoreEarthCameraRef.current?.(); } catch { /* no-op */ }
+            }
+            // OrbitControls target на Солнце во время тура.
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const ctrl = (gg as any).controls?.();
+              if (ctrl?.target && phaseT < APPROACH_MS + ORBIT_MS + RETURN_MS - 500) {
+                ctrl.target.copy(sunPos);
+                ctrl.update?.();
+              }
+            } catch { /* no-op */ }
+          }
+        } catch {
+          flightModeRef.current = "classic";
+          try { restoreEarthCameraRef.current?.(); } catch { /* no-op */ }
+        }
         return;
       } else if (flightModeRef.current === "solar") {
         // ── ТУР ПО СОЛНЕЧНОЙ СИСТЕМЕ (Босс 2026-05-30 v2). Полёт через выбранные
