@@ -4362,37 +4362,149 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           moonMeshRef.current = moon;
           moonMatRef.current = moonMat;
         }
-        // Бесконечно глубокое небо (Босс 2026-05-29). Звёзды отодвинуты ДАЛЕКО ЗА планеты
-        // (Юпитер на 1500) — на ~100× (150 000+), как реальное небо «на бесконечности».
-        // sizeAttenuation:false → звёзды остаются видимыми крошечными точками на любой
-        // дистанции (иначе на 150к они исчезнут). Параллакс почти нулевой = фон-небосвод.
+        // Бесконечно глубокое небо. Босс 2026-05-30 (VirtualSky-style):
+        //  Слой 1 — РЕАЛЬНЫЕ яркие звёзды (BRIGHT_STARS) с per-point size/color
+        //           по magnitude + spectral class. Для hover-tooltip.
+        //  Слой 2 — линии созвездий (CONSTELLATIONS) тонкими синеватыми штрихами.
+        //  Слой 3 — случайный «фон» (2000 точек) чтобы небо не было пустым.
+        // sizeAttenuation:false → звёзды остаются видимыми точками на любой дистанции.
         if (scene && !deepStarsRef.current) {
           const group = new THREE.Group();
-          // Слои: [радиус, количество, размер(px), яркость]. Радиусы ≫ Юпитера (1500).
-          const layers: Array<[number, number, number, number]> = [
-            [150000, 1600, 1.7, 0.95],
-            [230000, 1300, 2.3, 0.8],
-            [330000, 1000, 2.9, 0.62],
-          ];
-          for (const [radius, count, size, opacity] of layers) {
+          const STAR_R = 280000; // реальные звёзды
+          const CONST_R = 280000 * 0.998; // линии чуть ближе чем точки звёзд (anti-z-fight)
+          const BG_R = 230000;            // фоновые случайные звёзды
+
+          // --- Слой 1: яркие звёзды каталога ---------------------------------
+          // Реализация: один THREE.Points с per-vertex `size` через ShaderMaterial.
+          // Если ShaderMaterial не получится — fallback на средний PointsMaterial.
+          try {
+            const count = BRIGHT_STARS.length;
+            const pos = new Float32Array(count * 3);
+            const col = new Float32Array(count * 3);
+            const sz = new Float32Array(count);
+            const alpha = new Float32Array(count);
+            BRIGHT_STARS.forEach((s, i) => {
+              const v = raDecToVec3(s.ra, s.dec, STAR_R);
+              pos[i * 3] = v.x; pos[i * 3 + 1] = v.y; pos[i * 3 + 2] = v.z;
+              const [r, g, b] = spectralToColor(s.spectralClass);
+              col[i * 3] = r; col[i * 3 + 1] = g; col[i * 3 + 2] = b;
+              sz[i] = magToSize(s.mag);
+              alpha[i] = magToOpacity(s.mag);
+            });
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+            geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+            geo.setAttribute("size", new THREE.BufferAttribute(sz, 1));
+            geo.setAttribute("alpha", new THREE.BufferAttribute(alpha, 1));
+            const mat = new THREE.ShaderMaterial({
+              transparent: true,
+              depthWrite: false,
+              blending: THREE.AdditiveBlending,
+              vertexColors: true,
+              vertexShader: [
+                "attribute float size;",
+                "attribute float alpha;",
+                "varying vec3 vColor;",
+                "varying float vAlpha;",
+                "void main() {",
+                "  vColor = color;",
+                "  vAlpha = alpha;",
+                "  vec4 mv = modelViewMatrix * vec4(position, 1.0);",
+                "  gl_Position = projectionMatrix * mv;",
+                "  gl_PointSize = size * 2.2;", // ретина scale-up
+                "}",
+              ].join("\n"),
+              fragmentShader: [
+                "varying vec3 vColor;",
+                "varying float vAlpha;",
+                "void main() {",
+                "  vec2 uv = gl_PointCoord - 0.5;",
+                "  float d = length(uv);",
+                "  if (d > 0.5) discard;",
+                // мягкий гало-фолл от центра
+                "  float f = smoothstep(0.5, 0.0, d);",
+                "  gl_FragColor = vec4(vColor, f * vAlpha);",
+                "}",
+              ].join("\n"),
+            });
+            // ShaderMaterial с vertexColors требует флаг "color" в attribute.
+            // Three.js это делает автоматически если color attribute существует — оставляем как есть.
+            const pts = new THREE.Points(geo, mat);
+            pts.frustumCulled = false;
+            (pts as { name?: string }).name = "bright-stars";
+            group.add(pts);
+            brightStarsRef.current = pts;
+          } catch (e) {
+            console.warn("[GlobeView] bright stars shader failed, fallback to plain Points:", e);
+            const count = BRIGHT_STARS.length;
+            const pos = new Float32Array(count * 3);
+            const col = new Float32Array(count * 3);
+            BRIGHT_STARS.forEach((s, i) => {
+              const v = raDecToVec3(s.ra, s.dec, STAR_R);
+              pos[i * 3] = v.x; pos[i * 3 + 1] = v.y; pos[i * 3 + 2] = v.z;
+              const [r, g, b] = spectralToColor(s.spectralClass);
+              col[i * 3] = r; col[i * 3 + 1] = g; col[i * 3 + 2] = b;
+            });
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+            geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+            const mat = new THREE.PointsMaterial({
+              size: 3.5, sizeAttenuation: false, transparent: true, opacity: 0.95,
+              vertexColors: true, depthWrite: false, blending: THREE.AdditiveBlending,
+            });
+            const pts = new THREE.Points(geo, mat);
+            pts.frustumCulled = false;
+            group.add(pts);
+            brightStarsRef.current = pts;
+          }
+
+          // --- Слой 2: линии созвездий ---------------------------------------
+          try {
+            const segments: number[] = [];
+            for (const c of CONSTELLATIONS) {
+              for (const ln of c.lines) {
+                const a = getStarById(ln.from);
+                const b = getStarById(ln.to);
+                if (!a || !b) continue; // graceful-skip
+                const va = raDecToVec3(a.ra, a.dec, CONST_R);
+                const vb = raDecToVec3(b.ra, b.dec, CONST_R);
+                segments.push(va.x, va.y, va.z, vb.x, vb.y, vb.z);
+              }
+            }
+            if (segments.length > 0) {
+              const geo = new THREE.BufferGeometry();
+              geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(segments), 3));
+              const mat = new THREE.LineBasicMaterial({
+                color: 0x4a7fc4,
+                transparent: true,
+                opacity: 0.18,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending,
+              });
+              const lines = new THREE.LineSegments(geo, mat);
+              lines.frustumCulled = false;
+              group.add(lines);
+            }
+          } catch (e) {
+            console.warn("[GlobeView] constellation lines failed:", e);
+          }
+
+          // --- Слой 3: фоновые случайные звёзды (чтобы небо не было пустым) ---
+          try {
+            const count = 2000;
             const pos = new Float32Array(count * 3);
             const col = new Float32Array(count * 3);
             for (let i = 0; i < count; i++) {
-              // Равномерная сфера (метод обратного косинуса).
               const u = Math.random();
               const v = Math.random();
               const theta = 2 * Math.PI * u;
               const phi = Math.acos(2 * v - 1);
-              const r = radius * (0.85 + Math.random() * 0.3);
-              const sx = r * Math.sin(phi) * Math.cos(theta);
-              const sy = r * Math.sin(phi) * Math.sin(theta);
-              const sz = r * Math.cos(phi);
-              pos[i * 3] = sx;
-              pos[i * 3 + 1] = sy;
-              pos[i * 3 + 2] = sz;
-              // Лёгкий разброс оттенка: бело-голубой / бело-тёплый.
+              const r = BG_R * (0.9 + Math.random() * 0.2);
+              pos[i * 3]     = r * Math.sin(phi) * Math.cos(theta);
+              pos[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+              pos[i * 3 + 2] = r * Math.cos(phi);
               const warm = Math.random();
-              col[i * 3] = 0.78 + warm * 0.22;
+              col[i * 3]     = 0.78 + warm * 0.22;
               col[i * 3 + 1] = 0.82 + warm * 0.14;
               col[i * 3 + 2] = 0.95 + (1 - warm) * 0.05;
             }
@@ -4400,18 +4512,16 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
             geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
             const mat = new THREE.PointsMaterial({
-              size,
-              sizeAttenuation: false, // постоянный размер в px → видны и на 150 000+
-              transparent: true,
-              opacity,
-              vertexColors: true,
-              depthWrite: false,
-              blending: THREE.AdditiveBlending,
+              size: 1.4, sizeAttenuation: false, transparent: true, opacity: 0.55,
+              vertexColors: true, depthWrite: false, blending: THREE.AdditiveBlending,
             });
             const pts = new THREE.Points(geo, mat);
             pts.frustumCulled = false;
             group.add(pts);
+          } catch (e) {
+            console.warn("[GlobeView] background stars failed:", e);
           }
+
           scene.add(group);
           deepStarsRef.current = group;
         }
