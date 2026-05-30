@@ -2268,6 +2268,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     //   earth → ничего (мы и так на Земле)
     const onFlyTo = (e: Event) => {
       const key = (e as CustomEvent).detail?.key as string | undefined;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const dbg = !!(window as any).__muziaiDebug;
+      if (dbg) try { console.log("[tap-to-fly] onFlyTo received", { key, currentMode: flightModeRef.current }); } catch { /* no-op */ }
       if (!key) return;
       if (key === "earth") return; // мы дома, ничего не делаем
       if (key === "moon") {
@@ -2813,17 +2816,42 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
               return null;
             }
           };
+          // Босс 2026-05-30 fix «нажатие не запускает пролёт» — horizon-check для
+          // Moon/Sun (раньше visible:true всегда → тап в пустое небо за Землёй
+          // ловил Moon/Sun, не давая использовать closeGlobe-double-tap).
+          // Алгоритм идентичен planets-loop выше: если угол камера→body внутри
+          // диска Земли — body за горизонтом, visible=false. Также защищает от
+          // того что mesh.position=(0,0,0) в первый кадр до positionSunMoon —
+          // тап-фасад не сработает на «фейковую» позицию в центре Земли.
+          const horizonVisible = (wx: number, wy: number, wz: number): boolean => {
+            try {
+              if (!camPos) return true;
+              const dpx = wx - camPos.x, dpy = wy - camPos.y, dpz = wz - camPos.z;
+              const dpl = Math.hypot(dpx, dpy, dpz) || 1;
+              // Защита от mesh.position=(0,0,0): такой body совпадает с центром
+              // Земли → угол ~0 → внутри диска. Это и нужно — отбросим до init.
+              const dotv = (-camPos.x * dpx - camPos.y * dpy - camPos.z * dpz) / (cl * dpl);
+              if (dotv > cosAlpha) return false;
+              return true;
+            } catch { return true; }
+          };
           const moon = moonMeshRef.current;
           if (moon?.position) {
             const mp = moon.position;
-            const sc = projectToScreen(mp.x, mp.y, mp.z);
-            if (sc) arr.push({ key: "moon", x: sc.x, y: sc.y, r: 40, visible: true });
+            const isZero = mp.x === 0 && mp.y === 0 && mp.z === 0;
+            if (!isZero) {
+              const sc = projectToScreen(mp.x, mp.y, mp.z);
+              if (sc) arr.push({ key: "moon", x: sc.x, y: sc.y, r: 40, visible: horizonVisible(mp.x, mp.y, mp.z) });
+            }
           }
           const sun = sunMeshRef.current;
           if (sun?.position) {
             const sp = sun.position;
-            const sc = projectToScreen(sp.x, sp.y, sp.z);
-            if (sc) arr.push({ key: "sun", x: sc.x, y: sc.y, r: 80, visible: true });
+            const isZero = sp.x === 0 && sp.y === 0 && sp.z === 0;
+            if (!isZero) {
+              const sc = projectToScreen(sp.x, sp.y, sp.z);
+              if (sc) arr.push({ key: "sun", x: sc.x, y: sc.y, r: 80, visible: horizonVisible(sp.x, sp.y, sp.z) });
+            }
           }
         }
       } catch { /* no-op — Player-render-resilience */ }
@@ -3817,6 +3845,12 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       rebaseCruiseRef.current = null;
       restoreEarthCameraRef.current = null;
       disposeAllSolarRef.current = null;
+      // Босс 2026-05-30 fix: очистить stale snapshot небесных тел при unmount,
+      // иначе следующий mount + tap в первый кадр прочитает старые координаты.
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        delete (window as any).__muziaiPlanetScreen;
+      } catch { /* no-op */ }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);

@@ -3095,6 +3095,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 const dx = e.clientX - s.x;
                                 const dy = e.clientY - s.y;
                                 const dur = Date.now() - s.t;
+                                const moved = Math.hypot(dx, dy);
+                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                const dbg = !!(window as any).__muziaiDebug;
+                                const dlog = (...a: unknown[]) => { if (dbg) try { console.log("[tap-to-fly]", ...a); } catch { /* no-op */ } };
+                                dlog("pointerUp", { dx, dy, dur, moved, onPlanet: s.onPlanet, pointerType: (e as any).pointerType });
                                 // Босс 2026-05-30 п.2: «3д свайп по зоне окна глобуса меняют треки».
                                 // Чёткий горизонтальный свайп (|dx|>80, |dy|<40, <600мс) → prev/next.
                                 // НО ТОЛЬКО если стартовая точка НЕ на планете (Босс 2026-05-30:
@@ -3105,45 +3110,61 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   globeLastTapRef.current = 0; // сбрасываем double-tap счётчик
                                   return;
                                 }
-                                const moved = Math.hypot(dx, dy);
-                                if (moved >= 10 || dur >= 400) return; // драг (вращение) — не тап
                                 // Tap-to-fly (Босс 2026-05-30 «Нажатие на планету на небе либо
                                 // луну: начинается твой облёт и летим! И солнце тоже в списке»).
-                                // Читаем snapshot небесных тел из window.__muziaiPlanetScreen
-                                // (обновляется каждый кадр в globe-view rAF). Если тап в радиусе
-                                // body.r + 30px от какого-то тела → летим к нему. Tolerance 30
-                                // — достаточно для пальца на mobile. Земля игнорируется (мы дома).
+                                // ПОРЯДОК ВАЖЕН (Босс 2026-05-30 fix «нажатие на планету/Луну
+                                // не запускает пролёт»): ПРОВЕРЯЕМ TAP-TO-FLY ПЕРВЫМ, до строгого
+                                // guard moved>=10/dur>=400. Палец на mobile почти всегда даёт
+                                // дрейф 10-25px и длительность 300-600мс — старый guard убивал
+                                // tap-to-fly до проверки тела. Tolerance pointer-aware:
+                                // touch → +50px (палец ~44pt + слайд), mouse → +20px (точный
+                                // курсор). Tap-to-fly работает при moved<=30 (пьяный палец)
+                                // и dur<=700мс (тщательный тап в маленькую цель).
                                 try {
-                                  const tgt = e.currentTarget as HTMLElement;
-                                  const rect = tgt.getBoundingClientRect();
-                                  const px = e.clientX - rect.left;
-                                  const py = e.clientY - rect.top;
-                                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                  const bodies = ((window as any).__muziaiPlanetScreen || []) as Array<{ key: string; x: number; y: number; r: number; visible: boolean }>;
-                                  let best: { key: string; d: number } | null = null;
-                                  for (const b of bodies) {
-                                    if (!b.visible) continue;
-                                    if (b.key === "earth") continue;
-                                    const d = Math.hypot(px - b.x, py - b.y);
-                                    const tolerance = b.r + 30;
-                                    if (d <= tolerance && (!best || d < best.d)) {
-                                      best = { key: b.key, d };
+                                  const pt = ((e as any).pointerType as string | undefined) || "";
+                                  const touchish = pt === "touch" || pt === "pen" || pt === "" /* webview fallback */;
+                                  const tapMovedMax = 30;
+                                  const tapDurMax = 700;
+                                  if (moved <= tapMovedMax && dur <= tapDurMax) {
+                                    const tgt = e.currentTarget as HTMLElement;
+                                    const rect = tgt.getBoundingClientRect();
+                                    const px = e.clientX - rect.left;
+                                    const py = e.clientY - rect.top;
+                                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                    const bodies = ((window as any).__muziaiPlanetScreen || []) as Array<{ key: string; x: number; y: number; r: number; visible: boolean }>;
+                                    dlog("snapshot bodies", bodies?.length || 0, bodies);
+                                    let best: { key: string; d: number; tol: number } | null = null;
+                                    const tolerancePad = touchish ? 50 : 20;
+                                    for (const b of bodies) {
+                                      if (!b.visible) continue;
+                                      if (b.key === "earth") continue;
+                                      const d = Math.hypot(px - b.x, py - b.y);
+                                      const tol = b.r + tolerancePad;
+                                      if (d <= tol && (!best || d < best.d)) {
+                                        best = { key: b.key, d, tol };
+                                      }
                                     }
+                                    dlog("best body", best, "tap@", { px, py, touchish });
+                                    if (best) {
+                                      const NAMES_RU: Record<string, string> = {
+                                        moon: "Луне", sun: "Солнцу",
+                                        mercury: "Меркурию", venus: "Венере", mars: "Марсу",
+                                        jupiter: "Юпитеру", saturn: "Сатурну",
+                                        uranus: "Урану", neptune: "Нептуну",
+                                      };
+                                      const ru = NAMES_RU[best.key] || best.key;
+                                      setTapFlyLabel({ name: ru, shownAt: Date.now() });
+                                      try { window.dispatchEvent(new CustomEvent("muza:globe-fly-to", { detail: { key: best.key } })); } catch { /* no-op */ }
+                                      dlog("dispatched muza:globe-fly-to", best.key);
+                                      globeLastTapRef.current = 0; // сбрасываем double-tap счётчик
+                                      return;
+                                    }
+                                  } else {
+                                    dlog("tap-to-fly skipped: moved/dur out of range", { moved, dur, tapMovedMax, tapDurMax });
                                   }
-                                  if (best) {
-                                    const NAMES_RU: Record<string, string> = {
-                                      moon: "Луне", sun: "Солнцу",
-                                      mercury: "Меркурию", venus: "Венере", mars: "Марсу",
-                                      jupiter: "Юпитеру", saturn: "Сатурну",
-                                      uranus: "Урану", neptune: "Нептуну",
-                                    };
-                                    const ru = NAMES_RU[best.key] || best.key;
-                                    setTapFlyLabel({ name: ru, shownAt: Date.now() });
-                                    try { window.dispatchEvent(new CustomEvent("muza:globe-fly-to", { detail: { key: best.key } })); } catch { /* no-op */ }
-                                    globeLastTapRef.current = 0; // сбрасываем double-tap счётчик
-                                    return;
-                                  }
-                                } catch { /* no-op — Player-render-resilience */ }
+                                } catch (err) { dlog("tap-to-fly error", err); /* no-op — Player-render-resilience */ }
+                                // Драг (вращение) — не тап (после tap-to-fly уже проверен).
+                                if (moved >= 10 || dur >= 400) return;
                                 // Босс 2026-05-29: закрывает ТОЛЬКО ДВОЙНОЙ тап (2 тапа на экране).
                                 const nowT = Date.now();
                                 if (nowT - globeLastTapRef.current < 400) { globeLastTapRef.current = 0; closeGlobe(); }
