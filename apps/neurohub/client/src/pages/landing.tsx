@@ -910,9 +910,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       const detail = (e as CustomEvent).detail || {};
       const key = typeof detail.key === "string" ? detail.key : null;
       if (!key) return;
-      setSolarWizardPreselectKey(key);
-      setSolarWizardOrigin(null); // тап в небе, не привязан к кнопке-источнику
-      setSolarWizardOpen(true);
+      // Босс 2026-05-30 (5-й «летят к Земле»): радикальное упрощение — направляем
+      // tap-preselect в direct flyby (lerp camera к РЕАЛЬНОЙ 3D-позиции planet mesh).
+      // wizard pre-select временно ОТКЛЮЧЁН для теста — гарантированный визуальный полёт.
+      try {
+        window.dispatchEvent(new CustomEvent("muza:globe-direct-flyby", { detail: { key } }));
+      } catch { /* no-op */ }
+      // setSolarWizardPreselectKey(key);
+      // setSolarWizardOrigin(null);
+      // setSolarWizardOpen(true);
     };
     window.addEventListener("muza:globe-tap-preselect", onTapPreselect as EventListener);
     return () => window.removeEventListener("muza:globe-tap-preselect", onTapPreselect as EventListener);

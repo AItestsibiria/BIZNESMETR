@@ -3166,6 +3166,78 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         w.__muziaiDebugFlightMode = flightModeRef.current;
         w.__muziaiDebugSingleSolarKey = singleSolarKeyRef.current;
       } catch { /* no-op */ }
+      // Босс 2026-05-30 (5-й «летят к Земле»): ПРЯМОЙ FLYBY — самая высокая priority
+      // в rAF, ДО любых других веток (classic/solar/moon/sun/userInteracting).
+      // Lerp camera+target к РЕАЛЬНОЙ 3D-позиции planet mesh за 2.5 сек, easeInOutQuad.
+      // После завершения — hold позиции (camera замирает у planet), без возврата к Земле.
+      if (directFlybyRef.current) {
+        try {
+          const fb = directFlybyRef.current;
+          // Обновляем targetPos каждый кадр — planet mesh может двигаться (orbit drift),
+          // и мы хотим лететь к АКТУАЛЬНОЙ позиции, не к stale snapshot момента тапа.
+          try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            let curPos: any = null;
+            if (fb.targetKey === "moon" && moonMeshRef.current?.position) {
+              curPos = moonMeshRef.current.position;
+            } else if (fb.targetKey === "sun" && sunMeshRef.current?.position) {
+              curPos = sunMeshRef.current.position;
+            } else {
+              const found = planetsRef.current.find(p => p.key === fb.targetKey);
+              if (found?.mesh?.position) curPos = found.mesh.position;
+            }
+            if (curPos) {
+              fb.targetPos.set(curPos.x, curPos.y, curPos.z);
+            }
+          } catch { /* no-op */ }
+          const tNow = performance.now();
+          const elapsedFb = tNow - fb.startT;
+          const tt = Math.min(elapsedFb / fb.durationMs, 1);
+          // easeInOutQuad
+          const ease = tt < 0.5 ? 2 * tt * tt : 1 - Math.pow(-2 * tt + 2, 2) / 2;
+          const cam = gg.camera?.();
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const ctrl = (gg as any).controls?.();
+          if (cam && cam.position) {
+            // End camera position: чуть позади planet (по направлению от планеты к нулю)
+            // на расстоянии 80 единиц — даёт обзор planet без перекрытия.
+            const dir = fb.targetPos.clone().normalize();
+            const offset = dir.multiplyScalar(80);
+            const endCamPos = fb.targetPos.clone().sub(offset);
+            // Lerp camera.position
+            cam.position.set(
+              fb.startCamPos.x + (endCamPos.x - fb.startCamPos.x) * ease,
+              fb.startCamPos.y + (endCamPos.y - fb.startCamPos.y) * ease,
+              fb.startCamPos.z + (endCamPos.z - fb.startCamPos.z) * ease,
+            );
+          }
+          if (ctrl?.target) {
+            ctrl.target.set(
+              fb.startTargetPos.x + (fb.targetPos.x - fb.startTargetPos.x) * ease,
+              fb.startTargetPos.y + (fb.targetPos.y - fb.startTargetPos.y) * ease,
+              fb.startTargetPos.z + (fb.targetPos.z - fb.startTargetPos.z) * ease,
+            );
+            try { ctrl.update?.(); } catch { /* no-op */ }
+          }
+          if (tt >= 1) {
+            // Полёт завершён — HOLD позиции у planet. Не сбрасываем сразу,
+            // даём rAF ещё кадр для финального controls.update, потом null.
+            try {
+              if (window.localStorage?.getItem("muzaai-screen-debug") === "1") {
+                window.dispatchEvent(new CustomEvent("muza:debug-log", {
+                  detail: `[direct-flyby] complete ${fb.targetKey}`,
+                }));
+              }
+            } catch { /* no-op */ }
+            // Включаем hold чтобы classic/cycle_pano не утянул камеру обратно к Земле.
+            holdRef.current = true;
+            directFlybyRef.current = null;
+          }
+        } catch { /* no-op */ }
+        // CRITICAL: ранний return — НЕ выполняем classic/solar/moon/sun ветки
+        // пока direct flyby активен. Это гарантирует визуальный результат.
+        return;
+      }
       // Во время самого жеста — камеру ведёт OrbitControls (юзер steering'ует).
       // ИСКЛЮЧЕНИЕ (Босс 2026-05-30 «летят все к Земле»): для активных полётных
       // режимов (solar/moon/sun) НЕ блокируем rAF по userInteracting/hold —
