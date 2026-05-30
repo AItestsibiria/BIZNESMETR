@@ -716,6 +716,28 @@ function easeInOutCubic(p: number): number {
   return p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;
 }
 
+// Центры континентов (для облёта east→west над экватором, Босс 2026-05-30).
+// Антарктиду пропускаем (полюса не показываем). lat clamp ±50.
+const CONTINENT_CENTERS: Array<{ lat: number; lng: number; name: string }> = [
+  { lat: 50, lng: 15,   name: "Europe" },
+  { lat: 0,  lng: 20,   name: "Africa" },
+  { lat: 35, lng: 80,   name: "Asia" },
+  { lat: -25,lng: 135,  name: "Australia" },
+  { lat: 40, lng: -100, name: "NorthAmerica" },
+  { lat: -15,lng: -60,  name: "SouthAmerica" },
+];
+// Возвращает целевую lat для текущей lng — ближайший континент (по lng-дуге).
+function continentLatAtLng(lng: number): number {
+  const n = ((lng + 540) % 360) - 180;
+  let bestDist = Infinity;
+  let bestLat = 0;
+  for (const c of CONTINENT_CENTERS) {
+    const d = Math.abs(((c.lng - n + 540) % 360) - 180);
+    if (d < bestDist) { bestDist = d; bestLat = c.lat; }
+  }
+  return Math.max(-50, Math.min(50, bestLat));
+}
+
 // Азбука Морзе (латиница) — для «подмигивания» Музы. Мигаем словом MUZA.
 const MORSE_TABLE: Record<string, string> = {
   A: ".-", B: "-...", C: "-.-.", D: "-..", E: ".", F: "..-.", G: "--.", H: "....",
@@ -887,6 +909,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // камера держит текущую позицию/траекторию до нового входа в режим или пока юзер сам
   // не сменит позицию (перетаскивание/зум).
   const holdRef = useRef(false);
+  // 3-минутный таймер: после rotate юзером (с движением) → драфт от его ракурса
+  // 3 мин, потом сценарий возобновляется (cycle_pano с начала). Босс 2026-05-30.
+  const aiResumeAtRef = useRef<number>(0);
   // Морзе-подмигивание Музы: светящаяся точка ЗАКРЕПЛЕНА в точке геолокации
   // (проекция координаты в экран каждый кадр), без текста. По мере отъезда камеры
   // точка пропорционально уменьшается. Управление через ref'ы (без перерендера).
@@ -1188,15 +1213,28 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     const arrive = { lat: startLat };
     let holdAt = 0;
     let departAt = 0;
-    const cruise = { lat: startLat, alt: CRUISE_ALTITUDE };
+    const cruise: { lat: number; alt: number; lng: number } = { lat: startLat, alt: CRUISE_ALTITUDE, lng: startLng };
     let cruiseStartT = 0; // старт круиза — для «1 круг, далее по параллелям»
     // Сценарий Полёт Ai (Босс 2026-05-29 «1 сценой → подлёт → пролёт+флаг → возврат → ×2 → параллели»):
     // pano (2с, Солнце+Луна+Земля в кадре) → подлёт к юзеру → пролёт+флаг 3с → возврат на pano
     // → ×2 цикла → облёт по параллелям сверху-вниз (|lat|≤50, без полюсов). Долгота всегда у
     // userLng — страна юзера видна в кадре всегда (правило «земля крутится в позиции где видно страну»).
-    let aiSubPhase: "" | "pano" | "fly" | "pass" | "return" | "sweep" = "";
+    // Сценарий Полёт Ai (Босс 2026-05-30, уточнённый):
+    // 1) При открытии глобуса — ОРБИТАЛЬНЫЙ Pano-hold (страна юзера + Солнце справа
+    //    best-effort + Луна), Солнце ЗАФИКСИРОВАНО на момент сессии (не дрейфует).
+    // 2) Через 3 МИН бездействия → сценарий: pano 2с → подлёт 9с (ЕДИНСТВЕННЫЙ descent
+    //    к юзеру) → пролёт на ЗАПАД 5с (флаг) → возврат 3.5с. Цикл ×2.
+    // 3) 3-й круг — панорамный east→west над ЭКВАТОРОМ, БЕЗ снижения, континенты сами
+    //    в кадре по порядку расположения; зациклено.
+    // 4) User rotate (с движением) → rebase + сброс 3-мин таймера. Все переходы плавные.
+    let aiSubPhase: "" | "idle" | "cycle_pano" | "fly" | "pass" | "return" | "continents" = "";
     let aiPhaseStartT = 0;
-    let aiCycleCount = 0;
+    let aiCyclesDone = 0;        // сколько сценарных циклов завершено (target 2 → continents)
+    let aiResumeAt = 0;          // когда сценарий запустится / возобновится (idle → cycle_pano)
+    let aiSunLngLocked = 0;      // субсолярная долгота на момент сессии (Sun-right best-effort)
+    let aiPanoLng = 0;           // вычисленная Pano lng (user + sun компромисс)
+    let aiPanoLat = 0;           // Pano lat (средняя sun/moon, clamp ±45)
+    let aiInitDone = false;      // первый кадр AI: lock Sun + compute Pano
     let lastFlightMode: "classic" | "ai" = flightModeRef.current;
     const sessionSeed = Math.floor(Math.random() * 997); // «каждый раз по-новому» (многовариантность с 3-го круга)
     // Повтор моргания на КАЖДОМ проходе геолокации (Босс 2026-05-29) — без смены
@@ -1426,6 +1464,12 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       let lat = startLat;
       let alt = OVERVIEW_ALTITUDE;
 
+      // Босс 2026-05-30: в AI-режиме сценарий начинается с Pano сразу — intro
+      // (sunrise→fly→hold→depart) пропускаем. Classic-режим intro оставляем.
+      if (flightModeRef.current === "ai" && phase !== "cruise") {
+        phase = "cruise";
+      }
+
       if (phase === "sunrise") {
         lat = startLat;
         alt = OVERVIEW_ALTITUDE;
@@ -1498,82 +1542,132 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         cruise.alt += (tgt - cruise.alt) * 0.04;
         alt = cruise.alt;
       } else {
-        // ПОЛЁТ Ai — НОВЫЙ сценарий (Босс 2026-05-29):
-        // pano(2с, Солнце+Луна+Земля) → подлёт к юзеру → пролёт+флаг 3с → возврат на pano
-        // → ×2 цикла → облёт по параллелям сверху-вниз (|lat|≤50, без полюсов).
-        // Долгота камеры ВСЕГДА = userLng → страна юзера в кадре во всех фазах
-        // (правило «земля крутится в позиции где видно страну юзера»).
+        // ПОЛЁТ Ai — финальный сценарий (Босс 2026-05-30):
+        // Init: Sun-позиция фиксируется на момент сессии. Pano lng = компромисс,
+        // чтобы страна юзера ВСЕГДА была в кадре + Sun-right best-effort.
+        // Сценарий: cycle_pano 2с → подлёт 9с (ЕДИНСТВЕННЫЙ descent) → пролёт на
+        // ЗАПАД 5с (флаг) → возврат 3.5с → ×2 → continents (east→west, выгодный
+        // ракурс ближайшего континента, без снижения, зацикленно).
+        // User-rotate с движением → 3 мин пауза, потом возобновление с cycle_pano.
         if (flightModeRef.current !== lastFlightMode) {
+          aiInitDone = false;
+          aiResumeAtRef.current = 0;
           aiSubPhase = "";
-          aiCycleCount = 0;
+          aiCyclesDone = 0;
           lastFlightMode = flightModeRef.current;
         }
-        if (aiSubPhase === "") {
-          aiSubPhase = "pano";
+        if (!aiInitDone) {
+          // Lock Sun + compute Pano (один раз за вход в AI-режим).
+          try { aiSunLngLocked = subsolarPoint(Date.now())[0]; } catch { /* no-op */ }
+          let sunLatI = 0, moonLatI = 0;
+          try { sunLatI = subsolarPoint(Date.now())[1]; } catch { /* no-op */ }
+          try { moonLatI = subLunarPoint(Date.now())[1]; } catch { /* no-op */ }
+          aiPanoLat = Math.max(-45, Math.min(45, (sunLatI + moonLatI) / 2));
+          const u0 = userLatLngRef.current || fallbackTarget();
+          const sd = ((aiSunLngLocked - u0.lng + 540) % 360) - 180; // signed shortest arc
+          // Если Солнце на дальней стороне (юзер в глубокой ночи) — приоритет страна юзера.
+          if (Math.abs(sd) > 130) {
+            aiPanoLng = u0.lng - 30; // страна слегка справа, Солнце где есть
+          } else {
+            aiPanoLng = u0.lng + sd * 0.4; // 40% пути от юзера к Солнцу — оба в кадре
+          }
+          // Снимаем сразу к Pano (без intro): cruise = Pano-позиция.
+          cruise.lat = aiPanoLat;
+          cruise.lng = aiPanoLng;
+          cruise.alt = OVERVIEW_ALTITUDE;
+          aiSubPhase = "cycle_pano";
           aiPhaseStartT = now;
-          aiCycleCount = 0;
+          aiCyclesDone = 0;
+          aiInitDone = true;
         }
         const user = userLatLngRef.current || fallbackTarget();
-        const phaseT = now - aiPhaseStartT;
-        let sLatA = 0, mLatA = 0;
-        try { sLatA = subsolarPoint(Date.now())[1]; } catch { /* no-op */ }
-        try { mLatA = subLunarPoint(Date.now())[1]; } catch { /* no-op */ }
-        const panoLat = Math.max(-45, Math.min(45, (sLatA + mLatA) / 2));
-        const panoAlt = OVERVIEW_ALTITUDE; // высокий обзор — оба светила в кадре
-        const tgtAlt = zoomTargetRef.current ?? CRUISE_ALTITUDE;
+        const panoAlt = OVERVIEW_ALTITUDE;
 
-        if (aiSubPhase === "pano") {
-          // Pano 2с: камера у userLng (страна юзера видна), широта = средняя
-          // подсолярной/подлунной (Солнце и Луна в кадре), Солнце справа когда оно
-          // астрономически восточнее юзера.
-          lat = panoLat;
-          lng = user.lng;
-          alt = panoAlt;
-          if (phaseT >= 2000) { aiSubPhase = "fly"; aiPhaseStartT = now; }
-        } else if (aiSubPhase === "fly") {
-          // Плавный подлёт от pano к точке юзера: широта pano→user, высота OVERVIEW→ARRIVE.
-          // Долгота остаётся у userLng (страна юзера всегда в центре).
-          const p = Math.min(1, phaseT / FLY_MS);
-          const e = easeInOutCubic(p);
-          lat = panoLat + (user.lat - panoLat) * e;
-          lng = user.lng;
-          alt = panoAlt + (ARRIVE_ALTITUDE - panoAlt) * e;
-          if (p >= 1) {
-            aiSubPhase = "pass";
-            aiPhaseStartT = now;
-            // Активируем точку+флаг 3 сек у геолокации юзера.
-            winkAnchorRef.current = { lat: user.lat, lng: user.lng };
-            winkActiveRef.current = true;
-            flagShownAt = now;
-            morseWordRef.current = "MUZA";
-          }
-        } else if (aiSubPhase === "pass") {
-          // Пролёт над страной юзера — держим над точкой 3с (флаг сам погаснет).
-          lat = user.lat;
-          lng = user.lng;
-          alt = ARRIVE_ALTITUDE;
-          if (phaseT >= 3000) { aiSubPhase = "return"; aiPhaseStartT = now; }
-        } else if (aiSubPhase === "return") {
-          // Возврат на панорамную точку (та же камера-позиция: userLng + panoLat + OVERVIEW).
-          const p = Math.min(1, phaseT / 3500);
-          const e = easeInOutCubic(p);
-          lat = user.lat + (panoLat - user.lat) * e;
-          lng = user.lng;
-          alt = ARRIVE_ALTITUDE + (panoAlt - ARRIVE_ALTITUDE) * e;
-          if (p >= 1) {
-            aiCycleCount += 1;
-            if (aiCycleCount >= 2) { aiSubPhase = "sweep"; aiPhaseStartT = now; }
-            else { aiSubPhase = "pano"; aiPhaseStartT = now; }
-          }
+        if (now < aiResumeAtRef.current) {
+          // Пауза после user-rotate: драфт от его ракурса (cruise после rebase).
+          // lng идёт по default-формуле (east-drift = Sun справа→налево); lat/alt из cruise.
+          lat = cruise.lat;
+          alt = cruise.alt;
+          // lng остаётся = driftBaseLng + drift*t (вычислено в начале loop).
+          // Сценарий сбрасывается — после паузы стартует с cycle_pano с начала.
+          aiSubPhase = "";
         } else {
-          // sweep: облёт по параллелям |lat|≤50, без полюсов. Долгота у userLng (страна
-          // юзера в кадре, лёгкое качание ±15° для движения). Период ≈30с.
-          const tt = phaseT / 1000;
-          lat = 50 * Math.sin((tt / 30) * 2 * Math.PI);
-          lat = Math.max(-50, Math.min(50, lat));
-          lng = user.lng + 15 * Math.sin((tt / 22) * 2 * Math.PI);
-          cruise.alt += (tgtAlt - cruise.alt) * 0.04;
-          alt = Math.max(2.4, cruise.alt);
+          if (aiSubPhase === "") {
+            // Возобновление после паузы / fresh start.
+            aiSubPhase = "cycle_pano";
+            aiPhaseStartT = now;
+            aiCyclesDone = 0;
+          }
+          const phaseT = now - aiPhaseStartT;
+          if (aiSubPhase === "cycle_pano") {
+            // 2с Pano: смягчённый снеп к Pano (eases для плавности после паузы).
+            cruise.lat += (aiPanoLat - cruise.lat) * 0.08;
+            const dLp = ((aiPanoLng - cruise.lng + 540) % 360) - 180;
+            cruise.lng += dLp * 0.08;
+            cruise.alt += (panoAlt - cruise.alt) * 0.08;
+            lat = cruise.lat;
+            lng = cruise.lng;
+            alt = cruise.alt;
+            if (phaseT >= 2000) { aiSubPhase = "fly"; aiPhaseStartT = now; }
+          } else if (aiSubPhase === "fly") {
+            // 9с подлёт к юзеру (единственный descent).
+            const p = Math.min(1, phaseT / FLY_MS);
+            const e = easeInOutCubic(p);
+            lat = aiPanoLat + (user.lat - aiPanoLat) * e;
+            const dL = ((user.lng - aiPanoLng + 540) % 360) - 180;
+            lng = aiPanoLng + dL * e;
+            alt = panoAlt + (ARRIVE_ALTITUDE - panoAlt) * e;
+            cruise.lat = lat; cruise.lng = lng; cruise.alt = alt;
+            if (p >= 1) {
+              aiSubPhase = "pass";
+              aiPhaseStartT = now;
+              winkAnchorRef.current = { lat: user.lat, lng: user.lng };
+              winkActiveRef.current = true;
+              flagShownAt = now;
+              morseWordRef.current = "MUZA";
+            }
+          } else if (aiSubPhase === "pass") {
+            // 5с пролёт на ЗАПАД через страну (lng убывает), флаг виден всё время.
+            const p = Math.min(1, phaseT / 5000);
+            const e = easeInOutCubic(p);
+            lat = user.lat;
+            lng = user.lng - 30 * e; // -30° запад от точки юзера за 5с
+            alt = ARRIVE_ALTITUDE;
+            cruise.lat = lat; cruise.lng = lng; cruise.alt = alt;
+            if (p >= 1) { aiSubPhase = "return"; aiPhaseStartT = now; }
+          } else if (aiSubPhase === "return") {
+            // 3.5с отъезд от точки юзера к Pano.
+            const passEndLng = user.lng - 30;
+            const p = Math.min(1, phaseT / 3500);
+            const e = easeInOutCubic(p);
+            lat = user.lat + (aiPanoLat - user.lat) * e;
+            const dL = ((aiPanoLng - passEndLng + 540) % 360) - 180;
+            lng = passEndLng + dL * e;
+            alt = ARRIVE_ALTITUDE + (panoAlt - ARRIVE_ALTITUDE) * e;
+            cruise.lat = lat; cruise.lng = lng; cruise.alt = alt;
+            if (p >= 1) {
+              aiCyclesDone += 1;
+              if (aiCyclesDone >= 2) {
+                aiSubPhase = "continents";
+                aiPhaseStartT = now;
+              } else {
+                aiSubPhase = "cycle_pano";
+                aiPhaseStartT = now;
+              }
+            }
+          } else if (aiSubPhase === "continents") {
+            // Панорамный east→west облёт. Одна скорость ~3°/сек west. Lat плавно
+            // наводится на ближайший континент (выгодный ракурс «по ходу пролёта»).
+            // Стартуем с lng юзера (его континент первым), без снижения. Зациклено.
+            const tt = (now - aiPhaseStartT) / 1000;
+            lng = user.lng - 3 * tt;
+            const targetLat = continentLatAtLng(lng);
+            cruise.lat += (targetLat - cruise.lat) * 0.02;
+            cruise.lng = lng;
+            cruise.alt += (panoAlt - cruise.alt) * 0.03;
+            lat = cruise.lat;
+            alt = cruise.alt;
+          }
         }
       }
 
@@ -1931,6 +2025,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
               // Юзер сменил позицию → снимаем удержание и продолжаем полёт с новой точки.
               holdRef.current = false;
               rebaseCruiseRef.current?.();
+              // Босс 2026-05-30: 3-мин пауза от user-rotate — драфт от его ракурса,
+              // потом сценарий возобновляется с cycle_pano.
+              aiResumeAtRef.current = performance.now() + 180_000;
             }
           });
         } catch {
