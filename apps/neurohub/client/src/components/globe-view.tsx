@@ -3483,6 +3483,14 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
               solarInitDone = false;
               solarStepIdx = 0;
               solarStepStartCamPos = null;
+              // Босс 2026-05-30 (5-й «летят к Земле») ROOT CAUSE: при tap-to-fly
+              // restart сбрасывал solarInitDone=false но НЕ обнулял solarStepStartT.
+              // INIT-блок ниже выставляет startT=now, НО до INIT step=SOLAR_TOUR[0]
+              // мог тут же оказаться «завершён» (phaseT = now - старый_startT даёт
+              // огромное значение, если предыдущий тур был давно) → solarStepIdx++
+              // → 'return' → restoreEarthCamera → юзер видит Землю. FIX: обнуляем
+              // startT сразу в RESTART-блоке (синхронно с другими reset).
+              solarStepStartT = now;
               SOLAR_TOUR = buildSolarTour();
               try {
                 if (window.localStorage?.getItem("muzaai-click-debug") === "1") {
@@ -3524,6 +3532,31 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
               } catch { /* no-op */ }
             }
             const step = SOLAR_TOUR[solarStepIdx];
+            // Босс 2026-05-30 (5-й «летят к Земле») отладка: один раз на смену step
+            // логируем какой шаг сейчас активен. Видим — мы реально на 'mars' или
+            // уже прыгнули на 'return' (= ROOT CAUSE «возврат на Землю»).
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const wDbgStep = window as any;
+              const stepSig = `${singleSolarKeyRef.current}|${solarStepIdx}|${step?.key}`;
+              if (wDbgStep.__muziaiSolarStepLogged !== stepSig) {
+                wDbgStep.__muziaiSolarStepLogged = stepSig;
+                if (window.localStorage?.getItem("muzaai-click-debug") === "1") {
+                  console.error("[rAF/solar] STEP", {
+                    singleSolarKey: singleSolarKeyRef.current,
+                    solarStepIdx,
+                    stepKey: step?.key,
+                    tourLen: SOLAR_TOUR.length,
+                    phaseTMs: Math.round(now - solarStepStartT),
+                  });
+                  if (window.localStorage?.getItem("muzaai-screen-debug") === "1") {
+                    window.dispatchEvent(new CustomEvent("muza:debug-log", {
+                      detail: `[rAF/solar] STEP idx=${solarStepIdx} key=${step?.key} phaseT=${Math.round(now - solarStepStartT)}ms`,
+                    }));
+                  }
+                }
+              }
+            } catch { /* no-op */ }
             if (!step) {
               // Босс 2026-05-30 ИНЦИДЕНТ: free-zoom skip мог вывести solarStepIdx
               // за границы массива (пинч-ин на последней планете → solarStepIdx -= 1

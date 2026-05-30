@@ -178,6 +178,20 @@ interface SolarWizardProps {
    * с пониманием откуда оно».
    */
   originPoint?: { x: number; y: number } | null;
+  /**
+   * Босс 2026-05-30 (Вариант A): preselect конкретного небесного тела при
+   * открытии. Когда юзер тапает планету в 3D-globe → диспатчится
+   * `muza:globe-tap-preselect {key}` → landing открывает wizard
+   * с preselectKey=<key>. Wizard переопределяет `prefs.planets` на [key]
+   * (даже если в saved prefs было что-то другое), показывает юзеру его
+   * выбор. Юзер может скорректировать (добавить/убрать) или сразу нажать
+   * «🚀 Поехали» — запустится existing solar тур по этим prefs.
+   *
+   * Если preselectKey совпадает с одной из 8 планет → planets = [key];
+   * 'moon' → planets = ['moon'] (wizard поймёт это как moonOnly при launch);
+   * 'sun' / 'earth' / unknown → не override (стандартный flow).
+   */
+  preselectKey?: string | null;
 }
 
 // ────────────────────────────────────────────────────────────

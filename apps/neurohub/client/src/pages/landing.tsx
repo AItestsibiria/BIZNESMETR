@@ -804,6 +804,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // «Меню должно появляться из соответствующего пункта с пониманием откуда оно»).
   // Capture при клике на «🪐 Солнечная» → передаём в SolarWizard.originPoint.
   const [solarWizardOrigin, setSolarWizardOrigin] = useState<{ x: number; y: number } | null>(null);
+  // Босс 2026-05-30 (Вариант A): тап планеты в 3D-globe → SolarWizard с этой
+  // планетой preselected → юзер видит свой выбор → жмёт «🚀 Поехали» →
+  // existing solar тур по prefs (Reuse-working-solutions rule). Закрывает
+  // баг «тап планеты приводит к Земле» через WORKING pipeline.
+  const [solarWizardPreselectKey, setSolarWizardPreselectKey] = useState<string | null>(null);
   // Босс 2026-05-30 п.1: «Смартфон Режимы полёта при нажатии меняй, показывай пост
   // прозрачно выбранный режим над кнопкой». Polупрозрачный label над активной
   // flight-mode кнопкой, fade 2.5с, потом исчезает. Только mobile (sm:hidden).
@@ -893,6 +898,24 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       setChainPrompt(null);
     }
   }, [showGlobe]);
+  // Босс 2026-05-30 (Вариант A): listener для tap-preselect events от TappableHitboxes.
+  // Тап планеты → открыть SolarWizard с этой планетой preselected. Юзер видит
+  // wizard со своим выбором, может скорректировать, жмёт «🚀 Поехали» —
+  // запускается existing solar тур (работающий pipeline через onLaunch ниже).
+  // Reuse-working-solutions rule: SolarWizard + solar тур уже работают;
+  // не дублируем fly-to логику, не создаём новый pipeline.
+  useEffect(() => {
+    const onTapPreselect = (e: Event) => {
+      const detail = (e as CustomEvent).detail || {};
+      const key = typeof detail.key === "string" ? detail.key : null;
+      if (!key) return;
+      setSolarWizardPreselectKey(key);
+      setSolarWizardOrigin(null); // тап в небе, не привязан к кнопке-источнику
+      setSolarWizardOpen(true);
+    };
+    window.addEventListener("muza:globe-tap-preselect", onTapPreselect as EventListener);
+    return () => window.removeEventListener("muza:globe-tap-preselect", onTapPreselect as EventListener);
+  }, []);
   // Confirm/deny handlers Chain CTA.
   const confirmChain = useCallback(() => {
     const kind = chainPrompt;
@@ -4215,9 +4238,14 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           <SolarWizard
           open={solarWizardOpen}
           originPoint={solarWizardOrigin}
-          onClose={() => setSolarWizardOpen(false)}
+          preselectKey={solarWizardPreselectKey}
+          onClose={() => {
+            setSolarWizardOpen(false);
+            setSolarWizardPreselectKey(null);
+          }}
           onLaunch={({ track, moonOnly }) => {
             setSolarWizardOpen(false);
+            setSolarWizardPreselectKey(null);
             // Босс 2026-05-30 субагент: race condition guard — requestAnimationFrame
             // даёт 1 frame на cleanup (OrbitControls touch-end + React re-render),
             // иначе rAF в globe-view ловит userInteractingRef=true и skip'ает

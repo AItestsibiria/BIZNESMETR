@@ -190,15 +190,21 @@ export function TappableHitboxes({ enabled }: Props) {
                       } catch { /* no-op */ }
                     } catch { /* no-op */ }
                   }
+                  // Босс 2026-05-30 (Вариант A): тап планеты → SolarWizard
+                  // с preselected ключом → юзер видит wizard со своей планетой
+                  // отмеченной → жмёт «🚀 Поехали» → existing solar тур
+                  // (работающий pipeline). Исправляет старый баг «тап планеты
+                  // приводит к Земле» через ИСПОЛЬЗОВАНИЕ working pipeline,
+                  // не дублирование fly-to логики (Reuse-working-solutions rule).
                   window.dispatchEvent(
-                    new CustomEvent("muza:globe-fly-to", { detail: { key: b.key } })
+                    new CustomEvent("muza:globe-tap-preselect", { detail: { key: b.key } })
                   );
                   if (dbg) {
-                    try { console.error("[hitbox] dispatched muza:globe-fly-to", b.key); } catch { /* no-op */ }
+                    try { console.error("[hitbox] dispatched muza:globe-tap-preselect", b.key); } catch { /* no-op */ }
                     try {
                       if (window.localStorage?.getItem("muzaai-screen-debug") === "1") {
                         window.dispatchEvent(new CustomEvent("muza:debug-log", {
-                          detail: `[hitbox] → dispatched muza:globe-fly-to ${b.key}`,
+                          detail: `[hitbox] → dispatched muza:globe-tap-preselect ${b.key}`,
                         }));
                       }
                     } catch { /* no-op */ }
