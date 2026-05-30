@@ -947,11 +947,22 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // Закрытие 3D-окна (Босс 2026-05-29 «только: вернуться к музе, 2 тапа на экране,
   // скролл мыши и клавиатура»): колесо мыши и любая клавиша → плавное закрытие.
   // Двойной тап — на области глобуса. Одиночный тап/backdrop/× больше НЕ закрывают.
+  // Босс 2026-05-30 субагент: gut при открытом wizard/chainPrompt — иначе inertial
+  // scroll над wizard'ом на iOS Safari выдаёт WheelEvent без ctrlKey → closeGlobe →
+  // визуально «нажал Солнечная — кинуло на главную». Кейс: chainPrompt тоже исключаем.
   useEffect(() => {
     if (!showGlobe) return;
-    // Колесо мыши закрывает; pinch на трекпаде (ctrlKey+wheel) — НЕ закрывает (это зум).
-    const onWheel = (e: Event) => { if ((e as WheelEvent).ctrlKey) return; closeGlobe(); };
-    const onKey = () => closeGlobe();
+    const onWheel = (e: Event) => {
+      if ((e as WheelEvent).ctrlKey) return;
+      if (solarWizardOpen) return;
+      if (chainPrompt) return;
+      closeGlobe();
+    };
+    const onKey = () => {
+      if (solarWizardOpen) return;
+      if (chainPrompt) return;
+      closeGlobe();
+    };
     window.addEventListener("wheel", onWheel, { passive: true });
     window.addEventListener("keydown", onKey);
     return () => {
@@ -959,7 +970,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       window.removeEventListener("keydown", onKey);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showGlobe]);
+  }, [showGlobe, solarWizardOpen, chainPrompt]);
 
   useEffect(() => {
     if (showGlobe) { globeOpenedAtRef.current = Date.now(); setGlobeClosing(false); }
