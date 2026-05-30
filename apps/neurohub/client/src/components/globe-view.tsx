@@ -885,27 +885,31 @@ function makePlanetSprite(rgb: [number, number, number], size: number): any {
     if (!ctx) return null;
     const c = N / 2;
     const [r, g, b] = rgb;
-    // Слой 1: реальный NASA-цвет в ядре + плавное затухание к 0.85
-    // (0..0.55 — насыщенное ядро, 0.55..0.85 — полупрозрачный переход)
+    // Босс 2026-05-30 «Реши без колец по другому»: brand-rim давал визуальный
+    // эффект «кольца у каждой планеты» (особенно странно для Mercury/Venus/Mars
+    // у которых колец в реальности нет). Заменён на МЯГКОЕ brand-свечение —
+    // тёплый фиолетово-голубой halo плавно растворяется от тела к ничему, без
+    // чёткой кромки. Выглядит как естественная аура планеты в стиле MuzaAi.
+    //
+    // Слой 1: мягкий brand-halo (purple-fuchsia-cyan) от центра до края с
+    // низкой intensity. Заливаем ПЕРВЫМ — тело планеты ляжет поверх.
+    const halo = ctx.createRadialGradient(c, c, 0, c, c, c);
+    halo.addColorStop(0.0, "rgba(167,139,250,0.12)");  // purple-300 — лёгкий tint в ядре
+    halo.addColorStop(0.4, "rgba(217,70,239,0.18)");   // fuchsia-500 — пик halo
+    halo.addColorStop(0.75, "rgba(0,212,255,0.10)");   // cyan-400 — холодный край
+    halo.addColorStop(1.0, "rgba(0,212,255,0)");
+    ctx.fillStyle = halo;
+    ctx.fillRect(0, 0, N, N);
+    // Слой 2: реальное NASA-тело планеты (доминирует — кроет halo в центре,
+    // оставляя brand-свечение только по периферии как ауру).
     const grad = ctx.createRadialGradient(c, c, 0, c, c, c);
     grad.addColorStop(0.0, "rgba(255,255,255,0.95)");
-    grad.addColorStop(0.25, `rgba(${r},${g},${b},1)`);
+    grad.addColorStop(0.22, `rgba(${r},${g},${b},1)`);
     grad.addColorStop(0.55, `rgba(${r},${g},${b},0.85)`);
-    grad.addColorStop(0.85, `rgba(${r},${g},${b},0.15)`);
+    grad.addColorStop(0.78, `rgba(${r},${g},${b},0.18)`);
     grad.addColorStop(1.0, `rgba(${r},${g},${b},0)`);
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, N, N);
-    // Слой 2: brand-rim MuzaAi (purple→fuchsia→cyan) на внешней кромке 0.85..1.0
-    // Тонкий световой ореол ~12% радиуса — узнаваемая фирменная подсветка
-    const brandRim = ctx.createRadialGradient(c, c, c * 0.82, c, c, c);
-    brandRim.addColorStop(0.0, "rgba(124,58,237,0)");        // #7C3AED purple — прозрачный старт
-    brandRim.addColorStop(0.35, "rgba(217,70,239,0.55)");    // #D946EF fuchsia — пик в середине rim
-    brandRim.addColorStop(0.7, "rgba(0,212,255,0.35)");      // #00D4FF cyan — холодный угасающий край
-    brandRim.addColorStop(1.0, "rgba(0,212,255,0)");
-    ctx.globalCompositeOperation = "lighter"; // additive — brand-glow поверх ядра
-    ctx.fillStyle = brandRim;
-    ctx.fillRect(0, 0, N, N);
-    ctx.globalCompositeOperation = "source-over";
     const tex = new THREE.CanvasTexture(cvs);
     const mat = new THREE.SpriteMaterial({
       map: tex,
@@ -2338,14 +2342,41 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       if (key === "earth") return; // мы дома, ничего не делаем
       if (key === "moon") {
         // Reuse существующего moon-тура (mode "moon" уже работает).
+        // Босс 2026-05-30 субагент ROOT CAUSE «Moon тапнул — остался на Земле»:
+        // если предыдущий режим был solar/sun — moonMeshRef.current может быть
+        // disposed/null. rAF в moon-ветке делает fallback к classic +
+        // restoreEarthCamera → юзер видит Землю. FIX: сначала restoreEarthCamera
+        // + classic на 1 кадр → moon-mesh пере-создаётся через onGlobeReady-like
+        // pipeline, потом переходим в moon mode.
+        const prevMode = flightModeRef.current;
         try { disposeAllSolarRef.current?.(); } catch { /* no-op */ }
         try { clearSolarLabelState(); } catch { /* no-op */ }
         singleSolarKeyRef.current = null;
-        flightModeRef.current = "moon";
-        // Босс 2026-05-30 fix «нажатие на Луну не привело к полёту» — сбросить
-        // moonInitDone иначе rAF пропустит тур (phaseT > APPROACH+ORBIT+RETURN).
-        try { moonResetRef.current?.(); } catch { /* no-op */ }
+        userInteractingRef.current = false;
         holdRef.current = false;
+        if (prevMode === "solar" || prevMode === "sun") {
+          // Восстанавливаем камеру + classic на 1-2 кадра чтобы moon-mesh успел
+          // пересоздаться, затем входим в moon-тур.
+          try { restoreEarthCameraRef.current?.(); } catch { /* no-op */ }
+          flightModeRef.current = "classic";
+          let attempts = 0;
+          const tryEnterMoon = () => {
+            attempts++;
+            // moonMeshRef создаётся в pollMoonMesh — может быть готов сразу или через 1-2 frame.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const ready = !!(moonMeshRef as any).current;
+            if (ready || attempts > 30) {
+              flightModeRef.current = "moon";
+              try { moonResetRef.current?.(); } catch { /* no-op */ }
+            } else {
+              requestAnimationFrame(tryEnterMoon);
+            }
+          };
+          requestAnimationFrame(tryEnterMoon);
+          return;
+        }
+        flightModeRef.current = "moon";
+        try { moonResetRef.current?.(); } catch { /* no-op */ }
         return;
       }
       if (key === "sun") {
