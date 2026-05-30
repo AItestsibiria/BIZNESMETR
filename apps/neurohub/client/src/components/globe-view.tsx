@@ -4250,11 +4250,62 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       label.style.opacity = "0";
       dispatchSkyHover(null);
     };
+    // Босс 2026-05-30 (iPad touch без hover): pointerdown с pointerType=touch
+    // открывает tooltip на 2.8 сек как «тап-инспект». Reuse уже посчитанных
+    // экранных координат (starsScreenRef/planetScreenRef). Не блокирует drag —
+    // OrbitControls остаётся owner'ом основного жеста, только показываем подпись.
+    let tapHideTimer: number | null = null;
+    const onTap = (e: PointerEvent) => {
+      if (e.pointerType !== "touch") return; // только мобайл/iPad
+      const rect = el.getBoundingClientRect();
+      const px = e.clientX - rect.left;
+      const py = e.clientY - rect.top;
+      // 1) планеты — приоритет
+      let bestPlanet: { key: string; x: number; y: number } | null = null;
+      let bestPD = Infinity;
+      for (const p of planetScreenRef.current) {
+        if (!p.visible) continue;
+        const hitR = Math.max(p.r, 28); // touch-friendly радиус
+        const d = Math.hypot(px - p.x, py - p.y);
+        if (d <= hitR && d < bestPD) { bestPD = d; bestPlanet = { key: p.key, x: p.x, y: p.y }; }
+      }
+      if (bestPlanet) {
+        const name = PLANET_NAMES[bestPlanet.key] || bestPlanet.key;
+        lastSkyHoverRef.current = null; // сбрасываем дедуп
+        dispatchSkyHover({ type: "planet", key: bestPlanet.key, name, x: e.clientX, y: e.clientY });
+      } else {
+        // 2) звёзды
+        let bestStar: { star: StarRecord; x: number; y: number } | null = null;
+        let bestSD = Infinity;
+        for (const s of starsScreenRef.current) {
+          if (!s.visible) continue;
+          const hitR = Math.max(s.r, 22); // touch-friendly минимум 22px
+          const d = Math.hypot(px - s.x, py - s.y);
+          if (d <= hitR && d < bestSD) { bestSD = d; bestStar = { star: s.star, x: s.x, y: s.y }; }
+        }
+        if (bestStar) {
+          lastSkyHoverRef.current = null;
+          dispatchSkyHover({ type: "star", star: bestStar.star, x: e.clientX, y: e.clientY });
+        } else {
+          return; // тап в пустоту — ничего не делаем
+        }
+      }
+      // Автоскрытие через 2.8 сек (Apple HIG для transient overlay).
+      if (tapHideTimer) { window.clearTimeout(tapHideTimer); tapHideTimer = null; }
+      tapHideTimer = window.setTimeout(() => {
+        lastSkyHoverRef.current = null;
+        dispatchSkyHover(null);
+        tapHideTimer = null;
+      }, 2800);
+    };
     el.addEventListener("pointermove", onMove);
     el.addEventListener("pointerleave", onLeave);
+    el.addEventListener("pointerdown", onTap);
     return () => {
       el.removeEventListener("pointermove", onMove);
       el.removeEventListener("pointerleave", onLeave);
+      el.removeEventListener("pointerdown", onTap);
+      if (tapHideTimer) window.clearTimeout(tapHideTimer);
     };
   }, []);
 
