@@ -548,6 +548,7 @@ export default function MusicPage() {
       const res = await apiRequest("GET", `/api/music/status/${taskId}`);
       const data = await res.json();
       if (data.status === "done" && (data.audioUrl || data.result)) {
+        debugLog(`[Generate] трек готов taskId=${taskId}`);
         // Suno returns tracks array; backend normalizes to audioUrl
         const url = data.audioUrl || (Array.isArray(data.result) ? data.result[0]?.audio_url : data.result);
         setResultUrl(url);
@@ -564,6 +565,7 @@ export default function MusicPage() {
           apiRequest("POST", `/api/generations/${lastGenId}/privacy`, { isPublic: false }).catch(() => {});
         }
       } else if (data.status === "error" || data.status === "failed") {
+        debugLog(`[Generate] ОШИБКА генерации taskId=${taskId} status=${data.status}`);
         setPolling(false);
         setLoading(false);
         stopBgMusic();
@@ -639,7 +641,9 @@ export default function MusicPage() {
   }, [user]);
 
   const handleGenerate = async () => {
+    debugLog(`[Generate] handleGenerate start mode=${mode}`);
     if (!user) {
+      debugLog("[Generate] анонимный юзер → инлайн-auth");
       setShowInlineAuth(true);
       return;
     }
