@@ -360,7 +360,9 @@ const SUN_NOISE_2D = `
 `;
 const SUN_CORONA_FRAGMENT = SUN_NOISE_2D + `
   uniform float uTime;
-  uniform float uSunsetBoost; // 0..1 — Солнце касается лимба Земли (Босс 2026-05-30)
+  uniform float uSunsetBoost;     // 0..1 — Солнце касается лимба Земли (Босс 2026-05-30)
+  uniform float uFlareIntensity;  // 0..1 — пик в момент полу-окклюзии Солнца Землёй (Босс 2026-05-30)
+  uniform vec2  uFlareDir;        // unit-vec в plane-space, куда направлен flare (от Земли к видимой части кадра)
   varying vec2 vUv;
   void main() {
     vec2 c = vUv - 0.5;        // -0.5..0.5
@@ -368,29 +370,41 @@ const SUN_CORONA_FRAGMENT = SUN_NOISE_2D + `
     if (r < 0.42 || r > 1.0) discard;
     float ang = atan(c.y, c.x);  // -pi..pi
     float t = uTime;
+    // Направленный flare (Босс 2026-05-30 «3д»): когда Солнце «задевает» Землю с т.зр.
+    // камеры, лучи В НАПРАВЛЕНИИ ВИДИМОЙ части кадра становятся ярче и длиннее.
+    // Сужающийся конус через pow(aligned, 3.0) — острый пучок света наружу из-за лимба.
+    vec2 pixDir = (length(c) > 0.001) ? normalize(c) : vec2(1.0, 0.0);
+    float aligned = max(0.0, dot(pixDir, uFlareDir));
+    float coneSharp = pow(aligned, 3.0);
+    float flareBoost = coneSharp * uFlareIntensity;
     // Угловая текстура из высокочастотного шума → тонкие радиальные «волоски».
     // Босс 2026-05-30: «плотность лучей увеличить в 2 раза» — повышены частоты + понижен порог.
     float s1 = fbm2(vec2(ang * 22.0, t * 0.55));
     float s2 = fbm2(vec2(ang * 50.0, t * 1.3 + 7.3));
     float streak = pow(s1, 1.5) * pow(s2, 1.1);
     streak = clamp(streak * 3.6 - 0.25, 0.0, 1.0); // больше «волосков», но всё ещё избирательно
+    // В flare-зоне волоски «сгущаются» — порог опускается ещё ниже → больше лучей.
+    streak = clamp(streak + flareBoost * 0.35, 0.0, 1.0);
     // Переменная длина каждого «волоска» по углу (низкая частота).
     // Босс 2026-05-30: «длина лучей 1,5-3 раз разной длины» — 0.30..1.00 даёт ×3.3 разброс.
     // На закате/рассвете лучи плавно удлиняются (uSunsetBoost) — закат «грандиозный».
+    // В flare-направлении удлиняются ещё сильнее (до +200% поверх sunset).
     float lenN = fbm2(vec2(ang * 5.5, t * 0.35 + 2.1));
-    float lenScale = 1.0 + uSunsetBoost * 0.55; // до +55% длины
-    float maxR = clamp((0.30 + lenN * 0.70) * lenScale, 0.30, 1.00);
+    float lenScale = 1.0 + uSunsetBoost * 0.55 + flareBoost * 2.0;
+    float maxR = clamp((0.30 + lenN * 0.70) * lenScale, 0.30, 1.50);
     // Профиль яркости: яркий у лимба, плавно гаснет к концу волоска.
     float fadeIn  = smoothstep(0.42, 0.50, r);
     float fadeOut = 1.0 - smoothstep(maxR * 0.68, maxR, r);
     float profile = fadeIn * fadeOut;
-    float brightScale = 1.0 + uSunsetBoost * 0.65; // ярче на закате
+    float brightScale = 1.0 + uSunsetBoost * 0.65 + flareBoost * 1.8; // вспышка ярче в направлении flare
     float alpha = profile * streak * 0.95 * brightScale;
     // Босс 2026-05-30: «цвет солнца и лучей смешай с белым» — оба конца градиента ближе к белому.
     vec3 col = mix(vec3(1.00, 0.70, 0.40), vec3(1.00, 0.98, 0.92), streak);
     // На закате цвет смещается в тёплый оранжевый («слегка оранжево» — Босс).
     vec3 sunset = mix(vec3(1.00, 0.45, 0.18), vec3(1.00, 0.78, 0.45), streak);
     col = mix(col, sunset, uSunsetBoost * 0.55);
+    // Вспышка в направлении flare — почти белый горячий свет.
+    col = mix(col, vec3(1.00, 0.96, 0.88), flareBoost * 0.65);
     gl_FragColor = vec4(col, alpha);
   }
 `;
@@ -408,7 +422,12 @@ function makeSunGroup(radius: number): { group: any; body: any; bodyMat: any; co
     const bodyGeo = new THREE.SphereGeometry(radius, 64, 64);
     const body = new THREE.Mesh(bodyGeo, bodyMat);
     const coronaMat = new THREE.ShaderMaterial({
-      uniforms: { uTime: { value: 0 }, uSunsetBoost: { value: 0 } },
+      uniforms: {
+        uTime: { value: 0 },
+        uSunsetBoost: { value: 0 },
+        uFlareIntensity: { value: 0 },                  // 0..1 — пик в полу-окклюзии
+        uFlareDir: { value: new THREE.Vector2(1, 0) },  // unit-vec в plane-space (от Земли к Sun)
+      },
       vertexShader: BILLBOARD_VERTEX,
       fragmentShader: SUN_CORONA_FRAGMENT,
       transparent: true,
@@ -1105,6 +1124,11 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // Sunset/sunrise boost (Босс 2026-05-30 «когда солнце задевает край земли — плавно
   // увеличить яркость и длину лучей»). 0..1 — плавно тянем к target в rAF.
   const sunsetBoostRef = useRef<number>(0);
+  // Направленная вспышка (Босс 2026-05-30 «3д ... лучи увеличивают яркость и длину
+  // направленную в видимую часть кадра, увеличивается до скрытия середины солнца,
+  // потом затихает»). 0..1 + 2D-направление (camera plane-space).
+  const flareIntensityRef = useRef<number>(0);
+  const flareDirRef = useRef<{ x: number; y: number }>({ x: 1, y: 0 });
   // Морзе-подмигивание Музы: светящаяся точка ЗАКРЕПЛЕНА в точке геолокации
   // (проекция координаты в экран каждый кадр), без текста. По мере отъезда камеры
   // точка пропорционально уменьшается. Управление через ref'ы (без перерендера).
@@ -2073,11 +2097,14 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         // ──────────────────────────────────────────────────────────────────────
         // Босс 2026-05-30: «когда солнце задевает край земли — плавно увеличить
         // яркость и длину лучей. Рассвет/закат самое грандиозное действие».
-        // Считаем визуальный угол Солнце↔центр-Земли с точки зрения камеры.
-        // Если он близок к угловому радиусу Земли — Солнце на лимбе → boost ≈ 1.
-        // Лимб ±20% — плавный спад к 0 (smoothstep вне зоны).
+        // + «3д» направленный flare: когда Sun «задевает» Землю с т.зр. камеры,
+        // лучи В НАПРАВЛЕНИИ ВИДИМОЙ части кадра — вспышка, нарастает к моменту
+        // полу-окклюзии (центр Sun под лимбом), потом затихает. Симметрично при
+        // выходе Sun из-за Земли.
         // ──────────────────────────────────────────────────────────────────────
-        let target = 0;
+        let sunsetTarget = 0;
+        let flareTarget = 0;
+        let flareDirX = 1, flareDirY = 0;
         if (camera && sunMeshRef.current) {
           const camP = camera.position;
           const sunP = sunMeshRef.current.position;
@@ -2085,26 +2112,77 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           const dSun = Math.hypot(camP.x - sunP.x, camP.y - sunP.y, camP.z - sunP.z);
           if (dEarth > 100.5 && dSun > 1) {
             // Угол между (cam→Earth) и (cam→Sun).
-            const dx1 = -camP.x, dy1 = -camP.y, dz1 = -camP.z;
-            const dx2 = sunP.x - camP.x, dy2 = sunP.y - camP.y, dz2 = sunP.z - camP.z;
-            const cosAng = (dx1 * dx2 + dy1 * dy2 + dz1 * dz2) / (dEarth * dSun);
+            const ex = -camP.x, ey = -camP.y, ez = -camP.z;
+            const sx = sunP.x - camP.x, sy = sunP.y - camP.y, sz = sunP.z - camP.z;
+            const cosAng = (ex * sx + ey * sy + ez * sz) / (dEarth * dSun);
             const ang = Math.acos(Math.max(-1, Math.min(1, cosAng)));
             // Угловой радиус Земли с точки зрения камеры (R=100).
             const angR = Math.asin(Math.min(1, 100 / dEarth));
-            // Расстояние от Солнца до лимба Земли (в радианах).
-            const delta = Math.abs(ang - angR);
-            // Boost максимум 1 на самом лимбе, плавно гаснет на ±35% угр.радиуса.
-            const band = angR * 0.35;
-            target = 1 - Math.min(1, delta / band);
-            // Защита: если Солнце глубоко за Землёй (ang < angR - band) — boost 0.
-            if (ang < angR - band) target = 0;
+            // delta = ang - angR (signed): >0 Sun вне диска Земли, <0 Sun за ним.
+            const delta = ang - angR;
+            // Sunset boost: пик на лимбе (|delta|=0), затухает за angR*0.35.
+            const sunsetBand = angR * 0.35;
+            sunsetTarget = Math.max(0, 1 - Math.abs(delta) / sunsetBand);
+            // FLARE (Босс 2026-05-30): пик при полу-окклюзии (delta ≈ -flareBand/2).
+            // Растёт от delta=0 (лимб) к delta=-flareBand/2 (центр Sun под лимбом),
+            // потом затухает к delta=-flareBand (полное скрытие). Симметрично:
+            // окно [-flareBand, +flareBand*0.2] чтобы flare начинался слегка ДО касания
+            // и пик был именно когда центр Sun уже под лимбом.
+            const flareBand = angR * 0.6;
+            const center = -flareBand * 0.5; // delta при пике
+            const dist = Math.abs(delta - center);
+            flareTarget = Math.max(0, 1 - dist / (flareBand * 0.6));
+            // Направление flare в screen-space (camera right/up axes).
+            // Earth — в начале координат; Sun — в sunP. Проецируем оба на плоскость
+            // камеры (компоненты вдоль camera.right и camera.up).
+            try {
+              const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+              const camUp    = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+              // sun-вектор относительно камеры:
+              const vRX = sunP.x * camRight.x + sunP.y * camRight.y + sunP.z * camRight.z;
+              const vUY = sunP.x * camUp.x    + sunP.y * camUp.y    + sunP.z * camUp.z;
+              // earth-вектор относительно камеры (origin -> earth):
+              const eRX = 0; // earth at origin → projections тоже 0 для камера-relative direction.
+              const eUY = 0;
+              const dRX = vRX - eRX;
+              const dUY = vUY - eUY;
+              const dL = Math.hypot(dRX, dUY);
+              if (dL > 1e-6) {
+                flareDirX = dRX / dL;
+                flareDirY = dUY / dL;
+              }
+            } catch {
+              // fallback: keep last direction
+            }
           }
         }
-        // Плавный exponential lerp (decay ≈ 0.4с при 30fps).
-        sunsetBoostRef.current += (target - sunsetBoostRef.current) * 0.08;
+        // Плавный exponential lerp.
+        sunsetBoostRef.current += (sunsetTarget - sunsetBoostRef.current) * 0.08;
+        flareIntensityRef.current += (flareTarget - flareIntensityRef.current) * 0.10;
+        // Направление flare — плавно вращаем к target (slerp по 2D углу).
+        const curX = flareDirRef.current.x;
+        const curY = flareDirRef.current.y;
+        const lerpK = 0.12;
+        flareDirRef.current.x = curX + (flareDirX - curX) * lerpK;
+        flareDirRef.current.y = curY + (flareDirY - curY) * lerpK;
+        const nLen = Math.hypot(flareDirRef.current.x, flareDirRef.current.y);
+        if (nLen > 1e-6) {
+          flareDirRef.current.x /= nLen;
+          flareDirRef.current.y /= nLen;
+        }
         const sb = sunsetBoostRef.current;
+        const fi = flareIntensityRef.current;
         if (sunCoronaMatRef.current?.uniforms?.uSunsetBoost) {
           sunCoronaMatRef.current.uniforms.uSunsetBoost.value = sb;
+        }
+        if (sunCoronaMatRef.current?.uniforms?.uFlareIntensity) {
+          sunCoronaMatRef.current.uniforms.uFlareIntensity.value = fi;
+        }
+        if (sunCoronaMatRef.current?.uniforms?.uFlareDir) {
+          sunCoronaMatRef.current.uniforms.uFlareDir.value.set(
+            flareDirRef.current.x,
+            flareDirRef.current.y,
+          );
         }
         if (dayNight?.uniforms?.uWarmGlow) {
           dayNight.uniforms.uWarmGlow.value = sb;
