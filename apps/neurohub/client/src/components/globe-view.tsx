@@ -3098,9 +3098,19 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         w.__muziaiDebugSingleSolarKey = singleSolarKeyRef.current;
       } catch { /* no-op */ }
       // Во время самого жеста — камеру ведёт OrbitControls (юзер steering'ует).
-      if (userInteractingRef.current) return;
+      // ИСКЛЮЧЕНИЕ (Босс 2026-05-30 «летят все к Земле»): для активных полётных
+      // режимов (solar/moon/sun) НЕ блокируем rAF по userInteracting/hold —
+      // иначе tap на planet → OrbitControls touchstart выставляет
+      // userInteractingRef=true → onFlyTo переключает в "solar" → но rAF skip'ает
+      // solar branch на этом же tick'е → restoreEarthCamera в дефолте → юзер видит
+      // Землю. Полётные режимы сами ведут камеру (camera.position.set каждый кадр),
+      // а residue touchmove от OrbitControls не должен их прерывать.
+      const isFlightMode = flightModeRef.current === "solar"
+                        || flightModeRef.current === "moon"
+                        || flightModeRef.current === "sun";
+      if (userInteractingRef.current && !isFlightMode) return;
       // Удержание по двойному тапу — камера стоит на месте до смены режима/позиции.
-      if (holdRef.current) return;
+      if (holdRef.current && !isFlightMode) return;
       const elapsed = now - t0;
       // ЕДИНЫЙ дрейф долготы — одна сторона, постоянная скорость, с 1-го кадра.
       // (classic-режим переопределяет lng, наводя камеру на середину Солнце–Луна.)
