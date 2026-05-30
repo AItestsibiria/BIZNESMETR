@@ -815,6 +815,102 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     const t = window.setTimeout(() => setTapFlyLabel(null), 2500);
     return () => window.clearTimeout(t);
   }, [tapFlyLabel]);
+  // ── Chain CTAs (Босс 2026-05-30): «Режим полёта после 3 круга почти прозрачная
+  // надпись Махнём вокруг Луны? Если подтверждает юзер любым способом то плавно
+  // летит и облетает Луну и возвращается в исходную позицию дальше правила.
+  // После облёта Луны такая же надпись Махнём по Солнечной системе? Если да то
+  // полетели к Марсу и далее возврат к земле».
+  //
+  // Цепочка: 3 круга classic → CTA "moon" → moon-tour → CTA "solar" → solar tour
+  // с Марса → возврат classic → новый счёт. Cooldown 5 циклов между показами.
+  // Подтверждение «любым способом» = тап «Да» ИЛИ тап по карточке (но НЕ «Нет»);
+  // auto-hide 10с без ответа = skip.
+  const [chainPrompt, setChainPrompt] = useState<"moon" | "solar" | null>(null);
+  const classicCyclesRef = useRef(0);                  // накопитель кругов в classic
+  const chainLastShownAtCycleRef = useRef(-Infinity);  // в каком cycle показывали последний CTA
+  const chainAwaitingMoonFinishRef = useRef(false);    // ждём ли мы muza:moon-tour-complete для следующего CTA
+  useEffect(() => {
+    if (!chainPrompt) return;
+    const t = window.setTimeout(() => {
+      // Auto-hide 10с — skip, фиксируем cooldown.
+      chainLastShownAtCycleRef.current = classicCyclesRef.current;
+      chainAwaitingMoonFinishRef.current = false;
+      setChainPrompt(null);
+    }, 10000);
+    return () => window.clearTimeout(t);
+  }, [chainPrompt]);
+  // Подписки на события globe-view: cycle / moon-finish / solar-finish.
+  useEffect(() => {
+    const onCycle = () => {
+      classicCyclesRef.current += 1;
+      // Показываем moon CTA если: >=3 кругов накоплено + не показывали последние 5 циклов
+      // + не ждём moon-finish (уже в цепочке).
+      if (
+        classicCyclesRef.current >= 3 &&
+        classicCyclesRef.current - chainLastShownAtCycleRef.current >= 5 &&
+        !chainAwaitingMoonFinishRef.current
+      ) {
+        setChainPrompt((cur) => (cur ? cur : "moon"));
+      }
+    };
+    const onMoonDone = () => {
+      // После moon-tour: если юзер подтвердил CTA "moon" → показываем CTA "solar".
+      // Если moon запущен помимо CTA (tap-to-fly) — флаг false → не вмешиваемся.
+      if (chainAwaitingMoonFinishRef.current) {
+        chainAwaitingMoonFinishRef.current = false;
+        // Небольшая задержка чтобы restoreEarthCamera отработал и юзер ощутил «вернулись».
+        window.setTimeout(() => setChainPrompt((cur) => (cur ? cur : "solar")), 1200);
+      }
+    };
+    const onSolarDone = () => {
+      // Sis завершён → возврат в classic, новый счёт circles от 0.
+      classicCyclesRef.current = 0;
+      chainLastShownAtCycleRef.current = -Infinity;
+      chainAwaitingMoonFinishRef.current = false;
+    };
+    window.addEventListener("muza:globe-cycle-complete", onCycle);
+    window.addEventListener("muza:moon-tour-complete", onMoonDone);
+    window.addEventListener("muza:solar-tour-complete", onSolarDone);
+    return () => {
+      window.removeEventListener("muza:globe-cycle-complete", onCycle);
+      window.removeEventListener("muza:moon-tour-complete", onMoonDone);
+      window.removeEventListener("muza:solar-tour-complete", onSolarDone);
+    };
+  }, []);
+  // Сброс chain-state при закрытии 3D-окна (новая сессия = новый счёт).
+  useEffect(() => {
+    if (!showGlobe) {
+      classicCyclesRef.current = 0;
+      chainLastShownAtCycleRef.current = -Infinity;
+      chainAwaitingMoonFinishRef.current = false;
+      setChainPrompt(null);
+    }
+  }, [showGlobe]);
+  // Confirm/deny handlers Chain CTA.
+  const confirmChain = useCallback(() => {
+    const kind = chainPrompt;
+    if (!kind) return;
+    chainLastShownAtCycleRef.current = classicCyclesRef.current;
+    setChainPrompt(null);
+    if (kind === "moon") {
+      chainAwaitingMoonFinishRef.current = true;
+      try { window.dispatchEvent(new CustomEvent("muza:globe-fly-to", { detail: { key: "moon" } })); } catch { /* no-op */ }
+    } else if (kind === "solar") {
+      // Сетапим prefs «с Марса» (Луну уже посетили) — без Луны, satellites/belts off.
+      try {
+        const prefs = { planets: ["mars", "jupiter", "saturn", "uranus", "neptune"], satellites: true, mainBelt: false, kuiperBelt: false, saturnThroughRings: false };
+        window.localStorage?.setItem("muza:sis-prefs", JSON.stringify(prefs));
+        window.dispatchEvent(new CustomEvent("muza:globe-solar-prefs", { detail: prefs }));
+      } catch { /* no-op */ }
+      try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "solar" } })); } catch { /* no-op */ }
+      try { setGlobeFlight("solar"); } catch { /* no-op */ }
+    }
+  }, [chainPrompt]);
+  const denyChain = useCallback(() => {
+    chainLastShownAtCycleRef.current = classicCyclesRef.current;
+    chainAwaitingMoonFinishRef.current = false;
+    setChainPrompt(null);
+  }, []);
   // В полноэкранном режиме (Босс 2026-05-29 «через 3 сек плеер исчезает и появляется
   // при контакте»): авто-скрытие шапки/плеера/подвала после 3с бездействия.
   const [globeUiHidden, setGlobeUiHidden] = useState(false);
@@ -3237,6 +3333,58 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                         <span className="font-display font-bold text-lg sm:text-xl bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap">
                                           🚀 Летим к {tapFlyLabel.name}
                                         </span>
+                                      </div>
+                                    </div>,
+                                    document.body
+                                  )
+                                : null}
+                              {/* Chain CTA overlay (Босс 2026-05-30): «Махнём вокруг Луны?» /
+                                  «Махнём по Солнечной системе?». Полупрозрачная карточка
+                                  по центру + 2 кнопки. createPortal в body z-[280] — выше
+                                  globe canvas, ниже tapFlyLabel (z-300) и wizard.
+                                  Тап ВНЕ карточки (по backdrop) = тоже подтверждение
+                                  («любым способом» — Босс). pointer-events:auto только
+                                  на карточке + backdrop. */}
+                              {chainPrompt && typeof document !== "undefined"
+                                ? createPortal(
+                                    <div
+                                      className="fixed inset-0 flex items-center justify-center select-none animate-in fade-in duration-500"
+                                      style={{ zIndex: 280, pointerEvents: "auto" }}
+                                      onPointerDown={(e) => {
+                                        // Тап ВНЕ карточки = подтверждение (Босс: «любым способом»).
+                                        if (e.target === e.currentTarget) confirmChain();
+                                      }}
+                                    >
+                                      <div
+                                        className="bg-black/30 backdrop-blur-xl border border-white/30 rounded-3xl px-6 sm:px-8 py-5 sm:py-6 shadow-[0_0_48px_rgba(124,58,237,0.45)] max-w-[88vw]"
+                                        onPointerDown={(e) => {
+                                          // Внутри карточки — тап (вне кнопок) тоже подтверждение.
+                                          if ((e.target as HTMLElement).tagName !== "BUTTON") {
+                                            confirmChain();
+                                          }
+                                        }}
+                                      >
+                                        <div className="text-center mb-4 sm:mb-5">
+                                          <span className="font-display font-bold text-xl sm:text-2xl bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap">
+                                            {chainPrompt === "moon" ? "🌙 Махнём вокруг Луны?" : "🪐 Махнём по Солнечной системе?"}
+                                          </span>
+                                        </div>
+                                        <div className="flex items-center justify-center gap-3 sm:gap-4">
+                                          <button
+                                            type="button"
+                                            onClick={(e) => { e.stopPropagation(); confirmChain(); }}
+                                            className="h-10 sm:h-11 px-4 sm:px-5 rounded-full text-sm sm:text-base font-semibold text-white bg-gradient-to-r from-purple-500 via-fuchsia-500 to-cyan-500 shadow-[0_0_24px_rgba(124,58,237,0.55)] active:scale-95 transition"
+                                          >
+                                            Да, летим
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => { e.stopPropagation(); denyChain(); }}
+                                            className="h-10 sm:h-11 px-4 sm:px-5 rounded-full text-sm sm:text-base font-semibold text-white/85 border border-white/25 bg-transparent hover:border-white/55 active:scale-95 transition"
+                                          >
+                                            Нет, спасибо
+                                          </button>
+                                        </div>
                                       </div>
                                     </div>,
                                     document.body

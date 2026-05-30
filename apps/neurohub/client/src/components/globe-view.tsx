@@ -3478,6 +3478,8 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                     solarStepStartCamPos = null;
                     flightModeRef.current = "classic";
                     try { restoreEarthCameraRef.current?.(); } catch { /* no-op */ }
+                    // Chain CTAs: dispatch для landing.tsx — Sis завершён, начинаем новый счёт circles.
+                    try { window.dispatchEvent(new CustomEvent("muza:solar-tour-complete")); } catch { /* no-op */ }
                   } else {
                     solarStepStartT = now;
                     const cpos = camera.position;
