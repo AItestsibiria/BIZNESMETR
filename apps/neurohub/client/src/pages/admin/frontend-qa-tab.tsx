@@ -151,6 +151,34 @@ export default function FrontendQaTab() {
     );
   }
 
+  // Скопировать ВСЕ находки одной кнопкой (Босс 2026-05-30).
+  function copyAllFindings() {
+    if (!report) return;
+    const lines: string[] = [];
+    lines.push(`📋 Фрон — все находки (открытых: ${report.openCount}, критичных: ${report.criticalCount})`);
+    lines.push(`🕐 Обновлено: ${new Date(report.generatedAt).toLocaleString("ru-RU")}`);
+    if (report.summaryRu) { lines.push(""); lines.push(report.summaryRu); }
+    if (!report.items.length) {
+      lines.push(""); lines.push("Без находок — фронт чист.");
+    } else {
+      for (let i = 0; i < report.items.length; i++) {
+        const it = report.items[i];
+        lines.push("");
+        lines.push("═".repeat(70));
+        lines.push(`${i + 1}. [${SEV_LABEL[it.severity]} · ${SOURCE_LABEL[it.source] || it.source}] страница: ${it.page}`);
+        if (it.pageUrl) lines.push(`   URL: ${it.pageUrl}`);
+        lines.push(`   Сообщение: ${it.message}`);
+        lines.push(`   Замечено: ${it.count} раз · первый: ${fmtAgo(it.firstSeen)} · последний: ${fmtAgo(it.lastSeen)} · статус: ${it.status}`);
+        if (it.fixProposal) lines.push(`   Предложение: ${it.fixProposal}`);
+      }
+    }
+    const text = lines.join("\n");
+    navigator.clipboard?.writeText(text).then(
+      () => setToast(`Скопировано: ${report.items.length} находок 📋`),
+      () => setToast("Не удалось скопировать"),
+    );
+  }
+
   return (
     <div className="space-y-4">
       {/* Заголовок + действия */}
@@ -193,7 +221,8 @@ export default function FrontendQaTab() {
             {report?.rescanned ? (
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300">повторная проходка</span>
             ) : null}
-            <button onClick={copySummary} className="text-[11px] px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-white/60 hover:bg-white/10">📋 Копировать</button>
+            <button onClick={copySummary} className="text-[11px] px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-white/60 hover:bg-white/10">📋 Итог</button>
+            <button onClick={copyAllFindings} disabled={!report} className="text-[11px] px-2 py-0.5 rounded-md bg-fuchsia-500/15 border border-fuchsia-500/40 text-fuchsia-200 hover:bg-fuchsia-500/25 disabled:opacity-50">📋 Скопировать ВСЕ</button>
           </div>
         </div>
         <pre className="text-[13px] text-white/80 whitespace-pre-wrap font-sans leading-relaxed">

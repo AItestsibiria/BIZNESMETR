@@ -151,6 +151,39 @@ export default function BackendQaTab() {
     );
   }
 
+  // Скопировать ВСЕ находки одной кнопкой (Босс 2026-05-30).
+  function copyAllFindings() {
+    if (!report) return;
+    const lines: string[] = [];
+    const sev = report.bySeverity || { critical: 0, high: 0, medium: 0, low: 0 };
+    lines.push(`📋 Бэк — все находки (открытых: ${report.openCount})`);
+    lines.push(`По важности: критич ${sev.critical || 0} · важн ${sev.high || 0} · средн ${sev.medium || 0} · мелк ${sev.low || 0}`);
+    lines.push(`🕐 Обновлено: ${new Date(report.generatedAt).toLocaleString("ru-RU")}`);
+    if (report.summaryRu) { lines.push(""); lines.push(report.summaryRu); }
+    if (report.themes?.length) {
+      lines.push("");
+      lines.push("Темы: " + report.themes.map(t => `${t.theme} (${t.count})`).join(" · "));
+    }
+    if (!report.items.length) {
+      lines.push(""); lines.push("Без находок — бэк чист.");
+    } else {
+      for (let i = 0; i < report.items.length; i++) {
+        const it = report.items[i];
+        lines.push("");
+        lines.push("═".repeat(70));
+        lines.push(`${i + 1}. [${SEV_LABEL[it.severity]} · ${KIND_LABEL[it.kind] || it.kind}] тема: ${it.theme}`);
+        lines.push(`   ${it.title}`);
+        if (it.detail) lines.push(`   ${it.detail}`);
+        lines.push(`   Замечено: ${it.count} раз · первый: ${fmtAgo(it.firstSeen)} · последний: ${fmtAgo(it.lastSeen)} · статус: ${it.status}`);
+      }
+    }
+    const text = lines.join("\n");
+    navigator.clipboard?.writeText(text).then(
+      () => setToast(`Скопировано: ${report.items.length} находок 📋`),
+      () => setToast("Не удалось скопировать"),
+    );
+  }
+
   return (
     <div className="space-y-4">
       {/* Заголовок + действия */}
@@ -182,7 +215,8 @@ export default function BackendQaTab() {
       <div className="glass-card rounded-2xl p-4 border border-fuchsia-500/30">
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-bold text-white">📋 Итог</span>
-          <button onClick={copySummary} className="text-[11px] px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-white/60 hover:bg-white/10">📋 Копировать</button>
+          <button onClick={copySummary} className="text-[11px] px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-white/60 hover:bg-white/10">📋 Итог</button>
+          <button onClick={copyAllFindings} disabled={!report} className="text-[11px] px-2 py-0.5 rounded-md bg-fuchsia-500/15 border border-fuchsia-500/40 text-fuchsia-200 hover:bg-fuchsia-500/25 disabled:opacity-50">📋 Скопировать ВСЕ</button>
         </div>
         <pre className="text-[13px] text-white/80 whitespace-pre-wrap font-sans leading-relaxed">
           {loading ? "Загружаю…" : err ? `Ошибка: ${err}` : (report?.summaryRu || "Пока нет данных — нажми «Прогнать скан».")}
