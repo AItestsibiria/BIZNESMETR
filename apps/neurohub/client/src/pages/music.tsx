@@ -3,6 +3,7 @@ import { useAuth } from "@/lib/auth";
 import { startBgMusic, stopBgMusic } from "@/components/background-music";
 import { useFeatureEnabled } from "@/lib/featureToggles";
 import { apiRequest } from "@/lib/queryClient";
+import { debugLog } from "@/lib/debugLog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";

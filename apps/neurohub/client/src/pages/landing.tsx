@@ -2006,6 +2006,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   }, [playingId, coverExpanded]);
 
   const playTrack = (track: any) => {
+    debugLog(`[Player] playTrack id=${track?.id} title="${(track?.title || '').slice(0,40)}"`);
     if (timerRef.current) clearInterval(timerRef.current);
 
     // Босс «пролёт МКС после каждого нового трека» — сигналим глобусу (троттлинг
@@ -2234,6 +2235,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
 
     const handleEnded = () => {
       if (audioRef.current !== audio) return;
+      debugLog(`[Player] track ended id=${track?.id}`);
       if (timerRef.current) clearInterval(timerRef.current);
       // Eugene 2026-05-21 Босс «при окончании трека — пролёт ракеты вверх».
       // Dispatch event → RocketLaunch компонент ловит и spawn'ит 1-3 ракет
@@ -2286,6 +2288,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     try { audio.removeEventListener('playing', resetRecoverRef.current); } catch {}
     const onAudioError = () => {
       if (audioRef.current !== audio) return;
+      debugLog(`[Player] audio error code=${audio.error?.code ?? '?'} attempt=${audioRecoverCountRef.current + 1}/4`);
       if (audioRecoverCountRef.current < 4) {
         audioRecoverCountRef.current += 1;
         const pos = audio.currentTime || 0;
@@ -2413,6 +2416,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           }
         }, 250);
       } else {
+        debugLog(`[Player] pause id=${track?.id}`);
         audioRef.current?.pause();
         if (timerRef.current) clearInterval(timerRef.current);
         if (playEmitTimerRef.current) { clearTimeout(playEmitTimerRef.current); playEmitTimerRef.current = null; }
@@ -2424,6 +2428,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   };
 
   const skipNext = () => {
+    debugLog("[Player] skipNext");
     // Eugene 2026-05-19 «Playlist-strict-selection rule»: ТОЛЬКО filtered.
     const musicTracks = filteredMusicRef.current || [];
     if (musicTracks.length === 0) return;
@@ -2659,6 +2664,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   const paginatedMusic = filteredMusic.slice((safePage - 1) * TRACKS_PER_PAGE, safePage * TRACKS_PER_PAGE);
 
   const skipPrev = () => {
+    debugLog("[Player] skipPrev");
     // Eugene 2026-05-19 «Playlist-strict-selection rule»: ТОЛЬКО filtered.
     const list = filteredMusicRef.current || [];
     if (list.length === 0) return;
