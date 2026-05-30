@@ -307,6 +307,30 @@ const SUN_NOISE = `
     for (int i = 0; i < 5; i++) { v += a * noise3(p); p *= 2.0; a *= 0.5; }
     return v;
   }
+  // Worley/cellular distance (2×2×2 grid — компромисс качества и mobile-perf).
+  // Возвращает расстояние до ближайшей точки = 0 в центре ячейки, ~1 на границе.
+  // Используем для гранул NASA: ~1500 км на Солнце, светлый центр (восходящая
+  // плазма), тёмные края (нисходящая).
+  float worley3(vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+    float md = 1.0;
+    for (int x = 0; x <= 1; x++) {
+      for (int y = 0; y <= 1; y++) {
+        for (int z = 0; z <= 1; z++) {
+          vec3 g = vec3(float(x), float(y), float(z));
+          vec3 o = vec3(
+            hash3(i + g),
+            hash3(i + g + vec3(7.1, 0.0, 0.0)),
+            hash3(i + g + vec3(0.0, 13.7, 0.0))
+          );
+          vec3 d = g + o - f;
+          md = min(md, dot(d, d));
+        }
+      }
+    }
+    return sqrt(md);
+  }
 `;
 const SUN_FRAGMENT = SUN_NOISE + `
   uniform float uTime;
@@ -319,18 +343,42 @@ const SUN_FRAGMENT = SUN_NOISE + `
     float n1 = fbm3(p + vec3(0.0, 0.0, t));
     float n2 = fbm3(p * 2.1 + vec3(t * 1.3, t * 0.7, 0.0));
     float plasma = mix(n1, n2, 0.55);
-    // Горячие «гранулы» из пиков шума.
+    // Базовая плазма для крупных «горячих островов».
     float hot = smoothstep(0.55, 0.85, n1 + n2 * 0.35);
-    vec3 cWhite = vec3(1.00, 0.99, 0.92);  // почти белый горячий центр гранул (Босс 2026-05-30: «смешай с белым»)
-    vec3 cYellow = vec3(1.00, 0.82, 0.55); // светло-жёлтый базовый (белее предыдущего)
-    vec3 cOrange = vec3(1.00, 0.62, 0.30); // оранжево-розовые впадины (мягче, белее)
+    // ── NASA-цвета (Босс 2026-05-30): из космоса Солнце БЕЛОЕ (без атмосферы Земли).
+    // Жёлтый/оранжевый — это рассеяние Rayleigh в атмосфере Земли. Здесь чище к D65.
+    vec3 cWhite  = vec3(1.00, 1.00, 0.97); // почти чистый белый горячий центр гранул
+    vec3 cYellow = vec3(1.00, 0.95, 0.85); // светло-кремовый базовый (бывший жёлтый)
+    vec3 cOrange = vec3(1.00, 0.82, 0.65); // персиковый впадин (бывший оранжевый)
     vec3 base = mix(cOrange, cYellow, plasma);
     base = mix(base, cWhite, hot);
-    // Лимб слегка темнее — атмосферное затемнение края.
+    // ── ГРАНУЛЫ NASA (~1500 км на Солнце, светлый центр + тёмные края). Worley:
+    // 0 в центре ячейки, ~1 на границе. inv → 1 центр, 0 край → яркость гранулы.
+    // Двигаются медленно (t·0.06) — конвекция «дышит».
+    float granD = worley3(p * 14.0 + vec3(0.0, 0.0, t * 0.06));
+    float granule = 1.0 - smoothstep(0.05, 0.55, granD); // 1 центр, 0 край
+    // В центре гранулы — горячее +18% яркости, на тёмных краях −30% (нисходящая плазма).
+    base *= 0.70 + 0.48 * granule;
+    // ── SUNSPOTS NASA (~3000 Гс, холодные участки 4000 °C vs 5500 °C среды).
+    // 3 пятна разной формы, статичные на видимой полусфере. Sin/cos комбинация.
+    vec3 sp1 = vec3( 0.55, 0.40, 0.70);
+    vec3 sp2 = vec3(-0.45,-0.50, 0.75);
+    vec3 sp3 = vec3( 0.20,-0.65,-0.30);
+    float pn = normalize(vPos).x; // dummy, ensure normalize used
+    float ds1 = exp(-pow(length(normalize(vPos) - sp1) * 5.0, 2.0));
+    float ds2 = exp(-pow(length(normalize(vPos) - sp2) * 6.0, 2.0));
+    float ds3 = exp(-pow(length(normalize(vPos) - sp3) * 4.5, 2.0));
+    float spotMask = max(max(ds1, ds2), ds3);
+    // Пятно: тёмное ядро (umbra) + чуть менее тёмная окантовка (penumbra).
+    vec3 umbraCol = vec3(0.18, 0.10, 0.06);
+    base = mix(base, umbraCol, spotMask * 0.85);
+    // ── LIMB DARKENING (NASA): на лимбе видны верхние холодные слои → темнее.
     vec3 viewDir = normalize(-vViewPos);
     float fres = 1.0 - max(0.0, dot(normalize(vNormal), viewDir));
-    base = mix(base, cOrange * 1.05, fres * 0.5);
+    base = mix(base, cOrange * 0.85, fres * 0.55); // усилен limb-darkening
     base *= 1.12 + 0.12 * plasma;
+    // pn используется чтобы избежать unused-variable (нужно для GLSL strict).
+    base *= 1.0 + 0.0 * pn;
     gl_FragColor = vec4(base, 1.0);
   }
 `;
@@ -379,6 +427,19 @@ const SUN_CORONA_FRAGMENT = SUN_NOISE_2D + `
     if (r > 1.0) discard;
     float ang = atan(c.y, c.x);
     float t = uTime;
+    // ── EUV ободок (NASA: корона ~2 млн °C, светится в крайнем UV — голубоватый
+    // горячий свет у самого лимба, до начала «волосков»). Узкая полоса 0.42-0.50.
+    float euvBand = smoothstep(0.42, 0.45, r) * (1.0 - smoothstep(0.46, 0.52, r));
+    vec3 euvCol = vec3(0.78, 0.92, 1.00);
+    // ── КОРОНАЛЬНЫЕ ПЕТЛИ (NASA: плазма заперта в магнитных арках над активными
+    // регионами). 3 предзаданных арки с лёгким мерцанием по времени (~0.3 Hz).
+    float l1 = exp(-pow((ang + 1.10) * 2.4, 2.0)) * exp(-pow((r - 0.62) * 11.0, 2.0));
+    float l2 = exp(-pow((ang - 0.40) * 2.8, 2.0)) * exp(-pow((r - 0.58) * 13.0, 2.0));
+    float l3 = exp(-pow((ang - 2.20) * 2.6, 2.0)) * exp(-pow((r - 0.66) * 10.0, 2.0));
+    float loopMag = (l1 * (0.7 + 0.3 * sin(t * 0.42)) +
+                     l2 * (0.7 + 0.3 * sin(t * 0.55 + 1.7)) +
+                     l3 * (0.7 + 0.3 * sin(t * 0.31 + 3.1))) * 0.85;
+    vec3 loopCol = vec3(1.00, 0.88, 0.62);
     // ── Направленный пучок (×3 концентрация в камеру, Босс 2026-05-30) ──
     vec2 pixDir = (length(c) > 0.001) ? normalize(c) : vec2(1.0, 0.0);
     float aligned = max(0.0, dot(pixDir, uFlareDir));
@@ -413,6 +474,13 @@ const SUN_CORONA_FRAGMENT = SUN_NOISE_2D + `
     vec3 sunset = mix(vec3(1.00, 0.45, 0.18), vec3(1.00, 0.78, 0.45), streak);
     col = mix(col, sunset, uSunsetBoost * 0.55);
     col = mix(col, vec3(1.00, 0.96, 0.88), flareBoost * 0.65); // слепящая вспышка
+    // EUV ободок поверх лучей: голубоватый горячий свет у самого лимба.
+    col += euvCol * euvBand * 0.55;
+    alpha += euvBand * 0.45;
+    // Корональные петли — оранжево-кремовые арки в коронной зоне.
+    col = mix(col, loopCol, loopMag * 0.6);
+    alpha += loopMag * 0.7;
+    alpha = clamp(alpha, 0.0, 1.0);
     gl_FragColor = vec4(col, alpha);
   }
 `;
