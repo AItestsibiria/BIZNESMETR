@@ -24,6 +24,7 @@
 //  • Backdrop click / Escape / ✕ → onClose без launch.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ChevronLeft, Music, Rocket } from "lucide-react";
 
@@ -169,6 +170,14 @@ interface SolarWizardProps {
   open: boolean;
   onClose: () => void;
   onLaunch: (args: { prefs: SolarPrefs; track: PlaylistTrack | null }) => void;
+  /**
+   * Точка-источник «откуда вырастает» wizard (центр кнопки «🪐 Солнечная»
+   * в viewport-координатах). Используется как transform-origin для popover
+   * animation — юзер визуально понимает откуда взялось меню.
+   * Босс 2026-05-30: «Меню должно появляться из соответствующего пункта
+   * с пониманием откуда оно».
+   */
+  originPoint?: { x: number; y: number } | null;
 }
 
 // ────────────────────────────────────────────────────────────
@@ -205,7 +214,7 @@ function savePrefs(p: SolarPrefs): void {
 // Компонент.
 // ────────────────────────────────────────────────────────────
 
-export function SolarWizard({ open, onClose, onLaunch }: SolarWizardProps) {
+export function SolarWizard({ open, onClose, onLaunch, originPoint }: SolarWizardProps) {
   const [step, setStep] = useState<1 | 2>(1);
   const [prefs, setPrefs] = useState<SolarPrefs>(() => loadPrefs());
   const [topListOpen, setTopListOpen] = useState(false);
@@ -329,7 +338,43 @@ export function SolarWizard({ open, onClose, onLaunch }: SolarWizardProps) {
     onClose();
   };
 
-  return (
+  // Popover animation «из кнопки» (Босс 2026-05-30): transform-origin = точка
+  // источника. CSS `transform-origin` интерпретируется ОТНОСИТЕЛЬНО самого
+  // элемента (его bounding box, 0,0 — верх-лев угол). Поэтому вычисляем offset
+  // viewport-точки кнопки относительно левого-верхнего угла content-box.
+  // Pre-mount default = "center bottom" (от низа): пока ref не привязан,
+  // используем дефолт; после mount эффект пересчитывает реальный origin.
+  // Fallback на "center center" если originPoint не задан.
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const [transformOrigin, setTransformOrigin] = useState<string>("center center");
+  useEffect(() => {
+    if (!open) return;
+    if (!originPoint || typeof window === "undefined") {
+      setTransformOrigin("center center");
+      return;
+    }
+    // RAF: ждём первого рендера motion.div чтобы getBoundingClientRect был валиден.
+    const raf = requestAnimationFrame(() => {
+      const el = contentRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      // Offset точки кнопки от верх-лев угла content-box.
+      const ox = originPoint.x - rect.left;
+      const oy = originPoint.y - rect.top;
+      // CSS принимает off-bounds значения (отрицательные / больше size) —
+      // это и даёт popover effect «вырастает из точки за пределами/внутри панели».
+      setTransformOrigin(`${Math.round(ox)}px ${Math.round(oy)}px`);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [open, originPoint]);
+
+  // Босс 2026-05-30: «Нажатие на Солнечная не привело к полёту… нет меню».
+  // Root cause: wizard рендерился внутри `<section z-[1]>` (создаёт стэкинг-контекст);
+  // его `z-[250]` не мог перебить globe-fullscreen portal `z-[200]` в `body`.
+  // Fix: рендерим wizard через createPortal в document.body — z-index сравнивается
+  // на root-уровне с globe-portal, wizard оказывается ПОВЕРХ.
+  if (typeof document === "undefined") return null;
+  return createPortal(
     <AnimatePresence>
       {open && (
         <motion.div
@@ -339,7 +384,12 @@ export function SolarWizard({ open, onClose, onLaunch }: SolarWizardProps) {
           exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
           onClick={handleBackdropClick}
-          className="fixed inset-0 z-[80] flex items-center justify-center px-4 py-6"
+          // Босс 2026-05-30: «нажатие на пустое место меню закрывает» — backdrop
+          // ловит pointerdown (onClick на backdrop → handleBackdropClick → onClose).
+          // z-[250] ВЫШЕ globe-fullscreen (z-[200] в landing.tsx createPortal) —
+          // иначе wizard невидим за глобусом-fullscreen, что было root cause
+          // «нет меню» (Босс жалоба «Нажатие на Солнечная не привело… нет меню»).
+          className="fixed inset-0 z-[250] flex items-center justify-center px-4 py-6"
           style={{
             // Босс 2026-05-30 п.5: «Меню прозрачное видео только слова и контуры меню».
             // Лёгкий dim + сильный blur — глобус виден сквозь backdrop как видео-фон.
@@ -353,15 +403,20 @@ export function SolarWizard({ open, onClose, onLaunch }: SolarWizardProps) {
         >
           <motion.div
             key="solar-wizard-content"
-            initial={{ scale: 0.92, opacity: 0, y: 12 }}
-            animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.94, opacity: 0, y: 8 }}
-            transition={{ type: "spring", stiffness: 280, damping: 26 }}
+            ref={contentRef}
+            // Popover animation: scale 0.5 → 1 ИЗ точки кнопки (transform-origin
+            // = offset кнопки от верх-лев угла content-box, см. useEffect выше).
+            // Юзер видит «меню выросло из кнопки» — понимает источник появления.
+            initial={{ scale: 0.5, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.6, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 320, damping: 28 }}
             onClick={(e) => e.stopPropagation()}
             className="relative w-full overflow-hidden rounded-3xl border border-white/20 shadow-[0_0_60px_rgba(168,85,247,0.30)]"
             style={{
               maxWidth: "min(96vw, 640px)",
               maxHeight: "calc(100dvh - 48px - env(safe-area-inset-top) - env(safe-area-inset-bottom))",
+              transformOrigin,
               // Босс 2026-05-30 п.5: «прозрачное видео только слова и контуры».
               // Стекло — низкая плотность + сильный blur → глобус «просвечивает».
               background: "rgba(10,8,24,0.18)",
@@ -457,7 +512,8 @@ export function SolarWizard({ open, onClose, onLaunch }: SolarWizardProps) {
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 }
 

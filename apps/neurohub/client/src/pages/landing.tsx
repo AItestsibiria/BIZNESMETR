@@ -786,6 +786,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // Wizard сам читает/пишет localStorage `muza:sis-prefs` и эмитит `muza:globe-solar-prefs`.
   // Здесь только open-state + onLaunch callback (он dispatch'ит flight + playTrack).
   const [solarWizardOpen, setSolarWizardOpen] = useState(false);
+  // Origin-point для popover-анимации «вырастает из кнопки» (Босс 2026-05-30:
+  // «Меню должно появляться из соответствующего пункта с пониманием откуда оно»).
+  // Capture при клике на «🪐 Солнечная» → передаём в SolarWizard.originPoint.
+  const [solarWizardOrigin, setSolarWizardOrigin] = useState<{ x: number; y: number } | null>(null);
   // Босс 2026-05-30 п.1: «Смартфон Режимы полёта при нажатии меняй, показывай пост
   // прозрачно выбранный режим над кнопкой». Polупрозрачный label над активной
   // flight-mode кнопкой, fade 2.5с, потом исчезает. Только mobile (sm:hidden).
@@ -3386,6 +3390,14 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   setGlobeFlight("solar");
                                   setFlightLabel({ key: "solar", shownAt: Date.now() });
                                   try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "solar" } })); } catch { /* no-op */ }
+                                  // Capture origin-point для popover animation «из кнопки»
+                                  // (Босс 2026-05-30 «Меню должно появляться из соответствующего
+                                  // пункта с пониманием откуда оно»). Координаты центра кнопки
+                                  // в viewport — передадутся в SolarWizard.originPoint.
+                                  try {
+                                    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                    setSolarWizardOrigin({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+                                  } catch { setSolarWizardOrigin(null); }
                                   setSolarWizardOpen(true);
                                 }}
                                 className={`relative shrink-0 h-8 sm:h-9 md:h-10 px-2 sm:px-2.5 md:px-3 rounded-full flex items-center justify-center gap-1 text-[10px] sm:text-[11px] md:text-xs font-semibold transition-all whitespace-nowrap border active:scale-95 ${globeFlight === "solar" ? "text-white border-white/40 bg-gradient-to-r from-purple-500/15 via-fuchsia-500/15 to-cyan-500/15" : "text-white/80 border-white/25 hover:border-white/55 bg-transparent"}`}
@@ -3895,6 +3907,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
         <Suspense fallback={null}>
           <SolarWizard
           open={solarWizardOpen}
+          originPoint={solarWizardOrigin}
           onClose={() => setSolarWizardOpen(false)}
           onLaunch={({ track }) => {
             setSolarWizardOpen(false);
