@@ -460,6 +460,56 @@ const tokenStore = _sharedTokenStore;
 
 // Password reset: email -> { code, userId, expiresAt }
 const resetCodes = new Map<string, { code: string; userId: number; expiresAt: number }>();
+
+// Admin-IP-fallback (Eugene 2026-05-30): при попытке админ-логина с нетрастового
+// IP высылается код + магическая ссылка на email. Хранится in-memory с TTL 3 мин.
+// Ключи: email (для code-confirm) и `mt:<token>` (для magic-link).
+interface AdminIpConfirmRec {
+  userId: number;
+  email: string;
+  codeHash: string;
+  magicToken: string;
+  expiresAt: number;
+  used: boolean;
+}
+const adminIpConfirms = new Map<string, AdminIpConfirmRec>();
+
+async function adminIpFallbackInitiate(opts: {
+  user: { id: number; email: string; name?: string | null };
+  req: Request;
+}): Promise<void> {
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const codeHash = crypto.createHash("sha256").update(code).digest("hex");
+  const magicToken = uuidv4();
+  const expiresAt = Date.now() + 3 * 60 * 1000;
+  const emailKey = String(opts.user.email).toLowerCase();
+  const rec: AdminIpConfirmRec = {
+    userId: opts.user.id, email: opts.user.email,
+    codeHash, magicToken, expiresAt, used: false,
+  };
+  adminIpConfirms.set(emailKey, rec);
+  adminIpConfirms.set(`mt:${magicToken}`, rec);
+  const base = String(process.env.PUBLIC_URL || process.env.BASE_DOMAIN || "https://muzaai.ru").replace(/^http/, "https").replace(/\/+$/, "");
+  const link = `${base}/api/auth/admin-ip-confirm-link?token=${encodeURIComponent(magicToken)}`;
+  const subject = "Вход в админ-панель MuzaAi — подтверждение";
+  const text = [
+    `Попытка входа в админ-панель с НЕДОВЕРЕННОГО IP.`,
+    ``,
+    `Код подтверждения: ${code}`,
+    `(действует 3 минуты)`,
+    ``,
+    `Или открой ссылку (одноразовая):`,
+    link,
+    ``,
+    `Если это не ты — проигнорируй письмо и сразу обнови ADMIN_TRUSTED_IPS.`,
+  ].join("\n");
+  try {
+    const { sendEmail } = await import("./lib/emailSender");
+    await sendEmail({ to: opts.user.email, subject, text, kind: "transactional" });
+  } catch (e: any) {
+    console.error("[admin-ip-fallback] sendEmail failed:", e?.message || e);
+  }
+}
 // Password reset: token -> userId
 const resetTokens = new Map<string, number>();
 
@@ -1821,6 +1871,34 @@ export async function registerRoutes(
         return;
       }
 
+      // Admin-panel-IP-hard-gate + email-fallback rule (Eugene 2026-05-30):
+      // админский вход с НЕТРАСТОВОГО IP не блокируется жёстко — высылается код
+      // и магическая ссылка на email админа. TTL 3 мин. Подтверждение через
+      // POST /api/auth/admin-ip-confirm {email, code} или GET .../link?token=...
+      if ((user.role === "admin" || user.role === "super_admin")
+          && getTrustedIpList().length > 0
+          && !isAdminTrustedIp(req)) {
+        try {
+          await adminIpFallbackInitiate({ user, req });
+        } catch (e: any) {
+          console.error("[admin-ip-fallback] init error:", e?.message || e);
+        }
+        try {
+          logUserActionFailure({
+            userId: user.id, channel: "web", action: "admin_login_ip_confirm_required",
+            statusCode: 202, errorCode: "ip_not_trusted",
+            errorMessage: "admin login from untrusted IP — email code sent",
+            endpoint: "/api/auth/login",
+          });
+        } catch { /* swallow */ }
+        res.status(202).json({
+          message: "IP не доверен. Код подтверждения отправлен на email. Действует 3 минуты.",
+          requireIpConfirm: true,
+          email: maskEmailForAdmin(user.email || ""),
+        });
+        return;
+      }
+
       const token = uuidv4();
       tokenStore.set(token, user.id);
       logEngagement(req, "email_login_success", { channel: "email", userId: user.id });
@@ -1838,6 +1916,66 @@ export async function registerRoutes(
       res.json({ token, user: publicUser });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
+    }
+  });
+
+  // POST /api/auth/admin-ip-confirm — подтверждение кода (3 мин) с нетрастового IP.
+  // Eugene 2026-05-30: на нетрастовом IP админ /login возвращает 202 + код по почте.
+  // Юзер вводит код здесь → tokenStore.set(token, user.id) → токен возвращается.
+  app.post("/api/auth/admin-ip-confirm", async (req: Request, res: Response) => {
+    try {
+      const email = String(req.body?.email || "").toLowerCase().trim();
+      const code = String(req.body?.code || "").trim();
+      if (!email || !code) {
+        res.status(400).json({ message: "email и код обязательны" }); return;
+      }
+      const rec = adminIpConfirms.get(email);
+      if (!rec) { res.status(401).json({ message: "Код не найден. Войди заново для нового кода." }); return; }
+      if (rec.used) { res.status(401).json({ message: "Код уже использован." }); return; }
+      if (Date.now() > rec.expiresAt) {
+        adminIpConfirms.delete(email);
+        adminIpConfirms.delete(`mt:${rec.magicToken}`);
+        res.status(401).json({ message: "Код просрочен (3 мин)." }); return;
+      }
+      const codeHash = crypto.createHash("sha256").update(code).digest("hex");
+      if (codeHash !== rec.codeHash) { res.status(401).json({ message: "Неверный код" }); return; }
+      rec.used = true;
+      const user = storage.getUser(rec.userId);
+      if (!user) { res.status(500).json({ message: "user not found" }); return; }
+      const token = uuidv4();
+      tokenStore.set(token, user.id);
+      console.log(`[admin-ip-confirm] code ok userId=${user.id}`);
+      const { password: _, nameChangeToken: __nct, ...publicUser } = user;
+      res.json({ token, user: publicUser });
+    } catch (e: any) {
+      res.status(500).json({ message: e?.message || String(e) });
+    }
+  });
+
+  // GET /api/auth/admin-ip-confirm-link?token=XXX — magic-link из письма.
+  // Открывает /?auth=<sessionToken>#/admin — фронт читает param, сохраняет токен.
+  app.get("/api/auth/admin-ip-confirm-link", async (req: Request, res: Response) => {
+    try {
+      const magic = String(req.query?.token || "").trim();
+      if (!magic) { res.status(400).send("Bad request"); return; }
+      const rec = adminIpConfirms.get(`mt:${magic}`);
+      if (!rec) { res.status(401).send("Ссылка не найдена или просрочена."); return; }
+      if (rec.used) { res.status(401).send("Ссылка уже использована."); return; }
+      if (Date.now() > rec.expiresAt) {
+        adminIpConfirms.delete(`mt:${magic}`);
+        adminIpConfirms.delete(rec.email.toLowerCase());
+        res.status(401).send("Ссылка просрочена (3 мин)."); return;
+      }
+      rec.used = true;
+      const user = storage.getUser(rec.userId);
+      if (!user) { res.status(500).send("user not found"); return; }
+      const sessionToken = uuidv4();
+      tokenStore.set(sessionToken, user.id);
+      console.log(`[admin-ip-confirm] magic-link ok userId=${user.id}`);
+      const base = String(process.env.PUBLIC_URL || process.env.BASE_DOMAIN || "https://muzaai.ru").replace(/^http/, "https").replace(/\/+$/, "");
+      res.redirect(`${base}/?auth=${encodeURIComponent(sessionToken)}#/admin`);
+    } catch (e: any) {
+      res.status(500).send(e?.message || String(e));
     }
   });
 

@@ -3638,6 +3638,30 @@ Tuning параметров:
 - IP comparison: IPv4 — точное совпадение, IPv6 — /64 префикс (mobile carrier rotation)
 - Whitelist TTL 24ч: можно вечный для домашнего/офисного IP через `ADMIN_TRUSTED_IPS` env
 
+### Admin-panel-IP-hard-gate + email-fallback rule (Eugene 2026-05-30)
+
+**Вход в админ-панель проверяет IP жёстко.** Если `ADMIN_TRUSTED_IPS` задан и `req.ip` НЕ в списке — токен НЕ выдаётся даже при верной паре email/пароль и любых других факторах. Реализация: `server/routes.ts /api/auth/login` после успешной проверки пароля + `server/core/adminAuth.ts:75` (`requireAdmin` для всех админ-эндпоинтов).
+
+**Альтернатива на нетрастовом IP — подтверждение по email (3 мин):**
+- `/api/auth/login` для admin/super_admin с нетрастового IP вместо токена возвращает **202** + отправляет на email админа письмо с 6-значным кодом и одноразовой magic-ссылкой.
+- TTL — 3 минуты. После этого код/ссылка просрочены, нужен повторный логин.
+- Подтверждение: `POST /api/auth/admin-ip-confirm {email, code}` → выдаёт session token. ИЛИ `GET /api/auth/admin-ip-confirm-link?token=<magic>` (клик из письма) → редирект на `/?auth=<sessionToken>#/admin`, фронт сохраняет токен.
+- Хранилище — in-memory `Map` (key: email + `mt:<magicToken>`); хеш кода — sha256.
+
+**Жёсткие правила:**
+1. **Никакой обход IP-гейта без email-подтверждения.** Даже валидная сессия не пускает с нетрастового IP — `requireAdmin` блокирует на каждом админ-эндпоинте. Email-flow — единственный путь.
+2. **Список IP — только через `.env` на VPS** (Secrets-admin-only rule). Менять через прямой SSH, не через UI.
+3. **Email — на тот же ящик, что в `users.email` админа.** Никаких подставных адресов.
+4. **Если ADMIN_TRUSTED_IPS пуст** → гейт ВЫКЛЮЧЕН (fail-open для развёртывания). Боссу сразу задать значение после первого деплоя.
+5. **127.0.0.1/::1** в списке — норма (локальные cron/probes на серверах не должны ломаться при включённом гейте).
+6. **Логи без секретов** — код в plain нигде, sha256-hash в Map.
+
+**Применяется к:** всем флоу выдачи admin-токена (`/api/auth/login` + любые будущие админ-логины). НЕ применяется к: client/user логину обычных юзеров (`role='user'` пропускают эту проверку).
+
+**Связано с:** Director-obeys-authorized-admin rule (двухгейтовая модель: admin-auth + trusted IP), Secrets-admin-only rule, Never-leak-secrets rule, Admin-concurrent-session-alert rule.
+
+---
+
 ### Secrets-admin-only rule (Eugene 2026-05-17, **сильнее всех остальных secrets-правил**)
 
 **Секреты видит ТОЛЬКО Админ (Босс).** Никому больше — никаким юзерам, никаким LLM-tool'ам в plain-виде, никаким frontend-страницам, никаким external pipelines (Novo Ai, аналитика, backups в облако). Усиливает Never-leak-secrets rule.
