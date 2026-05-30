@@ -252,6 +252,121 @@ const MOON_FRAGMENT = `
   }
 `;
 
+// Солнце (Босс 2026-05-30): 3D-сфера с плазменным шейдером (огненная поверхность,
+// гранулы, горячие пятна) + внешняя «корона» из анимированного шума на лимбе —
+// короткие переменные «лучи‑языки пламени», не длинный starburst. Референс — фото
+// солнечного диска с короной по краю.
+const SUN_VERTEX = `
+  varying vec3 vNormal;
+  varying vec3 vPos;
+  varying vec3 vViewPos;
+  void main() {
+    vNormal = normalize(normalMatrix * normal);
+    vPos = position;
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    vViewPos = mv.xyz;
+    gl_Position = projectionMatrix * mv;
+  }
+`;
+// Common noise helpers (используются в обоих шейдерах Солнца).
+const SUN_NOISE = `
+  float hash3(vec3 p) {
+    p = fract(p * vec3(443.8975, 397.2973, 491.1871));
+    p += dot(p, p.yxz + 19.19);
+    return fract((p.x + p.y) * p.z);
+  }
+  float noise3(vec3 p) {
+    vec3 i = floor(p); vec3 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(mix(hash3(i + vec3(0.0,0.0,0.0)), hash3(i + vec3(1.0,0.0,0.0)), f.x),
+                   mix(hash3(i + vec3(0.0,1.0,0.0)), hash3(i + vec3(1.0,1.0,0.0)), f.x), f.y),
+               mix(mix(hash3(i + vec3(0.0,0.0,1.0)), hash3(i + vec3(1.0,0.0,1.0)), f.x),
+                   mix(hash3(i + vec3(0.0,1.0,1.0)), hash3(i + vec3(1.0,1.0,1.0)), f.x), f.y), f.z);
+  }
+  float fbm3(vec3 p) {
+    float v = 0.0; float a = 0.5;
+    for (int i = 0; i < 5; i++) { v += a * noise3(p); p *= 2.0; a *= 0.5; }
+    return v;
+  }
+`;
+const SUN_FRAGMENT = SUN_NOISE + `
+  uniform float uTime;
+  varying vec3 vNormal;
+  varying vec3 vPos;
+  varying vec3 vViewPos;
+  void main() {
+    vec3 p = normalize(vPos) * 3.0;
+    float t = uTime * 0.18;
+    float n1 = fbm3(p + vec3(0.0, 0.0, t));
+    float n2 = fbm3(p * 2.1 + vec3(t * 1.3, t * 0.7, 0.0));
+    float plasma = mix(n1, n2, 0.55);
+    // Горячие «гранулы» из пиков шума.
+    float hot = smoothstep(0.55, 0.85, n1 + n2 * 0.35);
+    vec3 cWhite = vec3(1.00, 0.96, 0.74);  // бело-жёлтый горячий центр гранул
+    vec3 cYellow = vec3(1.00, 0.66, 0.20); // оранжево-жёлтый базовый
+    vec3 cOrange = vec3(0.92, 0.34, 0.08); // тёмно-оранжевые впадины
+    vec3 base = mix(cOrange, cYellow, plasma);
+    base = mix(base, cWhite, hot);
+    // Лимб слегка темнее — атмосферное затемнение края.
+    vec3 viewDir = normalize(-vViewPos);
+    float fres = 1.0 - max(0.0, dot(normalize(vNormal), viewDir));
+    base = mix(base, cOrange * 1.05, fres * 0.5);
+    base *= 1.12 + 0.12 * plasma;
+    gl_FragColor = vec4(base, 1.0);
+  }
+`;
+const SUN_CORONA_FRAGMENT = SUN_NOISE + `
+  uniform float uTime;
+  varying vec3 vNormal;
+  varying vec3 vPos;
+  varying vec3 vViewPos;
+  void main() {
+    vec3 p = normalize(vPos) * 4.5;
+    float t = uTime * 0.45;
+    float n1 = fbm3(p + vec3(0.0, 0.0, t));
+    float n2 = fbm3(p * 3.0 + vec3(t * 2.0, 0.0, t * 0.6));
+    float flame = pow(clamp(n1 * n2 * 2.4, 0.0, 1.0), 1.4);
+    vec3 viewDir = normalize(-vViewPos);
+    float fres = pow(1.0 - max(0.0, dot(normalize(vNormal), viewDir)), 1.6);
+    float alpha = flame * fres * 0.85;
+    vec3 col = mix(vec3(1.00, 0.45, 0.10), vec3(1.00, 0.86, 0.40), flame);
+    gl_FragColor = vec4(col, alpha);
+  }
+`;
+
+// Сборка Солнца (тело + корона). Возвращает Group с двумя сферами + ShaderMaterial-ами
+// (через ref на параметр). При null — каскадный фолбэк (вернёт пустую Group).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function makeSunGroup(radius: number): { group: any; bodyMat: any; coronaMat: any } | null {
+  try {
+    const bodyMat = new THREE.ShaderMaterial({
+      uniforms: { uTime: { value: 0 } },
+      vertexShader: SUN_VERTEX,
+      fragmentShader: SUN_FRAGMENT,
+    });
+    const bodyGeo = new THREE.SphereGeometry(radius, 64, 64);
+    const body = new THREE.Mesh(bodyGeo, bodyMat);
+    const coronaMat = new THREE.ShaderMaterial({
+      uniforms: { uTime: { value: 0 } },
+      vertexShader: SUN_VERTEX,
+      fragmentShader: SUN_CORONA_FRAGMENT,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.BackSide, // корона видна с любой стороны, не загораживает тело
+    });
+    const coronaGeo = new THREE.SphereGeometry(radius * 1.45, 48, 48);
+    const corona = new THREE.Mesh(coronaGeo, coronaMat);
+    const group = new THREE.Group();
+    group.add(body);
+    group.add(corona);
+    return { group, bodyMat, coronaMat };
+  } catch (e) {
+    console.warn("[GlobeView] makeSunGroup failed:", e);
+    return null;
+  }
+}
+
 // Собирает day/night ShaderMaterial (TextureLoader + ShaderMaterial). Текстуры
 // грузятся асинхронно — материал валиден сразу, затем шейдер сам перерисуется.
 // onDay/onNight — колбэки готовности текстур (для поэтапной детализации сцены).
@@ -891,6 +1006,12 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // Материал Луны (фазовый шейдер) — обновляем uniform sunDir при движении Солнца.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const moonMatRef = useRef<any>(null);
+  // Солнце-шейдеры (Босс 2026-05-30): плазма тело + анимированная огненная корона.
+  // Каждый кадр обновляем uTime для шевеления плазмы и пламени.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sunMatRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sunCoronaMatRef = useRef<any>(null);
   // Глубокое 3D-звёздное поле (THREE.Points) — параллакс/«бесконечная глубина» за глобусом.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const deepStarsRef = useRef<any>(null);
@@ -974,16 +1095,26 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       } catch {
         // ignore
       }
-      // Освобождаем Солнце (спрайт: map+material) и Луну (шар: geometry+material).
+      // Освобождаем Солнце (Group из 2 шаров с шейдерами) и Луну (шар + фазовый шейдер).
       try {
-        for (const m of [sunMeshRef.current, moonMeshRef.current]) {
-          if (!m) continue;
-          m.parent?.remove?.(m);
-          m.material?.map?.dispose?.();
-          m.material?.dispose?.();
-          m.geometry?.dispose?.();
+        // Sun group: dispose всех children (body + corona), потом удалить группу.
+        const sunG = sunMeshRef.current;
+        if (sunG) {
+          for (const child of sunG.children || []) {
+            child.material?.dispose?.();
+            child.geometry?.dispose?.();
+          }
+          sunG.parent?.remove?.(sunG);
+        }
+        const moon = moonMeshRef.current;
+        if (moon) {
+          moon.parent?.remove?.(moon);
+          moon.material?.dispose?.();
+          moon.geometry?.dispose?.();
         }
         sunMeshRef.current = null;
+        sunMatRef.current = null;
+        sunCoronaMatRef.current = null;
         moonMeshRef.current = null;
         moonMatRef.current = null;
       } catch {
@@ -1828,39 +1959,13 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       }
 
       // АСТРОНОМИЧЕСКИЙ блик Солнца (Босс 2026-05-29: всё астрономически — Солнце/Луна
-      // по реальным точкам, видимость по ФАЗЕ поворота Земли; при коррекции позиции
-      // Земли кадр меняется астрономически). Позиции ставит positionSunMoon (субсолярная/
-      // подлунная точки) — Солнце/Луна перекрываются диском Земли при повороте (depthTest).
-      // Здесь только модуляция яркости вспышки: пик у лимба (кресует), спад наружу,
-      // гаснет вглубь за диск; лучи «играют» (вращение material.rotation) + пульс.
+      // Анимация Солнца (Босс 2026-05-30): плазма тело + огненная корона —
+      // обновляем uTime каждый кадр, шейдеры сами «играют» (гранулы движутся,
+      // языки пламени мерцают). depthTest сферы корректно перекрывает Землёй.
       try {
-        const sun = sunMeshRef.current;
-        const cam = g.camera?.();
-        if (sun && cam?.position) {
-          const cp = cam.position;
-          const camDist = Math.hypot(cp.x, cp.y, cp.z) || 1;
-          const vEx = -cp.x / camDist, vEy = -cp.y / camDist, vEz = -cp.z / camDist;
-          const spp = sun.position;
-          let sx = spp.x - cp.x, sy = spp.y - cp.y, sz = spp.z - cp.z;
-          const sl = Math.hypot(sx, sy, sz) || 1;
-          sx /= sl; sy /= sl; sz /= sl;
-          const align = Math.max(-1, Math.min(1, vEx * sx + vEy * sy + vEz * sz));
-          const look = Math.max(0, align);
-          const sunAngle = Math.acos(align);
-          const earthAng = Math.asin(Math.min(1, 100 / camDist));
-          const d = sunAngle - earthAng;
-          const sigma = earthAng * 0.6 + 0.02;
-          const limbPeak = Math.exp(-Math.pow((d + earthAng * 0.15) / sigma, 2));
-          const occl = d < -earthAng ? Math.max(0, 1 + (d + earthAng) / earthAng) : 1;
-          const pulseSun = 0.92 + 0.08 * Math.sin(now / 360);
-          const intensity = Math.max(0, Math.min(1.7, look * (0.3 + 1.25 * limbPeak) * occl * pulseSun));
-          const s = 64 * (0.4 + 1.5 * intensity);
-          sun.scale.set(s, s, 1);
-          if (sun.material) {
-            sun.material.opacity = Math.max(0.18, Math.min(1, 0.2 + 0.95 * intensity));
-            sun.material.rotation = (now / 9000) % (Math.PI * 2); // лучи «играют»
-          }
-        }
+        const t = now * 0.001;
+        if (sunMatRef.current?.uniforms?.uTime) sunMatRef.current.uniforms.uTime.value = t;
+        if (sunCoronaMatRef.current?.uniforms?.uTime) sunCoronaMatRef.current.uniforms.uTime.value = t;
       } catch {
         // ignore
       }
@@ -2057,10 +2162,14 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       try {
         const scene = g.scene?.();
         if (scene && !sunMeshRef.current) {
-          const sun = makeSunFlareSprite(74); // слепящая вспышка с лучами
-          if (sun) {
-            scene.add(sun);
-            sunMeshRef.current = sun;
+          // Босс 2026-05-30: 3D-сфера с плазмой + анимированная огненная корона
+          // (короткие переменные лучи-языки, не starburst). См. SUN_FRAGMENT / SUN_CORONA_FRAGMENT.
+          const made = makeSunGroup(15); // ~15 ед. — визуально соразмерно прежнему спрайту
+          if (made) {
+            scene.add(made.group);
+            sunMeshRef.current = made.group;
+            sunMatRef.current = made.bodyMat;
+            sunCoronaMatRef.current = made.coronaMat;
           }
         }
         if (scene && !moonMeshRef.current) {
