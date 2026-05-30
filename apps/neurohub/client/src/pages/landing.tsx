@@ -3284,24 +3284,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                       >Солнечная</span>
                                     )}
                                   </button>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); try { window.dispatchEvent(new CustomEvent("muza:open-chat")); } catch { /* no-op */ } closeGlobe(); }}
-                                    className="shrink-0 ml-auto h-10 px-3 rounded-full flex items-center justify-center gap-1 text-[11px] font-semibold text-white/85 bg-transparent border border-purple-300/45 hover:border-purple-300/80 active:scale-95 transition-all whitespace-nowrap"
-                                    aria-label="Вернуться к Музе"
-                                  >Вернуться к <span className="font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">Музе</span></button>
-                                  <button
-                                    type="button"
-                                    onClick={async (e) => {
-                                      e.stopPropagation();
-                                      const url = `${window.location.origin}/?globecard=1`;
-                                      const shareData = { title: "MuzaAi — Мир Музыки без границ", text: "Нас слушают по всему миру 🌍 Твоя Муза", url };
-                                      try { if (navigator.share) { await navigator.share(shareData); return; } } catch { /* отменили шеринг */ }
-                                      try { await navigator.clipboard.writeText(url); toast({ title: "Ссылка скопирована", description: "Поделись Музой 💜" }); } catch { /* no-op */ }
-                                    }}
-                                    className="shrink-0 h-10 px-3 rounded-full flex items-center justify-center gap-1 text-[11px] font-semibold text-white/85 bg-transparent border border-fuchsia-300/45 hover:border-fuchsia-300/80 active:scale-95 transition-all whitespace-nowrap"
-                                    aria-label="Поделись Музой"
-                                  >Поделись <span className="font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">Музой</span></button>
+                                  {/* Босс 2026-05-30: «Вернуться к Музе / Поделись Музой» УБРАНЫ
+                                      ИЗ overflow-x-auto строки контролов (где Полёт/Полёт Ai/Солнечная)
+                                      — они уезжали вправо за экран. Перенесены в отдельный shrink-0
+                                      row НИЖЕ плеера (line ~3330) — всегда видны на одном экране. */}
                                   </div>
                                 </div>
                               );
