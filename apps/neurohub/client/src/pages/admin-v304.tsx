@@ -51,6 +51,7 @@ import PlaysAuditTab from "@/pages/admin/plays-audit-tab";
 import PlaysAnalyticsTab from "@/pages/admin/plays-analytics-tab";
 import { FeatureTogglesAdminTab } from "@/pages/admin/feature-toggles-admin-tab";
 import OrchestratorTab from "@/pages/admin/orchestrator-tab";
+import FerzTab from "@/pages/admin/ferz-tab";
 import GenErrorsTab from "@/pages/admin/gen-errors-tab";
 import FrontendQaTab from "@/pages/admin/frontend-qa-tab";
 import BackendQaTab from "@/pages/admin/backend-qa-tab";
@@ -805,6 +806,8 @@ export default function AdminV304Page() {
         >
           {/* ═══ 🎬 ДИРЕКТОР — 1-е место (Eugene 2026-05-25 Босс «смести на 1 место») ═══ */}
           <TabsTrigger value="orchestrator" className={tabClass("musa")}>🎬 Музa Директор</TabsTrigger>
+          {/* Босс 2026-05-30: Ферзь сразу за Директором — реестр ошибок от всех агентов + диагностики. */}
+          <TabsTrigger value="ferz" className={tabClass("musa")}>♛ Ферзь</TabsTrigger>
           {/* ═══ 📊 АНАЛИТИКА (emerald-tinted) ═══ */}
           <TabsTrigger value="master-dashboard" className={tabClass("analytics")}>📊 Сводка</TabsTrigger>
           <TabsTrigger value="brain-3d" className={tabClass("analytics")}>📊 Второй мозг (3D)</TabsTrigger>
@@ -901,6 +904,7 @@ export default function AdminV304Page() {
         <TabsContent value="ai-keys"><AiKeysTab toast={toast} /></TabsContent>
         <TabsContent value="api-health"><ApiHealthTab toast={toast} /></TabsContent>
         <TabsContent value="orchestrator"><OrchestratorTab /></TabsContent>
+        <TabsContent value="ferz"><FerzTab /></TabsContent>
         <TabsContent value="publications"><PublicationsTab /></TabsContent>
         <TabsContent value="gen-errors"><GenErrorsTab /></TabsContent>
         <TabsContent value="frontend-qa"><FrontendQaTab /></TabsContent>
