@@ -870,7 +870,10 @@ function subPlanetPoint(planetKey: string, dt: number): [number, number] {
   return [lng, dec];
 }
 
-// Спрайт планеты — мягкий цветной диск с лёгким гало (виден как «звезда-планета»).
+// Спрайт планеты — реальный NASA-цвет в ядре, brand-MuzaAi (purple→fuchsia→cyan)
+// в тонкой обводке-лимбе. Босс 2026-05-30: «реальные цвета по NASA, но в мире
+// и на лимбе — стиль MuzaAi». Brand-style consistency rule (палитра
+// #7C3AED / #D946EF / #00D4FF, brand-gradient на rim).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function makePlanetSprite(rgb: [number, number, number], size: number): any {
   try {
@@ -882,13 +885,27 @@ function makePlanetSprite(rgb: [number, number, number], size: number): any {
     if (!ctx) return null;
     const c = N / 2;
     const [r, g, b] = rgb;
+    // Слой 1: реальный NASA-цвет в ядре + плавное затухание к 0.85
+    // (0..0.55 — насыщенное ядро, 0.55..0.85 — полупрозрачный переход)
     const grad = ctx.createRadialGradient(c, c, 0, c, c, c);
-    grad.addColorStop(0.0, "rgba(255,255,255,1)");
-    grad.addColorStop(0.28, `rgba(${r},${g},${b},1)`);
-    grad.addColorStop(0.6, `rgba(${r},${g},${b},0.5)`);
+    grad.addColorStop(0.0, "rgba(255,255,255,0.95)");
+    grad.addColorStop(0.25, `rgba(${r},${g},${b},1)`);
+    grad.addColorStop(0.55, `rgba(${r},${g},${b},0.85)`);
+    grad.addColorStop(0.85, `rgba(${r},${g},${b},0.15)`);
     grad.addColorStop(1.0, `rgba(${r},${g},${b},0)`);
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, N, N);
+    // Слой 2: brand-rim MuzaAi (purple→fuchsia→cyan) на внешней кромке 0.85..1.0
+    // Тонкий световой ореол ~12% радиуса — узнаваемая фирменная подсветка
+    const brandRim = ctx.createRadialGradient(c, c, c * 0.82, c, c, c);
+    brandRim.addColorStop(0.0, "rgba(124,58,237,0)");        // #7C3AED purple — прозрачный старт
+    brandRim.addColorStop(0.35, "rgba(217,70,239,0.55)");    // #D946EF fuchsia — пик в середине rim
+    brandRim.addColorStop(0.7, "rgba(0,212,255,0.35)");      // #00D4FF cyan — холодный угасающий край
+    brandRim.addColorStop(1.0, "rgba(0,212,255,0)");
+    ctx.globalCompositeOperation = "lighter"; // additive — brand-glow поверх ядра
+    ctx.fillStyle = brandRim;
+    ctx.fillRect(0, 0, N, N);
+    ctx.globalCompositeOperation = "source-over";
     const tex = new THREE.CanvasTexture(cvs);
     const mat = new THREE.SpriteMaterial({
       map: tex,
@@ -910,15 +927,25 @@ function makePlanetSprite(rgb: [number, number, number], size: number): any {
   }
 }
 
-// Цвет + относительный размер каждой планеты (характерный вид на небе).
+// NASA-точные цвета планет (D65 sunlight, нормализованные из реальных RGB-замеров
+// поверхности/облаков). Босс 2026-05-30 «реальные цвета по NASA». Размеры
+// масштабированы для визуальной иерархии в звёздном небе на радиусе 1500:
+// Юпитер/Сатурн крупнее (газовые гиганты), Меркурий мельче, Земля reference ~26.
 const PLANET_STYLE: Record<string, { rgb: [number, number, number]; size: number }> = {
-  mercury: { rgb: [200, 200, 205], size: 26 },
-  venus:   { rgb: [255, 246, 224], size: 40 },
-  mars:    { rgb: [255, 122, 78], size: 30 },
-  jupiter: { rgb: [240, 222, 184], size: 38 },
-  saturn:  { rgb: [240, 224, 168], size: 34 },
-  uranus:  { rgb: [175, 238, 238], size: 28 },
-  neptune: { rgb: [79, 134, 247], size: 28 },
+  // Меркурий — серо-коричневый регалит (NASA Mariner/Messenger): RGB 140,120,83
+  mercury: { rgb: [140, 120, 83], size: 22 },
+  // Венера — жёлто-белые облака H2SO4 (NASA Mariner 10 visible): RGB 232,213,168
+  venus:   { rgb: [232, 213, 168], size: 36 },
+  // Марс — красно-оранжевый оксид железа (Fe2O3) NASA Viking/MRO: RGB 193,68,14
+  mars:    { rgb: [193, 68, 14], size: 28 },
+  // Юпитер — оранжево-бежевый аммиак, доминирующий тон пояса (NASA Voyager/Juno): RGB 216,168,120
+  jupiter: { rgb: [216, 168, 120], size: 42 },
+  // Сатурн — бледно-золотой аммиак + углеводороды (NASA Cassini): RGB 227,214,167
+  saturn:  { rgb: [227, 214, 167], size: 38 },
+  // Уран — бирюзово-голубой метан в атмосфере (NASA Voyager 2): RGB 179,224,224
+  uranus:  { rgb: [179, 224, 224], size: 26 },
+  // Нептун — тёмно-синий метан (NASA Voyager 2): RGB 60,91,200
+  neptune: { rgb: [60, 91, 200], size: 26 },
 };
 
 // Радиус (мир) дальней небесной сферы для планет: ЗА Солнцем (Солнце ≈ 100·(1+2.2)=320)
