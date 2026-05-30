@@ -1464,9 +1464,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       let lat = startLat;
       let alt = OVERVIEW_ALTITUDE;
 
-      // Босс 2026-05-30: в AI-режиме сценарий начинается с Pano сразу — intro
-      // (sunrise→fly→hold→depart) пропускаем. Classic-режим intro оставляем.
-      if (flightModeRef.current === "ai" && phase !== "cruise") {
+      // Босс 2026-05-30: в режиме «Полёт» (classic) сценарий начинается с Pano сразу —
+      // intro (sunrise→fly→hold→depart) пропускаем. «Полёт Ai» intro оставляем.
+      if (flightModeRef.current === "classic" && phase !== "cruise") {
         phase = "cruise";
       }
 
@@ -1521,8 +1521,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           if (zoomTargetRef.current == null) zoomTargetRef.current = CRUISE_ALTITUDE;
           phase = "cruise"; // точка остаётся моргающей при каждом проходе над страной
         }
-      } else if (flightModeRef.current === "classic") {
-        // ПОЛЁТ (классика, Босс 2026-05-29): такой РАКУРС, чтобы Солнце И Луна были в
+      } else if (flightModeRef.current === "ai") {
+        // ПОЛЁТ Ai (Босс 2026-05-30 «Это режим Полёта»): sun-moon framing —
+        // плавный обзор Земли так, чтобы Солнце И Луна были в кадре (~50% времени).
+        // Основной сценарий-режиссёр теперь у режима «Полёт» (classic) ниже.
         // кадре не менее 50% времени. Камера наводится на СЕРЕДИНУ между подсолнечной и
         // подлунной точками (по широте и долготе), с лёгким качанием для «полёта».
         const nowT = Date.now();
@@ -1542,7 +1544,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         cruise.alt += (tgt - cruise.alt) * 0.04;
         alt = cruise.alt;
       } else {
-        // ПОЛЁТ Ai — финальный сценарий (Босс 2026-05-30):
+        // «ПОЛЁТ» (classic) — финальный сценарий (Босс 2026-05-30 «Это режим Полёта»):
         // Init: Sun-позиция фиксируется на момент сессии. Pano lng = компромисс,
         // чтобы страна юзера ВСЕГДА была в кадре + Sun-right best-effort.
         // Сценарий: cycle_pano 2с → подлёт 9с (ЕДИНСТВЕННЫЙ descent) → пролёт на
