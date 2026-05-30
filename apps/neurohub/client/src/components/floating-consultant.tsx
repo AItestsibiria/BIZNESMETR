@@ -11,6 +11,7 @@ import { useFeatureEnabled } from "@/lib/featureToggles";
 import { onJourneyEvent } from "../lib/user-journey";
 import { getPersistentPlayerAudio } from "../lib/lockscreen";
 import { handleCoverError } from "../lib/coverError";
+import { debugLog } from "../lib/debugLog";
 import { SupportModal } from "./support-modal";
 import { ChatTrackCard, type ChatTrackCardData } from "./chat-track-card";
 import { Maximize2, Minimize2 } from "lucide-react";
@@ -1257,6 +1258,7 @@ export function FloatingConsultant() {
     // Eugene 2026-05-14 Босс «после уходу скоро вернусь — ещё один чат».
     // Idempotent — если уже открыт, не переоткрываем (избегаем дубль-анимации).
     if (chatOpen) return;
+    debugLog("[Chat] openChat (Музa)");
     try { playMuzaSparkle(); } catch {}
     setExpanded(false);
     setChatOpen(true);
@@ -1581,6 +1583,7 @@ export function FloatingConsultant() {
   const doSendMessage = useCallback(async (textArg: string) => {
     const text = textArg.trim();
     if (!text) return;
+    debugLog(`[Chat] send: "${text.slice(0, 50)}${text.length > 50 ? "..." : ""}"`);
     // Eugene 2026-05-22 Босс: anti-duplication. Если same text был отправлен
     // < 3 сек назад → skip (защита от double-click submit / Enter+click race).
     const nowDup = Date.now();
@@ -1632,12 +1635,14 @@ export function FloatingConsultant() {
         } catch { /* оставляем r как был — ниже покажем ошибку */ }
       }
       if (!r.ok) {
+        debugLog(`[Chat] HTTP ошибка ${r.status} — fallback ответ`);
         setChatMsgs(m => [...m, { role: "bot", text: `Секунду не дозвонилась до сервера — напиши ещё раз, я тут 💜` }]);
         setChatSending(false);
         return;
       }
       const j = await r.json();
       if (j?.ok && j.reply) {
+        debugLog(`[Chat] reply получен (len=${j.reply.length}${j.proposedGeneration ? ", +proposeGen" : ""}${j.proposedRegistration ? ", +proposeReg" : ""})`);
         // Eugene 2026-05-14 Босс «паузы как человек». Задержка пропорциональная
         // длине ответа — имитирует «печатание». QR-кнопки появляются ещё позже.
         const delay = humanDelay(j.reply.length);
@@ -1849,6 +1854,7 @@ export function FloatingConsultant() {
       }
     } catch (e: any) {
       window.clearTimeout(timeoutId);
+      debugLog(`[Chat] ИСКЛЮЧЕНИЕ: ${e?.name || 'Error'} ${e?.message || ''}`);
       const msg = e?.name === "AbortError"
         ? "Думаю слишком долго — наверное, провайдер сегодня медленный. Повторим?"
         : "Сеть подвисла — попробуйте через секунду";

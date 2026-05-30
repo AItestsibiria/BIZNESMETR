@@ -4,6 +4,7 @@ import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { queryClient } from "@/lib/queryClient";
+import { debugLog } from "@/lib/debugLog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -3290,6 +3291,7 @@ export default function DashboardPage() {
   ];
 
   const handleTopup = async (amount: number) => {
+    debugLog(`[Payment] handleTopup amount=${amount} method=${topupMethod}`);
     setToppingUp(true);
     try {
       // method передаём в body — backend маппит в IncCurrLabel (BANK/SBP)
@@ -3297,6 +3299,7 @@ export default function DashboardPage() {
       const res = await apiRequest("POST", "/api/payment/create", { amount, method: topupMethod });
       const data = await res.json();
       if (data.paymentUrl) {
+        debugLog("[Payment] получен paymentUrl → редирект на Robokassa");
         // Запоминаем последний выбор для будущих платежей
         try { window.sessionStorage.setItem("topup_method", topupMethod); } catch {}
         // Redirect юзера в Robokassa. После оплаты:
@@ -3309,12 +3312,14 @@ export default function DashboardPage() {
       }
       // 503/4xx без paymentUrl — показываем понятную ошибку (раньше молча
       // снимали spinner и юзер ничего не видел).
+      debugLog(`[Payment] ОШИБКА создания платежа: ${data.message || 'no paymentUrl'}`);
       toast({
         title: "Не удалось создать платёж",
         description: data.message || "Попробуйте через минуту или напишите в поддержку.",
         variant: "destructive",
       });
     } catch (err: any) {
+      debugLog(`[Payment] исключение topup: ${err?.message || String(err)}`);
       toast({ title: "Ошибка", description: err.message || "Сетевая ошибка", variant: "destructive" });
     } finally {
       setToppingUp(false);

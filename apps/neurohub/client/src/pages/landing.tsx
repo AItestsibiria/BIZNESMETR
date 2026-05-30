@@ -3381,7 +3381,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   чтоб юзер захотел нажать». Pulse каждые 15-20с на
                                   случайное видимое тело (не Земля). Brand gradient,
                                   pointer-events:none — не блокирует tap-to-fly. */}
-                              <TappableBodyPulse enabled={showGlobe} />
+                              {/* Босс 2026-05-30 «от кругов обещал уйти» — TappableBodyPulse
+                                  disabled (рисовал пульсирующие круги вокруг планет). */}
+                              {/* <TappableBodyPulse enabled={showGlobe} /> */}
                               {/* Босс 2026-05-30 (брутфорс, 4-й раз): ВИДИМЫЕ
                                   хитбоксы вокруг tappable планет/Луны/Солнца.
                                   onClick гарантированно dispatch'ит fly-to,

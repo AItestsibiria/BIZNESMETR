@@ -16,6 +16,7 @@ import { installUserJourney } from "./lib/user-journey";
 import { ErrorBoundary } from "./components/error-boundary";
 import { isChunkLoadError, reloadOnceForChunk } from "./lib/chunkReload";
 import { installAutoRecenter } from "./lib/autoRecenter";
+import { debugLog } from "./lib/debugLog";
 
 if (!window.location.hash) {
   window.location.hash = "#/";
@@ -74,6 +75,15 @@ try {
 // страницы (overscroll/случайный свайп вбок) — через 2с без взаимодействия
 // страница плавно центруется обратно. No-op если нет горизонтального overflow.
 try { installAutoRecenter(); } catch (e) { console.warn("[startup] installAutoRecenter failed", e); }
+
+// Eugene 2026-05-30 (Босс) «используй дебаг везде» — навигация (hash-роутинг wouter).
+// Активен только при ?debug=1 / localStorage muzaai-screen-debug=1.
+try {
+  debugLog(`[Nav] первичная загрузка: ${window.location.hash || "/"}`);
+  window.addEventListener("hashchange", () => {
+    debugLog(`[Nav] hash → ${window.location.hash}`);
+  });
+} catch (e) { /* no-op */ }
 
 // Eugene 2026-05-25 (Босс) — ТОТАЛЬНАЯ защита от чёрного экрана: оборачиваем
 // всё дерево App в top-level ErrorBoundary. Раньше boundary стоял только на

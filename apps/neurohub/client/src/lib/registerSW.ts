@@ -17,6 +17,8 @@
 // FIX: один раз после unregister'а делаем `location.reload()` со страховкой
 // от loop'а через localStorage flag `muzaai-sw-killed-v1`. После reload'а
 // flag установлен → больше не перезагружаемся → клиент работает на свежем JS.
+import { debugLog } from "./debugLog";
+
 export function registerServiceWorker(): void {
   if (typeof window === "undefined") return;
   if (!("serviceWorker" in navigator)) return;
@@ -31,6 +33,7 @@ export function registerServiceWorker(): void {
       navigator.serviceWorker.getRegistrations()
         .then((regs) => {
           hadRegistration = regs.length > 0;
+          if (hadRegistration) debugLog(`[SW] найдено регистраций: ${regs.length} → unregister`);
           regs.forEach((r) => { r.unregister().catch(() => {}); });
           // Чистим кэши параллельно.
           try {
@@ -47,6 +50,7 @@ export function registerServiceWorker(): void {
           // и мы ещё не делали kill'а в прошлой сессии.
           if (hadRegistration && !alreadyKilled) {
             try { window.localStorage?.setItem("muzaai-sw-killed-v1", "1"); } catch { /* no-op */ }
+            debugLog("[SW] kill-reload через 150мс (свежий JS-бандл)");
             // Небольшая задержка чтобы unregister успел зафиксироваться.
             window.setTimeout(() => { try { window.location.reload(); } catch { /* no-op */ } }, 150);
           }

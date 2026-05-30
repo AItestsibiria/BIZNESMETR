@@ -4,6 +4,7 @@ import { useAuth } from "@/lib/auth";
 import { startBgMusic, stopBgMusic } from "@/components/background-music";
 import { useLocation } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
+import { debugLog } from "@/lib/debugLog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -116,6 +117,7 @@ export default function LyricsPage() {
   }, [user?.id]);
 
   const handleGenerate = async () => {
+    debugLog(`[Lyrics] handleGenerate premium=${premiumEnabled}`);
     if (!user) {
       setShowInlineAuth(true);
       return;
@@ -133,6 +135,7 @@ export default function LyricsPage() {
       const endpoint = premiumEnabled ? "/api/lyrics/premium-generate" : "/api/lyrics/generate";
       const res = await apiRequest("POST", endpoint, { prompt, genre, style: genre, mood, language });
       const data = await res.json();
+      debugLog(`[Lyrics] текст готов (len=${(data?.lyrics || "").length})`);
       setResult(data.lyrics);
       if (premiumEnabled && Array.isArray(data.steps_used)) {
         setPremiumSteps(data.steps_used);
@@ -146,6 +149,7 @@ export default function LyricsPage() {
       });
     } catch (err: any) {
       const msg = String(err?.message || "");
+      debugLog(`[Lyrics] ОШИБКА: ${msg.slice(0, 80)}`);
       toast({
         title: "Ошибка",
         description: msg.includes("402") ? "Недостаточно средств. Пополните баланс." : msg,
