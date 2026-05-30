@@ -410,13 +410,18 @@ const SUN_FRAGMENT = SUN_NOISE + `
     // ── ГРАНУЛЫ NASA (~1500 км на Солнце, светлый центр + тёмные края). Worley:
     // 0 в центре ячейки, ~1 на границе. inv → 1 центр, 0 край → яркость гранулы.
     // Двигаются медленно (t·0.06) — конвекция «дышит».
-    float granD = worley3(p * 14.0 + vec3(0.0, 0.0, t * 0.06));
+    // Босс 2026-05-30 «Солнце дырявое»: ROOT CAUSE — высокий contrast гранул
+    // (0.80+0.30=0.50..1.10 разброс) + крупная сетка w(14) → на close-view
+    // выглядело как губка/решето. Fix: частота w(24) — мельче гранулы сливаются
+    // в сплошное свечение, contrast уполовинен (0.92+0.13=0.92..1.05) — лёгкая
+    // микро-фактура без «дыр».
+    float granD = worley3(p * 24.0 + vec3(0.0, 0.0, t * 0.06));
     float granule = 1.0 - smoothstep(0.05, 0.55, granD); // 1 центр, 0 край
-    // В центре гранулы — горячее +12% яркости, на тёмных краях −20% (мягче, sphere-like).
-    // Босс 2026-05-30: уменьшить contrast гранул, чтобы шар не казался плоским/овалом.
-    base *= 0.80 + 0.30 * granule;
+    base *= 0.92 + 0.13 * granule;
     // ── SUNSPOTS NASA (~3000 Гс, холодные участки 4000 °C vs 5500 °C среды).
     // 3 пятна разной формы, статичные на видимой полусфере. Sin/cos комбинация.
+    // Босс 2026-05-30 «дырявое»: пятна тоже выглядели как «дыры» при close-view.
+    // Снижено: mix до 0.45 (было 0.85), цвет umbra осветлён до 0.45 (был 0.18).
     vec3 sp1 = vec3( 0.55, 0.40, 0.70);
     vec3 sp2 = vec3(-0.45,-0.50, 0.75);
     vec3 sp3 = vec3( 0.20,-0.65,-0.30);
@@ -425,9 +430,9 @@ const SUN_FRAGMENT = SUN_NOISE + `
     float ds2 = exp(-pow(length(normalize(vPos) - sp2) * 6.0, 2.0));
     float ds3 = exp(-pow(length(normalize(vPos) - sp3) * 4.5, 2.0));
     float spotMask = max(max(ds1, ds2), ds3);
-    // Пятно: тёмное ядро (umbra) + чуть менее тёмная окантовка (penumbra).
-    vec3 umbraCol = vec3(0.18, 0.10, 0.06);
-    base = mix(base, umbraCol, spotMask * 0.85);
+    // Пятно: мягкая umbra (тёплый коричневый, не чёрный) + лёгкая интенсивность.
+    vec3 umbraCol = vec3(0.55, 0.38, 0.22);
+    base = mix(base, umbraCol, spotMask * 0.45);
     // ── LIMB DARKENING (NASA): на лимбе видны верхние холодные слои → темнее.
     vec3 viewDir = normalize(-vViewPos);
     vec3 N = normalize(vNormal);
@@ -435,17 +440,19 @@ const SUN_FRAGMENT = SUN_NOISE + `
     float fres = 1.0 - ndv;
     // ── 3D-ШАР (Босс 2026-05-30 «Солнце плоское»): усиленный Fresnel rim-darkening,
     // тёмный ободок к лимбу → форма читается как ШАР, не плоский диск.
-    // Степень 2.5 — резче падение к краю, mix до 55% яркости.
-    float rim = pow(fres, 2.5);
-    base *= mix(1.0, 0.55, rim);
+    // Степень 3.0 — мягче падение, mix до 0.62 (было 0.55) — body ярче на лимбе,
+    // но всё ещё плавно затухает (3D-форма читается без чёткой границы).
+    float rim = pow(fres, 3.0);
+    base *= mix(1.0, 0.62, rim);
     // Limb-darkening NASA поверх (мягкая теплая тонировка к лимбу).
-    base = mix(base, cOrange * 0.78, fres * 0.45);
+    base = mix(base, cOrange * 0.85, fres * 0.35);
     // ── Highlight «северо-восток» — горячий blob ближе к камере + чуть выше/правее.
     // Sphere normal в view-space, blob_dir = (0.35, 0.55, 1.0) → блик на 3D-форме.
     vec3 blobDir = normalize(vec3(0.35, 0.55, 1.0));
     float blob = pow(max(0.0, dot(N, blobDir)), 4.0);
     base += vec3(0.18, 0.14, 0.08) * blob;
-    base *= 1.12 + 0.12 * plasma;
+    base *= 1.18 + 0.12 * plasma; // base brightness up (Босс «дырявое» — без тёмных промежутков)
+    base = clamp(base, vec3(0.0), vec3(1.25)); // anti-burn cap
     // pn используется чтобы избежать unused-variable (нужно для GLSL strict).
     base *= 1.0 + 0.0 * pn;
     gl_FragColor = vec4(base, 1.0);
@@ -492,7 +499,7 @@ const SUN_CORONA_FRAGMENT = SUN_NOISE_2D + `
     // body занимал лишь r≈0..0.143 → юзер видел только плоский план. Plane
     // ужат до R×5 (см. coronaSize ниже), body теперь r≈0..0.20 (видим как ШАР),
     // короны fadeIn 0.20-0.32 → лучи прямо у лимба body без чёрного кольца.
-    if (r < 0.22) {
+    if (r < 0.18) {
       vec3 burstCol = mix(vec3(1.00, 0.92, 0.72), vec3(1.00, 1.00, 0.96), centerBurst);
       gl_FragColor = vec4(burstCol, centerBurst * 0.95);
       return;
@@ -501,9 +508,9 @@ const SUN_CORONA_FRAGMENT = SUN_NOISE_2D + `
     float ang = atan(c.y, c.x);
     float t = uTime;
     // ── EUV ободок (NASA: корона ~2 млн °C, светится в крайнем UV — голубоватый
-    // горячий свет у самого лимба, СРАЗУ за телом). 0.20-0.30 — прямо у body
-    // (Босс 2026-05-30: corona-plane уменьшен до R×5 → body r≈0..0.20).
-    float euvBand = smoothstep(0.20, 0.24, r) * (1.0 - smoothstep(0.26, 0.34, r));
+    // горячий свет у самого лимба, СРАЗУ за телом). 0.17-0.26 — прямо у body
+    // (Босс 2026-05-30 «дырявое»: corona-plane R×6 → body r≈0..0.166).
+    float euvBand = smoothstep(0.17, 0.20, r) * (1.0 - smoothstep(0.22, 0.28, r));
     vec3 euvCol = vec3(0.78, 0.92, 1.00);
     // ── КОРОНАЛЬНЫЕ ПЕТЛИ (NASA: плазма заперта в магнитных арках над активными
     // регионами). 3 предзаданных арки с лёгким мерцанием по времени (~0.3 Hz).
@@ -539,12 +546,11 @@ const SUN_CORONA_FRAGMENT = SUN_NOISE_2D + `
     // к Земле) → визуально шар выглядел овалом. Убрал из lenScale, оставил
     // только в brightScale — flare добавляет ТОЛЬКО яркость в направлении
     // камеры (как реальный lens-flare), длина лучей одинакова по окружности.
-    // Босс 2026-05-30 «Солнце плоское» — corona-plane ужат R×5 → body r≈0..0.20.
-    // Все радиальные значения смасштабированы ×0.71 (5/7) под новый размер.
+    // Босс 2026-05-30 «Солнце дырявое» — corona-plane R×6 → body r≈0..0.166.
+    // fadeIn короны прямо у лимба body (0.17-0.27) — без gap между шаром и лучами.
     float lenScale = 1.3 * uPulse + uSunsetBoost * 0.25;
     float maxR = clamp((0.30 + lenN * 0.85) * lenScale, 0.30, 1.55);
-    // fadeIn прямо у лимба body (0.20-0.32) — без чёрного gap между шаром и лучами.
-    float fadeIn  = smoothstep(0.20, 0.32, r);
+    float fadeIn  = smoothstep(0.17, 0.27, r);
     float fadeOut = 1.0 - smoothstep(maxR * 0.78, maxR, r);
     float profile = fadeIn * fadeOut;
     // Базовая brightScale = 1.65 (бывший пик) + pulse + flare поверх ×3.
@@ -592,10 +598,11 @@ function makeSunGroup(radius: number): { group: any; body: any; bodyMat: any; co
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
-    // План 5R × 5R: body занимает r≈0..0.20 (видим как ШАР, не плоский диск)
-    // — Босс 2026-05-30 «Солнце плоское» fix. Лучи до ~1.5R от лимба, что
-    // достаточно: длинные «языки» теряются в чёрном фоне, важна форма шара.
-    const coronaSize = radius * 5;
+    // План 6R × 6R: body занимает r≈0..0.166 (золотая середина — Босс 2026-05-30).
+    // R×5 делал body слишком крупным → close-view показывал гранулы как «дыры».
+    // R×7 был слишком плоским. R×6 — компромисс: 3D-шар читается, гранулы
+    // сливаются в свечение.
+    const coronaSize = radius * 6;
     const coronaGeo = new THREE.PlaneGeometry(coronaSize, coronaSize);
     const corona = new THREE.Mesh(coronaGeo, coronaMat);
     corona.renderOrder = 2; // поверх тела (тело depthWrite — сначала)
