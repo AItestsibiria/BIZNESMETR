@@ -308,8 +308,14 @@ function RollingNumber({ value }: { value: number }) {
 export function PlaysCounter({ className = "" }: { className?: string }) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [bumped, setBumped] = useState(0); // tick для growth-arrow анимации
+  // Босс 2026-05-30: «+100 прослушиваний → количество начинает моргать».
+  const [blinkMilestone, setBlinkMilestone] = useState(false);
   const prevTotalRef = useRef<number | null>(null);
   const [animEnabled, setAnimEnabled] = useState(true);
+  // Босс 2026-05-30: «на каждом зачётном прослушивании — пролёт ракеты
+  // вертикальный с пламенем, вдоль счётчика и в глубину космоса».
+  // sectionRef → координаты для launch-точки ракеты.
+  const sectionRef = useRef<HTMLElement | null>(null);
   const [permanentOff, setPermanentOff] = useState(false);
   // Eugene 2026-05-21 Босс: эквалайзеры реагируют на playback
   const [audioState, setAudioState] = useState<{ playing: boolean; tempoCls: "fast" | "medium" | "slow" }>({ playing: false, tempoCls: "medium" });
@@ -504,17 +510,52 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
     };
   }, []);
 
-  // === Milestone +1000 detection ===
+  // === Milestone +1000 detection + per-play rocket dispatch ===
   useEffect(() => {
     if (!animEnabled || stats == null) return;
     const prev = prevTotalRef.current;
     prevTotalRef.current = stats.totalPlays;
     if (prev == null || stats.totalPlays <= prev) return;
+    // Босс 2026-05-30: каждый рост счётчика → ракета (вдоль счётчика, в глубину).
+    // delta может быть >1 (polling каждые 60с) — спавним по одной за инкремент,
+    // но не более 5 (ограничение для performance / визуального шума).
+    try {
+      const delta = Math.min(5, stats.totalPlays - prev);
+      const sect = sectionRef.current;
+      const rect = sect ? sect.getBoundingClientRect() : null;
+      const startX = rect ? rect.left + rect.width / 2 : (typeof window !== "undefined" ? window.innerWidth / 2 : 200);
+      const startY = rect ? rect.bottom - 8 : (typeof window !== "undefined" ? window.innerHeight - 100 : 600);
+      for (let i = 0; i < delta; i++) {
+        const x = startX + (Math.random() * 60 - 30); // ±30px jitter вдоль счётчика
+        const y = startY;
+        setTimeout(() => {
+          try { window.dispatchEvent(new CustomEvent("muza:counter-up", { detail: { x, y } })); } catch { /* no-op */ }
+        }, i * 220);
+      }
+    } catch { /* no-op */ }
     try {
       const prevK = Math.floor(prev / 1000);
       const newK = Math.floor(stats.totalPlays / 1000);
       if (newK > prevK && newK > 0) {
         window.dispatchEvent(new CustomEvent("muza:milestone-1000", { detail: { milestone: newK * 1000 } }));
+      }
+    } catch {}
+    // Босс 2026-05-30: «когда +100 прослушиваний (например 3800) у юзера и у меня
+    // одновременно — количество прослушиваний моргает + усиленная ракета».
+    try {
+      const prevH = Math.floor(prev / 100);
+      const newH = Math.floor(stats.totalPlays / 100);
+      if (newH > prevH && newH > 0) {
+        const sect = sectionRef.current;
+        const rect = sect ? sect.getBoundingClientRect() : null;
+        const x = rect ? rect.left + rect.width / 2 : (typeof window !== "undefined" ? window.innerWidth / 2 : 200);
+        const y = rect ? rect.bottom - 8 : (typeof window !== "undefined" ? window.innerHeight - 100 : 600);
+        window.dispatchEvent(new CustomEvent("muza:milestone-100", {
+          detail: { milestone: newH * 100, x, y }
+        }));
+        // Blink цифр счётчика 2 сек.
+        setBlinkMilestone(true);
+        setTimeout(() => setBlinkMilestone(false), 2200);
       }
     } catch {}
   }, [stats?.totalPlays, animEnabled]);
@@ -539,6 +580,7 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
 
   return (
     <section
+      ref={sectionRef}
       // Eugene 2026-05-21 Босс «стилизуй под панель плеера + кнопка справа внизу
       // включает подсветку как на основном плеере». glass-card + brand glow когда
       // animEnabled=true (как btn-cosmic shimmer на CTA), off — простой glass.
@@ -556,6 +598,16 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
           100% { transform: translateY(0) scale(1); filter: brightness(1); }
         }
         .uc-num-bump { animation: uc-num-bump 700ms ease-out; }
+        /* Босс 2026-05-30: «+100 прослушиваний → количество моргает». */
+        @keyframes uc-milestone-blink {
+          0%, 100% { filter: brightness(1) drop-shadow(0 0 0 transparent); opacity: 1; }
+          15% { filter: brightness(2.2) drop-shadow(0 0 18px #FBBF24); opacity: 0.4; }
+          30% { filter: brightness(1) drop-shadow(0 0 0 transparent); opacity: 1; }
+          45% { filter: brightness(2.2) drop-shadow(0 0 18px #D946EF); opacity: 0.4; }
+          60% { filter: brightness(1) drop-shadow(0 0 0 transparent); opacity: 1; }
+          75% { filter: brightness(2.2) drop-shadow(0 0 18px #00D4FF); opacity: 0.4; }
+        }
+        .uc-milestone-blink { animation: uc-milestone-blink 2.2s ease-in-out; }
         @keyframes uc-growth-arrow {
           0% { transform: translateY(8px); opacity: 0; }
           40% { transform: translateY(-4px); opacity: 1; }
@@ -624,7 +676,7 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
             <span className="text-base leading-none mb-0.5" aria-hidden="true">🎧</span>
             <div
               key={`bump-${bumped}`}
-              className={`font-display font-bold text-2xl tracking-tight leading-none ${bumped > 0 ? "uc-num-bump" : ""}`}
+              className={`font-display font-bold text-2xl tracking-tight leading-none ${bumped > 0 ? "uc-num-bump" : ""} ${blinkMilestone ? "uc-milestone-blink" : ""}`}
               style={{ fontVariantNumeric: "tabular-nums" }}
             >
               <RollingNumber value={total} />
