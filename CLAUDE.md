@@ -2237,6 +2237,40 @@ Anti-pattern:
 
 Reference: lockscreen.ts `setPlayerVolume`, landing.tsx volume useEffect + playTrack.
 
+### Brand-name-uniform rule (Eugene 2026-05-30)
+
+**Имя бренда «MuzaAi» в UI ВСЕГДА через переиспользуемый компонент `<BrandName />` — единый стиль `font-display font-bold` + brand-gradient `from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent`, независимо от контекста. Не вводить inline дубли с другими стилями.**
+
+Цитата Босса 2026-05-30: «Написание Muza Ai всегда во всем проекте. Пишется одинаково с градиентом своим даже если контекст другой это вид бренда».
+
+Реализация:
+- Компонент `apps/neurohub/client/src/components/brand-name.tsx`:
+  ```tsx
+  export function BrandName({ className = "" }: { className?: string }) {
+    return (
+      <span className={`font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent ${className}`}>
+        MuzaAi
+      </span>
+    );
+  }
+  ```
+- Применяется в JSX везде где имя бренда видно юзеру: шапки страниц, footer'ы, плеер слоганы, news-карточки, modals, плагины, splash, hero h1.
+
+Исключения (остаётся plain `MuzaAi`):
+- `<title>` document HTML head (text-only контекст)
+- alt атрибуты `<img alt="...">`
+- JSON-payload meta для api / analytics
+- URL и domain (`muzaai.ru`)
+- console.log / audit-log / commit messages
+- Email-шаблоны (HTML email клиенты не рендерят gradient text consistently)
+- ID3-tag mp3 (тоже plain text)
+
+Audit при code review: `grep -rn "MuzaAi" apps/neurohub/client/src/{pages,components}/ | grep -v 'BrandName\|alt=\|title=\|document.title\|<title>\|JSON\|<!--'` — все live JSX упоминания «MuzaAi» должны быть через `<BrandName />`.
+
+Применяется к: всем будущим UI правкам. Не применяется к: уже стабильным страницам в production где правка может вызвать регрессию — только при следующем касании этого блока (incremental migration).
+
+Связано с: Brand-style consistency rule (palette + fonts), MuzaAi.ru-since-150526 rule (домен), Unified-back-share-buttons rule (тот же pattern переиспользуемых компонентов).
+
 ### Globe-swipe-only-on-stars rule (Eugene 2026-05-30)
 
 **В 3D-режиме globe-area: горизонтальный свайп переключает треки ТОЛЬКО если стартовая точка касания НЕ на планете. На планете свайпа НЕТ — там вращение через OrbitControls.**
