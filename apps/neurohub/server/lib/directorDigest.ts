@@ -189,7 +189,7 @@ export async function collectDigestData(opts?: { fresh?: boolean }): Promise<Dig
   // Генерации (gen-lifecycle)
   try {
     const mod = await import("./genLifecycleAgent");
-    const s = mod.getStats();
+    const s = mod.getGenLifecycleStats();
     d.generations.escalated = s.escalated || 0;
   } catch {}
   d.generations.stuck = one(`SELECT COUNT(*) c FROM generations WHERE status='processing' AND datetime(created_at) < datetime('now','-10 minutes')`)?.c || 0;
@@ -235,10 +235,10 @@ export async function collectDigestData(opts?: { fresh?: boolean }): Promise<Dig
   d.business.activeSubscriptions = one(`SELECT COUNT(*) c FROM premium_subscriptions WHERE status='active'`)?.c || 0;
   d.business.visitors24h = one(`SELECT COUNT(DISTINCT ip) c FROM gen_activity WHERE datetime(created_at) > datetime('now','-24 hours')`)?.c || 0;
 
-  // Почтальон (email) — Postman-core rule. getStats sync, never-throw.
+  // Почтальон (email) — Postman-core rule. getPostmanStats sync, never-throw.
   try {
-    const { getStats } = await import("./postmanAgent");
-    const s = getStats();
+    const { getPostmanStats } = await import("./postmanAgent");
+    const s = getPostmanStats();
     d.email = {
       activeSubs: s.subscribers.active,
       pending: s.subscribers.pending,

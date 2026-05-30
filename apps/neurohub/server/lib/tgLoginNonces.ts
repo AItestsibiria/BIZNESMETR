@@ -89,7 +89,9 @@ export function hasValidNonce(nonce: string): boolean {
 }
 
 // Cleanup expired nonces — вызывается periodically.
-export function cleanupExpired(): number {
+// Eugene 2026-05-30: переименовано из `cleanupExpired` → `cleanupExpiredTgNonces`
+// чтобы устранить duplicate-symbol с `blockedEntities.cleanupExpired`.
+export function cleanupExpiredTgNonces(): number {
   let removed = 0;
   const now = Date.now();
   for (const [k, v] of nonces.entries()) {
@@ -101,7 +103,7 @@ export function cleanupExpired(): number {
   return removed;
 }
 
-setInterval(() => cleanupExpired(), 5 * 60 * 1000).unref();
+setInterval(() => cleanupExpiredTgNonces(), 5 * 60 * 1000).unref();
 
 function randomHex(bytes: number): string {
   const arr = new Uint8Array(bytes);

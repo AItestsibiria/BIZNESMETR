@@ -579,7 +579,11 @@ export interface PostmanStats {
   inbox: { total: number; unhandled: number; byCategory: Record<string, number> };
 }
 
-export function getStats(): PostmanStats {
+/**
+ * Eugene 2026-05-30: переименовано из `getStats` → `getPostmanStats`
+ * чтобы устранить duplicate-symbol с `genLifecycleAgent.getStats`.
+ */
+export function getPostmanStats(): PostmanStats {
   ensurePostmanTables();
   const s = sqlite();
   const one = (q: string, ...a: any[]): any => { try { return s.prepare(q).get(...a); } catch { return null; } };
@@ -763,7 +767,7 @@ export function listInbox(limit = 50, category?: string): InboxItem[] {
 /** healthCheck-probe для Директора: настроен ли SMTP + размер очереди/база. */
 export function postmanHealth(): { ok: boolean; details: Record<string, unknown> } {
   const smtpConfigured = !!(process.env.SMTP_PASS || process.env.GMAIL_APP_PASSWORD);
-  const stats = getStats();
+  const stats = getPostmanStats();
   return {
     ok: smtpConfigured,
     details: {

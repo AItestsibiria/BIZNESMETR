@@ -3413,8 +3413,8 @@ const HANDLERS: Record<string, ToolHandler> = {
   async postman_stats(_input, ctx) {
     if (!isAdminCtx(ctx)) return "Доступ запрещён: director tool admin-only.";
     try {
-      const { getStats } = await import("./postmanAgent");
-      const s = getStats();
+      const { getPostmanStats } = await import("./postmanAgent");
+      const s = getPostmanStats();
       const sup = s.subscribers.unsubscribed + s.subscribers.bounced + s.subscribers.complained;
       const cats = Object.entries(s.inbox.byCategory).map(([k, v]) => `${k}: ${v}`).join(", ") || "нет";
       return (

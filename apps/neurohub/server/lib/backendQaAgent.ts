@@ -316,6 +316,29 @@ function detectDuplicateSymbols(ctx: ScanContext, out: RawFinding[]): void {
 
 // ---- 3) Лишнее (best-effort): экспорт нигде не импортируется ----
 
+/**
+ * Eugene 2026-05-30: anti-false-positive эвристики для possibly-dead-export.
+ * Старая версия ловила только статический `import` и давала ~107 ложных
+ * срабатываний. Добавлены 2 источника «транзитивной» достижимости:
+ *
+ *   (1) ДИНАМИЧЕСКИЕ ИМПОРТЫ. Если где-то в репо есть
+ *       `await import("./lib/X")` / `import("../lib/X").then(...)` —
+ *       весь файл X считаем reachable (его символы достаются через
+ *       свойство модуля по имени → статический grep этого не видит).
+ *       Эвристика: собираем basenames всех dynamic-import целей и
+ *       помечаем файлы с совпадающим basename как «reachable transitively».
+ *
+ *   (2) РЕЕСТРЫ ТУЛОВ / АГЕНТОВ. Имена экспортов часто живут как
+ *       строковые литералы в `lib/chatGenerationTools.ts`,
+ *       `lib/muzaTools.ts`, `lib/agentOrchestrator.ts` (tool name / agent id /
+ *       handler key). Если имя символа встречается как substring в одном
+ *       из этих файлов — считаем его reachable.
+ *
+ * Обе эвристики ДОБАВЛЯЮТСЯ к существующей статической проверке (не
+ * заменяют её), и работают «в сторону безопасности» — лучше ложно
+ * скрыть подозреваемого, чем удалить живой код (Pre-push critical review
+ * rule, деструктив).
+ */
 function detectPossiblyDeadExports(ctx: ScanContext, out: RawFinding[]): void {
   try {
     // Собираем все экспортируемые символы lib/ (точечный best-effort, чтобы
@@ -326,10 +349,26 @@ function detectPossiblyDeadExports(ctx: ScanContext, out: RawFinding[]): void {
     const haystack = Array.from(ctx.contents.values()).join("\n");
     const clientHaystack = readClientHaystack(ctx.serverRoot);
 
+    // Эвристика (1): basenames всех dynamic-import целей по всему repo.
+    // Совпавший basename → файл считается transitively reachable, его
+    // экспорты SKIP'аются из dead-list.
+    const dynamicallyLoadedBasenames = collectDynamicImportBasenames(haystack, clientHaystack);
+
+    // Эвристика (2): contents tool/agent-реестров (как один haystack).
+    // Имя символа как substring → reachable.
+    const registryHaystack = collectRegistryHaystack(ctx);
+
     let scanned = 0;
     for (const file of ctx.files) {
       const rel = path.relative(ctx.serverRoot, file).replace(/\\/g, "/");
       if (!rel.startsWith("lib/")) continue; // best-effort scope
+
+      // (1) Эвристика basename: если файл достаётся через await import("…/<basename>")
+      // — весь его экспорт может быть прочитан через property access на
+      // возвращённом модуле, мы это не увидим статически → SKIP.
+      const baseNoExt = path.basename(file).replace(/\.ts$/, "");
+      if (dynamicallyLoadedBasenames.has(baseNoExt)) continue;
+
       const src = ctx.contents.get(file) || "";
       exportRe.lastIndex = 0;
       let m: RegExpExecArray | null;
@@ -345,8 +384,14 @@ function detectPossiblyDeadExports(ctx: ScanContext, out: RawFinding[]): void {
         const wordRe = new RegExp(`\\b${escapeRe(sym)}\\b`, "g");
         const usesServer = countMatchesExcludingFile(haystack, wordRe, src);
         const usesClient = clientHaystack ? (clientHaystack.match(wordRe)?.length || 0) : 0;
+
+        // (2) Эвристика реестра: имя символа фигурирует в tools/agents-
+        // реестрах (как часть string literal или handler key) → SKIP.
+        const inRegistry =
+          registryHaystack && registryHaystack.indexOf(sym) >= 0;
+
         // 1 вхождение = только само объявление. 0 внешних → возможно мёртвый.
-        if (usesServer <= 0 && usesClient <= 0) {
+        if (usesServer <= 0 && usesClient <= 0 && !inRegistry) {
           out.push({
             kind: "possibly-dead-export",
             theme: themeForPath(ctx.serverRoot, file),
@@ -363,6 +408,56 @@ function detectPossiblyDeadExports(ctx: ScanContext, out: RawFinding[]): void {
   } catch (e) {
     console.warn("[Бэк] detectPossiblyDeadExports failed:", e);
   }
+}
+
+/**
+ * Eugene 2026-05-30: собираем basenames всех целей dynamic-import по
+ * server + client haystack. Ловим:
+ *   await import("./foo")
+ *   await import("../lib/foo")
+ *   import("./foo").then(...)
+ *   import('@/lib/foo')
+ * Возвращаем Set basename'ов БЕЗ расширения (`foo` для `./lib/foo`).
+ */
+function collectDynamicImportBasenames(serverHay: string, clientHay: string): Set<string> {
+  const out = new Set<string>();
+  const re = /\bimport\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g;
+  const scan = (s: string): void => {
+    if (!s) return;
+    re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(s)) !== null) {
+      const spec = String(m[1] || "");
+      // Берём только путевые спецификаторы — относительные ./ ../ или
+      // alias @/. node:/npm-пакеты не интересуют (там не наш код).
+      if (!/^[./@]/.test(spec)) continue;
+      const base = path.basename(spec).replace(/\.(t|j)sx?$/, "");
+      if (base) out.add(base);
+    }
+  };
+  scan(serverHay);
+  scan(clientHay);
+  return out;
+}
+
+/**
+ * Eugene 2026-05-30: реестры тулов/агентов — `chatGenerationTools.ts`,
+ * `muzaTools.ts`, `agentOrchestrator.ts`. Имена handler'ов / tool-name /
+ * agent-id живут в этих файлах как property keys / string literals.
+ * Конкатенируем их содержимое в один haystack и потом делаем substring-
+ * lookup для каждого подозреваемого символа.
+ */
+function collectRegistryHaystack(ctx: ScanContext): string {
+  const targets = ["lib/chatGenerationTools.ts", "lib/muzaTools.ts", "lib/agentOrchestrator.ts"];
+  const parts: string[] = [];
+  for (const rel of targets) {
+    const full = path.join(ctx.serverRoot, rel);
+    const cached = ctx.contents.get(full);
+    if (typeof cached === "string" && cached.length > 0) {
+      parts.push(cached);
+    }
+  }
+  return parts.join("\n");
 }
 
 function escapeRe(s: string): string {

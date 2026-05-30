@@ -31,7 +31,7 @@ import {
   confirmOptIn,
   unsubscribeByToken,
   sendCampaign,
-  getStats,
+  getPostmanStats,
   listConsents,
   listInbox,
   type ConsentChannel,
@@ -177,7 +177,7 @@ adminRouter.use(requireAdmin);
 // GET /api/admin/v304/postman/stats
 adminRouter.get("/postman/stats", (_req: Request, res: Response) => {
   try {
-    res.json({ data: getStats(), error: null });
+    res.json({ data: getPostmanStats(), error: null });
   } catch (e: any) {
     res.status(500).json({ data: null, error: "Не удалось получить статистику" });
   }

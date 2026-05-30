@@ -310,8 +310,11 @@ export function listBlocked(filter: ListFilter = {}): BlockedEntityRow[] {
 /**
  * Cleanup expired blocks — переводит active=0 для строк с expired expires_at.
  * Запускается каждый час по cron (см. startCleanupCron ниже).
+ *
+ * Eugene 2026-05-30: переименовано из `cleanupExpired` → `cleanupExpiredBlocks`
+ * чтобы устранить duplicate-symbol с `tgLoginNonces.cleanupExpired`.
  */
-export function cleanupExpired(): number {
+export function cleanupExpiredBlocks(): number {
   const r = sqliteDb
     .prepare(`UPDATE blocked_entities SET active = 0
               WHERE active = 1 AND expires_at IS NOT NULL AND expires_at <= ?`)
@@ -441,7 +444,7 @@ function startCleanupCron(): void {
   if (_cleanupTimer) return;
   _cleanupTimer = setInterval(() => {
     try {
-      const n = cleanupExpired();
+      const n = cleanupExpiredBlocks();
       if (n > 0) console.log(`[blockedEntities] cleanup: ${n} expired blocks deactivated`);
     } catch {}
   }, 3600_000);

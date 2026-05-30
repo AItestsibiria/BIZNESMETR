@@ -9,7 +9,7 @@
 // Pre-edit analysis:
 //  - Reuse-working-solutions rule: используем existing
 //    * `orchestrator.summary()` + `list()` + `getLastHealth()`
-//    * `getStats()` из genLifecycleAgent
+//    * `getGenLifecycleStats()` из genLifecycleAgent
 //    * `getMarketingStats()` + `getDengaAgentStats()`  (lazy import — избегаем циклов)
 //    * `synthesizeYandexTts()` для аудио
 //    * `getPeriodRange()` из periodBoundaries (Period-20-MSK rule)
@@ -115,7 +115,7 @@ async function buildSections(): Promise<DirectorReportSections> {
   // Gen-lifecycle stats
   try {
     const mod = await import("./genLifecycleAgent");
-    const stats = mod.getStats();
+    const stats = mod.getGenLifecycleStats();
     sections.genLifecycle = {
       totalTracked: stats.totalTracked,
       recovered: stats.recovered,

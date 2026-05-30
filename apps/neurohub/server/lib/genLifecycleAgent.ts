@@ -542,8 +542,13 @@ function safeParse(s: string): Record<string, unknown> | undefined {
 
 /**
  * Stats для healthCheck + admin dashboard.
+ *
+ * Eugene 2026-05-30: переименовано из `getStats` → `getGenLifecycleStats`
+ * чтобы устранить duplicate-symbol с `postmanAgent.getStats`. Старое имя
+ * остаётся доступным через singleton `genLifecycleAgent.getStats` (см. ниже)
+ * для обратной совместимости вызовов через объект-агрегатор.
  */
-export function getStats(): AgentStats {
+export function getGenLifecycleStats(): AgentStats {
   return { ...STATS, bySinceTs: { ...STATS.bySinceTs } };
 }
 
@@ -571,7 +576,7 @@ export const genLifecycleAgent = {
   attemptAutoRecover,
   getReport,
   getReportFromDb,
-  getStats,
+  getStats: getGenLifecycleStats,
   classifyError,
   canRetry,
 };
