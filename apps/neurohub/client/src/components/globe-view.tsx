@@ -1840,7 +1840,11 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           aiInitDone = true;
         }
         const user = userLatLngRef.current || fallbackTarget();
-        const panoAlt = OVERVIEW_ALTITUDE;
+        // Босс 2026-05-30: «действия пользователя также учитывают зум любым способом,
+        // сцена продолжается по правилу». После rebase (rotate/pinch/wheel) — юзерский
+        // altitude становится новым panoAlt. Сценарий cycle_pano/return тянется к нему,
+        // а не возвращает к жёсткому OVERVIEW_ALTITUDE.
+        const panoAlt = zoomTargetRef.current ?? OVERVIEW_ALTITUDE;
 
         if (now < aiResumeAtRef.current) {
           // Пауза после user-rotate: драфт от его ракурса (cruise после rebase).
@@ -2361,10 +2365,12 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
               const pov = globeRef.current?.pointOfView?.();
               if (pov && gestureStartPov) {
                 const dLng = Math.abs(((pov.lng - gestureStartPov.lng + 540) % 360) - 180);
+                // Босс 2026-05-30: «зум любым способом» — снижен порог altitude
+                // (0.02→0.005), чтобы даже малый pinch/scroll считался действием.
                 moved =
                   Math.abs(pov.lat - gestureStartPov.lat) > 0.4 ||
                   dLng > 0.4 ||
-                  Math.abs(pov.altitude - gestureStartPov.altitude) > 0.02;
+                  Math.abs(pov.altitude - gestureStartPov.altitude) > 0.005;
               }
             } catch {
               moved = true;
