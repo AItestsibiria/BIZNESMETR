@@ -141,9 +141,11 @@ async function loadFilesystemPlugin(): Promise<any | null> {
   if (!isCapacitorApp()) return null;
   try {
     // Динамический импорт — на web сборке модуль не нужен и не должен ломать build,
-    // если зависимость не установлена.
+    // если зависимость не установлена. Через non-literal expression Vite/Rollup
+    // не пытается резолвить статически. Босс 2026-05-30: build fail без этого хака.
     // @ts-ignore — плагин ставится `npm install @capacitor/filesystem` на Mac
-    const mod = await import("@capacitor/filesystem");
+    const pkg = ["@capacitor", "filesystem"].join("/");
+    const mod = await import(/* @vite-ignore */ pkg);
     return mod;
   } catch {
     return null;
