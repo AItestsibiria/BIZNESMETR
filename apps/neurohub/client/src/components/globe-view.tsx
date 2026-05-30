@@ -1190,6 +1190,14 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     let departAt = 0;
     const cruise = { lat: startLat, alt: CRUISE_ALTITUDE };
     let cruiseStartT = 0; // старт круиза — для «1 круг, далее по параллелям»
+    // Сценарий Полёт Ai (Босс 2026-05-29 «1 сценой → подлёт → пролёт+флаг → возврат → ×2 → параллели»):
+    // pano (2с, Солнце+Луна+Земля в кадре) → подлёт к юзеру → пролёт+флаг 3с → возврат на pano
+    // → ×2 цикла → облёт по параллелям сверху-вниз (|lat|≤50, без полюсов). Долгота всегда у
+    // userLng — страна юзера видна в кадре всегда (правило «земля крутится в позиции где видно страну»).
+    let aiSubPhase: "" | "pano" | "fly" | "pass" | "return" | "sweep" = "";
+    let aiPhaseStartT = 0;
+    let aiCycleCount = 0;
+    let lastFlightMode: "classic" | "ai" = flightModeRef.current;
     const sessionSeed = Math.floor(Math.random() * 997); // «каждый раз по-новому» (многовариантность с 3-го круга)
     // Повтор моргания на КАЖДОМ проходе геолокации (Босс 2026-05-29) — без смены
     // фокуса камеры: при входе точки во фронт перезапускаем Морзе с начала.
@@ -1490,34 +1498,83 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         cruise.alt += (tgt - cruise.alt) * 0.04;
         alt = cruise.alt;
       } else {
-        // ПОЛЁТ Ai — СЦЕНА-РЕЖИССЁР (Босс 2026-05-29 «многовариантность пролётов»).
-        // Круговое движение всегда в ОДНУ сторону. ОБЯЗАТЕЛЬНЫЕ точки каждый раз:
-        //   ПРОЛЁТ 1 (круг 0) — Солнце на ЭКВАТОРЕ: вход справа → выход слева (восток→запад);
-        //   ПРОЛЁТ 2 (круг 1) — КОРОНА Солнца у верхнего лимба (половина над Землёй).
-        // Далее (круг 2+) — многовариантность, НОВОЕ каждый раз (sessionSeed). Полюса
-        // НЕ показываем явно авто-движением (|lat| ≤ 50). Вмешательство юзера — через rebase.
-        const deg = (GLOBAL_DRIFT_DEG_S * (now - cruiseStartT)) / 1000;
-        const circle = Math.floor(deg / 360);
-        let sceneLat = cruise.lat;
-        if (circle === 0) {
-          sceneLat = 0; // ПРОЛЁТ 1: экватор (Солнце справа→налево, восток→запад)
-        } else if (circle === 1) {
-          let sLat = 10;
-          try { sLat = subsolarPoint(Date.now())[1]; } catch { /* no-op */ }
-          sceneLat = sLat - 70; // ПРОЛЁТ 2: субсолярная к верхнему лимбу → корона Солнца
-        } else {
-          // Многовариантность: каждый круг/сессия — свой наклон (новое каждый раз).
-          const k = (circle - 2) * 53 + sessionSeed;
-          sceneLat = (((k % 92) + 92) % 92 - 46) * 0.92; // ±~42°, без полюсов
+        // ПОЛЁТ Ai — НОВЫЙ сценарий (Босс 2026-05-29):
+        // pano(2с, Солнце+Луна+Земля) → подлёт к юзеру → пролёт+флаг 3с → возврат на pano
+        // → ×2 цикла → облёт по параллелям сверху-вниз (|lat|≤50, без полюсов).
+        // Долгота камеры ВСЕГДА = userLng → страна юзера в кадре во всех фазах
+        // (правило «земля крутится в позиции где видно страну юзера»).
+        if (flightModeRef.current !== lastFlightMode) {
+          aiSubPhase = "";
+          aiCycleCount = 0;
+          lastFlightMode = flightModeRef.current;
         }
-        sceneLat = Math.max(-50, Math.min(50, sceneLat));
-        cruise.lat += (sceneLat - cruise.lat) * 0.008; // плавно ведём широту к сцене
-        lat = Math.max(-52, Math.min(52, cruise.lat));
-        const tgt = zoomTargetRef.current ?? CRUISE_ALTITUDE;
-        cruise.alt += (tgt - cruise.alt) * 0.1;
-        // Диагональное приближение/удаление (Босс): лёгкое «дыхание» высоты + смена широты.
-        const tt = (now - cruiseStartT) / 1000;
-        alt = Math.max(2.4, cruise.alt + 0.28 * Math.sin(tt * 0.03));
+        if (aiSubPhase === "") {
+          aiSubPhase = "pano";
+          aiPhaseStartT = now;
+          aiCycleCount = 0;
+        }
+        const user = userLatLngRef.current || fallbackTarget();
+        const phaseT = now - aiPhaseStartT;
+        let sLatA = 0, mLatA = 0;
+        try { sLatA = subsolarPoint(Date.now())[1]; } catch { /* no-op */ }
+        try { mLatA = subLunarPoint(Date.now())[1]; } catch { /* no-op */ }
+        const panoLat = Math.max(-45, Math.min(45, (sLatA + mLatA) / 2));
+        const panoAlt = OVERVIEW_ALTITUDE; // высокий обзор — оба светила в кадре
+        const tgtAlt = zoomTargetRef.current ?? CRUISE_ALTITUDE;
+
+        if (aiSubPhase === "pano") {
+          // Pano 2с: камера у userLng (страна юзера видна), широта = средняя
+          // подсолярной/подлунной (Солнце и Луна в кадре), Солнце справа когда оно
+          // астрономически восточнее юзера.
+          lat = panoLat;
+          lng = user.lng;
+          alt = panoAlt;
+          if (phaseT >= 2000) { aiSubPhase = "fly"; aiPhaseStartT = now; }
+        } else if (aiSubPhase === "fly") {
+          // Плавный подлёт от pano к точке юзера: широта pano→user, высота OVERVIEW→ARRIVE.
+          // Долгота остаётся у userLng (страна юзера всегда в центре).
+          const p = Math.min(1, phaseT / FLY_MS);
+          const e = easeInOutCubic(p);
+          lat = panoLat + (user.lat - panoLat) * e;
+          lng = user.lng;
+          alt = panoAlt + (ARRIVE_ALTITUDE - panoAlt) * e;
+          if (p >= 1) {
+            aiSubPhase = "pass";
+            aiPhaseStartT = now;
+            // Активируем точку+флаг 3 сек у геолокации юзера.
+            winkAnchorRef.current = { lat: user.lat, lng: user.lng };
+            winkActiveRef.current = true;
+            flagShownAt = now;
+            morseWordRef.current = "MUZA";
+          }
+        } else if (aiSubPhase === "pass") {
+          // Пролёт над страной юзера — держим над точкой 3с (флаг сам погаснет).
+          lat = user.lat;
+          lng = user.lng;
+          alt = ARRIVE_ALTITUDE;
+          if (phaseT >= 3000) { aiSubPhase = "return"; aiPhaseStartT = now; }
+        } else if (aiSubPhase === "return") {
+          // Возврат на панорамную точку (та же камера-позиция: userLng + panoLat + OVERVIEW).
+          const p = Math.min(1, phaseT / 3500);
+          const e = easeInOutCubic(p);
+          lat = user.lat + (panoLat - user.lat) * e;
+          lng = user.lng;
+          alt = ARRIVE_ALTITUDE + (panoAlt - ARRIVE_ALTITUDE) * e;
+          if (p >= 1) {
+            aiCycleCount += 1;
+            if (aiCycleCount >= 2) { aiSubPhase = "sweep"; aiPhaseStartT = now; }
+            else { aiSubPhase = "pano"; aiPhaseStartT = now; }
+          }
+        } else {
+          // sweep: облёт по параллелям |lat|≤50, без полюсов. Долгота у userLng (страна
+          // юзера в кадре, лёгкое качание ±15° для движения). Период ≈30с.
+          const tt = phaseT / 1000;
+          lat = 50 * Math.sin((tt / 30) * 2 * Math.PI);
+          lat = Math.max(-50, Math.min(50, lat));
+          lng = user.lng + 15 * Math.sin((tt / 22) * 2 * Math.PI);
+          cruise.alt += (tgtAlt - cruise.alt) * 0.04;
+          alt = Math.max(2.4, cruise.alt);
+        }
       }
 
       try {
