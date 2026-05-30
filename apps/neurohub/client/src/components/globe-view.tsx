@@ -267,45 +267,9 @@ type DayNightMaterial = {
 // Фазовый шейдер Луны (Босс 2026-05-29: «Луна по правилам астрономии отражает
 // солнце, обратная в тени»). Освещённость фрагмента = dot(мировая нормаль,
 // направление на Солнце): сторона к Солнцу светлая, противоположная — в тени.
-// Видимая фаза (серп/половина/полнолуние) возникает естественно из геометрии.
-const MOON_VERTEX = `
-  varying vec3 vWorldNormal;
-  void main() {
-    vWorldNormal = normalize(mat3(modelMatrix) * normal);
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
-`;
-const MOON_FRAGMENT = `
-  uniform vec3 sunDir; // единичный вектор НА Солнце (мировые координаты)
-  varying vec3 vWorldNormal;
-  void main() {
-    float i = dot(normalize(vWorldNormal), normalize(sunDir));
-    float lit = smoothstep(-0.08, 0.12, i);   // мягкий терминатор Луны
-    // Босс 2026-05-30: «Луна отражает цвет солнца в базе» — NASA Sun-color D65.
-    // Альбедо Луны 0.12 — серый, но отражает спектр Sun = бело-кремовый.
-    vec3 litCol  = vec3(0.96, 0.96, 0.93);    // отражённый Sun D65
-    vec3 darkCol = vec3(0.025, 0.025, 0.035); // тень + лёгкий earthshine
-    gl_FragColor = vec4(mix(darkCol, litCol, lit), 1.0);
-  }
-`;
-
-// Солнце (Босс 2026-05-30): 3D-сфера с плазменным шейдером (огненная поверхность,
-// гранулы, горячие пятна) + внешняя «корона» из анимированного шума на лимбе —
-// короткие переменные «лучи‑языки пламени», не длинный starburst. Референс — фото
-// солнечного диска с короной по краю.
-const SUN_VERTEX = `
-  varying vec3 vNormal;
-  varying vec3 vPos;
-  varying vec3 vViewPos;
-  void main() {
-    vNormal = normalize(normalMatrix * normal);
-    vPos = position;
-    vec4 mv = modelViewMatrix * vec4(position, 1.0);
-    vViewPos = mv.xyz;
-    gl_Position = projectionMatrix * mv;
-  }
-`;
-// Common noise helpers (используются в обоих шейдерах Солнца).
+// Шум-хелперы для шейдеров (Sun + Moon + потенциальные планеты).
+// hash3/noise3/fbm3 — fractal Brownian motion для плазмы.
+// worley3 — cellular distance для гранул и кратеров (Босс 2026-05-30 NASA-стиль).
 const SUN_NOISE = `
   float hash3(vec3 p) {
     p = fract(p * vec3(443.8975, 397.2973, 491.1871));
@@ -325,10 +289,6 @@ const SUN_NOISE = `
     for (int i = 0; i < 5; i++) { v += a * noise3(p); p *= 2.0; a *= 0.5; }
     return v;
   }
-  // Worley/cellular distance (2×2×2 grid — компромисс качества и mobile-perf).
-  // Возвращает расстояние до ближайшей точки = 0 в центре ячейки, ~1 на границе.
-  // Используем для гранул NASA: ~1500 км на Солнце, светлый центр (восходящая
-  // плазма), тёмные края (нисходящая).
   float worley3(vec3 p) {
     vec3 i = floor(p);
     vec3 f = fract(p);
@@ -350,6 +310,71 @@ const SUN_NOISE = `
     return sqrt(md);
   }
 `;
+
+// Видимая фаза (серп/половина/полнолуние) возникает естественно из геометрии.
+const MOON_VERTEX = `
+  varying vec3 vWorldNormal;
+  varying vec3 vPos;
+  void main() {
+    vWorldNormal = normalize(mat3(modelMatrix) * normal);
+    vPos = position;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+const MOON_FRAGMENT = SUN_NOISE + `
+  uniform vec3 sunDir;
+  varying vec3 vWorldNormal;
+  varying vec3 vPos;
+  void main() {
+    float i = dot(normalize(vWorldNormal), normalize(sunDir));
+    float lit = smoothstep(-0.08, 0.12, i);
+    // Босс 2026-05-30: «Луна отражает цвет солнца в базе» — NASA Sun-color D65.
+    vec3 litCol  = vec3(0.96, 0.96, 0.93);    // отражённый Sun D65
+    vec3 darkCol = vec3(0.025, 0.025, 0.035); // тень + earthshine
+    vec3 base = mix(darkCol, litCol, lit);
+    // ── КРАТЕРЫ (NASA: ударные кратеры от метеоритов, разных размеров) ──
+    // 3 слоя Worley на разных масштабах: крупные «моря» / средние / мелкие.
+    vec3 p = normalize(vPos);
+    float c1 = worley3(p * 4.0);   // крупные кратеры (моря)
+    float c2 = worley3(p * 10.0);  // средние
+    float c3 = worley3(p * 22.0);  // мелкие
+    // Внутри cell — тень кратера (низменность), на границе — освещённый ободок.
+    float crater1 = smoothstep(0.0, 0.18, c1) * (1.0 - smoothstep(0.18, 0.40, c1));
+    float crater2 = smoothstep(0.0, 0.12, c2) * (1.0 - smoothstep(0.12, 0.30, c2));
+    float crater3 = smoothstep(0.0, 0.08, c3) * (1.0 - smoothstep(0.08, 0.18, c3));
+    // Mare (тёмные моря) — крупные тёмные «дискс» на видимой стороне.
+    float mareNoise = fbm3(p * 1.8);
+    float mare = smoothstep(0.55, 0.75, mareNoise);
+    // Тёмные ядра кратеров.
+    float shadow = max(crater1 * 0.6, max(crater2 * 0.45, crater3 * 0.35));
+    base *= 1.0 - shadow * 0.55 * lit; // тень видна на освещённой стороне
+    // Mare — холодный серо-синий оттенок (базальт после древних потоков лавы).
+    vec3 mareCol = vec3(0.42, 0.43, 0.48);
+    base = mix(base, mareCol, mare * lit * 0.45);
+    // Микро-вариация регалита (reзлит — рыхлая порода поверхности).
+    float regalith = fbm3(p * 35.0) * 0.06;
+    base *= 0.94 + regalith;
+    gl_FragColor = vec4(base, 1.0);
+  }
+`;
+
+// Солнце (Босс 2026-05-30): 3D-сфера с плазменным шейдером (огненная поверхность,
+// гранулы, горячие пятна) + внешняя «корона» из анимированного шума на лимбе —
+// короткие переменные «лучи‑языки пламени», не длинный starburst. Референс — фото
+// солнечного диска с короной по краю.
+const SUN_VERTEX = `
+  varying vec3 vNormal;
+  varying vec3 vPos;
+  varying vec3 vViewPos;
+  void main() {
+    vNormal = normalize(normalMatrix * normal);
+    vPos = position;
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    vViewPos = mv.xyz;
+    gl_Position = projectionMatrix * mv;
+  }
+`;
+// Common noise helpers (используются в обоих шейдерах Солнца).
 const SUN_FRAGMENT = SUN_NOISE + `
   uniform float uTime;
   varying vec3 vNormal;
@@ -1246,7 +1271,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // Режим полёта (Босс 2026-05-29): "ai" — многовариантная режиссура (Солнце/Земля/Луна);
   // "classic" — классический обзор Земли по параллели юзера, без диагональной режиссуры.
   // По умолчанию ВЕЗДЕ «Полёт» (classic); «Полёт Ai» включается кнопкой (Босс 2026-05-29).
-  const flightModeRef = useRef<"classic" | "ai">("classic");
+  const flightModeRef = useRef<"classic" | "ai" | "moon">("classic");
 
   const basePointsRef = useRef<GlobePoint[]>(points);
   useEffect(() => {
@@ -1476,7 +1501,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   useEffect(() => {
     const onFlight = (e: Event) => {
       const m = (e as CustomEvent).detail?.mode;
-      if (m === "classic" || m === "ai") {
+      if (m === "classic" || m === "ai" || m === "moon") {
         flightModeRef.current = m;
         holdRef.current = false; // новый вход в режим снимает удержание
       }
@@ -1558,7 +1583,12 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     let aiPanoLng = 0;           // вычисленная Pano lng (user + sun компромисс)
     let aiPanoLat = 0;           // Pano lat (средняя sun/moon, clamp ±45)
     let aiInitDone = false;      // первый кадр AI: lock Sun + compute Pano
-    let lastFlightMode: "classic" | "ai" = flightModeRef.current;
+    let lastFlightMode: "classic" | "ai" | "moon" = flightModeRef.current;
+    // ── Moon-tour state (Босс 2026-05-30 «облёт вокруг луны, посмотреть кратеры»):
+    // sub-phase: approach (8с) → orbit (30с, 1.5 круга) → return (8с) → classic.
+    let moonInitDone = false;
+    let moonStartT = 0;
+    let moonStartCamPos: { x: number; y: number; z: number } | null = null;
     // Босс 2026-05-30: плавность ВСЕХ переходов. Сохраняем lng/lat входа в continents,
     // чтобы первые 2.5с делать easeInOutCubic переход к новой траектории, без рывка.
     let aiContStartLng = 0;
@@ -1862,6 +1892,101 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           if (zoomTargetRef.current == null) zoomTargetRef.current = CRUISE_ALTITUDE;
           phase = "cruise"; // точка остаётся моргающей при каждом проходе над страной
         }
+      } else if (flightModeRef.current === "moon") {
+        // ── ТУР К ЛУНЕ (Босс 2026-05-30 «облёт вокруг луны, подлет, посмотреть
+        // кратеры, с этого начнем»). 3 фазы:
+        //   approach 8с — камера летит от текущей позиции к Луне (eased)
+        //   orbit 30с   — 1.5 круга вокруг Луны на расстоянии ~12 ед. от центра
+        //   return 8с   — обратно к Земле в default-режим
+        // Управляем КАМЕРОЙ НАПРЯМУЮ (gg.camera() + controls.target) — pointOfView
+        // в этом блоке не вызываем. После return — авто-переход в classic.
+        try {
+          const camera = gg.camera?.();
+          const moon = moonMeshRef.current;
+          if (!camera || !moon) {
+            // нет данных — fallback к classic
+            flightModeRef.current = "classic";
+          } else {
+            if (!moonInitDone) {
+              const cp = camera.position;
+              moonStartCamPos = { x: cp.x, y: cp.y, z: cp.z };
+              moonStartT = now;
+              moonInitDone = true;
+            }
+            const phaseT = now - moonStartT;
+            const moonPos = moon.position;
+            const APPROACH_MS = 8000;
+            const ORBIT_MS = 30000;
+            const RETURN_MS = 8000;
+            const ORBIT_R = 12; // радиус облёта Луны (Луна R=5)
+            if (phaseT < APPROACH_MS) {
+              // Approach: ease от стартовой позиции до точки около Луны.
+              const p = phaseT / APPROACH_MS;
+              const e = easeInOutCubic(p);
+              const sp = moonStartCamPos || { x: 0, y: 0, z: 0 };
+              // Целевая точка: «перед» Луной — Луна-позиция + offset в сторону камеры.
+              const dx = sp.x - moonPos.x;
+              const dy = sp.y - moonPos.y;
+              const dz = sp.z - moonPos.z;
+              const dL = Math.hypot(dx, dy, dz) || 1;
+              const ux = dx / dL, uy = dy / dL, uz = dz / dL;
+              const tx = moonPos.x + ux * ORBIT_R;
+              const ty = moonPos.y + uy * ORBIT_R;
+              const tz = moonPos.z + uz * ORBIT_R;
+              camera.position.set(
+                sp.x + (tx - sp.x) * e,
+                sp.y + (ty - sp.y) * e,
+                sp.z + (tz - sp.z) * e,
+              );
+              camera.lookAt(moonPos.x, moonPos.y, moonPos.z);
+            } else if (phaseT < APPROACH_MS + ORBIT_MS) {
+              // Orbit: круги вокруг Луны (1.5 оборота за 30с → ω = π/10 рад/с).
+              const ot = (phaseT - APPROACH_MS) / 1000;
+              const omega = (Math.PI * 1.5 * 2) / 30; // 1.5 оборота за 30с
+              const ang = ot * omega;
+              // Орбита в плоскости перпендикулярной (Sun-direction Earth), упрощённо —
+              // плоскость XZ относительно Луны с лёгким наклоном по Y.
+              const cy = Math.sin(ot * 0.15) * 3; // волнистая высота ±3
+              camera.position.set(
+                moonPos.x + Math.cos(ang) * ORBIT_R,
+                moonPos.y + cy,
+                moonPos.z + Math.sin(ang) * ORBIT_R,
+              );
+              camera.lookAt(moonPos.x, moonPos.y, moonPos.z);
+            } else if (phaseT < APPROACH_MS + ORBIT_MS + RETURN_MS) {
+              // Return: камера обратно к Земле.
+              const p = (phaseT - APPROACH_MS - ORBIT_MS) / RETURN_MS;
+              const e = easeInOutCubic(p);
+              const cp = camera.position;
+              const sp = moonStartCamPos || { x: 0, y: 0, z: 0 };
+              camera.position.set(
+                cp.x + (sp.x - cp.x) * e,
+                cp.y + (sp.y - cp.y) * e,
+                cp.z + (sp.z - cp.z) * e,
+              );
+              camera.lookAt(0, 0, 0); // Земля в центре
+            } else {
+              // Завершено — переключаемся в classic, сбрасываем состояние.
+              moonInitDone = false;
+              moonStartCamPos = null;
+              flightModeRef.current = "classic";
+              // rebase cruise чтобы classic подхватил с текущей точки.
+              rebaseCruiseRef.current?.();
+            }
+            // OrbitControls target на Луну во время тура — даёт правильный gestural feel.
+            try {
+              const ctrl = (gg as any).controls?.();
+              if (ctrl?.target && phaseT < APPROACH_MS + ORBIT_MS + RETURN_MS - 500) {
+                ctrl.target.copy(moonPos);
+                ctrl.update?.();
+              }
+            } catch { /* no-op */ }
+          }
+        } catch {
+          flightModeRef.current = "classic";
+        }
+        // Пропускаем pointOfView в конце loop — управляем камерой напрямую.
+        return;
       } else if (flightModeRef.current === "ai") {
         // ПОЛЁТ Ai (Босс 2026-05-30 «Это режим Полёта»): sun-moon framing —
         // плавный обзор Земли так, чтобы Солнце И Луна были в кадре (~50% времени).
