@@ -315,29 +315,61 @@ const SUN_FRAGMENT = SUN_NOISE + `
     gl_FragColor = vec4(base, 1.0);
   }
 `;
-const SUN_CORONA_FRAGMENT = SUN_NOISE + `
-  uniform float uTime;
-  varying vec3 vNormal;
-  varying vec3 vPos;
-  varying vec3 vViewPos;
+// Корона — БИЛБОРДНЫЙ план (всегда лицом к камере), радиальные «огненные
+// волоски»: тонкие, переменной длины, динамичные (Босс 2026-05-30, референс
+// фото с протуберанцами). Полярные координаты от центра плана + 2D шум по углу.
+const BILLBOARD_VERTEX = `
+  varying vec2 vUv;
   void main() {
-    vec3 p = normalize(vPos) * 4.5;
-    float t = uTime * 0.45;
-    float n1 = fbm3(p + vec3(0.0, 0.0, t));
-    float n2 = fbm3(p * 3.0 + vec3(t * 2.0, 0.0, t * 0.6));
-    float flame = pow(clamp(n1 * n2 * 2.4, 0.0, 1.0), 1.4);
-    vec3 viewDir = normalize(-vViewPos);
-    float fres = pow(1.0 - max(0.0, dot(normalize(vNormal), viewDir)), 1.6);
-    float alpha = flame * fres * 0.85;
-    vec3 col = mix(vec3(1.00, 0.45, 0.10), vec3(1.00, 0.86, 0.40), flame);
+    vUv = uv;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+const SUN_NOISE_2D = `
+  float hash2(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+  float noise2(vec2 p) {
+    vec2 i = floor(p); vec2 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash2(i + vec2(0.0,0.0)), hash2(i + vec2(1.0,0.0)), f.x),
+               mix(hash2(i + vec2(0.0,1.0)), hash2(i + vec2(1.0,1.0)), f.x), f.y);
+  }
+  float fbm2(vec2 p) {
+    float v = 0.0; float a = 0.5;
+    for (int i = 0; i < 4; i++) { v += a * noise2(p); p *= 2.0; a *= 0.5; }
+    return v;
+  }
+`;
+const SUN_CORONA_FRAGMENT = SUN_NOISE_2D + `
+  uniform float uTime;
+  varying vec2 vUv;
+  void main() {
+    vec2 c = vUv - 0.5;        // -0.5..0.5
+    float r = length(c) * 2.0;  // 0 центр .. 1 край плана
+    if (r < 0.42 || r > 1.0) discard;
+    float ang = atan(c.y, c.x);  // -pi..pi
+    float t = uTime;
+    // Угловая текстура из высокочастотного шума → тонкие радиальные «волоски».
+    float s1 = fbm2(vec2(ang * 14.0, t * 0.55));
+    float s2 = fbm2(vec2(ang * 32.0, t * 1.3 + 7.3));
+    float streak = pow(s1, 1.5) * pow(s2, 1.1);
+    streak = clamp(streak * 3.6 - 0.45, 0.0, 1.0); // редкие сильные пики
+    // Переменная длина каждого «волоска» по углу (низкая частота).
+    float lenN = fbm2(vec2(ang * 5.5, t * 0.35 + 2.1));
+    float maxR = 0.50 + lenN * 0.50; // длина 0.50..1.00
+    // Профиль яркости: яркий у лимба, плавно гаснет к концу волоска.
+    float fadeIn  = smoothstep(0.42, 0.50, r);
+    float fadeOut = 1.0 - smoothstep(maxR * 0.68, maxR, r);
+    float profile = fadeIn * fadeOut;
+    float alpha = profile * streak * 0.95;
+    vec3 col = mix(vec3(1.00, 0.42, 0.08), vec3(1.00, 0.92, 0.55), streak);
     gl_FragColor = vec4(col, alpha);
   }
 `;
 
-// Сборка Солнца (тело + корона). Возвращает Group с двумя сферами + ShaderMaterial-ами
-// (через ref на параметр). При null — каскадный фолбэк (вернёт пустую Group).
+// Сборка Солнца: тело (3D-сфера с плазмой) + билбордный план короны с радиальными
+// «огненными волосками». Корону ориентирует к камере раз в кадр (см. rAF loop).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function makeSunGroup(radius: number): { group: any; bodyMat: any; coronaMat: any } | null {
+function makeSunGroup(radius: number): { group: any; body: any; bodyMat: any; corona: any; coronaMat: any } | null {
   try {
     const bodyMat = new THREE.ShaderMaterial({
       uniforms: { uTime: { value: 0 } },
@@ -348,19 +380,21 @@ function makeSunGroup(radius: number): { group: any; bodyMat: any; coronaMat: an
     const body = new THREE.Mesh(bodyGeo, bodyMat);
     const coronaMat = new THREE.ShaderMaterial({
       uniforms: { uTime: { value: 0 } },
-      vertexShader: SUN_VERTEX,
+      vertexShader: BILLBOARD_VERTEX,
       fragmentShader: SUN_CORONA_FRAGMENT,
       transparent: true,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
-      side: THREE.BackSide, // корона видна с любой стороны, не загораживает тело
     });
-    const coronaGeo = new THREE.SphereGeometry(radius * 1.45, 48, 48);
+    // План 5R × 5R: «волоски» доходят до ~2 радиусов Солнца от лимба.
+    const coronaSize = radius * 5;
+    const coronaGeo = new THREE.PlaneGeometry(coronaSize, coronaSize);
     const corona = new THREE.Mesh(coronaGeo, coronaMat);
+    corona.renderOrder = 2; // поверх тела (тело depthWrite — сначала)
     const group = new THREE.Group();
     group.add(body);
     group.add(corona);
-    return { group, bodyMat, coronaMat };
+    return { group, body, bodyMat, corona, coronaMat };
   } catch (e) {
     console.warn("[GlobeView] makeSunGroup failed:", e);
     return null;
@@ -1012,6 +1046,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   const sunMatRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sunCoronaMatRef = useRef<any>(null);
+  // Mesh короны — каждый кадр выставляем quaternion = camera.quaternion (билборд).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sunCoronaMeshRef = useRef<any>(null);
   // Глубокое 3D-звёздное поле (THREE.Points) — параллакс/«бесконечная глубина» за глобусом.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const deepStarsRef = useRef<any>(null);
@@ -1115,6 +1152,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         sunMeshRef.current = null;
         sunMatRef.current = null;
         sunCoronaMatRef.current = null;
+        sunCoronaMeshRef.current = null;
         moonMeshRef.current = null;
         moonMatRef.current = null;
       } catch {
@@ -1966,6 +2004,11 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         const t = now * 0.001;
         if (sunMatRef.current?.uniforms?.uTime) sunMatRef.current.uniforms.uTime.value = t;
         if (sunCoronaMatRef.current?.uniforms?.uTime) sunCoronaMatRef.current.uniforms.uTime.value = t;
+        // Билборд короны: ориентируем mesh лицом к камере — лучи всегда радиальны
+        // от диска Солнца с любого ракурса (как сцена с фото протуберанцев).
+        const corona = sunCoronaMeshRef.current;
+        const camera = g.camera?.();
+        if (corona && camera) corona.quaternion.copy(camera.quaternion);
       } catch {
         // ignore
       }
@@ -2170,6 +2213,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             sunMeshRef.current = made.group;
             sunMatRef.current = made.bodyMat;
             sunCoronaMatRef.current = made.coronaMat;
+            sunCoronaMeshRef.current = made.corona;
           }
         }
         if (scene && !moonMeshRef.current) {
