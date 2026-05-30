@@ -312,6 +312,12 @@ export function SolarWizard({ open, onClose, onLaunch, originPoint }: SolarWizar
   }, [topListOpen, tracks.length, tracksLoading, prefs.lastTrackId]);
 
   const handleLaunch = () => {
+    try {
+      if (typeof window !== "undefined" && window.localStorage?.getItem("muzaai-click-debug") === "1") {
+        // eslint-disable-next-line no-console
+        console.error("[click] 🚀 Поехали!");
+      }
+    } catch { /* no-op */ }
     const finalPrefs: SolarPrefs = {
       ...prefs,
       lastTrackId: selectedTrack ? String(selectedTrack.id) : null,

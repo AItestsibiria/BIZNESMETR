@@ -3351,31 +3351,33 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                     document.body
                                   )
                                 : null}
-                              {/* Chain CTA overlay (Босс 2026-05-30): «Махнём вокруг Луны?» /
-                                  «Махнём по Солнечной системе?». Полупрозрачная карточка
-                                  по центру + 2 кнопки. createPortal в body z-[280] — выше
-                                  globe canvas, ниже tapFlyLabel (z-300) и wizard.
-                                  Тап ВНЕ карточки (по backdrop) = тоже подтверждение
-                                  («любым способом» — Босс). pointer-events:auto только
-                                  на карточке + backdrop. */}
-                              {chainPrompt && typeof document !== "undefined"
+                              {/* Chain CTA overlay (Босс 2026-05-30 ревизия #2):
+                                  ROOT CAUSE прошлой регрессии: `fixed inset-0` +
+                                  `pointer-events:auto` + onPointerDown «тап вне карточки
+                                  = подтверждение» ПЕРЕКРЫВАЛ portal-row кнопки
+                                  (z-[210]) и SolarWizard backdrop (z-[250]). Любой
+                                  тап на «↩ к Музе» / «🪐 Солнечная» / «🚀 Поехали»
+                                  попадал на backdrop chainPrompt → confirmChain() →
+                                  запуск moon/solar тура вместо корректного handler.
+                                  FIX: backdrop pointer-events:NONE (не ловит ничего),
+                                  card pointer-events:auto. Подтверждение/отмена
+                                  ТОЛЬКО через явные кнопки Да/Нет. Auto-hide 10с
+                                  остаётся (useEffect выше). Карточка центрируется
+                                  flex'ом, но не блокирует тапы под ней. Чтобы
+                                  гарантировано НЕ перекрыть portal-row (z-210)
+                                  и wizard (z-250) — скрываем chainPrompt пока
+                                  открыт wizard (solarWizardOpen). Z-index card
+                                  оставлен 280 (выше portal-row, чтобы card
+                                  была видна над кнопками). */}
+                              {chainPrompt && !solarWizardOpen && typeof document !== "undefined"
                                 ? createPortal(
                                     <div
                                       className="fixed inset-0 flex items-center justify-center select-none animate-in fade-in duration-500"
-                                      style={{ zIndex: 280, pointerEvents: "auto" }}
-                                      onPointerDown={(e) => {
-                                        // Тап ВНЕ карточки = подтверждение (Босс: «любым способом»).
-                                        if (e.target === e.currentTarget) confirmChain();
-                                      }}
+                                      style={{ zIndex: 280, pointerEvents: "none" }}
                                     >
                                       <div
                                         className="bg-black/30 backdrop-blur-xl border border-white/30 rounded-3xl px-6 sm:px-8 py-5 sm:py-6 shadow-[0_0_48px_rgba(124,58,237,0.45)] max-w-[88vw]"
-                                        onPointerDown={(e) => {
-                                          // Внутри карточки — тап (вне кнопок) тоже подтверждение.
-                                          if ((e.target as HTMLElement).tagName !== "BUTTON") {
-                                            confirmChain();
-                                          }
-                                        }}
+                                        style={{ pointerEvents: "auto" }}
                                       >
                                         <div className="text-center mb-4 sm:mb-5">
                                           <span className="font-display font-bold text-xl sm:text-2xl bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap">
@@ -3686,6 +3688,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             <BackToMuzaButton
                               onClick={(e) => {
                                 e.stopPropagation();
+                                try {
+                                  if (typeof window !== "undefined" && window.localStorage?.getItem("muzaai-click-debug") === "1") {
+                                    // eslint-disable-next-line no-console
+                                    console.error("[click] ↩ к Музе");
+                                  }
+                                } catch { /* no-op */ }
                                 if (globeFullscreen) {
                                   try { toggleGlobeFullscreen(); } catch { /* no-op */ }
                                 }
