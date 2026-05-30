@@ -25,6 +25,7 @@ import { PaymentSuccess, PaymentFail } from "./pages/payment-result";
 import TrackPage from "./pages/track";
 import TelegramCallbackPage from "./pages/telegram-callback";
 import AdminV304Page from "./pages/admin-v304";
+import { AdminGate } from "./components/admin-gate";
 import TemplatesPage from "./pages/templates";
 import GiftCertificatesPage from "./pages/gift-certificates";
 import CorporatePage from "./pages/corporate";
@@ -93,8 +94,16 @@ function AppContent() {
           <Route path="/payment/fail" component={PaymentFail} />
           <Route path="/track/:id" component={withBoundary(TrackPage, "track")} />
           <Route path="/telegram-callback" component={TelegramCallbackPage} />
-          <Route path="/admin" component={withBoundary(AdminV304Page, "admin")} />
-          <Route path="/admin/v304" component={withBoundary(AdminV304Page, "admin-v304")} />
+          {/* Eugene 2026-05-30 Босс «сначала проверка потом доступ в кабинет».
+              AdminGate блокирует рендер admin shell до прохождения двух гейтов
+              (admin-auth + IP). НИКАКОГО мелькания admin-контента до granted —
+              см. components/admin-gate.tsx + правило Admin-panel-IP-hard-gate. */}
+          <Route path="/admin" component={withBoundary(() => (
+            <AdminGate><AdminV304Page /></AdminGate>
+          ), "admin")} />
+          <Route path="/admin/v304" component={withBoundary(() => (
+            <AdminGate><AdminV304Page /></AdminGate>
+          ), "admin-v304")} />
           <Route path="/templates" component={withBoundary(TemplatesPage, "templates")} />
           <Route path="/gift-cert" component={withBoundary(GiftCertificatesPage, "gift-cert")} />
           {/* Eugene 2026-05-26 Босс «B2B-подсистема» — ЛК юрлица. Ссылку даёт
