@@ -3043,9 +3043,21 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 (Босс «любое неслучайное нажатие на окно»); драг = вращение. */}
                             <div
                               className="relative flex-1 min-h-0"
-                              onPointerDown={(e) => { globeTapStartRef.current = { x: e.clientX, y: e.clientY, t: Date.now() }; }}
+                              onPointerDown={(e) => {
+                                // Босс 2026-05-30 «свайп только в зоне звёздного поля под планетой,
+                                // на ней свайпа нет, а то кручу и треки пляшут». Определяем стартовала
+                                // ли точка ВНУТРИ Земли (приблизительно — диск ~40% min(w,h) по центру).
+                                const tgt = e.currentTarget as HTMLElement;
+                                const rect = tgt.getBoundingClientRect();
+                                const cx = rect.left + rect.width / 2;
+                                const cy = rect.top + rect.height / 2;
+                                const earthR = Math.min(rect.width, rect.height) * 0.40;
+                                const distFromCenter = Math.hypot(e.clientX - cx, e.clientY - cy);
+                                const onPlanet = distFromCenter < earthR;
+                                globeTapStartRef.current = { x: e.clientX, y: e.clientY, t: Date.now(), onPlanet } as any;
+                              }}
                               onPointerUp={(e) => {
-                                const s = globeTapStartRef.current;
+                                const s = globeTapStartRef.current as any;
                                 globeTapStartRef.current = null;
                                 if (!s) return;
                                 const dx = e.clientX - s.x;
@@ -3053,10 +3065,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 const dur = Date.now() - s.t;
                                 // Босс 2026-05-30 п.2: «3д свайп по зоне окна глобуса меняют треки».
                                 // Чёткий горизонтальный свайп (|dx|>80, |dy|<40, <600мс) → prev/next.
-                                // НЕ выходит из режима и НЕ trigger'ит double-tap. OrbitControls
-                                // вращения работают как раньше (это onPointerUp на overlay div, а
-                                // не на canvas — canvas получает свои события).
-                                if (Math.abs(dx) > 80 && Math.abs(dy) < 40 && dur < 600) {
+                                // НО ТОЛЬКО если стартовая точка НЕ на планете (Босс 2026-05-30:
+                                // «свайп только в зоне звёздного поля под планетой, на ней свайпа нет»).
+                                if (!s.onPlanet && Math.abs(dx) > 80 && Math.abs(dy) < 40 && dur < 600) {
                                   try { sessionStorage.setItem("mainSwipeUsed", "1"); } catch { /* no-op */ }
                                   if (dx < 0) skipNext(); else skipPrev();
                                   globeLastTapRef.current = 0; // сбрасываем double-tap счётчик
