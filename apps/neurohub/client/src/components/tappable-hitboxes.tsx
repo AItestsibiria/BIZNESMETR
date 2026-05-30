@@ -131,7 +131,7 @@ export function TappableHitboxes({ enabled }: Props) {
           .muza-hitbox-btn { animation: none; opacity: 0.45; }
         }
       `}</style>
-      <div className="absolute inset-0 pointer-events-none z-20" aria-hidden="false">
+      <div className="absolute inset-0 pointer-events-none z-50" aria-hidden="false">
         {bodies.map(b => {
           // Hitbox-диаметр: 2×r (snapshot хранит радиус) с clamp.
           // Snapshot r — это «логический» радиус планеты в px (≥16). Удваиваем
@@ -163,11 +163,33 @@ export function TappableHitboxes({ enabled }: Props) {
                 e.stopPropagation();
                 e.preventDefault();
                 try {
+                  // Босс 2026-05-30 (4-й инцидент «летят к Земле»): подробный
+                  // ОТЛАДОЧНЫЙ лог под флагом window.localStorage["muzaai-click-debug"]="1".
+                  // Видим: куда тапнул, какая планета выбрана, в каком mode сейчас,
+                  // что вернёт snapshot. Без этого root cause найти невозможно.
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  const w = window as any;
+                  const dbg = (() => {
+                    try { return window.localStorage?.getItem("muzaai-click-debug") === "1"; } catch { return false; }
+                  })();
+                  if (dbg) {
+                    try {
+                      console.error("[hitbox] click", {
+                        key: b.key,
+                        coords: { x: b.x, y: b.y, r: b.r },
+                        flightMode: w.__muziaiDebugFlightMode || "(unknown)",
+                        singleSolarKey: w.__muziaiDebugSingleSolarKey || "(unknown)",
+                        snapshot: (w.__muziaiPlanetScreen || []).map((p: any) => p.key),
+                      });
+                    } catch { /* no-op */ }
+                  }
                   window.dispatchEvent(
                     new CustomEvent("muza:globe-fly-to", { detail: { key: b.key } })
                   );
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  if ((window as any).__muziaiDebug) {
+                  if (dbg) {
+                    try { console.error("[hitbox] dispatched muza:globe-fly-to", b.key); } catch { /* no-op */ }
+                  }
+                  if (w.__muziaiDebug) {
                     try { console.log("[tap-to-fly] hitbox click", b.key, { x: b.x, y: b.y }); } catch { /* no-op */ }
                   }
                   // Босс 2026-05-30 п.6: tracking тапа (fire-and-forget).

@@ -410,18 +410,19 @@ const SUN_FRAGMENT = SUN_NOISE + `
     // ── ГРАНУЛЫ NASA (~1500 км на Солнце, светлый центр + тёмные края). Worley:
     // 0 в центре ячейки, ~1 на границе. inv → 1 центр, 0 край → яркость гранулы.
     // Двигаются медленно (t·0.06) — конвекция «дышит».
-    // Босс 2026-05-30 «Солнце дырявое»: ROOT CAUSE — высокий contrast гранул
-    // (0.80+0.30=0.50..1.10 разброс) + крупная сетка w(14) → на close-view
-    // выглядело как губка/решето. Fix: частота w(24) — мельче гранулы сливаются
-    // в сплошное свечение, contrast уполовинен (0.92+0.13=0.92..1.05) — лёгкая
-    // микро-фактура без «дыр».
-    float granD = worley3(p * 24.0 + vec3(0.0, 0.0, t * 0.06));
-    float granule = 1.0 - smoothstep(0.05, 0.55, granD); // 1 центр, 0 край
-    base *= 0.92 + 0.13 * granule;
+    // Босс 2026-05-30 «Солнце дырявое» (повтор): ROOT CAUSE — даже w(24)+contrast
+    // 0.92..1.05 на close-view выглядел как губка. Fix v2: частота w(32) — гранулы
+    // мельче sub-pixel size на дальнем плане, contrast ЕЩЁ уполовинен
+    // (0.96+0.07=0.96..1.03) — почти невидимая микро-фактура. Solid bright surface.
+    // smoothstep сужен (0.10..0.40) — softer transition без чёткой клетки.
+    float granD = worley3(p * 32.0 + vec3(0.0, 0.0, t * 0.06));
+    float granule = 1.0 - smoothstep(0.10, 0.40, granD); // 1 центр, 0 край (softer)
+    base *= 0.96 + 0.07 * granule;
     // ── SUNSPOTS NASA (~3000 Гс, холодные участки 4000 °C vs 5500 °C среды).
     // 3 пятна разной формы, статичные на видимой полусфере. Sin/cos комбинация.
-    // Босс 2026-05-30 «дырявое»: пятна тоже выглядели как «дыры» при close-view.
-    // Снижено: mix до 0.45 (было 0.85), цвет umbra осветлён до 0.45 (был 0.18).
+    // Босс 2026-05-30 «дырявое» (v2): пятна теперь ещё мягче — mix 0.20 (было 0.45),
+    // umbra осветлена до 0.78 (warm peach, almost matches base) — eдва различимые.
+    // Дают намёк на «реальное Солнце» без эффекта «дыр» на close-view.
     vec3 sp1 = vec3( 0.55, 0.40, 0.70);
     vec3 sp2 = vec3(-0.45,-0.50, 0.75);
     vec3 sp3 = vec3( 0.20,-0.65,-0.30);
@@ -430,9 +431,9 @@ const SUN_FRAGMENT = SUN_NOISE + `
     float ds2 = exp(-pow(length(normalize(vPos) - sp2) * 6.0, 2.0));
     float ds3 = exp(-pow(length(normalize(vPos) - sp3) * 4.5, 2.0));
     float spotMask = max(max(ds1, ds2), ds3);
-    // Пятно: мягкая umbra (тёплый коричневый, не чёрный) + лёгкая интенсивность.
-    vec3 umbraCol = vec3(0.55, 0.38, 0.22);
-    base = mix(base, umbraCol, spotMask * 0.45);
+    // Пятно: warm peach umbra (почти как base), eдва различимая интенсивность.
+    vec3 umbraCol = vec3(0.78, 0.58, 0.38);
+    base = mix(base, umbraCol, spotMask * 0.20);
     // ── LIMB DARKENING (NASA): на лимбе видны верхние холодные слои → темнее.
     vec3 viewDir = normalize(-vViewPos);
     vec3 N = normalize(vNormal);
@@ -442,17 +443,19 @@ const SUN_FRAGMENT = SUN_NOISE + `
     // тёмный ободок к лимбу → форма читается как ШАР, не плоский диск.
     // Степень 3.0 — мягче падение, mix до 0.62 (было 0.55) — body ярче на лимбе,
     // но всё ещё плавно затухает (3D-форма читается без чёткой границы).
-    float rim = pow(fres, 3.0);
-    base *= mix(1.0, 0.62, rim);
-    // Limb-darkening NASA поверх (мягкая теплая тонировка к лимбу).
-    base = mix(base, cOrange * 0.85, fres * 0.35);
+    // v2 «дырявое»: rim мягче (pow 2.2 + mix 0.72) → плавное затухание, форма-шар без резкого края.
+    float rim = pow(fres, 2.2);
+    base *= mix(1.0, 0.72, rim);
+    // Limb-darkening NASA поверх (мягкая тёплая тонировка к лимбу — мягче 0.25).
+    base = mix(base, cOrange * 0.90, fres * 0.25);
     // ── Highlight «северо-восток» — горячий blob ближе к камере + чуть выше/правее.
     // Sphere normal в view-space, blob_dir = (0.35, 0.55, 1.0) → блик на 3D-форме.
     vec3 blobDir = normalize(vec3(0.35, 0.55, 1.0));
     float blob = pow(max(0.0, dot(N, blobDir)), 4.0);
-    base += vec3(0.18, 0.14, 0.08) * blob;
-    base *= 1.18 + 0.12 * plasma; // base brightness up (Босс «дырявое» — без тёмных промежутков)
-    base = clamp(base, vec3(0.0), vec3(1.25)); // anti-burn cap
+    base += vec3(0.22, 0.18, 0.10) * blob;
+    // Base brightness up v2 (Босс «дырявое» — solid bright sun без тёмных провалов).
+    base *= 1.30 + 0.10 * plasma;
+    base = clamp(base, vec3(0.0), vec3(1.35)); // anti-burn cap чуть выше
     // pn используется чтобы избежать unused-variable (нужно для GLSL strict).
     base *= 1.0 + 0.0 * pn;
     gl_FragColor = vec4(base, 1.0);
@@ -2359,7 +2362,25 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     const onFlyTo = (e: Event) => {
       const key = (e as CustomEvent).detail?.key as string | undefined;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const dbg = !!(window as any).__muziaiDebug;
+      const w = window as any;
+      const dbg = !!w.__muziaiDebug;
+      // Босс 2026-05-30 (4-й инцидент «летят к Земле») — отладочные логи под
+      // флагом localStorage["muzaai-click-debug"]="1". Видим КУДА УШЁЛ tap.
+      const heavyDbg = (() => {
+        try { return window.localStorage?.getItem("muzaai-click-debug") === "1"; } catch { return false; }
+      })();
+      if (heavyDbg) {
+        try {
+          console.error("[onFlyTo] received", {
+            key,
+            currentMode: flightModeRef.current,
+            singleSolarKey: singleSolarKeyRef.current,
+            holdRef: holdRef.current,
+            userInteracting: userInteractingRef.current,
+            solarRestart: solarRestartRef.current,
+          });
+        } catch { /* no-op */ }
+      }
       if (dbg) try { console.log("[tap-to-fly] onFlyTo received", { key, currentMode: flightModeRef.current }); } catch { /* no-op */ }
       if (!key) return;
       if (key === "earth") return; // мы дома, ничего не делаем
@@ -2430,6 +2451,16 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       solarRestartRef.current = true;
       userInteractingRef.current = false;
       holdRef.current = false;
+      if (heavyDbg) {
+        try {
+          console.error("[onFlyTo] planet routed → solar", {
+            key,
+            flightMode: flightModeRef.current,
+            singleSolarKey: singleSolarKeyRef.current,
+            solarRestart: solarRestartRef.current,
+          });
+        } catch { /* no-op */ }
+      }
     };
     window.addEventListener("muza:globe-fly-to", onFlyTo as EventListener);
 
@@ -2694,6 +2725,20 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     // !camera, catch-fallback, ручной switch из плеера, free-zoom за границы).
     restoreEarthCameraRef.current = () => {
       try {
+        // Босс 2026-05-30 (4-й «летят к Земле»): отладка КТО вызывает restore.
+        // stack trace покажет место вызова — главный подозреваемый «возврата на Землю».
+        try {
+          if (window.localStorage?.getItem("muzaai-click-debug") === "1") {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const w = window as any;
+            console.error("[restoreEarthCamera] CALLED", {
+              flightMode: flightModeRef.current,
+              singleSolarKey: singleSolarKeyRef.current,
+              stack: new Error("restoreEarthCamera trace").stack?.split("\n").slice(1, 6).join(" | "),
+            });
+            void w;
+          }
+        } catch { /* no-op */ }
         const gg = globeRef.current;
         if (!gg) return;
         // Босс 2026-05-30 уточнение: «Земля появилась но через ~25 сек».
@@ -3024,6 +3069,14 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       updateWinkDot(gg);
       updatePlanetScreens(gg);
       updateStarsScreens(gg);
+      // Босс 2026-05-30 (4-й «летят к Земле»): publish state наружу для отладки
+      // hitbox onClick (видим mode/singleKey в каждом click-логе). Cheap-no-op в проде.
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const w = window as any;
+        w.__muziaiDebugFlightMode = flightModeRef.current;
+        w.__muziaiDebugSingleSolarKey = singleSolarKeyRef.current;
+      } catch { /* no-op */ }
       // Во время самого жеста — камеру ведёт OrbitControls (юзер steering'ует).
       if (userInteractingRef.current) return;
       // Удержание по двойному тапу — камера стоит на месте до смены режима/позиции.
@@ -3306,6 +3359,29 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         // подрежимы (multi-select): planets (внутренние/внешние) + Уран/Нептун +
         // спутники + 2 пояса астероидов + Saturn-сквозь-кольца + длительность тура.
         // Каждый шаг: approach (eased lerp) → orbit (circular). Lazy create + dispose.
+        // Босс 2026-05-30 (4-й «летят к Земле»): one-shot отладочный лог входа в
+        // solar-ветку под флагом localStorage["muzaai-click-debug"]="1". Видим:
+        // дошёл ли rAF до solar, какой singleSolarKey, какой step.
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const wDbg = window as any;
+          const key = singleSolarKeyRef.current || "(no-single)";
+          if (wDbg.__muziaiSolarEnterLogged !== key) {
+            try {
+              if (window.localStorage?.getItem("muzaai-click-debug") === "1") {
+                console.error("[rAF] solar branch entered", {
+                  singleSolarKey: key,
+                  solarRestart: solarRestartRef.current,
+                  solarStepIdx,
+                  solarInitDone,
+                  tourLen: SOLAR_TOUR.length,
+                  firstStepKey: SOLAR_TOUR[0]?.key,
+                });
+              }
+            } catch { /* no-op */ }
+            wDbg.__muziaiSolarEnterLogged = key;
+          }
+        } catch { /* no-op */ }
         try {
           const camera = gg.camera?.();
           const scene = gg.scene?.();
@@ -3371,6 +3447,14 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
               solarStepIdx = 0;
               solarStepStartCamPos = null;
               SOLAR_TOUR = buildSolarTour();
+              try {
+                if (window.localStorage?.getItem("muzaai-click-debug") === "1") {
+                  console.error("[rAF/solar] RESTART rebuild SOLAR_TOUR", {
+                    singleSolarKey: singleSolarKeyRef.current,
+                    tour: SOLAR_TOUR.map(s => s.key),
+                  });
+                }
+              } catch { /* no-op */ }
             }
 
             if (!solarInitDone) {
@@ -3380,6 +3464,15 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
               solarStepStartT = now;
               solarStepIdx = 0;
               solarInitDone = true;
+              try {
+                if (window.localStorage?.getItem("muzaai-click-debug") === "1") {
+                  console.error("[rAF/solar] INIT SOLAR_TOUR", {
+                    singleSolarKey: singleSolarKeyRef.current,
+                    tour: SOLAR_TOUR.map(s => s.key),
+                    cameraPos: { x: cp.x, y: cp.y, z: cp.z },
+                  });
+                }
+              } catch { /* no-op */ }
             }
             const step = SOLAR_TOUR[solarStepIdx];
             if (!step) {
