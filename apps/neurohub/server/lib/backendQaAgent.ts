@@ -318,26 +318,52 @@ function detectDuplicateSymbols(ctx: ScanContext, out: RawFinding[]): void {
 
 /**
  * Eugene 2026-05-30: anti-false-positive эвристики для possibly-dead-export.
- * Старая версия ловила только статический `import` и давала ~107 ложных
- * срабатываний. Добавлены 2 источника «транзитивной» достижимости:
+ * История: первый прогон давал ~107 находок (~95% FP). Расширение от
+ * 2026-05-30 (`8ac780e`) добавило 2 транзитивные эвристики, осталось 55
+ * находок — повторный аудит Босса показал что ~25 из них всё ещё FP по
+ * паттернам, которые сканер не ловил. Добавлены 4 новые эвристики:
  *
  *   (1) ДИНАМИЧЕСКИЕ ИМПОРТЫ. Если где-то в репо есть
  *       `await import("./lib/X")` / `import("../lib/X").then(...)` —
  *       весь файл X считаем reachable (его символы достаются через
  *       свойство модуля по имени → статический grep этого не видит).
- *       Эвристика: собираем basenames всех dynamic-import целей и
- *       помечаем файлы с совпадающим basename как «reachable transitively».
  *
  *   (2) РЕЕСТРЫ ТУЛОВ / АГЕНТОВ. Имена экспортов часто живут как
  *       строковые литералы в `lib/chatGenerationTools.ts`,
  *       `lib/muzaTools.ts`, `lib/agentOrchestrator.ts` (tool name / agent id /
- *       handler key). Если имя символа встречается как substring в одном
- *       из этих файлов — считаем его reachable.
+ *       handler key). Substring-lookup → reachable.
  *
- * Обе эвристики ДОБАВЛЯЮТСЯ к существующей статической проверке (не
- * заменяют её), и работают «в сторону безопасности» — лучше ложно
- * скрыть подозреваемого, чем удалить живой код (Pre-push critical review
- * rule, деструктив).
+ *   (3) NAMESPACE / STAR IMPORT [НОВОЕ]. Если файл импортирован
+ *       `import * as X from "./module"` ИЛИ реэкспортнут `export * from
+ *       "./module"` — символы достаются через property-access (`X.foo`)
+ *       или сквозь barrel, статический grep по имени их не видит → SKIP
+ *       весь файл.
+ *
+ *   (4) INTERNAL-HELPER-OF-EXPORTED [НОВОЕ]. Если символ упоминается в
+ *       своём собственном файле ≥2 раз (декларация + хотя бы 1 внутреннее
+ *       использование), он скорее всего — helper другого экспорта этого
+ *       же файла. Удалять опасно (сломает другую публичную функцию). →
+ *       SKIP. Это закрывает большинство FP в `admin2fa.ts`, `botUa.ts`,
+ *       `pricing.ts`, `chatHistory.ts`, `musaFacts.ts`, `tgLoginNonces.ts`
+ *       и т.п. — там много мелких функций, каждая публично экспортирована
+ *       (на случай расширения), но реально вызывается соседним экспортом.
+ *
+ *   (5) UNDERSCORE-PREFIX CONVENTION [НОВОЕ]. Имена `_resetRateMap`,
+ *       `_internal`, `_test*` — наследие соглашения «помечать namespace-
+ *       internal API». Часто оставляют для unit-тестов / future debug —
+ *       не считать мёртвым.
+ *
+ *   (6) SIDE-EFFECT IMPORT [НОВОЕ]. Если файл импортирован чисто ради
+ *       side-effect (`import "./module"` без named/default) или просто
+ *       упомянут в `import { X } from "./module"` — модуль ВЫПОЛНЯЕТСЯ
+ *       при загрузке. Регистрируется setInterval, cron, эвент-подписка —
+ *       и экспорт может звать только сам файл. → SKIP-эвристика
+ *       (как для (4)).
+ *
+ * Все эвристики ДОБАВЛЯЮТСЯ к существующей статической проверке (не
+ * заменяют её) и работают «в сторону безопасности» — лучше ложно скрыть
+ * подозреваемого, чем удалить живой код (Pre-push critical review rule,
+ * деструктив).
  */
 function detectPossiblyDeadExports(ctx: ScanContext, out: RawFinding[]): void {
   try {
@@ -358,6 +384,12 @@ function detectPossiblyDeadExports(ctx: ScanContext, out: RawFinding[]): void {
     // Имя символа как substring → reachable.
     const registryHaystack = collectRegistryHaystack(ctx);
 
+    // Эвристика (3): basenames всех namespace/star-импортов и re-export *.
+    // Любой `import * as X from "./mod"` или `export * from "./mod"` →
+    // файл достаётся целиком, любое имя в нём может быть прочитано через
+    // property-access (X.foo) — статический grep по имени не увидит.
+    const namespaceImportedBasenames = collectNamespaceImportBasenames(haystack, clientHaystack);
+
     let scanned = 0;
     for (const file of ctx.files) {
       const rel = path.relative(ctx.serverRoot, file).replace(/\\/g, "/");
@@ -368,6 +400,10 @@ function detectPossiblyDeadExports(ctx: ScanContext, out: RawFinding[]): void {
       // возвращённом модуле, мы это не увидим статически → SKIP.
       const baseNoExt = path.basename(file).replace(/\.ts$/, "");
       if (dynamicallyLoadedBasenames.has(baseNoExt)) continue;
+
+      // (3) Эвристика namespace/star: то же самое для `import * as` /
+      // `export *` — файл reachable целиком.
+      if (namespaceImportedBasenames.has(baseNoExt)) continue;
 
       const src = ctx.contents.get(file) || "";
       exportRe.lastIndex = 0;
@@ -380,6 +416,11 @@ function detectPossiblyDeadExports(ctx: ScanContext, out: RawFinding[]): void {
       for (const sym of symbols) {
         if (scanned > 1500) break; // лимит на проход — лёгкость
         scanned++;
+
+        // (5) Underscore-prefix convention — namespace-internal API,
+        // часто оставляют под unit-тесты / future debug. Не считать мёртвым.
+        if (sym.startsWith("_")) continue;
+
         // Имя встречается ВНЕ файла-источника? grep по слову.
         const wordRe = new RegExp(`\\b${escapeRe(sym)}\\b`, "g");
         const usesServer = countMatchesExcludingFile(haystack, wordRe, src);
@@ -389,6 +430,14 @@ function detectPossiblyDeadExports(ctx: ScanContext, out: RawFinding[]): void {
         // реестрах (как часть string literal или handler key) → SKIP.
         const inRegistry =
           registryHaystack && registryHaystack.indexOf(sym) >= 0;
+
+        // (4) Эвристика internal-helper-of-exported: символ упоминается в
+        // СВОЁМ файле ≥2 раз = декларация + хоть одно внутреннее
+        // использование (вызов соседним экспортом, setInterval-side-effect,
+        // self-recursion). Удалять опасно — сломает другую публичную
+        // функцию того же файла. → SKIP.
+        const selfMentions = (src.match(wordRe) || []).length;
+        if (selfMentions >= 2) continue;
 
         // 1 вхождение = только само объявление. 0 внешних → возможно мёртвый.
         if (usesServer <= 0 && usesClient <= 0 && !inRegistry) {
@@ -433,6 +482,44 @@ function collectDynamicImportBasenames(serverHay: string, clientHay: string): Se
       if (!/^[./@]/.test(spec)) continue;
       const base = path.basename(spec).replace(/\.(t|j)sx?$/, "");
       if (base) out.add(base);
+    }
+  };
+  scan(serverHay);
+  scan(clientHay);
+  return out;
+}
+
+/**
+ * Eugene 2026-05-30: basenames всех namespace/star-импортов и re-export *.
+ * Ловим:
+ *   import * as X from "./foo"
+ *   import * as X from "../lib/foo"
+ *   export * from "./foo"
+ *   export * as X from "./foo"
+ * После таких импортов любой символ файла достаётся через property-access
+ * (`X.foo`) или прокидывается дальше через barrel — статический grep по
+ * именам этого не увидит → весь файл считаем reachable.
+ */
+function collectNamespaceImportBasenames(serverHay: string, clientHay: string): Set<string> {
+  const out = new Set<string>();
+  const reList = [
+    // import * as X from "./mod"
+    /\bimport\s+\*\s+as\s+\w+\s+from\s+['"`]([^'"`]+)['"`]/g,
+    // export * from "./mod" | export * as X from "./mod"
+    /\bexport\s+\*(?:\s+as\s+\w+)?\s+from\s+['"`]([^'"`]+)['"`]/g,
+  ];
+  const scan = (s: string): void => {
+    if (!s) return;
+    for (const re of reList) {
+      re.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(s)) !== null) {
+        const spec = String(m[1] || "");
+        // Только path-спецификаторы (./ ../ @/).
+        if (!/^[./@]/.test(spec)) continue;
+        const base = path.basename(spec).replace(/\.(t|j)sx?$/, "");
+        if (base) out.add(base);
+      }
     }
   };
   scan(serverHay);
@@ -524,11 +611,17 @@ function collectClientFiles(root: string, maxFiles: number): string[] {
 
 function detectTechDebt(ctx: ScanContext, out: RawFinding[]): void {
   try {
+    // Eugene 2026-05-30: self-skip + строки/комментарии-документация о
+    // паттернах TODO/FIXME не считаются техдолгом. Сам сканер описывает
+    // FP-эвристики через слово TODO в jsdoc → ловил сам себя. Решение:
+    // (a) явный self-skip для backendQaAgent.ts; (b) повысить порог до 12.
     for (const file of ctx.files) {
       const src = ctx.contents.get(file) || "";
+      const rel = path.relative(ctx.serverRoot, file).replace(/\\/g, "/");
+      // (a) Сам сканер / QA-агенты — мета-комментарии, не техдолг.
+      if (/lib\/(backendQaAgent|frontendQaAgent|ferzAgent)\.ts$/.test(rel)) continue;
       const count = (src.match(/\b(?:TODO|FIXME|HACK|XXX)\b/g) || []).length;
-      if (count >= 8) {
-        const rel = path.relative(ctx.serverRoot, file).replace(/\\/g, "/");
+      if (count >= 12) {
         out.push({
           kind: "tech-debt",
           theme: themeForPath(ctx.serverRoot, file),
@@ -720,10 +813,14 @@ export async function runBackendQaScan(): Promise<BackendQaReport> {
 
   const files = collectTsFiles(serverRoot);
   const contents = new Map<string, string>();
-  // Читаем файлы пакетами (лёгкость): усечение длинных файлов до 300 КБ.
+  // Eugene 2026-05-30: лимит 300 КБ оказался слишком жёстким — routes.ts
+  // в проекте ~800 КБ, dynamic-import'ы во второй половине обрезались и
+  // эвристика basename их не видела (FP по userMemory / emailSender и др.).
+  // Подняли до 1.2 МБ — покрывает текущий routes.ts с запасом, и всё ещё
+  // лёгкость (общий haystack ≤ ~50 МБ при 4000 файлов).
   for (const f of files) {
     try {
-      contents.set(f, readFileSafe(f).slice(0, 300_000));
+      contents.set(f, readFileSafe(f).slice(0, 1_200_000));
     } catch {
       /* skip */
     }
