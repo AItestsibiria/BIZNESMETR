@@ -2237,6 +2237,16 @@ Anti-pattern:
 
 Reference: lockscreen.ts `setPlayerVolume`, landing.tsx volume useEffect + playTrack.
 
+### Globe-swipe-only-on-stars rule (Eugene 2026-05-30)
+
+**В 3D-режиме globe-area: горизонтальный свайп переключает треки ТОЛЬКО если стартовая точка касания НЕ на планете. На планете свайпа НЕТ — там вращение через OrbitControls.**
+
+Зачем: на планете drag = rotation (юзер крутит globe). Если тот же жест трактовать как track-swipe → юзер крутит планету и треки прыгают.
+
+Реализация (`apps/neurohub/client/src/pages/landing.tsx` ~line 3046): `onPointerDown` вычисляет `distFromCenter` от центра контейнера. Если `< 0.40 × min(width, height)` → флаг `onPlanet=true`. В `onPointerUp` track-swipe (skipNext/skipPrev) активируется ТОЛЬКО при `!onPlanet && |dx|>80 && |dy|<40 && dur<600мс`. На планете — передача в OrbitControls.
+
+Связано с: Player-tap-actions rule, Persistent-audio-only rule.
+
 ### Layout-fit-no-overlap rule (Eugene 2026-05-21, **применяется ко всему проекту**)
 
 **Любой текст и UI-элемент ВСЕГДА вписывается в свои рамки и НЕ накладывается на смежные/параллельные элементы — на ЛЮБОМ устройстве и разрешении.**
