@@ -2379,6 +2379,12 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             userInteracting: userInteractingRef.current,
             solarRestart: solarRestartRef.current,
           });
+          // On-screen overlay для Босса (iPad без DevTools).
+          if (window.localStorage?.getItem("muzaai-screen-debug") === "1") {
+            window.dispatchEvent(new CustomEvent("muza:debug-log", {
+              detail: `[onFlyTo] received key=${key} mode=${flightModeRef.current} single=${singleSolarKeyRef.current}`,
+            }));
+          }
         } catch { /* no-op */ }
       }
       if (dbg) try { console.log("[tap-to-fly] onFlyTo received", { key, currentMode: flightModeRef.current }); } catch { /* no-op */ }
@@ -2459,6 +2465,12 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             singleSolarKey: singleSolarKeyRef.current,
             solarRestart: solarRestartRef.current,
           });
+          // On-screen overlay для Босса (iPad без DevTools).
+          if (window.localStorage?.getItem("muzaai-screen-debug") === "1") {
+            window.dispatchEvent(new CustomEvent("muza:debug-log", {
+              detail: `[onFlyTo] planet → solar key=${key} restart=${solarRestartRef.current}`,
+            }));
+          }
         } catch { /* no-op */ }
       }
     };
@@ -2731,12 +2743,20 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           if (window.localStorage?.getItem("muzaai-click-debug") === "1") {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const w = window as any;
+            const stack = new Error("restoreEarthCamera trace").stack?.split("\n").slice(1, 6).join(" | ");
             console.error("[restoreEarthCamera] CALLED", {
               flightMode: flightModeRef.current,
               singleSolarKey: singleSolarKeyRef.current,
-              stack: new Error("restoreEarthCamera trace").stack?.split("\n").slice(1, 6).join(" | "),
+              stack,
             });
             void w;
+            // On-screen overlay для Босса (iPad без DevTools).
+            if (window.localStorage?.getItem("muzaai-screen-debug") === "1") {
+              const shortStack = (stack || "").split(" | ").slice(0, 2).join(" | ");
+              window.dispatchEvent(new CustomEvent("muza:debug-log", {
+                detail: `[restoreEarthCamera] CALLED mode=${flightModeRef.current} single=${singleSolarKeyRef.current} | ${shortStack}`,
+              }));
+            }
           }
         } catch { /* no-op */ }
         const gg = globeRef.current;
@@ -3377,6 +3397,12 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                   tourLen: SOLAR_TOUR.length,
                   firstStepKey: SOLAR_TOUR[0]?.key,
                 });
+                // On-screen overlay для Босса (iPad без DevTools).
+                if (window.localStorage?.getItem("muzaai-screen-debug") === "1") {
+                  window.dispatchEvent(new CustomEvent("muza:debug-log", {
+                    detail: `[rAF/solar] entered single=${key} stepIdx=${solarStepIdx} initDone=${solarInitDone} firstStep=${SOLAR_TOUR[0]?.key}`,
+                  }));
+                }
               }
             } catch { /* no-op */ }
             wDbg.__muziaiSolarEnterLogged = key;
@@ -3453,6 +3479,12 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                     singleSolarKey: singleSolarKeyRef.current,
                     tour: SOLAR_TOUR.map(s => s.key),
                   });
+                  // On-screen overlay для Босса (iPad без DevTools).
+                  if (window.localStorage?.getItem("muzaai-screen-debug") === "1") {
+                    window.dispatchEvent(new CustomEvent("muza:debug-log", {
+                      detail: `[rAF/solar] RESTART tour=[${SOLAR_TOUR.map(s => s.key).join(",")}]`,
+                    }));
+                  }
                 }
               } catch { /* no-op */ }
             }
@@ -3471,6 +3503,12 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                     tour: SOLAR_TOUR.map(s => s.key),
                     cameraPos: { x: cp.x, y: cp.y, z: cp.z },
                   });
+                  // On-screen overlay для Босса (iPad без DevTools).
+                  if (window.localStorage?.getItem("muzaai-screen-debug") === "1") {
+                    window.dispatchEvent(new CustomEvent("muza:debug-log", {
+                      detail: `[rAF/solar] INIT tour=[${SOLAR_TOUR.map(s => s.key).join(",")}]`,
+                    }));
+                  }
                 }
               } catch { /* no-op */ }
             }
@@ -4687,7 +4725,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 "  vAlpha = alpha;",
                 "  vec4 mv = modelViewMatrix * vec4(position, 1.0);",
                 "  gl_Position = projectionMatrix * mv;",
-                "  gl_PointSize = size * 2.2;", // ретина scale-up
+                // Босс 2026-05-30 «увеличь size в 2-3 раза, чтобы реальные звёзды
+                // доминировали над фоновым 800-точечным шумом». 2.2 → 3.5.
+                "  gl_PointSize = size * 3.5;",
                 "}",
               ].join("\n"),
               fragmentShader: [
@@ -4697,9 +4737,15 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 "  vec2 uv = gl_PointCoord - 0.5;",
                 "  float d = length(uv);",
                 "  if (d > 0.5) discard;",
-                // мягкий гало-фолл от центра
-                "  float f = smoothstep(0.5, 0.0, d);",
-                "  gl_FragColor = vec4(vColor, f * vAlpha);",
+                // Босс 2026-05-30 «звёзды узнаваемые с гало». Двойной профиль:
+                // (1) яркое ядро 0..0.12 — белая «искра» + цвет
+                // (2) гало 0.12..0.5 — мягкий цветной spread
+                "  float core = 1.0 - smoothstep(0.0, 0.12, d);",
+                "  float halo = pow(1.0 - smoothstep(0.0, 0.5, d), 1.6);",
+                "  vec3 white = vec3(1.0);",
+                "  vec3 rgb = mix(vColor, white, core * 0.7);",
+                "  float a = (halo * 0.95 + core * 0.5) * vAlpha;",
+                "  gl_FragColor = vec4(rgb, a);",
                 "}",
               ].join("\n"),
             });
@@ -4724,8 +4770,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             const geo = new THREE.BufferGeometry();
             geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
             geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+            // Босс 2026-05-30: fallback крупнее (8 вместо 3.5) чтобы
+            // звёзды каталога заметно выделялись на любом устройстве.
             const mat = new THREE.PointsMaterial({
-              size: 3.5, sizeAttenuation: false, transparent: true, opacity: 0.95,
+              size: 8.0, sizeAttenuation: false, transparent: true, opacity: 0.98,
               vertexColors: true, depthWrite: false, blending: THREE.AdditiveBlending,
             });
             const pts = new THREE.Points(geo, mat);
@@ -4750,10 +4798,13 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             if (segments.length > 0) {
               const geo = new THREE.BufferGeometry();
               geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(segments), 3));
+              // Босс 2026-05-30 «созвездия узнаваемые формы»: opacity 0.18→0.55,
+              // цвет светлее, чтобы Большой Ковш и Орион чётко читались
+              // на фоне 800 звёзд. AdditiveBlending усиливает яркость.
               const mat = new THREE.LineBasicMaterial({
-                color: 0x4a7fc4,
+                color: 0x88baff,
                 transparent: true,
-                opacity: 0.18,
+                opacity: 0.55,
                 depthWrite: false,
                 blending: THREE.AdditiveBlending,
               });
@@ -4765,9 +4816,14 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             console.warn("[GlobeView] constellation lines failed:", e);
           }
 
-          // --- Слой 3: фоновые случайные звёзды (чтобы небо не было пустым) ---
+          // --- Слой 3: фоновые случайные звёзды ---
+          // Босс 2026-05-30 «реальные звёзды должны доминировать»: уменьшил
+          // count 2000→700, size 1.4→1.0, opacity 0.55→0.30. Чтобы 52 ярких
+          // звезды каталога чётко выделялись над фоновым «пылью» Млечного
+          // Пути — иначе VirtualSky-эффект (Сириус сильно ярче остальных)
+          // не читается, всё сливается в равномерный посев.
           try {
-            const count = 2000;
+            const count = 700;
             const pos = new Float32Array(count * 3);
             const col = new Float32Array(count * 3);
             for (let i = 0; i < count; i++) {
@@ -4788,7 +4844,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
             geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
             const mat = new THREE.PointsMaterial({
-              size: 1.4, sizeAttenuation: false, transparent: true, opacity: 0.55,
+              size: 1.0, sizeAttenuation: false, transparent: true, opacity: 0.30,
               vertexColors: true, depthWrite: false, blending: THREE.AdditiveBlending,
             });
             const pts = new THREE.Points(geo, mat);

@@ -33,6 +33,7 @@ import BackgroundMusic from "./components/background-music";
 import { ErrorBoundary } from "./components/error-boundary";
 import { PlayerProvider } from "./lib/player-agent";
 import { FloatingConsultant } from "./components/floating-consultant";
+import { ScreenDebugOverlay } from "./components/screen-debug-overlay";
 import { useEffect, useState } from "react";
 
 // Wrapper для рендера каждой страницы внутри ErrorBoundary с именем —
@@ -124,6 +125,10 @@ function AppContent() {
           → открывался voice-панель → «диалог не происходит». ФИКС: на admin-pages
           FloatingConsultant скрыт (у админа есть MusaVoiceFab для admin-задач). */}
       <AdminAwareFloatingConsultant />
+      {/* Eugene 2026-05-30 Босс на iPad без DevTools — on-screen debug overlay.
+          Активируется через ?debug=1 в URL или localStorage["muzaai-screen-debug"]="1".
+          Prod юзеры не видят без флага. См. screen-debug-overlay.tsx. */}
+      <ScreenDebugOverlay />
       {/* Eugene 2026-05-20 Босс: маленькую Музу (WalkingMusa) убрали с сайта —
           остаётся только большая в bottom-right (FloatingConsultant). */}
     </div>

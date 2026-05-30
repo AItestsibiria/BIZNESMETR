@@ -153,9 +153,11 @@ export function TappableHitboxes({ enabled }: Props) {
                 e.stopPropagation();
               }}
               onPointerUp={(e) => {
-                e.stopPropagation();
-              }}
-              onClick={(e) => {
+                // Босс 2026-05-30 «тап планеты приводит к Земле» — корень:
+                // onClick на iPad Safari дает 300мс задержку + может не дойти
+                // если parent overlay с pointer-events:none перехватывает
+                // тач-сообщения. onPointerUp срабатывает мгновенно и
+                // надёжно на iOS. Переносим dispatch сюда.
                 e.stopPropagation();
                 e.preventDefault();
                 try {
@@ -170,13 +172,22 @@ export function TappableHitboxes({ enabled }: Props) {
                   })();
                   if (dbg) {
                     try {
-                      console.error("[hitbox] click", {
+                      const payload = {
                         key: b.key,
                         coords: { x: b.x, y: b.y, r: b.r },
                         flightMode: w.__muziaiDebugFlightMode || "(unknown)",
                         singleSolarKey: w.__muziaiDebugSingleSolarKey || "(unknown)",
                         snapshot: (w.__muziaiPlanetScreen || []).map((p: any) => p.key),
-                      });
+                      };
+                      console.error("[hitbox] click", payload);
+                      // On-screen overlay для Босса на iPad (без DevTools).
+                      try {
+                        if (window.localStorage?.getItem("muzaai-screen-debug") === "1") {
+                          window.dispatchEvent(new CustomEvent("muza:debug-log", {
+                            detail: `[hitbox] click → ${b.key} (mode=${payload.flightMode}, single=${payload.singleSolarKey})`,
+                          }));
+                        }
+                      } catch { /* no-op */ }
                     } catch { /* no-op */ }
                   }
                   window.dispatchEvent(
@@ -184,6 +195,13 @@ export function TappableHitboxes({ enabled }: Props) {
                   );
                   if (dbg) {
                     try { console.error("[hitbox] dispatched muza:globe-fly-to", b.key); } catch { /* no-op */ }
+                    try {
+                      if (window.localStorage?.getItem("muzaai-screen-debug") === "1") {
+                        window.dispatchEvent(new CustomEvent("muza:debug-log", {
+                          detail: `[hitbox] → dispatched muza:globe-fly-to ${b.key}`,
+                        }));
+                      }
+                    } catch { /* no-op */ }
                   }
                   if (w.__muziaiDebug) {
                     try { console.log("[tap-to-fly] hitbox click", b.key, { x: b.x, y: b.y }); } catch { /* no-op */ }
@@ -202,6 +220,12 @@ export function TappableHitboxes({ enabled }: Props) {
                 } catch {
                   /* no-op — Player-render-resilience rule */
                 }
+              }}
+              onClick={(e) => {
+                // Резерв для desktop (mouse) — onClick на desktop работает
+                // надёжно, но на iPad onPointerUp выше уже сработал.
+                e.stopPropagation();
+                e.preventDefault();
               }}
             />
           );
