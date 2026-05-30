@@ -3060,6 +3060,47 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   земли явно видная». Position fixed — поверх canvas. */}
                               <SolarLabel />
                               {/* Зум +/− перенесён в плеер (Босс 2026-05-29 «все кнопки в плеере»). */}
+                              {/* Босс 2026-05-30 п.3: «3д в нижнем поле вернуться к Музе / поделись Музой».
+                                  Floating bottom-bar в фуллскрине поверх canvas. Glass + border-only
+                                  (Босс п.5 «прозрачное видео только слова и контуры»). Скрывается
+                                  вместе с globeUiHidden (через 2.5с бездействия), padding с safe-area. */}
+                              {globeFullscreen && (
+                                <div
+                                  className="absolute bottom-0 left-0 right-0 flex justify-center pointer-events-none transition-all duration-700"
+                                  style={{
+                                    paddingLeft: "max(env(safe-area-inset-left), 12px)",
+                                    paddingRight: "max(env(safe-area-inset-right), 12px)",
+                                    paddingBottom: "max(env(safe-area-inset-bottom), 12px)",
+                                    opacity: globeUiHidden ? 0 : 1,
+                                    transform: globeUiHidden ? "translateY(120%)" : "translateY(0)",
+                                  }}
+                                >
+                                  <div
+                                    className="pointer-events-auto flex flex-row items-center gap-2 max-w-md w-full px-3 py-2 rounded-2xl border border-white/20 backdrop-blur-xl"
+                                    style={{ background: "rgba(10,8,24,0.18)" }}
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); toggleGlobeFullscreen(); }}
+                                      className="flex-1 h-10 px-3 rounded-xl flex items-center justify-center gap-1 text-[12px] font-semibold text-white/90 bg-transparent border border-purple-300/45 hover:border-purple-300/80 active:scale-95 transition-all whitespace-nowrap"
+                                      aria-label="Вернуться к Музе — выйти из полноэкранного режима"
+                                    >↩ Вернуться к <span className="font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">Музе</span></button>
+                                    <button
+                                      type="button"
+                                      onClick={async (e) => {
+                                        e.stopPropagation();
+                                        // Reuse-working-solutions rule — тот же pattern что и в правой колонке плеера (line ~3210).
+                                        const url = `${window.location.origin}/?globecard=1`;
+                                        const shareData = { title: "MuzaAi — Мир Музыки без границ", text: "Нас слушают по всему миру 🌍 Твоя Муза", url };
+                                        try { if (navigator.share) { await navigator.share(shareData); return; } } catch { /* отменили шеринг */ }
+                                        try { await navigator.clipboard.writeText(url); toast({ title: "Ссылка скопирована", description: "Поделись Музой 💜" }); } catch { /* no-op */ }
+                                      }}
+                                      className="flex-1 h-10 px-3 rounded-xl flex items-center justify-center gap-1 text-[12px] font-semibold text-white/90 bg-transparent border border-fuchsia-300/45 hover:border-fuchsia-300/80 active:scale-95 transition-all whitespace-nowrap"
+                                      aria-label="Поделись Музой — отправить ссылку на 3D-глобус"
+                                    >📤 Поделись <span className="font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">Музой</span></button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                             {/* Мини-плеер под глобусом (Босс: автоплей «Муза» → автоповтор по топу) */}
                             {(() => {

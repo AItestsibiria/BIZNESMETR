@@ -238,9 +238,11 @@ export function SolarWizard({ open, onClose, onLaunch }: SolarWizardProps) {
           onClick={handleBackdropClick}
           className="fixed inset-0 z-[80] flex items-center justify-center px-4 py-6"
           style={{
-            background: "radial-gradient(ellipse at center, rgba(20,8,40,0.78) 0%, rgba(8,4,20,0.92) 70%)",
-            backdropFilter: "blur(12px)",
-            WebkitBackdropFilter: "blur(12px)",
+            // Босс 2026-05-30 п.5: «Меню прозрачное видео только слова и контуры меню».
+            // Лёгкий dim + сильный blur — глобус виден сквозь backdrop как видео-фон.
+            background: "rgba(8,4,20,0.28)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
           }}
           role="dialog"
           aria-modal="true"
@@ -253,11 +255,15 @@ export function SolarWizard({ open, onClose, onLaunch }: SolarWizardProps) {
             exit={{ scale: 0.94, opacity: 0, y: 8 }}
             transition={{ type: "spring", stiffness: 280, damping: 26 }}
             onClick={(e) => e.stopPropagation()}
-            className="relative w-full overflow-hidden rounded-3xl border border-purple-400/35 shadow-[0_0_60px_rgba(168,85,247,0.35)]"
+            className="relative w-full overflow-hidden rounded-3xl border border-white/20 shadow-[0_0_60px_rgba(168,85,247,0.30)]"
             style={{
               maxWidth: "min(96vw, 640px)",
               maxHeight: "calc(100dvh - 48px - env(safe-area-inset-top) - env(safe-area-inset-bottom))",
-              background: "linear-gradient(135deg, rgba(16,8,32,0.96) 0%, rgba(22,12,48,0.96) 60%, rgba(10,6,28,0.96) 100%)",
+              // Босс 2026-05-30 п.5: «прозрачное видео только слова и контуры».
+              // Стекло — низкая плотность + сильный blur → глобус «просвечивает».
+              background: "rgba(10,8,24,0.18)",
+              backdropFilter: "blur(18px) saturate(140%)",
+              WebkitBackdropFilter: "blur(18px) saturate(140%)",
             }}
           >
             {/* Заголовок + крестик */}
@@ -318,8 +324,8 @@ export function SolarWizard({ open, onClose, onLaunch }: SolarWizardProps) {
               )}
             </div>
 
-            {/* Footer CTA */}
-            <div className="px-5 sm:px-6 py-4 border-t border-white/10 bg-black/30">
+            {/* Footer CTA — Босс 2026-05-30 п.5: прозрачный, только контур и текст. */}
+            <div className="px-5 sm:px-6 py-4 border-t border-white/15">
               {step === 1 ? (
                 <button
                   type="button"
