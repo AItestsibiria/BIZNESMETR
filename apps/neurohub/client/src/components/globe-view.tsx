@@ -1848,6 +1848,20 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // Камера-режиссёр: юзер сейчас сам вращает (пауза авто-движения) + хук пере-базы круиза.
   const userInteractingRef = useRef(false);
   const rebaseCruiseRef = useRef<(() => void) | null>(null);
+  // Босс 2026-05-30 ИНЦИДЕНТ «Земля исчезла после Сис-тура»: единая функция
+  // восстановления камеры/таргета к Земле. Вызывается на ВСЕХ путях выхода из
+  // solar/moon тура. Сбрасывает OrbitControls.target в (0,0,0), возвращает
+  // pointOfView к cruise-широте/долготе + CRUISE_ALTITUDE, очищает label overlay.
+  // Без этого камера остаётся orbit'ить вокруг последней планеты (Neptune и т.п.)
+  // и Земля выпадает из кадра. Reuse-working-solutions: rebaseCruise синхронизирует
+  // драйв после restore.
+  const restoreEarthCameraRef = useRef<(() => void) | null>(null);
+  // Босс 2026-05-30 ИНЦИДЕНТ: dispose solar-ресурсов извне rAF (из switchMode hook).
+  // Внутри rAF есть локальная disposeAllSolar — но из external event handler её
+  // не достать. Эта ref-обёртка даёт безопасный access. Вызывается при ручном
+  // переходе из solar в classic/ai/moon — иначе planet-meshes останутся внутри
+  // глобуса (Mars/Mercury на orbitR=10 могут быть видны изнутри Земли как артефакт).
+  const disposeAllSolarRef = useRef<(() => void) | null>(null);
   // Удержание камеры по двойному тапу (Босс 2026-05-29): после двойного тапа по планете
   // камера держит текущую позицию/траекторию до нового входа в режим или пока юзер сам
   // не сменит позицию (перетаскивание/зум).
@@ -2194,9 +2208,19 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         if (m === "solar" && flightModeRef.current === "solar") {
           solarRestartRef.current = true;
         }
-        // Босс 2026-05-30: при ВЫХОДЕ из solar — сбросить planet label overlay.
+        // Босс 2026-05-30: при ВЫХОДЕ из solar — сбросить planet label overlay
+        // + ВОССТАНОВИТЬ КАМЕРУ к Земле (иначе controls.target застрял на последней
+        // планете → Земля выпадает из кадра, виден только звёздный фон + Tomsk label).
+        // + DISPOSE всех solar-meshes (Mars/Mercury внутри Земли = артефакт).
         if (flightModeRef.current === "solar" && m !== "solar") {
+          try { disposeAllSolarRef.current?.(); } catch { /* no-op */ }
           try { clearSolarLabelState(); } catch { /* no-op */ }
+          try { restoreEarthCameraRef.current?.(); } catch { /* no-op */ }
+        }
+        // Аналогично для moon-тура: controls.target остался на Луне — pointOfView
+        // не сбрасывает его сам, и Земля смещена из центра. restoreEarthCamera фиксит.
+        if (flightModeRef.current === "moon" && m !== "moon") {
+          try { restoreEarthCameraRef.current?.(); } catch { /* no-op */ }
         }
         flightModeRef.current = m;
         holdRef.current = false; // новый вход в режим снимает удержание
@@ -2423,6 +2447,59 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       } catch {
         // ignore
       }
+    };
+
+    // Босс 2026-05-30 ИНЦИДЕНТ: восстановление камеры к Земле после solar/moon тура.
+    // Сбрасывает OrbitControls.target в (0,0,0) — иначе controls.update() каждый кадр
+    // поворачивает камеру lookAt(Neptune/Mars/Moon...) и Земля выпадает из кадра
+    // (на скрине Босса: видны только звёзды + диагональная aura планеты + Tomsk label).
+    // pointOfView ставит camera.position по lat/lng/altitude — НЕ трогает controls.target.
+    // Без этого helper'а — каждый выход из тура оставлял камеру orbit'ить вокруг
+    // последней планеты. Применяется на ВСЕХ путях выхода (auto-finish, !step,
+    // !camera, catch-fallback, ручной switch из плеера, free-zoom за границы).
+    restoreEarthCameraRef.current = () => {
+      try {
+        const gg = globeRef.current;
+        if (!gg) return;
+        // Босс 2026-05-30 уточнение: «Земля появилась но через ~25 сек».
+        // Корень — pointOfView с tween 800мс ИЛИ exponential lerp 0.08 в classic-блоке:
+        // из позиции у Сатурна/Нептуна (camera dist ~250-300 ед.) сходимость к
+        // CRUISE_ALTITUDE (3.6, ~360 ед.) длится десятки секунд. Решение —
+        // МГНОВЕННЫЙ snap: pointOfView(..., 0) + СИНХРОННО обновляем cruise/drift,
+        // чтобы следующий же кадр classic не запускал lerp заново. Земля видна
+        // в тот же кадр. Базовая globe-mesh (R=100) ВСЕГДА остаётся в сцене —
+        // она просто была вне кадра во время Сис.
+        const lat = Number.isFinite(cruise.lat) ? cruise.lat : startLat;
+        const lng = Number.isFinite(cruise.lng) ? cruise.lng : (driftBaseLng || startLng);
+        // 1) Сбрасываем target OrbitControls в центр Земли (0,0,0). КРИТИЧНО: без
+        //    этого controls.update() сразу же повернёт камеру lookAt(старый target).
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const ctrl = (gg as any).controls?.();
+          if (ctrl?.target) {
+            ctrl.target.set(0, 0, 0);
+            ctrl.update?.();
+          }
+        } catch { /* no-op */ }
+        // 2) МГНОВЕННЫЙ snap камеры к панорамному обзору Земли (transitionMs=0).
+        //    Босс 2026-05-30 «Земля появилась но через 25 сек» → instant, не tween.
+        try {
+          gg.pointOfView?.({ lat, lng, altitude: CRUISE_ALTITUDE }, 0);
+        } catch { /* no-op */ }
+        // 3) СИНХРОННО (без setTimeout) обновляем cruise/drift/zoom — иначе
+        //    следующий кадр classic-режима подхватит stale координаты (Сатурн/Нептун)
+        //    и запустит exponential lerp обратно (вот те самые 25 сек у Босса).
+        try {
+          cruise.lat = lat;
+          cruise.lng = lng;
+          cruise.alt = CRUISE_ALTITUDE;
+          driftBaseLng = lng;
+          driftBaseT = performance.now();
+          zoomTargetRef.current = CRUISE_ALTITUDE;
+        } catch { /* no-op */ }
+        // 4) Очищаем label overlay Сис (Player-render-resilience: если уже очищен — no-op).
+        try { clearSolarLabelState(); } catch { /* no-op */ }
+      } catch { /* no-op */ }
     };
 
     // Драйвер Морзе: мигает morseWordRef (приветствие у точки → прощание на отъезде),
@@ -2702,8 +2779,14 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           const camera = gg.camera?.();
           const moon = moonMeshRef.current;
           if (!camera || !moon) {
-            // нет данных — fallback к classic
+            // нет данных — fallback к classic.
+            // Босс 2026-05-30 ИНЦИДЕНТ «Земля появилась через 25 сек»: на ВСЕХ
+            // путях выхода из moon-тура — мгновенное восстановление вида Земли
+            // (instant snap + sync cruise/drift). Без restoreEarthCamera camera
+            // была у Луны, controls.target тоже — exponential lerp 0.08 тянул
+            // возврат десятки секунд.
             flightModeRef.current = "classic";
+            try { restoreEarthCameraRef.current?.(); } catch { /* no-op */ }
           } else {
             if (!moonInitDone) {
               const cp = camera.position;
@@ -2765,11 +2848,13 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
               camera.lookAt(0, 0, 0); // Земля в центре
             } else {
               // Завершено — переключаемся в classic, сбрасываем состояние.
+              // Босс 2026-05-30: restoreEarthCamera уже sync'ит cruise/drift
+              // → отдельный rebaseCruise после него лишний. Camera мгновенно
+              // в CRUISE_ALTITUDE над cruise.lat/cruise.lng, controls.target=0.
               moonInitDone = false;
               moonStartCamPos = null;
               flightModeRef.current = "classic";
-              // rebase cruise чтобы classic подхватил с текущей точки.
-              rebaseCruiseRef.current?.();
+              try { restoreEarthCameraRef.current?.(); } catch { /* no-op */ }
             }
             // OrbitControls target на Луну во время тура — даёт правильный gestural feel.
             try {
@@ -2781,7 +2866,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             } catch { /* no-op */ }
           }
         } catch {
+          // Босс 2026-05-30 ИНЦИДЕНТ: moon catch-fallback тоже восстанавливает камеру.
           flightModeRef.current = "classic";
+          try { restoreEarthCameraRef.current?.(); } catch { /* no-op */ }
         }
         // Пропускаем pointOfView в конце loop — управляем камерой напрямую.
         return;
@@ -2794,7 +2881,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           const camera = gg.camera?.();
           const scene = gg.scene?.();
           if (!camera || !scene) {
+            // Босс 2026-05-30 ИНЦИДЕНТ: гарантированное восстановление Земли
+            // даже на defensive-fallback (нет camera/scene).
             flightModeRef.current = "classic";
+            try { restoreEarthCameraRef.current?.(); } catch { /* no-op */ }
           } else {
             // ── Helper: dispose ВСЕХ solar-ресурсов (планеты + спутники + пояса).
             // Используется при restart, completion и error-fallback.
@@ -2838,6 +2928,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 for (const p of planetsRef.current) { if (p.mesh) p.mesh.visible = true; }
               } catch { /* no-op */ }
             };
+            // Босс 2026-05-30 ИНЦИДЕНТ: publish dispose как ref для внешнего switchMode.
+            // На каждом solar-tick переустанавливаем (closure пересоздаётся в rAF
+            // closure scope — но disposeAllSolar остаётся стабильной internal-функцией).
+            disposeAllSolarRef.current = disposeAllSolar;
 
             // Restart-on-click (Босс 2026-05-30 v2 «нюанс из MVP — игнорировалось»).
             // Повторный клик «🪐 Солнечная» во время тура — флаг → full reset.
@@ -2860,7 +2954,17 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             }
             const step = SOLAR_TOUR[solarStepIdx];
             if (!step) {
+              // Босс 2026-05-30 ИНЦИДЕНТ: free-zoom skip мог вывести solarStepIdx
+              // за границы массива (пинч-ин на последней планете → solarStepIdx -= 1
+              // отрабатывает но потом zoom-out skip → += 1 → за пределы).
+              // Гарантируем dispose + восстановление камеры на Земле.
+              disposeAllSolar();
+              solarInitDone = false;
+              solarStepIdx = 0;
+              solarStepStartCamPos = null;
               flightModeRef.current = "classic";
+              try { clearSolarLabelState(); } catch { /* no-op */ }
+              try { restoreEarthCameraRef.current?.(); } catch { /* no-op */ }
             } else {
               const phaseT = now - solarStepStartT;
               const stepDuration = step.approachMs + step.orbitMs;
@@ -3086,13 +3190,17 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                   solarStepIdx += 1;
                   if (solarStepIdx >= SOLAR_TOUR.length) {
                     // Тур завершён — full dispose + переключение в classic.
+                    // Босс 2026-05-30 ИНЦИДЕНТ: добавлен restoreEarthCamera —
+                    // иначе controls.target застрял на последней планете и Земля
+                    // выпадала из кадра (видны только звёзды + planet aura).
+                    // Уточнение Босса 2026-05-30: helper уже синхронизирует
+                    // cruise/drift → отдельный rebaseCruise после него лишний.
                     disposeAllSolar();
                     solarInitDone = false;
                     solarStepIdx = 0;
                     solarStepStartCamPos = null;
                     flightModeRef.current = "classic";
-                    try { clearSolarLabelState(); } catch { /* no-op */ }
-                    rebaseCruiseRef.current?.();
+                    try { restoreEarthCameraRef.current?.(); } catch { /* no-op */ }
                   } else {
                     solarStepStartT = now;
                     const cpos = camera.position;
@@ -3264,6 +3372,8 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           solarStepStartCamPos = null;
           flightModeRef.current = "classic";
           try { clearSolarLabelState(); } catch { /* no-op */ }
+          // Босс 2026-05-30 ИНЦИДЕНТ: catch-fallback тоже восстанавливает камеру.
+          try { restoreEarthCameraRef.current?.(); } catch { /* no-op */ }
         }
         // Управляем камерой напрямую.
         return;
@@ -3456,6 +3566,8 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       winkActiveRef.current = false;
       morseOnRef.current = false;
       rebaseCruiseRef.current = null;
+      restoreEarthCameraRef.current = null;
+      disposeAllSolarRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
