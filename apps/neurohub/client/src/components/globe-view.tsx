@@ -302,9 +302,9 @@ const SUN_FRAGMENT = SUN_NOISE + `
     float plasma = mix(n1, n2, 0.55);
     // Горячие «гранулы» из пиков шума.
     float hot = smoothstep(0.55, 0.85, n1 + n2 * 0.35);
-    vec3 cWhite = vec3(1.00, 0.96, 0.74);  // бело-жёлтый горячий центр гранул
-    vec3 cYellow = vec3(1.00, 0.66, 0.20); // оранжево-жёлтый базовый
-    vec3 cOrange = vec3(0.92, 0.34, 0.08); // тёмно-оранжевые впадины
+    vec3 cWhite = vec3(1.00, 0.99, 0.92);  // почти белый горячий центр гранул (Босс 2026-05-30: «смешай с белым»)
+    vec3 cYellow = vec3(1.00, 0.82, 0.55); // светло-жёлтый базовый (белее предыдущего)
+    vec3 cOrange = vec3(1.00, 0.62, 0.30); // оранжево-розовые впадины (мягче, белее)
     vec3 base = mix(cOrange, cYellow, plasma);
     base = mix(base, cWhite, hot);
     // Лимб слегка темнее — атмосферное затемнение края.
@@ -349,19 +349,22 @@ const SUN_CORONA_FRAGMENT = SUN_NOISE_2D + `
     float ang = atan(c.y, c.x);  // -pi..pi
     float t = uTime;
     // Угловая текстура из высокочастотного шума → тонкие радиальные «волоски».
-    float s1 = fbm2(vec2(ang * 14.0, t * 0.55));
-    float s2 = fbm2(vec2(ang * 32.0, t * 1.3 + 7.3));
+    // Босс 2026-05-30: «плотность лучей увеличить в 2 раза» — повышены частоты + понижен порог.
+    float s1 = fbm2(vec2(ang * 22.0, t * 0.55));
+    float s2 = fbm2(vec2(ang * 50.0, t * 1.3 + 7.3));
     float streak = pow(s1, 1.5) * pow(s2, 1.1);
-    streak = clamp(streak * 3.6 - 0.45, 0.0, 1.0); // редкие сильные пики
+    streak = clamp(streak * 3.6 - 0.25, 0.0, 1.0); // больше «волосков», но всё ещё избирательно
     // Переменная длина каждого «волоска» по углу (низкая частота).
+    // Босс 2026-05-30: «длина лучей 1,5-3 раз разной длины» — 0.30..1.00 даёт ×3.3 разброс.
     float lenN = fbm2(vec2(ang * 5.5, t * 0.35 + 2.1));
-    float maxR = 0.50 + lenN * 0.50; // длина 0.50..1.00
+    float maxR = 0.30 + lenN * 0.70; // длина 0.30..1.00 — короткие и длинные рядом
     // Профиль яркости: яркий у лимба, плавно гаснет к концу волоска.
     float fadeIn  = smoothstep(0.42, 0.50, r);
     float fadeOut = 1.0 - smoothstep(maxR * 0.68, maxR, r);
     float profile = fadeIn * fadeOut;
     float alpha = profile * streak * 0.95;
-    vec3 col = mix(vec3(1.00, 0.42, 0.08), vec3(1.00, 0.92, 0.55), streak);
+    // Босс 2026-05-30: «цвет солнца и лучей смешай с белым» — оба конца градиента ближе к белому.
+    vec3 col = mix(vec3(1.00, 0.70, 0.40), vec3(1.00, 0.98, 0.92), streak);
     gl_FragColor = vec4(col, alpha);
   }
 `;
@@ -386,8 +389,9 @@ function makeSunGroup(radius: number): { group: any; body: any; bodyMat: any; co
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
-    // План 5R × 5R: «волоски» доходят до ~2 радиусов Солнца от лимба.
-    const coronaSize = radius * 5;
+    // План 7R × 7R: «волоски» доходят до ~3 радиусов Солнца от лимба
+    // (Босс 2026-05-30: длина лучей 1.5-3× — план расширен, чтобы хватило места длинным).
+    const coronaSize = radius * 7;
     const coronaGeo = new THREE.PlaneGeometry(coronaSize, coronaSize);
     const corona = new THREE.Mesh(coronaGeo, coronaMat);
     corona.renderOrder = 2; // поверх тела (тело depthWrite — сначала)
