@@ -9,10 +9,11 @@
 // Минимальный UI с фокусом на функциональность — Босс просил «лента
 // последних сессий + timeline по клику + filter всё/конверсии/bounces».
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
+import { ADMIN_PERIODS, type PeriodId, filterByPeriod, periodLabel } from "@/lib/adminPeriods";
 
 type JourneySummary = {
   since: string;
@@ -82,6 +83,8 @@ const EVENT_EMOJI: Record<string, string> = {
 export function JourneyTab({ toast }: { toast?: any }) {
   const [filter, setFilter] = useState<"all" | "converted" | "bounced">("all");
   const [openSession, setOpenSession] = useState<string | null>(null);
+  // Eugene 2026-05-30: канонический period selector (client-side фильтр endedAt).
+  const [period, setPeriod] = useState<PeriodId>("today");
 
   const summaryQ = useQuery<JourneySummary>({
     queryKey: ["admin-journey-summary"],
@@ -108,16 +111,73 @@ export function JourneyTab({ toast }: { toast?: any }) {
     enabled: !!openSession,
   });
 
-  const filteredSessions = (sessionsQ.data?.sessions || []).filter((s) => {
-    if (filter === "converted") return s.converted;
-    if (filter === "bounced") return s.bounced;
-    return true;
-  });
+  const filteredSessions = useMemo(() => {
+    const all = sessionsQ.data?.sessions || [];
+    const byStatus = all.filter((s) => {
+      if (filter === "converted") return s.converted;
+      if (filter === "bounced") return s.bounced;
+      return true;
+    });
+    return filterByPeriod(byStatus, period, (s) => s.endedAt);
+  }, [sessionsQ.data, filter, period]);
+
+  function copyAllReport() {
+    const sum = summaryQ.data;
+    const lines: string[] = [];
+    lines.push(`🗺 Путь юзера — отчёт (${periodLabel(period)})`);
+    lines.push(`🕐 ${new Date().toLocaleString("ru-RU")}`);
+    if (sum) {
+      lines.push("");
+      lines.push(`Событий: ${sum.totals.events} · Сессий: ${sum.totals.sessions} · Средняя сессия: ${fmtMs(sum.totals.avgSessionMs)}`);
+      lines.push("");
+      lines.push(`Воронка: 🏠 ${sum.funnel.landing} → 📱 /register-phone: ${sum.funnel.register_page} → ✍️ focus: ${sum.funnel.form_focus} → 🚪 abandon: ${sum.funnel.form_abandon}`);
+      lines.push("");
+      lines.push(`Топ-страницы (${sum.topPages.length}):`);
+      for (const p of sum.topPages.slice(0, 10)) lines.push(`  ${p.page} — views ${p.views} · uniqSessions ${p.uniqSessions}`);
+      lines.push("");
+      lines.push(`Куда уходят (${sum.exitPages.length}):`);
+      for (const p of sum.exitPages.slice(0, 10)) lines.push(`  ${p.page} — exits ${p.exits}`);
+    }
+    lines.push("");
+    lines.push(`Сессии в окне (${filteredSessions.length}):`);
+    for (const s of filteredSessions.slice(0, 100)) {
+      const flags = [
+        s.userId ? `user:#${s.userId}` : "анон",
+        s.converted ? "✅" : null,
+        s.bounced ? "💨" : null,
+      ].filter(Boolean).join(" ");
+      lines.push(`  ${s.sessionKey.slice(0, 12)}… · ${flags} · pv ${s.pageViews} · ev ${s.eventCount} · ${fmtMs(s.durationMs)} · ${s.entryPage} → ${s.exitPage} · ${new Date(s.endedAt).toLocaleString("ru-RU")}`);
+    }
+    navigator.clipboard.writeText(lines.join("\n")).then(() => {
+      if (toast) toast({ title: "Скопировано", description: `${filteredSessions.length} сессий` });
+    });
+  }
 
   const summary = summaryQ.data;
 
   return (
     <div className="space-y-4">
+      {/* Eugene 2026-05-30: canonical period chips + копировать ВСЕ */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap gap-1">
+          {ADMIN_PERIODS.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => setPeriod(p.id)}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium border transition ${
+                period === p.id
+                  ? "bg-purple-500/20 text-purple-200 border-purple-400/50"
+                  : "bg-white/5 border-white/10 text-white/60 hover:bg-white/10"
+              }`}
+            >{p.label}</button>
+          ))}
+        </div>
+        <button
+          onClick={copyAllReport}
+          className="text-[11px] px-2 py-1 rounded-md bg-fuchsia-500/15 border border-fuchsia-500/40 text-fuchsia-200 hover:bg-fuchsia-500/25 ml-auto"
+        >📋 Скопировать ВСЕ</button>
+      </div>
+
       {/* === Summary card === */}
       <Card>
         <CardHeader>

@@ -81,7 +81,7 @@ const CATEGORY_STYLE: Record<string, string> = {
 
 const SAFE_CATEGORIES = new Set(["news_post", "kb_update", "persona_tweak", "ui_text", "feature_toggle"]);
 
-type DateRange = "24h" | "7d" | "30d" | "all";
+type DateRange = "today" | "yesterday" | "week" | "month" | "year" | "all";
 type SortMode = "created_desc" | "risk_desc" | "category_asc";
 
 function categoryClass(cat: string | null): string {
@@ -116,7 +116,7 @@ export default function YarsQueueTab({ toast }: { toast?: any }) {
   const [categoryFilter, setCategoryFilter] = useState<string>("");
   const [channelFilter, setChannelFilter] = useState<string>("");
   // Eugene 2026-05-24 Босс «По умолчанию все данные в админ-панели — сегодня».
-  const [dateRange, setDateRange] = useState<DateRange>("24h");
+  const [dateRange, setDateRange] = useState<DateRange>("today");
   const [sortMode, setSortMode] = useState<SortMode>("created_desc");
   const [search, setSearch] = useState<string>("");
 
@@ -147,16 +147,28 @@ export default function YarsQueueTab({ toast }: { toast?: any }) {
   const filteredQueue = useMemo<YarsQueueItem[]>(() => {
     if (!data?.queue) return [];
     const now = Date.now();
-    const windowMs = dateRange === "24h" ? 24 * 3600 * 1000
-      : dateRange === "7d" ? 7 * 24 * 3600 * 1000
-      : dateRange === "30d" ? 30 * 24 * 3600 * 1000
-      : Infinity;
+    // Eugene 2026-05-30: канонические периоды (Period-20-MSK rule).
+    // today/yesterday — относительно последнего cut-off 20:00 МСК (17 UTC);
+    // week/month/year — rolling от now.
+    const MSK_OFFSET = 3;
+    const CUTOFF_UTC = 20 - MSK_OFFSET;
+    const nowD = new Date(now);
+    const todayCutoff = Date.UTC(nowD.getUTCFullYear(), nowD.getUTCMonth(), nowD.getUTCDate(), CUTOFF_UTC, 0, 0);
+    const lastCutoff = todayCutoff > now ? todayCutoff - 86400000 : todayCutoff;
+    let windowFromMs = 0;
+    let windowToMs = now;
+    if (dateRange === "today") { windowFromMs = lastCutoff; }
+    else if (dateRange === "yesterday") { windowFromMs = lastCutoff - 86400000; windowToMs = lastCutoff; }
+    else if (dateRange === "week") { windowFromMs = now - 7 * 86400000; }
+    else if (dateRange === "month") { windowFromMs = now - 30 * 86400000; }
+    else if (dateRange === "year") { windowFromMs = now - 365 * 86400000; }
+    else { windowFromMs = 0; windowToMs = Infinity; }
     const needle = search.trim().toLowerCase();
     const items = data.queue.filter((it) => {
       if (categoryFilter && it.yarsCategory !== categoryFilter) return false;
-      if (windowMs !== Infinity) {
+      if (windowFromMs > 0 || windowToMs !== Infinity) {
         const ms = toMs(it.createdAt);
-        if (!ms || now - ms > windowMs) return false;
+        if (!ms || ms < windowFromMs || ms > windowToMs) return false;
       }
       if (needle) {
         const hay = `${it.text} ${it.yarsCategory ?? ""} ${it.channel ?? ""} ${it.userId ?? ""}`.toLowerCase();
@@ -391,7 +403,7 @@ export default function YarsQueueTab({ toast }: { toast?: any }) {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-[10px] text-white/50 font-semibold uppercase tracking-wider w-16">Период:</span>
-          {(["24h", "7d", "30d", "all"] as const).map((d) => (
+          {(["today", "yesterday", "week", "month", "year", "all"] as const).map((d) => (
             <button
               key={d}
               onClick={() => setDateRange(d)}
@@ -401,7 +413,7 @@ export default function YarsQueueTab({ toast }: { toast?: any }) {
                   : "bg-white/5 border-white/10 text-white/60 hover:bg-white/10"
               }`}
             >
-              {d === "24h" ? "24 часа" : d === "7d" ? "7 дней" : d === "30d" ? "30 дней" : "Всё время"}
+              {d === "today" ? "Сегодня" : d === "yesterday" ? "Вчера" : d === "week" ? "Неделя" : d === "month" ? "Месяц" : d === "year" ? "Год" : "Всё время"}
             </button>
           ))}
         </div>

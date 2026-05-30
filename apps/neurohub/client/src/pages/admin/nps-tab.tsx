@@ -24,6 +24,7 @@ type Resp = {
 
 const PERIODS = [
   { key: "today", label: "Сегодня" },
+  { key: "yesterday", label: "Вчера" },
   { key: "week", label: "Неделя" },
   { key: "month", label: "Месяц" },
   { key: "year", label: "Год" },
@@ -59,6 +60,37 @@ export default function NpsTab(_props: { toast?: any }) {
     refetchInterval: 60_000,
   });
 
+  // Eugene 2026-05-30 Босс «📋 Скопировать ВСЕ» — полный читаемый отчёт по NPS.
+  function copyAllReport() {
+    if (!data) return;
+    const periodLabel = PERIODS.find((p) => p.key === period)?.label || period;
+    const lines: string[] = [];
+    lines.push(`📊 NPS — отчёт (${periodLabel})`);
+    lines.push(`🕐 ${new Date().toLocaleString("ru-RU")}`);
+    lines.push("");
+    lines.push(`NPS: ${data.npsScore > 0 ? "+" : ""}${data.npsScore}`);
+    lines.push(`Всего оценок: ${data.total}`);
+    lines.push(`Промоутеры (9-10): ${data.promoters}`);
+    lines.push(`Пассивы (7-8): ${data.passives}`);
+    lines.push(`Дитракторы (0-6): ${data.detractors}`);
+    lines.push("");
+    lines.push("Распределение оценок:");
+    for (let s = 0; s <= 10; s++) {
+      const c = data.distribution[s] ?? 0;
+      if (c > 0) lines.push(`  ${s}/10 — ${c}`);
+    }
+    if (data.comments.length > 0) {
+      lines.push("");
+      lines.push(`Комментарии (${data.comments.length}):`);
+      for (const c of data.comments) {
+        lines.push("");
+        lines.push(`  ${c.score}/10 · #${c.id} · ${fmtTime(c.created_at)}`);
+        lines.push(`  ${c.comment.replace(/\s+/g, " ")}`);
+      }
+    }
+    navigator.clipboard?.writeText(lines.join("\n"));
+  }
+
   const dist = data?.distribution ?? {};
   const maxBar = Math.max(1, ...Object.values(dist));
   const total = data?.total ?? 0;
@@ -71,22 +103,29 @@ export default function NpsTab(_props: { toast?: any }) {
             <CardTitle className="font-display font-bold gradient-text text-2xl">
               📊 NPS — лояльность юзеров
             </CardTitle>
-            <div className="flex gap-1 flex-wrap">
-              {PERIODS.map((p) => (
-                <button
-                  key={p.key}
-                  type="button"
-                  onClick={() => setPeriod(p.key)}
-                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition ${
-                    period === p.key
-                      ? "bg-gradient-to-r from-purple-500/30 to-blue-500/30 border border-purple-400/50 text-white"
-                      : "bg-white/5 border border-white/10 text-white/60 hover:bg-white/10"
-                  }`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
+            <div className="flex gap-2 items-center flex-wrap">
+              <button
+                type="button"
+                onClick={copyAllReport}
+                disabled={!data}
+                className="text-[11px] px-2 py-0.5 rounded-md bg-fuchsia-500/15 border border-fuchsia-500/40 text-fuchsia-200 hover:bg-fuchsia-500/25 disabled:opacity-50"
+              >📋 Скопировать ВСЕ</button>
+              <div className="flex gap-1 flex-wrap">
+                {PERIODS.map((p) => (
+                  <button
+                    key={p.key}
+                    type="button"
+                    onClick={() => setPeriod(p.key)}
+                    className={`px-2.5 py-1 rounded-md text-xs font-medium transition ${
+                      period === p.key
+                        ? "bg-gradient-to-r from-purple-500/30 to-blue-500/30 border border-purple-400/50 text-white"
+                        : "bg-white/5 border border-white/10 text-white/60 hover:bg-white/10"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
           </div>
         </CardHeader>
         <CardContent>

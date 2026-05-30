@@ -12,6 +12,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
+import { ADMIN_PERIODS, type PeriodId, filterByPeriod, periodLabel } from "@/lib/adminPeriods";
 
 type Item = {
   id: number;
@@ -82,6 +83,8 @@ export default function SuggestionsTab({ toast }: { toast: any }) {
   const [category, setCategory] = useState<string>("");
   const [threshold, setThreshold] = useState<number>(10);
   const [expandedCluster, setExpandedCluster] = useState<string | null>(null);
+  // Eugene 2026-05-30: canonical period selector (client-side фильтр).
+  const [period, setPeriod] = useState<PeriodId>("today");
   const qc = useQueryClient();
 
   const qs = useMemo(() => {
@@ -123,6 +126,46 @@ export default function SuggestionsTab({ toast }: { toast: any }) {
   function onReview(it: Item) {
     const note = window.prompt("Заметка админа (опционально):") ?? undefined;
     reviewMut.mutate({ id: it.id, note });
+  }
+
+  const itemsInPeriod = useMemo(
+    () => filterByPeriod(data?.items ?? [], period, (it) => it.created_at),
+    [data, period],
+  );
+
+  const clustersInPeriod = useMemo(
+    () => (data?.clusters ?? []).filter((c) => {
+      // Кластер попадает в период если его last_at пересекает окно.
+      const inPeriod = filterByPeriod([{ ts: c.last_at }], period, (x) => x.ts);
+      return inPeriod.length > 0;
+    }),
+    [data, period],
+  );
+
+  function copyAllReport() {
+    const lines: string[] = [];
+    lines.push(`💡 Предложения юзеров — отчёт (${SUB_TABS.find((s) => s.key === sub)?.label} · ${periodLabel(period)})`);
+    lines.push(`🕐 ${new Date().toLocaleString("ru-RU")}`);
+    if (sub === "clusters") {
+      lines.push(`Кластеры с порогом ≥ ${threshold}: ${clustersInPeriod.length}`);
+      for (const c of clustersInPeriod) {
+        lines.push("");
+        lines.push(`× ${c.cnt} · sentiment ${(c.avg_sentiment ?? 0).toFixed(2)} · ${fmtTime(c.first_at)} → ${fmtTime(c.last_at)}`);
+        lines.push(`  ${c.sample_text}`);
+      }
+    } else {
+      lines.push(`Записей: ${itemsInPeriod.length}`);
+      for (const it of itemsInPeriod) {
+        lines.push("");
+        lines.push(`#${it.id} · ${it.category || "—"} · sentiment ${(it.sentiment_score ?? 0).toFixed(2)} · ${fmtTime(it.created_at)}`);
+        lines.push(`  ${it.text.replace(/\s+/g, " ")}`);
+        if (it.admin_note) lines.push(`  Заметка админа: ${it.admin_note}`);
+      }
+    }
+    navigator.clipboard.writeText(lines.join("\n")).then(
+      () => toast?.({ title: "Скопировано", description: `${sub === "clusters" ? clustersInPeriod.length + " кластеров" : itemsInPeriod.length + " записей"}` }),
+      () => toast?.({ title: "Ошибка", variant: "destructive" }),
+    );
   }
 
   return (

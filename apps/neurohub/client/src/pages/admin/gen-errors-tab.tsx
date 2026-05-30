@@ -74,7 +74,8 @@ const PERIODS: Array<{ id: string; label: string }> = [
   { id: "yesterday", label: "Вчера" },
   { id: "week", label: "Неделя" },
   { id: "month", label: "Месяц" },
-  { id: "all", label: "Всё" },
+  { id: "year", label: "Год" },
+  { id: "all", label: "Всё время" },
 ];
 
 const TYPES: Array<{ id: string; label: string }> = [
@@ -277,7 +278,46 @@ export default function GenErrorsTab() {
 
   function copyReport() {
     const txt = JSON.stringify({ stats, items }, null, 2);
-    navigator.clipboard.writeText(txt).then(() => setToast("📋 Скопировано"));
+    navigator.clipboard.writeText(txt).then(() => setToast("📋 JSON скопирован"));
+  }
+
+  // Eugene 2026-05-30 Босс «📋 Скопировать ВСЕ» — полный читаемый отчёт всех
+  // ошибок генерации с ключевыми полями (ID/тип/класс/попытки/время/причина).
+  function copyAllReport() {
+    const periodLabel = PERIODS.find((p) => p.id === period)?.label || period;
+    const lines: string[] = [];
+    lines.push(`🚨 Ошибки генерации — отчёт (${periodLabel})`);
+    lines.push(`🕐 ${new Date().toLocaleString("ru-RU")}`);
+    if (stats) {
+      lines.push("");
+      lines.push(`Всего ошибок: ${stats.totalErrors}`);
+      lines.push(`Auto-recovered: ${stats.recovered}${successRate !== null ? ` (${successRate}%)` : ""}`);
+      lines.push(`Ждут вручную: ${stats.pendingManual}`);
+      lines.push(`Эскалированы: ${stats.escalated}`);
+      if (stats.agentStats) {
+        lines.push("");
+        lines.push(`Агент gen-lifecycle: tracked ${stats.agentStats.totalTracked} · recovered ${stats.agentStats.recovered} · escalated ${stats.agentStats.escalated} · manual retries ${stats.agentStats.manualRetries} · manual refunds ${stats.agentStats.manualRefunds}`);
+      }
+    }
+    lines.push("");
+    lines.push(`Записей в списке: ${items.length}`);
+    if (items.length === 0) {
+      lines.push("Список пуст.");
+    } else {
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        lines.push("");
+        lines.push("═".repeat(70));
+        lines.push(`${i + 1}. #${it.id} · ${it.type} · ${it.status} · userId:${it.userId}`);
+        lines.push(`   Создано: ${it.createdAt} (${relTime(it.createdAt)} назад)`);
+        if (it.displayTitle) lines.push(`   Название: ${it.displayTitle}`);
+        lines.push(`   Класс ошибки: ${errorClassBadge(it.errorClass).label} (${it.errorClass})`);
+        if (it.errorReason) lines.push(`   Причина: ${it.errorReason}`);
+        lines.push(`   Попыток: ${it.attemptCount}${it.lastEvent ? ` · последнее событие: ${it.lastEvent}` : ""}`);
+        lines.push(`   Стоимость: ${fmtKopecks(it.cost)} · escalated:${it.isEscalated ? "да" : "нет"} · refunded:${it.isRefunded ? "да" : "нет"} · resolved:${it.adminResolved ? "да" : "нет"}`);
+      }
+    }
+    navigator.clipboard.writeText(lines.join("\n")).then(() => setToast(`📋 Скопировано: ${items.length} ошибок`));
   }
 
   const successRate = useMemo(() => {
@@ -318,9 +358,13 @@ export default function GenErrorsTab() {
               className="text-xs px-3 py-1.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/10"
             >🔄 Обновить</button>
             <button
+              onClick={copyAllReport}
+              className="text-xs px-3 py-1.5 rounded-md bg-fuchsia-500/15 border border-fuchsia-500/40 text-fuchsia-200 hover:bg-fuchsia-500/25"
+            >📋 Скопировать ВСЕ</button>
+            <button
               onClick={copyReport}
               className="text-xs px-3 py-1.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/10"
-            >📋 Копировать</button>
+            >📋 JSON</button>
           </div>
         </div>
       </div>

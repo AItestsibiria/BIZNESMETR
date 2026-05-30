@@ -9,6 +9,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
+import { ADMIN_PERIODS, type PeriodId, filterByPeriod, periodLabel } from "@/lib/adminPeriods";
 
 type Item = {
   id: number;
@@ -68,6 +69,8 @@ function fetchList(qs: string): Promise<Resp> {
 export default function EscalationsTab({ toast }: { toast: any }) {
   const [sub, setSub] = useState<SubTab>("open");
   const [priority, setPriority] = useState<string>("");
+  // Eugene 2026-05-30 canonical period selector (client-side фильтр createdAt).
+  const [period, setPeriod] = useState<PeriodId>("today");
   const qc = useQueryClient();
 
   const qs = useMemo(() => {
@@ -143,6 +146,37 @@ export default function EscalationsTab({ toast }: { toast: any }) {
     return m;
   }, [data]);
 
+  const itemsInPeriod = useMemo(
+    () => filterByPeriod(data?.items ?? [], period, (it) => it.createdAt),
+    [data, period],
+  );
+
+  function copyAllReport() {
+    const lines: string[] = [];
+    lines.push(`🚨 Эскалации — отчёт (${SUB_TABS.find((s) => s.key === sub)?.label} · ${periodLabel(period)})`);
+    lines.push(`🕐 ${new Date().toLocaleString("ru-RU")}`);
+    lines.push(`Всего в окне: ${itemsInPeriod.length}`);
+    lines.push(`Counts: open ${counts.open || 0} · resolved ${counts.resolved || 0} · dismissed ${counts.dismissed || 0}`);
+    if (itemsInPeriod.length === 0) {
+      lines.push("");
+      lines.push("Очередь пуста.");
+    } else {
+      for (const it of itemsInPeriod) {
+        lines.push("");
+        lines.push("═".repeat(70));
+        lines.push(`#${it.id} · ${it.priority} · score:${(it.sentimentScore ?? 0).toFixed(2)} · ${fmtTime(it.createdAt)} · ${it.userId ? `user:#${it.userId}` : "анон"}`);
+        lines.push(`  ${it.messageText.slice(0, 500).replace(/\s+/g, " ")}`);
+        if (it.triggers?.length) lines.push(`  Триггеры: ${it.triggers.join(", ")}`);
+        if (it.resolution) lines.push(`  Резолюция: ${it.resolution}`);
+        if (it.resolvedAt) lines.push(`  Закрыто: ${fmtTime(it.resolvedAt)}`);
+      }
+    }
+    navigator.clipboard.writeText(lines.join("\n")).then(
+      () => toast?.({ title: "Скопировано", description: `${itemsInPeriod.length} эскалаций` }),
+      () => toast?.({ title: "Ошибка", description: "Не удалось скопировать", variant: "destructive" }),
+    );
+  }
+
   return (
     <div className="space-y-4">
       <Card className="glass-card border-red-500/20">
@@ -189,6 +223,27 @@ export default function EscalationsTab({ toast }: { toast: any }) {
                 ))}
               </select>
             </label>
+            {/* Eugene 2026-05-30 canonical period chips */}
+            <div className="flex flex-wrap gap-1 items-center">
+              {ADMIN_PERIODS.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setPeriod(p.id)}
+                  className={`px-2.5 py-1 rounded-md text-xs font-medium border ${
+                    period === p.id
+                      ? "bg-purple-500/20 text-purple-200 border-purple-400/50"
+                      : "bg-white/5 border-white/10 text-white/60 hover:bg-white/10"
+                  }`}
+                >{p.label}</button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={copyAllReport}
+              disabled={isLoading}
+              className="text-[11px] px-2 py-1 rounded-md bg-fuchsia-500/15 border border-fuchsia-500/40 text-fuchsia-200 hover:bg-fuchsia-500/25 disabled:opacity-50 ml-auto"
+            >📋 Скопировать ВСЕ</button>
           </div>
 
           {isLoading && (
@@ -197,12 +252,12 @@ export default function EscalationsTab({ toast }: { toast: any }) {
             </div>
           )}
 
-          {!isLoading && (data?.items ?? []).length === 0 && (
-            <div className="text-white/50 text-sm py-6 text-center">Очередь пуста</div>
+          {!isLoading && itemsInPeriod.length === 0 && (
+            <div className="text-white/50 text-sm py-6 text-center">Очередь пуста за {periodLabel(period)}</div>
           )}
 
           <div className="space-y-3">
-            {(data?.items ?? []).map((it) => (
+            {itemsInPeriod.map((it) => (
               <div
                 key={it.id}
                 className={`glass-card rounded-xl p-4 border ${

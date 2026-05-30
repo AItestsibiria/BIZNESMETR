@@ -19,7 +19,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
-type Period = "1h" | "24h" | "7d" | "30d" | "all";
+type Period = "1h" | "24h" | "7d" | "30d" | "365d" | "all";
 
 interface TopTrack {
   id: number;
@@ -53,13 +53,14 @@ interface PlaysAnalytics {
 
 const PERIOD_LABELS: Record<Period, string> = {
   "1h": "1ч",
-  "24h": "24ч",
-  "7d": "7д",
-  "30d": "30д",
-  "all": "всё",
+  "24h": "Сегодня",
+  "7d": "Неделя",
+  "30d": "Месяц",
+  "365d": "Год",
+  "all": "Всё время",
 };
 
-const PERIODS: Period[] = ["1h", "24h", "7d", "30d", "all"];
+const PERIODS: Period[] = ["1h", "24h", "7d", "30d", "365d", "all"];
 
 const REASON_LABELS: Record<string, string> = {
   "author-self": "Автор слушал свой трек",
@@ -101,7 +102,7 @@ function copyToClipboard(text: string) {
 }
 
 export default function PlaysAnalyticsTab() {
-  const [period, setPeriod] = useState<Period>("1h");
+  const [period, setPeriod] = useState<Period>("24h"); // Сегодня (default per task)
 
   const analytics = useQuery<PlaysAnalytics>({
     queryKey: ["plays-analytics", period],
@@ -146,14 +147,51 @@ export default function PlaysAnalyticsTab() {
             {analytics.isFetching ? "⏳" : "🔄"} Обновить
           </Button>
           {data && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => copyToClipboard(JSON.stringify(data, null, 2))}
-              className="bg-white/5 border-amber-400/30 text-amber-300 hover:bg-amber-500/20"
-            >
-              📋 Копировать
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const periodLabel = PERIOD_LABELS[period];
+                  const lines: string[] = [];
+                  lines.push(`📊 Прослушивания — отчёт (${periodLabel})`);
+                  lines.push(`🕐 ${new Date().toLocaleString("ru-RU")}`);
+                  lines.push("");
+                  lines.push(`Текущий счётчик (всего): ${num(data.counter.current)}`);
+                  lines.push(`Δ за ${periodLabel}: ${data.counter.delta >= 0 ? "+" : ""}${num(data.counter.delta)} (${data.comparison.growthPct >= 0 ? "▲" : "▼"} ${Math.abs(data.comparison.growthPct).toFixed(1)}%)`);
+                  lines.push(`Vs предыдущий период: ${num(data.comparison.previousPeriod)}`);
+                  lines.push("");
+                  lines.push(`Засчитано: ${num(data.plays.counted)} (ratio ${(data.plays.ratio * 100).toFixed(1)}%)`);
+                  lines.push(`Отброшено: ${num(data.plays.rejectedTotal)}`);
+                  lines.push(`Уникальных IP: ${num(data.uniqueIps)}`);
+                  lines.push(`Скорость: ${data.ratePerMin.toFixed(2)} плеев/мин`);
+                  lines.push("");
+                  lines.push("Разбивка отказов:");
+                  for (const [reason, count] of sortedRejected) {
+                    lines.push(`  ${REASON_LABELS[reason] || reason}: ${num(count)}`);
+                  }
+                  if (data.topTracks.length > 0) {
+                    lines.push("");
+                    lines.push(`Топ-${data.topTracks.length} треков за ${periodLabel}:`);
+                    data.topTracks.forEach((t, i) => {
+                      lines.push(`  ${i + 1}. #${t.id} · ${t.title} — ${num(t.plays)} плеев`);
+                    });
+                  }
+                  copyToClipboard(lines.join("\n"));
+                }}
+                className="bg-fuchsia-500/15 border-fuchsia-400/40 text-fuchsia-200 hover:bg-fuchsia-500/25"
+              >
+                📋 Скопировать ВСЕ
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => copyToClipboard(JSON.stringify(data, null, 2))}
+                className="bg-white/5 border-amber-400/30 text-amber-300 hover:bg-amber-500/20"
+              >
+                📋 JSON
+              </Button>
+            </>
           )}
         </div>
 
