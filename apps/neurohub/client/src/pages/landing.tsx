@@ -612,12 +612,17 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // Eugene 2026-05-26 Босс «свайп-режим на основном плеере + подсказка на 5 сек +
   // стильные стрелки». Свайп влево/вправо по обложке = след/пред трек. Подсказка
   // (стрелки + «свайп») показывается 5с при загрузке плеера.
-  const [mainSwipeHint, setMainSwipeHint] = useState(true);
+  // Босс 2026-05-30: подсказка только текст (стрелки убраны), 5с auto-hide,
+  // если юзер УЖЕ свайпал в этой сессии — больше не показывать.
+  const [mainSwipeHint, setMainSwipeHint] = useState<boolean>(() => {
+    try { return sessionStorage.getItem("mainSwipeUsed") !== "1"; } catch { return true; }
+  });
   const mainCoverPtrRef = useRef<{ x: number; y: number; t: number } | null>(null);
   useEffect(() => {
+    if (!mainSwipeHint) return;
     const t = window.setTimeout(() => setMainSwipeHint(false), 5000);
     return () => window.clearTimeout(t);
-  }, []);
+  }, [mainSwipeHint]);
   // Eugene 2026-05-18 Босс «для десктопа добавь возможность менять размер
   // отображения обложки». 3 уровня: sm (75%) / md (100%) / lg (125%).
   // Persist в localStorage.
@@ -1545,7 +1550,22 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           // Restored ID валиден — установим ref чтобы плеер сразу отрисовался
           // даже если повторный фильтр выкинул из tracks state в будущем.
           const restoredTrack = data.find((t: any) => t.id === effectivePlayingId);
-          if (restoredTrack) playingTrackRef.current = restoredTrack;
+          if (restoredTrack) {
+            playingTrackRef.current = restoredTrack;
+            // Босс 2026-05-30: «после перезагрузки сервера продолжение воспроизведения
+            // автоматически». Если в прошлой сессии играл (persisted wasPlaying=1) —
+            // попытка auto-play. На iOS Safari autoplay-policy может reject —
+            // в этом случае юзер нажмёт ▶ сам (плеер уже готов к play, position
+            // восстановлен через playTrack restoreTo logic).
+            try {
+              const wasPlaying = localStorage.getItem(psKey("wasPlaying")) === "1";
+              if (wasPlaying && !hasGlobalAudio) {
+                setTimeout(() => {
+                  try { playTrack(restoredTrack); } catch { /* user gesture required */ }
+                }, 350);
+              }
+            } catch { /* no-op */ }
+          }
         }
         if (!effectivePlayingId && !hasGlobalAudio) {
           const firstMusic = data.find((t: any) => t.type === "music" && t.audioUrl);
@@ -2559,6 +2579,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   const adx = Math.abs(dx), ady = Math.abs(dy);
                   if (adx > 40 && adx > ady * 1.5) {
                     setMainSwipeHint(false);
+                    // Босс 2026-05-30 «если юзер свайпает — в рамках сессии не показывается».
+                    try { sessionStorage.setItem("mainSwipeUsed", "1"); } catch { /* no-op */ }
                     if (dx < 0) skipNext(); else skipPrev();
                     return;
                   }
@@ -2590,26 +2612,20 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                 {/* Eugene 2026-05-26 Босс «подсказка про свайп на 5 сек + стильные
                     стрелки». Полупрозрачные glass-стрелки ‹ › + подпись «свайп»,
                     видны 5с при загрузке плеера. pointer-events-none — не мешают свайпу. */}
+                {/* Босс 2026-05-30: стрелки убраны; только текст подсказки 5с. */}
                 {mainSwipeHint && (musicTracks.length > 1) && (
                   <div className="absolute inset-0 z-20 pointer-events-none animate-in fade-in duration-300" aria-hidden="true">
-                    <div className="absolute left-1.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/15 backdrop-blur-md border border-white/25 flex items-center justify-center text-white/85 cover-arrow-wiggle-left">
-                      <ChevronLeft className="w-4 h-4" />
-                    </div>
-                    <div className="absolute right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/15 backdrop-blur-md border border-white/25 flex items-center justify-center text-white/85 cover-arrow-wiggle-right">
-                      <ChevronRight className="w-4 h-4" />
-                    </div>
                     <span className="absolute bottom-1.5 left-1/2 -translate-x-1/2 text-[9px] leading-none text-white/90 bg-black/35 backdrop-blur-sm rounded-full px-2 py-0.5 whitespace-nowrap">← свайп →</span>
                   </div>
                 )}
               </div>
               {/* Босс 2026-05-30 «Смартфон 3д кнопку полный экран поставь под обложкой
-                  без увеличения зоны» — absolute -bottom-2 НЕ расширяет flex-col, кнопка
-                  выходит за нижнюю границу обложки. Только mobile (sm:hidden), на десктопе
-                  fullscreen остаётся в правой колонке плеера. */}
+                  без увеличения зоны» + «все вышеуказанные кнопки в размер текущего поля» —
+                  bottom-1 ВНУТРИ обложки, не выпирает. Полупрозрачный backdrop+blur. */}
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); toggleGlobeFullscreen(); }}
-                className="sm:hidden absolute -bottom-2 left-1/2 -translate-x-1/2 z-20 w-7 h-7 rounded-full flex items-center justify-center text-[11px] leading-none bg-gradient-to-br from-purple-500/85 to-fuchsia-500/85 border border-white/35 shadow-[0_0_10px_rgba(124,58,237,0.55)] active:scale-90 transition"
+                className="sm:hidden absolute bottom-1 left-1/2 -translate-x-1/2 z-20 w-6 h-6 rounded-full flex items-center justify-center text-[10px] leading-none bg-gradient-to-br from-purple-500/80 to-fuchsia-500/80 backdrop-blur-sm border border-white/40 shadow-[0_0_8px_rgba(124,58,237,0.55)] active:scale-90 transition"
                 aria-label={globeFullscreen ? "Свернуть 3D Космос" : "3D Космос — полный экран"}
               >{globeFullscreen ? "🗗" : "⛶"}</button>
               </div>
