@@ -311,6 +311,23 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
   // Босс 2026-05-30: «+100 прослушиваний → количество начинает моргать».
   const [blinkMilestone, setBlinkMilestone] = useState(false);
   const prevTotalRef = useRef<number | null>(null);
+  // Босс 2026-05-30: «Админу на каждом +1 прослушивании ракета как на 100,
+  // при этом они суммируются если он долго не заходил».
+  // isAdmin detection через email (используется в dashboard.tsx pattern).
+  const isAdminRef = useRef<boolean>(false);
+  useEffect(() => {
+    try {
+      // Async-read auth state из window.__muziaiUser (выставляется AuthProvider) или fetch /api/me.
+      // Простой fetch чтобы не зависеть от Context provider (PlaysCounter может быть outside).
+      fetch("/api/auth/me", { credentials: "include" })
+        .then(r => r.ok ? r.json() : null)
+        .then(j => {
+          const email = j?.user?.email || j?.email;
+          isAdminRef.current = email === "egnovoselov@gmail.com";
+        })
+        .catch(() => { /* anon — no admin */ });
+    } catch { /* no-op */ }
+  }, []);
   const [animEnabled, setAnimEnabled] = useState(true);
   // Босс 2026-05-30: «на каждом зачётном прослушивании — пролёт ракеты
   // вертикальный с пламенем, вдоль счётчика и в глубину космоса».
@@ -519,18 +536,39 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
     // Босс 2026-05-30: каждый рост счётчика → ракета (вдоль счётчика, в глубину).
     // delta может быть >1 (polling каждые 60с) — спавним по одной за инкремент,
     // но не более 5 (ограничение для performance / визуального шума).
+    // АДМИН: «На каждом +1 прослушивании ракета как на 100, при этом суммируются
+    // если долго не заходил». → используем milestone-100 event с capped залпом до 30.
     try {
-      const delta = Math.min(5, stats.totalPlays - prev);
+      const rawDelta = stats.totalPlays - prev;
       const sect = sectionRef.current;
       const rect = sect ? sect.getBoundingClientRect() : null;
       const startX = rect ? rect.left + rect.width / 2 : (typeof window !== "undefined" ? window.innerWidth / 2 : 200);
       const startY = rect ? rect.bottom - 8 : (typeof window !== "undefined" ? window.innerHeight - 100 : 600);
-      for (let i = 0; i < delta; i++) {
-        const x = startX + (Math.random() * 60 - 30); // ±30px jitter вдоль счётчика
-        const y = startY;
-        setTimeout(() => {
-          try { window.dispatchEvent(new CustomEvent("muza:counter-up", { detail: { x, y } })); } catch { /* no-op */ }
-        }, i * 220);
+      if (isAdminRef.current) {
+        // Админ: каждый +1 → 3 ракеты (milestone-100 style). Cap залпа 30 ракет.
+        const adminBurst = Math.min(30, rawDelta);
+        for (let i = 0; i < adminBurst; i++) {
+          const x = startX + (Math.random() * 80 - 40);
+          const y = startY;
+          setTimeout(() => {
+            try { window.dispatchEvent(new CustomEvent("muza:milestone-100", { detail: { x, y, admin: true } })); } catch { /* no-op */ }
+          }, i * 280);
+        }
+        // Также blink цифр на залпе.
+        if (adminBurst > 0) {
+          setBlinkMilestone(true);
+          setTimeout(() => setBlinkMilestone(false), Math.min(2200, adminBurst * 280 + 1500));
+        }
+      } else {
+        // Обычный юзер: max 5 одиночных ракет.
+        const delta = Math.min(5, rawDelta);
+        for (let i = 0; i < delta; i++) {
+          const x = startX + (Math.random() * 60 - 30);
+          const y = startY;
+          setTimeout(() => {
+            try { window.dispatchEvent(new CustomEvent("muza:counter-up", { detail: { x, y } })); } catch { /* no-op */ }
+          }, i * 220);
+        }
       }
     } catch { /* no-op */ }
     try {
@@ -558,6 +596,45 @@ export function PlaysCounter({ className = "" }: { className?: string }) {
         setTimeout(() => setBlinkMilestone(false), 2200);
       }
     } catch {}
+    // Босс 2026-05-30: для админа persist last-seen + при следующем заходе
+    // (когда prevTotal == null) — залп ракет на накопленные plays.
+    try {
+      if (isAdminRef.current) {
+        localStorage.setItem("muza:admin-last-plays-seen", String(stats.totalPlays));
+      }
+    } catch { /* no-op */ }
+  }, [stats?.totalPlays, animEnabled]);
+
+  // Босс 2026-05-30: «суммируются если он долго не заходил» — first-mount
+  // диff с persisted last-seen для админа → залп до 40 ракет.
+  useEffect(() => {
+    if (!animEnabled || stats == null) return;
+    if (!isAdminRef.current) return;
+    // Только один раз при первом appearance stats (когда prevTotalRef ещё null
+    // до записи в milestone-effect выше).
+    try {
+      const fired = sessionStorage.getItem("muza:admin-burst-fired") === "1";
+      if (fired) return;
+      const lastSeenRaw = localStorage.getItem("muza:admin-last-plays-seen");
+      const lastSeen = lastSeenRaw ? Number(lastSeenRaw) : NaN;
+      if (Number.isFinite(lastSeen) && stats.totalPlays > lastSeen + 5) {
+        const accumulated = Math.min(40, stats.totalPlays - lastSeen);
+        const sect = sectionRef.current;
+        const rect = sect ? sect.getBoundingClientRect() : null;
+        const startX = rect ? rect.left + rect.width / 2 : (typeof window !== "undefined" ? window.innerWidth / 2 : 200);
+        const startY = rect ? rect.bottom - 8 : (typeof window !== "undefined" ? window.innerHeight - 100 : 600);
+        for (let i = 0; i < accumulated; i++) {
+          const xi = startX + (Math.random() * 100 - 50);
+          const yi = startY;
+          setTimeout(() => {
+            try { window.dispatchEvent(new CustomEvent("muza:milestone-100", { detail: { x: xi, y: yi, admin: true } })); } catch { /* no-op */ }
+          }, i * 250);
+        }
+        setBlinkMilestone(true);
+        setTimeout(() => setBlinkMilestone(false), accumulated * 250 + 1500);
+      }
+      sessionStorage.setItem("muza:admin-burst-fired", "1");
+    } catch { /* no-op */ }
   }, [stats?.totalPlays, animEnabled]);
 
   const toggleAnim = () => {

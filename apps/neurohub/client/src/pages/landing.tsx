@@ -19,7 +19,16 @@ import { Button } from "@/components/ui/button";
 // import { PlaysCounter } from "@/components/plays-counter";
 import { RocketLaunch } from "@/components/rocket-launch";
 import { Fireworks } from "@/components/fireworks";
-import { SolarWizard } from "@/components/solar-wizard";
+// Босс 2026-05-30 «надо загрузки планеты и солнечной системы разделить»:
+// SolarWizard грузится lazy — открывается только при клике на «🪐 Солнечная».
+// Базовый globe (Земля + Луна + Sun-on-far-sphere) ВСЕГДА в сцене, Сис добавляется
+// поверх как наложение (planet meshes lazy-create on approach в globe-view.tsx).
+// 624-строчный wizard + его SVG/UI больше не входят в initial bundle главной.
+// Lazy-loaded default export — см. solar-wizard.tsx (`export default SolarWizard`
+// добавлен parallel named export).
+const SolarWizard = lazy(() =>
+  import("@/components/solar-wizard").then((m) => ({ default: m.SolarWizard })),
+);
 import { MuzaInfoMenu } from "@/components/muza-info-menu";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { createPortal } from "react-dom";
@@ -3806,8 +3815,12 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             Шаг 1 — «Куда летим?» (планеты + опции). Шаг 2 — «Под какой трек?»
             (Гагарин/silent default + раскрывашка топ-100 MuzaAi). При «🚀 Поехали!»
             wizard сохраняет prefs в localStorage + emits `muza:globe-solar-prefs`,
-            здесь — dispatch flight=solar + playTrack(selected). */}
-        <SolarWizard
+            здесь — dispatch flight=solar + playTrack(selected).
+            Босс 2026-05-30 «разделить загрузки планеты и Сис»: lazy-import (см. выше)
+            + Suspense fallback=null (модалка отрисовывается только при solarWizardOpen,
+            пока её код грузится — ничего на экране). Bundle главной — без Сис-wizard. */}
+        <Suspense fallback={null}>
+          <SolarWizard
           open={solarWizardOpen}
           onClose={() => setSolarWizardOpen(false)}
           onLaunch={({ track }) => {
@@ -3840,6 +3853,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             }
           }}
         />
+        </Suspense>
 
         {/* Track count + page info */}
         {filteredMusic.length > 0 && (
