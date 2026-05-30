@@ -1756,6 +1756,71 @@ function MusaVoiceCommand() {
 }
 
 // ============================================================
+// PLANET-TAPS 1-LINE SUMMARY (Босс 2026-05-30 п.6)
+// Lite-line c top-планетами в 3D-глобусе. Brand-style consistency rule.
+// CLAUDE.md: Layout-fit-no-overlap rule (truncate + flex-wrap), No-duplicates rule.
+// ============================================================
+const PLANET_LABELS_RU: Record<string, { label: string; emoji: string }> = {
+  moon: { label: "Луна", emoji: "🌙" },
+  sun: { label: "Солнце", emoji: "☀️" },
+  mercury: { label: "Меркурий", emoji: "☿" },
+  venus: { label: "Венера", emoji: "♀" },
+  mars: { label: "Марс", emoji: "♂" },
+  jupiter: { label: "Юпитер", emoji: "♃" },
+  saturn: { label: "Сатурн", emoji: "♄" },
+  uranus: { label: "Уран", emoji: "♅" },
+  neptune: { label: "Нептун", emoji: "♆" },
+};
+function PlanetTapsSummary({ period }: { period: Period }) {
+  const { data, isLoading } = useQuery<{
+    ok: boolean;
+    total: number;
+    uniqUsers: number;
+    byKey: Array<{ key: string; count: number }>;
+  }>({
+    queryKey: [`/api/admin/v304/planet-taps?period=${period}`],
+    queryFn: () => fetcher(`/api/admin/v304/planet-taps?period=${period}`),
+    refetchInterval: 60_000,
+  });
+  if (isLoading && !data) return null;
+  if (!data || !data.ok) return null;
+  const top3 = (data.byKey || []).slice(0, 3);
+  return (
+    <div
+      className="glass-card rounded-2xl px-3 py-2 sm:px-4 sm:py-2.5 border border-purple-500/30 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] sm:text-xs"
+      data-testid="planet-taps-summary"
+    >
+      <span className="font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap">
+        🪐 Нажатия на планеты
+      </span>
+      <span className="text-white/50 whitespace-nowrap">({PERIOD_LABELS[period]}):</span>
+      <span className="tabular-nums font-bold text-white whitespace-nowrap">{data.total.toLocaleString("ru-RU")}</span>
+      <span className="text-white/40 whitespace-nowrap">·</span>
+      <span className="text-white/60 whitespace-nowrap">уник: <span className="tabular-nums text-cyan-300 font-semibold">{data.uniqUsers.toLocaleString("ru-RU")}</span></span>
+      {top3.length > 0 && (
+        <>
+          <span className="text-white/40 whitespace-nowrap">· Топ:</span>
+          {top3.map((b) => {
+            const meta = PLANET_LABELS_RU[b.key] || { label: b.key, emoji: "•" };
+            return (
+              <span key={b.key} className="whitespace-nowrap text-white/80">
+                <span aria-hidden>{meta.emoji}</span> {meta.label}{" "}
+                <span className="tabular-nums font-semibold bg-gradient-to-r from-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">
+                  {b.count.toLocaleString("ru-RU")}
+                </span>
+              </span>
+            );
+          })}
+        </>
+      )}
+      {top3.length === 0 && data.total === 0 && (
+        <span className="text-white/40 italic">Пока никто не нажимал</span>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // MAIN TAB
 // ============================================================
 // Eugene 2026-05-17 Босс «по умолчанию параметры в проекте везде сегодня».
@@ -1918,6 +1983,9 @@ export default function MasterDashboardTab() {
 
       {/* 🌐 By-Domain breakdown — отдельная секция от brain-export */}
       <ByDomainSection />
+
+      {/* 🪐 Tap-planet 1-line summary (Босс 2026-05-30 п.6) */}
+      <PlanetTapsSummary period={period} />
 
       {/* 1. Status cards — light-status indicators */}
       <section>

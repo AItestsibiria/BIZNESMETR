@@ -14192,6 +14192,66 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
     res.json({ ok: true });
   });
 
+  // ════════════════════════════════════════════════════════════════════
+  // Босс 2026-05-30 п.6: tracking тапов по небесным телам в 3D-globe.
+  // Fire-and-forget endpoint (sanitize + insert). Never throws.
+  // CLAUDE.md:
+  //   - Reuse-working-solutions rule — паттерн как logGenActivity, lite-table
+  //   - No-AI-providers-in-userland rule — никаких user-facing details
+  //   - Layout-fit-no-overlap rule — admin UI 1-строка
+  // ════════════════════════════════════════════════════════════════════
+  const PLANET_KEYS = new Set([
+    'moon','sun','mercury','venus','mars','jupiter','saturn','uranus','neptune'
+  ]);
+  app.post("/api/tracking/planet-tap", (req: Request, res: Response) => {
+    try {
+      const body = req.body || {};
+      const key = String(body.key || '').toLowerCase().trim();
+      if (!PLANET_KEYS.has(key)) return res.json({ ok: false, error: 'invalid-key' });
+      const sessionId = body.sessionId ? String(body.sessionId).slice(0, 80) : null;
+      const userId = (req as any).userId || (req as any).user?.id || null;
+      const ip = req.ip || '';
+      const ua = String(req.headers['user-agent'] || '').slice(0, 200);
+      const raw = db.$client;
+      raw.prepare(
+        `INSERT INTO planet_taps (planet_key, user_id, session_id, ip, user_agent) VALUES (?, ?, ?, ?, ?)`
+      ).run(key, userId, sessionId, ip, ua);
+      res.json({ ok: true });
+    } catch {
+      // Player-render-resilience rule: tracking never throws
+      res.json({ ok: false });
+    }
+  });
+
+  // Admin read endpoint — agregaty по period.
+  app.get("/api/admin/v304/planet-taps", requireAdmin, (req: Request, res: Response) => {
+    try {
+      const period = (req.query.period as string) || 'today';
+      const raw = db.$client;
+      let dateFilter = '';
+      if (period && period !== 'all') {
+        const r = getPeriodRange(period);
+        dateFilter = `WHERE datetime(created_at) >= datetime('${r.fromIso}') AND datetime(created_at) < datetime('${r.toIso}')`;
+      }
+      const totalRow = raw.prepare(`SELECT COUNT(*) AS n FROM planet_taps ${dateFilter}`).get() as any;
+      const byKey = raw.prepare(
+        `SELECT planet_key AS key, COUNT(*) AS count FROM planet_taps ${dateFilter} GROUP BY planet_key ORDER BY count DESC`
+      ).all() as any[];
+      const uniqUsers = raw.prepare(
+        `SELECT COUNT(DISTINCT COALESCE(user_id, session_id, ip)) AS n FROM planet_taps ${dateFilter}`
+      ).get() as any;
+      res.json({
+        ok: true,
+        period,
+        total: totalRow?.n || 0,
+        uniqUsers: uniqUsers?.n || 0,
+        byKey: byKey || [],
+      });
+    } catch (e) {
+      res.json({ ok: false, error: 'query-failed' });
+    }
+  });
+
   // Admin: generation activity stats
   app.get("/api/admin/gen-stats", authMiddleware, (req: Request, res: Response) => {
     const user = storage.getUser((req as any).userId);

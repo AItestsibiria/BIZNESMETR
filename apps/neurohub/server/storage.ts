@@ -121,7 +121,23 @@ try {
       token TEXT PRIMARY KEY,
       user_id INTEGER NOT NULL
     );
+
+    -- Босс 2026-05-30 п.6: tracking тапов по планетам в 3D-globe.
+    -- Lite-таблица (без FK). Read через /api/admin/v304/planet-taps.
+    -- planet_key: 'moon' | 'sun' | 'mercury' | 'venus' | 'mars' | 'jupiter' | 'saturn' | 'uranus' | 'neptune'.
+    CREATE TABLE IF NOT EXISTS planet_taps (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      planet_key TEXT NOT NULL,
+      user_id INTEGER,
+      session_id TEXT,
+      ip TEXT,
+      user_agent TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
   `);
+  // Индексы для быстрого aggregate по периоду + planet_key.
+  try { sqlite.exec("CREATE INDEX IF NOT EXISTS idx_planet_taps_key_time ON planet_taps(planet_key, created_at)"); } catch {}
+  try { sqlite.exec("CREATE INDEX IF NOT EXISTS idx_planet_taps_time ON planet_taps(created_at)"); } catch {}
 } catch (e) {
   console.error("[BOOTSTRAP] Error creating core tables:", e);
 }

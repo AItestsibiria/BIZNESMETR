@@ -401,8 +401,9 @@ const SUN_FRAGMENT = SUN_NOISE + `
     // Двигаются медленно (t·0.06) — конвекция «дышит».
     float granD = worley3(p * 14.0 + vec3(0.0, 0.0, t * 0.06));
     float granule = 1.0 - smoothstep(0.05, 0.55, granD); // 1 центр, 0 край
-    // В центре гранулы — горячее +18% яркости, на тёмных краях −30% (нисходящая плазма).
-    base *= 0.70 + 0.48 * granule;
+    // В центре гранулы — горячее +12% яркости, на тёмных краях −20% (мягче, sphere-like).
+    // Босс 2026-05-30: уменьшить contrast гранул, чтобы шар не казался плоским/овалом.
+    base *= 0.80 + 0.30 * granule;
     // ── SUNSPOTS NASA (~3000 Гс, холодные участки 4000 °C vs 5500 °C среды).
     // 3 пятна разной формы, статичные на видимой полусфере. Sin/cos комбинация.
     vec3 sp1 = vec3( 0.55, 0.40, 0.70);
@@ -419,7 +420,8 @@ const SUN_FRAGMENT = SUN_NOISE + `
     // ── LIMB DARKENING (NASA): на лимбе видны верхние холодные слои → темнее.
     vec3 viewDir = normalize(-vViewPos);
     float fres = 1.0 - max(0.0, dot(normalize(vNormal), viewDir));
-    base = mix(base, cOrange * 0.85, fres * 0.55); // усилен limb-darkening
+    // Босс 2026-05-30: fres 0.55 → 0.30 — слабее limb-darkening, шар не овал.
+    base = mix(base, cOrange * 0.85, fres * 0.30);
     base *= 1.12 + 0.12 * plasma;
     // pn используется чтобы избежать unused-variable (нужно для GLSL strict).
     base *= 1.0 + 0.0 * pn;

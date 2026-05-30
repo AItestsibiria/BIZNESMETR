@@ -18,6 +18,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { InlineAuth } from "@/components/inline-auth";
 import { Music, Loader2, Download, Play, Pause, Volume2, Copy, Check, RefreshCcw, ChevronDown, Sparkles, Sliders, Mic, FileText, Settings2, Share2 } from "lucide-react";
 import { HelpBuddy } from "@/components/help-buddy";
+import { BrandName } from "@/components/brand-name";
 import { MicRecorder } from "@/components/mic-recorder";
 import { StudioMicEq } from "@/components/studio-mic-eq";
 import { useToast } from "@/hooks/use-toast";
@@ -1046,7 +1047,7 @@ export default function MusicPage() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-white font-display tracking-wide" data-testid="text-music-title">Музыка + Вокал</h1>
-            <p className="text-sm text-muted-foreground">Полноценная песня с помощью MuzaAi</p>
+            <p className="text-sm text-muted-foreground">Полноценная песня с помощью <BrandName className="text-sm" /></p>
           </div>
           <span className="ml-auto price-badge" data-testid="badge-price-music">399 ₽</span>
         </div>

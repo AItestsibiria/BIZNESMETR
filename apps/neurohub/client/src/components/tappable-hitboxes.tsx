@@ -109,9 +109,10 @@ export function TappableHitboxes({ enabled }: Props) {
         .muza-hitbox-btn {
           position: absolute;
           border-radius: 9999px;
-          background: radial-gradient(circle, rgba(124,58,237,0.18) 0%, rgba(217,70,239,0.12) 55%, rgba(0,212,255,0.10) 80%, transparent 100%);
-          border: 1.5px solid rgba(255,255,255,0.42);
-          box-shadow: 0 0 18px rgba(124,58,237,0.35), inset 0 0 12px rgba(217,70,239,0.18);
+          background: radial-gradient(circle, rgba(124,58,237,0.22) 0%, rgba(217,70,239,0.16) 55%, rgba(0,212,255,0.12) 80%, transparent 100%);
+          /* Босс 2026-05-30: гарантированно видимый — purple border + сильный glow */
+          border: 2px solid rgba(196,181,253,0.70);
+          box-shadow: 0 0 20px rgba(124,58,237,0.80), inset 0 0 14px rgba(217,70,239,0.22);
           cursor: pointer;
           pointer-events: auto;
           will-change: transform, opacity;
@@ -169,6 +170,17 @@ export function TappableHitboxes({ enabled }: Props) {
                   if ((window as any).__muziaiDebug) {
                     try { console.log("[tap-to-fly] hitbox click", b.key, { x: b.x, y: b.y }); } catch { /* no-op */ }
                   }
+                  // Босс 2026-05-30 п.6: tracking тапа (fire-and-forget).
+                  // sessionId — из глобального snapshot если есть (не блокируем UI).
+                  try {
+                    const sessionId = (typeof window !== "undefined" && (window as any).__muziaiSessionId) || null;
+                    fetch("/api/tracking/planet-tap", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ key: b.key, sessionId }),
+                      keepalive: true,
+                    }).catch(() => { /* no-op */ });
+                  } catch { /* no-op */ }
                 } catch {
                   /* no-op — Player-render-resilience rule */
                 }

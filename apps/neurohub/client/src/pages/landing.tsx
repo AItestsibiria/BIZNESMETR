@@ -54,6 +54,8 @@ import { getOfflineAudioUrl, hasOffline } from "@/lib/offlineStorage";
 // Unified-back-share-buttons rule.
 import { BackToMuzaButton } from "@/components/back-to-muza-button";
 import { ShareMuzaButton } from "@/components/share-muza-button";
+import { BrandName } from "@/components/brand-name";
+import { PlayerPlanetBlink } from "@/components/player-planet-blink";
 
 // Eugene 2026-05-26 Босс «настоящий 3D-глобус». Lazy-load — тяжёлый chunk
 // (three.js + react-globe.gl ~600KB) грузится только при открытии глобуса,
@@ -2894,6 +2896,17 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                 </div>
                 {/* Control buttons — Eugene 2026-05-18 Босс «кнопки вываливаются + громкость длинная» — flex-wrap + компактные icon-only + volume убран (остался в expanded modal + cover-details). */}
                 <div className="flex flex-wrap items-center gap-2 mt-3">
+                  {/* Босс 2026-05-30 п.3 + п.5: 🎧 счётчик слева от SkipBack +
+                      моргающая планета (1 раз / 3 мин) рядом. Same-zone-same-style:
+                      text-[13px] tabular-nums font-bold + brand-gradient. */}
+                  <span className="inline-flex items-center gap-1.5 select-none" aria-label="Прослушивания и индикатор">
+                    <PlayerPlanetBlink size={18} />
+                    <span
+                      className="text-[13px] tabular-nums font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap"
+                      title="Прослушиваний всего"
+                      aria-label={`Прослушиваний: ${totalPlays.toLocaleString("ru-RU")}`}
+                    >🎧 {totalPlays > 0 ? totalPlays.toLocaleString("ru-RU") : "…"}</span>
+                  </span>
                   <button onClick={skipPrev} aria-label="Предыдущий трек" className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/15 active:bg-white/20 transition-colors border border-white/10">
                     <SkipBack className="w-6 h-6 text-white/80" />
                   </button>
@@ -3165,8 +3178,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               className="flex items-center justify-center gap-2 px-4 py-3 border-b border-purple-400/20 shrink-0 transition-all duration-1000"
                               style={{ opacity: globeUiHidden ? 0 : 1, pointerEvents: globeUiHidden ? "none" : "auto", transform: globeUiHidden ? "translateY(-120%)" : "translateY(0)" }}
                             >
-                              <h3 className="min-w-0 truncate text-base font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent m-0">
-                                🌍 MuzaAi in The World
+                              <h3 className="min-w-0 truncate text-base m-0">
+                                <span aria-hidden>🌍 </span><BrandName /> <span className="text-white/70 font-display font-bold">in The World</span>
                               </h3>
                             </div>
                             {/* Сам глобус — занимает основную область */}
@@ -3555,8 +3568,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               className="px-4 py-1.5 border-t border-purple-400/20 shrink-0 flex items-center justify-center gap-2 text-center transition-all duration-1000"
                               style={{ opacity: globeUiHidden ? 0 : 1, pointerEvents: globeUiHidden ? "none" : "auto", transform: globeUiHidden ? "translateY(130%)" : "translateY(0)" }}
                             >
-                              <p className="text-[11px] font-display font-bold m-0 leading-tight bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent">
-                                MuzaAi — Мир Музыки без границ
+                              <p className="text-[11px] m-0 leading-tight">
+                                <BrandName className="text-[11px]" /> <span className="font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent">— Мир Музыки без границ</span>
                               </p>
                               <span className="text-[10px] font-sans text-white/45 leading-tight">
                                 · Стран: <span className="tabular-nums text-cyan-300 font-semibold">{countriesCount}</span>
@@ -5585,7 +5598,7 @@ function LandingFooter({ onMail }: { onMail: (e: any) => void }) {
             </span>
           </p>
           <p className="text-center text-muted-foreground/60 mt-1">
-            © 2026 MuzaAi. Создавай музыку с искусственным интеллектом. Оплата через{" "}
+            © 2026 <BrandName className="text-muted-foreground/60" />. Создавай музыку с искусственным интеллектом. Оплата через{" "}
             <span className="text-white/70">Робокасса</span> (карты Visa/MC/МИР, СБП).
           </p>
         </div>
