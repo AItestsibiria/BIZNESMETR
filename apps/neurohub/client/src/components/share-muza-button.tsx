@@ -70,10 +70,12 @@ export function ShareMuzaButton({
     }
   };
 
+  // Босс 2026-05-30 «гармония кнопок 3D» — symmetry с BackToMuzaButton
+  // (одинаковый sizing + flex-1 + max-w для парности на широких).
   const sizeClasses =
     variant === "compact"
       ? "h-8 px-2 text-[10px]"
-      : "h-8 sm:h-9 md:h-10 px-2 sm:px-2.5 md:px-3 text-[10px] sm:text-[11px] md:text-xs";
+      : "min-w-[88px] sm:min-w-[100px] md:min-w-[120px] lg:min-w-[140px] h-9 sm:h-10 md:h-11 lg:h-12 px-2.5 sm:px-3 md:px-4 lg:px-5 text-[11px] sm:text-xs md:text-sm lg:text-base";
 
   return (
     <button
@@ -83,7 +85,7 @@ export function ShareMuzaButton({
       aria-label={ariaLabel}
       title={titleAttr}
     >
-      <Share2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" aria-hidden="true" />
+      <Share2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 md:w-5 md:h-5 shrink-0" aria-hidden="true" />
       {label ?? (
         <span className="font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">
           Музой

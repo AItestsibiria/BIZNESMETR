@@ -3382,20 +3382,20 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   fullscreen — Босс «появляется меню режима полёта» баг fix).
                                 Flex-wrap: на mobile перенос, на desktop одна строка. */}
                             <div
-                              className="shrink-0 px-3 py-2 flex flex-row flex-wrap md:flex-nowrap items-center justify-center gap-1.5 sm:gap-2 border-t border-purple-400/15"
-                              style={{ paddingBottom: globeFullscreen ? "max(env(safe-area-inset-bottom), 8px)" : "8px" }}
+                              className="shrink-0 px-3 py-3 sm:py-3.5 md:py-4 flex flex-row flex-wrap md:flex-nowrap items-center justify-center gap-2 sm:gap-2.5 md:gap-3 border-t border-purple-400/15"
+                              style={{ paddingBottom: globeFullscreen ? "max(env(safe-area-inset-bottom), 12px)" : "12px" }}
                             >
                               <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); setGlobeFlight("classic"); setFlightLabel({ key: "classic", shownAt: Date.now() }); try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "classic" } })); } catch { /* no-op */ } }}
-                                className={`relative shrink-0 h-8 sm:h-9 md:h-10 px-2 sm:px-2.5 md:px-3 rounded-full flex items-center justify-center text-[10px] sm:text-[11px] md:text-xs font-semibold transition-all whitespace-nowrap border active:scale-95 ${globeFlight === "classic" ? "text-white border-white/40 bg-gradient-to-r from-purple-500/15 via-fuchsia-500/15 to-cyan-500/15" : "text-white/80 border-white/25 hover:border-white/55 bg-transparent"}`}
+                                className={`relative shrink-0 h-9 sm:h-10 md:h-11 lg:h-12 px-2.5 sm:px-3 md:px-4 lg:px-5 rounded-full flex items-center justify-center text-[11px] sm:text-xs md:text-sm lg:text-base font-semibold transition-all whitespace-nowrap border active:scale-95 ${globeFlight === "classic" ? "text-white border-white/45 bg-gradient-to-r from-purple-500/20 via-fuchsia-500/20 to-cyan-500/20" : "text-white/80 border-white/25 hover:border-white/55 bg-transparent"}`}
                                 aria-label="Полёт — классический обзор Земли"
                                 title="Полёт — классический обзор Земли с дрейфом"
                               >Полёт</button>
                               <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); setGlobeFlight("ai"); setFlightLabel({ key: "ai", shownAt: Date.now() }); try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "ai" } })); } catch { /* no-op */ } }}
-                                className={`relative shrink-0 h-8 sm:h-9 md:h-10 px-2 sm:px-2.5 md:px-3 rounded-full flex items-center justify-center gap-1 text-[10px] sm:text-[11px] md:text-xs font-semibold transition-all whitespace-nowrap border active:scale-95 ${globeFlight === "ai" ? "text-white border-white/40 bg-gradient-to-r from-purple-500/15 via-fuchsia-500/15 to-cyan-500/15" : "text-white/80 border-white/25 hover:border-white/55 bg-transparent"}`}
+                                className={`relative shrink-0 h-9 sm:h-10 md:h-11 lg:h-12 px-2.5 sm:px-3 md:px-4 lg:px-5 rounded-full flex items-center justify-center gap-1 text-[11px] sm:text-xs md:text-sm lg:text-base font-semibold transition-all whitespace-nowrap border active:scale-95 ${globeFlight === "ai" ? "text-white border-white/45 bg-gradient-to-r from-purple-500/20 via-fuchsia-500/20 to-cyan-500/20" : "text-white/80 border-white/25 hover:border-white/55 bg-transparent"}`}
                                 aria-label="Полёт Ai"
                                 title="Полёт Ai — режиссура Земля + Солнце + Луна в кадре"
                               >Полёт <span className="font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">Ai</span></button>
@@ -3421,7 +3421,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   } catch { setSolarWizardOrigin(null); }
                                   setSolarWizardOpen(true);
                                 }}
-                                className={`relative shrink-0 h-8 sm:h-9 md:h-10 px-2 sm:px-2.5 md:px-3 rounded-full flex items-center justify-center gap-1 text-[10px] sm:text-[11px] md:text-xs font-semibold transition-all whitespace-nowrap border active:scale-95 ${globeFlight === "solar" ? "text-white border-white/40 bg-gradient-to-r from-purple-500/15 via-fuchsia-500/15 to-cyan-500/15" : "text-white/80 border-white/25 hover:border-white/55 bg-transparent"}`}
+                                className={`relative shrink-0 h-9 sm:h-10 md:h-11 lg:h-12 px-2.5 sm:px-3 md:px-4 lg:px-5 rounded-full flex items-center justify-center gap-1 text-[11px] sm:text-xs md:text-sm lg:text-base font-semibold transition-all whitespace-nowrap border active:scale-95 ${globeFlight === "solar" ? "text-white border-white/45 bg-gradient-to-r from-purple-500/20 via-fuchsia-500/20 to-cyan-500/20" : "text-white/80 border-white/25 hover:border-white/55 bg-transparent"}`}
                                 aria-label="Полёт по Солнечной системе"
                                 title="Полёт по Солнечной системе — wizard выбора планет и трека"
                               >🪐 Солнечная</button>
@@ -3961,6 +3961,60 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
           }}
         />
         </Suspense>
+
+        {/* Eugene 2026-05-30 (Босс): «Продолжить прослушивание?» modal.
+            State (showResumePrompt) ставится при reload, если в прошлой сессии
+            играл (persisted wasPlaying=1) И auto-play был reject'нут browser-policy
+            (iOS Safari требует user gesture). Юзер тапает «Продолжить» → playTrack
+            в gesture-context (Persistent-audio-only rule — управляется через
+            существующий playTrack, persistedTime восстановится автоматически
+            из playTrack restoreTo logic, ~line 1914-1923).
+            Brand-style: gradient backdrop, font-display title, brand-CTA. */}
+        {showResumePrompt && (
+          <div
+            className="fixed inset-0 z-[300] flex items-center justify-center p-4 animate-in fade-in duration-300"
+            onClick={() => setShowResumePrompt(null)}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Продолжить прослушивание?"
+          >
+            <div className="absolute inset-0 bg-black/45 backdrop-blur-md" />
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="relative max-w-sm w-full bg-white/5 backdrop-blur-2xl border border-purple-400/30 rounded-2xl p-6 shadow-[0_0_40px_rgba(124,58,237,0.25)]"
+            >
+              <div className="text-center space-y-4">
+                <div className="text-3xl" aria-hidden="true">🎵</div>
+                <h3 className="text-lg font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">
+                  Продолжить прослушивание?
+                </h3>
+                <p className="text-sm text-white/70 font-sans truncate">
+                  {showResumePrompt.track?.displayTitle || showResumePrompt.track?.prompt?.slice(0, 60) || "MuzaAi"}
+                </p>
+                <div className="flex gap-3 justify-center pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const t = showResumePrompt.track;
+                      setShowResumePrompt(null);
+                      try { playTrack(t); } catch { /* no-op */ }
+                    }}
+                    className="px-5 py-2.5 rounded-full bg-gradient-to-r from-purple-500 via-fuchsia-500 to-cyan-500 text-white font-semibold text-sm shadow-[0_0_18px_rgba(124,58,237,0.55)] active:scale-95 transition"
+                  >
+                    ▶ Продолжить
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowResumePrompt(null)}
+                    className="px-4 py-2.5 rounded-full bg-white/5 border border-white/25 text-white/85 font-medium text-sm hover:border-white/50 active:scale-95 transition"
+                  >
+                    Позже
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Track count + page info */}
         {filteredMusic.length > 0 && (

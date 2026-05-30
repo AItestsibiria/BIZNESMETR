@@ -53,13 +53,15 @@ export function BackToMuzaButton({
     }, 100);
   };
 
-  // Adaptive sizing — Босс 2026-05-30 «кнопки 3д под устройство в автомате».
-  // iPhone SE ≤375: h-8/text-[10px]; mobile 376-639: h-9/text-[11px];
-  // tablet+desktop ≥640: h-10/text-xs. Compact — без увеличения на md.
+  // Adaptive sizing — Босс 2026-05-30 «гармония кнопок 3D — заметно крупнее
+  // на desktop, лучшее spacing». iPhone SE ≤375: h-9/text-[11px]; mobile
+  // 376-639: h-10/text-xs; tablet ≥640: h-11/text-sm; desktop ≥1024:
+  // h-12/text-base. Symmetry — flex-1 + max-w cap для парности с ShareMuzaButton.
+  // Compact — без увеличения на md (для inline-bubbles в плеере и т.п.).
   const sizeClasses =
     variant === "compact"
       ? "h-8 px-2 text-[10px]"
-      : "h-8 sm:h-9 md:h-10 px-2 sm:px-2.5 md:px-3 text-[10px] sm:text-[11px] md:text-xs";
+      : "min-w-[88px] sm:min-w-[100px] md:min-w-[120px] lg:min-w-[140px] h-9 sm:h-10 md:h-11 lg:h-12 px-2.5 sm:px-3 md:px-4 lg:px-5 text-[11px] sm:text-xs md:text-sm lg:text-base";
 
   return (
     <button
@@ -69,7 +71,7 @@ export function BackToMuzaButton({
       aria-label={ariaLabel}
       title={title}
     >
-      <Undo2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" aria-hidden="true" />
+      <Undo2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 md:w-5 md:h-5 shrink-0" aria-hidden="true" />
       {label ?? (
         <>
           к{" "}
