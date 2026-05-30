@@ -3370,83 +3370,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 </div>
                               );
                             })()}
-                            {/* Босс 2026-05-30 (пакет UI): 3D-кнопки НИЖЕ плеера.
-                                · adaptive sizing: h-8/9/10 + text-[10px]/11/12 по breakpoint
-                                  (Layout-fit-no-overlap rule);
-                                · brand 12% gradient fill на active flight-mode (не ярко);
-                                · 🪐 Солнечная — мгновенный setGlobeFlight + параллельный wizard;
-                                · ↩ к Музе и 📤 Музой — через единые компоненты
-                                  <BackToMuzaButton/> и <ShareMuzaButton/>
-                                  (Unified-back-share-buttons rule);
-                                · ↩ к Музе ВСЕГДА выходит на главную плейлист (не зависит от
-                                  fullscreen — Босс «появляется меню режима полёта» баг fix).
-                                Flex-wrap: на mobile перенос, на desktop одна строка. */}
-                            <div
-                              // Босс 2026-05-30 «для смартфонов все кнопки должны быть!» —
-                              // защита от clip'а в fullscreen Card overflow-hidden: min-h-[64px]
-                              // гарантирует резервацию места под row, relative z-20 — поверх
-                              // любого overflow внутри Card.
-                              className="shrink-0 relative z-20 min-h-[64px] sm:min-h-[72px] md:min-h-[80px] px-3 py-3 sm:py-3.5 md:py-4 flex flex-row flex-wrap md:flex-nowrap items-center justify-center gap-2 sm:gap-2.5 md:gap-3 border-t border-purple-400/15"
-                              style={{ paddingBottom: globeFullscreen ? "max(env(safe-area-inset-bottom), 12px)" : "12px" }}
-                            >
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); setGlobeFlight("classic"); setFlightLabel({ key: "classic", shownAt: Date.now() }); try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "classic" } })); } catch { /* no-op */ } }}
-                                className={`relative shrink-0 h-9 sm:h-10 md:h-11 lg:h-12 px-2.5 sm:px-3 md:px-4 lg:px-5 rounded-full flex items-center justify-center text-[11px] sm:text-xs md:text-sm lg:text-base font-semibold transition-all whitespace-nowrap border active:scale-95 ${globeFlight === "classic" ? "text-white border-white/45 bg-gradient-to-r from-purple-500/20 via-fuchsia-500/20 to-cyan-500/20" : "text-white/80 border-white/25 hover:border-white/55 bg-transparent"}`}
-                                aria-label="Полёт — классический обзор Земли"
-                                title="Полёт — классический обзор Земли с дрейфом"
-                              >Полёт</button>
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); setGlobeFlight("ai"); setFlightLabel({ key: "ai", shownAt: Date.now() }); try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "ai" } })); } catch { /* no-op */ } }}
-                                className={`relative shrink-0 h-9 sm:h-10 md:h-11 lg:h-12 px-2.5 sm:px-3 md:px-4 lg:px-5 rounded-full flex items-center justify-center gap-1 text-[11px] sm:text-xs md:text-sm lg:text-base font-semibold transition-all whitespace-nowrap border active:scale-95 ${globeFlight === "ai" ? "text-white border-white/45 bg-gradient-to-r from-purple-500/20 via-fuchsia-500/20 to-cyan-500/20" : "text-white/80 border-white/25 hover:border-white/55 bg-transparent"}`}
-                                aria-label="Полёт Ai"
-                                title="Полёт Ai — режиссура Земля + Солнце + Луна в кадре"
-                              >Полёт <span className="font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">Ai</span></button>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  // Босс 2026-05-30 п.5 «нажатие включает режим немедленно»:
-                                  // setGlobeFlight + dispatch event ПАРАЛЛЕЛЬНО с открытием wizard.
-                                  // Кнопка получает active-state мгновенно (border + 12% fill);
-                                  // wizard опционален — юзер может закрыть, тур всё равно стартует
-                                  // с last-prefs из localStorage.
-                                  setGlobeFlight("solar");
-                                  setFlightLabel({ key: "solar", shownAt: Date.now() });
-                                  try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "solar" } })); } catch { /* no-op */ }
-                                  // Capture origin-point для popover animation «из кнопки»
-                                  // (Босс 2026-05-30 «Меню должно появляться из соответствующего
-                                  // пункта с пониманием откуда оно»). Координаты центра кнопки
-                                  // в viewport — передадутся в SolarWizard.originPoint.
-                                  try {
-                                    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                                    setSolarWizardOrigin({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
-                                  } catch { setSolarWizardOrigin(null); }
-                                  setSolarWizardOpen(true);
-                                }}
-                                className={`relative shrink-0 h-9 sm:h-10 md:h-11 lg:h-12 px-2.5 sm:px-3 md:px-4 lg:px-5 rounded-full flex items-center justify-center gap-1 text-[11px] sm:text-xs md:text-sm lg:text-base font-semibold transition-all whitespace-nowrap border active:scale-95 ${globeFlight === "solar" ? "text-white border-white/45 bg-gradient-to-r from-purple-500/20 via-fuchsia-500/20 to-cyan-500/20" : "text-white/80 border-white/25 hover:border-white/55 bg-transparent"}`}
-                                aria-label="Полёт по Солнечной системе"
-                                title="Полёт по Солнечной системе — wizard выбора планет и трека"
-                              >🪐 Солнечная</button>
-                              {/* Босс 2026-05-30 п.1: «↩ к Музе» — СТРОГИЙ выход на главную
-                                  плейлист (независимо от fullscreen state). Никаких параллельных
-                                  эффектов на flight-mode / wizard / SolarWizard. */}
-                              <BackToMuzaButton
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (globeFullscreen) {
-                                    try { toggleGlobeFullscreen(); } catch { /* no-op */ }
-                                  }
-                                  setShowGlobe(false);
-                                  window.setTimeout(() => {
-                                    document.getElementById("playlist-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
-                                  }, 100);
-                                }}
-                              />
-                              <ShareMuzaButton />
-                            </div>
-                            {/* Подвал — только слоган + счётчик стран (кнопки перенесены в плеер). */}
+                            {/* Босс 2026-05-30 «Модем как то глобально надоело повторять»:
+                                row 3D-кнопок вынесен из Card-flex-col в отдельный portal на body
+                                (ниже после globe-portal — см. строку с z-[210]). Здесь — пустой
+                                placeholder для сохранения layout-flow Card (height резервируется
+                                под нижний счётчик стран). 6 точечных min-h фиксов не помогли:
+                                Card overflow-hidden / flex-shrink / dvh-budget на коротком
+                                viewport резал последний flex-child. Portal обходит ВСЕ эти
+                                ограничения — кнопки рендерятся fixed-bottom поверх globe,
+                                независимо от Card layout. См. SolarWizard pattern (eacc627). */}
                             <div
                               className="px-4 py-1.5 border-t border-purple-400/20 shrink-0 flex items-center justify-center gap-2 text-center transition-all duration-1000"
                               style={{ opacity: globeUiHidden ? 0 : 1, pointerEvents: globeUiHidden ? "none" : "auto", transform: globeUiHidden ? "translateY(130%)" : "translateY(0)" }}
@@ -3526,6 +3458,76 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               </>
                             )}
                           </div>
+                        </div>,
+                        document.body,
+                      )}
+                      {/* Босс 2026-05-30 «Модем как то глобально надоело повторять» —
+                          архитектурное решение: 5 3D-кнопок (Полёт / Полёт Ai / 🪐 Солнечная /
+                          ↩ к Музе / 📤 Музой) рендерятся через ОТДЕЛЬНЫЙ portal на document.body,
+                          fixed bottom-0. Гарантированно видны на ЛЮБОМ устройстве/viewport —
+                          не зависят от Card-flex-col / overflow-hidden / short-viewport budget.
+                          Z-hierarchy: globe portal z-[200] < buttons z-[210] < wizard z-[250]
+                          (wizard перекрывает кнопки при открытии — Layout-fit-no-overlap rule).
+                          Render условно: только при showGlobe===true (Device-fit-100 rule:
+                          safe-area-inset padding слева/справа/снизу — «отступы слева право»).
+                          Reuse SolarWizard portal pattern (eacc627). */}
+                      {showGlobe && globe3dEnabled && createPortal(
+                        <div
+                          className="fixed bottom-0 left-0 right-0 z-[210] bg-black/35 backdrop-blur-xl border-t border-purple-400/20 flex flex-row flex-wrap md:flex-nowrap items-center justify-center gap-2 sm:gap-2.5 md:gap-3 py-3 sm:py-3.5 md:py-4"
+                          style={{
+                            // Босс 2026-05-30 «отступы слева право на смартфоне» —
+                            // env safe-area + минимум 16px gap от edges экрана (Device-fit-100 rule).
+                            paddingLeft: "max(env(safe-area-inset-left), 16px)",
+                            paddingRight: "max(env(safe-area-inset-right), 16px)",
+                            paddingBottom: "max(env(safe-area-inset-bottom), 12px)",
+                          }}
+                          role="toolbar"
+                          aria-label="Управление 3D-режимом"
+                        >
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setGlobeFlight("classic"); setFlightLabel({ key: "classic", shownAt: Date.now() }); try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "classic" } })); } catch { /* no-op */ } }}
+                            className={`relative shrink-0 h-9 sm:h-10 md:h-11 lg:h-12 px-2.5 sm:px-3 md:px-4 lg:px-5 rounded-full flex items-center justify-center text-[11px] sm:text-xs md:text-sm lg:text-base font-semibold transition-all whitespace-nowrap border active:scale-95 ${globeFlight === "classic" ? "text-white border-white/45 bg-gradient-to-r from-purple-500/20 via-fuchsia-500/20 to-cyan-500/20" : "text-white/80 border-white/25 hover:border-white/55 bg-transparent"}`}
+                            aria-label="Полёт — классический обзор Земли"
+                            title="Полёт — классический обзор Земли с дрейфом"
+                          >Полёт</button>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setGlobeFlight("ai"); setFlightLabel({ key: "ai", shownAt: Date.now() }); try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "ai" } })); } catch { /* no-op */ } }}
+                            className={`relative shrink-0 h-9 sm:h-10 md:h-11 lg:h-12 px-2.5 sm:px-3 md:px-4 lg:px-5 rounded-full flex items-center justify-center gap-1 text-[11px] sm:text-xs md:text-sm lg:text-base font-semibold transition-all whitespace-nowrap border active:scale-95 ${globeFlight === "ai" ? "text-white border-white/45 bg-gradient-to-r from-purple-500/20 via-fuchsia-500/20 to-cyan-500/20" : "text-white/80 border-white/25 hover:border-white/55 bg-transparent"}`}
+                            aria-label="Полёт Ai"
+                            title="Полёт Ai — режиссура Земля + Солнце + Луна в кадре"
+                          >Полёт <span className="font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">Ai</span></button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setGlobeFlight("solar");
+                              setFlightLabel({ key: "solar", shownAt: Date.now() });
+                              try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "solar" } })); } catch { /* no-op */ }
+                              try {
+                                const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                setSolarWizardOrigin({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+                              } catch { setSolarWizardOrigin(null); }
+                              setSolarWizardOpen(true);
+                            }}
+                            className={`relative shrink-0 h-9 sm:h-10 md:h-11 lg:h-12 px-2.5 sm:px-3 md:px-4 lg:px-5 rounded-full flex items-center justify-center gap-1 text-[11px] sm:text-xs md:text-sm lg:text-base font-semibold transition-all whitespace-nowrap border active:scale-95 ${globeFlight === "solar" ? "text-white border-white/45 bg-gradient-to-r from-purple-500/20 via-fuchsia-500/20 to-cyan-500/20" : "text-white/80 border-white/25 hover:border-white/55 bg-transparent"}`}
+                            aria-label="Полёт по Солнечной системе"
+                            title="Полёт по Солнечной системе — wizard выбора планет и трека"
+                          >🪐 Солнечная</button>
+                          <BackToMuzaButton
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (globeFullscreen) {
+                                try { toggleGlobeFullscreen(); } catch { /* no-op */ }
+                              }
+                              setShowGlobe(false);
+                              window.setTimeout(() => {
+                                document.getElementById("playlist-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                              }, 100);
+                            }}
+                          />
+                          <ShareMuzaButton />
                         </div>,
                         document.body,
                       )}
