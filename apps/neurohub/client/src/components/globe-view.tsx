@@ -224,19 +224,35 @@ const DAY_NIGHT_FRAGMENT = `
     // intensity > 0 — дневная сторона. dayFace 0..1, максимум там где Солнце в зените.
     float dayFace = smoothstep(0.0, 0.55, intensity);
     // «Нити» — медленные тёплые волны яркости по дневной стороне (uTime даёт жизнь).
-    // Псевдо-шум через sin-комбинацию + лёгкая зависимость от vUv (текстурные координаты).
     float w1 = sin(vUv.x * 12.3 + uTime * 0.55) * 0.5 + 0.5;
     float w2 = sin(vUv.y * 9.7 - uTime * 0.42 + 1.7) * 0.5 + 0.5;
-    float threads = w1 * w2; // 0..1, медленно плывущие пятна
-    vec3 warmTint = vec3(1.00, 0.78, 0.48); // мягкое тёплое золото
-    // Базовое тёплое сияние видимой стороны (всегда мало) + усиление при закате (uWarmGlow).
+    float threads = w1 * w2;
+    vec3 warmTint = vec3(1.00, 0.78, 0.48);
     float warmA = (0.08 + 0.35 * uWarmGlow) * dayFace * (0.6 + 0.4 * threads);
     col = mix(col, warmTint, warmA);
-    // На самом терминаторе (intensity ≈ 0) добавляем оранжевый ободок «солнечная корона
-    // на лимбе планеты» — Босс 2026-05-30 «слегка оранжево добавь в рассвет/закат».
+    // ── НАУЧНАЯ АТМОСФЕРА (Босс 2026-05-30 «свет от солнца через призму облаков
+    // как по научному»): Rayleigh scattering — короткие волны (синие) рассеиваются
+    // ~λ⁻⁴ сильнее, длинные (красные) проходят. Эффекты:
+    // 1. Дневное небо голубое (синий haze на освещённой стороне).
+    // 2. Закат красно-оранжевый (длинный оптический путь → синие выбиты).
+    // 3. Лимб планеты с т.зр. камеры — яркий атмосферный ободок (тангенциальный путь).
+    // viewDir в view-space ≈ +Z (камера смотрит -Z); vNormal — view-space нормаль.
+    vec3 vd = vec3(0.0, 0.0, 1.0);
+    float fresnelAtm = 1.0 - max(0.0, dot(normalize(vNormal), vd));
+    // ── (1) Rayleigh blue tint на дневной стороне (мягкое голубое свечение неба).
+    vec3 rayBlue = vec3(0.45, 0.65, 1.00);
+    col = mix(col, rayBlue, dayFace * 0.07);
+    // ── (2) Сильный orange/red на терминаторе — Mie + Rayleigh длинных путей.
     float term = 1.0 - smoothstep(0.0, 0.18, abs(intensity));
-    vec3 sunsetCol = vec3(1.00, 0.55, 0.22);
-    col = mix(col, sunsetCol, term * (0.18 + 0.55 * uWarmGlow));
+    vec3 sunsetCol = vec3(1.00, 0.45, 0.18); // насыщенный закат
+    col = mix(col, sunsetCol, term * (0.22 + 0.55 * uWarmGlow));
+    // ── (3) Атмосферный halo на лимбе: освещённая сторона — голубой,
+    // около терминатора — белый, ночная — гаснет. Длина оптического пути = 1/fresnel.
+    float limbAtm = pow(fresnelAtm, 3.0);
+    // Голубой к центру дня, белый к терминатору, красно-оранжевый к закату.
+    vec3 limbDay = mix(vec3(0.55, 0.78, 1.00), vec3(1.00, 0.95, 0.85), term);
+    vec3 limbCol = mix(limbDay, vec3(1.00, 0.55, 0.25), uWarmGlow * 0.7);
+    col += limbCol * limbAtm * dayFace * 0.55;
     gl_FragColor = vec4(col, 1.0);
   }
 `;
@@ -265,8 +281,10 @@ const MOON_FRAGMENT = `
   void main() {
     float i = dot(normalize(vWorldNormal), normalize(sunDir));
     float lit = smoothstep(-0.08, 0.12, i);   // мягкий терминатор Луны
-    vec3 litCol  = vec3(0.90, 0.92, 0.99);    // освещённая сторона
-    vec3 darkCol = vec3(0.03, 0.035, 0.065);  // обратная сторона — в тени
+    // Босс 2026-05-30: «Луна отражает цвет солнца в базе» — NASA Sun-color D65.
+    // Альбедо Луны 0.12 — серый, но отражает спектр Sun = бело-кремовый.
+    vec3 litCol  = vec3(0.96, 0.96, 0.93);    // отражённый Sun D65
+    vec3 darkCol = vec3(0.025, 0.025, 0.035); // тень + лёгкий earthshine
     gl_FragColor = vec4(mix(darkCol, litCol, lit), 1.0);
   }
 `;
