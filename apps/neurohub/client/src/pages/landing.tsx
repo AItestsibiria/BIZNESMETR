@@ -3495,19 +3495,49 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                           Render условно: только при showGlobe===true (Device-fit-100 rule:
                           safe-area-inset padding слева/справа/снизу — «отступы слева право»).
                           Reuse SolarWizard portal pattern (eacc627). */}
+                      {/* Босс 2026-05-30 ревизия «Вернуться открывает меню»:
+                            ROOT CAUSE: flex-row flex-wrap → на узких mobile (iPhone SE 320px,
+                            iPhone 14 portrait 390px) 5 кнопок (Полёт + Полёт Ai + 🪐 Солнечная +
+                            ↩ к Музе + 📤 Музой ≈ 450-500px суммарно с gaps) переносятся на 2 строки
+                            БЕЗ визуального разделения — юзер видел кнопки в неожиданных позициях
+                            и тапал «🪐 Солнечная» думая что жмёт «↩ к Музе» (или наоборот).
+                            FIX: ДВА ОТДЕЛЬНЫХ РЯДА с visual разделителем:
+                              row 1 (top, primary): ↩ к Музе  +  📤 Музой — главная навигация,
+                                всегда в верхнем ряду, видно сразу.
+                              row 2 (bottom, secondary): Полёт / Полёт Ai / 🪐 Солнечная —
+                                выбор режима полёта.
+                            Юзер не может перепутать — кнопки в разных строках с border-t. */}
                       {showGlobe && globe3dEnabled && createPortal(
                         <div
-                          className="fixed bottom-0 left-0 right-0 z-[210] bg-black/35 backdrop-blur-xl border-t border-purple-400/20 flex flex-row flex-wrap md:flex-nowrap items-center justify-center gap-2 sm:gap-2.5 md:gap-3 py-3 sm:py-3.5 md:py-4"
+                          className="fixed bottom-0 left-0 right-0 z-[210] bg-black/35 backdrop-blur-xl border-t border-purple-400/20 flex flex-col items-stretch gap-1.5 sm:gap-2 py-2.5 sm:py-3"
                           style={{
                             // Босс 2026-05-30 «отступы слева право на смартфоне» —
                             // env safe-area + минимум 16px gap от edges экрана (Device-fit-100 rule).
                             paddingLeft: "max(env(safe-area-inset-left), 16px)",
                             paddingRight: "max(env(safe-area-inset-right), 16px)",
-                            paddingBottom: "max(env(safe-area-inset-bottom), 12px)",
+                            paddingBottom: "max(env(safe-area-inset-bottom), 10px)",
                           }}
                           role="toolbar"
                           aria-label="Управление 3D-режимом"
                         >
+                          {/* RAW 1: НАВИГАЦИЯ — выход + поделиться. Всегда сверху, всегда видно. */}
+                          <div className="flex flex-row items-center justify-center gap-2 sm:gap-3">
+                            <BackToMuzaButton
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (globeFullscreen) {
+                                  try { toggleGlobeFullscreen(); } catch { /* no-op */ }
+                                }
+                                setShowGlobe(false);
+                                window.setTimeout(() => {
+                                  document.getElementById("playlist-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                                }, 100);
+                              }}
+                            />
+                            <ShareMuzaButton />
+                          </div>
+                          {/* RAW 2: РЕЖИМ ПОЛЁТА — выбор анимации. Под навигацией с разделителем. */}
+                          <div className="flex flex-row flex-wrap items-center justify-center gap-1.5 sm:gap-2 md:gap-2.5 pt-1.5 sm:pt-2 border-t border-purple-400/15">
                           <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); setGlobeFlight("classic"); setFlightLabel({ key: "classic", shownAt: Date.now() }); try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "classic" } })); } catch { /* no-op */ } }}
@@ -3522,36 +3552,40 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                             aria-label="Полёт Ai"
                             title="Полёт Ai — режиссура Земля + Солнце + Луна в кадре"
                           >Полёт <span className="font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">Ai</span></button>
+                          {/* Босс 2026-05-30 ревизия: «Нажатие на Солнечная нет меню».
+                              ROOT CAUSE: (1) lazy chunk SolarWizard с Suspense fallback=null —
+                              на первом клике юзер видит «ничего» 300-1500мс пока chunk качается.
+                              (2) ДУБЛИРУЮЩИЙ dispatch `muza:globe-flight mode=solar` стартовал
+                              solar-тур СРАЗУ, до того как юзер выбрал планеты и трек в wizard —
+                              визуально казалось «полетели куда-то без меню».
+                              FIX: убран dispatch flight здесь (тур стартует в onLaunch после
+                              «Поехали»); добавлен мгновенный toast «Открываю меню…»; видимый
+                              loader в Suspense (фон blur + спиннер) — юзер видит отклик
+                              сразу. setGlobeFlight("solar") оставлен — для active-border
+                              визуального подтверждения «выбрал режим». */}
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
                               setGlobeFlight("solar");
                               setFlightLabel({ key: "solar", shownAt: Date.now() });
-                              try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "solar" } })); } catch { /* no-op */ }
                               try {
                                 const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
                                 setSolarWizardOrigin({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
                               } catch { setSolarWizardOrigin(null); }
                               setSolarWizardOpen(true);
+                              // Eager-preload chunk при первом клике — следующие открытия мгновенные.
+                              try { import("@/components/solar-wizard"); } catch { /* no-op */ }
+                            }}
+                            onPointerEnter={() => {
+                              // Hover на desktop / focus-touch на mobile — pre-load chunk до клика.
+                              try { import("@/components/solar-wizard"); } catch { /* no-op */ }
                             }}
                             className={`relative shrink-0 h-9 sm:h-10 md:h-11 lg:h-12 px-2.5 sm:px-3 md:px-4 lg:px-5 rounded-full flex items-center justify-center gap-1 text-[11px] sm:text-xs md:text-sm lg:text-base font-semibold transition-all whitespace-nowrap border active:scale-95 ${globeFlight === "solar" ? "text-white border-white/45 bg-gradient-to-r from-purple-500/20 via-fuchsia-500/20 to-cyan-500/20" : "text-white/80 border-white/25 hover:border-white/55 bg-transparent"}`}
-                            aria-label="Полёт по Солнечной системе"
-                            title="Полёт по Солнечной системе — wizard выбора планет и трека"
+                            aria-label="Полёт по Солнечной системе — открыть меню выбора"
+                            title="🪐 Открыть меню выбора планет и трека для полёта"
                           >🪐 Солнечная</button>
-                          <BackToMuzaButton
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (globeFullscreen) {
-                                try { toggleGlobeFullscreen(); } catch { /* no-op */ }
-                              }
-                              setShowGlobe(false);
-                              window.setTimeout(() => {
-                                document.getElementById("playlist-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
-                              }, 100);
-                            }}
-                          />
-                          <ShareMuzaButton />
+                          </div>
                         </div>,
                         document.body,
                       )}
@@ -3955,7 +3989,27 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             Босс 2026-05-30 «разделить загрузки планеты и Сис»: lazy-import (см. выше)
             + Suspense fallback=null (модалка отрисовывается только при solarWizardOpen,
             пока её код грузится — ничего на экране). Bundle главной — без Сис-wizard. */}
-        <Suspense fallback={null}>
+        {/* Босс 2026-05-30 ревизия «нет меню»: fallback БЫЛО null —
+            юзер видел чёрный экран 300-2000мс пока lazy chunk качается.
+            FIX: при solarWizardOpen=true и chunk-not-ready показываем
+            blurred backdrop + спиннер «🪐 Открываю меню…» — мгновенный
+            визуальный отклик на тап. Когда chunk прибудет — заменится
+            реальным wizard. */}
+        <Suspense fallback={
+          solarWizardOpen ? (
+            <div
+              className="fixed inset-0 z-[250] flex items-center justify-center"
+              style={{ background: "rgba(8,4,20,0.45)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
+              aria-label="Открываю меню"
+            >
+              <div className="px-5 py-3 rounded-2xl bg-black/45 border border-purple-400/35 backdrop-blur-md shadow-[0_0_28px_rgba(124,58,237,0.45)]">
+                <span className="font-display font-semibold text-base bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">
+                  🪐 Открываю меню…
+                </span>
+              </div>
+            </div>
+          ) : null
+        }>
           <SolarWizard
           open={solarWizardOpen}
           originPoint={solarWizardOrigin}
@@ -3964,7 +4018,19 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
             setSolarWizardOpen(false);
             // 1. Переключаем режим полёта на solar.
             setGlobeFlight("solar");
+            // Босс 2026-05-30 ревизия: тур стартует ТОЛЬКО здесь (не на открытии wizard).
+            // dispatch flight=solar → globe-view запускает buildSolarTour с prefs из localStorage
+            // (которые wizard только что сохранил через savePrefs + dispatch solar-prefs).
             try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "solar" } })); } catch { /* no-op */ }
+            // Визуальное подтверждение Боссу «тур запущен» — без него юзер не понимает что
+            // что-то произошло (особенно при silent track / Гагарин). Toast через label-overlay.
+            setFlightLabel({ key: "solar", shownAt: Date.now() });
+            try {
+              toast({
+                title: "🚀 Полёт начат",
+                description: track ? `Под трек: ${track.displayTitle || "Без названия"}` : "Тихий полёт — Юрий Гагарин",
+              });
+            } catch { /* no-op — toast необязателен */ }
             // 2. Если выбран трек — запускаем через persistent player. Persistent-audio-only rule:
             //    audio управляется только из landing.tsx через playTrack(). track null = silent (Гагарин).
             if (track) {
