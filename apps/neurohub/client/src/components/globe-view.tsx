@@ -463,7 +463,10 @@ const SUN_CORONA_FRAGMENT = SUN_NOISE_2D + `
     // Босс 2026-05-30: «лучи из центра солнца направлены в сторону камеры, ослепляя юзера»
     // На пике occlusion — белая «слепящая» вспышка в центре плана (центр Sun).
     float centerBurst = (1.0 - smoothstep(0.0, 0.55, r)) * uFlareIntensity;
-    if (r < 0.42) {
+    // Босс 2026-05-30 «Солнце это в 3д ШАР» — закрыт тёмный gap между body и rays:
+    // body занимает r ≈ 0..0.286 (R=15 на plane R*7=105), теперь центральная зона
+    // только до 0.30 + rays начинаются с 0.28 → плавный переход без чёрного кольца.
+    if (r < 0.30) {
       vec3 burstCol = mix(vec3(1.00, 0.92, 0.72), vec3(1.00, 1.00, 0.96), centerBurst);
       gl_FragColor = vec4(burstCol, centerBurst * 0.95);
       return;
@@ -472,8 +475,8 @@ const SUN_CORONA_FRAGMENT = SUN_NOISE_2D + `
     float ang = atan(c.y, c.x);
     float t = uTime;
     // ── EUV ободок (NASA: корона ~2 млн °C, светится в крайнем UV — голубоватый
-    // горячий свет у самого лимба, до начала «волосков»). Узкая полоса 0.42-0.50.
-    float euvBand = smoothstep(0.42, 0.45, r) * (1.0 - smoothstep(0.46, 0.52, r));
+    // горячий свет у самого лимба, СРАЗУ за телом). 0.28-0.36 — прямо у body.
+    float euvBand = smoothstep(0.28, 0.32, r) * (1.0 - smoothstep(0.34, 0.42, r));
     vec3 euvCol = vec3(0.78, 0.92, 1.00);
     // ── КОРОНАЛЬНЫЕ ПЕТЛИ (NASA: плазма заперта в магнитных арках над активными
     // регионами). 3 предзаданных арки с лёгким мерцанием по времени (~0.3 Hz).
@@ -507,7 +510,8 @@ const SUN_CORONA_FRAGMENT = SUN_NOISE_2D + `
     float lenScale = 1.8 * uPulse + uSunsetBoost * 0.35 + flareBoost * 6.0;
     float maxR = clamp((0.30 + lenN * 0.85) * lenScale, 0.30, 1.55);
     // Острый кончик: fadeOut жёстче на конце луча (угол пламени).
-    float fadeIn  = smoothstep(0.42, 0.50, r);
+    // fadeIn ближе к телу (Босс 2026-05-30 «Солнце это шар» — gap закрыт): 0.28-0.40
+    float fadeIn  = smoothstep(0.28, 0.40, r);
     float fadeOut = 1.0 - smoothstep(maxR * 0.78, maxR, r);
     float profile = fadeIn * fadeOut;
     // Базовая brightScale = 1.65 (бывший пик) + pulse + flare поверх ×3.
