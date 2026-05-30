@@ -3382,7 +3382,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   fullscreen — Босс «появляется меню режима полёта» баг fix).
                                 Flex-wrap: на mobile перенос, на desktop одна строка. */}
                             <div
-                              className="shrink-0 px-3 py-3 sm:py-3.5 md:py-4 flex flex-row flex-wrap md:flex-nowrap items-center justify-center gap-2 sm:gap-2.5 md:gap-3 border-t border-purple-400/15"
+                              // Босс 2026-05-30 «для смартфонов все кнопки должны быть!» —
+                              // защита от clip'а в fullscreen Card overflow-hidden: min-h-[64px]
+                              // гарантирует резервацию места под row, relative z-20 — поверх
+                              // любого overflow внутри Card.
+                              className="shrink-0 relative z-20 min-h-[64px] sm:min-h-[72px] md:min-h-[80px] px-3 py-3 sm:py-3.5 md:py-4 flex flex-row flex-wrap md:flex-nowrap items-center justify-center gap-2 sm:gap-2.5 md:gap-3 border-t border-purple-400/15"
                               style={{ paddingBottom: globeFullscreen ? "max(env(safe-area-inset-bottom), 12px)" : "12px" }}
                             >
                               <button
