@@ -38,6 +38,13 @@ import { ErrorBoundary } from "@/components/error-boundary";
 import { GlobeLoader } from "@/components/globe-loader";
 import { SolarLabel } from "@/components/solar-label";
 import { TappableBodyPulse } from "@/components/tappable-body-pulse";
+// Босс 2026-05-30 (брутфорс, 4-й раз): визуальные хитбоксы вокруг tappable
+// небесных тел — onClick гарантированно dispatch'ит fly-to, обходя
+// ненадёжную tap-detection в onPointerUp. См. tappable-hitboxes.tsx.
+import { TappableHitboxes } from "@/components/tappable-hitboxes";
+// createPortal для tapFlyLabel — уже импортирован выше (line 34).
+// Выносим label в document.body z-[300] чтобы перекрывать portal-row
+// кнопок (z-[210]) и wizard (z-[250]).
 // Eugene 2026-05-30 — кнопка «Сохранить» с offline-режимом для Capacitor/PWA
 import { SaveTrackButton } from "@/components/save-track-button";
 import { canSaveToDevice } from "@/lib/platform";
@@ -3204,24 +3211,37 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   случайное видимое тело (не Земля). Brand gradient,
                                   pointer-events:none — не блокирует tap-to-fly. */}
                               <TappableBodyPulse enabled={showGlobe} />
+                              {/* Босс 2026-05-30 (брутфорс, 4-й раз): ВИДИМЫЕ
+                                  хитбоксы вокруг tappable планет/Луны/Солнца.
+                                  onClick гарантированно dispatch'ит fly-to,
+                                  обходя tap-detection в onPointerUp выше.
+                                  Сами кнопки pointer-events:auto; overlay-
+                                  контейнер pointer-events:none — swipe/rotate
+                                  в пустом небе НЕ блокируются. */}
+                              <TappableHitboxes enabled={showGlobe} />
                               {/* Tap-to-fly label (Босс 2026-05-30 «Нажатие на планету
                                   на небе либо луну: начинается твой облёт и летим!
                                   И солнце тоже в списке»). Появляется при тапе по
                                   небесному телу, fade 2.5с. Brand: font-display +
-                                  purple→fuchsia→cyan gradient. Над центром экрана,
-                                  pointerEvents:none — не перекрывает globe-overlay. */}
-                              {tapFlyLabel ? (
-                                <div
-                                  key={tapFlyLabel.shownAt}
-                                  className="absolute left-1/2 top-[18%] -translate-x-1/2 z-30 pointer-events-none select-none"
-                                >
-                                  <div className="px-4 py-2 rounded-2xl backdrop-blur-md bg-black/40 border border-purple-400/30 shadow-[0_0_24px_rgba(124,58,237,0.45)]">
-                                    <span className="font-display font-bold text-lg sm:text-xl bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap">
-                                      🚀 Летим к {tapFlyLabel.name}
-                                    </span>
-                                  </div>
-                                </div>
-                              ) : null}
+                                  purple→fuchsia→cyan gradient. createPortal в body
+                                  z-[300] — выше portal-row (z-210) и wizard (z-250),
+                                  pointerEvents:none — не блокирует overlay. */}
+                              {tapFlyLabel && typeof document !== "undefined"
+                                ? createPortal(
+                                    <div
+                                      key={tapFlyLabel.shownAt}
+                                      className="fixed left-1/2 top-[14vh] -translate-x-1/2 pointer-events-none select-none"
+                                      style={{ zIndex: 300 }}
+                                    >
+                                      <div className="px-4 py-2 rounded-2xl backdrop-blur-md bg-black/45 border border-purple-400/35 shadow-[0_0_28px_rgba(124,58,237,0.55)]">
+                                        <span className="font-display font-bold text-lg sm:text-xl bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap">
+                                          🚀 Летим к {tapFlyLabel.name}
+                                        </span>
+                                      </div>
+                                    </div>,
+                                    document.body
+                                  )
+                                : null}
                               {/* Зум +/− перенесён в плеер (Босс 2026-05-29 «все кнопки в плеере»). */}
                             </div>
                             {/* Мини-плеер под глобусом (Босс: автоплей «Муза» → автоповтор по топу) */}
