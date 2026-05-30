@@ -1149,7 +1149,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // визите они получат default (категория 'song' + today's rotation sort).
   // Дальше их выбор персистится как обычно.
   // Migration flag — увеличиваем версию когда нужно ещё один reset.
-  const PLAYLIST_DEFAULTS_RESET_VERSION = "v2026-05-21";
+  const PLAYLIST_DEFAULTS_RESET_VERSION = "v2026-05-30";
   if (typeof window !== "undefined") {
     try {
       const lastReset = localStorage.getItem("pl_defaults_reset_version");

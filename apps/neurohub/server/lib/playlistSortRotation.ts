@@ -12,10 +12,10 @@ import path from "node:path";
 export type SortMode = "date" | "rating" | "random" | "top_month";
 
 const ALLOWED_MODES: SortMode[] = ["date", "rating", "random", "top_month"];
-// Eugene 2026-05-21 Босс: полный цикл по умолчанию — все 4 режима.
-// «От даты до случайно поочерёдно» — date → rating → random → top_month → date → ...
-// Админ может урезать цикл через POST /api/admin/v304/playlist-sort-rotation.
-const DEFAULT_CYCLE: SortMode[] = ["date", "rating", "random", "top_month"];
+// Eugene 2026-05-30 Босс: цикл по умолчанию — 3 режима (top_month убран).
+// «date → rating → random → date → ...». «Сегодня = по дате» (см. startDate ниже).
+// Админ может урезать/изменить цикл через POST /api/admin/v304/playlist-sort-rotation.
+const DEFAULT_CYCLE: SortMode[] = ["date", "rating", "random"];
 const CONFIG_FILE = path.join(process.cwd(), "data", "playlist-sort-rotation.json");
 
 interface RotationConfig {
@@ -35,24 +35,44 @@ function ensureDir(): void {
   }
 }
 
+// Текущая дата по МСК (для startDate, чтобы «сегодня = первый режим цикла»).
+function todayMskDateIso(): string {
+  const nowMsk = new Date(Date.now() + 3 * 60 * 60 * 1000);
+  return nowMsk.toISOString().slice(0, 10);
+}
+
 function readConfig(): RotationConfig {
   if (cached) return cached;
   try {
     if (fs.existsSync(CONFIG_FILE)) {
       const raw = fs.readFileSync(CONFIG_FILE, "utf8");
       const parsed = JSON.parse(raw) as RotationConfig;
-      if (Array.isArray(parsed.cycle) && parsed.cycle.length > 0) {
-        cached = parsed;
-        return parsed;
+      // Eugene 2026-05-30 — миграция legacy: старый цикл содержит "top_month"
+      // или пустой → перезаписываем дефолтом и startDate=сегодня (правило
+      // «сегодня = по дате», цикл 3 режима).
+      const hasLegacy =
+        !Array.isArray(parsed.cycle) ||
+        parsed.cycle.length === 0 ||
+        (parsed.cycle as string[]).includes("top_month");
+      if (hasLegacy) {
+        const migrated: RotationConfig = {
+          cycle: DEFAULT_CYCLE,
+          startDate: todayMskDateIso(),
+          updatedAt: new Date().toISOString(),
+        };
+        try { writeConfig(migrated); } catch { cached = migrated; }
+        return migrated;
       }
+      cached = parsed;
+      return parsed;
     }
   } catch (e) {
     console.warn("[playlist-rotation] read failed:", (e as any)?.message);
   }
-  // Default
+  // Default — startDate=сегодня (МСК), сегодня = первый режим цикла («по дате»).
   const def: RotationConfig = {
     cycle: DEFAULT_CYCLE,
-    startDate: "2026-05-19",
+    startDate: todayMskDateIso(),
     updatedAt: new Date().toISOString(),
   };
   cached = def;
