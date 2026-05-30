@@ -62,6 +62,11 @@ import { PlayerPlanetBlink } from "@/components/player-planet-blink";
 // не попадает в main bundle landing. Внутри globe-view — свой ErrorBoundary +
 // WebGL-детект + fallback на список стран, поэтому ошибка не роняет страницу.
 const GlobeView = lazy(() => import("@/components/globe-view"));
+// Босс 2026-05-30 (VirtualSky-style hover): tooltip над звёздами/планетами.
+// Lazy-load — рендерится только если глобус смонтирован. Слушает `muza:sky-hover`.
+const SkyTooltip = lazy(() =>
+  import("@/components/sky-tooltip").then((m) => ({ default: m.SkyTooltip })),
+);
 import { useToast } from "@/hooks/use-toast";
 
 // Deep space canvas: Milky Way, bright stars, planets, comets
@@ -3318,6 +3323,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                       n: c.n,
                                     }))}
                                   />
+                                  {/* VirtualSky-style hover tooltip (Босс 2026-05-30).
+                                      Слушает muza:sky-hover → рендерит glass-card через
+                                      createPortal в document.body, z-[290]. Fallback null. */}
+                                  <SkyTooltip />
                                 </Suspense>
                               </ErrorBoundary>
                               {/* Solar planet label overlay (Босс 2026-05-30 п.1+2):
