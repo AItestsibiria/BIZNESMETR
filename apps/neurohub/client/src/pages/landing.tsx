@@ -789,6 +789,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     const t = window.setTimeout(() => setFlightLabel(null), 2500);
     return () => window.clearTimeout(t);
   }, [flightLabel]);
+  // Tap-to-fly label (Босс 2026-05-30): «🚀 Летим к [Луне/Солнцу/Марсу...]».
+  // Появляется при тапе по небесному телу в 3D-режиме, fade через 2.5с.
+  // Brand-style: font-display + gradient-text. Position fixed по центру.
+  const [tapFlyLabel, setTapFlyLabel] = useState<{ name: string; shownAt: number } | null>(null);
+  useEffect(() => {
+    if (!tapFlyLabel) return;
+    const t = window.setTimeout(() => setTapFlyLabel(null), 2500);
+    return () => window.clearTimeout(t);
+  }, [tapFlyLabel]);
   // В полноэкранном режиме (Босс 2026-05-29 «через 3 сек плеер исчезает и появляется
   // при контакте»): авто-скрытие шапки/плеера/подвала после 3с бездействия.
   const [globeUiHidden, setGlobeUiHidden] = useState(false);
@@ -3075,6 +3084,43 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 }
                                 const moved = Math.hypot(dx, dy);
                                 if (moved >= 10 || dur >= 400) return; // драг (вращение) — не тап
+                                // Tap-to-fly (Босс 2026-05-30 «Нажатие на планету на небе либо
+                                // луну: начинается твой облёт и летим! И солнце тоже в списке»).
+                                // Читаем snapshot небесных тел из window.__muziaiPlanetScreen
+                                // (обновляется каждый кадр в globe-view rAF). Если тап в радиусе
+                                // body.r + 30px от какого-то тела → летим к нему. Tolerance 30
+                                // — достаточно для пальца на mobile. Земля игнорируется (мы дома).
+                                try {
+                                  const tgt = e.currentTarget as HTMLElement;
+                                  const rect = tgt.getBoundingClientRect();
+                                  const px = e.clientX - rect.left;
+                                  const py = e.clientY - rect.top;
+                                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                  const bodies = ((window as any).__muziaiPlanetScreen || []) as Array<{ key: string; x: number; y: number; r: number; visible: boolean }>;
+                                  let best: { key: string; d: number } | null = null;
+                                  for (const b of bodies) {
+                                    if (!b.visible) continue;
+                                    if (b.key === "earth") continue;
+                                    const d = Math.hypot(px - b.x, py - b.y);
+                                    const tolerance = b.r + 30;
+                                    if (d <= tolerance && (!best || d < best.d)) {
+                                      best = { key: b.key, d };
+                                    }
+                                  }
+                                  if (best) {
+                                    const NAMES_RU: Record<string, string> = {
+                                      moon: "Луне", sun: "Солнцу",
+                                      mercury: "Меркурию", venus: "Венере", mars: "Марсу",
+                                      jupiter: "Юпитеру", saturn: "Сатурну",
+                                      uranus: "Урану", neptune: "Нептуну",
+                                    };
+                                    const ru = NAMES_RU[best.key] || best.key;
+                                    setTapFlyLabel({ name: ru, shownAt: Date.now() });
+                                    try { window.dispatchEvent(new CustomEvent("muza:globe-fly-to", { detail: { key: best.key } })); } catch { /* no-op */ }
+                                    globeLastTapRef.current = 0; // сбрасываем double-tap счётчик
+                                    return;
+                                  }
+                                } catch { /* no-op — Player-render-resilience */ }
                                 // Босс 2026-05-29: закрывает ТОЛЬКО ДВОЙНОЙ тап (2 тапа на экране).
                                 const nowT = Date.now();
                                 if (nowT - globeLastTapRef.current < 400) { globeLastTapRef.current = 0; closeGlobe(); }
@@ -3104,6 +3150,24 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   название планеты в Стиле Муза Ай. При вращении в сторону
                                   земли явно видная». Position fixed — поверх canvas. */}
                               <SolarLabel />
+                              {/* Tap-to-fly label (Босс 2026-05-30 «Нажатие на планету
+                                  на небе либо луну: начинается твой облёт и летим!
+                                  И солнце тоже в списке»). Появляется при тапе по
+                                  небесному телу, fade 2.5с. Brand: font-display +
+                                  purple→fuchsia→cyan gradient. Над центром экрана,
+                                  pointerEvents:none — не перекрывает globe-overlay. */}
+                              {tapFlyLabel ? (
+                                <div
+                                  key={tapFlyLabel.shownAt}
+                                  className="absolute left-1/2 top-[18%] -translate-x-1/2 z-30 pointer-events-none select-none"
+                                >
+                                  <div className="px-4 py-2 rounded-2xl backdrop-blur-md bg-black/40 border border-purple-400/30 shadow-[0_0_24px_rgba(124,58,237,0.45)]">
+                                    <span className="font-display font-bold text-lg sm:text-xl bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap">
+                                      🚀 Летим к {tapFlyLabel.name}
+                                    </span>
+                                  </div>
+                                </div>
+                              ) : null}
                               {/* Зум +/− перенесён в плеер (Босс 2026-05-29 «все кнопки в плеере»). */}
                             </div>
                             {/* Мини-плеер под глобусом (Босс: автоплей «Муза» → автоповтор по топу) */}
@@ -3236,54 +3300,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                     🎧
                                     <span className="absolute top-full left-1/2 -translate-x-1/2 mt-0.5 text-[11px] tabular-nums font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap pointer-events-none">{totalPlays > 0 ? totalPlays.toLocaleString("ru-RU") : "…"}</span>
                                   </button>
-                                  {/* Полёт (классический обзор) / Полёт Ai (многовариантная режиссура). Босс 2026-05-29.
-                                      Босс 2026-05-30 п.1: при тапе на mobile — floating label с названием
-                                      режима поверх кнопки (полупрозрачно, gradient text, fade 2.5с).
-                                      Только на mobile (sm:hidden); на desktop активный режим виден через border. */}
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); setGlobeFlight("classic"); setFlightLabel({ key: "classic", shownAt: Date.now() }); try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "classic" } })); } catch { /* no-op */ } }}
-                                    className={`relative shrink-0 h-10 px-2.5 rounded-full flex items-center justify-center text-[11px] font-semibold transition-all whitespace-nowrap border ${globeFlight === "classic" ? "text-white border-cyan-300/80 bg-cyan-400/10" : "text-white/85 border-white/30 hover:border-white/60"}`}
-                                    aria-label="Полёт — классический обзор Земли"
-                                  >Полёт
-                                    {flightLabel?.key === "classic" && (
-                                      <span
-                                        className="sm:hidden absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-md text-[11px] font-display font-bold whitespace-nowrap bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent border border-white/20 backdrop-blur-md pointer-events-none animate-in fade-in slide-in-from-bottom-1 duration-300"
-                                        style={{ opacity: 0.85 }}
-                                        aria-hidden="true"
-                                      >Полёт</span>
-                                    )}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); setGlobeFlight("ai"); setFlightLabel({ key: "ai", shownAt: Date.now() }); try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "ai" } })); } catch { /* no-op */ } }}
-                                    className={`relative shrink-0 h-10 px-2.5 rounded-full flex items-center justify-center gap-1 text-[11px] font-semibold transition-all whitespace-nowrap border ${globeFlight === "ai" ? "text-white border-fuchsia-300/80 bg-fuchsia-400/10" : "text-white/85 border-white/30 hover:border-white/60"}`}
-                                    aria-label="Полёт Ai — режиссура с Солнцем, Землёй и Луной"
-                                  >Полёт <span className="font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">Ai</span>
-                                    {flightLabel?.key === "ai" && (
-                                      <span
-                                        className="sm:hidden absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-md text-[11px] font-display font-bold whitespace-nowrap bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent border border-white/20 backdrop-blur-md pointer-events-none animate-in fade-in slide-in-from-bottom-1 duration-300"
-                                        style={{ opacity: 0.85 }}
-                                        aria-hidden="true"
-                                      >Полёт Ai</span>
-                                    )}
-                                  </button>
-                                  {/* Полёт «Солнечная система» (Босс 2026-05-30 v3): открывает 2-шаговый
-                                      Wizard (SolarWizard) — шаг 1 «Куда летим?» + шаг 2 «Под какой трек?». */}
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); setSolarWizardOpen(true); setFlightLabel({ key: "solar", shownAt: Date.now() }); }}
-                                    className={`relative shrink-0 h-10 px-2.5 rounded-full flex items-center justify-center gap-1 text-[11px] font-semibold transition-all whitespace-nowrap border ${globeFlight === "solar" ? "text-white border-purple-300/80 bg-purple-400/10" : "text-white/85 border-white/30 hover:border-white/60"}`}
-                                    aria-label="Полёт по Солнечной системе — открыть wizard выбора планет и трека"
-                                  >🪐 Солнечная
-                                    {flightLabel?.key === "solar" && (
-                                      <span
-                                        className="sm:hidden absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-md text-[11px] font-display font-bold whitespace-nowrap bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent border border-white/20 backdrop-blur-md pointer-events-none animate-in fade-in slide-in-from-bottom-1 duration-300"
-                                        style={{ opacity: 0.85 }}
-                                        aria-hidden="true"
-                                      >Солнечная</span>
-                                    )}
-                                  </button>
+                                  {/* Босс 2026-05-30: дубль flight-кнопок (Полёт/Полёт Ai/🪐 Солнечная)
+                                      УДАЛЁН из overflow-x-auto строки контролов — они дублировались с shrink-0
+                                      row под плеером (line ~3299) и event-bubbling в grid-cols col3 ломал режим
+                                      («после выбора уходит на главную»). Единственный источник правды — shrink-0 row. */}
                                   {/* Босс 2026-05-30: «Вернуться к Музе / Поделись Музой» УБРАНЫ
                                       ИЗ overflow-x-auto строки контролов (где Полёт/Полёт Ai/Солнечная)
                                       — они уезжали вправо за экран. Перенесены в отдельный shrink-0
