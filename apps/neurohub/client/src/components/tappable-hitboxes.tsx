@@ -190,21 +190,20 @@ export function TappableHitboxes({ enabled }: Props) {
                       } catch { /* no-op */ }
                     } catch { /* no-op */ }
                   }
-                  // Босс 2026-05-30 (Вариант A): тап планеты → SolarWizard
-                  // с preselected ключом → юзер видит wizard со своей планетой
-                  // отмеченной → жмёт «🚀 Поехали» → existing solar тур
-                  // (работающий pipeline). Исправляет старый баг «тап планеты
-                  // приводит к Земле» через ИСПОЛЬЗОВАНИЕ working pipeline,
-                  // не дублирование fly-to логики (Reuse-working-solutions rule).
+                  // Босс 2026-05-30 (5-й инцидент «летят к Земле»): радикальное
+                  // упрощение — direct flyby. Читаем РЕАЛЬНУЮ 3D-позицию planet
+                  // mesh → камера плавно летит к ней (lerp 2.5 сек) → останавливается.
+                  // БЕЗ flightMode/solar tour/wizard/director ветвлений.
+                  // Чистый прямой полёт через globe-view directFlybyRef.
                   window.dispatchEvent(
-                    new CustomEvent("muza:globe-tap-preselect", { detail: { key: b.key } })
+                    new CustomEvent("muza:globe-direct-flyby", { detail: { key: b.key } })
                   );
                   if (dbg) {
-                    try { console.error("[hitbox] dispatched muza:globe-tap-preselect", b.key); } catch { /* no-op */ }
+                    try { console.error("[hitbox] dispatched muza:globe-direct-flyby", b.key); } catch { /* no-op */ }
                     try {
                       if (window.localStorage?.getItem("muzaai-screen-debug") === "1") {
                         window.dispatchEvent(new CustomEvent("muza:debug-log", {
-                          detail: `[hitbox] → dispatched muza:globe-tap-preselect ${b.key}`,
+                          detail: `[hitbox] → dispatched muza:globe-direct-flyby ${b.key}`,
                         }));
                       }
                     } catch { /* no-op */ }

@@ -1946,6 +1946,19 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // переходе из solar в classic/ai/moon — иначе planet-meshes останутся внутри
   // глобуса (Mars/Mercury на orbitR=10 могут быть видны изнутри Земли как артефакт).
   const disposeAllSolarRef = useRef<(() => void) | null>(null);
+  // Босс 2026-05-30 (5-й «летят к Земле»): прямой flyby — обход всех flightMode/solar
+  // ветвлений. Читаем РЕАЛЬНУЮ 3D-позицию planet mesh → камера плавно (lerp 2.5с)
+  // летит к ней → останавливается на orbit. БЕЗ переключения flightMode / solar tour
+  // / wizard / director. Чистый прямой перехват rAF (см. directFlyby блок в начале loop).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const directFlybyRef = useRef<{
+    targetKey: string;
+    targetPos: any; // THREE.Vector3
+    startCamPos: any; // THREE.Vector3
+    startTargetPos: any; // THREE.Vector3
+    startT: number;
+    durationMs: number;
+  } | null>(null);
   // Reset moon/sun-tour state — устраняет баг «нажатие на Луну/Солнце не приводит к
   // полёту» (moonInitDone в rAF closure оставался true с прошлого захода → phaseT
   // превышал APPROACH+ORBIT+RETURN → тур мгновенно пропускался). Босс 2026-05-30.
@@ -2477,9 +2490,64 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     };
     window.addEventListener("muza:globe-fly-to", onFlyTo as EventListener);
 
+    // Босс 2026-05-30 (5-й «летят к Земле»): прямой flyby. Радикальное упрощение —
+    // обходим flightMode/solar/wizard полностью. Читаем РЕАЛЬНУЮ 3D-позицию planet
+    // mesh (planetsRef/moonMeshRef/sunMeshRef) → ставим directFlybyRef → rAF в самом
+    // начале перехватывает и lerp'ит camera + controls.target к planet за 2.5 сек.
+    const onDirectFlyby = (e: Event) => {
+      const key = (e as CustomEvent).detail?.key;
+      if (!key) return;
+      const debugLog = (msg: string) => {
+        try {
+          if (window.localStorage?.getItem("muzaai-screen-debug") === "1") {
+            window.dispatchEvent(new CustomEvent("muza:debug-log", { detail: msg }));
+          }
+        } catch { /* no-op */ }
+        try { console.error(msg); } catch { /* no-op */ }
+      };
+      // Найти planet mesh для key
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let targetPos: any = null;
+      if (key === "moon" && moonMeshRef.current?.position) {
+        targetPos = moonMeshRef.current.position.clone();
+      } else if (key === "sun" && sunMeshRef.current?.position) {
+        targetPos = sunMeshRef.current.position.clone();
+      } else {
+        const found = planetsRef.current.find(p => p.key === key);
+        if (found?.mesh?.position) {
+          targetPos = found.mesh.position.clone();
+        }
+      }
+      if (!targetPos) {
+        debugLog(`[direct-flyby] mesh not found for ${key}`);
+        return;
+      }
+      const g = globeRef.current;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cam = g?.camera?.() as any;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const controls = (g as any)?.controls?.() as any;
+      const startCamPos = cam?.position?.clone?.() || new THREE_NS.Vector3();
+      const startTargetPos = controls?.target?.clone?.() || new THREE_NS.Vector3();
+      directFlybyRef.current = {
+        targetKey: key,
+        targetPos,
+        startCamPos,
+        startTargetPos,
+        startT: performance.now(),
+        durationMs: 2500,
+      };
+      // Босс 2026-05-30: гасим userInteracting/hold чтобы rAF не блокировал прямой flyby.
+      userInteractingRef.current = false;
+      holdRef.current = false;
+      debugLog(`[direct-flyby] start ${key} → pos=(${targetPos.x.toFixed(0)},${targetPos.y.toFixed(0)},${targetPos.z.toFixed(0)})`);
+    };
+    window.addEventListener("muza:globe-direct-flyby", onDirectFlyby as EventListener);
+
     return () => {
       window.removeEventListener("muza:globe-flight", onFlight as EventListener);
       window.removeEventListener("muza:globe-fly-to", onFlyTo as EventListener);
+      window.removeEventListener("muza:globe-direct-flyby", onDirectFlyby as EventListener);
     };
   }, []);
 
