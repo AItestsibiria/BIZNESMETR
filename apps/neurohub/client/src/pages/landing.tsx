@@ -509,6 +509,17 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // Eugene 2026-05-14 Босс «играет, но кнопка пауза отражается». audioRef.paused —
   // прямое свойство, React не re-render. Делаем State + listeners на play/pause events.
   const [isPlayingState, setIsPlayingState] = useState(false);
+  // Босс 2026-05-30: persist wasPlaying для auto-resume после reload/restart.
+  // Читается на mount (line 1561) — пишется здесь при каждом change.
+  useEffect(() => {
+    try {
+      if (isPlayingState) localStorage.setItem(psKey("wasPlaying"), "1");
+      else localStorage.removeItem(psKey("wasPlaying"));
+    } catch { /* no-op */ }
+  }, [isPlayingState, psKey]);
+  // Босс 2026-05-30: «если автоплей не запустился — выводить прозрачное окно
+  // «Продолжить прослушивание?». State + handler ниже.
+  const [showResumePrompt, setShowResumePrompt] = useState<{trackId: number; track: any} | null>(null);
   // Eugene 2026-05-26 Босс «эквалайзер основного плеера подстраивается под ритм
   // музыки» + «прокачай для iOS». Единый rAF-движок 20 баров:
   // - non-iOS: реальный спектр через AnalyserNode (getPlayerAnalyser) —
@@ -756,6 +767,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // Wizard сам читает/пишет localStorage `muza:sis-prefs` и эмитит `muza:globe-solar-prefs`.
   // Здесь только open-state + onLaunch callback (он dispatch'ит flight + playTrack).
   const [solarWizardOpen, setSolarWizardOpen] = useState(false);
+  // Босс 2026-05-30 п.1: «Смартфон Режимы полёта при нажатии меняй, показывай пост
+  // прозрачно выбранный режим над кнопкой». Polупрозрачный label над активной
+  // flight-mode кнопкой, fade 2.5с, потом исчезает. Только mobile (sm:hidden).
+  const [flightLabel, setFlightLabel] = useState<{ key: "classic" | "ai" | "solar"; shownAt: number } | null>(null);
+  useEffect(() => {
+    if (!flightLabel) return;
+    const t = window.setTimeout(() => setFlightLabel(null), 2500);
+    return () => window.clearTimeout(t);
+  }, [flightLabel]);
   // В полноэкранном режиме (Босс 2026-05-29 «через 3 сек плеер исчезает и появляется
   // при контакте»): авто-скрытие шапки/плеера/подвала после 3с бездействия.
   const [globeUiHidden, setGlobeUiHidden] = useState(false);
@@ -1561,7 +1581,24 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
               const wasPlaying = localStorage.getItem(psKey("wasPlaying")) === "1";
               if (wasPlaying && !hasGlobalAudio) {
                 setTimeout(() => {
-                  try { playTrack(restoredTrack); } catch { /* user gesture required */ }
+                  // Босс 2026-05-30: пытаемся auto-play. Если browser-policy
+                  // блокирует (iOS Safari без user-gesture) — показываем прозрачный
+                  // promt «Продолжить?» с кнопкой → юзер тапает → playTrack
+                  // запускается в gesture-context.
+                  try {
+                    playTrack(restoredTrack);
+                    // Verify play() actually started — иначе показываем prompt.
+                    setTimeout(() => {
+                      try {
+                        const a = (window as any).__muziaiAudio;
+                        if (a && a.paused) {
+                          setShowResumePrompt({ trackId: restoredTrack.id, track: restoredTrack });
+                        }
+                      } catch { /* no-op */ }
+                    }, 600);
+                  } catch {
+                    setShowResumePrompt({ trackId: restoredTrack.id, track: restoredTrack });
+                  }
                 }, 350);
               }
             } catch { /* no-op */ }
@@ -2977,8 +3014,22 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 const s = globeTapStartRef.current;
                                 globeTapStartRef.current = null;
                                 if (!s) return;
-                                const moved = Math.hypot(e.clientX - s.x, e.clientY - s.y);
-                                if (moved >= 10 || Date.now() - s.t >= 400) return; // драг (вращение) — не тап
+                                const dx = e.clientX - s.x;
+                                const dy = e.clientY - s.y;
+                                const dur = Date.now() - s.t;
+                                // Босс 2026-05-30 п.2: «3д свайп по зоне окна глобуса меняют треки».
+                                // Чёткий горизонтальный свайп (|dx|>80, |dy|<40, <600мс) → prev/next.
+                                // НЕ выходит из режима и НЕ trigger'ит double-tap. OrbitControls
+                                // вращения работают как раньше (это onPointerUp на overlay div, а
+                                // не на canvas — canvas получает свои события).
+                                if (Math.abs(dx) > 80 && Math.abs(dy) < 40 && dur < 600) {
+                                  try { sessionStorage.setItem("mainSwipeUsed", "1"); } catch { /* no-op */ }
+                                  if (dx < 0) skipNext(); else skipPrev();
+                                  globeLastTapRef.current = 0; // сбрасываем double-tap счётчик
+                                  return;
+                                }
+                                const moved = Math.hypot(dx, dy);
+                                if (moved >= 10 || dur >= 400) return; // драг (вращение) — не тап
                                 // Босс 2026-05-29: закрывает ТОЛЬКО ДВОЙНОЙ тап (2 тапа на экране).
                                 const nowT = Date.now();
                                 if (nowT - globeLastTapRef.current < 400) { globeLastTapRef.current = 0; closeGlobe(); }
@@ -3140,27 +3191,54 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                     🎧
                                     <span className="absolute top-full left-1/2 -translate-x-1/2 mt-0.5 text-[11px] tabular-nums font-bold bg-gradient-to-r from-purple-400 via-violet-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap pointer-events-none">{totalPlays > 0 ? totalPlays.toLocaleString("ru-RU") : "…"}</span>
                                   </button>
-                                  {/* Полёт (классический обзор) / Полёт Ai (многовариантная режиссура). Босс 2026-05-29. */}
+                                  {/* Полёт (классический обзор) / Полёт Ai (многовариантная режиссура). Босс 2026-05-29.
+                                      Босс 2026-05-30 п.1: при тапе на mobile — floating label с названием
+                                      режима поверх кнопки (полупрозрачно, gradient text, fade 2.5с).
+                                      Только на mobile (sm:hidden); на desktop активный режим виден через border. */}
                                   <button
                                     type="button"
-                                    onClick={(e) => { e.stopPropagation(); setGlobeFlight("classic"); try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "classic" } })); } catch { /* no-op */ } }}
-                                    className={`shrink-0 h-10 px-2.5 rounded-full flex items-center justify-center text-[11px] font-semibold transition-all whitespace-nowrap border ${globeFlight === "classic" ? "text-white border-cyan-300/80 bg-cyan-400/10" : "text-white/85 border-white/30 hover:border-white/60"}`}
+                                    onClick={(e) => { e.stopPropagation(); setGlobeFlight("classic"); setFlightLabel({ key: "classic", shownAt: Date.now() }); try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "classic" } })); } catch { /* no-op */ } }}
+                                    className={`relative shrink-0 h-10 px-2.5 rounded-full flex items-center justify-center text-[11px] font-semibold transition-all whitespace-nowrap border ${globeFlight === "classic" ? "text-white border-cyan-300/80 bg-cyan-400/10" : "text-white/85 border-white/30 hover:border-white/60"}`}
                                     aria-label="Полёт — классический обзор Земли"
-                                  >Полёт</button>
+                                  >Полёт
+                                    {flightLabel?.key === "classic" && (
+                                      <span
+                                        className="sm:hidden absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-md text-[11px] font-display font-bold whitespace-nowrap bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent border border-white/20 backdrop-blur-md pointer-events-none animate-in fade-in slide-in-from-bottom-1 duration-300"
+                                        style={{ opacity: 0.85 }}
+                                        aria-hidden="true"
+                                      >Полёт</span>
+                                    )}
+                                  </button>
                                   <button
                                     type="button"
-                                    onClick={(e) => { e.stopPropagation(); setGlobeFlight("ai"); try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "ai" } })); } catch { /* no-op */ } }}
-                                    className={`shrink-0 h-10 px-2.5 rounded-full flex items-center justify-center gap-1 text-[11px] font-semibold transition-all whitespace-nowrap border ${globeFlight === "ai" ? "text-white border-fuchsia-300/80 bg-fuchsia-400/10" : "text-white/85 border-white/30 hover:border-white/60"}`}
+                                    onClick={(e) => { e.stopPropagation(); setGlobeFlight("ai"); setFlightLabel({ key: "ai", shownAt: Date.now() }); try { window.dispatchEvent(new CustomEvent("muza:globe-flight", { detail: { mode: "ai" } })); } catch { /* no-op */ } }}
+                                    className={`relative shrink-0 h-10 px-2.5 rounded-full flex items-center justify-center gap-1 text-[11px] font-semibold transition-all whitespace-nowrap border ${globeFlight === "ai" ? "text-white border-fuchsia-300/80 bg-fuchsia-400/10" : "text-white/85 border-white/30 hover:border-white/60"}`}
                                     aria-label="Полёт Ai — режиссура с Солнцем, Землёй и Луной"
-                                  >Полёт <span className="font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">Ai</span></button>
+                                  >Полёт <span className="font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">Ai</span>
+                                    {flightLabel?.key === "ai" && (
+                                      <span
+                                        className="sm:hidden absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-md text-[11px] font-display font-bold whitespace-nowrap bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent border border-white/20 backdrop-blur-md pointer-events-none animate-in fade-in slide-in-from-bottom-1 duration-300"
+                                        style={{ opacity: 0.85 }}
+                                        aria-hidden="true"
+                                      >Полёт Ai</span>
+                                    )}
+                                  </button>
                                   {/* Полёт «Солнечная система» (Босс 2026-05-30 v3): открывает 2-шаговый
                                       Wizard (SolarWizard) — шаг 1 «Куда летим?» + шаг 2 «Под какой трек?». */}
                                   <button
                                     type="button"
-                                    onClick={(e) => { e.stopPropagation(); setSolarWizardOpen(true); }}
-                                    className={`shrink-0 h-10 px-2.5 rounded-full flex items-center justify-center gap-1 text-[11px] font-semibold transition-all whitespace-nowrap border ${globeFlight === "solar" ? "text-white border-purple-300/80 bg-purple-400/10" : "text-white/85 border-white/30 hover:border-white/60"}`}
+                                    onClick={(e) => { e.stopPropagation(); setSolarWizardOpen(true); setFlightLabel({ key: "solar", shownAt: Date.now() }); }}
+                                    className={`relative shrink-0 h-10 px-2.5 rounded-full flex items-center justify-center gap-1 text-[11px] font-semibold transition-all whitespace-nowrap border ${globeFlight === "solar" ? "text-white border-purple-300/80 bg-purple-400/10" : "text-white/85 border-white/30 hover:border-white/60"}`}
                                     aria-label="Полёт по Солнечной системе — открыть wizard выбора планет и трека"
-                                  >🪐 Солнечная</button>
+                                  >🪐 Солнечная
+                                    {flightLabel?.key === "solar" && (
+                                      <span
+                                        className="sm:hidden absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-md text-[11px] font-display font-bold whitespace-nowrap bg-gradient-to-r from-purple-300 via-fuchsia-200 to-cyan-300 bg-clip-text text-transparent border border-white/20 backdrop-blur-md pointer-events-none animate-in fade-in slide-in-from-bottom-1 duration-300"
+                                        style={{ opacity: 0.85 }}
+                                        aria-hidden="true"
+                                      >Солнечная</span>
+                                    )}
+                                  </button>
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); try { window.dispatchEvent(new CustomEvent("muza:open-chat")); } catch { /* no-op */ } closeGlobe(); }}
