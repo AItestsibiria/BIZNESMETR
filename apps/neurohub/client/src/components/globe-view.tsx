@@ -898,7 +898,7 @@ const FRONT_HALF_DEG = 80;
 const OVERVIEW_ALTITUDE = 3.0;    // обзор на восходе (видно Солнце и Луну)
 const ARRIVE_ALTITUDE = 1.95;     // близкий подход к геолокации (точка крупно)
 const CRUISE_ALTITUDE = 3.6;      // панорамный обзор после отъезда (Луна+Земля+Солнце в кадре)
-const SUNRISE_HOLD_MS = 2600;     // восход: медленный показ + лёгкое вращение
+const SUNRISE_HOLD_MS = 3000;     // восход: 3 сек на стартовом кадре (Босс 2026-05-30)
 const FLY_MS = 9000;              // плавный пролёт к геолокации
 const ARRIVE_HOLD_MS = 3200;      // пауза у точки (Морзе-приветствие)
 const DEPART_MS = 8000;           // панорамный отъезд (Морзе «Пока, Твоя Муза»)
@@ -1708,15 +1708,24 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       let lat = startLat;
       let alt = OVERVIEW_ALTITUDE;
 
-      // Босс 2026-05-30: в режиме «Полёт» (classic) сценарий начинается с Pano сразу —
-      // intro (sunrise→fly→hold→depart) пропускаем. «Полёт Ai» intro оставляем.
-      if (flightModeRef.current === "classic" && phase !== "cruise") {
+      // Босс 2026-05-30: «Стартовые кадры 3 сек отсюда начинаем» — в classic-режиме
+      // держим стартовую позицию (lng=150, lat=45, OVERVIEW_ALTITUDE) 3 секунды,
+      // затем плавно переходим в cruise→cycle_pano (lerp 0.08, без рывка).
+      // В classic пропускаем intro fly/hold/depart, но НЕ пропускаем sunrise-hold.
+      if (flightModeRef.current === "classic" && phase === "sunrise" && elapsed >= SUNRISE_HOLD_MS) {
+        cruise.lat = startLat;
+        cruise.lng = startLng;
+        cruise.alt = OVERVIEW_ALTITUDE;
+        cruiseStartT = now;
+        if (zoomTargetRef.current == null) zoomTargetRef.current = CRUISE_ALTITUDE;
         phase = "cruise";
       }
 
       if (phase === "sunrise") {
         lat = startLat;
         alt = OVERVIEW_ALTITUDE;
+        // Долгота: статичная в стартовой позиции (без drift) пока держим 3-сек паузу.
+        lng = startLng;
         if (elapsed >= SUNRISE_HOLD_MS) {
           // Активируем точку+город+Морзе уже НА ПОДЛЁТЕ (Босс 2026-05-29: подпись
           // города при приближении и до прохода над страной; точка моргает в течении
