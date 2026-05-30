@@ -430,9 +430,21 @@ const SUN_FRAGMENT = SUN_NOISE + `
     base = mix(base, umbraCol, spotMask * 0.85);
     // ── LIMB DARKENING (NASA): на лимбе видны верхние холодные слои → темнее.
     vec3 viewDir = normalize(-vViewPos);
-    float fres = 1.0 - max(0.0, dot(normalize(vNormal), viewDir));
-    // Босс 2026-05-30: fres 0.55 → 0.30 — слабее limb-darkening, шар не овал.
-    base = mix(base, cOrange * 0.85, fres * 0.30);
+    vec3 N = normalize(vNormal);
+    float ndv = max(0.0, dot(N, viewDir));
+    float fres = 1.0 - ndv;
+    // ── 3D-ШАР (Босс 2026-05-30 «Солнце плоское»): усиленный Fresnel rim-darkening,
+    // тёмный ободок к лимбу → форма читается как ШАР, не плоский диск.
+    // Степень 2.5 — резче падение к краю, mix до 55% яркости.
+    float rim = pow(fres, 2.5);
+    base *= mix(1.0, 0.55, rim);
+    // Limb-darkening NASA поверх (мягкая теплая тонировка к лимбу).
+    base = mix(base, cOrange * 0.78, fres * 0.45);
+    // ── Highlight «северо-восток» — горячий blob ближе к камере + чуть выше/правее.
+    // Sphere normal в view-space, blob_dir = (0.35, 0.55, 1.0) → блик на 3D-форме.
+    vec3 blobDir = normalize(vec3(0.35, 0.55, 1.0));
+    float blob = pow(max(0.0, dot(N, blobDir)), 4.0);
+    base += vec3(0.18, 0.14, 0.08) * blob;
     base *= 1.12 + 0.12 * plasma;
     // pn используется чтобы избежать unused-variable (нужно для GLSL strict).
     base *= 1.0 + 0.0 * pn;
@@ -476,10 +488,11 @@ const SUN_CORONA_FRAGMENT = SUN_NOISE_2D + `
     // Босс 2026-05-30: «лучи из центра солнца направлены в сторону камеры, ослепляя юзера»
     // На пике occlusion — белая «слепящая» вспышка в центре плана (центр Sun).
     float centerBurst = (1.0 - smoothstep(0.0, 0.55, r)) * uFlareIntensity;
-    // Босс 2026-05-30 «Солнце это в 3д ШАР» — закрыт тёмный gap между body и rays:
-    // body занимает r ≈ 0..0.286 (R=15 на plane R*7=105), теперь центральная зона
-    // только до 0.30 + rays начинаются с 0.28 → плавный переход без чёрного кольца.
-    if (r < 0.30) {
+    // Босс 2026-05-30 «Солнце плоское» — ROOT CAUSE: corona-plane был R×7,
+    // body занимал лишь r≈0..0.143 → юзер видел только плоский план. Plane
+    // ужат до R×5 (см. coronaSize ниже), body теперь r≈0..0.20 (видим как ШАР),
+    // короны fadeIn 0.20-0.32 → лучи прямо у лимба body без чёрного кольца.
+    if (r < 0.22) {
       vec3 burstCol = mix(vec3(1.00, 0.92, 0.72), vec3(1.00, 1.00, 0.96), centerBurst);
       gl_FragColor = vec4(burstCol, centerBurst * 0.95);
       return;
@@ -488,8 +501,9 @@ const SUN_CORONA_FRAGMENT = SUN_NOISE_2D + `
     float ang = atan(c.y, c.x);
     float t = uTime;
     // ── EUV ободок (NASA: корона ~2 млн °C, светится в крайнем UV — голубоватый
-    // горячий свет у самого лимба, СРАЗУ за телом). 0.28-0.36 — прямо у body.
-    float euvBand = smoothstep(0.28, 0.32, r) * (1.0 - smoothstep(0.34, 0.42, r));
+    // горячий свет у самого лимба, СРАЗУ за телом). 0.20-0.30 — прямо у body
+    // (Босс 2026-05-30: corona-plane уменьшен до R×5 → body r≈0..0.20).
+    float euvBand = smoothstep(0.20, 0.24, r) * (1.0 - smoothstep(0.26, 0.34, r));
     vec3 euvCol = vec3(0.78, 0.92, 1.00);
     // ── КОРОНАЛЬНЫЕ ПЕТЛИ (NASA: плазма заперта в магнитных арках над активными
     // регионами). 3 предзаданных арки с лёгким мерцанием по времени (~0.3 Hz).
@@ -525,11 +539,12 @@ const SUN_CORONA_FRAGMENT = SUN_NOISE_2D + `
     // к Земле) → визуально шар выглядел овалом. Убрал из lenScale, оставил
     // только в brightScale — flare добавляет ТОЛЬКО яркость в направлении
     // камеры (как реальный lens-flare), длина лучей одинакова по окружности.
-    float lenScale = 1.8 * uPulse + uSunsetBoost * 0.35;
+    // Босс 2026-05-30 «Солнце плоское» — corona-plane ужат R×5 → body r≈0..0.20.
+    // Все радиальные значения смасштабированы ×0.71 (5/7) под новый размер.
+    float lenScale = 1.3 * uPulse + uSunsetBoost * 0.25;
     float maxR = clamp((0.30 + lenN * 0.85) * lenScale, 0.30, 1.55);
-    // Острый кончик: fadeOut жёстче на конце луча (угол пламени).
-    // fadeIn ближе к телу (Босс 2026-05-30 «Солнце это шар» — gap закрыт): 0.28-0.40
-    float fadeIn  = smoothstep(0.28, 0.40, r);
+    // fadeIn прямо у лимба body (0.20-0.32) — без чёрного gap между шаром и лучами.
+    float fadeIn  = smoothstep(0.20, 0.32, r);
     float fadeOut = 1.0 - smoothstep(maxR * 0.78, maxR, r);
     float profile = fadeIn * fadeOut;
     // Базовая brightScale = 1.65 (бывший пик) + pulse + flare поверх ×3.
@@ -577,9 +592,10 @@ function makeSunGroup(radius: number): { group: any; body: any; bodyMat: any; co
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
-    // План 7R × 7R: «волоски» доходят до ~3 радиусов Солнца от лимба
-    // (Босс 2026-05-30: длина лучей 1.5-3× — план расширен, чтобы хватило места длинным).
-    const coronaSize = radius * 7;
+    // План 5R × 5R: body занимает r≈0..0.20 (видим как ШАР, не плоский диск)
+    // — Босс 2026-05-30 «Солнце плоское» fix. Лучи до ~1.5R от лимба, что
+    // достаточно: длинные «языки» теряются в чёрном фоне, важна форма шара.
+    const coronaSize = radius * 5;
     const coronaGeo = new THREE.PlaneGeometry(coronaSize, coronaSize);
     const corona = new THREE.Mesh(coronaGeo, coronaMat);
     corona.renderOrder = 2; // поверх тела (тело depthWrite — сначала)
@@ -4475,6 +4491,13 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         const cam = g.camera?.();
         if (cam) {
           cam.far = Math.max(cam.far || 0, 500000);
+          // Босс 2026-05-30 субагент ROOT CAUSE «планеты просвечивают сквозь Землю»:
+          // при far=500000 и дефолтном near=0.1 соотношение far/near=5 000 000 →
+          // коллапс precision Z-буфера в зоне 100..1500. Земля и planet-sprite
+          // получают почти одинаковую depth → AdditiveBlending накапливает свет
+          // поверх континентов. near=10 → far/near=50 000, precision OK.
+          // Camera в classic-mode держится на ~110 от центра — near=10 безопасно.
+          cam.near = Math.max(cam.near || 0, 10);
           cam.updateProjectionMatrix?.();
         }
       } catch {
