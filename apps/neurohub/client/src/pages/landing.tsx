@@ -28,6 +28,10 @@ import { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react"
 import { ErrorBoundary } from "@/components/error-boundary";
 import { GlobeLoader } from "@/components/globe-loader";
 import { SolarLabel } from "@/components/solar-label";
+// Eugene 2026-05-30 — кнопка «Сохранить» с offline-режимом для Capacitor/PWA
+import { SaveTrackButton } from "@/components/save-track-button";
+import { canSaveToDevice } from "@/lib/platform";
+import { getOfflineAudioUrl, hasOffline } from "@/lib/offlineStorage";
 
 // Eugene 2026-05-26 Босс «настоящий 3D-глобус». Lazy-load — тяжёлый chunk
 // (three.js + react-globe.gl ~600KB) грузится только при открытии глобуса,
@@ -1843,7 +1847,30 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     //   - pause + detach old listeners + reset currentTime
     //   - audio.src = url + audio.load()
     //   - возвращает тот же element что и раньше (если уже был)
-    const audio = loadTrackIntoPlayer(track.audioUrl);
+    //
+    // Eugene 2026-05-30 — offline-режим: если трек сохранён на устройство
+    // (Capacitor Filesystem или PWA IndexedDB), используем локальный URL.
+    // Это работает даже без сети. Persistent-audio-only rule: тот же audio
+    // element, меняем только .src через loadTrackIntoPlayer.
+    let resolvedUrl: string = track.audioUrl;
+    if (canSaveToDevice() && track?.id != null) {
+      // Стартуем sync load с network-url (чтобы не блокировать UI), а если
+      // local-копия найдётся быстрее — async подменим src ещё раз.
+      hasOffline(track.id).then(async (offline) => {
+        if (!offline) return;
+        try {
+          const localUrl = await getOfflineAudioUrl(track.id);
+          if (localUrl && audioRef.current) {
+            // Если юзер ещё на этом треке — перезагрузим из локала
+            const curId = currentTrack?.id;
+            if (curId === track.id) {
+              loadTrackIntoPlayer(localUrl);
+            }
+          }
+        } catch { /* swallow — fallback на network уже играет */ }
+      });
+    }
+    const audio = loadTrackIntoPlayer(resolvedUrl);
     if (!audio) {
       // SSR / нет document — fallback на new Audio (UI без media-controls)
       console.warn("[PLAYER] loadTrackIntoPlayer вернул null — SSR?");
@@ -2748,21 +2775,19 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   </button>
                   {/* Eugene 2026-05-18 — VolumeSlider убран с main плеера (вываливался + длинный).
                       Громкость остаётся доступной в CoverDetailsModal (свайп-режим) + в expanded мини-плеере. */}
-                  <button
-                    className="w-8 h-8 rounded-full bg-white/5 border border-purple-400/15 hover:border-purple-400/40 hover:bg-white/10 flex items-center justify-center transition-colors"
-                    title="Скачать"
-                    aria-label="Скачать"
-                    onClick={() => {
-                      const a = document.createElement('a');
-                      a.href = `/api/download/${currentTrack.id}`;
-                      a.download = '';
-                      document.body.appendChild(a);
-                      a.click();
-                      document.body.removeChild(a);
-                    }}
-                  >
-                    <Download className="w-3.5 h-3.5 text-muted-foreground" />
-                  </button>
+                  {/* Eugene 2026-05-30 — кнопка с tooltip-вариантами:
+                      Capacitor app / PWA → save offline; обычный browser → download через обзор файлов */}
+                  <SaveTrackButton
+                    trackId={currentTrack.id}
+                    audioUrl={`/api/download/${currentTrack.id}`}
+                    displayTitle={currentTrack.displayTitle || currentTrack.prompt?.slice(0, 80) || `Трек ${currentTrack.id}`}
+                    authorName={currentTrack.authorName}
+                    imageUrl={currentTrack.imageUrl}
+                    duration={currentTrack.duration}
+                    className="w-8 h-8 bg-white/5 border border-purple-400/15 hover:border-purple-400/40"
+                    iconClassName="w-3.5 h-3.5"
+                    testId={`save-current-track`}
+                  />
                   <button
                     className="w-8 h-8 rounded-full bg-white/5 border border-purple-400/15 hover:border-purple-400/40 hover:bg-white/10 flex items-center justify-center transition-colors"
                     title="Поделиться"
@@ -3978,13 +4003,17 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   {/* Actions */}
                   <div className="flex items-center gap-1 shrink-0">
                     {(track.audioUrl || track.imageUrl) && (
-                      <button
-                        className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-white/10 transition-colors"
-                        onClick={(e) => { e.stopPropagation(); const a = document.createElement('a'); a.href = `/api/download/${track.id}`; a.download = ''; document.body.appendChild(a); a.click(); document.body.removeChild(a); }}
-                        data-testid={`download-track-${track.id}`}
-                      >
-                        <Download className="w-3.5 h-3.5 text-muted-foreground" />
-                      </button>
+                      <SaveTrackButton
+                        trackId={track.id}
+                        audioUrl={`/api/download/${track.id}`}
+                        displayTitle={track.displayTitle || track.prompt?.slice(0, 80) || `Трек ${track.id}`}
+                        authorName={track.authorName}
+                        imageUrl={track.imageUrl}
+                        duration={track.duration}
+                        className="w-7 h-7"
+                        iconClassName="w-3.5 h-3.5"
+                        testId={`download-track-${track.id}`}
+                      />
                     )}
                     <button
                       className="w-7 h-7 rounded-md flex items-center justify-center hover:bg-white/10 transition-colors"
