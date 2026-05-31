@@ -41,8 +41,10 @@ export type SolarPrefs = {
   lastTrackId: string | null;
   // Босс 2026-05-31: скорость полёта камеры между планетами.
   // light — «световая» (эталон Земля↔Марс ≈10с, cap 3-60с)
-  // slow  — медленный реалистичный (max 3 мин на любой полёт)
+  // slow  — медленный реалистичный (3 мин на весь тур)
   speedMode: "light" | "slow";
+  // Кратность скорости света (0.25× .. 3.0×). Применяется только для "light".
+  speedMultiplier?: number;
 };
 
 // ────────────────────────────────────────────────────────────
@@ -154,8 +156,9 @@ const DEFAULT_PREFS: SolarPrefs = {
   kuiperBelt: false,
   saturnThroughRings: true,
   lastTrackId: null,
-  // Босс 2026-05-31 default — световая скорость.
+  // Босс 2026-05-31 default — световая скорость, кратность 1.0.
   speedMode: "light",
+  speedMultiplier: 1.0,
 };
 
 // ────────────────────────────────────────────────────────────
@@ -222,6 +225,9 @@ function loadPrefs(): SolarPrefs {
       saturnThroughRings: typeof parsed.saturnThroughRings === "boolean" ? parsed.saturnThroughRings : DEFAULT_PREFS.saturnThroughRings,
       lastTrackId: parsed.lastTrackId == null ? null : String(parsed.lastTrackId),
       speedMode: parsed.speedMode === "slow" ? "slow" : DEFAULT_PREFS.speedMode,
+      speedMultiplier: typeof parsed.speedMultiplier === "number"
+        ? Math.max(0.25, Math.min(3.0, parsed.speedMultiplier))
+        : DEFAULT_PREFS.speedMultiplier,
     };
   } catch {
     return DEFAULT_PREFS;
@@ -675,8 +681,23 @@ function Step1Body({
                 : "border-white/20 bg-transparent text-white/70 hover:border-white/40"}`}
             >🐢 3 минуты</button>
           </div>
-          {/* 2026-05-31 Босс «спутники в меню убираем, по умолчанию у своих
-              планет летают». satellites=true всегда (DEFAULT_PREFS), чекбокс скрыт. */}
+          {/* 2026-05-31 Босс «кратность скорости света можно увеличить/уменьшить» */}
+          {prefs.speedMode === "light" && (
+            <div className="flex items-center gap-3 px-1 py-2">
+              <span className="text-[11px] text-white/70 font-mono w-12">×{(prefs.speedMultiplier ?? 1).toFixed(2)}</span>
+              <input
+                type="range"
+                min={0.25}
+                max={3.0}
+                step={0.05}
+                value={prefs.speedMultiplier ?? 1}
+                onChange={(e) => onUpdate({ speedMultiplier: Number(e.target.value) })}
+                className="flex-1 accent-fuchsia-500"
+              />
+              <span className="text-[10px] text-white/40 w-16 text-right">кратность</span>
+            </div>
+          )}
+          {/* 2026-05-31 Босс «спутники в меню убираем». satellites=true всегда. */}
           <OptionRow
             label="☄️ Главный пояс астероидов"
             description="Между Марсом и Юпитером"

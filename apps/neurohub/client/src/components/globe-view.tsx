@@ -3664,21 +3664,35 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       // Маршрут: Moon → OUTWARD (Mars→Neptune через пояс) → Sun → INWARD
       // (Mercury → Venus → Earth). Длительность ~3 минуты — каждый approach
       // 12-14 сек (визуально «летим долго»), orbit 6 сек.
-      // 2026-05-31 v3 Босс «скорость между планетами уменьшить в 3 раза»:
-      // approachMs /3 (быстрые перелёты), orbitMs ОСТАЁТСЯ длинным (облёт
-      // замедленный = фишка).
-      seq.push({ key: "moon", approachMs: 2700, orbitMs: 14000 });
-      if (has("mars"))    seq.push({ key: "mars",    approachMs: 4000, orbitMs: 14000 });
-      if (prefs.mainBelt) seq.push({ key: "main_belt", approachMs: 3300, orbitMs: 0 });
-      if (has("jupiter")) seq.push({ key: "jupiter", approachMs: 4700, orbitMs: 22000 });
-      if (has("saturn"))  seq.push({ key: "saturn",  approachMs: 4000, orbitMs: 24000 });
-      if (has("uranus"))  seq.push({ key: "uranus",  approachMs: 4700, orbitMs: 16000 });
-      if (has("neptune")) seq.push({ key: "neptune", approachMs: 4700, orbitMs: 16000 });
-      if (prefs.kuiperBelt) seq.push({ key: "kuiper_belt", approachMs: 3300, orbitMs: 0 });
-      seq.push({ key: "sun", approachMs: 5300, orbitMs: 28000 });
-      if (has("mercury")) seq.push({ key: "mercury", approachMs: 3300, orbitMs: 12000 });
-      if (has("venus"))   seq.push({ key: "venus",   approachMs: 2700, orbitMs: 14000 });
-      if (has("earth"))   seq.push({ key: "earth",   approachMs: 2700, orbitMs: 0 });
+      // 2026-05-31 v4 Босс «перелёты быстры если 3 минуты, если световая —
+      // учти расстояние и получишь время, плюс кратность ×0.25..×3».
+      // Базовое расстояние planet-from-Earth ≈ snapshot[key] длина (wu).
+      // light: approachMs = distance / (180 * speedMul) ms (180 wu/ms эталон).
+      // slow:  approachMs = distance / 30 ms (медленнее, ~3 мин на дальнюю).
+      const speedMul = Math.max(0.25, Math.min(3.0, (prefs as any).speedMultiplier ?? 1.0));
+      const slow = (prefs as any).speedMode === "slow";
+      const distLookup: Record<string, number> = {
+        moon: 500, mercury: 600, venus: 1100, mars: 2300,
+        main_belt: 4000, jupiter: 7800, saturn: 14400,
+        uranus: 28700, neptune: 45000, kuiper_belt: 67500, sun: 1500, earth: 1500,
+      };
+      const calcApproach = (key: string): number => {
+        const d = distLookup[key] ?? 1500;
+        if (slow) return Math.max(8000, Math.min(60000, d / 30));
+        return Math.max(2000, Math.min(40000, d / (180 * speedMul)));
+      };
+      seq.push({ key: "moon", approachMs: calcApproach("moon"), orbitMs: 14000 });
+      if (has("mars"))    seq.push({ key: "mars",    approachMs: calcApproach("mars"),    orbitMs: 14000 });
+      if (prefs.mainBelt) seq.push({ key: "main_belt", approachMs: calcApproach("main_belt"), orbitMs: 0 });
+      if (has("jupiter")) seq.push({ key: "jupiter", approachMs: calcApproach("jupiter"), orbitMs: 22000 });
+      if (has("saturn"))  seq.push({ key: "saturn",  approachMs: calcApproach("saturn"),  orbitMs: 24000 });
+      if (has("uranus"))  seq.push({ key: "uranus",  approachMs: calcApproach("uranus"),  orbitMs: 16000 });
+      if (has("neptune")) seq.push({ key: "neptune", approachMs: calcApproach("neptune"), orbitMs: 16000 });
+      if (prefs.kuiperBelt) seq.push({ key: "kuiper_belt", approachMs: calcApproach("kuiper_belt"), orbitMs: 0 });
+      seq.push({ key: "sun", approachMs: calcApproach("sun"), orbitMs: 28000 });
+      if (has("mercury")) seq.push({ key: "mercury", approachMs: calcApproach("mercury"), orbitMs: 12000 });
+      if (has("venus"))   seq.push({ key: "venus",   approachMs: calcApproach("venus"),   orbitMs: 14000 });
+      if (has("earth"))   seq.push({ key: "earth",   approachMs: calcApproach("earth"),   orbitMs: 0 });
       // Возврат — всегда.
       seq.push({ key: "return", approachMs: 6000, orbitMs: 0 });
       return seq;
