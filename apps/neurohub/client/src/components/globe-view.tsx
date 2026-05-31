@@ -1134,31 +1134,52 @@ const PLANET_FRAGMENT_VENUS = SUN_NOISE + `
   }
 `;
 
-// Mars — красный с polar caps (sin(lat) > 0.7 → белый CO2-лёд).
+// Mars — hi-end: красные равнины Tharsis, Valles Marineris (длинный каньон),
+// Olympus Mons (gaussian peak), асимметричные polar caps, пыльно-розовая атмосфера.
 const PLANET_FRAGMENT_MARS = SUN_NOISE + `
   uniform vec3 sunDir;
   varying vec3 vWorldNormal;
   varying vec3 vPos;
   void main() {
-    float i = dot(normalize(vWorldNormal), normalize(sunDir));
-    float lit = smoothstep(-0.08, 0.12, i);
-    vec3 litCol  = vec3(0.90, 0.45, 0.28);    // марсианский красный rgb (255,122,78)
-    vec3 darkCol = vec3(0.04, 0.02, 0.01);
-    vec3 base = mix(darkCol, litCol, lit);
+    vec3 n = normalize(vWorldNormal);
+    vec3 sd = normalize(sunDir);
+    float i = dot(n, sd);
+    // Тонкая атмосфера: умеренный terminator.
+    float lit = smoothstep(-0.10, 0.20, i);
     vec3 p = normalize(vPos);
-    // Polar caps: |y| > 0.75 → белый CO2-лёд.
-    float polar = smoothstep(0.75, 0.90, abs(p.y));
-    vec3 polarCol = vec3(0.95, 0.96, 0.98);
-    base = mix(base, polarCol, polar * lit * 0.85);
-    // Тёмные пятна (Valles Marineris, Hellas Basin) — fbm.
-    float n = fbm3(p * 5.0);
-    float darkPatch = smoothstep(0.55, 0.75, n);
-    vec3 rust = vec3(0.50, 0.20, 0.10);
-    base = mix(base, rust, darkPatch * lit * 0.35);
-    // Мелкие кратеры (Mars тоже кратеризован).
-    float c = worley3(p * 20.0);
+    // Базовая красно-охристая палитра с пыльными вариациями.
+    float terrain = fbm3(p * 3.0);
+    vec3 brightRed = vec3(0.94, 0.50, 0.30);    // Tharsis bulge (светлые плато)
+    vec3 darkRust  = vec3(0.52, 0.20, 0.10);    // Hellas, Syrtis (тёмные базальты)
+    vec3 surface = mix(darkRust, brightRed, smoothstep(0.35, 0.65, terrain));
+    // Valles Marineris — длинный каньон ~4500 км вдоль экватора (≈22° южнее).
+    float canyonLat = abs(p.y + 0.10);                                 // полоса вокруг -6°
+    float canyonLon = sin(atan(p.z, p.x) * 1.0 + 1.2);                  // долгота West Tharsis
+    float canyon = exp(-canyonLat * canyonLat * 280.0) * (0.55 + 0.45 * canyonLon);
+    surface *= 1.0 - canyon * 0.45;                                     // тёмная глубокая щель
+    // Olympus Mons — гигантский вулкан (~22°N, 135°W) — светлая выпуклость.
+    vec3 olympusCenter = normalize(vec3(-0.62, 0.36, 0.70));
+    float olympusD = length(p - olympusCenter);
+    float olympus = exp(-olympusD * olympusD * 60.0);
+    surface += vec3(0.25, 0.12, 0.05) * olympus * lit * 0.7;
+    // Polar caps: асимметричные (южный больше, NASA fact). Сезонный CO2-лёд.
+    float northCap = smoothstep(0.78, 0.92, p.y);
+    float southCap = smoothstep(0.72, 0.92, -p.y);                       // южный начинается раньше
+    vec3 iceCol = vec3(0.96, 0.97, 0.99);
+    surface = mix(surface, iceCol, max(northCap, southCap) * lit * 0.92);
+    // Мелкие кратеры южного полушария (Mars highlands).
+    float c = worley3(p * 22.0);
     float crater = smoothstep(0.0, 0.10, c) * (1.0 - smoothstep(0.10, 0.22, c));
-    base *= 1.0 - crater * 0.35 * lit;
+    float southBias = smoothstep(-0.1, -0.5, p.y);                       // только в южном полушарии
+    surface *= 1.0 - crater * 0.32 * lit * (0.4 + southBias * 0.6);
+    // Дневной/ночной mix.
+    vec3 base = surface * (0.08 + lit * 0.95);
+    // Пыльные облака (dust storms) — лёгкая бежевая дымка над поверхностью.
+    float dust = fbm3(p * 4.5 + vec3(2.0, 0.0, 0.0));
+    base += vec3(0.30, 0.20, 0.12) * smoothstep(0.55, 0.78, dust) * lit * 0.20;
+    // Atmospheric Fresnel: розово-пыльный rim glow (CO2 + dust → тонкая атмосфера).
+    float fres = pow(1.0 - max(dot(n, normalize(-vPos)), 0.0), 2.8);
+    base += vec3(0.82, 0.45, 0.32) * fres * (0.22 + lit * 0.48);
     gl_FragColor = vec4(base, 1.0);
   }
 `;
