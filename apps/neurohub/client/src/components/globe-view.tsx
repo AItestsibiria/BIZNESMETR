@@ -4572,7 +4572,13 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 if (key === "return") return { x: 0, y: 0, z: 250 };
                 if (key === "moon") {
                   const mp = moonMeshRef.current?.position;
-                  return mp ? { x: mp.x, y: mp.y, z: mp.z } : null;
+                  if (!mp) return null;
+                  // 2026-05-31 Босс «Тур застрял на Moon» (скрин 21:22) — то же что Venus.
+                  // Moon mesh существует, но позиция (0,0,0) пока ephemeris не отработала.
+                  // Старый код возвращал (0,0,0) = центр Земли → камера летела В Землю.
+                  const d = Math.hypot(mp.x, mp.y, mp.z);
+                  if (!Number.isFinite(d) || d < 0.01) return null;
+                  return { x: mp.x, y: mp.y, z: mp.z };
                 }
                 if (key === "main_belt") {
                   // Главный пояс — между Mars(orbitR~8) и Jupiter(orbitR~24). Центр ~50.
