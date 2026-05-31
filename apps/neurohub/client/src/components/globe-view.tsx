@@ -2774,6 +2774,17 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         const prevAutoRotate2 = ctrl2?.autoRotate ?? false;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const prevCamUp: any = cam2.up ? new THREE_NS.Vector3(cam2.up.x, cam2.up.y, cam2.up.z) : null;
+        // P1.2 (Босс 2026-05-31) — bump cam.near 10→1000 на время star flight.
+        // На дистанции 280000 ед. (STARFIELD_RADIUS) low near вызывает z-precision
+        // артефакты (мерцание/z-fight между Землёй и дальними звёздами фона).
+        // Восстанавливаем prevNear в restoreControls (done И abort путях).
+        const prevNear = cam2?.near ?? 10;
+        try {
+          if (cam2) {
+            cam2.near = 1000;
+            cam2.updateProjectionMatrix?.();
+          }
+        } catch { /* no-op */ }
         if (ctrl2) {
           ctrl2.maxDistance = Math.max(ctrl2.maxDistance || 0, STAR_R_VISUAL);
           // Снимаем юзер-управление на время полёта — никаких drag/inertia/damping.
@@ -2818,6 +2829,14 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           starMarkerMat = null;
         };
         const restoreControls = (finalLookTarget?: { x:number; y:number; z:number }) => {
+          // P1.2 — возвращаем cam.near ДО ctrl.update() (применяется в обоих
+          // путях: done и abort, т.к. abort тоже вызывает restoreControls).
+          try {
+            if (cam2) {
+              cam2.near = prevNear;
+              cam2.updateProjectionMatrix?.();
+            }
+          } catch { /* no-op */ }
           if (!ctrl2) return;
           // Patch v2: target ставим ОДИН РАЗ в конце ПЕРЕД enabled+update.
           // Это синхронизирует OrbitControls со звездой — следующий ctrl.update()
@@ -2846,6 +2865,14 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         flightModeRef.current = "classic";
         holdRef.current = true;
         const startCamPos = new THREE_NS.Vector3(cam2.position.x, cam2.position.y, cam2.position.z);
+        // P1.1 (Босс 2026-05-31) — snapshot текущего ctrl.target для mid-sync на t=0.5.
+        // Без mid-sync первый drag юзера после done вызывал spherical-jump:
+        // OrbitControls пересчитывает sphere coords с резко новым target (звезда),
+        // камера прыгает. Lerp от startTargetPos → lookTarget по середине пути
+        // решает плавно: к моменту done OrbitControls уже на полпути к новому target.
+        const startTargetPos = ctrl2?.target
+          ? new THREE_NS.Vector3(ctrl2.target.x, ctrl2.target.y, ctrl2.target.z)
+          : new THREE_NS.Vector3(0, 0, 0);
         const startDistFromOrigin = startCamPos.length();
         const endDistFromOrigin = camTarget.length();
         // Угол между ТЕКУЩЕЙ позицией камеры (от origin) и направлением на звезду.
@@ -2902,6 +2929,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         // ТОЛЬКО cam.position + cam.lookAt каждый кадр. Финальная установка
         // ctrl.target = lookTarget — в restoreControls(lookTarget) после loop.
         let frameIdx = 0;
+        // P1.1 — однократный mid-sync ctrl.target на t≥0.5 (см. блок ниже).
+        // let (не useRef) — сбрасывается с каждым новым flight автоматически.
+        let midSynced = false;
         const starFrame = () => {
           // Босс 2026-05-31 (P0.1 — generation-counter check): если стартовал
           // другой flight (новый tap по звезде/планете) — flightIdRef уже
@@ -2930,6 +2960,16 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           }
           const t = Math.min((performance.now() - startT) / DURATION_MS, 1);
           const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+          // P1.1 — mid-sync ctrl.target на t=0.5 (плавный drag после flight, без
+          // spherical-jump). Пишем ТОЛЬКО в .target — ctrl.update() НЕ зовём (он
+          // перезапишет cam.position через clamp, нарушит Patch v2 правило).
+          // Финальный target = lookTarget ставится позже в restoreControls().
+          if (t >= 0.5 && !midSynced && ctrl2?.target) {
+            try {
+              ctrl2.target.lerpVectors(startTargetPos, lookTarget, 0.5);
+            } catch { /* no-op */ }
+            midSynced = true;
+          }
           // Patch v2: управляем ТОЛЬКО cam.position + cam.lookAt.
           // НЕ ctrl.target, НЕ ctrl.update — иначе OrbitControls (даже
           // enabled=false) clamp'ит spherical → перетирает позицию.
