@@ -1184,39 +1184,73 @@ const PLANET_FRAGMENT_MARS = SUN_NOISE + `
   }
 `;
 
-// Jupiter — горизонтальные полосы (color bands по широте) + Great Red Spot.
+// Jupiter — hi-end: 7 поясов/зон (NEB, SEB, EZ, NTrZ, STrZ, NTB, STB),
+// вращающийся Great Red Spot, белые ovals, полярные циклоны, тёплый rim glow.
 const PLANET_FRAGMENT_JUPITER = SUN_NOISE + `
   uniform vec3 sunDir;
   uniform float time;
   varying vec3 vWorldNormal;
   varying vec3 vPos;
   void main() {
-    float i = dot(normalize(vWorldNormal), normalize(sunDir));
-    float lit = smoothstep(-0.08, 0.12, i);
+    vec3 n = normalize(vWorldNormal);
+    vec3 sd = normalize(sunDir);
+    float i = dot(n, sd);
+    float lit = smoothstep(-0.15, 0.25, i);
     vec3 p = normalize(vPos);
-    // Базовый цвет Юпитера rgb (240,222,184) — пастельный жёлто-бежевый.
-    vec3 baseCol = vec3(0.94, 0.87, 0.72);
-    // Горизонтальные полосы — функция широты (p.y). Чередование zone/belt.
+    float t = time * 0.10;
     float lat = p.y;
-    float bandPattern = sin(lat * 18.0 + fbm3(p * 4.0) * 1.5);
-    // Зоны (zones, светлые) и пояса (belts, тёмные оранжево-коричневые).
-    vec3 zoneCol = vec3(0.96, 0.90, 0.76);
-    vec3 beltCol = vec3(0.62, 0.40, 0.22);
-    baseCol = mix(beltCol, zoneCol, smoothstep(-0.3, 0.3, bandPattern));
-    // Турбулентность облаков (анимация — атмосфера Юпитера крутится).
-    float t = time * 0.08;
-    float turb = fbm3(vec3(p.x * 8.0 + t, p.y * 12.0, p.z * 8.0));
-    baseCol *= 0.85 + turb * 0.3;
-    // Great Red Spot — гауссиан в области (~22°S, специфическая долгота).
-    vec3 spotCenter = normalize(vec3(0.4, -0.38, 0.83));
+    float lon = atan(p.z, p.x);
+    // Главные пояса — отдельно прописанные широты (NASA-факты).
+    float NEB    = exp(-pow((lat - 0.20) * 12.0, 2.0));   // North Equatorial Belt (тёмный)
+    float SEB    = exp(-pow((lat + 0.20) * 12.0, 2.0));   // South Equatorial Belt
+    float EZ     = exp(-pow(lat * 18.0, 2.0));            // Equatorial Zone (светлый)
+    float NTropZ = exp(-pow((lat - 0.40) * 14.0, 2.0));
+    float STropZ = exp(-pow((lat + 0.40) * 14.0, 2.0));
+    float NTB    = exp(-pow((lat - 0.55) * 18.0, 2.0));
+    float STB    = exp(-pow((lat + 0.55) * 18.0, 2.0));
+    // Зональные ветры — облака сдвигаются по долготе с разной скоростью по широте.
+    float jetSpeed = sign(sin(lat * 8.0)) * (0.3 + 0.7 * cos(lat * 4.0));
+    float lonFlow = lon + t * jetSpeed;
+    // Турбулентность каждой полосы.
+    float turbCoarse = fbm3(vec3(cos(lonFlow) * 5.0, lat * 14.0, sin(lonFlow) * 5.0));
+    float turbFine   = fbm3(vec3(cos(lonFlow * 2.0) * 12.0, lat * 22.0, sin(lonFlow * 2.0) * 12.0));
+    // Палитра поясов.
+    vec3 zoneCream  = vec3(0.96, 0.91, 0.78);  // светлые зоны
+    vec3 beltOrange = vec3(0.72, 0.46, 0.22);  // тёмные пояса (NH3SH cromphores)
+    vec3 beltDeep   = vec3(0.48, 0.28, 0.14);  // глубокие тени
+    vec3 baseCol = zoneCream;
+    baseCol = mix(baseCol, beltOrange, max(NEB, SEB) * (0.55 + 0.30 * turbCoarse));
+    baseCol = mix(baseCol, beltDeep,   max(NTB, STB) * 0.40);
+    baseCol = mix(baseCol, vec3(1.00, 0.96, 0.85), EZ * 0.45);
+    baseCol *= 0.85 + turbFine * 0.30;
+    // Great Red Spot — вращающийся овал (~22°S). Внутреннее вращение — фаза time.
+    vec3 spotCenter = normalize(vec3(cos(t * 0.3 + 1.0) * 0.5, -0.38, sin(t * 0.3 + 1.0) * 0.86));
     float spotD = length(p - spotCenter);
-    float spot = exp(-spotD * spotD * 18.0);
-    vec3 redSpotCol = vec3(0.78, 0.28, 0.16);
-    baseCol = mix(baseCol, redSpotCol, spot * 0.85);
-    // Полярные зоны — слегка темнее, голубоватые.
-    float polar = smoothstep(0.70, 0.95, abs(p.y));
-    baseCol = mix(baseCol, vec3(0.45, 0.42, 0.40), polar * 0.4);
-    vec3 base = baseCol * lit + vec3(0.025, 0.020, 0.015) * (1.0 - lit);
+    float spot = exp(-spotD * spotD * 22.0);
+    // Внутренняя структура GRS — концентрические кольца с вращением.
+    float spotSwirl = sin(spotD * 80.0 - t * 4.0) * 0.5 + 0.5;
+    vec3 grsCore  = vec3(0.82, 0.28, 0.14);
+    vec3 grsEdge  = vec3(0.58, 0.18, 0.08);
+    vec3 grsCol = mix(grsEdge, grsCore, spotSwirl);
+    baseCol = mix(baseCol, grsCol, spot * 0.92);
+    // Белые ovals (small storms) — несколько шаров в южном полушарии.
+    for (int k = 0; k < 3; k++) {
+      float fk = float(k);
+      vec3 ovalC = normalize(vec3(cos(t * 0.2 + fk * 2.1) * 0.7, -0.55 - fk * 0.05, sin(t * 0.2 + fk * 2.1) * 0.7));
+      float ovalD = length(p - ovalC);
+      float oval = exp(-ovalD * ovalD * 60.0);
+      baseCol = mix(baseCol, vec3(0.98, 0.96, 0.92), oval * 0.6);
+    }
+    // Полярные циклоны (тёмные мутные зоны на полюсах, как у Juno-снимков).
+    float polar = smoothstep(0.78, 0.96, abs(lat));
+    float polarTurb = fbm3(vec3(p.x * 14.0 + t, p.y * 10.0, p.z * 14.0));
+    vec3 polarCol = mix(vec3(0.42, 0.36, 0.30), vec3(0.28, 0.22, 0.18), polarTurb);
+    baseCol = mix(baseCol, polarCol, polar * 0.7);
+    // Освещение.
+    vec3 base = baseCol * (0.10 + lit * 0.95);
+    // Тёплый rim (атмосфера Юпитера → fresnel жёлто-оранжевый).
+    float fres = pow(1.0 - max(dot(n, normalize(-vPos)), 0.0), 2.2);
+    base += vec3(0.96, 0.72, 0.40) * fres * (0.20 + lit * 0.40);
     gl_FragColor = vec4(base, 1.0);
   }
 `;
