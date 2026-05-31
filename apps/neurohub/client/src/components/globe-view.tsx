@@ -2114,7 +2114,8 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // 2026-05-31 Solar tour helpers (Босс «Sun масштаб», «эффект движения», ...):
   const solarTourActiveRef = useRef<boolean>(false);
   const savedSunPosRef = useRef<{ x: number; y: number; z: number } | null>(null);
-  const spaceDustRef = useRef<any>(null); // THREE.Points (космическая пыль для parallax)
+  const spaceDustRef = useRef<any>(null); // THREE.Group из 3 Points-слоёв + 1 ShaderMaterial twinkle
+  const twinkleMatRef = useRef<any>(null); // ShaderMaterial для time uniform update
   const solarPrefsRef = useRef<{
     planets: string[];           // выбранные ключи: ["mercury","venus","earth","mars","jupiter","saturn","uranus","neptune"]
     satellites: boolean;         // показывать спутники планет
@@ -4641,6 +4642,54 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                   dustGroup.add(makeLayer(1500, 25000, 16, 0.6));
                   // Layer 3: дальние (3000 шт, ±70000 wu) — медленный parallax + объём.
                   dustGroup.add(makeLayer(3000, 70000, 32, 0.5));
+                  // Layer 4: МЕРЦАЮЩИЕ звёзды (Босс «звёзды мерцают»).
+                  // ShaderMaterial с time uniform + per-star random phase.
+                  // 800 точек, ±40000 wu, sizeAttenuation=true → растут при подходе.
+                  try {
+                    const N4 = 800;
+                    const pos4 = new Float32Array(N4 * 3);
+                    const phase4 = new Float32Array(N4);
+                    for (let i = 0; i < N4; i++) {
+                      pos4[i * 3 + 0] = (Math.random() - 0.5) * 80000;
+                      pos4[i * 3 + 1] = (Math.random() - 0.5) * 80000;
+                      pos4[i * 3 + 2] = (Math.random() - 0.5) * 80000;
+                      phase4[i] = Math.random() * Math.PI * 2;
+                    }
+                    const geo4 = new THREE.BufferGeometry();
+                    geo4.setAttribute("position", new THREE.BufferAttribute(pos4, 3));
+                    geo4.setAttribute("aPhase", new THREE.BufferAttribute(phase4, 1));
+                    const twinkleMat = new THREE.ShaderMaterial({
+                      transparent: true,
+                      depthWrite: false,
+                      uniforms: { uTime: { value: 0 } },
+                      vertexShader: `
+                        attribute float aPhase;
+                        uniform float uTime;
+                        varying float vTwinkle;
+                        void main() {
+                          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+                          gl_Position = projectionMatrix * mv;
+                          // Размер растёт при приближении (sizeAttenuation эффект).
+                          gl_PointSize = 60.0 / max(50.0, -mv.z);
+                          // Мерцание: фаза + времячко.
+                          vTwinkle = 0.45 + 0.55 * (0.5 + 0.5 * sin(uTime * 2.5 + aPhase * 6.28));
+                        }
+                      `,
+                      fragmentShader: `
+                        varying float vTwinkle;
+                        void main() {
+                          // Круглая точка с soft edge.
+                          vec2 c = gl_PointCoord - 0.5;
+                          float d = length(c);
+                          if (d > 0.5) discard;
+                          float alpha = (1.0 - smoothstep(0.2, 0.5, d)) * vTwinkle;
+                          gl_FragColor = vec4(1.0, 1.0, 1.0, alpha);
+                        }
+                      `,
+                    });
+                    twinkleMatRef.current = twinkleMat;
+                    dustGroup.add(new THREE.Points(geo4, twinkleMat));
+                  } catch { /* no-op */ }
                   scene.add(dustGroup);
                   spaceDustRef.current = dustGroup;
                 }
@@ -4863,9 +4912,14 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 else if (planetKey === "sun") orbitR = 80; // облёт вокруг Солнца на 80 wu
 
                 if (phaseT < step.approachMs) {
-                  // APPROACH: eased lerp от startCamPos к точке у target.
+                  // APPROACH: голливудский монтаж — ease-in-out-quintic (более
+                  // драматичный плавный старт + финиш) вместо cubic. Эффект:
+                  // камера долго «разгоняется», потом летит быстро, потом плавно
+                  // «прибывает» к планете.
                   const p = Math.min(1, phaseT / step.approachMs);
-                  const e = easeInOutCubic(p);
+                  const e = p < 0.5
+                    ? 16 * p * p * p * p * p
+                    : 1 - Math.pow(-2 * p + 2, 5) / 2;
                   const sp = solarStepStartCamPos || { x: 0, y: 0, z: 0 };
                   // Для поясов — flythrough: камера проходит СКВОЗЬ пояс. Цель — точка
                   // на противоположной стороне target от startCamPos.
@@ -4924,17 +4978,25 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                   // визуальной пролётной траектории через кольца.
                   const ot = (phaseT - step.approachMs) / 1000;
                   const orbitSec = step.orbitMs / 1000;
-                  // Луна — 3 оборота (фишка Босс 2026-05-31). Газовые гиганты — 1.0.
+                  // 2026-05-31 ГОЛЛИВУДСКИЙ МОНТАЖ (Босс «по голливудски, лучший
+                  // киномонтаж»). Луна — 3 оборота (фишка). Газовые гиганты —
+                  // 1.0 (медленный пролёт колец / красных пятен). Внешние ледяные
+                  // (Уран/Нептун) — 0.8 (drama, не догонять). Остальные — 1.2.
                   const turns = planetKey === "moon" ? 3.0
                               : (planetKey === "jupiter" || planetKey === "saturn") ? 1.0
+                              : (planetKey === "uranus" || planetKey === "neptune") ? 0.8
+                              : (planetKey === "sun") ? 1.0
                               : 1.2;
                   const omega = (turns * 2 * Math.PI) / orbitSec;
                   const ang = ot * omega;
-                  const yOffset = (planetKey === "saturn" && prefs.saturnThroughRings)
-                    ? orbitR * 0.18 : 0;
+                  // Cinematic Y-tilt: лёгкая sinусоидальная вертикальная составляющая
+                  // — кадр «дышит», камера не идеально плоско по экватору. Sat-rings
+                  // — больше Y для пролёта над/под кольцами.
+                  const yTilt = (planetKey === "saturn" && prefs.saturnThroughRings)
+                    ? orbitR * 0.22 : orbitR * 0.06 * Math.sin(ot * 0.5);
                   camera.position.set(
                     targetPos.x + Math.cos(ang) * orbitR,
-                    targetPos.y + yOffset,
+                    targetPos.y + yTilt,
                     targetPos.z + Math.sin(ang) * orbitR,
                   );
                   // Композиция камеры. Для Луны — lookAt centroid (Moon+Earth+Sun)
@@ -5022,6 +5084,12 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 // 2026-05-31 v2: облако звёзд СТАТИЧНО (3 слоя, ±70000 wu объём
                 // покрывает весь маршрут). Follow-логика убрана — она ломала
                 // parallax (точки всегда оставались возле камеры → нет движения).
+                // Twinkle: обновляем uTime ShaderMaterial → звёзды мерцают.
+                try {
+                  if (twinkleMatRef.current?.uniforms?.uTime) {
+                    twinkleMatRef.current.uniforms.uTime.value = now / 1000;
+                  }
+                } catch { /* no-op */ }
 
                 // OrbitControls target на текущий объект.
                 try {

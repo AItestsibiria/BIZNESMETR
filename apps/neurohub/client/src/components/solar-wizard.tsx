@@ -306,11 +306,18 @@ export function SolarWizard({ open, onClose, onLaunch, originPoint, preselectKey
     });
   };
 
+  const [wantTrackPicker, setWantTrackPicker] = useState(false);
   const handleConfirmStep1 = () => {
     if (prefs.planets.length === 0) {
       setPrefs((p) => ({ ...p, planets: [...ALL_PLANET_KEYS] }));
     }
-    setStep(2);
+    // 2026-05-31 Босс «если стоит галочка выбор трека — запускается выбор».
+    // Иначе — сразу launch с auto-pick первого трека из плейлиста.
+    if (wantTrackPicker) {
+      setStep(2);
+    } else {
+      handleLaunch();
+    }
   };
 
   useEffect(() => {
@@ -519,16 +526,29 @@ export function SolarWizard({ open, onClose, onLaunch, originPoint, preselectKey
             {/* Footer CTA — Босс 2026-05-30 п.5: прозрачный, только контур и текст. */}
             <div className="px-5 sm:px-6 py-4 border-t border-white/15">
               {step === 1 ? (
-                <button
-                  type="button"
-                  onClick={handleConfirmStep1}
-                  className="w-full h-12 rounded-2xl text-base font-bold text-white shadow-[0_0_32px_rgba(168,85,247,0.45)] active:scale-95 transition-all"
-                  style={{
-                    background: "linear-gradient(90deg, #7C3AED 0%, #D946EF 50%, #06B6D4 100%)",
-                  }}
-                >
-                  ✓ ОК
-                </button>
+                <>
+                  {/* 2026-05-31 Босс «галочка выбор трека → запускается выбор» */}
+                  <label className="flex items-center gap-2 mb-3 text-xs text-white/70 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={wantTrackPicker}
+                      onChange={(e) => setWantTrackPicker(e.target.checked)}
+                      className="w-4 h-4 accent-fuchsia-500"
+                    />
+                    🎵 Выбрать трек для полёта
+                    <span className="ml-auto text-white/40 text-[10px]">иначе автозапуск</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleConfirmStep1}
+                    className="w-full h-12 rounded-2xl text-base font-bold text-white shadow-[0_0_32px_rgba(168,85,247,0.45)] active:scale-95 transition-all"
+                    style={{
+                      background: "linear-gradient(90deg, #7C3AED 0%, #D946EF 50%, #06B6D4 100%)",
+                    }}
+                  >
+                    {wantTrackPicker ? "→ Выбрать трек" : "🚀 Поехали"}
+                  </button>
+                </>
               ) : (
                 <button
                   type="button"
