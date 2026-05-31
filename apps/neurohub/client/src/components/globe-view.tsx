@@ -3679,6 +3679,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       const calcApproach = (key: string): number => {
         const d = distLookup[key] ?? 1500;
         if (slow) return Math.max(8000, Math.min(60000, d / 30));
+        // 2026-05-31 v2 Босс «меньше» — Sun подлёт ×45 но cap до 12-30 сек
+        // (раньше ×45 = до 6 минут, слишком). Sub-bound 12000.
+        if (key === "sun") return Math.max(12000, Math.min(30000, (d * 45) / (180 * speedMul)));
         return Math.max(2000, Math.min(40000, d / (180 * speedMul)));
       };
       seq.push({ key: "moon", approachMs: calcApproach("moon"), orbitMs: 14000 });
@@ -3689,10 +3692,12 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       if (has("uranus"))  seq.push({ key: "uranus",  approachMs: calcApproach("uranus"),  orbitMs: 16000 });
       if (has("neptune")) seq.push({ key: "neptune", approachMs: calcApproach("neptune"), orbitMs: 16000 });
       if (prefs.kuiperBelt) seq.push({ key: "kuiper_belt", approachMs: calcApproach("kuiper_belt"), orbitMs: 0 });
-      seq.push({ key: "sun", approachMs: calcApproach("sun"), orbitMs: 28000 });
-      if (has("mercury")) seq.push({ key: "mercury", approachMs: calcApproach("mercury"), orbitMs: 12000 });
-      if (has("venus"))   seq.push({ key: "venus",   approachMs: calcApproach("venus"),   orbitMs: 14000 });
-      if (has("earth"))   seq.push({ key: "earth",   approachMs: calcApproach("earth"),   orbitMs: 0 });
+      seq.push({ key: "sun", approachMs: calcApproach("sun"), orbitMs: 20000 });
+      // INWARD от Sun к Земле — нарастающий эпик (×1.5, ×1.8, ×2). Земля =
+      // дом, финальная кульминация (Босс «Земля наш дом полюби её»).
+      if (has("mercury")) seq.push({ key: "mercury", approachMs: calcApproach("mercury") * 1.5, orbitMs: 12000 });
+      if (has("venus"))   seq.push({ key: "venus",   approachMs: calcApproach("venus") * 1.8,   orbitMs: 14000 });
+      seq.push({ key: "earth", approachMs: Math.max(8000, calcApproach("earth") * 2.0), orbitMs: 18000 });
       // Возврат — всегда.
       seq.push({ key: "return", approachMs: 6000, orbitMs: 0 });
       return seq;
@@ -5049,14 +5054,17 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                     targetPos.y + yTilt,
                     targetPos.z + Math.sin(ang) * orbitR,
                   );
-                  // Композиция (Босс 23:50 «нет масштаба, я внутри Солнца»):
-                  // ВСЕГДА lookAt = planet target (planet в центре кадра).
-                  // Прежняя weighted-композиция уводила фокус на Sun/Earth —
-                  // planet вылетала из кадра. Для Луны оставляем bias к Земле
-                  // (diamond ring всё ещё работает: lookAt Earth-side, Moon
-                  // как silhouette).
+                  // Композиция (Босс «Mercury/Venus с видимой Землёй»):
+                  // - Луна: lookAt Земля, Moon silhouette diamond-ring
+                  // - Mercury, Venus: lookAt midpoint(planet, Earth) — обе в кадре
+                  // - Earth: lookAt center — наш дом
+                  // - Остальные: lookAt planet
                   if (planetKey === "moon") {
-                    camera.lookAt(0, 0, 0); // на Землю — Луна silhouette перед ней
+                    camera.lookAt(0, 0, 0);
+                  } else if (planetKey === "mercury" || planetKey === "venus") {
+                    camera.lookAt(targetPos.x * 0.5, targetPos.y * 0.5, targetPos.z * 0.5);
+                  } else if (planetKey === "earth") {
+                    camera.lookAt(0, 0, 0);
                   } else {
                     camera.lookAt(targetPos.x, targetPos.y, targetPos.z);
                   }
@@ -5128,12 +5136,11 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                       camera.position.y - sy,
                       camera.position.z - sz,
                     );
-                    // 2026-05-31 Босс «я внутри Солнца, лучи кривые» — раньше
-                    // max scale 25× на orbit (cd=80) давало corona диаметр ~2000
-                    // wu при camera dist 80 wu → камера ВНУТРИ corona. Уменьшил
-                    // max до 6× → corona ~480 wu, camera снаружи. Sun-step orbitR
-                    // увеличен ниже до 500 чтобы было где «летать вокруг».
-                    const scale = Math.max(1, Math.min(6, 800 / Math.max(150, cd)));
+                    // 2026-05-31 v3 Босс «Солнце вокруг камеры» (лучи corona ещё
+                    // в кадре). max scale 6 → 3, min cd 150 → 350, k 800 → 500.
+                    // На orbit cd=600 wu scale ≈ 1.4× → corona ~250 wu, camera
+                    // снаружи с большим зазором.
+                    const scale = Math.max(1, Math.min(3, 500 / Math.max(350, cd)));
                     sunMeshRef.current.scale.set(scale, scale, scale);
                   }
                 } catch { /* no-op */ }
@@ -6203,23 +6210,15 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 varying vec3 vP;
                 void main() {
                   vec3 viewDir = normalize(-vP);
-                  // Fresnel rim (1 = edge, 0 = facing camera)
                   float fres = 1.0 - max(0.0, dot(vN, viewDir));
-                  fres = pow(fres, 2.0);
-                  // Sun term (world-space approximation)
+                  fres = pow(fres, 3.0); // 2026-05-31 v2 — острее лимб, меньше bleed
                   vec3 lDir = normalize((viewMatrix * vec4(normalize(sunDir), 0.0)).xyz);
-                  float sunDot = dot(vN, lDir); // -1..+1
-                  // Атмосферное рассеяние: голубое base + оранжевый sunset на лимбе.
-                  vec3 dayBlue = vec3(0.30, 0.55, 1.00);
-                  vec3 sunset = vec3(1.00, 0.55, 0.20);
-                  // Sunset где sunDot близко к 0 (terminator).
-                  float sunsetBand = 1.0 - smoothstep(0.0, 0.4, abs(sunDot));
-                  vec3 col = mix(dayBlue, sunset, sunsetBand * 0.7);
-                  // Интенсивность: яркая на освещённой части, гаснет в тени.
-                  float lit = smoothstep(-0.2, 0.4, sunDot);
-                  // Голливудский «стрелы лучей» — усиление на terminator (god rays).
-                  float godRay = sunsetBand * fres * 1.8;
-                  float intensity = fres * (0.4 * lit + godRay);
+                  float sunDot = dot(vN, lDir);
+                  // 2026-05-31 Босс «розовый ореол убрать» — только тонкий
+                  // голубой rim атмосферы, sunset убран (был розовый).
+                  vec3 col = vec3(0.25, 0.50, 0.95); // спокойный голубой rim
+                  float lit = smoothstep(-0.1, 0.5, sunDot);
+                  float intensity = fres * lit * 0.35; // ослаблено с 0.4
                   gl_FragColor = vec4(col, intensity);
                 }
               `,
