@@ -810,14 +810,15 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     let startX = 0;
     let startY = 0;
     let startedAtRight = false;
-    const EDGE_PX = 60; // последние 60px по правому краю экрана
-    const SWIPE_DX = -80; // свайп влево минимум 80px
-    const SWIPE_DY_MAX = 60; // вертикальный дрейф не больше
+    const EDGE_PX = 80; // последние 80px по правому краю экрана
+    const SWIPE_DX = -50; // свайп влево минимум 50px (мягче для пальца)
+    const SWIPE_DY_MAX = 80; // вертикальный дрейф не больше
     const showFor = (ms: number) => {
       setSolarBtnVisible(true);
       if (solarBtnHideTimerRef.current) window.clearTimeout(solarBtnHideTimerRef.current);
       solarBtnHideTimerRef.current = window.setTimeout(() => setSolarBtnVisible(false), ms);
     };
+    // capture:true — получаем pointer ДО child stopPropagation
     const onStart = (e: PointerEvent) => {
       startX = e.clientX;
       startY = e.clientY;
@@ -829,13 +830,18 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
       const dy = e.clientY - startY;
       if (dx <= SWIPE_DX && Math.abs(dy) <= SWIPE_DY_MAX) {
         showFor(8000);
+        try {
+          if (window.localStorage?.getItem("muzaai-screen-debug") === "1") {
+            window.dispatchEvent(new CustomEvent("muza:debug-log", { detail: `[solar-swipe] showed dx=${dx} dy=${dy}` }));
+          }
+        } catch { /* no-op */ }
       }
     };
-    window.addEventListener("pointerdown", onStart, { passive: true });
-    window.addEventListener("pointerup", onEnd, { passive: true });
+    window.addEventListener("pointerdown", onStart, { capture: true, passive: true } as AddEventListenerOptions);
+    window.addEventListener("pointerup", onEnd, { capture: true, passive: true } as AddEventListenerOptions);
     return () => {
-      window.removeEventListener("pointerdown", onStart);
-      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointerdown", onStart, { capture: true } as EventListenerOptions);
+      window.removeEventListener("pointerup", onEnd, { capture: true } as EventListenerOptions);
       if (solarBtnHideTimerRef.current) window.clearTimeout(solarBtnHideTimerRef.current);
       solarBtnHideTimerRef.current = null;
     };
