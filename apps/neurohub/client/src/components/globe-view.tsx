@@ -4999,17 +4999,18 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                     targetPos.y + yTilt,
                     targetPos.z + Math.sin(ang) * orbitR,
                   );
-                  // Композиция камеры. Для Луны — lookAt centroid (Moon+Earth+Sun)
-                  // чтобы все три влезли в кадр. Для остальных — lookAt на саму цель.
+                  // Композиция Hollywood для Луны (Босс 23:25 «с обратной стороны
+                   // Луны видна Земля с рассветом, корона Солнца над Землёй»):
+                  // — камера orbit вокруг Луны (3 оборота, фишка)
+                  // — lookAt смешан: 0.6 Earth + 0.4 Sun → Земля чуть смещена влево
+                  //   от центра, корона Солнца справа. Луна в кадре силуэтом
+                  //   (silhouette) перед Землёй с terminator → diamond-ring.
                   if (planetKey === "moon" && solarSnapshot.sun) {
                     const sx = solarSnapshot.sun.x;
                     const sy = solarSnapshot.sun.y;
                     const sz = solarSnapshot.sun.z;
-                    camera.lookAt(
-                      (targetPos.x + 0 + sx) / 3,
-                      (targetPos.y + 0 + sy) / 3,
-                      (targetPos.z + 0 + sz) / 3,
-                    );
+                    // Earth в (0,0,0), Sun в snapshot.sun. Weighted lookAt.
+                    camera.lookAt(sx * 0.4, sy * 0.4, sz * 0.4);
                   } else {
                     camera.lookAt(targetPos.x, targetPos.y, targetPos.z);
                   }
