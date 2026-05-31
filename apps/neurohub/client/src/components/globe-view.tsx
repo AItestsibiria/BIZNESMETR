@@ -3616,7 +3616,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     // .. 30 AU Нептун → 380..1750 world-units), сохраняя реальное направление.
     // Снапшот стабилен до конца тура (планеты не «уползают» во время полёта).
     let solarSnapshot: Record<string, { x: number; y: number; z: number }> = {};
-    type SolarStepKey = "moon" | "mercury" | "venus" | "earth" | "mars" | "jupiter" | "saturn" | "uranus" | "neptune" | "main_belt" | "kuiper_belt" | "return";
+    type SolarStepKey = "moon" | "mercury" | "venus" | "earth" | "mars" | "jupiter" | "saturn" | "uranus" | "neptune" | "main_belt" | "kuiper_belt" | "sun" | "return";
     type SolarStep = { key: SolarStepKey; approachMs: number; orbitMs: number };
     // Динамически собираем тур по prefs. Босс 2026-05-30 v3 (wizard): каждый запуск
     // читает solarPrefsRef.current → сценарий перестраивается. Порядок планет —
@@ -3639,25 +3639,30 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       }
       const prefs = solarPrefsRef.current;
       const seq: SolarStep[] = [];
-      // Луна — всегда первая (это «зачин» тура).
-      seq.push({ key: "moon", approachMs: 8000, orbitMs: 16000 });
       const has = (k: string) => Array.isArray(prefs.planets) && prefs.planets.includes(k);
-      // Внутренние (по астрономическому порядку).
-      if (has("mercury")) seq.push({ key: "mercury", approachMs: 5000, orbitMs: 10000 });
-      if (has("venus"))   seq.push({ key: "venus",   approachMs: 5000, orbitMs: 10000 });
-      if (has("earth"))   seq.push({ key: "earth",   approachMs: 3000, orbitMs: 0     });
-      if (has("mars"))    seq.push({ key: "mars",    approachMs: 5000, orbitMs: 10000 });
-      // Главный пояс — между Марсом и Юпитером.
-      if (prefs.mainBelt) seq.push({ key: "main_belt", approachMs: 5000, orbitMs: 0 });
-      // Внешние.
-      if (has("jupiter")) seq.push({ key: "jupiter", approachMs: 8000, orbitMs: 18000 });
-      if (has("saturn"))  seq.push({ key: "saturn",  approachMs: 8000, orbitMs: 18000 });
-      if (has("uranus"))  seq.push({ key: "uranus",  approachMs: 6000, orbitMs: 12000 });
-      if (has("neptune")) seq.push({ key: "neptune", approachMs: 6000, orbitMs: 12000 });
-      // Пояс Койпера — за Нептуном.
-      if (prefs.kuiperBelt) seq.push({ key: "kuiper_belt", approachMs: 5000, orbitMs: 0 });
+      // 2026-05-31 v3 (Босс «улетели с Земли → Марс → до последней планеты →
+      // потом облёт Солнца → Меркурий → Венера → Земля, везде облёт»).
+      // Маршрут: Moon → OUTWARD (Mars→Neptune через пояс) → Sun → INWARD
+      // (Mercury → Venus → Earth). Длительность ~3 минуты — каждый approach
+      // 12-14 сек (визуально «летим долго»), orbit 6 сек.
+      // Луна — зачин тура.
+      seq.push({ key: "moon", approachMs: 8000, orbitMs: 6000 });
+      // OUTWARD: от Земли наружу мимо Марса, поясов, газовых гигантов.
+      if (has("mars"))    seq.push({ key: "mars",    approachMs: 12000, orbitMs: 6000 });
+      if (prefs.mainBelt) seq.push({ key: "main_belt", approachMs: 10000, orbitMs: 0 });
+      if (has("jupiter")) seq.push({ key: "jupiter", approachMs: 14000, orbitMs: 8000 });
+      if (has("saturn"))  seq.push({ key: "saturn",  approachMs: 12000, orbitMs: 8000 });
+      if (has("uranus"))  seq.push({ key: "uranus",  approachMs: 14000, orbitMs: 6000 });
+      if (has("neptune")) seq.push({ key: "neptune", approachMs: 14000, orbitMs: 6000 });
+      if (prefs.kuiperBelt) seq.push({ key: "kuiper_belt", approachMs: 10000, orbitMs: 0 });
+      // SUN — точка пересечения внешнего и внутреннего маршрутов.
+      seq.push({ key: "sun", approachMs: 16000, orbitMs: 8000 });
+      // INWARD: облёт внутренних планет на пути обратно.
+      if (has("mercury")) seq.push({ key: "mercury", approachMs: 10000, orbitMs: 6000 });
+      if (has("venus"))   seq.push({ key: "venus",   approachMs: 8000, orbitMs: 6000 });
+      if (has("earth"))   seq.push({ key: "earth",   approachMs: 8000, orbitMs: 0 });
       // Возврат — всегда.
-      seq.push({ key: "return", approachMs: 8000, orbitMs: 0 });
+      seq.push({ key: "return", approachMs: 6000, orbitMs: 0 });
       return seq;
     };
     let SOLAR_TOUR: SolarStep[] = buildSolarTour();
@@ -4511,49 +4516,55 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
               solarStepStartT = now;
               solarStepIdx = 0;
               solarInitDone = true;
-              // 2026-05-31 СНАПШОТ ЭФЕМЕРИД: реальные геоцентрические направления
-              // планет (Schlyter) + log-компрессия радиуса. Земля (radius 100)
-              // в (0,0,0), Mercury 0.4 AU → 382 wu, Neptune 30 AU → 1743 wu.
-              // Камера летит к РЕАЛЬНОЙ точке планеты на небе сегодня, расстояния
-              // сжаты для визуальной читаемости.
+              // 2026-05-31 v3 (Босс «научные пропорции, не качать, ~3 минуты»):
+              // РЕАЛЬНЫЕ расстояния AU_SCALE=1500 wu/AU без компрессии. Mercury
+              // 585, Mars 2280, Jupiter 7800, Neptune 45075. Земля radius 100 wu
+              // становится точкой при удалении к Юпитеру+ — это и есть «летим к
+              // ним, а не они к нам».
               solarSnapshot = {};
-              const compress = (au: number) => 800 * Math.log10(1 + au * 5);
               const planetKeys = ["mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune"] as const;
               for (const pk of planetKeys) {
                 try {
                   const v = getPlanetGeocentric3D(pk, now);
-                  const rawLen = Math.hypot(v.x, v.y, v.z);
-                  if (!Number.isFinite(rawLen) || rawLen < 0.01) continue;
-                  const au = rawLen / 1500; // AU_SCALE = 1500
-                  const newLen = compress(au);
-                  const k = newLen / rawLen;
-                  solarSnapshot[pk] = { x: v.x * k, y: v.y * k, z: v.z * k };
+                  if (Number.isFinite(v.x) && Math.hypot(v.x, v.y, v.z) > 1) {
+                    solarSnapshot[pk] = { x: v.x, y: v.y, z: v.z };
+                  }
                 } catch { /* skip */ }
               }
-              // Луна — её реальное положение через subLunarPoint × scale (Луна
-              // близко к Земле, ~250 wu, выносим target на 500 wu в её направлении
-              // чтобы Земля сжалась до точки в кадре).
+              // Луна (subLunarPoint × altitude 1.5 ≈ 250 wu от Земли — это реальный
+              // масштаб в нашей globe.gl сцене, далеко не реальные 384 тыс км).
               try {
                 const mp = moonMeshRef.current?.position;
                 if (mp) {
                   const d = Math.hypot(mp.x, mp.y, mp.z);
                   if (Number.isFinite(d) && d > 50) {
+                    // Выносим target на 500 wu чтобы Земля не доминировала.
                     const k = 500 / d;
                     solarSnapshot.moon = { x: mp.x * k, y: mp.y * k, z: mp.z * k };
                   }
                 }
               } catch { /* skip */ }
-              // Пояса — на средних расстояниях между планетами, направление по
-              // эклиптике относительно текущего направления к Солнцу (subsolar).
+              // Солнце — центр солнечной системы. sunMeshRef сейчас на ~330 wu от
+              // Земли (subsolar × 2.2 globe radii), но реально Солнце на 1 AU =
+              // 1500 wu. Нормализуем направление и выносим на 1 AU.
+              try {
+                const sp = sunMeshRef.current?.position;
+                if (sp) {
+                  const sd = Math.hypot(sp.x, sp.y, sp.z);
+                  if (Number.isFinite(sd) && sd > 0.01) {
+                    const k = 1500 / sd;
+                    solarSnapshot.sun = { x: sp.x * k, y: sp.y * k, z: sp.z * k };
+                  }
+                }
+              } catch { /* skip */ }
+              // Пояса в реальных AU: Главный 2.7 AU = 4050, Койпера 45 AU = 67500.
               try {
                 const subS = subsolarPoint(now);
-                const sd = sunDirWorld(subS); // [x, y, z] unit vector к Солнцу
-                // Пояса — на средних расстояниях, повернутые на ~90° от Солнца
-                // в плоскости эклиптики (XZ). Главный пояс ~3 AU, Койпера ~40 AU.
-                const beltMainLen = compress(3.0);
-                const beltKuiperLen = compress(40.0);
-                solarSnapshot.main_belt = { x: -sd[2] * beltMainLen, y: 0, z: sd[0] * beltMainLen };
-                solarSnapshot.kuiper_belt = { x: sd[2] * beltKuiperLen, y: 0, z: -sd[0] * beltKuiperLen };
+                const sdir = sunDirWorld(subS);
+                const beltMainLen = 2.7 * 1500;
+                const beltKuiperLen = 45 * 1500;
+                solarSnapshot.main_belt = { x: -sdir[2] * beltMainLen, y: 0, z: sdir[0] * beltMainLen };
+                solarSnapshot.kuiper_belt = { x: sdir[2] * beltKuiperLen, y: 0, z: -sdir[0] * beltKuiperLen };
               } catch { /* skip */ }
               // 2026-05-31 Босс «Земля доминирует тур» (скрин 22:17): OrbitControls
               // сами вызывают update() каждый кадр через globe.gl internal — это
@@ -4773,6 +4784,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 else if (planetKey === "return") orbitR = 280;
                 else if (planetKey === "main_belt") orbitR = 18;   // flythrough параметр
                 else if (planetKey === "kuiper_belt") orbitR = 25;
+                else if (planetKey === "sun") orbitR = 80; // облёт вокруг Солнца на 80 wu
 
                 if (phaseT < step.approachMs) {
                   // APPROACH: eased lerp от startCamPos к точке у target.
@@ -4814,7 +4826,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                       sp.z + (tz - sp.z) * e,
                     );
                   } else {
-                    const midY = 450;
+                    // Midpoint Y-offset пропорционален дистанции до цели — на
+                    // Нептун (45000 wu) поднимаемся высоко, на Луну (500) — низко.
+                    const tDist = Math.hypot(tx, ty, tz);
+                    const midY = Math.max(300, tDist * 0.08);
                     const mx = (sp.x + tx) * 0.5;
                     const my = (sp.y + ty) * 0.5 + midY;
                     const mz = (sp.z + tz) * 0.5;
@@ -4827,18 +4842,20 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                   }
                   camera.lookAt(targetPos.x, targetPos.y, targetPos.z);
                 } else if (phaseT < stepDuration && step.orbitMs > 0) {
-                  // ORBIT: круги вокруг target. Saturn-через-кольца — большая Y-амплитуда.
+                  // ORBIT: круги вокруг target. 2026-05-31 Босс «не качать камеру
+                  // вверх-вниз» — yWave убран (yAmp=0), остаётся круговой облёт
+                  // в плоскости. Saturn-через-кольца — лёгкое смещение Y для
+                  // визуальной пролётной траектории через кольца.
                   const ot = (phaseT - step.approachMs) / 1000;
                   const orbitSec = step.orbitMs / 1000;
                   const turns = (planetKey === "jupiter" || planetKey === "saturn") ? 1.0 : 1.2;
                   const omega = (turns * 2 * Math.PI) / orbitSec;
                   const ang = ot * omega;
-                  const yAmp = (planetKey === "saturn" && prefs.saturnThroughRings)
-                    ? orbitR * 0.45 : orbitR * 0.18;
-                  const yWave = Math.sin(ot * 0.35) * yAmp;
+                  const yOffset = (planetKey === "saturn" && prefs.saturnThroughRings)
+                    ? orbitR * 0.18 : 0;
                   camera.position.set(
                     targetPos.x + Math.cos(ang) * orbitR,
-                    targetPos.y + yWave,
+                    targetPos.y + yOffset,
                     targetPos.z + Math.sin(ang) * orbitR,
                   );
                   camera.lookAt(targetPos.x, targetPos.y, targetPos.z);
@@ -4995,13 +5012,19 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                       // Базовая прозрачность.
                       const isEarthSpecial = planetKey === "earth";
                       const baseOpacity = isEarthSpecial ? 1.0 : 0.55;
-                      // Fade-in в первые 500мс approach, full в orbit, fade-out
-                      // в последние 500мс до смены шага.
-                      let fadeMul = 1;
-                      if (phaseT < 500) {
-                        fadeMul = phaseT / 500;
-                      } else if (phaseT > stepDuration - 500) {
-                        fadeMul = Math.max(0, (stepDuration - phaseT) / 500);
+                      // 2026-05-31 Босс «лейбл горит 2 сек»: показываем ТОЛЬКО
+                      // в начале orbit-фазы (приходим в окрестность планеты,
+                      // вспышка имени на 2 сек, потом гаснет).
+                      // Окно: orbit-start .. orbit-start+2000ms.
+                      // Fade in 0-400ms, full 400-1600ms, fade out 1600-2000ms.
+                      const labelStart = step.approachMs;
+                      const labelDuration = 2000;
+                      const labelT = phaseT - labelStart;
+                      let fadeMul = 0;
+                      if (labelT >= 0 && labelT < labelDuration) {
+                        if (labelT < 400) fadeMul = labelT / 400;
+                        else if (labelT < labelDuration - 400) fadeMul = 1;
+                        else fadeMul = Math.max(0, (labelDuration - labelT) / 400);
                       }
                       const opacity = inFront ? baseOpacity * fadeMul : 0;
                       const scale = isEarthSpecial ? 1.15 : 1.0;

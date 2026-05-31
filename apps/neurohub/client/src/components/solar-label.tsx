@@ -64,7 +64,8 @@ export function SolarLabel() {
           el.textContent = st.name;
           lastName = st.name;
         }
-        const sc = Math.max(0.5, Math.min(1.4, st.scale || 1));
+        // 2026-05-31 Босс «названия в 3 раза меньше» — base /3.
+        const sc = Math.max(0.15, Math.min(0.5, (st.scale || 1) / 3));
         el.style.left = `${st.screenX}px`;
         el.style.top = `${st.screenY}px`;
         el.style.opacity = String(Math.max(0, Math.min(1, st.opacity)));
