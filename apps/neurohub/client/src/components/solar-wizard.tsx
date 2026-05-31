@@ -143,7 +143,9 @@ export function PlanetMiniIcon({ planetKey, size = 28 }: { planetKey: string; si
 }
 
 const DEFAULT_PREFS: SolarPrefs = {
-  planets: ALL_PLANET_KEYS,
+  // Босс 2026-05-31: по умолчанию НИ ОДНА одиночная не выбрана. Юзер видит чистый
+  // wizard — только Полный тур доступен сразу, чекбоксы пустые.
+  planets: [],
   satellites: true,
   mainBelt: true,
   kuiperBelt: false,
@@ -437,14 +439,15 @@ export function SolarWizard({ open, onClose, onLaunch, originPoint, preselectKey
             exit={{ scale: 0.6, opacity: 0 }}
             transition={{ type: "spring", stiffness: 320, damping: 28 }}
             onClick={(e) => e.stopPropagation()}
-            className="relative w-full overflow-hidden rounded-3xl border border-white/20 shadow-[0_0_60px_rgba(168,85,247,0.30)]"
+            className="relative w-full overflow-hidden rounded-3xl border border-purple-400/35 shadow-[0_0_32px_rgba(124,58,237,0.35),inset_0_0_18px_rgba(168,85,247,0.12)]"
             style={{
               maxWidth: "min(96vw, 640px)",
               maxHeight: "calc(100dvh - 48px - env(safe-area-inset-top) - env(safe-area-inset-bottom))",
               transformOrigin,
-              // Босс 2026-05-30 п.5: «прозрачное видео только слова и контуры».
-              // Стекло — низкая плотность + сильный blur → глобус «просвечивает».
-              background: "rgba(10,8,24,0.18)",
+              // Босс 2026-05-31: суб-панель ПРОЗРАЧНАЯ (видны планеты сквозь).
+              // Контур — brand-purple линия + brand-glow (как плеер). Внутри
+              // фона почти нет, только тонкий blur чтобы текст читался.
+              background: "rgba(10,8,24,0.08)",
               backdropFilter: "blur(18px) saturate(140%)",
               WebkitBackdropFilter: "blur(18px) saturate(140%)",
             }}
@@ -561,20 +564,23 @@ function Step1Body({
 }) {
   return (
     <div className="space-y-4">
-      {/* Big tile «Все планеты» */}
+      {/* Босс 2026-05-31 «1 строка полный тур — только кнопку Поехали».
+          Tile «Полный тур» сразу запускает — onSelectAll + автоматический
+          переход на Step 2 + (можно сразу onLaunch с дефолтным треком).
+          Стиль: прозрачный контур brand, фон solar-gradient прозрачный. */}
       <button
         type="button"
         onClick={onSelectAll}
         className={`w-full rounded-2xl p-4 sm:p-5 text-left transition-all active:scale-[0.98] border ${allPlanetsSelected
-          ? "border-purple-300/70 bg-gradient-to-r from-purple-500/25 via-fuchsia-500/20 to-cyan-500/20 shadow-[0_0_24px_rgba(168,85,247,0.35)]"
-          : "border-white/20 bg-white/5 hover:bg-white/10"}`}
-        aria-label="Выбрать все 8 планет и перейти к выбору трека"
+          ? "border-purple-300/55 bg-gradient-to-r from-purple-500/12 via-fuchsia-500/12 to-cyan-500/12 shadow-[0_0_24px_rgba(168,85,247,0.25)]"
+          : "border-purple-400/30 bg-transparent hover:border-purple-400/55 hover:bg-purple-500/5"}`}
+        aria-label="Полный тур — 8 планет — нажать Поехали"
       >
         <div className="flex items-center gap-3">
           <div className="text-3xl">🪐</div>
           <div className="min-w-0 flex-1">
-            <div className="text-base sm:text-lg font-display font-bold text-white">Все планеты</div>
-            <div className="text-[12px] text-white/70 truncate">Полный тур: 8 планет — Меркурий → Нептун</div>
+            <div className="text-base sm:text-lg font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">Полный тур</div>
+            <div className="text-[12px] text-white/70 truncate">8 планет: Меркурий → Нептун. Просто жми Поехали.</div>
           </div>
           <div className="shrink-0 text-purple-300 text-sm font-semibold">▶</div>
         </div>
