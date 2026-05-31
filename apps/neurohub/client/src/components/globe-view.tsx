@@ -1968,6 +1968,12 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // камера держит текущую позицию/траекторию до нового входа в режим или пока юзер сам
   // не сменит позицию (перетаскивание/зум).
   const holdRef = useRef(false);
+  // Direct-flyby v2 (Босс 2026-05-31, Вариант 1 — радикальный self-contained lerp):
+  // когда true — main rAF loop полностью пропускает все existing tour ветки (classic/
+  // solar/moon/sun) early-return'ом. Direct-flyby ведёт свой собственный rAF loop,
+  // НЕ переключая flightMode, НЕ дёргая moonResetRef/sunResetRef/buildSolarTour.
+  // По завершению lerp флаг снимается + holdRef=true (классик не утянет камеру обратно).
+  const isDirectFlybyActiveRef = useRef(false);
   // 3-минутный таймер: после rotate юзером (с движением) → драфт от его ракурса
   // 3 мин, потом сценарий возобновляется (cycle_pano с начала). Босс 2026-05-30.
   const aiResumeAtRef = useRef<number>(0);
