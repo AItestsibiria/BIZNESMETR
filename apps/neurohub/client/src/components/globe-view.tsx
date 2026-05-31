@@ -4663,43 +4663,49 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                   // ShaderMaterial с time uniform + per-star random phase.
                   // 800 точек, ±40000 wu, sizeAttenuation=true → растут при подходе.
                   try {
-                    const N4 = 800;
+                    // 2026-05-31 v2 (Босс «зерно детальнее, мерцают попеременно
+                    // для глубины»): 1500 точек (было 800), per-star aFreq
+                    // (0.8..3.5) → соседние мерцают разной частотой = эффект
+                    // волны/попеременности. Чуть меньше size для тонкости.
+                    const N4 = 1500;
                     const pos4 = new Float32Array(N4 * 3);
                     const phase4 = new Float32Array(N4);
+                    const freq4 = new Float32Array(N4);
                     for (let i = 0; i < N4; i++) {
-                      pos4[i * 3 + 0] = (Math.random() - 0.5) * 80000;
-                      pos4[i * 3 + 1] = (Math.random() - 0.5) * 80000;
-                      pos4[i * 3 + 2] = (Math.random() - 0.5) * 80000;
+                      pos4[i * 3 + 0] = (Math.random() - 0.5) * 100000;
+                      pos4[i * 3 + 1] = (Math.random() - 0.5) * 100000;
+                      pos4[i * 3 + 2] = (Math.random() - 0.5) * 100000;
                       phase4[i] = Math.random() * Math.PI * 2;
+                      freq4[i] = 0.8 + Math.random() * 2.7;
                     }
                     const geo4 = new THREE.BufferGeometry();
                     geo4.setAttribute("position", new THREE.BufferAttribute(pos4, 3));
                     geo4.setAttribute("aPhase", new THREE.BufferAttribute(phase4, 1));
+                    geo4.setAttribute("aFreq", new THREE.BufferAttribute(freq4, 1));
                     const twinkleMat = new THREE.ShaderMaterial({
                       transparent: true,
                       depthWrite: false,
                       uniforms: { uTime: { value: 0 } },
                       vertexShader: `
                         attribute float aPhase;
+                        attribute float aFreq;
                         uniform float uTime;
                         varying float vTwinkle;
                         void main() {
                           vec4 mv = modelViewMatrix * vec4(position, 1.0);
                           gl_Position = projectionMatrix * mv;
-                          // Размер растёт при приближении (sizeAttenuation эффект).
-                          gl_PointSize = 60.0 / max(50.0, -mv.z);
-                          // Мерцание: фаза + времячко.
-                          vTwinkle = 0.45 + 0.55 * (0.5 + 0.5 * sin(uTime * 2.5 + aPhase * 6.28));
+                          gl_PointSize = 40.0 / max(50.0, -mv.z);
+                          // Попеременное мерцание: per-star freq → волна по соседям.
+                          vTwinkle = 0.35 + 0.65 * (0.5 + 0.5 * sin(uTime * aFreq + aPhase * 6.28));
                         }
                       `,
                       fragmentShader: `
                         varying float vTwinkle;
                         void main() {
-                          // Круглая точка с soft edge.
                           vec2 c = gl_PointCoord - 0.5;
                           float d = length(c);
                           if (d > 0.5) discard;
-                          float alpha = (1.0 - smoothstep(0.2, 0.5, d)) * vTwinkle;
+                          float alpha = (1.0 - smoothstep(0.15, 0.5, d)) * vTwinkle;
                           gl_FragColor = vec4(1.0, 1.0, 1.0, alpha);
                         }
                       `,
@@ -4795,7 +4801,21 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
               // (строка 4624) ставится в getTargetPos → mesh виден ровно там же.
               const getTargetPos = (key: SolarStepKey): { x: number; y: number; z: number } | null => {
                 if (key === "earth") return { x: 0, y: 0, z: 0 };
-                if (key === "return") return { x: 0, y: 0, z: 250 };
+                // 2026-05-31 Босс «возвращение по экватору к точке юзера»:
+                // return-step ставит target в точку юзера на экваторе на высоте.
+                // Используем userLatLngRef для lng, lat=0 (экватор), altitude 2.
+                if (key === "return") {
+                  try {
+                    const ll = userLatLngRef.current;
+                    const lng = ll?.lng ?? 0;
+                    const g = globeRef.current;
+                    if (g?.getCoords) {
+                      const c = g.getCoords(0, lng, 2.0); // lat=0 экватор, ~200 wu
+                      return { x: c.x, y: c.y, z: c.z };
+                    }
+                  } catch { /* fallback */ }
+                  return { x: 0, y: 0, z: 250 };
+                }
                 const snap = solarSnapshot[key];
                 return snap ? { ...snap } : null;
               };
@@ -4995,15 +5015,14 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                   // визуальной пролётной траектории через кольца.
                   const ot = (phaseT - step.approachMs) / 1000;
                   const orbitSec = step.orbitMs / 1000;
-                  // 2026-05-31 ГОЛЛИВУДСКИЙ МОНТАЖ (Босс «по голливудски, лучший
-                  // киномонтаж»). Луна — 3 оборота (фишка). Газовые гиганты —
-                  // 1.0 (медленный пролёт колец / красных пятен). Внешние ледяные
-                  // (Уран/Нептун) — 0.8 (drama, не догонять). Остальные — 1.2.
-                  const turns = planetKey === "moon" ? 3.0
-                              : (planetKey === "jupiter" || planetKey === "saturn") ? 1.0
-                              : (planetKey === "uranus" || planetKey === "neptune") ? 0.8
-                              : (planetKey === "sun") ? 1.0
-                              : 1.2;
+                  // 2026-05-31 v2 Босс «камера крутится быстрее в 5 раз»:
+                  // Moon с 3 → 0.6 оборотов (плавный полукруг). Газовые гиганты
+                  // 1.0 → 0.7 (медленнее). Остальные ÷2.
+                  const turns = planetKey === "moon" ? 0.6
+                              : (planetKey === "jupiter" || planetKey === "saturn") ? 0.7
+                              : (planetKey === "uranus" || planetKey === "neptune") ? 0.5
+                              : (planetKey === "sun") ? 0.7
+                              : 0.6;
                   const omega = (turns * 2 * Math.PI) / orbitSec;
                   const ang = ot * omega;
                   // Cinematic Y-tilt: лёгкая sinусоидальная вертикальная составляющая
