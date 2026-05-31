@@ -1570,12 +1570,26 @@ function makeSolarPlanetMesh(key: string): { group: any; bodyMat: any; ringsMat?
     }
     const uniforms: Record<string, { value: unknown }> = {
       sunDir: { value: new THREE.Vector3(1, 0, 0) },
+      // Босс 2026-05-31 (LOD crossfade): плавное появление sphere-меша при подлёте
+      // камеры. positionSunMoon ставит uOpacity в [0..1] по distance(camera, planet).
+      // Линейная интерполяция между threshold 100R..60R: sprite фейдится out, sphere
+      // фейдится in — оба видны в overlap зоне, юзер не видит «прыжка».
+      uOpacity: { value: 1.0 },
     };
     if (hasTime) uniforms.time = { value: 0 };
+    // Inject opacity uniform + multiply gl_FragColor.a в каждом planet-фрагменте.
+    // Все шейдеры завершаются строкой `gl_FragColor = vec4(base, 1.0);` — заменяем
+    // alpha на `uOpacity`. Один централизованный fix вместо правки 7 фрагментов.
+    const fragmentWithOpacity = `uniform float uOpacity;\n` + fragment.replace(
+      /gl_FragColor\s*=\s*vec4\(\s*([^,]+)\s*,\s*1\.0\s*\)\s*;/g,
+      "gl_FragColor = vec4($1, uOpacity);",
+    );
     const bodyMat = new THREE.ShaderMaterial({
       uniforms,
       vertexShader: PLANET_VERTEX,
-      fragmentShader: fragment,
+      fragmentShader: fragmentWithOpacity,
+      transparent: true,
+      depthWrite: false,
     });
     const group = new THREE.Group();
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 48, 48), bodyMat);
@@ -1590,10 +1604,15 @@ function makeSolarPlanetMesh(key: string): { group: any; bodyMat: any; ringsMat?
     if (key === "saturn") {
       const innerR = radius * 1.4;
       const outerR = radius * 2.3;
+      // Кольца — тоже LOD crossfade через uOpacity (тот же uniform что у sphere).
+      const ringsFragment = `uniform float uOpacity;\n` + SATURN_RINGS_FRAGMENT.replace(
+        /gl_FragColor\s*=\s*vec4\(\s*([^,]+)\s*,\s*([^)]+)\s*\)\s*;/g,
+        "gl_FragColor = vec4($1, ($2) * uOpacity);",
+      );
       ringsMat = new THREE.ShaderMaterial({
-        uniforms: {},
+        uniforms: { uOpacity: { value: 1.0 } },
         vertexShader: SATURN_RINGS_VERTEX,
-        fragmentShader: SATURN_RINGS_FRAGMENT,
+        fragmentShader: ringsFragment,
         side: THREE.DoubleSide,
         transparent: true,
         depthWrite: false,
@@ -2001,6 +2020,16 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // Используется OrbitControls 'start'-listener: interrupt флаг ставим ТОЛЬКО когда
   // phase === "orbit" (во время approach юзер не управляет — flyby идёт steady).
   const directFlybyPhaseRef = useRef<"idle" | "approach" | "orbit" | "done">("idle");
+  // Resume-orbit state (Босс 2026-05-31 «resume orbit после user interaction»):
+  // пока юзер ad-hoc крутит globe во время orbit-фазы — паузим орбиту, сохраняем
+  // текущий progress (углу через orbitStartT). На controls.end запускаем 2-сек
+  // settle-timer; если за это время нет нового 'start' — resume orbit с того же
+  // угла. Перезапускаем resumeOrbitRef.current() из effect-scope чтобы lerpFrame
+  // снова "ожил".
+  const pausedOrbitElapsedRef = useRef<number>(0);
+  const orbitSettleTimerRef = useRef<number | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const resumeOrbitRef = useRef<(() => void) | null>(null);
   // 3-минутный таймер: после rotate юзером (с движением) → драфт от его ракурса
   // 3 мин, потом сценарий возобновляется (cycle_pano с начала). Босс 2026-05-30.
   const aiResumeAtRef = useRef<number>(0);
@@ -2285,22 +2314,38 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           if (p.bodyMat?.uniforms?.time) {
             p.bodyMat.uniforms.time.value = now / 1000;
           }
-          // LOD-switch: если камера ближе чем 8× радиуса планеты — показываем
-          // детальный sphere (видны кратеры/полосы/кольца), иначе sprite (точка
-          // в звёздном поле, читается на больших дистанциях). Порог настроен
-          // эмпирически: на 8R sphere занимает ~7° кадра, что достаточно чтобы
-          // разглядеть детали. Sprite остаётся фолбэком для дальних видов и для
-          // тех планет которые не имеют детальной модели.
+          // LOD-crossfade (Босс 2026-05-31 «smoother — без прыжка»): между
+          // distance 100R..60R sphere fade-in (uOpacity 0→1), sprite fade-out
+          // (mat.opacity 1→0). За пределами зоны — чистый sprite (далеко) или
+          // чистый sphere (близко). Overlap-зона ~40R даёт плавный crossfade,
+          // вместо binary swap на 80R который юзер видел как «прыжок» LOD.
           if (p.sphere && camPos) {
             const dxc = camPos.x - pos.x;
             const dyc = camPos.y - pos.y;
             const dzc = camPos.z - pos.z;
             const dCam = Math.hypot(dxc, dyc, dzc);
             const sphereR = SOLAR_PLANET_RADIUS[p.key] || 3;
-            const threshold = sphereR * 80; // sphere виден когда камера ближе 80×R
-            const closeEnough = dCam < threshold;
-            if (p.sphere.visible !== closeEnough) p.sphere.visible = closeEnough;
-            if (p.sprite && p.sprite.visible === closeEnough) p.sprite.visible = !closeEnough;
+            const farT = sphereR * 100;  // дальше — только sprite
+            const nearT = sphereR * 60;  // ближе — только sphere
+            // sphereOpacity: 0 при dCam>=farT, 1 при dCam<=nearT, линейно между.
+            let sphereOpacity = 1.0;
+            if (dCam >= farT) sphereOpacity = 0.0;
+            else if (dCam > nearT) sphereOpacity = (farT - dCam) / (farT - nearT);
+            const spriteOpacity = 1.0 - sphereOpacity;
+            // Sphere visible когда есть хоть какая-то непрозрачность.
+            const sphereShouldShow = sphereOpacity > 0.001;
+            if (p.sphere.visible !== sphereShouldShow) p.sphere.visible = sphereShouldShow;
+            if (p.bodyMat?.uniforms?.uOpacity) {
+              p.bodyMat.uniforms.uOpacity.value = sphereOpacity;
+            }
+            if (p.ringsMat?.uniforms?.uOpacity) {
+              p.ringsMat.uniforms.uOpacity.value = sphereOpacity;
+            }
+            if (p.sprite) {
+              const spriteShouldShow = spriteOpacity > 0.001;
+              if (p.sprite.visible !== spriteShouldShow) p.sprite.visible = spriteShouldShow;
+              if (p.sprite.material) p.sprite.material.opacity = spriteOpacity;
+            }
           }
         }
       }
@@ -2726,11 +2771,27 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
 
         // Phase 2 (ORBIT) state — инициализируется при переходе approach → orbit.
         // 3 полных оборота: light=30с (10с/круг), slow=60с (20с/круг).
+        // orbitStartT — изменяемый: при pause→resume адаптируется через
+        // pausedOrbitElapsedRef (см. resumeOrbitRef ниже).
         let orbitStartT = 0;
         const ORBIT_TOTAL_MS = speedMode === "slow" ? 60000 : 30000;
         const ORBIT_RADIUS = OFFSET; // 40 — та же дистанция что в approach end-pos
         const ORBIT_Y_OFFSET = 5; // чуть выше плоскости планеты — лучше обзор
         const ORBIT_TURNS = 3;
+
+        // Resume-handler: вызывается из controls.end (через setTimeout 2c)
+        // если за settle-period нет нового 'start'. Восстанавливает orbit с
+        // того же progress (через pausedOrbitElapsedRef).
+        resumeOrbitRef.current = () => {
+          if (directFlybyPhaseRef.current === "done") return; // полёт уже завершён
+          if (directFlybyPhaseRef.current !== "orbit") return; // не в orbit фазе
+          isDirectFlybyActiveRef.current = true;
+          userOrbitInterruptedRef.current = false;
+          // Adjust orbitStartT так чтобы elapsed = pausedOrbitElapsedRef.current.
+          orbitStartT = performance.now() - pausedOrbitElapsedRef.current;
+          debugLog(`[direct-flyby-v2] ORBIT resumed at elapsed=${(pausedOrbitElapsedRef.current/1000).toFixed(1)}s key=${key}`);
+          requestAnimationFrame(lerpFrame);
+        };
 
         const lerpFrame = () => {
           if (!isDirectFlybyActiveRef.current) {
@@ -2816,15 +2877,19 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
 
           // ===== PHASE 2 — ORBIT =====
           if (directFlybyPhaseRef.current === "orbit") {
-            // Юзер начал drag/touch (OrbitControls 'start' выставил флаг) — abort orbit,
-            // отдаём управление юзеру. holdRef=true чтобы main rAF не утянул камеру обратно.
+            // Юзер начал drag/touch (OrbitControls 'start' выставил флаг) — ПАУЗА
+            // orbit (НЕ финальный abort): сохраняем прогресс, отдаём управление
+            // юзеру. resumeOrbitRef восстановит orbit через 2с settle если юзер
+            // успокоится (controls.end → setTimeout). Phase ОСТАЁТСЯ "orbit"
+            // чтобы resume сработал корректно.
             if (userOrbitInterruptedRef.current) {
-              debugLog(`[direct-flyby-v2] ORBIT interrupted by user key=${key}`);
-              holdRef.current = true;
-              userInteractingRef.current = false;
-              isDirectFlybyActiveRef.current = false;
-              directFlybyPhaseRef.current = "done";
-              // НЕ зовём restoreControls() — см. комментарий в approach-complete ниже.
+              pausedOrbitElapsedRef.current = performance.now() - orbitStartT;
+              debugLog(`[direct-flyby-v2] ORBIT paused at elapsed=${(pausedOrbitElapsedRef.current/1000).toFixed(1)}s key=${key}`);
+              holdRef.current = false; // юзер свободно крутит
+              userInteractingRef.current = true;
+              isDirectFlybyActiveRef.current = false; // main rAF не вмешивается
+              // directFlybyPhaseRef.current ОСТАЁТСЯ "orbit" — для resume.
+              // НЕ зовём restoreControls() — нужны расширенные дистанции пока ждём resume.
               return;
             }
             const orbitElapsed = performance.now() - orbitStartT;
@@ -2837,10 +2902,15 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
               userInteractingRef.current = false;
               isDirectFlybyActiveRef.current = false;
               directFlybyPhaseRef.current = "done";
+              resumeOrbitRef.current = null; // больше не нужно
               return;
             }
             // Текущий угол: 0..2π × ORBIT_TURNS за orbitElapsed/ORBIT_TOTAL_MS.
-            const angle = (orbitElapsed / ORBIT_TOTAL_MS) * Math.PI * 2 * ORBIT_TURNS;
+            // Босс 2026-05-31 «все пролёты плавные как у Земли» — easeInOutQuad
+            // вместо линейного. Дробное t в [0..1], затем умножаем на 2π·TURNS.
+            const tt = orbitElapsed / ORBIT_TOTAL_MS;
+            const ttEase = tt < 0.5 ? 2 * tt * tt : 1 - Math.pow(-2 * tt + 2, 2) / 2;
+            const angle = ttEase * Math.PI * 2 * ORBIT_TURNS;
             // Простая горизонтальная орбита вокруг planet в плоскости XZ (world Y axis).
             // Радиус ORBIT_RADIUS (=40), Y чуть выше планеты для угла обзора.
             cam.position.set(
@@ -5114,13 +5184,42 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             // Босс 2026-05-31: облёт планеты прерывается ТОЛЬКО если юзер начал
             // drag/touch ВО ВРЕМЯ orbit-фазы. Approach (lerp к планете) не
             // прерывается — он быстрый, юзер всё равно ничего не успеет.
+            // Если уже на паузе и пришёл новый 'start' за 2с — гасим settle-timer
+            // (юзер ещё не закончил взаимодействовать).
             if (directFlybyPhaseRef.current === "orbit") {
               userOrbitInterruptedRef.current = true;
+              if (orbitSettleTimerRef.current !== null) {
+                window.clearTimeout(orbitSettleTimerRef.current);
+                orbitSettleTimerRef.current = null;
+              }
             }
             try { gestureStartPov = globeRef.current?.pointOfView?.(); } catch { gestureStartPov = null; }
           });
           controls.addEventListener?.("end", () => {
             userInteractingRef.current = false;
+            // Resume-orbit settle timer (Босс 2026-05-31): если phase всё ещё
+            // "orbit" (юзер прервал но не закрыл полёт) — через 2с без новых
+            // 'start' возобновляем orbit с того же угла. Если за 2с придёт
+            // новый 'start' — он сбросит timer (см. start-handler выше).
+            if (
+              directFlybyPhaseRef.current === "orbit" &&
+              userOrbitInterruptedRef.current &&
+              resumeOrbitRef.current
+            ) {
+              if (orbitSettleTimerRef.current !== null) {
+                window.clearTimeout(orbitSettleTimerRef.current);
+              }
+              orbitSettleTimerRef.current = window.setTimeout(() => {
+                orbitSettleTimerRef.current = null;
+                if (
+                  directFlybyPhaseRef.current === "orbit" &&
+                  userOrbitInterruptedRef.current &&
+                  resumeOrbitRef.current
+                ) {
+                  resumeOrbitRef.current();
+                }
+              }, 2000);
+            }
             let moved = true;
             try {
               const pov = globeRef.current?.pointOfView?.();
