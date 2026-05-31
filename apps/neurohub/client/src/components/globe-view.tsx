@@ -2766,8 +2766,14 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           starMarkerGeo = null;
           starMarkerMat = null;
         };
-        const restoreControls = () => {
+        const restoreControls = (finalLookTarget?: { x:number; y:number; z:number }) => {
           if (!ctrl2) return;
+          // Patch v2: target ставим ОДИН РАЗ в конце ПЕРЕД enabled+update.
+          // Это синхронизирует OrbitControls со звездой — следующий ctrl.update()
+          // не отбросит камеру обратно через clamp.
+          if (finalLookTarget && ctrl2.target) {
+            ctrl2.target.set(finalLookTarget.x, finalLookTarget.y, finalLookTarget.z);
+          }
           ctrl2.enabled = prevEnabled2;
           ctrl2.autoRotate = prevAutoRotate2;
           ctrl2.maxDistance = prevMaxDistance2;
@@ -2836,15 +2842,16 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           out.y = inv * inv * startCamPos.y + 2 * inv * t * controlPoint.y + t * t * camTarget.y;
           out.z = inv * inv * startCamPos.z + 2 * inv * t * controlPoint.z + t * t * camTarget.z;
         };
-        // Сразу ставим controls.target на lookTarget (звезда впереди с 1-го кадра).
-        if (ctrl2 && ctrl2.target) {
-          ctrl2.target.set(lookTarget.x, lookTarget.y, lookTarget.z);
-        }
+        // Patch v2: НЕ трогаем ctrl.target до конца flight — управляем
+        // ТОЛЬКО cam.position + cam.lookAt каждый кадр. Финальная установка
+        // ctrl.target = lookTarget — в restoreControls(lookTarget) после loop.
         let frameIdx = 0;
         const starFrame = () => {
           if (!isDirectFlybyActiveRef.current) {
             // Aborted by another flight — restore controls + up + dispose marker.
-            restoreControls();
+            // Abort — restore с финальным target (звезда), чтобы OrbitControls
+            // не отбросил камеру обратно через clamp.
+            restoreControls(lookTarget);
             if (prevCamUp) {
               try { cam2.up.set(prevCamUp.x, prevCamUp.y, prevCamUp.z); } catch { /* no-op */ }
             }
@@ -2854,15 +2861,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           }
           const t = Math.min((performance.now() - startT) / DURATION_MS, 1);
           const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-          // Bezier — летим ПО ДУГЕ, огибая Землю. Не через origin.
+          // Patch v2: управляем ТОЛЬКО cam.position + cam.lookAt.
+          // НЕ ctrl.target, НЕ ctrl.update — иначе OrbitControls (даже
+          // enabled=false) clamp'ит spherical → перетирает позицию.
           bezierAt(ease, cam2.position);
-          if (ctrl2 && ctrl2.target) {
-            // controls.target всё время на звезде (камера смотрит на неё на всём пути).
-            ctrl2.target.set(lookTarget.x, lookTarget.y, lookTarget.z);
-            // controls.update() пропускаем — он clamp'ит по min/maxDistance даже при
-            // enabled=false; на финальном кадре делаем единственный sync update().
-          }
-          // Дополнительная гарантия — camera.lookAt(star) каждый кадр (если есть метод).
           try { cam2.lookAt?.(lookTarget); } catch { /* no-op */ }
           // Debug overlay каждые 10 кадров: реальная дистанция камеры от origin,
           // расстояние controls.target от origin, текущий progress t.
@@ -2876,8 +2878,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             isDirectFlybyActiveRef.current = false;
             directFlybyPhaseRef.current = "done";
             holdRef.current = true;
-            // Восстанавливаем юзер-управление (полный restore) + удаляем marker.
-            restoreControls();
+            // Patch v2: восстанавливаем юзер-управление (полный restore с финальным
+            // target = звезда → ctrl.update() не отбросит камеру) + удаляем marker.
+            restoreControls(lookTarget);
             disposeMarker();
             const finalCamDist = cam2.position.length();
             debugLog(`[star-flight] DONE key=${key} ra=${ra} dec=${dec} dir=(${direction.x.toFixed(3)},${direction.y.toFixed(3)},${direction.z.toFixed(3)}) starVisualR=${STAR_R_VISUAL} camTargetR=${endDistFromOrigin.toFixed(0)} lookTargetR=${STAR_R_VISUAL} finalCamDist=${finalCamDist.toFixed(0)} angle(camFwd,starDir)=${camFwdAngleDeg.toFixed(1)}deg arcBoost=${arcBoost.toFixed(2)}`);
