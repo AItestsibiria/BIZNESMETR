@@ -1933,10 +1933,15 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // Глубокое 3D-звёздное поле (THREE.Points) — параллакс/«бесконечная глубина» за глобусом.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const deepStarsRef = useRef<any>(null);
-  // Планеты (Меркурий/Венера/Марс/Юпитер/Сатурн) — спрайты на дальней небесной сфере,
-  // позиции по реальной геоцентрической эфемериде (RA/Dec → подпланетная точка).
+  // Планеты (Меркурий/Венера/Марс/Юпитер/Сатурн/Уран/Нептун) — Group из двух LOD:
+  //   sphere — детальный 3D-меш с procedural шейдером (NASA-style: кратеры/полосы/
+  //            Saturn-кольца/Great Red Spot/polar caps), виден при подлёте;
+  //   sprite — плоская точка для дальнего вида (LOD на больших дистанциях).
+  // Позиции — по реальной геоцентрической эфемериде (Schlyter), pos выставляется
+  // на саму group в `positionSunMoon`. Босс 2026-05-31 «все планеты как Земля —
+  // подлетел и всё видно по науке (Луна-кратеры и т.д.)».
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const planetsRef = useRef<Array<{ key: string; mesh: any }>>([]);
+  const planetsRef = useRef<Array<{ key: string; mesh: any; sphere?: any; sprite?: any; bodyMat?: any; ringsMat?: any }>>([]);
   // Геолокация юзера для стартового обзора (Босс: «открытие глобуса по геолокации»).
   // Только ref — режиссёр читает его вживую в rAF (без перерендера и гонок таймеров).
   const userLatLngRef = useRef<{ lat: number; lng: number } | null>(null);
@@ -2187,12 +2192,30 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       } catch {
         // ignore
       }
-      // Освобождаем спрайты планет (map + material).
+      // Освобождаем планеты — теперь это Group {sphere?, sprite?}. Dispose всех
+      // children рекурсивно (sphere + Saturn rings + sprite map + materials).
       try {
         for (const p of planetsRef.current) {
-          p.mesh.parent?.remove?.(p.mesh);
-          p.mesh.material?.map?.dispose?.();
-          p.mesh.material?.dispose?.();
+          const grp = p.mesh;
+          if (grp?.traverse) {
+            grp.traverse((obj: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+              try {
+                obj.geometry?.dispose?.();
+                if (obj.material) {
+                  if (Array.isArray(obj.material)) {
+                    for (const m of obj.material) {
+                      m?.map?.dispose?.();
+                      m?.dispose?.();
+                    }
+                  } else {
+                    obj.material.map?.dispose?.();
+                    obj.material.dispose?.();
+                  }
+                }
+              } catch { /* no-op */ }
+            });
+          }
+          grp?.parent?.remove?.(grp);
         }
         planetsRef.current = [];
       } catch {
@@ -2227,9 +2250,48 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       // через Schlyter ephemeris (lib/planetPositions.ts).
       if (planetsRef.current.length) {
         const now = Date.now();
+        // Позиция Солнца в мире (для уник. uniform sunDir у каждой sphere-планеты).
+        const sunPos = sunMeshRef.current?.position || null;
+        // Позиция камеры — для LOD-switch (sphere vs sprite).
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let camPos: any = null;
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const gg: any = globeRef.current;
+          camPos = gg?.camera?.()?.position || null;
+        } catch { /* no-op */ }
         for (const p of planetsRef.current) {
           const pos = getPlanetGeocentric3D(p.key, now);
           p.mesh.position.set(pos.x, pos.y, pos.z);
+          // Обновляем sunDir у sphere-меша (Sun→planet в мире).
+          if (p.bodyMat?.uniforms?.sunDir && sunPos) {
+            const dx = sunPos.x - pos.x;
+            const dy = sunPos.y - pos.y;
+            const dz = sunPos.z - pos.z;
+            const len = Math.hypot(dx, dy, dz) || 1;
+            p.bodyMat.uniforms.sunDir.value.set(dx / len, dy / len, dz / len);
+          }
+          // Animated шейдеры (Venus/Jupiter/Saturn/Uranus/Neptune) — обновляем time.
+          if (p.bodyMat?.uniforms?.time) {
+            p.bodyMat.uniforms.time.value = now / 1000;
+          }
+          // LOD-switch: если камера ближе чем 8× радиуса планеты — показываем
+          // детальный sphere (видны кратеры/полосы/кольца), иначе sprite (точка
+          // в звёздном поле, читается на больших дистанциях). Порог настроен
+          // эмпирически: на 8R sphere занимает ~7° кадра, что достаточно чтобы
+          // разглядеть детали. Sprite остаётся фолбэком для дальних видов и для
+          // тех планет которые не имеют детальной модели.
+          if (p.sphere && camPos) {
+            const dxc = camPos.x - pos.x;
+            const dyc = camPos.y - pos.y;
+            const dzc = camPos.z - pos.z;
+            const dCam = Math.hypot(dxc, dyc, dzc);
+            const sphereR = SOLAR_PLANET_RADIUS[p.key] || 3;
+            const threshold = sphereR * 80; // sphere виден когда камера ближе 80×R
+            const closeEnough = dCam < threshold;
+            if (p.sphere.visible !== closeEnough) p.sphere.visible = closeEnough;
+            if (p.sprite && p.sprite.visible === closeEnough) p.sprite.visible = !closeEnough;
+          }
         }
       }
       // Фаза Луны: направление на Солнце в мировых координатах (= нормаль позиции
@@ -5238,14 +5300,49 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         // Планеты на дальней небесной сфере (Босс 2026-05-29: «видеть Меркурий, Венеру,
         // Марс, Юпитер, Сатурн астрономически»). Позиция — по реальной эфемериде каждую
         // минуту (positionSunMoon). depthTest=true → за Землёй планета скрыта.
+        //
+        // Босс 2026-05-31 «все планеты как Земля — подлетел и всё видно по науке».
+        // Теперь каждая планета — это `THREE.Group` из ДВУХ LOD:
+        //   • sphere — детальный 3D-меш с procedural шейдером (Mercury кратеры,
+        //     Venus облака, Mars polar caps + Olympus Mons, Jupiter полосы + GRS,
+        //     Saturn полосы + кольца, Uranus метановая дымка, Neptune Великое
+        //     Тёмное Пятно). При подлёте камеры видны кратеры, полосы, кольца.
+        //   • sprite — плоская точка для дальнего вида (читается в звёздном поле
+        //     на дистанциях ~10 000+ world-units, иначе sphere становится точкой).
+        // LOD-switch — в positionSunMoon по distance(camera, planet).
         if (scene && planetsRef.current.length === 0) {
           for (const key of Object.keys(PLANET_STYLE)) {
             const st = PLANET_STYLE[key];
-            const spr = makePlanetSprite(st.rgb, st.size);
-            if (spr) {
-              scene.add(spr);
-              planetsRef.current.push({ key, mesh: spr });
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const group: any = new THREE.Group();
+            // Детальный 3D-меш (sphere + Saturn-кольца) — используется при подлёте.
+            const made = makeSolarPlanetMesh(key);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            let sphereGroup: any = null;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            let bodyMat: any = null;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            let ringsMat: any = null;
+            if (made) {
+              sphereGroup = made.group;
+              bodyMat = made.bodyMat;
+              ringsMat = made.ringsMat;
+              // Изначально скрыт — sprite на старте показывает планету как точку.
+              sphereGroup.visible = false;
+              group.add(sphereGroup);
             }
+            // Sprite для дальнего LOD.
+            const spr = makePlanetSprite(st.rgb, st.size);
+            if (spr) group.add(spr);
+            scene.add(group);
+            planetsRef.current.push({
+              key,
+              mesh: group,
+              sphere: sphereGroup,
+              sprite: spr,
+              bodyMat,
+              ringsMat,
+            });
           }
         }
         positionSunMoon();
