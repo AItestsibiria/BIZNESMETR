@@ -2504,87 +2504,58 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         } catch { /* no-op */ }
         try { console.error(msg); } catch { /* no-op */ }
       };
-      // Босс 2026-05-30 (6-й «не работает тап планеты»): атомарный аудит — добавляем
-      // log на ВХОД listener'а. Если этого лога нет в Босс'овом скриншоте — значит
-      // listener вообще не зарегистрирован/event не дошёл (а не «логика не работает»).
       debugLog(`[direct-flyby] listener INVOKED key=${key || "(empty)"}`);
       if (!key) return;
-      // Босс 2026-05-30 (6-й инцидент) ROOT CAUSE FIX:
-      // ─────────────────────────────────────────────────────────────────────────
-      // Прямая camera.position manipulation в rAF lerp плохо работает в three-globe:
-      //   1. Каждый кадр classic-rAF мог пытаться выполнить pointOfView, но мы делали
-      //      early-return — это работало. НО для НЕ-classic режимов (если юзер успел
-      //      переключиться) early-return после tt>=1 → holdRef=true спасает от drift,
-      //      но если до начала flyby flightMode был "moon"/"solar" — moon/solar branch
-      //      на следующем tick'е захватывает камеру.
-      //   2. Прямая запись cam.position.set + ctrl.target.set ломается при OrbitControls
-      //      enableDamping (если будет включён) — controls.update() пересчитывает
-      //      spherical и перетирает наше изменение.
-      //   3. iPad Safari: WebKit camera matrix update порой задерживается на 1 frame.
-      // РЕШЕНИЕ: используем native three-globe API `pointOfView({lat, lng, altitude},
-      // durationMs)` — он сам корректно делает tween + обновляет controls.target в
-      // (0,0,0) (Earth-relative). Lat/lng объекта — через sub*Point функции (тот же
-      // источник истины что в positionSunMoon). Altitude — насколько НИЖЕ объекта
-      // встать (1.2 для planets — близко без оверлапа; 1.5 для Moon; 2.0 для Sun).
-      // Также синхронно ставим flightModeRef → "classic" чтобы НИ ОДИН другой режим
-      // не пытался захватить камеру в течение полёта.
-      // ─────────────────────────────────────────────────────────────────────────
-      let lat = 0;
-      let lng = 0;
-      let altitude = 1.2;
-      const now = Date.now();
-      if (key === "moon") {
-        const mp = subLunarPoint(now);
-        lat = mp[0];
-        lng = mp[1];
-        altitude = 0.9; // ближе к Луне (она на alt 1.5 от глобуса)
-      } else if (key === "sun") {
-        const sp = subsolarPoint(now);
-        lat = sp[0];
-        lng = sp[1];
-        altitude = 1.6; // Sun на alt 2.2 — встаём ниже чтобы видеть его и Землю
-      } else {
-        const VALID_PLANETS = ["mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune"];
-        if (!VALID_PLANETS.includes(key)) {
-          debugLog(`[direct-flyby] unknown key=${key}`);
-          return;
-        }
-        const pp = subPlanetPoint(key, now);
-        lat = pp[0];
-        lng = pp[1];
-        // Планеты на palt=14 (PLANET_WORLD_RADIUS/100-1) — это altitude=14 в
-        // три-globe-координатах. Встаём на altitude=12 — близко но не сквозь
-        // planet sprite. Зум до altitude=14 раскрыл бы планету в полный кадр,
-        // но 12 даёт хороший контекст (видна и planet, и небесный фон).
-        altitude = 12;
-      }
-      const g = globeRef.current;
-      if (!g?.pointOfView) {
-        debugLog(`[direct-flyby] globe not ready key=${key}`);
+      // Босс 2026-05-31 ROOT CAUSE НАЙДЕН: subLunarPoint/subPlanetPoint возвращают
+      // точку НА ЗЕМЛЕ (где над головой висит объект), НЕ позицию объекта в космосе.
+      // pointOfView({lat,lng,altitude}) летит к этой точке Земли с заданной высотой
+      // → камера висит НАД Землёй, не у Луны. Юзер видит Землю + label "Moon".
+      //
+      // ПРАВИЛЬНОЕ РЕШЕНИЕ: использовать СУЩЕСТВУЮЩИЕ рабочие туры —
+      //   moon → flightMode="moon" + moonResetRef (рабочий 46-сек тур к Луне)
+      //   sun  → flightMode="sun"  + sunResetRef  (рабочий 32-сек тур к Солнцу)
+      //   planet → flightMode="solar" + singleSolarKeyRef=key + solarRestart
+      //   (buildSolarTour строит [planet, return] — рабочий solar тур)
+      //
+      // Эти туры используют РЕАЛЬНЫЕ 3D-позиции мешей (moonMeshRef/sunMeshRef/
+      // solarMeshesRef) с camera.lookAt(mesh.position) — летят К объекту, не НА Землю.
+      // Reuse-working-solutions rule.
+      const VALID_PLANETS = ["mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune"];
+      if (key !== "moon" && key !== "sun" && !VALID_PLANETS.includes(key)) {
+        debugLog(`[direct-flyby] unknown key=${key}`);
         return;
       }
-      // КРИТИЧНО: переключаем в classic ПЕРЕД pointOfView. Это блокирует
-      // moon/solar/sun rAF-ветки на время полёта (они проверяют flightModeRef).
-      // После завершения tween — classic rAF мог бы попытаться вернуть camera к
-      // Земле через cycle_pano, поэтому СРАЗУ ставим holdRef=true чтобы classic
-      // тоже не двигал камеру до user-interaction.
-      flightModeRef.current = "classic";
-      singleSolarKeyRef.current = null;
+      // Снимаем все блокирующие флаги — guards rAF не должны препятствовать туру.
       userInteractingRef.current = false;
-      // ОТМЕНЯЕМ старый directFlybyRef (если он был активен — например двойной тап).
+      holdRef.current = false;
       directFlybyRef.current = null;
-      // Ставим hold IMMEDIATELY — pointOfView tween три-globe управляет камерой
-      // независимо от нашего rAF, hold блокирует classic-mode pan drift.
-      holdRef.current = true;
+      // Dispose solar-меши предыдущего тура (если были) — иначе старые planet-меши
+      // могут болтаться внутри Земли как артефакт.
+      try { disposeAllSolarRef.current?.(); } catch { /* no-op */ }
+      try { clearSolarLabelState(); } catch { /* no-op */ }
       try {
-        // Native three-globe tween — durationMs=2500ms, easing внутри.
-        // НЕ передаём третий arg (animationCallback) — не нужен.
-        g.pointOfView({ lat, lng, altitude }, 2500);
-        debugLog(`[direct-flyby] pointOfView START key=${key} lat=${lat.toFixed(1)} lng=${lng.toFixed(1)} alt=${altitude.toFixed(2)}`);
-        // Обновляем zoomTargetRef чтобы classic-rAF zoom-lerp не перетянул altitude.
-        zoomTargetRef.current = altitude;
+        if (key === "moon") {
+          singleSolarKeyRef.current = null;
+          flightModeRef.current = "moon";
+          // moonReset сбрасывает moonInitDone в rAF closure — тур стартует с APPROACH.
+          moonResetRef.current?.();
+          debugLog(`[direct-flyby] → moon tour started`);
+        } else if (key === "sun") {
+          singleSolarKeyRef.current = null;
+          flightModeRef.current = "sun";
+          sunResetRef.current?.();
+          debugLog(`[direct-flyby] → sun tour started`);
+        } else {
+          // Планета: override solar тур на одну планету через singleSolarKeyRef.
+          // buildSolarTour видит override → строит [planet, return]. solarRestartRef
+          // принудительно пересобирает с нуля (stepIdx=0, initDone=false).
+          singleSolarKeyRef.current = key;
+          flightModeRef.current = "solar";
+          solarRestartRef.current = true;
+          debugLog(`[direct-flyby] → solar tour started for ${key}`);
+        }
       } catch (err) {
-        debugLog(`[direct-flyby] pointOfView FAILED key=${key} err=${(err as Error)?.message || err}`);
+        debugLog(`[direct-flyby] tour start error: ${err}`);
       }
     };
     window.addEventListener("muza:globe-direct-flyby", onDirectFlyby as EventListener);
