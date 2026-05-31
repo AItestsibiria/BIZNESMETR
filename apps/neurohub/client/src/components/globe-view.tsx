@@ -1090,29 +1090,46 @@ const PLANET_FRAGMENT_MERCURY = SUN_NOISE + `
   }
 `;
 
-// Venus — кремовый шар с турбулентной облачностью (fbm + анимация).
+// Venus — hi-end: толстая H2SO4 атмосфера super-rotation (4 земных дня),
+// Y-shape облака (визитная карточка), тёплый rim glow, мягкий terminator.
 const PLANET_FRAGMENT_VENUS = SUN_NOISE + `
   uniform vec3 sunDir;
   uniform float time;
   varying vec3 vWorldNormal;
   varying vec3 vPos;
   void main() {
-    float i = dot(normalize(vWorldNormal), normalize(sunDir));
-    float lit = smoothstep(-0.08, 0.12, i);
-    vec3 litCol  = vec3(1.00, 0.96, 0.88);    // кремовый Venus rgb (255,246,224)
-    vec3 darkCol = vec3(0.06, 0.05, 0.04);
-    vec3 base = mix(darkCol, litCol, lit);
+    vec3 n = normalize(vWorldNormal);
+    vec3 sd = normalize(sunDir);
+    float i = dot(n, sd);
+    // Мягкий terminator (толстая атмосфера → длинный градиент).
+    float lit = smoothstep(-0.25, 0.45, i);
     vec3 p = normalize(vPos);
-    // Турбулентные облака — fbm3 с медленной анимацией (Венера: super-rotation атмосферы).
-    float t = time * 0.05;
-    float clouds1 = fbm3(p * 3.0 + vec3(t, 0.0, 0.0));
-    float clouds2 = fbm3(p * 7.0 + vec3(0.0, t * 0.6, 0.0));
-    float cloudPattern = clouds1 * 0.6 + clouds2 * 0.4;
-    // Тёплые тёмные полосы (более горячие участки).
-    vec3 warmCloud = vec3(0.92, 0.78, 0.55);
-    base = mix(base, warmCloud, smoothstep(0.45, 0.75, cloudPattern) * lit * 0.55);
-    // Светлые яркие полосы (отражённый свет верхней атмосферы).
-    base += vec3(0.18, 0.15, 0.10) * smoothstep(0.65, 0.85, clouds1) * lit;
+    // Super-rotation: облака движутся по долготе (4× быстрее планеты).
+    float t = time * 0.08;
+    float lon = atan(p.z, p.x);
+    float lat = p.y;
+    // 3 слоя облаков на разных высотах (parallax эффект).
+    float low  = fbm3(vec3(cos(lon + t * 0.4), lat * 2.0, sin(lon + t * 0.4)) * 3.5);
+    float mid  = fbm3(vec3(cos(lon + t * 1.0), lat * 2.6, sin(lon + t * 1.0)) * 6.0);
+    float high = fbm3(vec3(cos(lon + t * 1.6), lat * 3.4, sin(lon + t * 1.6)) * 11.0);
+    // Y-shape облака (классический рисунок Venus): угловая зависимость sin(lat × 3) около экватора.
+    float yShape = exp(-pow(lat * 1.8, 2.0)) * sin(lon * 1.5 + t * 0.5 + lat * 3.5);
+    float clouds = low * 0.45 + mid * 0.35 + high * 0.20 + yShape * 0.15;
+    // Палитра H2SO4: яркий молочно-кремовый (день) → глубокий охра (терминатор) → почти чёрный (ночь).
+    vec3 dayBright = vec3(1.00, 0.95, 0.82);   // верхний слой облаков
+    vec3 dayWarm   = vec3(0.96, 0.78, 0.48);   // тёплые впадины
+    vec3 termOrange= vec3(0.72, 0.42, 0.16);   // огненный terminator
+    vec3 nightDeep = vec3(0.04, 0.02, 0.01);
+    vec3 dayMix = mix(dayWarm, dayBright, smoothstep(0.30, 0.78, clouds));
+    vec3 base = mix(nightDeep, dayMix, lit);
+    // Тёплый glow в terminator зоне (rim Venus горит апельсином на закате).
+    float term = smoothstep(0.0, 0.40, i) * (1.0 - smoothstep(0.40, 0.85, i));
+    base = mix(base, termOrange, term * 0.55);
+    // Яркие верхние полосы (sulfuric clouds reflect 75% sunlight).
+    base += vec3(0.20, 0.17, 0.10) * smoothstep(0.70, 0.92, high) * lit;
+    // Atmospheric Fresnel rim (тёплый ободок виден на лимбе с любого угла).
+    float fres = pow(1.0 - max(dot(n, normalize(-vPos)), 0.0), 2.4);
+    base += vec3(1.00, 0.72, 0.30) * fres * (0.35 + lit * 0.55);
     gl_FragColor = vec4(base, 1.0);
   }
 `;
