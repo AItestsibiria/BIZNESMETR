@@ -3146,10 +3146,13 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         }
       } catch { /* no-op */ }
       const MS_PER_UNIT = speedMode === "slow" ? 4.0 : 10.26;
-      // P2.3 — reduced-motion: jam'им оба cap'а в 2с, чтобы flight длился
-      // не дольше 2 сек независимо от расстояния (a11y > pacing).
-      const MIN_DURATION_MS = reducedMotion ? 2000 : 3000;
-      const MAX_DURATION_MS = reducedMotion ? 2000 : (speedMode === "slow" ? 180000 : 60000);
+      // 2026-05-31 regress fix: reducedMotion НЕ применяем к planet branch.
+      // Звёзды статичны → можно ужать до 2с. Planet positions обновляются per-frame
+      // (Schlyter ephemeris) → короткий duration ломает синхронизацию endCamPos vs
+      // mesh.getWorldPosition → камера улетает к Земле (regress bug #1).
+      // a11y reduced-motion остаётся только для star flight (см. star branch выше).
+      const MIN_DURATION_MS = 3000;
+      const MAX_DURATION_MS = speedMode === "slow" ? 180000 : 60000;
       const OFFSET = 40;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const gg: any = globeRef.current;
