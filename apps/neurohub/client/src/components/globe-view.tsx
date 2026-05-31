@@ -2116,6 +2116,8 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   const savedSunPosRef = useRef<{ x: number; y: number; z: number } | null>(null);
   const spaceDustRef = useRef<any>(null); // THREE.Group из 3 Points-слоёв + 1 ShaderMaterial twinkle
   const twinkleMatRef = useRef<any>(null); // ShaderMaterial для time uniform update
+  const earthAtmosphereRef = useRef<any>(null); // BackSide-sphere atmosphere shell
+  const earthAtmoMatRef = useRef<any>(null); // её ShaderMaterial для sunDir update
   const solarPrefsRef = useRef<{
     planets: string[];           // выбранные ключи: ["mercury","venus","earth","mars","jupiter","saturn","uranus","neptune"]
     satellites: boolean;         // показывать спутники планет
@@ -2371,6 +2373,11 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         const s = sunMeshRef.current.position;
         const len = Math.hypot(s.x, s.y, s.z) || 1;
         moonMatRef.current.uniforms.sunDir.value.set(s.x / len, s.y / len, s.z / len);
+        // Atmosphere shell тоже синхронно с Солнцем — голливудский рассвет
+        // следует за реальным subsolar point.
+        if (earthAtmoMatRef.current?.uniforms?.sunDir) {
+          earthAtmoMatRef.current.uniforms.sunDir.value.set(s.x / len, s.y / len, s.z / len);
+        }
       }
     } catch {
       // ignore
@@ -6115,6 +6122,65 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             sunCoronaMatRef.current = made.coronaMat;
             sunCoronaMeshRef.current = made.corona;
           }
+        }
+        // 2026-05-31 ATMOSPHERIC SHELL для Земли (Босс «голливудский рассвет +
+        // лучи стрелами на наблюдателя»). Sphere radius 108 wu (чуть больше
+        // Земли 100), BackSide + AdditiveBlending, Fresnel rim shader. На
+        // terminator (где день переходит в ночь) — оранжевый sunset rim
+        // («рассвет»), на дневной стороне — голубое атмосферное свечение.
+        if (scene && !earthAtmosphereRef.current) {
+          try {
+            const atmoUniforms = {
+              sunDir: { value: new THREE.Vector3(1, 0, 0) },
+            };
+            const atmoMat = new THREE.ShaderMaterial({
+              uniforms: atmoUniforms,
+              side: THREE.BackSide,
+              transparent: true,
+              depthWrite: false,
+              blending: THREE.AdditiveBlending,
+              vertexShader: `
+                varying vec3 vN;
+                varying vec3 vP;
+                void main() {
+                  vN = normalize(normalMatrix * normal);
+                  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+                  vP = mv.xyz;
+                  gl_Position = projectionMatrix * mv;
+                }
+              `,
+              fragmentShader: `
+                uniform vec3 sunDir;
+                varying vec3 vN;
+                varying vec3 vP;
+                void main() {
+                  vec3 viewDir = normalize(-vP);
+                  // Fresnel rim (1 = edge, 0 = facing camera)
+                  float fres = 1.0 - max(0.0, dot(vN, viewDir));
+                  fres = pow(fres, 2.0);
+                  // Sun term (world-space approximation)
+                  vec3 lDir = normalize((viewMatrix * vec4(normalize(sunDir), 0.0)).xyz);
+                  float sunDot = dot(vN, lDir); // -1..+1
+                  // Атмосферное рассеяние: голубое base + оранжевый sunset на лимбе.
+                  vec3 dayBlue = vec3(0.30, 0.55, 1.00);
+                  vec3 sunset = vec3(1.00, 0.55, 0.20);
+                  // Sunset где sunDot близко к 0 (terminator).
+                  float sunsetBand = 1.0 - smoothstep(0.0, 0.4, abs(sunDot));
+                  vec3 col = mix(dayBlue, sunset, sunsetBand * 0.7);
+                  // Интенсивность: яркая на освещённой части, гаснет в тени.
+                  float lit = smoothstep(-0.2, 0.4, sunDot);
+                  // Голливудский «стрелы лучей» — усиление на terminator (god rays).
+                  float godRay = sunsetBand * fres * 1.8;
+                  float intensity = fres * (0.4 * lit + godRay);
+                  gl_FragColor = vec4(col, intensity);
+                }
+              `,
+            });
+            const atmoMesh = new THREE.Mesh(new THREE.SphereGeometry(108, 64, 64), atmoMat);
+            scene.add(atmoMesh);
+            earthAtmosphereRef.current = atmoMesh;
+            earthAtmoMatRef.current = atmoMat;
+          } catch { /* no-op */ }
         }
         if (scene && !moonMeshRef.current) {
           // Луна — ШАР с фазовым шейдером (отражает Солнце, обратная в тени).
