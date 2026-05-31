@@ -3863,14 +3863,12 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     const buildSolarTour = (): SolarStep[] => {
       // Tap-to-fly override (Босс 2026-05-30): если задан singleSolarKeyRef —
       // тур = [одна планета, return]. Без Луны, без поясов, без спутников.
-      // Это позволяет переиспользовать solar-pipeline для tap-to-fly без
-      // создания параллельного "single" режима (Reuse-working-solutions rule).
       const singleKey = singleSolarKeyRef.current;
       if (singleKey) {
         const isOuter = singleKey === "jupiter" || singleKey === "saturn"
                      || singleKey === "uranus"  || singleKey === "neptune";
         const approach = isOuter ? 8000 : 6000;
-        const orbit = 16000; // ~16с орбита — достаточно увидеть планету со всех сторон
+        const orbit = 16000;
         return [
           { key: singleKey as SolarStepKey, approachMs: approach, orbitMs: orbit },
           { key: "return", approachMs: 8000, orbitMs: 0 },
@@ -3879,47 +3877,71 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       const prefs = solarPrefsRef.current;
       const seq: SolarStep[] = [];
       const has = (k: string) => Array.isArray(prefs.planets) && prefs.planets.includes(k);
-      // 2026-05-31 v3 (Босс «улетели с Земли → Марс → до последней планеты →
-      // потом облёт Солнца → Меркурий → Венера → Земля, везде облёт»).
-      // Маршрут: Moon → OUTWARD (Mars→Neptune через пояс) → Sun → INWARD
-      // (Mercury → Venus → Earth). Длительность ~3 минуты — каждый approach
-      // 12-14 сек (визуально «летим долго»), orbit 6 сек.
-      // 2026-05-31 v4 Босс «перелёты быстры если 3 минуты, если световая —
-      // учти расстояние и получишь время, плюс кратность ×0.25..×3».
-      // Базовое расстояние planet-from-Earth ≈ snapshot[key] длина (wu).
-      // light: approachMs = distance / (180 * speedMul) ms (180 wu/ms эталон).
-      // slow:  approachMs = distance / 30 ms (медленнее, ~3 мин на дальнюю).
+      // 2026-05-31 v5 (Босс «реальная физика»): переписан на physical-proportional
+      // pacing. AU_SCALE=1500 wu/AU. Скорость света в сцене c_scene = 1 AU /
+      // 8.317 min = 3.005 wu/сек. Реальные средние расстояния от Земли (AU,
+      // NASA fact sheets):
+      //   Moon 0.00257, Mercury 1.04, Venus 1.14, Mars 1.52, MainBelt 1.7,
+      //   Jupiter 4.2, Saturn 8.6, Uranus 18.2, Neptune 29.05, Kuiper 44.0
+      // ×1500 wu/AU → snapshot positions уже в этих единицах (см. line 4665).
+      //
+      // Тур 3 минуты = 180 сек budget. orbit time fixed (cosmetic), approach
+      // time распределяется ∝ √(distance) — даёт реалистичную пропорциональность
+      // (Neptune approach в 6× длиннее Mars, не 30× как при linear), при этом
+      // ближние планеты не сжимаются до <2 сек (visual paced).
       const speedMul = Math.max(0.25, Math.min(3.0, (prefs as any).speedMultiplier ?? 1.0));
       const slow = (prefs as any).speedMode === "slow";
+      // Реальные средние heliocentric расстояния от Earth (AU):
+      const AU = 1500;
       const distLookup: Record<string, number> = {
-        moon: 500, mercury: 600, venus: 1100, mars: 2300,
-        main_belt: 4000, jupiter: 7800, saturn: 14400,
-        uranus: 28700, neptune: 45000, kuiper_belt: 67500, sun: 1500, earth: 1500,
+        moon: 0.00257 * AU,        // ~4 wu — actual lunar; для approach min clamp 2с
+        mercury: 1.04 * AU,        // 1560
+        venus: 1.14 * AU,          // 1710
+        mars: 1.52 * AU,           // 2280
+        main_belt: 1.7 * AU,       // 2550
+        jupiter: 4.2 * AU,         // 6300
+        saturn: 8.6 * AU,          // 12900
+        uranus: 18.2 * AU,         // 27300
+        neptune: 29.05 * AU,       // 43575
+        kuiper_belt: 44.0 * AU,    // 66000
+        sun: 1.0 * AU,             // 1500 (от Земли)
+        earth: 1.0 * AU,           // 1500 (для return из Sun)
       };
+      // K — коэффициент конверсии √distance → мс. Подобран чтобы общий тур ~180 сек.
+      // ∑√dist (по всем segments) × K = 60_000 мс (60 сек на approach), остальное orbit.
+      // √43575≈209, √27300≈165, √12900≈114, √6300≈79, √2280≈48, √1560≈40, √1710≈41.
+      // Сумма ≈ 696 + √1500≈39 (Sun) + √500≈22 (Moon). ≈ 760 √-units.
+      // 60000/760 ≈ 79 ms / √-wu. Округлим до 80.
       const calcApproach = (key: string): number => {
         const d = distLookup[key] ?? 1500;
-        if (slow) return Math.max(8000, Math.min(60000, d / 30));
-        // 2026-05-31 v2 Босс «меньше» — Sun подлёт ×45 но cap до 12-30 сек
-        // (раньше ×45 = до 6 минут, слишком). Sub-bound 12000.
-        if (key === "sun") return Math.max(12000, Math.min(30000, (d * 45) / (180 * speedMul)));
-        return Math.max(2000, Math.min(40000, d / (180 * speedMul)));
+        const base = slow ? Math.sqrt(d) * 180 : Math.sqrt(d) * 80;
+        const adjusted = base / speedMul;
+        // Sun farewell — большое approachMs (long flyby через всю систему):
+        if (key === "sun") return Math.max(20000, Math.min(40000, Math.sqrt(43575 + 1500) * 130 / speedMul));
+        return Math.max(2500, Math.min(28000, adjusted));
       };
-      seq.push({ key: "moon", approachMs: calcApproach("moon"), orbitMs: 14000 });
-      if (has("mars"))    seq.push({ key: "mars",    approachMs: calcApproach("mars"),    orbitMs: 14000 });
+      // 2026-05-31 v5 МАРШРУТ:
+      //   1. Moon (orbit вокруг Земли в кадре)
+      //   2. OUTWARD: Mars → MainBelt → Jupiter → Saturn → Uranus → Neptune → Kuiper
+      //   3. FAREWELL: длинный approach от Neptune К Sun — камера идёт ПРЯМО к Sun,
+      //      по дороге проплывают планеты (lookAt → Sun, но boков планет фон).
+      //      В конце Sun заполняет 100% экрана.
+      //   4. Sun orbit (огромное Солнце, scale ×8, orbitR=350 → visually full screen).
+      //   5. INWARD: Mercury → Venus → Earth (дом, финальный поклон).
+      seq.push({ key: "moon", approachMs: calcApproach("moon"), orbitMs: 12000 });
+      if (has("mars"))    seq.push({ key: "mars",    approachMs: calcApproach("mars"),    orbitMs: 10000 });
       if (prefs.mainBelt) seq.push({ key: "main_belt", approachMs: calcApproach("main_belt"), orbitMs: 0 });
-      if (has("jupiter")) seq.push({ key: "jupiter", approachMs: calcApproach("jupiter"), orbitMs: 22000 });
-      if (has("saturn"))  seq.push({ key: "saturn",  approachMs: calcApproach("saturn"),  orbitMs: 24000 });
-      if (has("uranus"))  seq.push({ key: "uranus",  approachMs: calcApproach("uranus"),  orbitMs: 16000 });
-      if (has("neptune")) seq.push({ key: "neptune", approachMs: calcApproach("neptune"), orbitMs: 16000 });
+      if (has("jupiter")) seq.push({ key: "jupiter", approachMs: calcApproach("jupiter"), orbitMs: 14000 });
+      if (has("saturn"))  seq.push({ key: "saturn",  approachMs: calcApproach("saturn"),  orbitMs: 18000 });
+      if (has("uranus"))  seq.push({ key: "uranus",  approachMs: calcApproach("uranus"),  orbitMs: 10000 });
+      if (has("neptune")) seq.push({ key: "neptune", approachMs: calcApproach("neptune"), orbitMs: 10000 });
       if (prefs.kuiperBelt) seq.push({ key: "kuiper_belt", approachMs: calcApproach("kuiper_belt"), orbitMs: 0 });
-      seq.push({ key: "sun", approachMs: calcApproach("sun"), orbitMs: 20000 });
-      // INWARD от Sun к Земле — нарастающий эпик (×1.5, ×1.8, ×2). Земля =
-      // дом, финальная кульминация (Босс «Земля наш дом полюби её»).
-      if (has("mercury")) seq.push({ key: "mercury", approachMs: calcApproach("mercury") * 1.5, orbitMs: 12000 });
-      if (has("venus"))   seq.push({ key: "venus",   approachMs: calcApproach("venus") * 1.8,   orbitMs: 14000 });
-      seq.push({ key: "earth", approachMs: Math.max(8000, calcApproach("earth") * 2.0), orbitMs: 18000 });
-      // Возврат — всегда.
-      seq.push({ key: "return", approachMs: 6000, orbitMs: 0 });
+      // FAREWELL → Sun (longest approach, scale grows from 1 to 8 along path).
+      seq.push({ key: "sun", approachMs: calcApproach("sun"), orbitMs: 22000 });
+      if (has("mercury")) seq.push({ key: "mercury", approachMs: calcApproach("mercury"), orbitMs: 9000 });
+      if (has("venus"))   seq.push({ key: "venus",   approachMs: calcApproach("venus"),   orbitMs: 10000 });
+      seq.push({ key: "earth", approachMs: Math.max(5000, calcApproach("earth")), orbitMs: 14000 });
+      seq.push({ key: "return", approachMs: 5000, orbitMs: 0 });
       return seq;
     };
     let SOLAR_TOUR: SolarStep[] = buildSolarTour();
@@ -5210,7 +5232,11 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 else if (planetKey === "return") orbitR = 280;
                 else if (planetKey === "main_belt") orbitR = 18;
                 else if (planetKey === "kuiper_belt") orbitR = 25;
-                else if (planetKey === "sun") orbitR = 500;
+                // 2026-05-31 v5 Sun panorama (Босс «огромное Солнце на 100% высоты»):
+                // orbitR 500→350 + Sun mesh scale max 3→8 ниже (line ~5180). Камера
+                // на 350 wu от Sun, Sun radius ~30×8=240 → FoV ≈ 2·atan(240/350)≈69° →
+                // покрывает ~115% экрана (60° FoV). Snack 110 wu — снаружи короны.
+                else if (planetKey === "sun") orbitR = 350;
 
                 if (phaseT < step.approachMs) {
                   // APPROACH: голливудский монтаж — ease-in-out-quintic (более
@@ -5249,7 +5275,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                   // строго противоположен sp. Кривая через midpoint вверху эклиптики
                   // (Y+450) гарантирует обход Земли (radius 100). Для earth/return
                   // (target внутри/на Земле) — оставляем линейный путь.
-                  const directLerp = planetKey === "earth" || planetKey === "return" || isBelt;
+                  // 2026-05-31 v5 Sun farewell: direct path (Босс «лети мимо планет
+                  // прощаясь, появляется огромное Солнце»). Без Bezier midpoint —
+                  // камера идёт ПРЯМО на Sun, по дороге планеты пролетают мимо.
+                  const directLerp = planetKey === "earth" || planetKey === "return" || isBelt || planetKey === "sun";
                   if (directLerp) {
                     camera.position.set(
                       sp.x + (tx - sp.x) * e,
@@ -5384,11 +5413,15 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                       camera.position.y - sy,
                       camera.position.z - sz,
                     );
-                    // 2026-05-31 v3 Босс «Солнце вокруг камеры» (лучи corona ещё
-                    // в кадре). max scale 6 → 3, min cd 150 → 350, k 800 → 500.
-                    // На orbit cd=600 wu scale ≈ 1.4× → corona ~250 wu, camera
-                    // снаружи с большим зазором.
-                    const scale = Math.max(1, Math.min(3, 500 / Math.max(350, cd)));
+                    // 2026-05-31 v5 Sun panorama (Босс «огромное Солнце на 100%
+                    // высоты»): на Sun-step scale до ×8 (corona radius ~240 wu).
+                    // На прочих шагах scale модулируется по cd (далёкое Солнце мелче).
+                    // sun_step=true когда текущий step.key='sun' → большой scale.
+                    const isSunStep = SOLAR_TOUR[solarStepIdx]?.key === "sun";
+                    const maxScale = isSunStep ? 8 : 3;
+                    const k = isSunStep ? 2800 : 500;
+                    const minCd = isSunStep ? 350 : 350;
+                    const scale = Math.max(1, Math.min(maxScale, k / Math.max(minCd, cd)));
                     sunMeshRef.current.scale.set(scale, scale, scale);
                   }
                 } catch { /* no-op */ }
