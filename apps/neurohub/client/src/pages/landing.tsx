@@ -3268,7 +3268,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               style={{ opacity: globeUiHidden ? 0 : 1, pointerEvents: globeUiHidden ? "none" : "auto", transform: globeUiHidden ? "translateY(-120%)" : "translateY(0)" }}
                             >
                               <h3 className="min-w-0 truncate text-base m-0">
-                                <span aria-hidden>🌍 </span><BrandName /> <span className="text-white/70 font-display font-bold">in The World</span>
+                                <span aria-hidden>🌍 </span><BrandName /> <span className="font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">Мир Музыки</span>
                               </h3>
                             </div>
                             {/* Сам глобус — занимает основную область */}
@@ -3832,9 +3832,8 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               loader в Suspense (фон blur + спиннер) — юзер видит отклик
                               сразу. setGlobeFlight("solar") оставлен — для active-border
                               визуального подтверждения «выбрал режим». */}
-                          {/* Босс 2026-05-31: кнопка скрыта, появляется при
-                              свайпе справа-налево от правого края экрана. */}
-                          {solarBtnVisible && (
+                          {/* Босс 2026-05-31: тест-кнопка — маленькая круглая
+                              справа без надписи, всегда видна (свайп не работал). */}
                           <button
                             type="button"
                             onClick={(e) => {
@@ -3848,14 +3847,10 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               setSolarWizardOpen(true);
                               try { import("@/components/solar-wizard"); } catch { /* no-op */ }
                             }}
-                            onPointerEnter={() => {
-                              try { import("@/components/solar-wizard"); } catch { /* no-op */ }
-                            }}
-                            className={`relative shrink-0 h-9 sm:h-10 md:h-11 lg:h-12 px-2.5 sm:px-3 md:px-4 lg:px-5 rounded-full flex items-center justify-center gap-1 text-[11px] sm:text-xs md:text-sm lg:text-base font-semibold transition-all whitespace-nowrap border active:scale-95 animate-in fade-in slide-in-from-right-4 duration-300 ${globeFlight === "solar" ? "text-white border-white/45 bg-gradient-to-r from-purple-500/20 via-fuchsia-500/20 to-cyan-500/20" : "text-white/80 border-white/25 hover:border-white/55 bg-transparent"}`}
-                            aria-label="Полёт по Солнечной системе — открыть меню выбора"
-                            title="🪐 Открыть меню выбора планет и трека для полёта"
-                          >🪐 Солнечная</button>
-                          )}
+                            className="fixed right-3 top-1/2 -translate-y-1/2 z-[220] w-12 h-12 rounded-full flex items-center justify-center text-lg bg-purple-500/15 border border-purple-300/40 hover:bg-purple-500/25 active:scale-90 shadow-[0_0_16px_rgba(124,58,237,0.35)] transition-all"
+                            aria-label="Полёт по Солнечной системе"
+                            title="🪐"
+                          >🪐</button>
                           </div>
                         </div>,
                         document.body,
