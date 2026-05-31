@@ -2661,19 +2661,31 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           debugLog(`[direct-flyby-v2] star bad ra/dec key=${key}`);
           return;
         }
-        // RA (часы) + Dec (градусы) → 3D unit-vector (Y-up).
-        const lon = ra * 15 * (Math.PI / 180);
-        const lat = dec * (Math.PI / 180);
-        const dirX = Math.cos(lat) * Math.cos(lon);
-        const dirZ = Math.cos(lat) * Math.sin(lon);
-        const dirY = Math.sin(lat);
-        const direction = new THREE_NS.Vector3(dirX, dirY, dirZ).normalize();
-        const STAR_R = 50000;
-        const virtualPoint = direction.clone().multiplyScalar(STAR_R);
-        // Camera position — на 80% пути к virtualPoint (чтобы звезда впереди).
-        const camTarget = direction.clone().multiplyScalar(STAR_R * 0.8);
-        // controls.target — впереди камеры в направлении звезды (НЕ Earth).
-        const lookTarget = direction.clone().multiplyScalar(STAR_R * 0.95);
+        // Босс 2026-05-31 (CRITICAL FIX «star flight уходит к Земле»):
+        //   1) COORDINATE MISMATCH. Звёзды рисуются через raDecToVec3 (skyCatalog.ts:209):
+        //      `z = -radius * cos(dec) * sin(ra*15)` — С МИНУСОМ перед Z. Прежняя
+        //      ручная формула в этом branch использовала `z = +cos*sin` — зеркальный
+        //      по долготе вектор. Камера летела в ПРОТИВОПОЛОЖНУЮ половину неба
+        //      → звезда оказывалась ЗА камерой, в кадре — Земля.
+        //      FIX: используем raDecToVec3 (единый источник правды, тот же что отрисовка).
+        //   2) STAR DISTANCE BUG. Звёздная сфера = 280000 (см. STAR_R в onGlobeReady).
+        //      Прежний flight target = 50000 (18% пути) → камера НЕ ДОЛЕТАЛА, звёзды
+        //      далеко впереди как точки на фоне → юзеру казалось «прилетел к Земле».
+        //      FIX: STAR_R_VISUAL = 280000, camTarget на 90% пути к звезде, lookTarget
+        //      ещё на 5% дальше (звезда в кадре, не размером с пиксель).
+        //   3) CONTROLS GUARD. Дополнительно — controls.enabled=false на время полёта
+        //      (исключаем юзер-drag/inertia/damping side effects), восстанавливаем по
+        //      завершении + update().
+        const STAR_R_VISUAL = 280000; // должно совпадать с STAR_R при отрисовке звёзд
+        // raDecToVec3 возвращает вектор длины radius; нормируем для direction.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const starVec: any = raDecToVec3(ra, dec, STAR_R_VISUAL);
+        const direction = new THREE_NS.Vector3(starVec.x, starVec.y, starVec.z).normalize();
+        const virtualPoint = direction.clone().multiplyScalar(STAR_R_VISUAL);
+        // Camera position — на 90% пути к virtualPoint (звезда заметно крупная в кадре).
+        const camTarget = direction.clone().multiplyScalar(STAR_R_VISUAL * 0.9);
+        // controls.target — за камерой ещё на 5% (звезда впереди по направлению взгляда).
+        const lookTarget = direction.clone().multiplyScalar(STAR_R_VISUAL * 0.95);
         const gg2: any = globeRef.current; // eslint-disable-line @typescript-eslint/no-explicit-any
         const ctrl2 = gg2?.controls?.();
         const cam2 = gg2?.camera?.();
@@ -2681,39 +2693,74 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           debugLog(`[direct-flyby-v2] star: camera not ready`);
           return;
         }
-        // Расширяем maxDistance чтобы camera могла улететь на STAR_R*0.8 = 40000.
+        // Расширяем maxDistance чтобы camera могла улететь на STAR_R_VISUAL*0.9 = 252000.
+        // Запоминаем prev-значения для восстановления при abort.
+        const prevMaxDistance2 = ctrl2?.maxDistance ?? 600;
+        const prevEnabled2 = ctrl2?.enabled ?? true;
         if (ctrl2) {
-          ctrl2.maxDistance = Math.max(ctrl2.maxDistance || 0, STAR_R);
+          ctrl2.maxDistance = Math.max(ctrl2.maxDistance || 0, STAR_R_VISUAL);
+          // Снимаем юзер-управление на время полёта — никаких drag/inertia/damping.
+          ctrl2.enabled = false;
         }
-        // Снимаем holdRef + isDirectFlybyActiveRef блокировки.
+        // Удерживаем main rAF от вмешательства (classic/sun/moon/solar branches early-return).
         isDirectFlybyActiveRef.current = true;
         userOrbitInterruptedRef.current = false;
         directFlybyPhaseRef.current = "approach";
+        // Дополнительно — фиксируем classic mode + holdRef, чтобы по завершении не было
+        // residual side effects от других flight-режимов.
+        flightModeRef.current = "classic";
+        holdRef.current = true;
         const startCamPos = new THREE_NS.Vector3(cam2.position.x, cam2.position.y, cam2.position.z);
         const startTargetPos = ctrl2?.target
           ? new THREE_NS.Vector3(ctrl2.target.x, ctrl2.target.y, ctrl2.target.z)
           : new THREE_NS.Vector3(0, 0, 0);
+        const startDistFromOrigin = startCamPos.length();
+        const endDistFromOrigin = camTarget.length();
+        // Угол между текущим направлением камеры и направлением на звезду (для debug).
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let camFwdAngleDeg = 0;
+        try {
+          const camForward = new THREE_NS.Vector3();
+          if (typeof cam2.getWorldDirection === "function") {
+            cam2.getWorldDirection(camForward);
+            const dot = Math.max(-1, Math.min(1, camForward.dot(direction)));
+            camFwdAngleDeg = Math.acos(dot) * (180 / Math.PI);
+          }
+        } catch { /* no-op */ }
         const startT = performance.now();
         const DURATION_MS = 8000; // звёзды далеко — фикс 8 сек easeInOutCubic
         const starFrame = () => {
-          if (!isDirectFlybyActiveRef.current) return;
+          if (!isDirectFlybyActiveRef.current) {
+            // Aborted by another flight — restore controls anyway.
+            if (ctrl2) {
+              ctrl2.enabled = prevEnabled2;
+              ctrl2.maxDistance = prevMaxDistance2;
+            }
+            return;
+          }
           const t = Math.min((performance.now() - startT) / DURATION_MS, 1);
           const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
           cam2.position.lerpVectors(startCamPos, camTarget, ease);
           if (ctrl2) {
             ctrl2.target.lerpVectors(startTargetPos, lookTarget, ease);
-            ctrl2.update?.();
+            // controls.update() пропускаем — он clamp'ит по min/maxDistance даже при
+            // enabled=false; на финальном кадре делаем единственный sync update().
           }
           if (t >= 1) {
             isDirectFlybyActiveRef.current = false;
             directFlybyPhaseRef.current = "done";
             holdRef.current = true;
-            debugLog(`[direct-flyby-v2] star complete key=${key} dir=(${direction.x.toFixed(2)},${direction.y.toFixed(2)},${direction.z.toFixed(2)})`);
+            // Восстанавливаем юзер-управление + sync update один раз.
+            if (ctrl2) {
+              ctrl2.enabled = prevEnabled2;
+              try { ctrl2.update?.(); } catch { /* no-op */ }
+            }
+            debugLog(`[direct-flyby-v2] star complete key=${key} endDist=${endDistFromOrigin.toFixed(0)} dir=(${direction.x.toFixed(2)},${direction.y.toFixed(2)},${direction.z.toFixed(2)})`);
             return;
           }
           requestAnimationFrame(starFrame);
         };
-        debugLog(`[direct-flyby-v2] star start key=${key} ra=${ra} dec=${dec} virtualPoint=(${virtualPoint.x.toFixed(0)},${virtualPoint.y.toFixed(0)},${virtualPoint.z.toFixed(0)})`);
+        debugLog(`[direct-flyby-v2] star-debug key=${key} ra=${ra} dec=${dec} | startCamDist=${startDistFromOrigin.toFixed(0)} endCamDist=${endDistFromOrigin.toFixed(0)} starVisualR=${STAR_R_VISUAL} | dir=(${direction.x.toFixed(3)},${direction.y.toFixed(3)},${direction.z.toFixed(3)}) angle(camFwd,starDir)=${camFwdAngleDeg.toFixed(1)}deg | virtualPoint=(${virtualPoint.x.toFixed(0)},${virtualPoint.y.toFixed(0)},${virtualPoint.z.toFixed(0)})`);
         requestAnimationFrame(starFrame);
         return;
       }
