@@ -2661,7 +2661,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           debugLog(`[direct-flyby-v2] star bad ra/dec key=${key}`);
           return;
         }
-        // Босс 2026-05-31 (CRITICAL FIX «star flight уходит к Земле»):
+        // Босс 2026-05-31 (CRITICAL FIX «star flight уходит к Земле», v3 — Bezier-curve):
         //   1) COORDINATE MISMATCH. Звёзды рисуются через raDecToVec3 (skyCatalog.ts:209):
         //      `z = -radius * cos(dec) * sin(ra*15)` — С МИНУСОМ перед Z. Прежняя
         //      ручная формула в этом branch использовала `z = +cos*sin` — зеркальный
@@ -2676,6 +2676,18 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         //   3) CONTROLS GUARD. Дополнительно — controls.enabled=false на время полёта
         //      (исключаем юзер-drag/inertia/damping side effects), восстанавливаем по
         //      завершении + update().
+        //   4) [NEW] LERP-THROUGH-EARTH BUG (главная причина «уходит к Земле»). Прежний
+        //      `lerpVectors(startCamPos, camTarget, ease)` идёт по ПРЯМОЙ через 3D-сцену.
+        //      Если звезда в полусфере, противоположной текущей камере (angle>90°),
+        //      прямая проходит ЧЕРЕЗ ИЛИ РЯДОМ с origin (Землёй) — на полпути юзер
+        //      видит Землю прямо в кадре и думает что прилетел к ней.
+        //      FIX: quadratic Bezier через control-point = midpoint × outwardBoost,
+        //      где midpoint = (startCamPos + camTarget) / 2, outwardBoost ≥ 1.2 если
+        //      angle>60° (огибаем Землю по дуге). lookTarget стартует НЕ с прежнего
+        //      controls.target (он на Земле), а сразу на lookTarget — камера с 1-го
+        //      кадра смотрит на звезду, Земля уходит из кадра.
+        //   5) [NEW] CAMERA UP-VECTOR LOCK. Фиксируем cam.up = (0,1,0) — иначе на
+        //      экстремальных склонах траектории three-globe может flip камеру.
         const STAR_R_VISUAL = 280000; // должно совпадать с STAR_R при отрисовке звёзд
         // raDecToVec3 возвращает вектор длины radius; нормируем для direction.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2697,11 +2709,15 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         // Запоминаем prev-значения для восстановления при abort.
         const prevMaxDistance2 = ctrl2?.maxDistance ?? 600;
         const prevEnabled2 = ctrl2?.enabled ?? true;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const prevCamUp: any = cam2.up ? new THREE_NS.Vector3(cam2.up.x, cam2.up.y, cam2.up.z) : null;
         if (ctrl2) {
           ctrl2.maxDistance = Math.max(ctrl2.maxDistance || 0, STAR_R_VISUAL);
           // Снимаем юзер-управление на время полёта — никаких drag/inertia/damping.
           ctrl2.enabled = false;
         }
+        // Lock up-vector (избегаем flip на полярных траекториях).
+        try { cam2.up.set(0, 1, 0); } catch { /* no-op */ }
         // Удерживаем main rAF от вмешательства (classic/sun/moon/solar branches early-return).
         isDirectFlybyActiveRef.current = true;
         userOrbitInterruptedRef.current = false;
@@ -2711,41 +2727,86 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         flightModeRef.current = "classic";
         holdRef.current = true;
         const startCamPos = new THREE_NS.Vector3(cam2.position.x, cam2.position.y, cam2.position.z);
-        const startTargetPos = ctrl2?.target
-          ? new THREE_NS.Vector3(ctrl2.target.x, ctrl2.target.y, ctrl2.target.z)
-          : new THREE_NS.Vector3(0, 0, 0);
         const startDistFromOrigin = startCamPos.length();
         const endDistFromOrigin = camTarget.length();
-        // Угол между текущим направлением камеры и направлением на звезду (для debug).
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        // Угол между ТЕКУЩЕЙ позицией камеры (от origin) и направлением на звезду.
+        // Если > 60° — нужна дуга вокруг Земли (control-point outward от центра).
+        const camDirFromOrigin = startCamPos.clone().normalize();
+        const dotStartToStar = Math.max(-1, Math.min(1, camDirFromOrigin.dot(direction)));
+        const angleStartToStarDeg = Math.acos(dotStartToStar) * (180 / Math.PI);
+        // Угол между текущим направлением ВЗГЛЯДА камеры и направлением на звезду (для debug).
         let camFwdAngleDeg = 0;
         try {
           const camForward = new THREE_NS.Vector3();
           if (typeof cam2.getWorldDirection === "function") {
             cam2.getWorldDirection(camForward);
-            const dot = Math.max(-1, Math.min(1, camForward.dot(direction)));
-            camFwdAngleDeg = Math.acos(dot) * (180 / Math.PI);
+            const dotFwd = Math.max(-1, Math.min(1, camForward.dot(direction)));
+            camFwdAngleDeg = Math.acos(dotFwd) * (180 / Math.PI);
           }
         } catch { /* no-op */ }
+        // Quadratic Bezier control-point: midpoint между start и camTarget, отодвинутый
+        // НАРУЖУ от Земли. Чем больше angle (start↔star), тем дальше control-point наружу.
+        // angle≤60° → boost=1.0 (почти прямая, звезда впереди); angle=180° → boost=2.5
+        // (камера летит по широкой дуге через "северный полюс" сцены).
+        const midPoint = new THREE_NS.Vector3().addVectors(startCamPos, camTarget).multiplyScalar(0.5);
+        const midDirFromOrigin = midPoint.clone().normalize();
+        // Если midpoint вырожден (camTarget и startCamPos почти антипараллельны),
+        // используем cross-product с world-up как outward направление.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let outwardDir: any = midPoint.length() > 1
+          ? midDirFromOrigin.clone()
+          : new THREE_NS.Vector3(0, 1, 0);
+        if (!Number.isFinite(outwardDir.x) || outwardDir.length() < 0.01) {
+          outwardDir = new THREE_NS.Vector3(0, 1, 0);
+        }
+        // Boost: при angle≥60° — выпуклая дуга наружу. Радиус дуги ≥ STAR_R_VISUAL × 0.3.
+        const arcBoost = angleStartToStarDeg < 30
+          ? 1.0
+          : angleStartToStarDeg < 90
+          ? 1.4
+          : angleStartToStarDeg < 150
+          ? 2.0
+          : 2.5;
+        const arcRadius = Math.max(midPoint.length() * arcBoost, STAR_R_VISUAL * 0.3);
+        const controlPoint = outwardDir.clone().multiplyScalar(arcRadius);
         const startT = performance.now();
         const DURATION_MS = 8000; // звёзды далеко — фикс 8 сек easeInOutCubic
+        // Quadratic Bezier: B(t) = (1-t)²·P0 + 2·(1-t)·t·P1 + t²·P2
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const bezierAt = (t: number, out: any) => {
+          const inv = 1 - t;
+          out.x = inv * inv * startCamPos.x + 2 * inv * t * controlPoint.x + t * t * camTarget.x;
+          out.y = inv * inv * startCamPos.y + 2 * inv * t * controlPoint.y + t * t * camTarget.y;
+          out.z = inv * inv * startCamPos.z + 2 * inv * t * controlPoint.z + t * t * camTarget.z;
+        };
+        // Сразу ставим controls.target на lookTarget (звезда впереди с 1-го кадра).
+        if (ctrl2 && ctrl2.target) {
+          ctrl2.target.set(lookTarget.x, lookTarget.y, lookTarget.z);
+        }
         const starFrame = () => {
           if (!isDirectFlybyActiveRef.current) {
-            // Aborted by another flight — restore controls anyway.
+            // Aborted by another flight — restore controls + up anyway.
             if (ctrl2) {
               ctrl2.enabled = prevEnabled2;
               ctrl2.maxDistance = prevMaxDistance2;
+            }
+            if (prevCamUp) {
+              try { cam2.up.set(prevCamUp.x, prevCamUp.y, prevCamUp.z); } catch { /* no-op */ }
             }
             return;
           }
           const t = Math.min((performance.now() - startT) / DURATION_MS, 1);
           const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-          cam2.position.lerpVectors(startCamPos, camTarget, ease);
-          if (ctrl2) {
-            ctrl2.target.lerpVectors(startTargetPos, lookTarget, ease);
+          // Bezier — летим ПО ДУГЕ, огибая Землю. Не через origin.
+          bezierAt(ease, cam2.position);
+          if (ctrl2 && ctrl2.target) {
+            // controls.target всё время на звезде (камера смотрит на неё на всём пути).
+            ctrl2.target.set(lookTarget.x, lookTarget.y, lookTarget.z);
             // controls.update() пропускаем — он clamp'ит по min/maxDistance даже при
             // enabled=false; на финальном кадре делаем единственный sync update().
           }
+          // Дополнительная гарантия — camera.lookAt(star) каждый кадр (если есть метод).
+          try { cam2.lookAt?.(lookTarget); } catch { /* no-op */ }
           if (t >= 1) {
             isDirectFlybyActiveRef.current = false;
             directFlybyPhaseRef.current = "done";
@@ -2755,12 +2816,12 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
               ctrl2.enabled = prevEnabled2;
               try { ctrl2.update?.(); } catch { /* no-op */ }
             }
-            debugLog(`[direct-flyby-v2] star complete key=${key} endDist=${endDistFromOrigin.toFixed(0)} dir=(${direction.x.toFixed(2)},${direction.y.toFixed(2)},${direction.z.toFixed(2)})`);
+            debugLog(`[direct-flyby-v2] star complete key=${key} endDist=${endDistFromOrigin.toFixed(0)} dir=(${direction.x.toFixed(2)},${direction.y.toFixed(2)},${direction.z.toFixed(2)}) arcBoost=${arcBoost.toFixed(1)}`);
             return;
           }
           requestAnimationFrame(starFrame);
         };
-        debugLog(`[direct-flyby-v2] star-debug key=${key} ra=${ra} dec=${dec} | startCamDist=${startDistFromOrigin.toFixed(0)} endCamDist=${endDistFromOrigin.toFixed(0)} starVisualR=${STAR_R_VISUAL} | dir=(${direction.x.toFixed(3)},${direction.y.toFixed(3)},${direction.z.toFixed(3)}) angle(camFwd,starDir)=${camFwdAngleDeg.toFixed(1)}deg | virtualPoint=(${virtualPoint.x.toFixed(0)},${virtualPoint.y.toFixed(0)},${virtualPoint.z.toFixed(0)})`);
+        debugLog(`[direct-flyby-v2] star-debug key=${key} ra=${ra} dec=${dec} | startCamDist=${startDistFromOrigin.toFixed(0)} endCamDist=${endDistFromOrigin.toFixed(0)} starVisualR=${STAR_R_VISUAL} | dir=(${direction.x.toFixed(3)},${direction.y.toFixed(3)},${direction.z.toFixed(3)}) angle(camFwd,starDir)=${camFwdAngleDeg.toFixed(1)}deg angle(startPos,starDir)=${angleStartToStarDeg.toFixed(1)}deg arcBoost=${arcBoost.toFixed(2)} controlPointDist=${controlPoint.length().toFixed(0)} | virtualPoint=(${virtualPoint.x.toFixed(0)},${virtualPoint.y.toFixed(0)},${virtualPoint.z.toFixed(0)})`);
         requestAnimationFrame(starFrame);
         return;
       }
