@@ -801,6 +801,45 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
   // Wizard сам читает/пишет localStorage `muza:sis-prefs` и эмитит `muza:globe-solar-prefs`.
   // Здесь только open-state + onLaunch callback (он dispatch'ит flight + playTrack).
   const [solarWizardOpen, setSolarWizardOpen] = useState(false);
+  // Босс 2026-05-31: кнопка «🪐 Солнечная» скрыта по умолчанию, появляется
+  // только при свайпе справа-налево от правого края экрана. Видна 8 сек.
+  const [solarBtnVisible, setSolarBtnVisible] = useState(false);
+  const solarBtnHideTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!showGlobe) return;
+    let startX = 0;
+    let startY = 0;
+    let startedAtRight = false;
+    const EDGE_PX = 60; // последние 60px по правому краю экрана
+    const SWIPE_DX = -80; // свайп влево минимум 80px
+    const SWIPE_DY_MAX = 60; // вертикальный дрейф не больше
+    const showFor = (ms: number) => {
+      setSolarBtnVisible(true);
+      if (solarBtnHideTimerRef.current) window.clearTimeout(solarBtnHideTimerRef.current);
+      solarBtnHideTimerRef.current = window.setTimeout(() => setSolarBtnVisible(false), ms);
+    };
+    const onStart = (e: PointerEvent) => {
+      startX = e.clientX;
+      startY = e.clientY;
+      startedAtRight = e.clientX >= window.innerWidth - EDGE_PX;
+    };
+    const onEnd = (e: PointerEvent) => {
+      if (!startedAtRight) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      if (dx <= SWIPE_DX && Math.abs(dy) <= SWIPE_DY_MAX) {
+        showFor(8000);
+      }
+    };
+    window.addEventListener("pointerdown", onStart, { passive: true });
+    window.addEventListener("pointerup", onEnd, { passive: true });
+    return () => {
+      window.removeEventListener("pointerdown", onStart);
+      window.removeEventListener("pointerup", onEnd);
+      if (solarBtnHideTimerRef.current) window.clearTimeout(solarBtnHideTimerRef.current);
+      solarBtnHideTimerRef.current = null;
+    };
+  }, [showGlobe]);
   // Origin-point для popover-анимации «вырастает из кнопки» (Босс 2026-05-30:
   // «Меню должно появляться из соответствующего пункта с пониманием откуда оно»).
   // Capture при клике на «🪐 Солнечная» → передаём в SolarWizard.originPoint.
@@ -3787,6 +3826,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               loader в Suspense (фон blur + спиннер) — юзер видит отклик
                               сразу. setGlobeFlight("solar") оставлен — для active-border
                               визуального подтверждения «выбрал режим». */}
+                          {/* Босс 2026-05-31: кнопка скрыта, появляется при
+                              свайпе справа-налево от правого края экрана. */}
+                          {solarBtnVisible && (
                           <button
                             type="button"
                             onClick={(e) => {
@@ -3798,17 +3840,16 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 setSolarWizardOrigin({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
                               } catch { setSolarWizardOrigin(null); }
                               setSolarWizardOpen(true);
-                              // Eager-preload chunk при первом клике — следующие открытия мгновенные.
                               try { import("@/components/solar-wizard"); } catch { /* no-op */ }
                             }}
                             onPointerEnter={() => {
-                              // Hover на desktop / focus-touch на mobile — pre-load chunk до клика.
                               try { import("@/components/solar-wizard"); } catch { /* no-op */ }
                             }}
-                            className={`relative shrink-0 h-9 sm:h-10 md:h-11 lg:h-12 px-2.5 sm:px-3 md:px-4 lg:px-5 rounded-full flex items-center justify-center gap-1 text-[11px] sm:text-xs md:text-sm lg:text-base font-semibold transition-all whitespace-nowrap border active:scale-95 ${globeFlight === "solar" ? "text-white border-white/45 bg-gradient-to-r from-purple-500/20 via-fuchsia-500/20 to-cyan-500/20" : "text-white/80 border-white/25 hover:border-white/55 bg-transparent"}`}
+                            className={`relative shrink-0 h-9 sm:h-10 md:h-11 lg:h-12 px-2.5 sm:px-3 md:px-4 lg:px-5 rounded-full flex items-center justify-center gap-1 text-[11px] sm:text-xs md:text-sm lg:text-base font-semibold transition-all whitespace-nowrap border active:scale-95 animate-in fade-in slide-in-from-right-4 duration-300 ${globeFlight === "solar" ? "text-white border-white/45 bg-gradient-to-r from-purple-500/20 via-fuchsia-500/20 to-cyan-500/20" : "text-white/80 border-white/25 hover:border-white/55 bg-transparent"}`}
                             aria-label="Полёт по Солнечной системе — открыть меню выбора"
                             title="🪐 Открыть меню выбора планет и трека для полёта"
                           >🪐 Солнечная</button>
+                          )}
                           </div>
                         </div>,
                         document.body,
