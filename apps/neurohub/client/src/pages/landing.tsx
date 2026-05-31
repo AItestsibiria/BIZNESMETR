@@ -4905,15 +4905,14 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                 showPercent={false}
                               />
                             </div>
-                            {/* Босс 2026-05-30: аккуратная заметная кнопка «Свернуть» — на меню плеера, чтобы не зависеть от тапа по обложке. */}
+                            {/* Босс 2026-05-31: кнопка «Свернуть» без слов — только иконка ChevronDown (семантика collapse). Aria-label/title сохранены для a11y. */}
                             <button
-                              className="shrink-0 h-9 px-2.5 rounded-full bg-fuchsia-500/15 border border-fuchsia-400/50 text-fuchsia-200 hover:bg-fuchsia-500/25 hover:border-fuchsia-300/80 active:scale-95 transition-all flex items-center gap-1 text-[11px] font-medium"
+                              className="shrink-0 h-9 w-9 rounded-full bg-fuchsia-500/15 border border-fuchsia-400/50 text-fuchsia-200 hover:bg-fuchsia-500/25 hover:border-fuchsia-300/80 active:scale-95 transition-all flex items-center justify-center"
                               onClick={() => setExpandedId(null)}
-                              title="Свернуть обложку"
-                              aria-label="Свернуть обложку"
+                              title="Свернуть"
+                              aria-label="Свернуть"
                             >
-                              <X className="w-3.5 h-3.5" />
-                              <span>Свернуть</span>
+                              <ChevronDown className="w-4 h-4" />
                             </button>
                           </div>
 
