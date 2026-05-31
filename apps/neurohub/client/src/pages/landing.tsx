@@ -2946,8 +2946,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   </div>
                   <span className="text-[13px] font-sans tabular-nums text-muted-foreground w-10 text-right">{formatDuration(trackDuration)}</span>
                 </div>
-                {/* Control buttons — Eugene 2026-05-18 Босс «кнопки вываливаются + громкость длинная» — flex-wrap + компактные icon-only + volume убран (остался в expanded modal + cover-details). */}
-                <div className="flex flex-wrap items-center gap-2 mt-3">
+                {/* Босс 2026-05-31 «кнопки плеера как на скрине по расположению»:
+                    разделено на 2 центрированных ряда.
+                    Ряд 1 — навигация: prev / play / next / repeat-all / repeat-one.
+                    Ряд 2 — утилиты+stats: download / share / 🌍24 / эквалайзер / 🎧 счётчик. */}
+                <div className="flex flex-wrap items-center justify-center gap-2 mt-3">
                   <button onClick={skipPrev} aria-label="Предыдущий трек" className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/15 active:bg-white/20 transition-colors border border-white/10">
                     <SkipBack className="w-6 h-6 text-white/80" />
                   </button>
@@ -2971,10 +2974,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                   >
                     <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12a7 7 0 1 0-3 5.7" /><polyline points="14 17 16 17.7 16.7 15.7" /><text x="12" y="15" textAnchor="middle" fontSize="9" fontWeight="700" stroke="none" fill="currentColor">1</text></svg>
                   </button>
-                  {/* Eugene 2026-05-18 — VolumeSlider убран с main плеера (вываливался + длинный).
-                      Громкость остаётся доступной в CoverDetailsModal (свайп-режим) + в expanded мини-плеере. */}
-                  {/* Eugene 2026-05-30 — кнопка с tooltip-вариантами:
-                      Capacitor app / PWA → save offline; обычный browser → download через обзор файлов */}
+                </div>
+                {/* Ряд 2 — утилиты + статистика, центрированы под рядом навигации. */}
+                <div className="flex flex-wrap items-center justify-center gap-2 mt-2">
                   <SaveTrackButton
                     trackId={currentTrack.id}
                     audioUrl={`/api/download/${currentTrack.id}`}
