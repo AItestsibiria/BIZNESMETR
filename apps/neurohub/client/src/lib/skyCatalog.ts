@@ -41,6 +41,13 @@ export const STAR_CAMERA_FACTOR = 0.85;
 
 export type SpectralClass = "O" | "B" | "A" | "F" | "G" | "K" | "M";
 
+// Босс 2026-05-31 (P2.1 — wow-полировка звёздного неба).
+// Deep-sky объекты ночного неба — узнаваемые non-звёздные wow-цели.
+// "cluster" — звёздное скопление (Плеяды), "galaxy" — галактика (Андромеда),
+// "nebula" — туманность (зарезервировано на будущее).
+// Рендер спецы: cluster → большой cyan glow, galaxy → большой fuchsia glow.
+export type DeepSkyKind = "cluster" | "galaxy" | "nebula";
+
 export interface StarRecord {
   id: string;              // машинный идентификатор (sirius, vega, ...)
   name: string;            // русское имя звезды (Сириус, Вега, ...)
@@ -50,6 +57,10 @@ export interface StarRecord {
   dec: number;             // склонение, градусы (-90..+90)
   mag: number;             // видимая звёздная величина (visual magnitude)
   spectralClass: SpectralClass;
+  // Босс 2026-05-31 (P2.1): опциональный тип deep-sky объекта (вместо звезды
+  // — скопление/галактика). Если задан — рендер использует спец-glow вместо
+  // обычной точки. Если отсутствует (большинство записей) — обычная звезда.
+  deepSky?: DeepSkyKind;
 }
 
 // 40+ ярчайших звёзд — северное + южное небо. Включён весь Большой Ковш
@@ -112,6 +123,15 @@ export const BRIGHT_STARS: StarRecord[] = [
   { id: "scheat",     name: "Шеат",       bayer: "β Peg", constellation: "Пегас",        ra: 23.0629, dec:  28.0828, mag:  2.42, spectralClass: "M" },
   { id: "markab",     name: "Маркаб",     bayer: "α Peg", constellation: "Пегас",        ra: 23.0793, dec:  15.2053, mag:  2.49, spectralClass: "B" },
   { id: "algenib",    name: "Альгениб",   bayer: "γ Peg", constellation: "Пегас",        ra:  0.2206, dec:  15.1836, mag:  2.83, spectralClass: "B" },
+  // Босс 2026-05-31 (P2.1) — Deep-sky wow-объекты:
+  // M45 / Плеяды — открытое звёздное скопление в Тельце (RA 03h47m, Dec +24°07′).
+  //   Mag 1.6 — одно из ярчайших скоплений неба, видно невооружённым глазом.
+  //   Спектральный класс B (горячие голубые звёзды), spec-render: cluster.
+  { id: "pleiades",   name: "Плеяды",     bayer: "M45",   constellation: "Телец",        ra:  3.7900, dec:  24.1167, mag:  1.60, spectralClass: "B", deepSky: "cluster" },
+  // M31 / Андромеда — спиральная галактика, ближайшая к Млечному Пути
+  //   (RA 00h42m44s, Dec +41°16′). Mag 3.4 — видна простым глазом тёмной ночью.
+  //   Spec-render: galaxy (овальный fuchsia glow).
+  { id: "m31",        name: "Андромеда (M31)", bayer: "M31", constellation: "Андромеда", ra:  0.7122, dec:  41.2667, mag:  3.40, spectralClass: "A", deepSky: "galaxy" },
 ];
 
 // Линии созвездий — соединения по id-звёздам из BRIGHT_STARS. Если звезда

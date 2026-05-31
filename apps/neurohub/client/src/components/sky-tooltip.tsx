@@ -127,7 +127,14 @@ export function SkyTooltip() {
                 </span>
               </span>
               <span className="text-white/40">
-                {SPECTRAL_DESCRIPTION[payload.star.spectralClass]}
+                {/* Босс 2026-05-31 (P2.1): deep-sky → спец-label вместо спектрального класса. */}
+                {payload.star.deepSky === "cluster"
+                  ? "Звёздное скопление"
+                  : payload.star.deepSky === "galaxy"
+                  ? "Галактика"
+                  : payload.star.deepSky === "nebula"
+                  ? "Туманность"
+                  : SPECTRAL_DESCRIPTION[payload.star.spectralClass]}
               </span>
             </div>
           </>
