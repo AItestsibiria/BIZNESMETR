@@ -3847,11 +3847,11 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                               setSolarWizardOpen(true);
                               try { import("@/components/solar-wizard"); } catch { /* no-op */ }
                             }}
-                            className="fixed right-2 bottom-2 z-[220] w-12 h-12 rounded-full bg-transparent border-0 opacity-0 active:opacity-30 active:bg-purple-500/20 transition-opacity"
-                            style={{ WebkitTapHighlightColor: "transparent" }}
+                            className="fixed right-2 bottom-2 z-[260] w-14 h-14 rounded-full flex items-center justify-center text-base bg-purple-500/10 border border-purple-300/20 active:bg-purple-500/40 active:scale-90 transition-all"
+                            style={{ WebkitTapHighlightColor: "transparent", pointerEvents: "auto" }}
                             aria-label="Полёт по Солнечной системе"
-                            title=""
-                          />
+                            title="🪐"
+                          >🪐</button>
                           </div>
                         </div>,
                         document.body,
