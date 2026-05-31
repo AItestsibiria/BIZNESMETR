@@ -2671,6 +2671,11 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       const detail = (e as CustomEvent).detail || {};
       const targetType: "planet" | "star" = detail.type === "star" ? "star" : "planet";
       const key = detail.key;
+      // P2.3 (Босс 2026-05-31, a11y) — prefers-reduced-motion:
+      // юзер с системной настройкой «уменьшить движение» получает короткий
+      // 2-сек полёт вместо 8 сек. Применяется в обоих ветках (star + planet).
+      const reducedMotion = typeof window !== "undefined" &&
+        window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
       const debugLog = (msg: string) => {
         try {
           if (window.localStorage?.getItem("muzaai-screen-debug") === "1") {
@@ -2802,7 +2807,14 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         let starMarkerMat: any = null;
         if (scene2) {
           try {
-            starMarkerGeo = new THREE_NS.SphereGeometry(2000, 16, 16);
+            // Босс 2026-05-31 (P2.2 — adaptive marker size):
+            // Прежний фикс 2000 ед. → marker размером с пол-экрана на близкой
+            // дистанции и точкой на дальней. Решение — unit-radius geometry
+            // + scale.setScalar(markerSize), markerSize = clamp(cam.dist*0.01).
+            // Каждый кадр в starFrame обновляем scale (см. mid-sync блок).
+            const initCamToMarker = cam2.position.distanceTo(visualStarPoint);
+            const initMarkerSize = Math.max(500, Math.min(4000, initCamToMarker * 0.01));
+            starMarkerGeo = new THREE_NS.SphereGeometry(1, 16, 16);
             starMarkerMat = new THREE_NS.MeshBasicMaterial({
               color: 0xff00ff,
               transparent: true,
@@ -2812,6 +2824,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             });
             starMarker = new THREE_NS.Mesh(starMarkerGeo, starMarkerMat);
             starMarker.position.copy(visualStarPoint);
+            starMarker.scale.setScalar(initMarkerSize);
             starMarker.frustumCulled = false;
             (starMarker as { name?: string }).name = "star-flight-marker";
             scene2.add(starMarker);
@@ -2916,7 +2929,8 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         const arcRadius = Math.max(midPoint.length() * arcBoost, STAR_R_VISUAL * 0.3);
         const controlPoint = outwardDir.clone().multiplyScalar(arcRadius);
         const startT = performance.now();
-        const DURATION_MS = 8000; // звёзды далеко — фикс 8 сек easeInOutCubic
+        // P2.3 — reduced-motion: 2 сек вместо 8. Обычный режим — фикс 8 сек easeInOutCubic.
+        const DURATION_MS = reducedMotion ? 2000 : 8000;
         // Quadratic Bezier: B(t) = (1-t)²·P0 + 2·(1-t)·t·P1 + t²·P2
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const bezierAt = (t: number, out: any) => {
@@ -2975,6 +2989,15 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           // enabled=false) clamp'ит spherical → перетирает позицию.
           bezierAt(ease, cam2.position);
           try { cam2.lookAt?.(lookTarget); } catch { /* no-op */ }
+          // P2.2 — adaptive marker scale (per-frame). Чем ближе камера, тем
+          // меньше marker; cap [500..4000] чтобы не было точкой/в пол-экрана.
+          if (starMarker) {
+            try {
+              const camToMarker = cam2.position.distanceTo(lookTarget);
+              const markerSize = Math.max(500, Math.min(4000, camToMarker * 0.01));
+              starMarker.scale.setScalar(markerSize);
+            } catch { /* no-op */ }
+          }
           // Debug overlay каждые 10 кадров: реальная дистанция камеры от origin,
           // расстояние controls.target от origin, текущий progress t.
           if (frameIdx % 10 === 0) {
@@ -3060,8 +3083,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         }
       } catch { /* no-op */ }
       const MS_PER_UNIT = speedMode === "slow" ? 4.0 : 10.26;
-      const MIN_DURATION_MS = 3000;
-      const MAX_DURATION_MS = speedMode === "slow" ? 180000 : 60000;
+      // P2.3 — reduced-motion: jam'им оба cap'а в 2с, чтобы flight длился
+      // не дольше 2 сек независимо от расстояния (a11y > pacing).
+      const MIN_DURATION_MS = reducedMotion ? 2000 : 3000;
+      const MAX_DURATION_MS = reducedMotion ? 2000 : (speedMode === "slow" ? 180000 : 60000);
       const OFFSET = 40;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const gg: any = globeRef.current;
@@ -5875,6 +5900,36 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             group.add(pts);
           } catch (e) {
             console.warn("[GlobeView] background stars failed:", e);
+          }
+
+          // --- Слой 4 (P2.1): spec-glow для deep-sky объектов -----------------
+          // Босс 2026-05-31 (P2): Pleiades (cluster, голубой cyan-300 #67e8f9)
+          // и Andromeda (galaxy, розовый fuchsia-300 #f0abfc) — крупные glow
+          // sphere'ы, чтобы их видно как «не звезда» среди фоновых точек.
+          // Радиус 800 ед., чуть ближе фоновых звёзд (STARFIELD_RADIUS*0.998)
+          // для anti-z-fight с линиями созвездий.
+          try {
+            const DEEP_R = STARFIELD_RADIUS * 0.998;
+            for (const s of BRIGHT_STARS) {
+              if (!s.deepSky) continue;
+              const color = s.deepSky === "galaxy" ? 0xf0abfc : 0x67e8f9;
+              const v = raDecToVec3(s.ra, s.dec, DEEP_R);
+              const geo = new THREE.SphereGeometry(800, 16, 16);
+              const mat = new THREE.MeshBasicMaterial({
+                color,
+                transparent: true,
+                opacity: 0.45,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending,
+              });
+              const mesh = new THREE.Mesh(geo, mat);
+              mesh.position.set(v.x, v.y, v.z);
+              mesh.frustumCulled = false;
+              (mesh as { name?: string }).name = `deep-sky-${s.id}`;
+              group.add(mesh);
+            }
+          } catch (e) {
+            console.warn("[GlobeView] deep-sky spec-glow failed:", e);
           }
 
           scene.add(group);
