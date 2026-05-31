@@ -1401,32 +1401,47 @@ const SATURN_RINGS_FRAGMENT = `
   }
 `;
 
-// Uranus — бирюзово-голубой, очень тонкие облачные полосы. Особенность: наклон оси 98°
-// (учитывается при позиционировании tour-меша поворотом группы — катится по орбите).
+// Uranus — hi-end: бирюзово-голубой метановый шар, тончайшие облачные полосы,
+// полярная дымка (Voyager 2 fact), мягкий cool rim glow.
 const PLANET_FRAGMENT_URANUS = SUN_NOISE + `
   uniform vec3 sunDir;
   uniform float time;
   varying vec3 vWorldNormal;
   varying vec3 vPos;
   void main() {
-    float i = dot(normalize(vWorldNormal), normalize(sunDir));
-    float lit = smoothstep(-0.08, 0.12, i);
+    vec3 n = normalize(vWorldNormal);
+    vec3 sd = normalize(sunDir);
+    float i = dot(n, sd);
+    // Толстая метановая атмосфера → длинный мягкий terminator.
+    float lit = smoothstep(-0.20, 0.30, i);
     vec3 p = normalize(vPos);
-    // Базовый цвет Uranus rgb (175,238,238) — бирюзово-голубой (метановая дымка).
-    vec3 baseCol = vec3(0.68, 0.93, 0.93);
-    // Очень тонкие облачные полосы (Уран — слабая активность атмосферы).
+    float t = time * 0.03;
     float lat = p.y;
-    float bandPattern = sin(lat * 22.0 + fbm3(p * 3.5) * 0.6);
-    vec3 zoneCol = vec3(0.72, 0.95, 0.95);
-    vec3 beltCol = vec3(0.58, 0.84, 0.86);
-    baseCol = mix(beltCol, zoneCol, smoothstep(-0.5, 0.5, bandPattern));
-    float t = time * 0.025;
-    float haze = fbm3(vec3(p.x * 5.0 + t, p.y * 7.0, p.z * 5.0));
-    baseCol *= 0.92 + haze * 0.16;
-    // Полюс — чуть светлее (полярная дымка).
-    float polar = smoothstep(0.65, 0.95, abs(p.y));
-    baseCol = mix(baseCol, vec3(0.80, 0.97, 0.96), polar * 0.30);
-    vec3 base = baseCol * lit + vec3(0.020, 0.028, 0.032) * (1.0 - lit);
+    float lon = atan(p.z, p.x);
+    // Зональные ветры (Voyager 2 + Hubble fact — облачные системы редки, но есть).
+    float jetSpeed = sign(sin(lat * 5.0)) * 0.4;
+    float lonFlow = lon + t * jetSpeed;
+    // Тонкие полосы.
+    float bandCoarse = fbm3(vec3(cos(lonFlow) * 3.0, lat * 16.0, sin(lonFlow) * 3.0));
+    float bandFine   = fbm3(vec3(cos(lonFlow * 2.0) * 7.0, lat * 28.0, sin(lonFlow * 2.0) * 7.0));
+    // Палитра метановой дымки.
+    vec3 colCyan   = vec3(0.62, 0.92, 0.94);   // основа (метан-голубой)
+    vec3 colSky    = vec3(0.78, 0.97, 0.97);   // светлые полосы
+    vec3 colDeep   = vec3(0.42, 0.74, 0.82);   // глубокие полосы
+    vec3 baseCol = mix(colDeep, colSky, smoothstep(0.30, 0.72, bandCoarse));
+    baseCol = mix(baseCol, colCyan, bandFine * 0.30);
+    // Редкие облачные пятна (storms — Hubble увидел несколько).
+    float cloud1 = exp(-pow(length(p - normalize(vec3(0.55, 0.32, 0.77))) * 6.0, 2.0));
+    float cloud2 = exp(-pow(length(p - normalize(vec3(-0.62, -0.18, 0.76))) * 8.0, 2.0));
+    baseCol += vec3(0.12, 0.04, 0.02) * (cloud1 + cloud2) * lit;
+    // Полярная дымка — мягко светлее (Уран лежит на боку, полюс смотрит на Солнце).
+    float polar = smoothstep(0.55, 0.95, abs(lat));
+    baseCol = mix(baseCol, vec3(0.86, 1.00, 0.98), polar * 0.28);
+    // Освещение.
+    vec3 base = baseCol * (0.12 + lit * 0.90);
+    // Cool cyan rim glow (метан рассеивает синий-зелёный).
+    float fres = pow(1.0 - max(dot(n, normalize(-vPos)), 0.0), 2.4);
+    base += vec3(0.45, 0.85, 0.95) * fres * (0.25 + lit * 0.40);
     gl_FragColor = vec4(base, 1.0);
   }
 `;
