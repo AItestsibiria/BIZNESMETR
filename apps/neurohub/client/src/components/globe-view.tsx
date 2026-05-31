@@ -2823,24 +2823,28 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
 
           // ===== PHASE 1 — APPROACH =====
           if (directFlybyPhaseRef.current === "approach") {
-            // Direction от центра Земли (0,0,0) к мешу.
-            const dir = meshPos.clone();
-            const distFromCenter = dir.length();
-            if (distFromCenter < 0.001) {
-              // Меш в центре — невозможно, но guard.
+            // Босс 2026-05-31 (9-й инцидент «тап Mars → камера на Землю»):
+            // КОРЕНЬ — direction вычислялся от ЦЕНТРА ЗЕМЛИ (0,0,0) к планете.
+            // endCamPos = meshPos - dir*40 → если планета НА ОДНОЙ ЛИНИИ с Землёй
+            // с т.зр. камеры (низкая elongation или планета за/перед Землёй), точка
+            // в 40 единицах «к центру» от планеты попадает В САМУ Землю или рядом.
+            // Юзер видит: камера прилетела на Землю, label планеты в кадре.
+            //
+            // ФИКС: направление от ТЕКУЩЕЙ camera position к планете. endCamPos =
+            // planet - dir(cam→planet)*OFFSET → камера всегда останавливается в 40
+            // единицах ПЕРЕД планетой со стороны зрителя. Не может попасть в Землю,
+            // независимо от взаимного расположения Земля/планета/камера.
+            const dir = meshPos.clone().sub(startCamPos);
+            const distFromCam = dir.length();
+            if (distFromCam < 0.001) {
+              // Камера уже на планете — guard.
               isDirectFlybyActiveRef.current = false;
               directFlybyPhaseRef.current = "done";
               restoreControls();
               return;
             }
-            dir.divideScalar(distFromCenter); // normalize без allocation
-
-            // End camera position = mesh - dir*OFFSET (камера ВНЕ от центра Земли,
-            // смотрит на меш «из космоса»; чтобы быть ближе к мешу, чем к Земле,
-            // берём meshPos + dir*OFFSET — это "за мешем" с т.зр. центра Земли).
-            // Босс: «camera position = meshPos - dir.multiplyScalar(40) — назад от mesh
-            // на 40 world units». Здесь "назад от mesh" = ближе к Земле от меша,
-            // то есть meshPos - dir*OFFSET (т.к. dir указывает наружу от центра).
+            dir.divideScalar(distFromCam); // normalize: cam → planet
+            // endCamPos = planet - dir*OFFSET: 40 единиц ПЕРЕД планетой со стороны камеры.
             const endCamPos = meshPos.clone().sub(dir.clone().multiplyScalar(OFFSET));
 
             const tNow = performance.now();
