@@ -1964,6 +1964,107 @@ function makeSolarPlanetMesh(key: string): { group: any; bodyMat: any; ringsMat?
       ringMesh.rotation.y = THREE.MathUtils.degToRad(26.7);
       group.add(ringMesh);
     }
+    // 2026-05-31 v6 Jupiter faint ring (Voyager 1 discovery): тонкое пыльное
+    // кольцо, inner 1.40R outer 1.80R, opacity ~10%. Тоже tilt ~0 (плоскость экватора).
+    if (key === "jupiter") {
+      const innerR = cinematicR * 1.40;
+      const outerR = cinematicR * 1.80;
+      const ringFragment = `
+        varying vec2 vUv;
+        varying vec3 vPos;
+        void main() {
+          float ringR = vUv.y;
+          float main = smoothstep(0.05, 0.20, ringR) * (1.0 - smoothstep(0.80, 0.95, ringR));
+          float halo = sin(ringR * 60.0) * 0.5 + 0.5;
+          vec3 col = vec3(0.78, 0.66, 0.50);
+          float alpha = main * (0.55 + halo * 0.30) * 0.12;
+          if (alpha < 0.01) discard;
+          gl_FragColor = vec4(col, alpha);
+        }
+      `;
+      const jrMat = new THREE.ShaderMaterial({
+        vertexShader: SATURN_RINGS_VERTEX,
+        fragmentShader: ringFragment,
+        side: THREE.DoubleSide,
+        transparent: true,
+        depthWrite: false,
+      });
+      const jrGeom = new THREE.RingGeometry(innerR, outerR, 96, 1);
+      const jrMesh = new THREE.Mesh(jrGeom, jrMat);
+      jrMesh.rotation.x = Math.PI / 2;
+      group.add(jrMesh);
+    }
+    // Uranus faint rings (Voyager 2 confirmation) — наклон 98° (ось планеты).
+    if (key === "uranus") {
+      const innerR = cinematicR * 1.55;
+      const outerR = cinematicR * 1.95;
+      const ringFragment = `
+        varying vec2 vUv;
+        void main() {
+          float ringR = vUv.y;
+          // 13 узких eta/zeta/etc rings — много фурье-локальных пиков.
+          float r1 = exp(-pow((ringR - 0.20) * 50.0, 2.0));
+          float r2 = exp(-pow((ringR - 0.32) * 60.0, 2.0));
+          float r3 = exp(-pow((ringR - 0.45) * 80.0, 2.0));
+          float r4 = exp(-pow((ringR - 0.62) * 50.0, 2.0));
+          float r5 = exp(-pow((ringR - 0.78) * 80.0, 2.0));
+          float density = (r1 + r2 + r3 + r4 + r5) * 0.7;
+          vec3 col = vec3(0.42, 0.50, 0.62);
+          float alpha = density * 0.45;
+          if (alpha < 0.01) discard;
+          gl_FragColor = vec4(col, alpha);
+        }
+      `;
+      const urMat = new THREE.ShaderMaterial({
+        vertexShader: SATURN_RINGS_VERTEX,
+        fragmentShader: ringFragment,
+        side: THREE.DoubleSide,
+        transparent: true,
+        depthWrite: false,
+      });
+      const urGeom = new THREE.RingGeometry(innerR, outerR, 96, 1);
+      const urMesh = new THREE.Mesh(urGeom, urMat);
+      urMesh.rotation.x = Math.PI / 2;
+      urMesh.rotation.y = THREE.MathUtils.degToRad(98); // Уран на боку
+      group.add(urMesh);
+    }
+    // Neptune faint rings (Voyager 2 1989) — тонкие, с arcs (4 ярких сегмента).
+    if (key === "neptune") {
+      const innerR = cinematicR * 1.45;
+      const outerR = cinematicR * 1.85;
+      const ringFragment = `
+        varying vec2 vUv;
+        varying vec3 vPos;
+        void main() {
+          float ringR = vUv.y;
+          float main = smoothstep(0.10, 0.18, ringR) * (1.0 - smoothstep(0.85, 0.92, ringR));
+          // 4 яркие arcs (Liberte, Egalite, Fraternite, Courage).
+          float ang = atan(vPos.z, vPos.x);
+          float arcs = 0.0;
+          for (int i = 0; i < 4; i++) {
+            float a0 = float(i) * 1.57;  // 90° apart
+            float ad = mod(ang - a0 + 3.14, 6.28) - 3.14;
+            arcs += exp(-ad * ad * 60.0);
+          }
+          float density = main * (0.20 + arcs * 0.55);
+          vec3 col = vec3(0.45, 0.62, 0.95);
+          float alpha = density * 0.40;
+          if (alpha < 0.01) discard;
+          gl_FragColor = vec4(col, alpha);
+        }
+      `;
+      const npMat = new THREE.ShaderMaterial({
+        vertexShader: SATURN_RINGS_VERTEX,
+        fragmentShader: ringFragment,
+        side: THREE.DoubleSide,
+        transparent: true,
+        depthWrite: false,
+      });
+      const npGeom = new THREE.RingGeometry(innerR, outerR, 96, 1);
+      const npMesh = new THREE.Mesh(npGeom, npMat);
+      npMesh.rotation.x = Math.PI / 2;
+      group.add(npMesh);
+    }
     // 2026-05-31 v5 Atmospheric shell — газовым гигантам + Venus добавляем
     // BackSide Fresnel rim glow (как у Земли). При облёте — явный rim halo.
     let atmoMat: any; // eslint-disable-line @typescript-eslint/no-explicit-any
