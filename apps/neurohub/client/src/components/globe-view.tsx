@@ -3649,21 +3649,22 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       // Маршрут: Moon → OUTWARD (Mars→Neptune через пояс) → Sun → INWARD
       // (Mercury → Venus → Earth). Длительность ~3 минуты — каждый approach
       // 12-14 сек (визуально «летим долго»), orbit 6 сек.
-      // Луна — зачин тура.
-      seq.push({ key: "moon", approachMs: 8000, orbitMs: 6000 });
+      // Луна — зачин тура. Босс 2026-05-31 «облёт замедленно как у Земли».
+      seq.push({ key: "moon", approachMs: 8000, orbitMs: 14000 });
       // OUTWARD: от Земли наружу мимо Марса, поясов, газовых гигантов.
-      if (has("mars"))    seq.push({ key: "mars",    approachMs: 12000, orbitMs: 6000 });
+      if (has("mars"))    seq.push({ key: "mars",    approachMs: 12000, orbitMs: 14000 });
       if (prefs.mainBelt) seq.push({ key: "main_belt", approachMs: 10000, orbitMs: 0 });
-      if (has("jupiter")) seq.push({ key: "jupiter", approachMs: 14000, orbitMs: 8000 });
-      if (has("saturn"))  seq.push({ key: "saturn",  approachMs: 12000, orbitMs: 8000 });
-      if (has("uranus"))  seq.push({ key: "uranus",  approachMs: 14000, orbitMs: 6000 });
-      if (has("neptune")) seq.push({ key: "neptune", approachMs: 14000, orbitMs: 6000 });
+      if (has("jupiter")) seq.push({ key: "jupiter", approachMs: 14000, orbitMs: 22000 });
+      if (has("saturn"))  seq.push({ key: "saturn",  approachMs: 12000, orbitMs: 24000 });
+      if (has("uranus"))  seq.push({ key: "uranus",  approachMs: 14000, orbitMs: 16000 });
+      if (has("neptune")) seq.push({ key: "neptune", approachMs: 14000, orbitMs: 16000 });
       if (prefs.kuiperBelt) seq.push({ key: "kuiper_belt", approachMs: 10000, orbitMs: 0 });
-      // SUN — точка пересечения внешнего и внутреннего маршрутов.
-      seq.push({ key: "sun", approachMs: 16000, orbitMs: 8000 });
+      // SUN — центр системы, большое тело, нужен длинный облёт (Босс «масштаба
+      // не хватает, больше времени на облёт Солнца»).
+      seq.push({ key: "sun", approachMs: 16000, orbitMs: 28000 });
       // INWARD: облёт внутренних планет на пути обратно.
-      if (has("mercury")) seq.push({ key: "mercury", approachMs: 10000, orbitMs: 6000 });
-      if (has("venus"))   seq.push({ key: "venus",   approachMs: 8000, orbitMs: 6000 });
+      if (has("mercury")) seq.push({ key: "mercury", approachMs: 10000, orbitMs: 12000 });
+      if (has("venus"))   seq.push({ key: "venus",   approachMs: 8000, orbitMs: 14000 });
       if (has("earth"))   seq.push({ key: "earth",   approachMs: 8000, orbitMs: 0 });
       // Возврат — всегда.
       seq.push({ key: "return", approachMs: 6000, orbitMs: 0 });
@@ -4606,31 +4607,42 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                   );
                 }
               } catch { /* no-op */ }
-              // 2026-05-31 Эффект движения в космосе (parallax): создаём облако
-              // космической пыли (400 точек в кубе ±5000 wu от Земли). При
-              // движении камеры они видимо пролетают мимо. Точки крупные с
-              // sizeAttenuation=true — ближние большие, дальние маленькие.
+              // 2026-05-31 v2 Эффект движения в космосе (parallax) — 3 СТАТИЧНЫХ
+              // слоя облаков звёзд разной близости (Босс «parallax не чувствуется»).
+              // Camera летит сквозь них — ближние мчат быстро, средние плавно,
+              // дальние медленно (естественный parallax). Облака НЕ follow камеру
+              // (старая ошибка) — они зафиксированы в world-coords, объём огромен
+              // (±70000 wu покрывает весь маршрут вплоть до Нептуна 45000).
               try {
                 if (!spaceDustRef.current) {
-                  const N = 400;
-                  const positions = new Float32Array(N * 3);
-                  for (let i = 0; i < N; i++) {
-                    positions[i * 3 + 0] = (Math.random() - 0.5) * 10000;
-                    positions[i * 3 + 1] = (Math.random() - 0.5) * 10000;
-                    positions[i * 3 + 2] = (Math.random() - 0.5) * 10000;
-                  }
-                  const dustGeo = new THREE.BufferGeometry();
-                  dustGeo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-                  const dustMat = new THREE.PointsMaterial({
-                    size: 4,
-                    color: 0xffffff,
-                    sizeAttenuation: true,
-                    transparent: true,
-                    opacity: 0.55,
-                  });
-                  const dust = new THREE.Points(dustGeo, dustMat);
-                  scene.add(dust);
-                  spaceDustRef.current = dust;
+                  const dustGroup = new THREE.Group();
+                  const makeLayer = (count: number, halfSize: number, size: number, opacity: number) => {
+                    const positions = new Float32Array(count * 3);
+                    for (let i = 0; i < count; i++) {
+                      positions[i * 3 + 0] = (Math.random() - 0.5) * halfSize * 2;
+                      positions[i * 3 + 1] = (Math.random() - 0.5) * halfSize * 2;
+                      positions[i * 3 + 2] = (Math.random() - 0.5) * halfSize * 2;
+                    }
+                    const geo = new THREE.BufferGeometry();
+                    geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+                    const mat = new THREE.PointsMaterial({
+                      size,
+                      color: 0xffffff,
+                      sizeAttenuation: true,
+                      transparent: true,
+                      opacity,
+                      depthWrite: false,
+                    });
+                    return new THREE.Points(geo, mat);
+                  };
+                  // Layer 1: близкие крупные пылинки (400 шт, ±5000 wu) — быстрый parallax.
+                  dustGroup.add(makeLayer(400, 5000, 8, 0.7));
+                  // Layer 2: средние (1500 шт, ±25000 wu) — плавный parallax.
+                  dustGroup.add(makeLayer(1500, 25000, 16, 0.6));
+                  // Layer 3: дальние (3000 шт, ±70000 wu) — медленный parallax + объём.
+                  dustGroup.add(makeLayer(3000, 70000, 32, 0.5));
+                  scene.add(dustGroup);
+                  spaceDustRef.current = dustGroup;
                 }
               } catch { /* no-op */ }
               // 2026-05-31 Тост «🚀 Поехали!» при старте тура (Гагаринский запал).
@@ -4988,21 +5000,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                     sunMeshRef.current.scale.set(scale, scale, scale);
                   }
                 } catch { /* no-op */ }
-                // 2026-05-31 Space dust follow camera (Босс «эффект движения в
-                // космосе»). Если камера ушла >4000 wu от центра облака —
-                // переносим облако в текущую позицию камеры (точки в random
-                // позициях ±5000 вокруг центра группы → камера всегда внутри).
-                try {
-                  if (spaceDustRef.current) {
-                    const dp = spaceDustRef.current.position;
-                    const dx = camera.position.x - dp.x;
-                    const dy = camera.position.y - dp.y;
-                    const dz = camera.position.z - dp.z;
-                    if (Math.hypot(dx, dy, dz) > 4000) {
-                      dp.set(camera.position.x, camera.position.y, camera.position.z);
-                    }
-                  }
-                } catch { /* no-op */ }
+                // 2026-05-31 v2: облако звёзд СТАТИЧНО (3 слоя, ±70000 wu объём
+                // покрывает весь маршрут). Follow-логика убрана — она ломала
+                // parallax (точки всегда оставались возле камеры → нет движения).
 
                 // OrbitControls target на текущий объект.
                 try {
@@ -5242,10 +5242,11 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             } catch { /* no-op */ }
             try {
               if (spaceDustRef.current) {
-                const dust = spaceDustRef.current;
-                dust.parent?.remove?.(dust);
-                dust.geometry?.dispose?.();
-                dust.material?.dispose?.();
+                const dustGroup = spaceDustRef.current;
+                dustGroup.parent?.remove?.(dustGroup);
+                for (const child of dustGroup.children || []) {
+                  try { child.geometry?.dispose?.(); child.material?.dispose?.(); } catch { /* no-op */ }
+                }
                 spaceDustRef.current = null;
               }
             } catch { /* no-op */ }

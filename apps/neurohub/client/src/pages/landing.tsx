@@ -4313,9 +4313,13 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                 description: track ? `Под трек: ${track.displayTitle || "Без названия"}` : "Тихий полёт — Юрий Гагарин",
               });
             } catch { /* no-op — toast необязателен */ }
-            // 2. Если выбран трек — запускаем через persistent player. Persistent-audio-only rule:
-            //    audio управляется только из landing.tsx через playTrack(). track null = silent (Гагарин).
-            if (track) {
+            // 2026-05-31 Босс «трек не начинает играть»: если track не выбран —
+            // автозапуск первого трека из плейлиста (тур = «полёт под музыку»).
+            const tourTrack = track || ((filteredMusic && filteredMusic.length > 0) ? filteredMusic[0] : null);
+            // 2. Если выбран/назначен трек — запускаем через persistent player.
+            //    Persistent-audio-only rule: audio только через playTrack().
+            if (tourTrack) {
+              const track = tourTrack;
               try {
                 // Найти трек в текущем плейлисте (filteredMusic) — иначе используем как есть.
                 const found = (filteredMusic || []).find((t: any) => String(t.id) === String(track.id));
