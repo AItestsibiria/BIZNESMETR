@@ -2624,13 +2624,20 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       // ретраим до 30 кадров.
       let retries = 0;
       const MAX_RETRIES = 30;
-      // Босс 2026-05-31: эталон Земля↔Марс 10 сек. Среднее расстояние Земля-Марс
-      // ~0.65 AU = 975 units (1 AU = 1500). Скорость = 97.5 units/sec = 10.26 ms/unit.
-      // Для других планет — пропорционально дистанции от текущей позиции камеры.
-      // Cap [3 сек .. 60 сек] чтобы Нептун не летел 9 минут.
-      const MS_PER_UNIT = 10.26;
+      // Босс 2026-05-31: speedMode из localStorage solar-prefs.
+      //   "light" — эталон Земля↔Марс 10 сек, cap [3..60с] (≈10.26 ms/unit)
+      //   "slow"  — все полёты cap 180с (≈ms_per_unit = 180000/maxDist)
+      let speedMode: "light" | "slow" = "light";
+      try {
+        const raw = localStorage.getItem("muza:sis-prefs");
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (p?.speedMode === "slow") speedMode = "slow";
+        }
+      } catch { /* no-op */ }
+      const MS_PER_UNIT = speedMode === "slow" ? 4.0 : 10.26;
       const MIN_DURATION_MS = 3000;
-      const MAX_DURATION_MS = 60000;
+      const MAX_DURATION_MS = speedMode === "slow" ? 180000 : 60000;
       const OFFSET = 40;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const gg: any = globeRef.current;

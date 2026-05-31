@@ -39,6 +39,10 @@ export type SolarPrefs = {
   kuiperBelt: boolean;
   saturnThroughRings: boolean;
   lastTrackId: string | null;
+  // Босс 2026-05-31: скорость полёта камеры между планетами.
+  // light — «световая» (эталон Земля↔Марс ≈10с, cap 3-60с)
+  // slow  — медленный реалистичный (max 3 мин на любой полёт)
+  speedMode: "light" | "slow";
 };
 
 // ────────────────────────────────────────────────────────────
@@ -151,6 +155,8 @@ const DEFAULT_PREFS: SolarPrefs = {
   kuiperBelt: false,
   saturnThroughRings: true,
   lastTrackId: null,
+  // Босс 2026-05-31 default — световая скорость.
+  speedMode: "light",
 };
 
 // ────────────────────────────────────────────────────────────
@@ -216,6 +222,7 @@ function loadPrefs(): SolarPrefs {
       kuiperBelt: typeof parsed.kuiperBelt === "boolean" ? parsed.kuiperBelt : DEFAULT_PREFS.kuiperBelt,
       saturnThroughRings: typeof parsed.saturnThroughRings === "boolean" ? parsed.saturnThroughRings : DEFAULT_PREFS.saturnThroughRings,
       lastTrackId: parsed.lastTrackId == null ? null : String(parsed.lastTrackId),
+      speedMode: parsed.speedMode === "slow" ? "slow" : DEFAULT_PREFS.speedMode,
     };
   } catch {
     return DEFAULT_PREFS;
@@ -624,6 +631,23 @@ function Step1Body({
           Дополнительно
         </div>
         <div className="space-y-2">
+          {/* Босс 2026-05-31: выбор скорости облёта. По умолчанию — световая. */}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => onUpdate({ speedMode: "light" })}
+              className={`flex-1 px-3 py-2.5 rounded-xl border text-sm font-medium transition-all ${prefs.speedMode === "light"
+                ? "border-purple-300/55 bg-gradient-to-r from-purple-500/15 via-fuchsia-500/15 to-cyan-500/15 text-white"
+                : "border-white/20 bg-transparent text-white/70 hover:border-white/40"}`}
+            >⚡ Световая</button>
+            <button
+              type="button"
+              onClick={() => onUpdate({ speedMode: "slow" })}
+              className={`flex-1 px-3 py-2.5 rounded-xl border text-sm font-medium transition-all ${prefs.speedMode === "slow"
+                ? "border-purple-300/55 bg-gradient-to-r from-purple-500/15 via-fuchsia-500/15 to-cyan-500/15 text-white"
+                : "border-white/20 bg-transparent text-white/70 hover:border-white/40"}`}
+            >🐢 3 минуты</button>
+          </div>
           <OptionRow
             label="🌙 Со спутниками планет"
             description="Луна, Ио, Европа, Титан и другие — главные ~17 лун"
