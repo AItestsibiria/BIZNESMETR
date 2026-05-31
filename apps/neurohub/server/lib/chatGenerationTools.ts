@@ -906,4 +906,132 @@ KRITICHESKOE OGRANICHENIE: текст МАКСИМУМ 350 символов вк
       message: `Генерация #${id} отменена.${gen.cost ? " Баланс возвращён." : ""}`,
     });
   },
+
+  // Eugene 2026-05-31 PACK C — propose_premium_paywall handler. Approval flow:
+  //   1. confirm_spend != true → возвращает approval_required JSON с описанием
+  //      тарифа + текущего balance + bonusTracks → frontend (floating-consultant)
+  //      рендерит ChatApprovalCard «Подтвердить 299 ₽ / Отмена».
+  //   2. confirm_spend === true → проверяет нет ли активной подписки text_quality
+  //      (idempotency), затем создаёт invoice через тот же pipeline что
+  //      muzaTools.ts issue_invoice (Reuse-working-solutions rule). Возвращает
+  //      payUrl на Robokassa. После реальной оплаты — TARIFF_TO_TIER callback
+  //      в routes.ts активирует подписку (Premium voice-messages rule pattern).
+  //   3. Ownership/audit: только свой userId, recordAuditEntry на каждом
+  //      успешном вызове (Backup-before-edit rule).
+  async propose_premium_paywall(input, ctx) {
+    const userId = requireUserId(ctx);
+    if (!userId) {
+      return asJson({
+        ok: false,
+        error: "Юзер не залогинен. Премиум доступен только авторизованным.",
+        needs_auth: true,
+      });
+    }
+    const tariff = String(input?.tariff || "").trim();
+    if (tariff !== "subscription" && tariff !== "oneoff") {
+      return asJson({ ok: false, error: "tariff должно быть 'subscription' или 'oneoff'." });
+    }
+    const reason = String(input?.reason || "").trim().slice(0, 200);
+    if (!reason) return asJson({ ok: false, error: "Нужно указать reason (1-200 chars)." });
+    const confirmSpend = input?.confirm_spend === true;
+
+    const isSub = tariff === "subscription";
+    const kopecks = isSub ? PREMIUM_TEXT_QUALITY_KOPECKS : PREMIUM_LYRICS_ONEOFF_KOPECKS;
+    const label = isSub ? PREMIUM_TEXT_QUALITY_LABEL : PREMIUM_LYRICS_ONEOFF_LABEL;
+    const tariffKey = isSub ? "premium_text_quality" : "premium_lyrics_oneoff";
+    const tariffDescription = isSub
+      ? "Премиум-подписка text_quality: безлимитные 4-step lyrics-драфты (Draft→Critique→Refine→Polish) на 30 дней"
+      : "Премиум-драфт текста песни (4-step refinement)";
+
+    const user = storage.getUser(userId);
+    if (!user) return asJson({ ok: false, error: "Пользователь не найден." });
+    const balanceRub = Math.floor((user.balance || 0) / 100);
+    const balanceLabel = `${balanceRub} ₽`;
+    const bonusTracks = Number((user as any).bonusTracks || 0);
+
+    // Idempotency: для подписки — проверим что нет активной text_quality.
+    if (isSub) {
+      try {
+        const active: any = sqliteDb.prepare(`
+          SELECT id, expires_at FROM premium_subscriptions
+          WHERE user_id = ? AND tier = 'text_quality' AND status = 'active'
+          ORDER BY id DESC LIMIT 1
+        `).get(userId);
+        if (active && (!active.expires_at || new Date(active.expires_at).getTime() > Date.now())) {
+          return asJson({
+            ok: false,
+            error: `У тебя уже активная подписка text_quality${active.expires_at ? ` (до ${String(active.expires_at).slice(0, 10)})` : ""}. Премиум доступен — пользуйся!`,
+            already_subscribed: true,
+            expires_at: active.expires_at || null,
+          });
+        }
+      } catch {}
+    }
+
+    // Approval flow (Chat-tool-calling rule): без confirm_spend → preview.
+    if (!confirmSpend) {
+      return asJson({
+        ok: false,
+        approval_required: true,
+        tool: "propose_premium_paywall",
+        estimated_cost_kopecks: kopecks,
+        estimated_cost_label: label,
+        user_balance_label: balanceLabel,
+        user_bonus_tracks: bonusTracks,
+        params_preview: {
+          tariff,
+          tariff_key: tariffKey,
+          description: tariffDescription,
+          reason,
+        },
+        message: isSub
+          ? `Оформить премиум-подписку text_quality (${label}) — безлимит на 4-step lyrics + приоритет? ${reason}`
+          : `Выписать счёт на premium-draft (${label}) — текст в 4 итерации (Draft→Critique→Refine→Polish)? ${reason}`,
+      });
+    }
+
+    // Confirm — выписываем proforma-invoice. Используем тот же pipeline что
+    // muzaTools.ts issue_invoice (не дублируем business logic, разделяем БД).
+    try {
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      const meta = JSON.stringify({
+        chat_session_id: ctx.sessionId ?? null,
+        proposed_via: "propose_premium_paywall",
+        reason,
+      });
+      const result: any = sqliteDb.prepare(`
+        INSERT INTO invoices
+          (user_id, issued_by, amount_rub, description, tariff_key, status, expires_at, meta)
+        VALUES (?, 'muza-paywall', ?, ?, ?, 'issued', ?, ?)
+      `).run(userId, Math.round(kopecks / 100), tariffDescription, tariffKey, expiresAt, meta);
+      const invoiceId = Number(result?.lastInsertRowid ?? 0);
+      const payUrl = `${PUBLIC_URL}/api/invoice/${invoiceId}/pay`;
+
+      auditTool({
+        ctx,
+        action: "create",
+        entity: "chat_tool:propose_premium_paywall",
+        entityKey: String(invoiceId),
+        after: { tariff, tariff_key: tariffKey, kopecks, reason },
+      });
+
+      return asJson({
+        ok: true,
+        data: {
+          invoice_id: invoiceId,
+          tariff,
+          tariff_key: tariffKey,
+          amount_kopecks: kopecks,
+          amount_label: label,
+          pay_url: payUrl,
+          expires_at: expiresAt,
+        },
+        message: isSub
+          ? `✓ Счёт #${invoiceId} выписан: ${label}. Оплати → ${payUrl} → premium активируется автоматически (24ч на оплату).`
+          : `✓ Счёт #${invoiceId} выписан: ${label}. Оплати → ${payUrl} → как только пройдёт оплата — пишем 4-step draft (24ч на оплату).`,
+      });
+    } catch (e: any) {
+      return asJson({ ok: false, error: `Не удалось выписать счёт: ${e?.message || e}` });
+    }
+  },
 };

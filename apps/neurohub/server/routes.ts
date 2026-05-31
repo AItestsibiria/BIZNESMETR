@@ -3890,9 +3890,11 @@ export async function registerRoutes(
           return;
         }
         // Eugene 2026-05-21: chat generation tools
+        // Eugene 2026-05-31 PACK C: + propose_premium_paywall (approval flow для paywall).
         const isChatGenTool = [
           "generate_lyrics", "rewrite_lyrics", "create_music_job",
           "publish_asset", "get_generation_status",
+          "propose_premium_paywall",
         ].includes(toolName);
         if (!isChatGenTool) return;
         try {

@@ -677,6 +677,41 @@ export function FloatingConsultant() {
   // После того как юзер ушёл с поля (no focus), через 5 сек возвращаемся обратно.
   useEffect(() => {
     if (typeof document === "undefined") return;
+    // Eugene 2026-05-31 PACK C — FAB anti-overlap для модалок/диалогов/
+    // раскрытых обложек/3D globe. Расширение auto-avoidance: помимо focused
+    // input помечаем блокирующими ВИДИМЫЕ overlay-элементы по селекторам
+    // (Layout-fit-no-overlap rule, Persistent-audio-only rule — Музa-FAB
+    // не должен перекрывать модалки и наоборот).
+    //   Возврат: 5 сек после исчезновения всех блокирующих rect'ов
+    //   (тот же тайминг что input-flow).
+    const BLOCK_SELECTORS = [
+      "[data-musa-modal]",          // явный opt-in для любой будущей модалки
+      "[data-cover-expanded]",      // раскрытая обложка трека (landing/dashboard)
+      "#globe-fullscreen",          // 3D globe в fullscreen режиме
+      '[role="dialog"]',            // generic dialog (shadcn/ui, RadixUI)
+      '[role="alertdialog"]',       // alert dialog тоже блокирует
+    ];
+    const collectBlockingRects = (): DOMRect[] => {
+      const out: DOMRect[] = [];
+      for (const sel of BLOCK_SELECTORS) {
+        let nodes: NodeListOf<Element>;
+        try { nodes = document.querySelectorAll(sel); } catch { continue; }
+        for (const n of Array.from(nodes)) {
+          const el = n as HTMLElement;
+          // Skip невидимое (display:none / visibility:hidden / opacity:0 /
+          // collapsed inside aria-hidden) — не блокирует визуально.
+          const cs = (() => { try { return getComputedStyle(el); } catch { return null; } })();
+          if (!cs) continue;
+          if (cs.display === "none" || cs.visibility === "hidden") continue;
+          if (parseFloat(cs.opacity || "1") < 0.05) continue;
+          if (el.getAttribute("aria-hidden") === "true") continue;
+          const r = el.getBoundingClientRect();
+          if (r.width < 80 || r.height < 80) continue; // мелочь — не считаем overlay
+          out.push(r);
+        }
+      }
+      return out;
+    };
     const interval = setInterval(() => {
       if (dragModeRef.current) return; // юзер тащит — не вмешиваемся
       const { w: fabW, h: fabH } = getFabSize();
@@ -688,8 +723,33 @@ export function FloatingConsultant() {
         active.getAttribute("contenteditable") === "true" ||
         active.getAttribute("role") === "textbox"
       );
-      if (!isInputLike) {
-        // Никто не редактирует — если мы автомувнули раньше, возвращаемся к юзер-позиции
+
+      // Собираем ВСЕ блокирующие rect'ы: (1) focused input если есть +
+      // (2) видимые overlay-элементы по селекторам.
+      const margin = 32;
+      const blockingRects: { left: number; top: number; right: number; bottom: number }[] = [];
+      if (isInputLike) {
+        const ar = active!.getBoundingClientRect();
+        if (ar.width >= 40 && ar.height >= 16) {
+          blockingRects.push({
+            left: ar.left - margin,
+            top: ar.top - margin,
+            right: ar.right + margin,
+            bottom: ar.bottom + margin,
+          });
+        }
+      }
+      for (const r of collectBlockingRects()) {
+        blockingRects.push({
+          left: r.left - margin,
+          top: r.top - margin,
+          right: r.right + margin,
+          bottom: r.bottom + margin,
+        });
+      }
+
+      if (blockingRects.length === 0) {
+        // Никто не блокирует — если автомувнули раньше, возвращаемся через 5с.
         if (userPositionBeforeAutoMoveRef.current && Date.now() - lastAutoMoveRef.current > 5000) {
           const back = userPositionBeforeAutoMoveRef.current;
           userPositionBeforeAutoMoveRef.current = null;
@@ -697,30 +757,27 @@ export function FloatingConsultant() {
         }
         return;
       }
-      const activeRect = active!.getBoundingClientRect();
-      // Игнорируем крошечные элементы (likely невидимый focus)
-      if (activeRect.width < 40 || activeRect.height < 16) return;
-      const margin = 32;
-      const expanded = {
-        left: activeRect.left - margin,
-        top: activeRect.top - margin,
-        right: activeRect.right + margin,
-        bottom: activeRect.bottom + margin,
-      };
+
       const musaRect = {
         left: fabPos.x, top: fabPos.y,
         right: fabPos.x + fabW, bottom: fabPos.y + fabH,
       };
-      const overlaps = !(
-        musaRect.right < expanded.left ||
-        musaRect.left > expanded.right ||
-        musaRect.bottom < expanded.top ||
-        musaRect.top > expanded.bottom
-      );
-      if (!overlaps) return;
-      // Найти свободный угол — дальше всего от центра active rect и не overlap.
-      const cx = (activeRect.left + activeRect.right) / 2;
-      const cy = (activeRect.top + activeRect.bottom) / 2;
+      const overlapsAny = blockingRects.some(b => !(
+        musaRect.right < b.left ||
+        musaRect.left > b.right ||
+        musaRect.bottom < b.top ||
+        musaRect.top > b.bottom
+      ));
+      if (!overlapsAny) return;
+
+      // Центр масс ВСЕХ блокирующих — двигаемся максимально далеко от него.
+      let sumCx = 0, sumCy = 0;
+      for (const b of blockingRects) {
+        sumCx += (b.left + b.right) / 2;
+        sumCy += (b.top + b.bottom) / 2;
+      }
+      const cx = sumCx / blockingRects.length;
+      const cy = sumCy / blockingRects.length;
       const W = window.innerWidth;
       const H = window.innerHeight;
       const candidates = [
@@ -729,14 +786,16 @@ export function FloatingConsultant() {
         { x: 8, y: H - fabH - 8 },                   // bottom-left
         { x: W - fabW - 8, y: H - fabH - 8 },        // bottom-right
       ];
+      const isFreeOfAll = (c: { x: number; y: number }) =>
+        blockingRects.every(b => (
+          c.x + fabW < b.left || c.x > b.right ||
+          c.y + fabH < b.top || c.y > b.bottom
+        ));
       const freeCorners = candidates
         .map(c => ({
           ...c,
           dist: Math.hypot(c.x + fabW / 2 - cx, c.y + fabH / 2 - cy),
-          free: !(
-            c.x + fabW < expanded.left || c.x > expanded.right ||
-            c.y + fabH < expanded.top || c.y > expanded.bottom
-          ),
+          free: isFreeOfAll(c),
         }))
         .filter(c => c.free)
         .sort((a, b) => b.dist - a.dist);
@@ -2259,8 +2318,88 @@ export function FloatingConsultant() {
       ];
       if (Math.random() < 0.4) showCoBubble(phrases[Math.floor(Math.random() * phrases.length)], 6000);
     };
-    const onPaymentSuccess = () => {
+    // Eugene 2026-05-31 PACK C — post-payment continuation. Когда юзер
+    // возвращается после Robokassa (или Robokassa Result callback дошёл) —
+    // окно диспатчит `muza:payment-success` (detail: {invoiceId?, tariffKey?,
+    // proposedGeneration?}). Музa:
+    //   1. Показывает праздничный bubble.
+    //   2. Открывает чат (если ещё не открыт) и инжектит bot-сообщение
+    //      «✅ Премиум активирован. Продолжаем!».
+    //   3. Опционально подгружает context из user_memory (refresh — данные
+    //      могли обновиться после оплаты — premium tier).
+    //   4. Если detail.proposedGeneration был — auto-trigger через
+    //      doSendMessage с confirm_spend=true (LLM повторит create_music_job
+    //      с подтверждением).
+    const onPaymentSuccess = (e: Event) => {
       showCoBubble(`Поздравляю с оплатой! Креативим? ✨`, 8000);
+      const detail = ((e as CustomEvent).detail || {}) as {
+        invoiceId?: number;
+        tariffKey?: string;
+        proposedGeneration?: {
+          mode?: string;
+          genre?: string;
+          mood?: string;
+          voice?: string;
+          lyrics?: string;
+          title?: string;
+        };
+      };
+      const tariffKey = String(detail.tariffKey || "");
+      const isPremium = tariffKey.startsWith("premium_");
+      // Локальная пометка премиум-tier для UI (badge / toggle / icons).
+      try {
+        if (isPremium) sessionStorage.setItem("muza_premium_active", "1");
+      } catch {}
+      // Открываем чат, если ещё не открыт (idempotent внутри openChat).
+      void openChat();
+      // Inject bot-message: «✅ Премиум активирован. Продолжаем!».
+      // Setter после короткой задержки, чтобы init сессии успел (chat init —
+      // async, грузит history). Если history ещё не пришла — добавится после;
+      // setChatMsgs(prev => ...) сохранит наш bot-msg в любом случае.
+      window.setTimeout(() => {
+        const successText = isPremium
+          ? `✅ Премиум активирован. Продолжаем с того места — теперь без ограничений ✨`
+          : `✅ Оплата прошла. Продолжаем!`;
+        setChatMsgs(prev => [...prev, { role: "bot" as const, text: successText }]);
+      }, 250);
+      // Refresh user_memory (после премиум-активации в кабинете могут
+      // появиться новые факты / преференции — Muza-knowledge-governance).
+      // Fire-and-forget; ошибки не должны ломать UI.
+      try {
+        const tok = (() => {
+          try { return localStorage.getItem("auth_token") || ""; } catch { return ""; }
+        })();
+        if (tok) {
+          fetch("/api/account/memory", {
+            headers: { Authorization: `Bearer ${tok}` },
+            cache: "no-store",
+          })
+            .then(r => r.ok ? r.json() : null)
+            .catch(() => {});
+        }
+      } catch {}
+      // Если был proposedGeneration — auto-trigger continuation через
+      // chat (LLM вызовет create_music_job с confirm_spend=true).
+      // Задержка 600ms — даёт чату открыться + history подгрузиться + наш
+      // success-msg отрендериться. Анти-двойной trigger: sessionStorage guard.
+      const pg = detail.proposedGeneration;
+      if (pg && (pg.mode || pg.lyrics || pg.title)) {
+        const triggerKey = `muza_paywall_continue_${detail.invoiceId || Date.now()}`;
+        try {
+          if (sessionStorage.getItem(triggerKey)) return;
+          sessionStorage.setItem(triggerKey, "1");
+        } catch {}
+        window.setTimeout(() => {
+          const parts: string[] = ["Я оплатил — продолжаем."];
+          if (pg.title) parts.push(`Название: «${pg.title}».`);
+          if (pg.lyrics) parts.push(`Текст готов (использую то что обсуждали).`);
+          if (pg.genre) parts.push(`Жанр: ${pg.genre}.`);
+          if (pg.mood) parts.push(`Настроение: ${pg.mood}.`);
+          if (pg.voice) parts.push(`Голос: ${pg.voice}.`);
+          parts.push("Запускай create_music_job сразу с confirm_spend=true — премиум активен, всё подтверждено.");
+          void doSendMessage(parts.join(" "));
+        }, 600);
+      }
     };
     const onCounterUp = () => {
       if (Math.random() < 0.2) {
@@ -2281,7 +2420,9 @@ export function FloatingConsultant() {
       window.removeEventListener("muza:payment-success", onPaymentSuccess);
       window.removeEventListener("muza:counter-up", onCounterUp);
     };
-  }, [visible, chatOpen]);
+    // Eugene 2026-05-31 PACK C: openChat + doSendMessage добавлены в deps —
+    // без них post-payment continuation использовал бы stale closures.
+  }, [visible, chatOpen, openChat, doSendMessage]);
 
   // Eugene 2026-05-24 Босс «Музa не рассказывает факты о музыке + после
   // нажатия облако не уходить со страницы — здесь появится трек, смысл».
