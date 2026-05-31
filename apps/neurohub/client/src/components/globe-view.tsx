@@ -1778,21 +1778,38 @@ function makeAsteroidBelt(
 ): any {
   try {
     const positions = new Float32Array(count * 3);
+    const colors = new Float32Array(count * 3);
+    const baseR = color[0] / 255;
+    const baseG = color[1] / 255;
+    const baseB = color[2] / 255;
     for (let i = 0; i < count; i++) {
-      const r = innerR + Math.random() * (outerR - innerR);
+      // 2026-05-31 v6 NASA-realistic: kepler density ~ r^-2, cluster ближе к inner edge.
+      // Distance distribution с power(0.4) → больше частиц на inner радиусе.
+      const u = Math.pow(Math.random(), 0.4);
+      const r = innerR + u * (outerR - innerR);
       const ang = Math.random() * Math.PI * 2;
+      // Gaussian Y-spread (большинство в плоскости эклиптики).
+      const yGauss = (Math.random() + Math.random() + Math.random() - 1.5) * yDisp;
       positions[i * 3] = Math.cos(ang) * r;
-      positions[i * 3 + 1] = (Math.random() - 0.5) * 2 * yDisp;
+      positions[i * 3 + 1] = yGauss;
       positions[i * 3 + 2] = Math.sin(ang) * r;
+      // Per-asteroid brightness variation (0.55..1.0) — ice/rock mix.
+      const brightness = 0.55 + Math.random() * 0.45;
+      // Тёплый/холодный shift (±0.12) для realism mix C-type/S-type/M-type.
+      const warmShift = (Math.random() - 0.5) * 0.24;
+      colors[i * 3]     = Math.min(1.0, Math.max(0.0, baseR * brightness + warmShift * 0.5));
+      colors[i * 3 + 1] = Math.min(1.0, Math.max(0.0, baseG * brightness));
+      colors[i * 3 + 2] = Math.min(1.0, Math.max(0.0, baseB * brightness - warmShift * 0.3));
     }
     const geom = new THREE.BufferGeometry();
     geom.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geom.setAttribute("color", new THREE.BufferAttribute(colors, 3));
     const mat = new THREE.PointsMaterial({
-      color: new THREE.Color(color[0] / 255, color[1] / 255, color[2] / 255),
       size: particleSize,
-      sizeAttenuation: false,    // постоянный размер на экране — стабильно на mobile
+      sizeAttenuation: true,         // близкие крупнее, дальние мельче → объём
+      vertexColors: true,
       transparent: true,
-      opacity: 0.85,
+      opacity: 0.92,
       depthWrite: false,
     });
     return new THREE.Points(geom, mat);
@@ -5288,20 +5305,27 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
               }
 
               // ── Lazy-создание поясов астероидов — один раз за тур, persist.
+              // 2026-05-31 v6 NASA real-radii: Main 2.0-3.5 AU = 3000-5250 wu,
+              // Kuiper 30-50 AU = 45000-75000 wu. Центр = position Солнца (snapshot.sun).
               if (isBelt) {
                 const beltRef = planetKey === "main_belt" ? solarBeltMainRef : solarBeltKuiperRef;
                 if (!beltRef.current) {
                   if (planetKey === "main_belt") {
-                    // Главный пояс: ~1500 точек, серо-коричневые, центр ~50, диапазон 30..80.
-                    const belt = makeAsteroidBelt(1500, 30, 80, 2.5, [160, 140, 110], 0.6);
-                    if (belt) { scene.add(belt); beltRef.current = belt; }
+                    const belt = makeAsteroidBelt(3500, 3000, 5250, 80, [180, 150, 110], 2.5);
+                    if (belt) {
+                      if (solarSnapshot.sun) belt.position.set(solarSnapshot.sun.x, solarSnapshot.sun.y, solarSnapshot.sun.z);
+                      scene.add(belt);
+                      beltRef.current = belt;
+                    }
                   } else {
-                    // Пояс Койпера: ~800 точек, холодные сине-зелёные, центр ~120, диапазон 100..160.
-                    const belt = makeAsteroidBelt(800, 100, 160, 4.0, [120, 200, 220], 0.5);
-                    if (belt) { scene.add(belt); beltRef.current = belt; }
+                    const belt = makeAsteroidBelt(4500, 45000, 75000, 400, [130, 200, 220], 4.0);
+                    if (belt) {
+                      if (solarSnapshot.sun) belt.position.set(solarSnapshot.sun.x, solarSnapshot.sun.y, solarSnapshot.sun.z);
+                      scene.add(belt);
+                      beltRef.current = belt;
+                    }
                   }
                 }
-                // Лёгкое вращение пояса вокруг Y — визуальный эффект движения.
                 if (beltRef.current) {
                   beltRef.current.rotation.y = (now - solarStepStartT) / 1000 * 0.05;
                 }
