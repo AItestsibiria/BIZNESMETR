@@ -1044,25 +1044,49 @@ const PLANET_FRAGMENT_MERCURY = SUN_NOISE + `
   varying vec3 vWorldNormal;
   varying vec3 vPos;
   void main() {
-    float i = dot(normalize(vWorldNormal), normalize(sunDir));
-    float lit = smoothstep(-0.08, 0.12, i);
-    vec3 litCol  = vec3(0.78, 0.78, 0.80);    // серый Mercury rgb (200,200,205)
-    vec3 darkCol = vec3(0.02, 0.02, 0.03);
-    vec3 base = mix(darkCol, litCol, lit);
+    vec3 n = normalize(vWorldNormal);
+    vec3 sd = normalize(sunDir);
+    float i = dot(n, sd);
+    // Hi-end terminator: жёсткий контраст день/ночь (Mercury — вакуум, нет рассеяния).
+    float lit = smoothstep(-0.04, 0.08, i);
+    // Hi-res 3-уровневая поверхность: maria (тёмные равнины) + highlands (светлые горы) + ejecta rays.
     vec3 p = normalize(vPos);
-    // Кратеры — гуще чем у Луны (Mercury тяжелее кратеризован, NASA fact).
-    float c1 = worley3(p * 5.0);
-    float c2 = worley3(p * 14.0);
-    float c3 = worley3(p * 28.0);
-    float crater1 = smoothstep(0.0, 0.18, c1) * (1.0 - smoothstep(0.18, 0.40, c1));
-    float crater2 = smoothstep(0.0, 0.12, c2) * (1.0 - smoothstep(0.12, 0.30, c2));
-    float crater3 = smoothstep(0.0, 0.08, c3) * (1.0 - smoothstep(0.08, 0.18, c3));
-    float shadow = max(crater1 * 0.7, max(crater2 * 0.55, crater3 * 0.4));
-    base *= 1.0 - shadow * 0.6 * lit;
-    // Микро-вариация регалита.
-    float reg = fbm3(p * 40.0) * 0.05;
-    base *= 0.96 + reg;
-    gl_FragColor = vec4(base, 1.0);
+    // Базовый цвет: smoothly transitioning maria→highlands через large-scale fbm.
+    float terrain = fbm3(p * 2.5);                      // континенты
+    vec3 maria      = vec3(0.42, 0.40, 0.40);           // тёмные равнины (Caloris Basin)
+    vec3 highlands  = vec3(0.86, 0.83, 0.78);           // светлые плато (regolith)
+    vec3 surfaceCol = mix(maria, highlands, smoothstep(0.40, 0.62, terrain));
+    // Кратеры 4 масштабов с глубиной + центральный peak + ejecta rays.
+    float c1 = worley3(p * 4.0);
+    float c2 = worley3(p * 12.0);
+    float c3 = worley3(p * 26.0);
+    float c4 = worley3(p * 55.0);
+    // Глубокая воронка с резким краем (rim) + плоское дно.
+    float rim1 = smoothstep(0.14, 0.20, c1) * (1.0 - smoothstep(0.20, 0.26, c1));
+    float depth1 = (1.0 - smoothstep(0.0, 0.18, c1)) * 0.55;
+    float rim2 = smoothstep(0.10, 0.14, c2) * (1.0 - smoothstep(0.14, 0.18, c2));
+    float depth2 = (1.0 - smoothstep(0.0, 0.12, c2)) * 0.45;
+    float depth3 = (1.0 - smoothstep(0.0, 0.08, c3)) * 0.35;
+    float micro  = (1.0 - smoothstep(0.0, 0.05, c4)) * 0.20;
+    float craterDepth = max(depth1, max(depth2, max(depth3, micro)));
+    float craterRim = max(rim1, rim2 * 0.7);
+    // Ejecta rays (светлые лучи от молодых ударов) — заметны на освещённой стороне.
+    float ejecta = pow(max(0.0, fbm3(p * 8.0 + vec3(c1 * 3.0)) - 0.55), 2.0) * 1.4;
+    // Сборка: dim в кратерах + ярче на rim + ярче на ejecta.
+    vec3 base = surfaceCol;
+    base *= 1.0 - craterDepth * 0.55;                    // углубления темнее
+    base += vec3(0.20, 0.18, 0.15) * craterRim * lit;    // rim светлее (catches sun)
+    base += vec3(0.18, 0.17, 0.16) * ejecta * lit;       // лучи выброса
+    // Терминатор: тёплый оттенок (Sun grazing angle reddens regolith).
+    float term = smoothstep(0.0, 0.35, i) * (1.0 - smoothstep(0.35, 0.65, i));
+    base += vec3(0.18, 0.10, 0.04) * term * 0.45;
+    // Освещение + ambient (Hermean exosphere → почти нулевой ambient).
+    vec3 lit_col = base * (0.12 + lit * 0.95);
+    // Sodium tail glow: тёплый rim на anti-sun стороне (Mercury sodium exosphere).
+    float fres = pow(1.0 - max(dot(n, normalize(-vPos)), 0.0), 3.0);
+    float antiSun = smoothstep(-0.2, -0.6, i);
+    lit_col += vec3(1.0, 0.55, 0.18) * fres * antiSun * 0.18;
+    gl_FragColor = vec4(lit_col, 1.0);
   }
 `;
 
