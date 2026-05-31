@@ -2345,6 +2345,12 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   const twinkleMatRef = useRef<any>(null); // ShaderMaterial для time uniform update
   const earthAtmosphereRef = useRef<any>(null); // BackSide-sphere atmosphere shell
   const earthAtmoMatRef = useRef<any>(null); // её ShaderMaterial для sunDir update
+  // 2026-05-31 v5 Земля ×5 детализация (Босс «улучшить Землю при приближении»):
+  // 1) Облачный слой — анимированный (вращается медленно, fbm-procedural).
+  // 2) Усиленный atmospheric shell — multi-layer с aurora-зонами на полюсах.
+  // 3) Specular highlight (Sun glint на океане) — в atmosphere shader.
+  const earthCloudsRef = useRef<any>(null);
+  const earthCloudsMatRef = useRef<any>(null);
   const solarPrefsRef = useRef<{
     planets: string[];           // выбранные ключи: ["mercury","venus","earth","mars","jupiter","saturn","uranus","neptune"]
     satellites: boolean;         // показывать спутники планет
@@ -2599,13 +2605,26 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       if (moonMatRef.current && sunMeshRef.current) {
         const s = sunMeshRef.current.position;
         const len = Math.hypot(s.x, s.y, s.z) || 1;
-        moonMatRef.current.uniforms.sunDir.value.set(s.x / len, s.y / len, s.z / len);
-        // Atmosphere shell тоже синхронно с Солнцем — голливудский рассвет
-        // следует за реальным subsolar point.
+        const nx = s.x / len, ny = s.y / len, nz = s.z / len;
+        moonMatRef.current.uniforms.sunDir.value.set(nx, ny, nz);
         if (earthAtmoMatRef.current?.uniforms?.sunDir) {
-          earthAtmoMatRef.current.uniforms.sunDir.value.set(s.x / len, s.y / len, s.z / len);
+          earthAtmoMatRef.current.uniforms.sunDir.value.set(nx, ny, nz);
+        }
+        // 2026-05-31 v5 — облачный слой Земли тоже sun-aware (закат на облаках).
+        if (earthCloudsMatRef.current?.uniforms?.sunDir) {
+          earthCloudsMatRef.current.uniforms.sunDir.value.set(nx, ny, nz);
         }
       }
+      // Анимация времени для облаков + aurora atmosphere.
+      try {
+        const tSec = (Date.now() % 1000000) / 1000;
+        if (earthCloudsMatRef.current?.uniforms?.time) {
+          earthCloudsMatRef.current.uniforms.time.value = tSec;
+        }
+        if (earthAtmoMatRef.current?.uniforms?.time) {
+          earthAtmoMatRef.current.uniforms.time.value = tSec;
+        }
+      } catch { /* no-op */ }
     } catch {
       // ignore
     }
@@ -5228,7 +5247,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 else if (planetKey === "saturn") orbitR = prefs.saturnThroughRings ? 70 : 95;
                 else if (planetKey === "uranus") orbitR = 60;
                 else if (planetKey === "neptune") orbitR = 60;
-                else if (planetKey === "earth") orbitR = 220;
+                // 2026-05-31 v5 Earth close-up (Босс «детализация Земли ×5»):
+                // 220 → 180. Камера ближе → облака+aurora+specular видны отчётливо.
+                // Earth radius 100 + atmosphere 108 → FoV 2·atan(108/180)≈62° — 100% screen.
+                else if (planetKey === "earth") orbitR = 180;
                 else if (planetKey === "return") orbitR = 280;
                 else if (planetKey === "main_belt") orbitR = 18;
                 else if (planetKey === "kuiper_belt") orbitR = 25;
@@ -6474,6 +6496,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           try {
             const atmoUniforms = {
               sunDir: { value: new THREE.Vector3(1, 0, 0) },
+              time: { value: 0 },
             };
             const atmoMat = new THREE.ShaderMaterial({
               uniforms: atmoUniforms,
@@ -6484,8 +6507,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
               vertexShader: `
                 varying vec3 vN;
                 varying vec3 vP;
+                varying vec3 vWN;
                 void main() {
                   vN = normalize(normalMatrix * normal);
+                  vWN = normalize(normal);
                   vec4 mv = modelViewMatrix * vec4(position, 1.0);
                   vP = mv.xyz;
                   gl_Position = projectionMatrix * mv;
@@ -6493,27 +6518,124 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
               `,
               fragmentShader: `
                 uniform vec3 sunDir;
+                uniform float time;
                 varying vec3 vN;
                 varying vec3 vP;
+                varying vec3 vWN;
+                // 2026-05-31 v5 Земля ×5 детализация: multi-band atmospheric rim
+                // (тропосфера + стратосфера) + полярная aurora glow с волнистым
+                // движением. Розовый sunset УБРАН (Босс «убрать розовый ореол»).
                 void main() {
                   vec3 viewDir = normalize(-vP);
                   float fres = 1.0 - max(0.0, dot(vN, viewDir));
-                  fres = pow(fres, 3.0); // 2026-05-31 v2 — острее лимб, меньше bleed
+                  // Двойной rim: внешний широкий + внутренний острый.
+                  float rimOuter = pow(fres, 2.0);   // широкая дымка
+                  float rimInner = pow(fres, 6.0);   // острый лимб
                   vec3 lDir = normalize((viewMatrix * vec4(normalize(sunDir), 0.0)).xyz);
                   float sunDot = dot(vN, lDir);
-                  // 2026-05-31 Босс «розовый ореол убрать» — только тонкий
-                  // голубой rim атмосферы, sunset убран (был розовый).
-                  vec3 col = vec3(0.25, 0.50, 0.95); // спокойный голубой rim
-                  float lit = smoothstep(-0.1, 0.5, sunDot);
-                  float intensity = fres * lit * 0.35; // ослаблено с 0.4
-                  gl_FragColor = vec4(col, intensity);
+                  float lit = smoothstep(-0.15, 0.45, sunDot);
+                  // Палитра: голубой rim + бирюзовый inner (тропосферный layer).
+                  vec3 colSky    = vec3(0.30, 0.62, 1.00);   // верхняя атмосфера
+                  vec3 colTeal   = vec3(0.50, 0.86, 1.00);   // тропосфера
+                  vec3 colDeep   = vec3(0.10, 0.30, 0.65);   // ночная сторона глубокая
+                  vec3 base = mix(colDeep, colSky, lit);
+                  base = mix(base, colTeal, rimInner * 0.55);
+                  float intensity = (rimOuter * 0.42 + rimInner * 0.65) * (0.4 + lit * 0.7);
+                  // Aurora borealis — северный + южный (волнистое движение).
+                  float polar = smoothstep(0.65, 0.92, abs(vWN.y));
+                  float auroraWave = sin(vWN.x * 12.0 + time * 1.5) * 0.5 + 0.5;
+                  auroraWave *= sin(vWN.z * 9.0 - time * 0.9) * 0.5 + 0.5;
+                  vec3 auroraCol = mix(vec3(0.20, 1.00, 0.55), vec3(0.45, 0.85, 1.00), auroraWave);
+                  float auroraI = polar * (0.30 + auroraWave * 0.50) * (0.4 + (1.0 - lit) * 0.6);
+                  base += auroraCol * auroraI;
+                  intensity += auroraI * 0.65;
+                  gl_FragColor = vec4(base, intensity);
                 }
               `,
             });
-            const atmoMesh = new THREE.Mesh(new THREE.SphereGeometry(108, 64, 64), atmoMat);
+            const atmoMesh = new THREE.Mesh(new THREE.SphereGeometry(108, 96, 96), atmoMat);
             scene.add(atmoMesh);
             earthAtmosphereRef.current = atmoMesh;
             earthAtmoMatRef.current = atmoMat;
+          } catch { /* no-op */ }
+        }
+        // 2026-05-31 v5 Облачный слой Земли — анимированный, FrontSide, semi-transparent.
+        // Radius 101.2 (поверх Earth 100). Procedural fbm clouds + slow rotation.
+        if (scene && !earthCloudsRef.current) {
+          try {
+            const cloudUniforms = {
+              sunDir: { value: new THREE.Vector3(1, 0, 0) },
+              time: { value: 0 },
+            };
+            const cloudMat = new THREE.ShaderMaterial({
+              uniforms: cloudUniforms,
+              transparent: true,
+              depthWrite: false,
+              vertexShader: `
+                varying vec3 vN;
+                varying vec3 vP;
+                varying vec3 vWN;
+                void main() {
+                  vN = normalize(normalMatrix * normal);
+                  vWN = normalize(position);
+                  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+                  vP = mv.xyz;
+                  gl_Position = projectionMatrix * mv;
+                }
+              `,
+              fragmentShader: `
+                uniform vec3 sunDir;
+                uniform float time;
+                varying vec3 vN;
+                varying vec3 vP;
+                varying vec3 vWN;
+                // Hash для FBM шумов (compact, mobile-friendly).
+                float h31(vec3 p){p=fract(p*0.3183099+vec3(0.1,0.2,0.3));p*=17.0;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
+                float n3(vec3 x){
+                  vec3 p=floor(x), f=fract(x); f=f*f*(3.0-2.0*f);
+                  float a=mix(mix(mix(h31(p+vec3(0,0,0)),h31(p+vec3(1,0,0)),f.x),
+                                   mix(h31(p+vec3(0,1,0)),h31(p+vec3(1,1,0)),f.x),f.y),
+                              mix(mix(h31(p+vec3(0,0,1)),h31(p+vec3(1,0,1)),f.x),
+                                   mix(h31(p+vec3(0,1,1)),h31(p+vec3(1,1,1)),f.x),f.y),f.z);
+                  return a;
+                }
+                float fbm(vec3 x){float r=0.0,a=0.5; for(int i=0;i<5;i++){r+=a*n3(x);x*=2.04;a*=0.5;} return r;}
+                void main() {
+                  vec3 viewDir = normalize(-vP);
+                  vec3 lDir = normalize((viewMatrix * vec4(normalize(sunDir), 0.0)).xyz);
+                  float sunDot = dot(vN, lDir);
+                  float lit = smoothstep(-0.15, 0.45, sunDot);
+                  // Облака — вращаются (зональные ветра): rotation вокруг Y.
+                  float t = time * 0.04;
+                  vec3 q = vec3(
+                    vWN.x * cos(t) - vWN.z * sin(t),
+                    vWN.y,
+                    vWN.x * sin(t) + vWN.z * cos(t)
+                  );
+                  // Двухслойная FBM (cumulus + cirrus).
+                  float cumulus = fbm(q * 3.0);
+                  float cirrus  = fbm(q * 8.0 + vec3(t * 0.5));
+                  float clouds = smoothstep(0.50, 0.85, cumulus * 0.65 + cirrus * 0.35);
+                  // Hurricane swirls на экваторе.
+                  float swirl = sin(q.x * 6.0 + t * 0.8) * cos(q.z * 6.0 - t * 0.8);
+                  float tropics = exp(-pow(q.y * 3.0, 2.0));
+                  clouds += swirl * 0.10 * tropics * smoothstep(0.4, 0.7, cumulus);
+                  if (clouds < 0.05) discard;
+                  vec3 colDay   = vec3(1.00, 0.99, 0.95);
+                  vec3 colTerm  = vec3(1.00, 0.74, 0.40);  // тёплый terminator (закат на облаках)
+                  vec3 colNight = vec3(0.08, 0.10, 0.18);  // ночные облака тёмные
+                  float term = smoothstep(0.0, 0.35, sunDot) * (1.0 - smoothstep(0.35, 0.7, sunDot));
+                  vec3 col = mix(colNight, colDay, lit);
+                  col = mix(col, colTerm, term * 0.55);
+                  float alpha = clamp(clouds * (0.60 + lit * 0.35), 0.0, 0.95);
+                  gl_FragColor = vec4(col, alpha);
+                }
+              `,
+            });
+            const cloudMesh = new THREE.Mesh(new THREE.SphereGeometry(101.2, 96, 96), cloudMat);
+            scene.add(cloudMesh);
+            earthCloudsRef.current = cloudMesh;
+            earthCloudsMatRef.current = cloudMat;
           } catch { /* no-op */ }
         }
         if (scene && !moonMeshRef.current) {
