@@ -4672,17 +4672,35 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                   }
                 } catch { /* skip */ }
               }
-              // Луна (subLunarPoint × altitude 1.5 ≈ 250 wu от Земли — это реальный
-              // масштаб в нашей globe.gl сцене, далеко не реальные 384 тыс км).
+              // 2026-05-31 v9 FIX Moon-bug (Босс «Земля под лейблом Moon»):
+              // 1) Snapshot.moon = РЕАЛЬНАЯ позиция Moon mesh БЕЗ масштабирования
+              //    (предыдущий ×500/d давал точку, где Moon mesh физически нет —
+              //    камера орбитировала пустое пространство, в кадр попадала Земля).
+              // 2) Если Moon mesh ещё не позиционирован (positionSunMoon не вызвался)
+              //    — ставим её принудительно через subLunarPoint + globe.getCoords.
+              // 3) Moon mesh scale ×12 на время тура для визуальной крупности (Moon
+              //    real geom radius ~10 wu, на 250 wu от камеры с orbitR=40 = маленькая).
               try {
-                const mp = moonMeshRef.current?.position;
-                if (mp) {
-                  const d = Math.hypot(mp.x, mp.y, mp.z);
-                  if (Number.isFinite(d) && d > 50) {
-                    // Выносим target на 500 wu чтобы Земля не доминировала.
-                    const k = 500 / d;
-                    solarSnapshot.moon = { x: mp.x * k, y: mp.y * k, z: mp.z * k };
-                  }
+                let mp = moonMeshRef.current?.position;
+                let d = mp ? Math.hypot(mp.x, mp.y, mp.z) : 0;
+                if (!mp || !Number.isFinite(d) || d < 50) {
+                  // Принудительная инициализация Moon position.
+                  try {
+                    const mpLatLng = subLunarPoint(now);
+                    const c = (gg as any).getCoords?.(mpLatLng[1], mpLatLng[0], 1.5);
+                    if (c && moonMeshRef.current) {
+                      moonMeshRef.current.position.set(c.x, c.y, c.z);
+                      mp = moonMeshRef.current.position;
+                      d = Math.hypot(mp.x, mp.y, mp.z);
+                    }
+                  } catch { /* no-op */ }
+                }
+                if (mp && Number.isFinite(d) && d > 50) {
+                  solarSnapshot.moon = { x: mp.x, y: mp.y, z: mp.z };
+                  // Boost visual size — Moon должна доминировать в кадре, не Земля.
+                  try {
+                    moonMeshRef.current.scale.set(12, 12, 12);
+                  } catch { /* no-op */ }
                 }
               } catch { /* skip */ }
               // Солнце — центр солнечной системы. sunMeshRef сейчас на ~330 wu от
@@ -5050,7 +5068,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 // 15-50). orbitR ×3 чтобы камера была СНАРУЖИ planet и planet
                 // занимала ~40-60% кадра (визуально как Земля в classic).
                 let orbitR = 36;
-                if (planetKey === "moon") orbitR = 220;
+                // 2026-05-31 v9: Moon orbit ВПЛОТНУЮ к Луне (snapshot теперь real,
+                // не масштабированный к 500). Moon mesh scale ×12 → видимая крупно
+                // с orbitR=60. Камера на 250+60=310 wu от Земли — Земля в кадре сзади.
+                if (planetKey === "moon") orbitR = 60;
                 else if (planetKey === "mercury" || planetKey === "mars") orbitR = 24;
                 else if (planetKey === "venus") orbitR = 30;
                 else if (planetKey === "jupiter") orbitR = 90;
@@ -5156,7 +5177,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                   // - Earth: lookAt center — наш дом
                   // - Остальные: lookAt planet
                   if (planetKey === "moon") {
-                    camera.lookAt(0, 0, 0);
+                    // 2026-05-31 v9: midpoint(Moon, Earth) — обе доминируют в кадре
+                    // (Earth radius 100 в (0,0,0); Moon scale ×12 на targetPos).
+                    // Камера на orbit вокруг targetPos, смотрит на половине пути.
+                    camera.lookAt(targetPos.x * 0.5, targetPos.y * 0.5, targetPos.z * 0.5);
                   } else if (planetKey === "mercury" || planetKey === "venus") {
                     camera.lookAt(targetPos.x * 0.5, targetPos.y * 0.5, targetPos.z * 0.5);
                   } else if (planetKey === "earth") {
@@ -5484,6 +5508,12 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 );
                 sunMeshRef.current.scale.set(1, 1, 1);
                 savedSunPosRef.current = null;
+              }
+            } catch { /* no-op */ }
+            // 2026-05-31 v9: восстановить Moon scale (была ×12 на тур).
+            try {
+              if (moonMeshRef.current) {
+                moonMeshRef.current.scale.set(1, 1, 1);
               }
             } catch { /* no-op */ }
             try {
