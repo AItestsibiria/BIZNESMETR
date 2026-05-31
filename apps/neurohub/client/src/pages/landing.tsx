@@ -2986,16 +2986,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                     iconClassName="w-3.5 h-3.5"
                     testId={`save-current-track`}
                   />
-                  {/* Босс 2026-05-31: 🎧 счётчик прослушиваний СПРАВА НА плеере
-                      (был справа но съезжал за рамку — теперь корректно flex-wrap). */}
-                  <span className="inline-flex items-center gap-1.5 select-none ml-auto" aria-label="Прослушивания">
-                    <PlayerPlanetBlink size={18} />
-                    <span
-                      className="text-[13px] tabular-nums font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap"
-                      title="Прослушиваний всего"
-                      aria-label={`Прослушиваний: ${totalPlays.toLocaleString("ru-RU")}`}
-                    >🎧 {totalPlays > 0 ? totalPlays.toLocaleString("ru-RU") : "…"}</span>
-                  </span>
+                  {/* Босс 2026-05-31: блок счётчика 🎧 убран с основного плеера полностью. */}
                   <button
                     className="w-8 h-8 rounded-full bg-white/5 border border-purple-400/15 hover:border-purple-400/40 hover:bg-white/10 flex items-center justify-center transition-colors"
                     title="Поделиться"
