@@ -675,12 +675,8 @@ function Step1Body({
                 : "border-white/20 bg-transparent text-white/70 hover:border-white/40"}`}
             >🐢 3 минуты</button>
           </div>
-          <OptionRow
-            label="🌙 Со спутниками планет"
-            description="Луна, Ио, Европа, Титан и другие — главные ~17 лун"
-            checked={prefs.satellites}
-            onChange={(v) => onUpdate({ satellites: v })}
-          />
+          {/* 2026-05-31 Босс «спутники в меню убираем, по умолчанию у своих
+              планет летают». satellites=true всегда (DEFAULT_PREFS), чекбокс скрыт. */}
           <OptionRow
             label="☄️ Главный пояс астероидов"
             description="Между Марсом и Юпитером"

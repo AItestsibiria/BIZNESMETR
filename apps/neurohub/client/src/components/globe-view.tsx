@@ -1505,8 +1505,10 @@ function makeSatelliteMesh(satKey: string): { mesh: any; mat: any; orbitR: numbe
       vertexShader: PLANET_VERTEX,
       fragmentShader: fragment,
     });
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(def.radius, 24, 24), mat);
-    return { mesh, mat, orbitR: parentR * def.orbitMul, ang: def.ang };
+    // 2026-05-31 Босс «спутники эпично, по качеству кадра и разрешению»:
+    // ×2.5 диаметр (cinematic, не astronomy) + ×2 geometry segments (плавнее).
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(def.radius * 2.5, 48, 48), mat);
+    return { mesh, mat, orbitR: parentR * def.orbitMul * 1.3, ang: def.ang };
   } catch {
     return null;
   }
@@ -4812,7 +4814,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                       const sprEntry = planetsRef.current.find((p) => p.key === planetKey);
                       if (sprEntry?.mesh) sprEntry.mesh.visible = false;
                       // Создаём спутники-родители — лениво, добавляем как children планеты.
-                      if (prefs.satellites) {
+                      if (true /* satellites force-on Босс 2026-05-31 */) {
                         const sats = satellitesOf(planetKey);
                         for (const sk of sats) {
                           const sat = makeSatelliteMesh(sk);
@@ -5006,18 +5008,32 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                     targetPos.y + yTilt,
                     targetPos.z + Math.sin(ang) * orbitR,
                   );
-                  // Композиция Hollywood для Луны (Босс 23:25 «с обратной стороны
-                   // Луны видна Земля с рассветом, корона Солнца над Землёй»):
-                  // — камера orbit вокруг Луны (3 оборота, фишка)
-                  // — lookAt смешан: 0.6 Earth + 0.4 Sun → Земля чуть смещена влево
-                  //   от центра, корона Солнца справа. Луна в кадре силуэтом
-                  //   (silhouette) перед Землёй с terminator → diamond-ring.
+                  // Композиция Hollywood (Босс 23:25 + 23:35):
+                  // — Луна: lookAt Earth+Sun weighted (diamond-ring),
+                  //   камера orbit вокруг Луны 3 раза.
+                  // — Планеты: lookAt сдвинут к centroid(planet+Earth+Sun)
+                  //   чтобы Земля и Солнце ПОПАДАЛИ в кадр (Босс «облёт вокруг
+                  //   планеты Солнце и Земля в кадре»). Bias 0.55 planet, чтобы
+                  //   планета доминировала в центре, но Earth+Sun влетали по краям.
                   if (planetKey === "moon" && solarSnapshot.sun) {
                     const sx = solarSnapshot.sun.x;
                     const sy = solarSnapshot.sun.y;
                     const sz = solarSnapshot.sun.z;
-                    // Earth в (0,0,0), Sun в snapshot.sun. Weighted lookAt.
                     camera.lookAt(sx * 0.4, sy * 0.4, sz * 0.4);
+                  } else if (
+                    (planetKey === "mercury" || planetKey === "venus" || planetKey === "mars"
+                     || planetKey === "jupiter" || planetKey === "saturn"
+                     || planetKey === "uranus"  || planetKey === "neptune")
+                    && solarSnapshot.sun
+                  ) {
+                    const sx = solarSnapshot.sun.x;
+                    const sy = solarSnapshot.sun.y;
+                    const sz = solarSnapshot.sun.z;
+                    // Centroid(planet, Earth=0, Sun) weighted to planet 55%.
+                    const lx = targetPos.x * 0.55 + 0 * 0.20 + sx * 0.25;
+                    const ly = targetPos.y * 0.55 + 0 * 0.20 + sy * 0.25;
+                    const lz = targetPos.z * 0.55 + 0 * 0.20 + sz * 0.25;
+                    camera.lookAt(lx, ly, lz);
                   } else {
                     camera.lookAt(targetPos.x, targetPos.y, targetPos.z);
                   }
