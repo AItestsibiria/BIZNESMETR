@@ -1804,7 +1804,47 @@ function makeAsteroidBelt(
 // Создать шар-меш планеты с procedural шейдером. Возвращает {mesh, material, ringsGroup?}.
 // ringsGroup присутствует только у Saturn.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function makeSolarPlanetMesh(key: string): { group: any; bodyMat: any; ringsMat?: any } | null {
+// Atmospheric Fresnel shell (BackSide, AdditiveBlending) — выраженный rim glow
+// вокруг газовых планет. NASA-палитра: Venus тёплый кремовый, Jupiter жёлто-охра,
+// Saturn светло-бежевый, Uranus бирюзовый, Neptune синий.
+const ATMO_SHELL_VERTEX = `
+  varying vec3 vN;
+  varying vec3 vP;
+  void main() {
+    vN = normalize(normalMatrix * normal);
+    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+    vP = mv.xyz;
+    gl_Position = projectionMatrix * mv;
+  }
+`;
+const ATMO_SHELL_FRAGMENT = `
+  uniform vec3 sunDir;
+  uniform vec3 baseCol;
+  uniform float thick;
+  uniform float intensity;
+  varying vec3 vN;
+  varying vec3 vP;
+  void main() {
+    vec3 viewDir = normalize(-vP);
+    float fres = 1.0 - max(0.0, dot(vN, viewDir));
+    fres = pow(fres, thick);
+    vec3 lDir = normalize((viewMatrix * vec4(normalize(sunDir), 0.0)).xyz);
+    float sunDot = dot(vN, lDir);
+    float lit = smoothstep(-0.15, 0.45, sunDot);
+    float I = fres * intensity * (0.45 + lit * 0.65);
+    gl_FragColor = vec4(baseCol, I);
+  }
+`;
+
+const ATMO_PARAMS: Record<string, { col: [number, number, number]; thick: number; intensity: number; shellMul: number }> = {
+  venus:   { col: [1.00, 0.82, 0.45], thick: 2.4, intensity: 0.85, shellMul: 1.10 }, // плотная H2SO4 атмосфера
+  jupiter: { col: [0.96, 0.78, 0.42], thick: 2.6, intensity: 0.70, shellMul: 1.06 }, // жёлто-охра атмосфера
+  saturn:  { col: [0.94, 0.82, 0.55], thick: 2.6, intensity: 0.65, shellMul: 1.06 }, // светло-бежевая
+  uranus:  { col: [0.45, 0.86, 0.94], thick: 2.4, intensity: 0.75, shellMul: 1.08 }, // метановая бирюза
+  neptune: { col: [0.35, 0.65, 0.98], thick: 2.4, intensity: 0.80, shellMul: 1.08 }, // глубокий синий
+};
+
+function makeSolarPlanetMesh(key: string): { group: any; bodyMat: any; ringsMat?: any; atmoMat?: any } | null {
   try {
     const radius = SOLAR_PLANET_RADIUS[key];
     if (!radius) return null;
@@ -1885,7 +1925,31 @@ function makeSolarPlanetMesh(key: string): { group: any; bodyMat: any; ringsMat?
       ringMesh.rotation.y = THREE.MathUtils.degToRad(26.7);
       group.add(ringMesh);
     }
-    return { group, bodyMat, ringsMat };
+    // 2026-05-31 v5 Atmospheric shell — газовым гигантам + Venus добавляем
+    // BackSide Fresnel rim glow (как у Земли). При облёте — явный rim halo.
+    let atmoMat: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const atmoP = ATMO_PARAMS[key];
+    if (atmoP) {
+      atmoMat = new THREE.ShaderMaterial({
+        uniforms: {
+          sunDir: { value: new THREE.Vector3(1, 0, 0) },
+          baseCol: { value: new THREE.Vector3(...atmoP.col) },
+          thick: { value: atmoP.thick },
+          intensity: { value: atmoP.intensity },
+        },
+        vertexShader: ATMO_SHELL_VERTEX,
+        fragmentShader: ATMO_SHELL_FRAGMENT,
+        side: THREE.BackSide,
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      });
+      const atmoR = cinematicR * atmoP.shellMul;
+      const atmoMesh = new THREE.Mesh(new THREE.SphereGeometry(atmoR, 64, 64), atmoMat);
+      if (key === "uranus") atmoMesh.rotation.z = THREE.MathUtils.degToRad(98);
+      group.add(atmoMesh);
+    }
+    return { group, bodyMat, ringsMat, atmoMat };
   } catch {
     return null;
   }
@@ -2352,7 +2416,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // Solar tour state — current tour-mesh каждой планеты (lazy, dispose'ится при transition).
   // Sat key → {group, bodyMat, ringsMat?}. Только во время "solar" режима.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const solarMeshesRef = useRef<Record<string, { group: any; bodyMat: any; ringsMat?: any } | null>>({});
+  const solarMeshesRef = useRef<Record<string, { group: any; bodyMat: any; ringsMat?: any; atmoMat?: any } | null>>({});
   // Спутники текущей планеты-родителя (Босс 2026-05-30 v2): создаются при approach,
   // dispose'ятся вместе с планетой. Key=satKey, value=mesh+mat+orbit-params.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2560,8 +2624,12 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         sunMeshRef.current.position.set(c.x, c.y, c.z);
       }
       if (moonMeshRef.current) {
+        // 2026-05-31 v6 Босс «Луна в астрономическом масштабе»:
+        // Real distance Earth-Moon = 60.3 Earth radii. Earth scene radius = 100,
+        // → Moon distance = 6030 wu. globe.getCoords(altitude) даёт radius =
+        // base × (1+alt), где base ≈ 100 → alt = 59.3 даст 6030.
         const mp = subLunarPoint(Date.now());
-        const c = g.getCoords(mp[1], mp[0], 1.5);
+        const c = g.getCoords(mp[1], mp[0], 59.3);
         moonMeshRef.current.position.set(c.x, c.y, c.z);
       }
       // Босс 2026-05-31 (8-я попытка фикса flyby): планеты в РЕАЛЬНЫХ 3D-позициях
@@ -3944,7 +4012,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       // Реальные средние heliocentric расстояния от Earth (AU):
       const AU = 1500;
       const distLookup: Record<string, number> = {
-        moon: 0.00257 * AU,        // ~4 wu — actual lunar; для approach min clamp 2с
+        moon: 6030,                // 2026-05-31 v6 NASA real (60.3 Earth radii × 100 wu)
         mercury: 1.04 * AU,        // 1560
         venus: 1.14 * AU,          // 1710
         mars: 1.52 * AU,           // 2280
@@ -3957,41 +4025,36 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         sun: 1.0 * AU,             // 1500 (от Земли)
         earth: 1.0 * AU,           // 1500 (для return из Sun)
       };
-      // K — коэффициент конверсии √distance → мс. Подобран чтобы общий тур ~180 сек.
-      // ∑√dist (по всем segments) × K = 60_000 мс (60 сек на approach), остальное orbit.
-      // √43575≈209, √27300≈165, √12900≈114, √6300≈79, √2280≈48, √1560≈40, √1710≈41.
-      // Сумма ≈ 696 + √1500≈39 (Sun) + √500≈22 (Moon). ≈ 760 √-units.
-      // 60000/760 ≈ 79 ms / √-wu. Округлим до 80.
+      // 2026-05-31 v6 Босс «скорость очень быстрая, уменьши в 10 раз между планетами,
+      // у Земли в 3 раза, эпичнее». ROOT: K-base 80 → 800 (×10 slower transit).
+      // Earth-area (moon, mercury, venus, earth) × 3 поверх (×30 total). Это даёт
+      // ~6-9 минут тур — эпично, не нудно. Sun farewell тоже ×10.
+      const earthArea = (key: string) => key === "moon" || key === "mercury" || key === "venus" || key === "earth";
       const calcApproach = (key: string): number => {
         const d = distLookup[key] ?? 1500;
-        const base = slow ? Math.sqrt(d) * 180 : Math.sqrt(d) * 80;
+        const K = slow ? 1800 : 800;                            // ×10 от прежних 180/80
+        const earthBoost = earthArea(key) ? 3.0 : 1.0;          // ×3 у Земли
+        const base = Math.sqrt(d) * K * earthBoost;
         const adjusted = base / speedMul;
-        // Sun farewell — большое approachMs (long flyby через всю систему):
-        if (key === "sun") return Math.max(20000, Math.min(40000, Math.sqrt(43575 + 1500) * 130 / speedMul));
-        return Math.max(2500, Math.min(28000, adjusted));
+        if (key === "sun") return Math.max(40000, Math.min(90000, Math.sqrt(43575 + 1500) * 700 / speedMul));
+        return Math.max(6000, Math.min(80000, adjusted));
       };
-      // 2026-05-31 v5 МАРШРУТ:
-      //   1. Moon (orbit вокруг Земли в кадре)
-      //   2. OUTWARD: Mars → MainBelt → Jupiter → Saturn → Uranus → Neptune → Kuiper
-      //   3. FAREWELL: длинный approach от Neptune К Sun — камера идёт ПРЯМО к Sun,
-      //      по дороге проплывают планеты (lookAt → Sun, но boков планет фон).
-      //      В конце Sun заполняет 100% экрана.
-      //   4. Sun orbit (огромное Солнце, scale ×8, orbitR=350 → visually full screen).
-      //   5. INWARD: Mercury → Venus → Earth (дом, финальный поклон).
-      seq.push({ key: "moon", approachMs: calcApproach("moon"), orbitMs: 12000 });
-      if (has("mars"))    seq.push({ key: "mars",    approachMs: calcApproach("mars"),    orbitMs: 10000 });
-      if (prefs.mainBelt) seq.push({ key: "main_belt", approachMs: calcApproach("main_belt"), orbitMs: 0 });
-      if (has("jupiter")) seq.push({ key: "jupiter", approachMs: calcApproach("jupiter"), orbitMs: 14000 });
-      if (has("saturn"))  seq.push({ key: "saturn",  approachMs: calcApproach("saturn"),  orbitMs: 18000 });
-      if (has("uranus"))  seq.push({ key: "uranus",  approachMs: calcApproach("uranus"),  orbitMs: 10000 });
-      if (has("neptune")) seq.push({ key: "neptune", approachMs: calcApproach("neptune"), orbitMs: 10000 });
-      if (prefs.kuiperBelt) seq.push({ key: "kuiper_belt", approachMs: calcApproach("kuiper_belt"), orbitMs: 0 });
-      // FAREWELL → Sun (longest approach, scale grows from 1 to 8 along path).
-      seq.push({ key: "sun", approachMs: calcApproach("sun"), orbitMs: 22000 });
-      if (has("mercury")) seq.push({ key: "mercury", approachMs: calcApproach("mercury"), orbitMs: 9000 });
-      if (has("venus"))   seq.push({ key: "venus",   approachMs: calcApproach("venus"),   orbitMs: 10000 });
-      seq.push({ key: "earth", approachMs: Math.max(5000, calcApproach("earth")), orbitMs: 14000 });
-      seq.push({ key: "return", approachMs: 5000, orbitMs: 0 });
+      // 2026-05-31 v6 МАРШРУТ (Босс «не хватает облётов вокруг всех планет обзорных»):
+      // У ВСЕХ planet steps orbitMs > 0. Поясы — короткий 6с обзор.
+      seq.push({ key: "moon", approachMs: calcApproach("moon"), orbitMs: 18000 });
+      if (has("mars"))    seq.push({ key: "mars",    approachMs: calcApproach("mars"),    orbitMs: 16000 });
+      if (prefs.mainBelt) seq.push({ key: "main_belt", approachMs: calcApproach("main_belt"), orbitMs: 6000 });
+      if (has("jupiter")) seq.push({ key: "jupiter", approachMs: calcApproach("jupiter"), orbitMs: 22000 });
+      if (has("saturn"))  seq.push({ key: "saturn",  approachMs: calcApproach("saturn"),  orbitMs: 26000 });
+      if (has("uranus"))  seq.push({ key: "uranus",  approachMs: calcApproach("uranus"),  orbitMs: 18000 });
+      if (has("neptune")) seq.push({ key: "neptune", approachMs: calcApproach("neptune"), orbitMs: 18000 });
+      if (prefs.kuiperBelt) seq.push({ key: "kuiper_belt", approachMs: calcApproach("kuiper_belt"), orbitMs: 6000 });
+      // FAREWELL → Sun (длинный pass, scale grows from 1 to 8 along path).
+      seq.push({ key: "sun", approachMs: calcApproach("sun"), orbitMs: 26000 });
+      if (has("mercury")) seq.push({ key: "mercury", approachMs: calcApproach("mercury"), orbitMs: 14000 });
+      if (has("venus"))   seq.push({ key: "venus",   approachMs: calcApproach("venus"),   orbitMs: 16000 });
+      seq.push({ key: "earth", approachMs: Math.max(8000, calcApproach("earth")), orbitMs: 22000 });
+      seq.push({ key: "return", approachMs: 6000, orbitMs: 0 });
       return seq;
     };
     let SOLAR_TOUR: SolarStep[] = buildSolarTour();
@@ -4893,10 +4956,8 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 }
                 if (mp && Number.isFinite(d) && d > 50) {
                   solarSnapshot.moon = { x: mp.x, y: mp.y, z: mp.z };
-                  // Boost visual size — Moon должна доминировать в кадре, не Земля.
-                  try {
-                    moonMeshRef.current.scale.set(12, 12, 12);
-                  } catch { /* no-op */ }
+                  // 2026-05-31 v6: scale ×1 — реальная астрономическая Луна (radius 27.3,
+                  // distance 6030 wu). Никакого boost — Земля точкой в 6000 wu позади.
                 }
               } catch { /* skip */ }
               // Солнце — центр солнечной системы. sunMeshRef сейчас на ~330 wu от
@@ -5197,6 +5258,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                   if (tourMesh.ringsMat?.uniforms?.sunDir) {
                     tourMesh.ringsMat.uniforms.sunDir.value.set(nx, ny, nz);
                   }
+                  if (tourMesh.atmoMat?.uniforms?.sunDir) {
+                    tourMesh.atmoMat.uniforms.sunDir.value.set(nx, ny, nz);
+                  }
                 }
                 if (tourMesh?.bodyMat?.uniforms?.time) {
                   tourMesh.bodyMat.uniforms.time.value = (now - solarStepStartT) / 1000;
@@ -5268,10 +5332,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 // 15-50). orbitR ×3 чтобы камера была СНАРУЖИ planet и planet
                 // занимала ~40-60% кадра (визуально как Земля в classic).
                 let orbitR = 36;
-                // 2026-05-31 v9: Moon orbit ВПЛОТНУЮ к Луне (snapshot теперь real,
-                // не масштабированный к 500). Moon mesh scale ×12 → видимая крупно
-                // с orbitR=60. Камера на 250+60=310 wu от Земли — Земля в кадре сзади.
-                if (planetKey === "moon") orbitR = 60;
+                // 2026-05-31 v6 Moon astronomical: radius 27.3, distance 6030 wu.
+                // orbitR=120 даёт FoV 2·atan(27/120)≈25° — Moon занимает 40%
+                // экрана (cinematic, не fullscreen). Земля 6000 wu — точка на фоне.
+                if (planetKey === "moon") orbitR = 120;
                 else if (planetKey === "mercury" || planetKey === "mars") orbitR = 24;
                 else if (planetKey === "venus") orbitR = 30;
                 else if (planetKey === "jupiter") orbitR = 90;
@@ -5292,14 +5356,26 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 else if (planetKey === "sun") orbitR = 350;
 
                 if (phaseT < step.approachMs) {
-                  // APPROACH: голливудский монтаж — ease-in-out-quintic (более
-                  // драматичный плавный старт + финиш) вместо cubic. Эффект:
-                  // камера долго «разгоняется», потом летит быстро, потом плавно
-                  // «прибывает» к планете.
+                  // 2026-05-31 v6 Босс «одна скорость даже если меняется ракурс,
+                  // а то по-детски выглядит». ROOT: quintic ease создавал
+                  // ускорение→замедление каждого approach — рывки + childish pacing.
+                  // Заменено на quasi-uniform: 90% LINEAR (одна скорость), только
+                  // первые/последние 5% — smooth ramp (избежать инфинитного jerk на
+                  // start/stop). Эффект: камера летит с ОДНОЙ скоростью весь сегмент.
                   const p = Math.min(1, phaseT / step.approachMs);
-                  const e = p < 0.5
-                    ? 16 * p * p * p * p * p
-                    : 1 - Math.pow(-2 * p + 2, 5) / 2;
+                  let e: number;
+                  if (p < 0.05) {
+                    // smooth ramp-up (smoothstep 0..0.05 → 0..mappedTo 5%)
+                    const u = p / 0.05;
+                    e = u * u * (3 - 2 * u) * 0.05;
+                  } else if (p > 0.95) {
+                    // smooth ramp-down
+                    const u = (p - 0.95) / 0.05;
+                    const s = u * u * (3 - 2 * u);
+                    e = 0.95 + s * 0.05;
+                  } else {
+                    e = p;
+                  }
                   const sp = solarStepStartCamPos || { x: 0, y: 0, z: 0 };
                   // Для поясов — flythrough: камера проходит СКВОЗЬ пояс. Цель — точка
                   // на противоположной стороне target от startCamPos.
@@ -5371,11 +5447,11 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                               : 0.6;
                   const omega = (turns * 2 * Math.PI) / orbitSec;
                   const ang = ot * omega;
-                  // Cinematic Y-tilt: лёгкая sinусоидальная вертикальная составляющая
-                  // — кадр «дышит», камера не идеально плоско по экватору. Sat-rings
-                  // — больше Y для пролёта над/под кольцами.
+                  // 2026-05-31 v6 Босс «одна скорость даже если меняется ракурс»:
+                  // Y-tilt в orbit убран (был sin-wave → угловая скорость менялась).
+                  // Только Saturn-через-кольца сохраняет фикс. Y-смещение (статичное).
                   const yTilt = (planetKey === "saturn" && prefs.saturnThroughRings)
-                    ? orbitR * 0.22 : orbitR * 0.06 * Math.sin(ot * 0.5);
+                    ? orbitR * 0.22 : 0;
                   camera.position.set(
                     targetPos.x + Math.cos(ang) * orbitR,
                     targetPos.y + yTilt,
@@ -5387,10 +5463,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                   // - Earth: lookAt center — наш дом
                   // - Остальные: lookAt planet
                   if (planetKey === "moon") {
-                    // 2026-05-31 v9: midpoint(Moon, Earth) — обе доминируют в кадре
-                    // (Earth radius 100 в (0,0,0); Moon scale ×12 на targetPos).
-                    // Камера на orbit вокруг targetPos, смотрит на половине пути.
-                    camera.lookAt(targetPos.x * 0.5, targetPos.y * 0.5, targetPos.z * 0.5);
+                    // 2026-05-31 v6: Moon real distance (6030 wu) → lookAt прямо
+                    // на Moon. Земля 6000 wu в (0,0,0) — точка-bluedot на фоне.
+                    camera.lookAt(targetPos.x, targetPos.y, targetPos.z);
                   } else if (planetKey === "mercury" || planetKey === "venus") {
                     camera.lookAt(targetPos.x * 0.5, targetPos.y * 0.5, targetPos.z * 0.5);
                   } else if (planetKey === "earth") {
@@ -5724,7 +5799,8 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 savedSunPosRef.current = null;
               }
             } catch { /* no-op */ }
-            // 2026-05-31 v9: восстановить Moon scale (была ×12 на тур).
+            // 2026-05-31 v6: Moon теперь astronomy scale (radius 27.3), boost
+            // не нужен. Cleanup лишь для уверенности.
             try {
               if (moonMeshRef.current) {
                 moonMeshRef.current.scale.set(1, 1, 1);
@@ -6678,7 +6754,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             fragmentShader: MOON_FRAGMENT,
           });
           // Луна увеличена ×2 (Босс 2026-05-29 «увеличь Луну в 2 раза»): radius 2.5→5.0.
-          const moon = new THREE.Mesh(new THREE.SphereGeometry(5.0, 32, 32), moonMat);
+          // 2026-05-31 v6 Босс «Луну в реальном астрономическом масштабе»:
+          // Moon real radius = 0.273 × Earth (NASA fact). Earth scene radius = 100 wu,
+          // → Moon = 27.3 wu. Geometry segments повышен 32→64 (hi-res при scale=1).
+          const moon = new THREE.Mesh(new THREE.SphereGeometry(27.3, 64, 64), moonMat);
           scene.add(moon);
           moonMeshRef.current = moon;
           moonMatRef.current = moonMat;
