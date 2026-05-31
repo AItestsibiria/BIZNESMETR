@@ -4846,7 +4846,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
               } else {
                 // Радиус орбиты — зависит от объекта.
                 let orbitR = 12;
-                if (planetKey === "moon") orbitR = 12;
+                // Луна — особый случай (Босс «при облёте Луны — Земля и Солнце
+                // в кадре»). Большой orbitR=220 → камера далеко от Луны → Земля
+                // и Солнце входят в FoV. lookAt → centroid трёх объектов.
+                if (planetKey === "moon") orbitR = 220;
                 else if (planetKey === "mercury" || planetKey === "mars") orbitR = 8;
                 else if (planetKey === "venus") orbitR = 10;
                 else if (planetKey === "jupiter") orbitR = 28;
@@ -4921,7 +4924,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                   // визуальной пролётной траектории через кольца.
                   const ot = (phaseT - step.approachMs) / 1000;
                   const orbitSec = step.orbitMs / 1000;
-                  const turns = (planetKey === "jupiter" || planetKey === "saturn") ? 1.0 : 1.2;
+                  // Луна — 3 оборота (фишка Босс 2026-05-31). Газовые гиганты — 1.0.
+                  const turns = planetKey === "moon" ? 3.0
+                              : (planetKey === "jupiter" || planetKey === "saturn") ? 1.0
+                              : 1.2;
                   const omega = (turns * 2 * Math.PI) / orbitSec;
                   const ang = ot * omega;
                   const yOffset = (planetKey === "saturn" && prefs.saturnThroughRings)
@@ -4931,7 +4937,20 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                     targetPos.y + yOffset,
                     targetPos.z + Math.sin(ang) * orbitR,
                   );
-                  camera.lookAt(targetPos.x, targetPos.y, targetPos.z);
+                  // Композиция камеры. Для Луны — lookAt centroid (Moon+Earth+Sun)
+                  // чтобы все три влезли в кадр. Для остальных — lookAt на саму цель.
+                  if (planetKey === "moon" && solarSnapshot.sun) {
+                    const sx = solarSnapshot.sun.x;
+                    const sy = solarSnapshot.sun.y;
+                    const sz = solarSnapshot.sun.z;
+                    camera.lookAt(
+                      (targetPos.x + 0 + sx) / 3,
+                      (targetPos.y + 0 + sy) / 3,
+                      (targetPos.z + 0 + sz) / 3,
+                    );
+                  } else {
+                    camera.lookAt(targetPos.x, targetPos.y, targetPos.z);
+                  }
                 } else {
                   // Шаг завершён — dispose планеты+спутников или, для поясов, оставляем
                   // (пояса persist до конца тура — могут быть видны фоном из других точек).
