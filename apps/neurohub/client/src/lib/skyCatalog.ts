@@ -242,8 +242,16 @@ export const CONSTELLATIONS: Constellation[] = [
 // «по часовой стрелке для наблюдателя с Земли» совпадало с астрономическим небом.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function raDecToVec3(ra: number, dec: number, radius: number): any {
+  // SHOULD FIX 2 (Code Review 2026-05-31): guard на NaN/Infinity/битый каталог.
+  // Если входные значения битые (битый JSON, ошибка парсинга, dec вне [-90..90]) —
+  // возвращаем безопасную точку на оси Z, а не NaN-вектор (который бы сломал
+  // bezierAt → cam.position становится NaN → краш WebGL).
+  if (!Number.isFinite(ra) || !Number.isFinite(dec) || !Number.isFinite(radius)) {
+    return new THREE.Vector3(0, 0, radius || 1);
+  }
+  const safeDec = Math.max(-90, Math.min(90, dec));
   const raRad = (ra * 15 * Math.PI) / 180;   // долгота
-  const decRad = (dec * Math.PI) / 180;      // широта
+  const decRad = (safeDec * Math.PI) / 180;  // широта (clamped)
   const x = radius * Math.cos(decRad) * Math.cos(raRad);
   const y = radius * Math.sin(decRad);
   const z = -radius * Math.cos(decRad) * Math.sin(raRad);

@@ -2709,6 +2709,25 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       // чтобы камера смотрела В НАПРАВЛЕНИИ звезды, не на (0,0,0).
       // ─────────────────────────────────────────────────────────────────────
       if (targetType === "star") {
+        // === STAR FLIGHT TUNABLES (Code Review 2026-05-31 — magic numbers → consts) ===
+        // Вынесено из inline-чисел для читаемости + единой точки правки тюнингов.
+        // Поведение НЕ изменено — значения те же, что были в inline-формулах.
+        const STAR_FLIGHT_DURATION_MS = 8000;                        // обычный полёт 8 сек
+        const STAR_FLIGHT_DURATION_REDUCED_MOTION_MS = 2000;         // a11y prefers-reduced-motion: 2 сек
+        const STAR_FLIGHT_NEAR_PLANE = 1000;                         // cam.near во время star flight (z-precision на 280k ед.)
+        const STAR_FLIGHT_MID_SYNC_T = 0.5;                          // момент mid-sync ctrl.target (avoid spherical-jump)
+        const STAR_ARC_ANGLE_SMALL = 30;                             // градусы — мягкая дуга (boost 1.0)
+        const STAR_ARC_ANGLE_MEDIUM = 90;                            // средний угол (boost 1.4)
+        const STAR_ARC_ANGLE_LARGE = 150;                            // большой угол (boost 2.0)
+        const STAR_ARC_BOOST_SMALL = 1.0;
+        const STAR_ARC_BOOST_MEDIUM = 1.4;
+        const STAR_ARC_BOOST_LARGE = 2.0;
+        const STAR_ARC_BOOST_ANTIPODE = 2.5;                         // угол >150° (антипод — макс. обвод вокруг Земли)
+        const STAR_ARC_MIN_RADIUS_FACTOR = 0.3;                      // arcRadius ≥ STARFIELD_RADIUS × 0.3
+        const STAR_MARKER_SIZE_MIN = 500;                            // нижний clamp marker.scale
+        const STAR_MARKER_SIZE_MAX = 4000;                           // верхний clamp marker.scale
+        const STAR_MARKER_SIZE_COEF = 0.01;                          // marker.scale = camDist × coef (clamped)
+
         const ra: number = typeof detail.ra === "number" ? detail.ra : 0;
         const dec: number = typeof detail.dec === "number" ? detail.dec : 0;
         if (!Number.isFinite(ra) || !Number.isFinite(dec)) {
@@ -2786,7 +2805,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         const prevNear = cam2?.near ?? 10;
         try {
           if (cam2) {
-            cam2.near = 1000;
+            cam2.near = STAR_FLIGHT_NEAR_PLANE;
             cam2.updateProjectionMatrix?.();
           }
         } catch { /* no-op */ }
@@ -2813,7 +2832,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             // + scale.setScalar(markerSize), markerSize = clamp(cam.dist*0.01).
             // Каждый кадр в starFrame обновляем scale (см. mid-sync блок).
             const initCamToMarker = cam2.position.distanceTo(visualStarPoint);
-            const initMarkerSize = Math.max(500, Math.min(4000, initCamToMarker * 0.01));
+            const initMarkerSize = Math.max(
+              STAR_MARKER_SIZE_MIN,
+              Math.min(STAR_MARKER_SIZE_MAX, initCamToMarker * STAR_MARKER_SIZE_COEF),
+            );
             starMarkerGeo = new THREE_NS.SphereGeometry(1, 16, 16);
             starMarkerMat = new THREE_NS.MeshBasicMaterial({
               color: 0xff00ff,
@@ -2918,20 +2940,33 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         if (!Number.isFinite(outwardDir.x) || outwardDir.length() < 0.01) {
           outwardDir = new THREE_NS.Vector3(0, 1, 0);
         }
-        // Boost: при angle≥60° — выпуклая дуга наружу. Радиус дуги ≥ STAR_R_VISUAL × 0.3.
-        const arcBoost = angleStartToStarDeg < 30
-          ? 1.0
-          : angleStartToStarDeg < 90
-          ? 1.4
-          : angleStartToStarDeg < 150
-          ? 2.0
-          : 2.5;
-        const arcRadius = Math.max(midPoint.length() * arcBoost, STAR_R_VISUAL * 0.3);
+        // Quadratic Bezier control-point: midpoint между start и camTarget, отодвинутый
+        // НАРУЖУ от Земли. Чем больше angle между start и end (антипод ≈ 180°) — тем
+        // дальше control от центра (arcBoost множитель), чтобы дуга огибала Землю:
+        //   angle <  30° → boost 1.0  (мягкая дуга, звезда впереди)
+        //   angle <  90° → boost 1.4
+        //   angle < 150° → boost 2.0
+        //   angle ≥ 150° → boost 2.5  (антипод — максимальный обвод)
+        // Минимальный радиус дуги — STARFIELD_RADIUS × 0.3 (даже при vырожденном midpoint).
+        const arcBoost = angleStartToStarDeg < STAR_ARC_ANGLE_SMALL
+          ? STAR_ARC_BOOST_SMALL
+          : angleStartToStarDeg < STAR_ARC_ANGLE_MEDIUM
+          ? STAR_ARC_BOOST_MEDIUM
+          : angleStartToStarDeg < STAR_ARC_ANGLE_LARGE
+          ? STAR_ARC_BOOST_LARGE
+          : STAR_ARC_BOOST_ANTIPODE;
+        const arcRadius = Math.max(midPoint.length() * arcBoost, STAR_R_VISUAL * STAR_ARC_MIN_RADIUS_FACTOR);
         const controlPoint = outwardDir.clone().multiplyScalar(arcRadius);
         const startT = performance.now();
         // P2.3 — reduced-motion: 2 сек вместо 8. Обычный режим — фикс 8 сек easeInOutCubic.
-        const DURATION_MS = reducedMotion ? 2000 : 8000;
-        // Quadratic Bezier: B(t) = (1-t)²·P0 + 2·(1-t)·t·P1 + t²·P2
+        const DURATION_MS = reducedMotion
+          ? STAR_FLIGHT_DURATION_REDUCED_MOTION_MS
+          : STAR_FLIGHT_DURATION_MS;
+        /**
+         * Quadratic Bezier: B(t) = (1-t)²·P0 + 2·(1-t)·t·P1 + t²·P2
+         * Пишет результат напрямую в `out` (cam2.position) — без аллокации Vector3
+         * per-frame. P0 = startCamPos, P1 = controlPoint, P2 = camTarget.
+         */
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const bezierAt = (t: number, out: any) => {
           const inv = 1 - t;
@@ -2952,11 +2987,20 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           // увеличился, наш myFlightId устарел → abort немедленно. НЕ ждём
           // isDirectFlybyActiveRef (новый flight его уже снова в true поставил).
           if (flightIdRef.current !== myFlightId) {
-            restoreControls(lookTarget);
-            if (prevCamUp) {
-              try { cam2.up.set(prevCamUp.x, prevCamUp.y, prevCamUp.z); } catch { /* no-op */ }
+            // MUST FIX 2 (Code Review 2026-05-31): try-finally guard — даже если
+            // disposeMarker бросит, restoreControls обязан сработать (иначе камера
+            // зависнет с enabled=false + near=1000). Порядок: dispose в try
+            // (cleanup ресурсов сначала), restore в finally (гарантия восстановления).
+            try {
+              disposeMarker();
+            } catch (err) {
+              debugLog(`[star-flight] disposeMarker failed: ${(err as Error)?.message || err}`);
+            } finally {
+              restoreControls(lookTarget);
+              if (prevCamUp) {
+                try { cam2.up.set(prevCamUp.x, prevCamUp.y, prevCamUp.z); } catch { /* no-op */ }
+              }
             }
-            disposeMarker();
             debugLog(`[star-flight] superseded by flight #${flightIdRef.current} (was #${myFlightId}) key=${key}`);
             return;
           }
@@ -2964,23 +3008,29 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             // Aborted by another flight — restore controls + up + dispose marker.
             // Abort — restore с финальным target (звезда), чтобы OrbitControls
             // не отбросил камеру обратно через clamp.
-            restoreControls(lookTarget);
-            if (prevCamUp) {
-              try { cam2.up.set(prevCamUp.x, prevCamUp.y, prevCamUp.z); } catch { /* no-op */ }
+            // MUST FIX 2 — try-finally guard (см. выше).
+            try {
+              disposeMarker();
+            } catch (err) {
+              debugLog(`[star-flight] disposeMarker failed: ${(err as Error)?.message || err}`);
+            } finally {
+              restoreControls(lookTarget);
+              if (prevCamUp) {
+                try { cam2.up.set(prevCamUp.x, prevCamUp.y, prevCamUp.z); } catch { /* no-op */ }
+              }
             }
-            disposeMarker();
             debugLog(`[star-flight] aborted key=${key} dir=(${direction.x.toFixed(2)},${direction.y.toFixed(2)},${direction.z.toFixed(2)})`);
             return;
           }
           const t = Math.min((performance.now() - startT) / DURATION_MS, 1);
           const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-          // P1.1 — mid-sync ctrl.target на t=0.5 (плавный drag после flight, без
-          // spherical-jump). Пишем ТОЛЬКО в .target — ctrl.update() НЕ зовём (он
-          // перезапишет cam.position через clamp, нарушит Patch v2 правило).
+          // P1.1 — mid-sync ctrl.target на t=STAR_FLIGHT_MID_SYNC_T (плавный drag
+          // после flight, без spherical-jump). Пишем ТОЛЬКО в .target — ctrl.update()
+          // НЕ зовём (он перезапишет cam.position через clamp, нарушит Patch v2 правило).
           // Финальный target = lookTarget ставится позже в restoreControls().
-          if (t >= 0.5 && !midSynced && ctrl2?.target) {
+          if (t >= STAR_FLIGHT_MID_SYNC_T && !midSynced && ctrl2?.target) {
             try {
-              ctrl2.target.lerpVectors(startTargetPos, lookTarget, 0.5);
+              ctrl2.target.lerpVectors(startTargetPos, lookTarget, STAR_FLIGHT_MID_SYNC_T);
             } catch { /* no-op */ }
             midSynced = true;
           }
@@ -2990,11 +3040,16 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           bezierAt(ease, cam2.position);
           try { cam2.lookAt?.(lookTarget); } catch { /* no-op */ }
           // P2.2 — adaptive marker scale (per-frame). Чем ближе камера, тем
-          // меньше marker; cap [500..4000] чтобы не было точкой/в пол-экрана.
+          // меньше marker; cap [STAR_MARKER_SIZE_MIN..STAR_MARKER_SIZE_MAX]
+          // чтобы не было точкой/в пол-экрана. Code review 2026-05-31:
+          // вынесено в константы (см. вверху star branch).
           if (starMarker) {
             try {
               const camToMarker = cam2.position.distanceTo(lookTarget);
-              const markerSize = Math.max(500, Math.min(4000, camToMarker * 0.01));
+              const markerSize = Math.max(
+                STAR_MARKER_SIZE_MIN,
+                Math.min(STAR_MARKER_SIZE_MAX, camToMarker * STAR_MARKER_SIZE_COEF),
+              );
               starMarker.scale.setScalar(markerSize);
             } catch { /* no-op */ }
           }
@@ -3012,8 +3067,16 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             holdRef.current = true;
             // Patch v2: восстанавливаем юзер-управление (полный restore с финальным
             // target = звезда → ctrl.update() не отбросит камеру) + удаляем marker.
-            restoreControls(lookTarget);
-            disposeMarker();
+            // MUST FIX 2 (Code Review 2026-05-31) — try-finally guard: даже если
+            // disposeMarker бросит, restoreControls обязан сработать (иначе камера
+            // зависнет с enabled=false + near=1000).
+            try {
+              disposeMarker();
+            } catch (err) {
+              debugLog(`[star-flight] disposeMarker failed: ${(err as Error)?.message || err}`);
+            } finally {
+              restoreControls(lookTarget);
+            }
             const finalCamDist = cam2.position.length();
             debugLog(`[star-flight] DONE key=${key} ra=${ra} dec=${dec} dir=(${direction.x.toFixed(3)},${direction.y.toFixed(3)},${direction.z.toFixed(3)}) starVisualR=${STAR_R_VISUAL} camTargetR=${endDistFromOrigin.toFixed(0)} lookTargetR=${STAR_R_VISUAL} finalCamDist=${finalCamDist.toFixed(0)} angle(camFwd,starDir)=${camFwdAngleDeg.toFixed(1)}deg arcBoost=${arcBoost.toFixed(2)}`);
             return;
