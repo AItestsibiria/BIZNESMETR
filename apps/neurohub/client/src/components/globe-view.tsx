@@ -4564,55 +4564,36 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
               const stepDuration = step.approachMs + step.orbitMs;
               const prefs = solarPrefsRef.current;
 
-              // Helper: world-position target для текущего объекта.
-              // Луна → moonMeshRef; планеты → from planetsRef sprite, подтянутые ближе.
-              // Earth/return — центр/точка возврата. Пояса — фиксированные позиции «по дороге».
+              // 2026-05-31 ФИКСИРОВАННАЯ радиальная сетка для ВСЕХ точек тура.
+              // ROOT CAUSE 2-дневной серии багов «видна Земля под лейблом
+              // <планета>»: target = живая sprite-позиция planetsRef × scale.
+              // Эфемериды Schlyter ставят спрайты в реальных world-units (Меркурий
+              // 585, Юпитер 7800, Нептун 45075) ИЛИ в (0,0,0) до первого update.
+              // Camera approach от sp ~(0,0,250) через эти точки проходит близко
+              // от Земли (radius=100) → Земля заполняет кадр (FoV 75° / d ~250
+              // = ~44° углового размера).
+              // FIX: target — ФИКСИРОВАННЫЕ координаты, ВСЕ на расстоянии ≥500
+              // от Земли, на РАЗНЫХ лучах (не на одной линии) → тур визуально
+              // летит «по спирали наружу», Земля остаётся за камерой при approach
+              // и сжимается до точки (≤10° FoV) при orbit. Lazy planet mesh
+              // (строка 4624) ставится в getTargetPos → mesh виден ровно там же.
+              const FIXED_TARGETS: Record<string, { x: number; y: number; z: number }> = {
+                moon:        { x: -480,  y:   60,  z:  200 },
+                mercury:     { x:  650,  y:   40,  z: -180 },
+                venus:       { x: -800,  y:  -50,  z: -280 },
+                mars:        { x:  950,  y:  120,  z:  330 },
+                main_belt:   { x: -1100, y:    0,  z:  420 },
+                jupiter:     { x:  1300, y:  -90,  z: -480 },
+                saturn:      { x: -1500, y:  130,  z:  520 },
+                uranus:      { x:  1700, y:  -60,  z: -540 },
+                neptune:     { x: -1900, y:   80,  z:  560 },
+                kuiper_belt: { x:  2100, y: -100,  z: -580 },
+              };
               const getTargetPos = (key: SolarStepKey): { x: number; y: number; z: number } | null => {
                 if (key === "earth") return { x: 0, y: 0, z: 0 };
                 if (key === "return") return { x: 0, y: 0, z: 250 };
-                if (key === "moon") {
-                  const mp = moonMeshRef.current?.position;
-                  if (!mp) return null;
-                  // 2026-05-31 Босс «Moon — кадр доминирует Земля» (скрин 21:36).
-                  // Луна на ~250 от Earth, radius 5. Старый код target=mp,
-                  // orbitR=12 → camera approach встаёт между Earth и Moon
-                  // (~244 от центра, 8 от Moon). lookAt на Moon, но Earth (radius
-                  // 100) занимает ~60° FoV сзади камеры → доминирует кадр.
-                  // FIX: выносим target на distOut=320 от Earth в направлении Moon
-                  // — камера встаёт на ~332 от Earth, в 70..80 ЗА Moon. Земля
-                  // отодвигается далеко позади (dot < 0, за камерой). Луна
-                  // остаётся в центре кадра между камерой и Землёй.
-                  // d<100 — Moon не позиционирована эфемеридой (NaN / 0),
-                  // skip с toast.
-                  const d = Math.hypot(mp.x, mp.y, mp.z);
-                  if (!Number.isFinite(d) || d < 100) return null;
-                  const distOut = 320;
-                  const scale = distOut / d;
-                  return { x: mp.x * scale, y: mp.y * scale, z: mp.z * scale };
-                }
-                if (key === "main_belt") {
-                  // Главный пояс — между Mars(orbitR~8) и Jupiter(orbitR~24). Центр ~50.
-                  return { x: 50, y: 0, z: 0 };
-                }
-                if (key === "kuiper_belt") {
-                  // Пояс Койпера — за Нептуном. Центр ~120.
-                  return { x: 120, y: 0, z: -30 };
-                }
-                // Планеты — из planetsRef, скейл к Земле для tour-режима.
-                const entry = planetsRef.current.find((p) => p.key === key);
-                if (!entry?.mesh?.position) return null;
-                const fp = entry.mesh.position;
-                const d = Math.hypot(fp.x, fp.y, fp.z);
-                // 2026-05-31 Босс «тур на Venus застрял, видна Земля».
-                // ROOT CAUSE: если sprite ещё не позиционирована Schlyter ephemeris
-                // (d === 0 или < 0.01), старый код делал `d || 1` → target=(0,0,0) =
-                // центр Земли → камера летела В ЗЕМЛЮ. Теперь — return null,
-                // tour-loop пропустит шаг с toast (см. handler выше).
-                if (!Number.isFinite(d) || d < 0.01) return null;
-                // Внешние планеты ставим дальше (для разреженности тура).
-                const isOuter = key === "uranus" || key === "neptune";
-                const scale = (isOuter ? 240 : 200) / d;
-                return { x: fp.x * scale, y: fp.y * scale, z: fp.z * scale };
+                const fixed = FIXED_TARGETS[key];
+                return fixed ? { ...fixed } : null;
               };
 
               const planetKey = step.key;
