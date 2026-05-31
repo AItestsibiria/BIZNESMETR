@@ -3827,6 +3827,14 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         hide();
         return;
       }
+      // 2026-05-31 Босс «Tomsk на планетах — точка юзера только на Земле»:
+      // при solar/moon/sun/ai режиме камера далеко от Земли (или на чужой
+      // планете) — projection user-anchor попадает на Сатурн/Луну. Скрываем.
+      const fm = flightModeRef.current;
+      if (fm === "solar" || fm === "moon" || fm === "sun" || fm === "ai") {
+        hide();
+        return;
+      }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let pov: any = null;
       try {
