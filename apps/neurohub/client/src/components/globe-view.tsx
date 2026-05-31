@@ -3610,6 +3610,12 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     let solarStepStartT = 0;
     let solarStepStartCamPos: { x: number; y: number; z: number } | null = null;
     let solarInitDone = false;
+    // 2026-05-31 Босс «Солнечная — сфера с координатами объектов, лети по ним».
+    // Снапшот геоцентрических позиций ВСЕХ тел на момент запуска тура (живая
+    // Schlyter ephemeris). Применяем log-компрессию радиуса (0.4 AU Меркурий
+    // .. 30 AU Нептун → 380..1750 world-units), сохраняя реальное направление.
+    // Снапшот стабилен до конца тура (планеты не «уползают» во время полёта).
+    let solarSnapshot: Record<string, { x: number; y: number; z: number }> = {};
     type SolarStepKey = "moon" | "mercury" | "venus" | "earth" | "mars" | "jupiter" | "saturn" | "uranus" | "neptune" | "main_belt" | "kuiper_belt" | "return";
     type SolarStep = { key: SolarStepKey; approachMs: number; orbitMs: number };
     // Динамически собираем тур по prefs. Босс 2026-05-30 v3 (wizard): каждый запуск
@@ -4505,6 +4511,50 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
               solarStepStartT = now;
               solarStepIdx = 0;
               solarInitDone = true;
+              // 2026-05-31 СНАПШОТ ЭФЕМЕРИД: реальные геоцентрические направления
+              // планет (Schlyter) + log-компрессия радиуса. Земля (radius 100)
+              // в (0,0,0), Mercury 0.4 AU → 382 wu, Neptune 30 AU → 1743 wu.
+              // Камера летит к РЕАЛЬНОЙ точке планеты на небе сегодня, расстояния
+              // сжаты для визуальной читаемости.
+              solarSnapshot = {};
+              const compress = (au: number) => 800 * Math.log10(1 + au * 5);
+              const planetKeys = ["mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune"] as const;
+              for (const pk of planetKeys) {
+                try {
+                  const v = getPlanetGeocentric3D(pk, now);
+                  const rawLen = Math.hypot(v.x, v.y, v.z);
+                  if (!Number.isFinite(rawLen) || rawLen < 0.01) continue;
+                  const au = rawLen / 1500; // AU_SCALE = 1500
+                  const newLen = compress(au);
+                  const k = newLen / rawLen;
+                  solarSnapshot[pk] = { x: v.x * k, y: v.y * k, z: v.z * k };
+                } catch { /* skip */ }
+              }
+              // Луна — её реальное положение через subLunarPoint × scale (Луна
+              // близко к Земле, ~250 wu, выносим target на 500 wu в её направлении
+              // чтобы Земля сжалась до точки в кадре).
+              try {
+                const mp = moonMeshRef.current?.position;
+                if (mp) {
+                  const d = Math.hypot(mp.x, mp.y, mp.z);
+                  if (Number.isFinite(d) && d > 50) {
+                    const k = 500 / d;
+                    solarSnapshot.moon = { x: mp.x * k, y: mp.y * k, z: mp.z * k };
+                  }
+                }
+              } catch { /* skip */ }
+              // Пояса — на средних расстояниях между планетами, направление по
+              // эклиптике относительно текущего направления к Солнцу (subsolar).
+              try {
+                const subS = subsolarPoint(now);
+                const sd = sunDirWorld(subS); // [x, y, z] unit vector к Солнцу
+                // Пояса — на средних расстояниях, повернутые на ~90° от Солнца
+                // в плоскости эклиптики (XZ). Главный пояс ~3 AU, Койпера ~40 AU.
+                const beltMainLen = compress(3.0);
+                const beltKuiperLen = compress(40.0);
+                solarSnapshot.main_belt = { x: -sd[2] * beltMainLen, y: 0, z: sd[0] * beltMainLen };
+                solarSnapshot.kuiper_belt = { x: sd[2] * beltKuiperLen, y: 0, z: -sd[0] * beltKuiperLen };
+              } catch { /* skip */ }
               // 2026-05-31 Босс «Земля доминирует тур» (скрин 22:17): OrbitControls
               // сами вызывают update() каждый кадр через globe.gl internal — это
               // ПЕРЕТИРАЛО camera.lookAt(targetPos), возвращая камеру на orbit
@@ -4576,7 +4626,11 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
               const stepDuration = step.approachMs + step.orbitMs;
               const prefs = solarPrefsRef.current;
 
-              // 2026-05-31 ФИКСИРОВАННАЯ радиальная сетка для ВСЕХ точек тура.
+              // 2026-05-31 v2 (Босс «привяжи к реальным координатам»): использует
+              // solarSnapshot — реальные геоцентрические направления планет
+              // (Schlyter ephemeris) с log-компрессией радиуса. Снапшот сделан
+              // при INIT тура (стабилен до конца тура, планеты не «уползают»).
+              // СТАРОЕ:
               // ROOT CAUSE 2-дневной серии багов «видна Земля под лейблом
               // <планета>»: target = живая sprite-позиция planetsRef × scale.
               // Эфемериды Schlyter ставят спрайты в реальных world-units (Меркурий
@@ -4589,23 +4643,11 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
               // летит «по спирали наружу», Земля остаётся за камерой при approach
               // и сжимается до точки (≤10° FoV) при orbit. Lazy planet mesh
               // (строка 4624) ставится в getTargetPos → mesh виден ровно там же.
-              const FIXED_TARGETS: Record<string, { x: number; y: number; z: number }> = {
-                moon:        { x: -480,  y:   60,  z:  200 },
-                mercury:     { x:  650,  y:   40,  z: -180 },
-                venus:       { x: -800,  y:  -50,  z: -280 },
-                mars:        { x:  950,  y:  120,  z:  330 },
-                main_belt:   { x: -1100, y:    0,  z:  420 },
-                jupiter:     { x:  1300, y:  -90,  z: -480 },
-                saturn:      { x: -1500, y:  130,  z:  520 },
-                uranus:      { x:  1700, y:  -60,  z: -540 },
-                neptune:     { x: -1900, y:   80,  z:  560 },
-                kuiper_belt: { x:  2100, y: -100,  z: -580 },
-              };
               const getTargetPos = (key: SolarStepKey): { x: number; y: number; z: number } | null => {
                 if (key === "earth") return { x: 0, y: 0, z: 0 };
                 if (key === "return") return { x: 0, y: 0, z: 250 };
-                const fixed = FIXED_TARGETS[key];
-                return fixed ? { ...fixed } : null;
+                const snap = solarSnapshot[key];
+                return snap ? { ...snap } : null;
               };
 
               const planetKey = step.key;
@@ -4759,11 +4801,30 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                     ty = targetPos.y + uy * orbitR;
                     tz = targetPos.z + uz * orbitR;
                   }
-                  camera.position.set(
-                    sp.x + (tx - sp.x) * e,
-                    sp.y + (ty - sp.y) * e,
-                    sp.z + (tz - sp.z) * e,
-                  );
+                  // 2026-05-31 Bezier-approach (Босс «обходи Землю, не сквозь»):
+                  // линейный lerp sp → t мог проходить через (0,0,0) если target
+                  // строго противоположен sp. Кривая через midpoint вверху эклиптики
+                  // (Y+450) гарантирует обход Земли (radius 100). Для earth/return
+                  // (target внутри/на Земле) — оставляем линейный путь.
+                  const directLerp = planetKey === "earth" || planetKey === "return" || isBelt;
+                  if (directLerp) {
+                    camera.position.set(
+                      sp.x + (tx - sp.x) * e,
+                      sp.y + (ty - sp.y) * e,
+                      sp.z + (tz - sp.z) * e,
+                    );
+                  } else {
+                    const midY = 450;
+                    const mx = (sp.x + tx) * 0.5;
+                    const my = (sp.y + ty) * 0.5 + midY;
+                    const mz = (sp.z + tz) * 0.5;
+                    const u = 1 - e;
+                    camera.position.set(
+                      u * u * sp.x + 2 * u * e * mx + e * e * tx,
+                      u * u * sp.y + 2 * u * e * my + e * e * ty,
+                      u * u * sp.z + 2 * u * e * mz + e * e * tz,
+                    );
+                  }
                   camera.lookAt(targetPos.x, targetPos.y, targetPos.z);
                 } else if (phaseT < stepDuration && step.orbitMs > 0) {
                   // ORBIT: круги вокруг target. Saturn-через-кольца — большая Y-амплитуда.
