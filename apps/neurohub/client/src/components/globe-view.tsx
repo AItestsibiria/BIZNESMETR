@@ -2510,59 +2510,160 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         } catch { /* no-op */ }
         try { console.error(msg); } catch { /* no-op */ }
       };
-      debugLog(`[direct-flyby] listener INVOKED key=${key || "(empty)"}`);
+      debugLog(`[direct-flyby-v2] INVOKED key=${key || "(empty)"}`);
       if (!key) return;
-      // Босс 2026-05-31 ROOT CAUSE НАЙДЕН: subLunarPoint/subPlanetPoint возвращают
-      // точку НА ЗЕМЛЕ (где над головой висит объект), НЕ позицию объекта в космосе.
-      // pointOfView({lat,lng,altitude}) летит к этой точке Земли с заданной высотой
-      // → камера висит НАД Землёй, не у Луны. Юзер видит Землю + label "Moon".
-      //
-      // ПРАВИЛЬНОЕ РЕШЕНИЕ: использовать СУЩЕСТВУЮЩИЕ рабочие туры —
-      //   moon → flightMode="moon" + moonResetRef (рабочий 46-сек тур к Луне)
-      //   sun  → flightMode="sun"  + sunResetRef  (рабочий 32-сек тур к Солнцу)
-      //   planet → flightMode="solar" + singleSolarKeyRef=key + solarRestart
-      //   (buildSolarTour строит [planet, return] — рабочий solar тур)
-      //
-      // Эти туры используют РЕАЛЬНЫЕ 3D-позиции мешей (moonMeshRef/sunMeshRef/
-      // solarMeshesRef) с camera.lookAt(mesh.position) — летят К объекту, не НА Землю.
-      // Reuse-working-solutions rule.
       const VALID_PLANETS = ["mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune"];
       if (key !== "moon" && key !== "sun" && !VALID_PLANETS.includes(key)) {
-        debugLog(`[direct-flyby] unknown key=${key}`);
+        debugLog(`[direct-flyby-v2] unknown key=${key}`);
         return;
       }
-      // Снимаем все блокирующие флаги — guards rAF не должны препятствовать туру.
+
+      // Босс 2026-05-31 (Вариант 1 — радикальный self-contained lerp).
+      // НЕ переключаем flightMode (он остаётся прежним — classic/ai/…). НЕ дёргаем
+      // moonResetRef / sunResetRef / buildSolarTour / singleSolarKeyRef. Полёт ведём
+      // СВОИМ rAF-loop'ом ниже: lerp camera.position + controls.target к mesh.position
+      // за 2.5 сек easeInOutCubic, с offset 40 единиц "назад" от меша (наружу от центра
+      // Земли). Mesh берём ДИНАМИЧЕСКИ каждый кадр (positionSunMoon двигает его) —
+      // не snapshot стартовой позиции.
+      //
+      // На время полёта isDirectFlybyActiveRef=true → main rAF (classic/solar/moon/sun
+      // ветки) делает early-return и НЕ перетягивает камеру. По завершению — флаг
+      // снимается, holdRef.current=true (классик/cycle_pano не утянут обратно).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const getMesh = (k: string): any => {
+        if (k === "moon") return moonMeshRef.current;
+        if (k === "sun") return sunMeshRef.current;
+        const found = planetsRef.current.find(p => p.key === k);
+        return found?.mesh || null;
+      };
+
+      // Снимаем все блокирующие флаги.
       userInteractingRef.current = false;
       holdRef.current = false;
       directFlybyRef.current = null;
-      // Dispose solar-меши предыдущего тура (если были) — иначе старые planet-меши
-      // могут болтаться внутри Земли как артефакт.
-      try { disposeAllSolarRef.current?.(); } catch { /* no-op */ }
-      try { clearSolarLabelState(); } catch { /* no-op */ }
-      try {
-        if (key === "moon") {
-          singleSolarKeyRef.current = null;
-          flightModeRef.current = "moon";
-          // moonReset сбрасывает moonInitDone в rAF closure — тур стартует с APPROACH.
-          moonResetRef.current?.();
-          debugLog(`[direct-flyby] → moon tour started`);
-        } else if (key === "sun") {
-          singleSolarKeyRef.current = null;
-          flightModeRef.current = "sun";
-          sunResetRef.current?.();
-          debugLog(`[direct-flyby] → sun tour started`);
-        } else {
-          // Планета: override solar тур на одну планету через singleSolarKeyRef.
-          // buildSolarTour видит override → строит [planet, return]. solarRestartRef
-          // принудительно пересобирает с нуля (stepIdx=0, initDone=false).
-          singleSolarKeyRef.current = key;
-          flightModeRef.current = "solar";
-          solarRestartRef.current = true;
-          debugLog(`[direct-flyby] → solar tour started for ${key}`);
-        }
-      } catch (err) {
-        debugLog(`[direct-flyby] tour start error: ${err}`);
+      // Активируем блокировку main rAF на время своего lerp.
+      isDirectFlybyActiveRef.current = true;
+
+      // Готовимся к запуску lerp. Mesh может быть не готов на первом кадре —
+      // ретраим до 30 кадров.
+      let retries = 0;
+      const MAX_RETRIES = 30;
+      const DURATION_MS = 2500;
+      const OFFSET = 40;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const gg: any = globeRef.current;
+      if (!gg) {
+        debugLog(`[direct-flyby-v2] globeRef is null`);
+        isDirectFlybyActiveRef.current = false;
+        return;
       }
+
+      const startLerp = () => {
+        const mesh = getMesh(key);
+        if (!mesh) {
+          retries++;
+          if (retries >= MAX_RETRIES) {
+            debugLog(`[direct-flyby-v2] mesh NOT ready after ${MAX_RETRIES} retries — abort key=${key}`);
+            isDirectFlybyActiveRef.current = false;
+            return;
+          }
+          debugLog(`[direct-flyby-v2] mesh NOT ready, retrying... (${retries}/${MAX_RETRIES})`);
+          requestAnimationFrame(startLerp);
+          return;
+        }
+        debugLog(`[direct-flyby-v2] mesh ready, starting lerp key=${key}`);
+
+        const cam = gg.camera?.();
+        const ctrl = gg.controls?.();
+        if (!cam || !cam.position) {
+          debugLog(`[direct-flyby-v2] camera not ready — abort key=${key}`);
+          isDirectFlybyActiveRef.current = false;
+          return;
+        }
+
+        // Snapshot стартовых позиций камеры и target'a.
+        const startCamPos = new THREE_NS.Vector3(cam.position.x, cam.position.y, cam.position.z);
+        const startTargetPos = ctrl?.target
+          ? new THREE_NS.Vector3(ctrl.target.x, ctrl.target.y, ctrl.target.z)
+          : new THREE_NS.Vector3(0, 0, 0);
+        const startT = performance.now();
+
+        const lerpFrame = () => {
+          if (!isDirectFlybyActiveRef.current) {
+            // Внешне прервали (юзер начал ad-hoc gesture etc) — выходим.
+            return;
+          }
+          // Mesh может быть disposed между кадрами — повторно достаём из ref.
+          const curMesh = getMesh(key);
+          if (!curMesh) {
+            debugLog(`[direct-flyby-v2] mesh disappeared mid-flight — abort key=${key}`);
+            isDirectFlybyActiveRef.current = false;
+            return;
+          }
+          // World-position меша (Sprite/Mesh оба поддерживают getWorldPosition).
+          const meshPos = new THREE_NS.Vector3();
+          try {
+            curMesh.getWorldPosition(meshPos);
+          } catch {
+            meshPos.set(
+              curMesh.position?.x ?? 0,
+              curMesh.position?.y ?? 0,
+              curMesh.position?.z ?? 0,
+            );
+          }
+
+          // Direction от центра Земли (0,0,0) к мешу.
+          const dir = meshPos.clone();
+          const distFromCenter = dir.length();
+          if (distFromCenter < 0.001) {
+            // Меш в центре — невозможно, но guard.
+            isDirectFlybyActiveRef.current = false;
+            return;
+          }
+          dir.divideScalar(distFromCenter); // normalize без allocation
+
+          // End camera position = mesh - dir*OFFSET (камера ВНЕ от центра Земли,
+          // смотрит на меш «из космоса»; чтобы быть ближе к мешу, чем к Земле,
+          // берём meshPos + dir*OFFSET — это "за мешем" с т.зр. центра Земли).
+          // Босс: «camera position = meshPos - dir.multiplyScalar(40) — назад от mesh
+          // на 40 world units». Здесь "назад от mesh" = ближе к Земле от меша,
+          // то есть meshPos - dir*OFFSET (т.к. dir указывает наружу от центра).
+          const endCamPos = meshPos.clone().sub(dir.clone().multiplyScalar(OFFSET));
+
+          const tNow = performance.now();
+          const tt = Math.min((tNow - startT) / DURATION_MS, 1);
+          // easeInOutCubic
+          const ease = tt < 0.5
+            ? 4 * tt * tt * tt
+            : 1 - Math.pow(-2 * tt + 2, 3) / 2;
+
+          cam.position.set(
+            startCamPos.x + (endCamPos.x - startCamPos.x) * ease,
+            startCamPos.y + (endCamPos.y - startCamPos.y) * ease,
+            startCamPos.z + (endCamPos.z - startCamPos.z) * ease,
+          );
+          if (ctrl?.target) {
+            ctrl.target.set(
+              startTargetPos.x + (meshPos.x - startTargetPos.x) * ease,
+              startTargetPos.y + (meshPos.y - startTargetPos.y) * ease,
+              startTargetPos.z + (meshPos.z - startTargetPos.z) * ease,
+            );
+            try { ctrl.update?.(); } catch { /* no-op */ }
+          }
+
+          if (tt >= 1) {
+            // Финальный snap + удержание позиции.
+            holdRef.current = true;
+            userInteractingRef.current = false;
+            isDirectFlybyActiveRef.current = false;
+            debugLog(`[direct-flyby-v2] complete key=${key}`);
+            return;
+          }
+          requestAnimationFrame(lerpFrame);
+        };
+        requestAnimationFrame(lerpFrame);
+      };
+      startLerp();
     };
     window.addEventListener("muza:globe-direct-flyby", onDirectFlyby as EventListener);
     // Босс 2026-05-30 (6-й инцидент) — фиксируем MOUNT event listener'а в дебаг-оверлее.
@@ -3199,77 +3300,13 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         w.__muziaiDebugFlightMode = flightModeRef.current;
         w.__muziaiDebugSingleSolarKey = singleSolarKeyRef.current;
       } catch { /* no-op */ }
-      // Босс 2026-05-30 (6-й «не работает тап»): directFlybyRef pipeline DEPRECATED.
-      // Новая логика — native three-globe pointOfView() tween в listener onDirectFlyby
-      // (см. выше, line ~2497). Этот блок оставлен для backward-compat если кто-то
-      // ещё ставит directFlybyRef.current напрямую — но листенер больше его не пишет.
-      // Если ref не null — фолбэк-lerp как раньше. Иначе — пропускаем.
-      if (directFlybyRef.current) {
-        try {
-          const fb = directFlybyRef.current;
-          // Обновляем targetPos каждый кадр — planet mesh может двигаться (orbit drift),
-          // и мы хотим лететь к АКТУАЛЬНОЙ позиции, не к stale snapshot момента тапа.
-          try {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            let curPos: any = null;
-            if (fb.targetKey === "moon" && moonMeshRef.current?.position) {
-              curPos = moonMeshRef.current.position;
-            } else if (fb.targetKey === "sun" && sunMeshRef.current?.position) {
-              curPos = sunMeshRef.current.position;
-            } else {
-              const found = planetsRef.current.find(p => p.key === fb.targetKey);
-              if (found?.mesh?.position) curPos = found.mesh.position;
-            }
-            if (curPos) {
-              fb.targetPos.set(curPos.x, curPos.y, curPos.z);
-            }
-          } catch { /* no-op */ }
-          const tNow = performance.now();
-          const elapsedFb = tNow - fb.startT;
-          const tt = Math.min(elapsedFb / fb.durationMs, 1);
-          // easeInOutQuad
-          const ease = tt < 0.5 ? 2 * tt * tt : 1 - Math.pow(-2 * tt + 2, 2) / 2;
-          const cam = gg.camera?.();
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const ctrl = (gg as any).controls?.();
-          if (cam && cam.position) {
-            // End camera position: чуть позади planet (по направлению от планеты к нулю)
-            // на расстоянии 80 единиц — даёт обзор planet без перекрытия.
-            const dir = fb.targetPos.clone().normalize();
-            const offset = dir.multiplyScalar(80);
-            const endCamPos = fb.targetPos.clone().sub(offset);
-            // Lerp camera.position
-            cam.position.set(
-              fb.startCamPos.x + (endCamPos.x - fb.startCamPos.x) * ease,
-              fb.startCamPos.y + (endCamPos.y - fb.startCamPos.y) * ease,
-              fb.startCamPos.z + (endCamPos.z - fb.startCamPos.z) * ease,
-            );
-          }
-          if (ctrl?.target) {
-            ctrl.target.set(
-              fb.startTargetPos.x + (fb.targetPos.x - fb.startTargetPos.x) * ease,
-              fb.startTargetPos.y + (fb.targetPos.y - fb.startTargetPos.y) * ease,
-              fb.startTargetPos.z + (fb.targetPos.z - fb.startTargetPos.z) * ease,
-            );
-            try { ctrl.update?.(); } catch { /* no-op */ }
-          }
-          if (tt >= 1) {
-            // Полёт завершён — HOLD позиции у planet. Не сбрасываем сразу,
-            // даём rAF ещё кадр для финального controls.update, потом null.
-            try {
-              if (window.localStorage?.getItem("muzaai-screen-debug") === "1") {
-                window.dispatchEvent(new CustomEvent("muza:debug-log", {
-                  detail: `[direct-flyby] complete ${fb.targetKey}`,
-                }));
-              }
-            } catch { /* no-op */ }
-            // Включаем hold чтобы classic/cycle_pano не утянул камеру обратно к Земле.
-            holdRef.current = true;
-            directFlybyRef.current = null;
-          }
-        } catch { /* no-op */ }
-        // CRITICAL: ранний return — НЕ выполняем classic/solar/moon/sun ветки
-        // пока direct flyby активен. Это гарантирует визуальный результат.
+      // Босс 2026-05-31 (Вариант 1 — радикальный self-contained lerp):
+      // direct-flyby v2 ведёт СВОЙ rAF-loop (см. onDirectFlyby в effects useEffect выше).
+      // Когда isDirectFlybyActiveRef.current=true — main loop ПОЛНОСТЬЮ пропускает
+      // все ветки (classic/solar/moon/sun/cycle_pano), чтобы не перетянуть камеру.
+      // Old directFlybyRef pipeline удалён — больше не используется (его собственный
+      // rAF в onDirectFlyby двигает camera/controls.target напрямую).
+      if (isDirectFlybyActiveRef.current) {
         return;
       }
       // Во время самого жеста — камеру ведёт OrbitControls (юзер steering'ует).
