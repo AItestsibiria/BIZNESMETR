@@ -1597,7 +1597,11 @@ function makeSolarPlanetMesh(key: string): { group: any; bodyMat: any; ringsMat?
       depthWrite: false,
     });
     const group = new THREE.Group();
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(radius, 48, 48), bodyMat);
+    // 2026-05-31 Босс «масштаба не хватает, как при облёте Земли, детализация
+    // как на фото»: planet diameter ×5 (Mercury 3→15, Jupiter 10→50), segments
+    // 48→96 (hi-res сфера, плавный лимб). Camera orbit подгоняется ниже.
+    const cinematicR = radius * 5;
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(cinematicR, 96, 96), bodyMat);
     group.add(mesh);
     // Uranus — наклон оси 98° (планета «катится» по орбите, NASA fact).
     if (key === "uranus") {
@@ -1607,8 +1611,9 @@ function makeSolarPlanetMesh(key: string): { group: any; bodyMat: any; ringsMat?
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let ringsMat: any;
     if (key === "saturn") {
-      const innerR = radius * 1.4;
-      const outerR = radius * 2.3;
+      // Кольца тоже scale ×5 — пропорционально новому диаметру планеты.
+      const innerR = cinematicR * 1.4;
+      const outerR = cinematicR * 2.3;
       // Кольца — тоже LOD crossfade через uOpacity (тот же uniform что у sphere).
       const ringsFragment = `uniform float uOpacity;\n` + SATURN_RINGS_FRAGMENT.replace(
         /gl_FragColor\s*=\s*vec4\(\s*([^,]+)\s*,\s*([^)]+)\s*\)\s*;/g,
@@ -3659,23 +3664,21 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       // Маршрут: Moon → OUTWARD (Mars→Neptune через пояс) → Sun → INWARD
       // (Mercury → Venus → Earth). Длительность ~3 минуты — каждый approach
       // 12-14 сек (визуально «летим долго»), orbit 6 сек.
-      // Луна — зачин тура. Босс 2026-05-31 «облёт замедленно как у Земли».
-      seq.push({ key: "moon", approachMs: 8000, orbitMs: 14000 });
-      // OUTWARD: от Земли наружу мимо Марса, поясов, газовых гигантов.
-      if (has("mars"))    seq.push({ key: "mars",    approachMs: 12000, orbitMs: 14000 });
-      if (prefs.mainBelt) seq.push({ key: "main_belt", approachMs: 10000, orbitMs: 0 });
-      if (has("jupiter")) seq.push({ key: "jupiter", approachMs: 14000, orbitMs: 22000 });
-      if (has("saturn"))  seq.push({ key: "saturn",  approachMs: 12000, orbitMs: 24000 });
-      if (has("uranus"))  seq.push({ key: "uranus",  approachMs: 14000, orbitMs: 16000 });
-      if (has("neptune")) seq.push({ key: "neptune", approachMs: 14000, orbitMs: 16000 });
-      if (prefs.kuiperBelt) seq.push({ key: "kuiper_belt", approachMs: 10000, orbitMs: 0 });
-      // SUN — центр системы, большое тело, нужен длинный облёт (Босс «масштаба
-      // не хватает, больше времени на облёт Солнца»).
-      seq.push({ key: "sun", approachMs: 16000, orbitMs: 28000 });
-      // INWARD: облёт внутренних планет на пути обратно.
-      if (has("mercury")) seq.push({ key: "mercury", approachMs: 10000, orbitMs: 12000 });
-      if (has("venus"))   seq.push({ key: "venus",   approachMs: 8000, orbitMs: 14000 });
-      if (has("earth"))   seq.push({ key: "earth",   approachMs: 8000, orbitMs: 0 });
+      // 2026-05-31 v3 Босс «скорость между планетами уменьшить в 3 раза»:
+      // approachMs /3 (быстрые перелёты), orbitMs ОСТАЁТСЯ длинным (облёт
+      // замедленный = фишка).
+      seq.push({ key: "moon", approachMs: 2700, orbitMs: 14000 });
+      if (has("mars"))    seq.push({ key: "mars",    approachMs: 4000, orbitMs: 14000 });
+      if (prefs.mainBelt) seq.push({ key: "main_belt", approachMs: 3300, orbitMs: 0 });
+      if (has("jupiter")) seq.push({ key: "jupiter", approachMs: 4700, orbitMs: 22000 });
+      if (has("saturn"))  seq.push({ key: "saturn",  approachMs: 4000, orbitMs: 24000 });
+      if (has("uranus"))  seq.push({ key: "uranus",  approachMs: 4700, orbitMs: 16000 });
+      if (has("neptune")) seq.push({ key: "neptune", approachMs: 4700, orbitMs: 16000 });
+      if (prefs.kuiperBelt) seq.push({ key: "kuiper_belt", approachMs: 3300, orbitMs: 0 });
+      seq.push({ key: "sun", approachMs: 5300, orbitMs: 28000 });
+      if (has("mercury")) seq.push({ key: "mercury", approachMs: 3300, orbitMs: 12000 });
+      if (has("venus"))   seq.push({ key: "venus",   approachMs: 2700, orbitMs: 14000 });
+      if (has("earth"))   seq.push({ key: "earth",   approachMs: 2700, orbitMs: 0 });
       // Возврат — всегда.
       seq.push({ key: "return", approachMs: 6000, orbitMs: 0 });
       return seq;
@@ -4645,12 +4648,17 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                     });
                     return new THREE.Points(geo, mat);
                   };
-                  // Layer 1: близкие крупные пылинки (400 шт, ±5000 wu) — быстрый parallax.
-                  dustGroup.add(makeLayer(400, 5000, 8, 0.7));
+                  // 2026-05-31 v2 (Босс «крупнозернится на дальних планетах,
+                  // нужна глубина сцены звёзд»): уменьшил size близких + добавил
+                  // мега-дальний слой ±150000 wu для глубины на Neptune.
+                  // Layer 1: близкие пылинки (400 шт, ±5000 wu) — быстрый parallax.
+                  dustGroup.add(makeLayer(400, 5000, 3, 0.6));
                   // Layer 2: средние (1500 шт, ±25000 wu) — плавный parallax.
-                  dustGroup.add(makeLayer(1500, 25000, 16, 0.6));
-                  // Layer 3: дальние (3000 шт, ±70000 wu) — медленный parallax + объём.
-                  dustGroup.add(makeLayer(3000, 70000, 32, 0.5));
+                  dustGroup.add(makeLayer(1500, 25000, 6, 0.55));
+                  // Layer 3: дальние (3000 шт, ±70000 wu) — медленный parallax.
+                  dustGroup.add(makeLayer(3000, 70000, 10, 0.5));
+                  // Layer 3b: мега-дальние (5000 шт, ±150000 wu) — фон-глубина.
+                  dustGroup.add(makeLayer(5000, 150000, 18, 0.45));
                   // Layer 4: МЕРЦАЮЩИЕ звёзды (Босс «звёзды мерцают»).
                   // ShaderMaterial с time uniform + per-star random phase.
                   // 800 точек, ±40000 wu, sizeAttenuation=true → растут при подходе.
@@ -4903,22 +4911,22 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 solarStepStartCamPos = { x: cpos.x, y: cpos.y, z: cpos.z };
               } else {
                 // Радиус орбиты — зависит от объекта.
-                let orbitR = 12;
-                // Луна — особый случай (Босс «при облёте Луны — Земля и Солнце
-                // в кадре»). Большой orbitR=220 → камера далеко от Луны → Земля
-                // и Солнце входят в FoV. lookAt → centroid трёх объектов.
+                // 2026-05-31 Босс «масштаба не хватает»: planet mesh ×5 (radius
+                // 15-50). orbitR ×3 чтобы камера была СНАРУЖИ planet и planet
+                // занимала ~40-60% кадра (визуально как Земля в classic).
+                let orbitR = 36;
                 if (planetKey === "moon") orbitR = 220;
-                else if (planetKey === "mercury" || planetKey === "mars") orbitR = 8;
-                else if (planetKey === "venus") orbitR = 10;
-                else if (planetKey === "jupiter") orbitR = 28;
-                else if (planetKey === "saturn") orbitR = prefs.saturnThroughRings ? 22 : 30;
-                else if (planetKey === "uranus") orbitR = 20;
-                else if (planetKey === "neptune") orbitR = 20;
+                else if (planetKey === "mercury" || planetKey === "mars") orbitR = 24;
+                else if (planetKey === "venus") orbitR = 30;
+                else if (planetKey === "jupiter") orbitR = 90;
+                else if (planetKey === "saturn") orbitR = prefs.saturnThroughRings ? 70 : 95;
+                else if (planetKey === "uranus") orbitR = 60;
+                else if (planetKey === "neptune") orbitR = 60;
                 else if (planetKey === "earth") orbitR = 220;
                 else if (planetKey === "return") orbitR = 280;
-                else if (planetKey === "main_belt") orbitR = 18;   // flythrough параметр
+                else if (planetKey === "main_belt") orbitR = 18;
                 else if (planetKey === "kuiper_belt") orbitR = 25;
-                else if (planetKey === "sun") orbitR = 80; // облёт вокруг Солнца на 80 wu
+                else if (planetKey === "sun") orbitR = 500;
 
                 if (phaseT < step.approachMs) {
                   // APPROACH: голливудский монтаж — ease-in-out-quintic (более
@@ -5008,32 +5016,14 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                     targetPos.y + yTilt,
                     targetPos.z + Math.sin(ang) * orbitR,
                   );
-                  // Композиция Hollywood (Босс 23:25 + 23:35):
-                  // — Луна: lookAt Earth+Sun weighted (diamond-ring),
-                  //   камера orbit вокруг Луны 3 раза.
-                  // — Планеты: lookAt сдвинут к centroid(planet+Earth+Sun)
-                  //   чтобы Земля и Солнце ПОПАДАЛИ в кадр (Босс «облёт вокруг
-                  //   планеты Солнце и Земля в кадре»). Bias 0.55 planet, чтобы
-                  //   планета доминировала в центре, но Earth+Sun влетали по краям.
-                  if (planetKey === "moon" && solarSnapshot.sun) {
-                    const sx = solarSnapshot.sun.x;
-                    const sy = solarSnapshot.sun.y;
-                    const sz = solarSnapshot.sun.z;
-                    camera.lookAt(sx * 0.4, sy * 0.4, sz * 0.4);
-                  } else if (
-                    (planetKey === "mercury" || planetKey === "venus" || planetKey === "mars"
-                     || planetKey === "jupiter" || planetKey === "saturn"
-                     || planetKey === "uranus"  || planetKey === "neptune")
-                    && solarSnapshot.sun
-                  ) {
-                    const sx = solarSnapshot.sun.x;
-                    const sy = solarSnapshot.sun.y;
-                    const sz = solarSnapshot.sun.z;
-                    // Centroid(planet, Earth=0, Sun) weighted to planet 55%.
-                    const lx = targetPos.x * 0.55 + 0 * 0.20 + sx * 0.25;
-                    const ly = targetPos.y * 0.55 + 0 * 0.20 + sy * 0.25;
-                    const lz = targetPos.z * 0.55 + 0 * 0.20 + sz * 0.25;
-                    camera.lookAt(lx, ly, lz);
+                  // Композиция (Босс 23:50 «нет масштаба, я внутри Солнца»):
+                  // ВСЕГДА lookAt = planet target (planet в центре кадра).
+                  // Прежняя weighted-композиция уводила фокус на Sun/Earth —
+                  // planet вылетала из кадра. Для Луны оставляем bias к Земле
+                  // (diamond ring всё ещё работает: lookAt Earth-side, Moon
+                  // как silhouette).
+                  if (planetKey === "moon") {
+                    camera.lookAt(0, 0, 0); // на Землю — Луна silhouette перед ней
                   } else {
                     camera.lookAt(targetPos.x, targetPos.y, targetPos.z);
                   }
@@ -5105,7 +5095,12 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                       camera.position.y - sy,
                       camera.position.z - sz,
                     );
-                    const scale = Math.max(1, Math.min(25, 1500 / Math.max(60, cd)));
+                    // 2026-05-31 Босс «я внутри Солнца, лучи кривые» — раньше
+                    // max scale 25× на orbit (cd=80) давало corona диаметр ~2000
+                    // wu при camera dist 80 wu → камера ВНУТРИ corona. Уменьшил
+                    // max до 6× → corona ~480 wu, camera снаружи. Sun-step orbitR
+                    // увеличен ниже до 500 чтобы было где «летать вокруг».
+                    const scale = Math.max(1, Math.min(6, 800 / Math.max(150, cd)));
                     sunMeshRef.current.scale.set(scale, scale, scale);
                   }
                 } catch { /* no-op */ }
