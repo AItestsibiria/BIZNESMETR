@@ -181,6 +181,8 @@ try {
   if (!ucn.includes("pending_phone_otp_expires_at")) sqlite.exec("ALTER TABLE users ADD COLUMN pending_phone_otp_expires_at TEXT");
   if (!ucn.includes("pending_email")) sqlite.exec("ALTER TABLE users ADD COLUMN pending_email TEXT");
   if (!ucn.includes("email_change_token")) sqlite.exec("ALTER TABLE users ADD COLUMN email_change_token TEXT");
+  // Eugene 2026-05-31: cross-device sync настроек Музы (factSettings и т.п.) для authed юзеров.
+  if (!ucn.includes("musa_settings_json")) sqlite.exec("ALTER TABLE users ADD COLUMN musa_settings_json TEXT");
   // Index по phone (для login by phone).
   try { sqlite.exec(`CREATE UNIQUE INDEX IF NOT EXISTS users_phone_idx ON users(phone) WHERE phone IS NOT NULL`); } catch {}
 

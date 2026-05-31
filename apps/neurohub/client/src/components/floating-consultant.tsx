@@ -2435,6 +2435,35 @@ export function FloatingConsultant() {
   useEffect(() => {
     try { localStorage.setItem("muza-facts-settings", JSON.stringify(factSettings)); } catch {}
   }, [factSettings]);
+  // Eugene 2026-05-31 PACK B: cross-device sync настроек Музы через server.
+  // На mount авторизованного юзера — fetch GET /api/muza/settings и
+  // server-wins merge (LS остаётся как фолбэк для аноним-юзеров и offline).
+  useEffect(() => {
+    if (!authedUser) return;
+    let cancelled = false;
+    fetch("/api/muza/settings")
+      .then(r => r.ok ? r.json() : null)
+      .then(j => {
+        if (cancelled || !j?.ok || !j.settings) return;
+        const s = j.settings as { intervalMin?: number; cats?: string[] };
+        setFactSettings(prev => {
+          const next = { ...prev };
+          if (typeof s.intervalMin === "number" && s.intervalMin >= 1 && s.intervalMin <= 60) {
+            next.intervalMin = s.intervalMin;
+          }
+          if (Array.isArray(s.cats)) {
+            next.cats = {
+              feature: s.cats.includes("feature"),
+              fact: s.cats.includes("fact"),
+              hook: s.cats.includes("hook"),
+            };
+          }
+          return next;
+        });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [authedUser]);
   useEffect(() => {
     if (!visible || chatOpen) return;
     const showFact = () => {
@@ -2902,7 +2931,19 @@ export function FloatingConsultant() {
                   {settingsDirty && (
                     <button
                       type="button"
-                      onClick={() => { setSettingsDirty(false); setShowFactSettings(false); setExpanded(false); setSmartBubbleText(null); }}
+                      onClick={() => {
+                        // Eugene 2026-05-31 PACK B: cross-device sync — POST настроек
+                        // на server только для authed (аноним → LS-only, как и было).
+                        if (authedUser) {
+                          const cats = Object.keys(factSettings.cats).filter(c => factSettings.cats[c as keyof typeof factSettings.cats]);
+                          fetch("/api/muza/settings", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ intervalMin: factSettings.intervalMin, cats }),
+                          }).catch(() => {});
+                        }
+                        setSettingsDirty(false); setShowFactSettings(false); setExpanded(false); setSmartBubbleText(null);
+                      }}
                       className="self-end mt-1 px-3 py-1 rounded-full text-[11px] font-semibold text-emerald-50 bg-emerald-500/30 hover:bg-emerald-500/45 border border-emerald-400/50 transition-colors active:scale-95"
                       aria-label="Подтвердить настройки"
                     >

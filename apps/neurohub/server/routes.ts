@@ -78,6 +78,7 @@ import {
   insertManualSale as insertDengaManualSale,
   listManualSales as listDengaManualSales,
   invalidateDengaCache,
+  recordChatCost as recordDengaChatCost,
 } from "./lib/dengaAgent";
 import { startTariffRefresh, refreshLiveTariffs, tariffSourceStatus } from "./lib/tariffSource";
 import { getCurrentTariffs as getDengaCurrentTariffs, TARIFF_HISTORY as DENGA_TARIFF_HISTORY } from "./lib/providerTariffs";
@@ -3681,6 +3682,30 @@ export async function registerRoutes(
       // Eugene 2026-05-14 Босс «реши кардинально — повторные вопросы». History
       // расширена 8 → 15 сообщений. Plus memory extraction перед system prompt.
       const histAll = loadSessionHistory(session.id, 15);
+
+      // Eugene 2026-05-31 PACK A FAB Музы — server-side funnel gating.
+      // Считаем сколько user-сообщений в этой сессии (включая только что
+      // вставленное), маппим в FUNNEL_STAGE метку, инжектим в systemDynamic
+      // ниже. LLM сверяется со стадией и подстраивает напор по шкале
+      // GRADATED INSISTENCE (см. consultantPersona.ts).
+      // Sync, не throw'ит — счёт-failure не должен ломать chat.
+      let userMsgCount = 0;
+      let funnelStageMarker = "";
+      try {
+        const cntRow = sqliteDb.prepare(
+          `SELECT COUNT(*) AS c FROM chatbot_messages WHERE session_id = ? AND role = 'user'`,
+        ).get(session.id) as any;
+        userMsgCount = Number(cntRow?.c) || 0;
+        let label = "soft";
+        if (userMsgCount >= 20) label = "hard-cap";
+        else if (userMsgCount >= 15) label = "premium-paywall";
+        else if (userMsgCount >= 10) label = "persistent";
+        else if (userMsgCount >= 5) label = "propose-gen";
+        funnelStageMarker = `\n\n[FUNNEL_STAGE: N=${userMsgCount} stage=${label}] Сверься со шкалой GRADATED INSISTENCE из persona-system и подстрой тон/напор под стадию N. NOT повторяй фразы предыдущих стадий.`;
+      } catch (e: any) {
+        console.warn("[muza/chat funnel-stage count]", e?.message || e);
+      }
+
       // Eugene 2026-05-15 Босс «Связывай»: cross-channel — если юзер
       // авторизован и есть сессии в TG/Max, LLM подтягивает их в контекст.
       // Префикс [TG]/[Max] помогает понять откуда пришли сообщения.
@@ -4337,6 +4362,61 @@ export async function registerRoutes(
         ? `Цепочка ${attempts.length} ключ${attempts.length === 1 ? "" : "ей"} (primary → backup). Чат отвечает через Claude.`
         : "Ни один ключ Anthropic не задан — Муза отвечает шаблонными фразами. Добавьте ANTHROPIC_API_KEY на VPS.",
     });
+  });
+
+  // GET/POST /api/muza/settings — cross-device sync настроек Музы (factSettings:
+  // intervalMin + cats и т.п.) для авторизованных юзеров. Хранится JSON в
+  // users.musa_settings_json (auto-migrated). Eugene 2026-05-31 PACK B.
+  // - GET: возвращает {ok:true, settings: <obj|null>}.
+  // - POST {intervalMin, cats}: сохраняет произвольный JSON-объект.
+  // Для аноним-юзеров — 401, фронт фолбэк на localStorage-only.
+  app.get("/api/muza/settings", (req: Request, res: Response) => {
+    const userId = getUserIdFromBearer(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: "unauthorized" });
+      return;
+    }
+    try {
+      const row = db.get<{ json: string | null }>(
+        sql`SELECT musa_settings_json as json FROM users WHERE id = ${userId} LIMIT 1`,
+      );
+      let settings: unknown = null;
+      if (row?.json) {
+        try { settings = JSON.parse(row.json); } catch { settings = null; }
+      }
+      res.json({ ok: true, settings });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e?.message || "internal" });
+    }
+  });
+
+  app.post("/api/muza/settings", (req: Request, res: Response) => {
+    const userId = getUserIdFromBearer(req);
+    if (!userId) {
+      res.status(401).json({ ok: false, error: "unauthorized" });
+      return;
+    }
+    const body = (req.body || {}) as { intervalMin?: unknown; cats?: unknown };
+    // Whitelist полей — только то что реально нужно для factSettings.
+    // Расширение — добавить ключ сюда + на фронте.
+    const settings: Record<string, unknown> = {};
+    if (typeof body.intervalMin === "number" && Number.isFinite(body.intervalMin)) {
+      settings.intervalMin = body.intervalMin;
+    }
+    if (Array.isArray(body.cats)) {
+      settings.cats = body.cats.filter(x => typeof x === "string");
+    }
+    if (Object.keys(settings).length === 0) {
+      res.status(400).json({ ok: false, error: "no_valid_fields" });
+      return;
+    }
+    try {
+      const json = JSON.stringify(settings);
+      db.run(sql`UPDATE users SET musa_settings_json = ${json} WHERE id = ${userId}`);
+      res.json({ ok: true, settings });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e?.message || "internal" });
+    }
   });
 
   // GET /api/admin/v304/ai-keys — admin-only список всех AI-ключей проекта

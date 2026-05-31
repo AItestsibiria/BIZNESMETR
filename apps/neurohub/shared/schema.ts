@@ -37,6 +37,9 @@ export const users = sqliteTable("users", {
   pendingPhoneOtpExpiresAt: text("pending_phone_otp_expires_at"),
   pendingEmail: text("pending_email"),
   emailChangeToken: text("email_change_token"),
+  // Eugene 2026-05-31: cross-device sync настроек Музы (интервалы факт-баблов,
+  // включённые категории и т.п.) для авторизованных юзеров. Хранится JSON-строкой.
+  musaSettingsJson: text("musa_settings_json"),
   createdAt: text("created_at").default(sql`CURRENT_TIMESTAMP`),
 });
 

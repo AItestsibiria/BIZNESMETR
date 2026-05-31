@@ -1170,3 +1170,88 @@ export function getDengaAgentStats(): {
     return { cacheSize: cache.size, totalOverrides: 0, lastCalcAt: null };
   }
 }
+
+// ============================================================
+// Chat cost recording (Eugene 2026-05-30 — PACK A FAB Музы)
+// ============================================================
+// Фиксирует реальную стоимость каждого ответа Музы в чате per-message:
+// inputChars + outputChars → estimateChatCallCost → запись в denga_chat_costs.
+// Босс: «recordChatCost(...) — фиксирует в БД ... fire-and-forget».
+//
+// Таблица создаётся idempotent (CREATE IF NOT EXISTS) — без миграций.
+// НЕ путать с denga_manual_costs (там admin overrides по gen_id).
+// Aggregated chat-cost attribution к трекам остаётся в основном пайплайне
+// dengaAgent (chat-to-track), эта таблица — точная per-reply фиксация.
+
+let chatCostsTableReady = false;
+function ensureChatCostsTable(): void {
+  if (chatCostsTableReady) return;
+  try {
+    const db = rawDb();
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS denga_chat_costs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        session_id TEXT,
+        input_chars INTEGER NOT NULL DEFAULT 0,
+        output_chars INTEGER NOT NULL DEFAULT 0,
+        provider TEXT,
+        tier TEXT,
+        cost_kopecks INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+      )
+    `).run();
+    db.prepare(`
+      CREATE INDEX IF NOT EXISTS idx_denga_chat_costs_user_created
+      ON denga_chat_costs (user_id, created_at)
+    `).run();
+    db.prepare(`
+      CREATE INDEX IF NOT EXISTS idx_denga_chat_costs_session
+      ON denga_chat_costs (session_id, created_at)
+    `).run();
+    chatCostsTableReady = true;
+  } catch (e: any) {
+    console.warn("[denga] ensureChatCostsTable failed:", e?.message || e);
+  }
+}
+
+export function recordChatCost(opts: {
+  userId?: number | null;
+  sessionId: string;
+  inputChars: number;
+  outputChars: number;
+  provider?: string;
+  tier?: string;
+}): void {
+  // fire-and-forget — никогда не throw'ит, не блокирует hot-path /api/muza/chat
+  try {
+    ensureChatCostsTable();
+    const now = Date.now();
+    const inputChars = Math.max(0, Number(opts.inputChars) || 0);
+    const outputChars = Math.max(0, Number(opts.outputChars) || 0);
+    const provider = opts.provider ? String(opts.provider).slice(0, 64) : null;
+    const costKopecks = estimateChatCallCost({
+      inputChars,
+      outputChars,
+      createdAtMillis: now,
+      provider: provider || undefined,
+    });
+    const db = rawDb();
+    db.prepare(`
+      INSERT INTO denga_chat_costs
+        (user_id, session_id, input_chars, output_chars, provider, tier, cost_kopecks, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      opts.userId != null ? Number(opts.userId) : null,
+      String(opts.sessionId || "").slice(0, 128),
+      inputChars,
+      outputChars,
+      provider,
+      opts.tier ? String(opts.tier).slice(0, 64) : null,
+      Math.round(costKopecks),
+      now,
+    );
+  } catch (e: any) {
+    console.warn("[denga] recordChatCost failed:", e?.message || e);
+  }
+}
