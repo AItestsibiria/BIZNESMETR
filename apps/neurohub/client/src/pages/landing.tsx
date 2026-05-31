@@ -813,10 +813,13 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
     const EDGE_PX = 80; // последние 80px по правому краю экрана
     const SWIPE_DX = -50; // свайп влево минимум 50px (мягче для пальца)
     const SWIPE_DY_MAX = 80; // вертикальный дрейф не больше
-    const showFor = (ms: number) => {
-      setSolarBtnVisible(true);
+    const showFor = (_ms: number) => {
+      // Босс 2026-05-31: кнопка «🪐 Солнечная» ПОЛНОСТЬЮ СКРЫТА (даже через
+      // edge-swipe). Solar-режим временно деактивирован до стабилизации.
+      // Возвращаем true → false (mount поведение) — кнопка не появится.
+      setSolarBtnVisible(false);
       if (solarBtnHideTimerRef.current) window.clearTimeout(solarBtnHideTimerRef.current);
-      solarBtnHideTimerRef.current = window.setTimeout(() => setSolarBtnVisible(false), ms);
+      solarBtnHideTimerRef.current = null;
     };
     // capture:true — получаем pointer ДО child stopPropagation
     const onStart = (e: PointerEvent) => {
