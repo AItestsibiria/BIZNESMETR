@@ -1255,68 +1255,147 @@ const PLANET_FRAGMENT_JUPITER = SUN_NOISE + `
   }
 `;
 
-// Saturn — пастельный бежевый с тонкими полосами (полосы менее контрастные чем Jupiter).
+// Saturn — hi-end: пастельные пояса/зоны, hexagonal polar storm (Cassini fact),
+// мягкая полосность с зональными ветрами, тёплый Fresnel rim.
 const PLANET_FRAGMENT_SATURN = SUN_NOISE + `
   uniform vec3 sunDir;
   uniform float time;
   varying vec3 vWorldNormal;
   varying vec3 vPos;
   void main() {
-    float i = dot(normalize(vWorldNormal), normalize(sunDir));
-    float lit = smoothstep(-0.08, 0.12, i);
+    vec3 n = normalize(vWorldNormal);
+    vec3 sd = normalize(sunDir);
+    float i = dot(n, sd);
+    float lit = smoothstep(-0.12, 0.22, i);
     vec3 p = normalize(vPos);
-    // Saturn rgb (240,224,168) — пастельный жёлто-бежевый.
-    vec3 baseCol = vec3(0.94, 0.88, 0.66);
-    // Полосы слабее чем у Jupiter (Saturn band contrast ~3× ниже).
+    float t = time * 0.05;
     float lat = p.y;
-    float bandPattern = sin(lat * 14.0 + fbm3(p * 3.0) * 1.0);
-    vec3 zoneCol = vec3(0.96, 0.91, 0.72);
-    vec3 beltCol = vec3(0.78, 0.66, 0.42);
-    baseCol = mix(beltCol, zoneCol, smoothstep(-0.4, 0.4, bandPattern));
-    float t = time * 0.04;
-    float turb = fbm3(vec3(p.x * 6.0 + t, p.y * 10.0, p.z * 6.0));
-    baseCol *= 0.88 + turb * 0.22;
-    // Полярные шестиугольник (Saturn hexagonal storm у северного полюса) — мягкое затемнение.
-    float polar = smoothstep(0.75, 0.95, abs(p.y));
-    baseCol = mix(baseCol, vec3(0.55, 0.50, 0.40), polar * 0.45);
-    vec3 base = baseCol * lit + vec3(0.030, 0.025, 0.018) * (1.0 - lit);
+    float lon = atan(p.z, p.x);
+    // Зональные ветры Saturn — направление меняется по широте.
+    float jetSpeed = sign(cos(lat * 7.0)) * (0.25 + 0.55 * sin(lat * 3.5));
+    float lonFlow = lon + t * jetSpeed;
+    // Главные пояса (на Сатурне они мягче).
+    float EZ  = exp(-pow(lat * 16.0, 2.0));                  // Equatorial Zone (светлый)
+    float NTB = exp(-pow((lat - 0.30) * 14.0, 2.0));
+    float STB = exp(-pow((lat + 0.30) * 14.0, 2.0));
+    float NTeZ= exp(-pow((lat - 0.50) * 16.0, 2.0));
+    float STeZ= exp(-pow((lat + 0.50) * 16.0, 2.0));
+    // Турбулентность.
+    float turbCoarse = fbm3(vec3(cos(lonFlow) * 4.0, lat * 12.0, sin(lonFlow) * 4.0));
+    float turbFine   = fbm3(vec3(cos(lonFlow * 2.5) * 10.0, lat * 22.0, sin(lonFlow * 2.5) * 10.0));
+    // Палитра (мягче Юпитера, более бежевая).
+    vec3 zoneCream  = vec3(0.96, 0.91, 0.74);
+    vec3 zoneBright = vec3(1.00, 0.95, 0.80);
+    vec3 beltTan    = vec3(0.78, 0.62, 0.36);
+    vec3 baseCol = zoneCream;
+    baseCol = mix(baseCol, beltTan,    max(NTB, STB) * (0.45 + 0.30 * turbCoarse));
+    baseCol = mix(baseCol, beltTan * 0.85, max(NTeZ, STeZ) * 0.25);
+    baseCol = mix(baseCol, zoneBright, EZ * 0.40);
+    baseCol *= 0.88 + turbFine * 0.22;
+    // Hexagonal polar storm у северного полюса (NASA Cassini). 6-кратная симметрия.
+    if (lat > 0.78) {
+      float angle = atan(p.z, p.x);
+      float hex = cos(angle * 6.0 + t * 0.5);
+      float hexMask = smoothstep(0.78, 0.92, lat) * (0.5 + 0.5 * hex);
+      vec3 stormCol = vec3(0.62, 0.54, 0.38);
+      baseCol = mix(baseCol, stormCol, hexMask * 0.55);
+      // Тёмный центральный «глаз».
+      float eyeMask = smoothstep(0.92, 0.99, lat);
+      baseCol = mix(baseCol, vec3(0.35, 0.28, 0.18), eyeMask * 0.7);
+    }
+    // Южный полюс — мягкое затемнение.
+    float southPolar = smoothstep(0.78, 0.95, -lat);
+    baseCol = mix(baseCol, vec3(0.58, 0.50, 0.36), southPolar * 0.4);
+    // Освещение.
+    vec3 base = baseCol * (0.10 + lit * 0.95);
+    // Тёплый rim (атмосфера Saturn → fresnel жёлто-бежевый).
+    float fres = pow(1.0 - max(dot(n, normalize(-vPos)), 0.0), 2.2);
+    base += vec3(0.92, 0.78, 0.50) * fres * (0.18 + lit * 0.36);
     gl_FragColor = vec4(base, 1.0);
   }
 `;
 
-// Кольца Сатурна — procedural pattern с Cassini division (тёмная щель ~70%).
+// Кольца Сатурна — hi-end: NASA real-positions колец D/C/B/A/F, Cassini gap,
+// Encke gap, Maxwell gap, гранулярные частицы, тень от планеты на дальнюю сторону,
+// тёплый рассеянный свет на освещённой стороне колец.
 const SATURN_RINGS_VERTEX = `
   varying vec2 vUv;
   varying vec3 vPos;
+  varying vec3 vWorld;
   void main() {
     vUv = uv;
     vPos = position;
+    vec4 worldPos = modelMatrix * vec4(position, 1.0);
+    vWorld = worldPos.xyz;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
 const SATURN_RINGS_FRAGMENT = `
+  uniform vec3 sunDir;
+  uniform float planetRadius;
   varying vec2 vUv;
   varying vec3 vPos;
+  varying vec3 vWorld;
+  // Hash для гранулярных частиц.
+  float hash21(vec2 p) {
+    p = fract(p * vec2(443.8975, 397.2973));
+    p += dot(p, p.yx + 19.19);
+    return fract(p.x * p.y);
+  }
   void main() {
-    // Радиус от центра в плоскости XZ.
-    float r = length(vPos.xz);
-    // Нормализованный 0..1 (inner..outer).
-    // RingGeometry UV: vUv.x = угол, vUv.y = радиус 0..1.
+    // ringR — нормализованный 0..1 (inner = D ring → outer = F ring).
     float ringR = vUv.y;
-    // Тонкие концентрические кольца — синусоида высокой частоты.
-    float fine = 0.5 + 0.5 * sin(ringR * 180.0);
-    fine = pow(fine, 0.7);
-    // Главные кольца (A, B, C divisions).
-    float bring = smoothstep(0.05, 0.10, ringR) * (1.0 - smoothstep(0.40, 0.45, ringR)); // C+B
-    float cassini = 1.0 - (smoothstep(0.43, 0.47, ringR) * (1.0 - smoothstep(0.50, 0.54, ringR))); // Cassini gap ~70% inner
-    float aring = smoothstep(0.54, 0.58, ringR) * (1.0 - smoothstep(0.90, 0.95, ringR)); // A ring
-    float density = (bring * 0.85 + aring * 0.75) * cassini;
-    density *= 0.6 + fine * 0.4;
-    // Цвет колец — пастельный бежево-жёлтый, чуть прозрачнее Сатурна.
-    vec3 ringCol = vec3(0.88, 0.82, 0.65);
+    // NASA real-position divisions (Saturnian radii):
+    //   D ring   0.00 .. 0.07 (диффузный, очень слабый)
+    //   C ring   0.07 .. 0.34 (полупрозрачный crepe ring)
+    //   B ring   0.34 .. 0.62 (самый плотный, яркий)
+    //   Cassini  0.62 .. 0.65 (главный разрыв ~4700 км)
+    //   A ring   0.65 .. 0.92 (плотный, прозрачнее B)
+    //   Encke    0.86 .. 0.87 (узкий разрыв в A)
+    //   Roche    0.92 .. 0.94 (зазор перед F)
+    //   F ring   0.94 .. 0.98 (узкое яркое колечко)
+    float dRing = smoothstep(0.00, 0.05, ringR) * (1.0 - smoothstep(0.05, 0.08, ringR));
+    float cRing = smoothstep(0.07, 0.12, ringR) * (1.0 - smoothstep(0.30, 0.34, ringR));
+    float bRing = smoothstep(0.34, 0.40, ringR) * (1.0 - smoothstep(0.58, 0.62, ringR));
+    float aRing = smoothstep(0.65, 0.70, ringR) * (1.0 - smoothstep(0.88, 0.92, ringR));
+    float fRing = smoothstep(0.94, 0.95, ringR) * (1.0 - smoothstep(0.97, 0.98, ringR));
+    // Encke gap внутри A.
+    float encke = 1.0 - (smoothstep(0.855, 0.865, ringR) * (1.0 - smoothstep(0.872, 0.880, ringR)));
+    aRing *= encke;
+    // Тонкая концентрическая структура (тысячи микро-колец Saturn).
+    float micro = 0.5 + 0.5 * sin(ringR * 380.0);
+    micro = pow(micro, 0.6);
+    // Гранулярные частицы (ледяные обломки).
+    float angle = atan(vPos.z, vPos.x);
+    vec2 cell = vec2(angle * 180.0, ringR * 220.0);
+    float grain = hash21(floor(cell));
+    grain = smoothstep(0.3, 1.0, grain);
+    // Плотность колец (D очень слабый, B самый плотный).
+    float density = dRing * 0.20 + cRing * 0.55 + bRing * 0.95 + aRing * 0.78 + fRing * 0.85;
+    density *= 0.55 + micro * 0.45;
+    density *= 0.70 + grain * 0.40;
+    // Базовый цвет колец — пастельный бежево-жёлтый. B-кольцо самое яркое.
+    vec3 ringColCold  = vec3(0.78, 0.74, 0.64);  // C ring (тёмный)
+    vec3 ringColWarm  = vec3(0.96, 0.90, 0.72);  // B ring (яркий)
+    vec3 ringCol = mix(ringColCold, ringColWarm, bRing + aRing * 0.7);
+    // Тень от планеты — если точка кольца «за» планетой относительно Sun.
+    // ringPos = vWorld; planet at origin. Если ringPos.dot(sunDir) < 0 И |ring⊥sunDir| < planetRadius — тень.
+    vec3 sd = normalize(sunDir);
+    float sunComp = dot(vWorld, sd);
+    vec3 perp = vWorld - sd * sunComp;
+    float perpLen = length(perp);
+    float shadow = 1.0;
+    if (sunComp < 0.0 && perpLen < planetRadius) {
+      // Soft shadow edge.
+      shadow = smoothstep(planetRadius * 0.92, planetRadius * 1.05, perpLen);
+      shadow = mix(0.18, 1.0, shadow);
+    }
+    ringCol *= shadow;
+    // Тёплый рассеянный свет на освещённой стороне колец.
+    float litSide = max(0.0, sunComp / max(0.001, length(vWorld)));
+    ringCol += vec3(0.20, 0.16, 0.10) * litSide * 0.35;
     float alpha = density;
-    // Внутренний край и внешний край — мягкий fadeout.
-    alpha *= smoothstep(0.02, 0.08, ringR) * (1.0 - smoothstep(0.93, 0.99, ringR));
+    alpha *= smoothstep(0.00, 0.04, ringR) * (1.0 - smoothstep(0.97, 1.00, ringR));
     if (alpha < 0.02) discard;
     gl_FragColor = vec4(ringCol, alpha);
   }
@@ -1716,7 +1795,11 @@ function makeSolarPlanetMesh(key: string): { group: any; bodyMat: any; ringsMat?
         "gl_FragColor = vec4($1, ($2) * uOpacity);",
       );
       ringsMat = new THREE.ShaderMaterial({
-        uniforms: { uOpacity: { value: 1.0 } },
+        uniforms: {
+          uOpacity: { value: 1.0 },
+          sunDir: { value: new THREE.Vector3(1, 0, 0) },
+          planetRadius: { value: cinematicR },
+        },
         vertexShader: SATURN_RINGS_VERTEX,
         fragmentShader: ringsFragment,
         side: THREE.DoubleSide,
@@ -4990,13 +5073,17 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                     }
                   }
                 }
-                // Sun direction uniform для планеты.
+                // Sun direction uniform для планеты + колец Сатурна (для теней).
                 if (tourMesh?.bodyMat?.uniforms?.sunDir && sunMeshRef.current) {
                   const s = sunMeshRef.current.position;
                   const gp = tourMesh.group.position;
                   const dx = s.x - gp.x, dy = s.y - gp.y, dz = s.z - gp.z;
                   const len = Math.hypot(dx, dy, dz) || 1;
-                  tourMesh.bodyMat.uniforms.sunDir.value.set(dx / len, dy / len, dz / len);
+                  const nx = dx / len, ny = dy / len, nz = dz / len;
+                  tourMesh.bodyMat.uniforms.sunDir.value.set(nx, ny, nz);
+                  if (tourMesh.ringsMat?.uniforms?.sunDir) {
+                    tourMesh.ringsMat.uniforms.sunDir.value.set(nx, ny, nz);
+                  }
                 }
                 if (tourMesh?.bodyMat?.uniforms?.time) {
                   tourMesh.bodyMat.uniforms.time.value = (now - solarStepStartT) / 1000;
