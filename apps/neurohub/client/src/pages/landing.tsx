@@ -3550,15 +3550,9 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                                   </div>
                                   </div>
                                   {/* ЦЕНТР (col2) — переключение трека ВЛЕВО/ВПРАВО от Play; Play
-                                      СТРОГО по центру экрана (Босс 2026-05-29). Прозрачные контур-кнопки.
-                                      Босс 2026-05-30 п.3: 🎧 счётчик прослушиваний — СЛЕВА от кнопки
-                                      «назад» (был под 🎧 в col3 → перенесён). */}
+                                      СТРОГО по центру экрана. Босс 2026-05-31:
+                                      🎧 счётчик слева/справа от плеера убран. */}
                                   <div className="flex items-center gap-2 sm:gap-3 justify-self-center">
-                                  <span
-                                    className="shrink-0 text-[11px] font-bold tabular-nums bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap select-none"
-                                    aria-label={`Прослушиваний: ${totalPlays.toLocaleString("ru-RU")}`}
-                                    title="Прослушиваний всего"
-                                  >🎧 {totalPlays > 0 ? totalPlays.toLocaleString("ru-RU") : "…"}</span>
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); skipPrev(); }}
