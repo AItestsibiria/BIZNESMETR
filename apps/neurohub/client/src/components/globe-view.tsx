@@ -2581,6 +2581,27 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           return;
         }
 
+        // Босс 2026-05-31 (8-й инцидент «тап Mars → камера на Земле + label Mars»):
+        // КОРЕНЬ — OrbitControls.maxDistance=600 clamp'ил camera position на каждом
+        // ctrl.update(). Планеты на дистанции ~1500 (palt=14 в three-globe coords);
+        // наша lerp-цель ~1460 → clamp до 600 → камера осталась у Земли (~5R от центра),
+        // юзер видит Землю + label планеты остаётся в кадре. ФИКС: расширяем
+        // maxDistance до 2200 на время полёта (1500 planet + offset 40 + запас) и
+        // ВОССТАНАВЛИВАЕМ исходное значение при завершении/abort. Тот же фикс для
+        // minDistance=180 (планета может быть ближе при некоторых углах).
+        const prevMaxDistance = ctrl?.maxDistance ?? 600;
+        const prevMinDistance = ctrl?.minDistance ?? 180;
+        if (ctrl) {
+          ctrl.maxDistance = 2200;
+          ctrl.minDistance = 10;
+        }
+        const restoreControls = () => {
+          if (ctrl) {
+            ctrl.maxDistance = prevMaxDistance;
+            ctrl.minDistance = prevMinDistance;
+          }
+        };
+
         // Snapshot стартовых позиций камеры и target'a.
         const startCamPos = new THREE_NS.Vector3(cam.position.x, cam.position.y, cam.position.z);
         const startTargetPos = ctrl?.target
@@ -2591,6 +2612,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         const lerpFrame = () => {
           if (!isDirectFlybyActiveRef.current) {
             // Внешне прервали (юзер начал ad-hoc gesture etc) — выходим.
+            restoreControls();
             return;
           }
           // Mesh может быть disposed между кадрами — повторно достаём из ref.
@@ -2598,6 +2620,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           if (!curMesh) {
             debugLog(`[direct-flyby-v2] mesh disappeared mid-flight — abort key=${key}`);
             isDirectFlybyActiveRef.current = false;
+            restoreControls();
             return;
           }
           // World-position меша (Sprite/Mesh оба поддерживают getWorldPosition).
@@ -2618,6 +2641,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           if (distFromCenter < 0.001) {
             // Меш в центре — невозможно, но guard.
             isDirectFlybyActiveRef.current = false;
+            restoreControls();
             return;
           }
           dir.divideScalar(distFromCenter); // normalize без allocation
@@ -2656,7 +2680,16 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             holdRef.current = true;
             userInteractingRef.current = false;
             isDirectFlybyActiveRef.current = false;
-            debugLog(`[direct-flyby-v2] complete key=${key}`);
+            // ВАЖНО: maxDistance НЕ восстанавливаем сразу — иначе при следующем
+            // ctrl.update() (например после damping) камера clamp'нется до 600
+            // и улетит обратно к Земле. Удерживаем расширенный maxDistance до
+            // выхода из 3D-режима / следующего управления. Тех мест где
+            // OrbitControls делает update() в холодную мало; holdRef.current=true
+            // блокирует main rAF и pointOfView не зовётся. Если юзер начнёт
+            // gesture — onStart выставит userInteractingRef и controls сам
+            // подтянет камеру в [10..2200], что нормально (не вернёт к Земле).
+            // НЕ зовём restoreControls() сразу — это и есть фикс.
+            debugLog(`[direct-flyby-v2] complete key=${key} (maxDistance kept at 2200)`);
             return;
           }
           requestAnimationFrame(lerpFrame);
