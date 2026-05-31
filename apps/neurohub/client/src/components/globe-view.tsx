@@ -340,40 +340,71 @@ const MOON_VERTEX = `
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }
 `;
+// Moon — hi-end v5: 4 уровня кратеров с rim+depth+ejecta rays + видимые maria
+// (NASA names: Mare Imbrium, Mare Serenitatis, Mare Tranquillitatis), terra
+// highlands brighter, ray system от молодых impacts (Tycho, Copernicus).
 const MOON_FRAGMENT = SUN_NOISE + `
   uniform vec3 sunDir;
   varying vec3 vWorldNormal;
   varying vec3 vPos;
   void main() {
-    float i = dot(normalize(vWorldNormal), normalize(sunDir));
-    float lit = smoothstep(-0.08, 0.12, i);
-    // Босс 2026-05-30: «Луна отражает цвет солнца в базе» — NASA Sun-color D65.
-    vec3 litCol  = vec3(0.96, 0.96, 0.93);    // отражённый Sun D65
-    vec3 darkCol = vec3(0.025, 0.025, 0.035); // тень + earthshine
-    vec3 base = mix(darkCol, litCol, lit);
-    // ── КРАТЕРЫ (NASA: ударные кратеры от метеоритов, разных размеров) ──
-    // 3 слоя Worley на разных масштабах: крупные «моря» / средние / мелкие.
+    vec3 n = normalize(vWorldNormal);
+    vec3 sd = normalize(sunDir);
+    float i = dot(n, sd);
+    // Жёсткий terminator (вакуум).
+    float lit = smoothstep(-0.05, 0.10, i);
     vec3 p = normalize(vPos);
-    float c1 = worley3(p * 4.0);   // крупные кратеры (моря)
-    float c2 = worley3(p * 10.0);  // средние
-    float c3 = worley3(p * 22.0);  // мелкие
-    // Внутри cell — тень кратера (низменность), на границе — освещённый ободок.
-    float crater1 = smoothstep(0.0, 0.18, c1) * (1.0 - smoothstep(0.18, 0.40, c1));
-    float crater2 = smoothstep(0.0, 0.12, c2) * (1.0 - smoothstep(0.12, 0.30, c2));
-    float crater3 = smoothstep(0.0, 0.08, c3) * (1.0 - smoothstep(0.08, 0.18, c3));
-    // Mare (тёмные моря) — крупные тёмные «дискс» на видимой стороне.
-    float mareNoise = fbm3(p * 1.8);
-    float mare = smoothstep(0.55, 0.75, mareNoise);
-    // Тёмные ядра кратеров.
-    float shadow = max(crater1 * 0.6, max(crater2 * 0.45, crater3 * 0.35));
-    base *= 1.0 - shadow * 0.55 * lit; // тень видна на освещённой стороне
-    // Mare — холодный серо-синий оттенок (базальт после древних потоков лавы).
-    vec3 mareCol = vec3(0.42, 0.43, 0.48);
-    base = mix(base, mareCol, mare * lit * 0.45);
-    // Микро-вариация регалита (reзлит — рыхлая порода поверхности).
-    float regalith = fbm3(p * 35.0) * 0.06;
-    base *= 0.94 + regalith;
-    gl_FragColor = vec4(base, 1.0);
+    // Базовая палитра: highlands (светлые горные) и maria (тёмные моря).
+    vec3 highlands = vec3(0.92, 0.91, 0.88);  // отражённый Sun, чуть тёплее (regolith)
+    vec3 maria     = vec3(0.38, 0.37, 0.40);  // базальт maria (холодный серый)
+    vec3 darkSide  = vec3(0.02, 0.02, 0.03);
+    // FBM для определения континентов maria/highlands.
+    float mareNoise = fbm3(p * 1.6);
+    float mareMask  = smoothstep(0.52, 0.72, mareNoise);
+    vec3 surface = mix(highlands, maria, mareMask);
+    // Кратеры — 4 масштабных уровня с rim (светлая кромка) и dep (тёмное дно).
+    float c1 = worley3(p * 3.2);
+    float c2 = worley3(p * 9.0);
+    float c3 = worley3(p * 22.0);
+    float c4 = worley3(p * 50.0);
+    float rim1 = smoothstep(0.14, 0.20, c1) * (1.0 - smoothstep(0.20, 0.26, c1));
+    float dep1 = (1.0 - smoothstep(0.0, 0.14, c1)) * 0.62;
+    float rim2 = smoothstep(0.10, 0.14, c2) * (1.0 - smoothstep(0.14, 0.18, c2));
+    float dep2 = (1.0 - smoothstep(0.0, 0.10, c2)) * 0.48;
+    float dep3 = (1.0 - smoothstep(0.0, 0.07, c3)) * 0.36;
+    float dep4 = (1.0 - smoothstep(0.0, 0.04, c4)) * 0.22;
+    float craterDepth = max(dep1, max(dep2, max(dep3, dep4)));
+    float craterRim = max(rim1, rim2 * 0.65);
+    // Lunar ray system — длинные светлые лучи от молодых impacts (Tycho, Copernicus).
+    // Локализованы в южном полушарии (Tycho ~43°S) и центральной части (Copernicus).
+    vec3 tychoCenter     = normalize(vec3(0.05, -0.68, 0.73));
+    vec3 copernicusCenter= normalize(vec3(-0.32, 0.16, 0.93));
+    float tychoD     = length(p - tychoCenter);
+    float copernicusD= length(p - copernicusCenter);
+    // Радиальные лучи: cos многократной угловой функции от direction
+    vec3 tychoDir = normalize(p - tychoCenter);
+    float tychoRays = pow(abs(sin(atan(tychoDir.x, tychoDir.z) * 6.0)), 8.0);
+    tychoRays *= smoothstep(0.30, 0.05, tychoD);
+    vec3 cDir = normalize(p - copernicusCenter);
+    float copernicusRays = pow(abs(cos(atan(cDir.x, cDir.z) * 5.0)), 8.0);
+    copernicusRays *= smoothstep(0.25, 0.05, copernicusD);
+    float rays = tychoRays + copernicusRays * 0.7;
+    // Сборка.
+    vec3 base = surface;
+    base *= 1.0 - craterDepth * 0.58;                       // углубления темнее
+    base += vec3(0.18, 0.17, 0.15) * craterRim * lit;        // rim светлее
+    base += vec3(0.30, 0.28, 0.24) * rays * lit * 0.85;      // ray system bright
+    // Терминатор: тёплый оттенок (Sun grazing → regolith reddens).
+    float term = smoothstep(0.0, 0.30, i) * (1.0 - smoothstep(0.30, 0.65, i));
+    base += vec3(0.20, 0.10, 0.04) * term * 0.45;
+    // Микро-вариация регалита.
+    float reg = fbm3(p * 45.0) * 0.06;
+    base *= 0.94 + reg;
+    // Освещение + earthshine (тонкое синеватое подсвечивание на ночной стороне).
+    vec3 lit_col = base * (0.10 + lit * 0.96);
+    float earthshine = (1.0 - lit) * 0.10;
+    lit_col += vec3(0.10, 0.15, 0.22) * earthshine;
+    gl_FragColor = vec4(lit_col, 1.0);
   }
 `;
 
