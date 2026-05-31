@@ -2632,7 +2632,9 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     // mesh (planetsRef/moonMeshRef/sunMeshRef) → ставим directFlybyRef → rAF в самом
     // начале перехватывает и lerp'ит camera + controls.target к planet за 2.5 сек.
     const onDirectFlyby = (e: Event) => {
-      const key = (e as CustomEvent).detail?.key;
+      const detail = (e as CustomEvent).detail || {};
+      const targetType: "planet" | "star" = detail.type === "star" ? "star" : "planet";
+      const key = detail.key;
       const debugLog = (msg: string) => {
         try {
           if (window.localStorage?.getItem("muzaai-screen-debug") === "1") {
@@ -2641,8 +2643,82 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         } catch { /* no-op */ }
         try { console.error(msg); } catch { /* no-op */ }
       };
-      debugLog(`[direct-flyby-v2] INVOKED key=${key || "(empty)"}`);
+      debugLog(`[direct-flyby-v2] INVOKED type=${targetType} key=${key || "(empty)"}`);
       if (!key) return;
+
+      // ─────────────────────────────────────────────────────────────────────
+      // STAR BRANCH — отдельная логика. НЕ использует Earth fallback,
+      // НЕ ищет mesh, НЕ переписывает selectedPlanet.
+      // RA/Dec → direction unit-vector → virtualPoint на дальней небесной
+      // сфере (R=50000). Camera lerp к точке вдоль direction. Earth target
+      // НЕ применяется — controls.target = direction × small_distance,
+      // чтобы камера смотрела В НАПРАВЛЕНИИ звезды, не на (0,0,0).
+      // ─────────────────────────────────────────────────────────────────────
+      if (targetType === "star") {
+        const ra: number = typeof detail.ra === "number" ? detail.ra : 0;
+        const dec: number = typeof detail.dec === "number" ? detail.dec : 0;
+        if (!Number.isFinite(ra) || !Number.isFinite(dec)) {
+          debugLog(`[direct-flyby-v2] star bad ra/dec key=${key}`);
+          return;
+        }
+        // RA (часы) + Dec (градусы) → 3D unit-vector (Y-up).
+        const lon = ra * 15 * (Math.PI / 180);
+        const lat = dec * (Math.PI / 180);
+        const dirX = Math.cos(lat) * Math.cos(lon);
+        const dirZ = Math.cos(lat) * Math.sin(lon);
+        const dirY = Math.sin(lat);
+        const direction = new THREE_NS.Vector3(dirX, dirY, dirZ).normalize();
+        const STAR_R = 50000;
+        const virtualPoint = direction.clone().multiplyScalar(STAR_R);
+        // Camera position — на 80% пути к virtualPoint (чтобы звезда впереди).
+        const camTarget = direction.clone().multiplyScalar(STAR_R * 0.8);
+        // controls.target — впереди камеры в направлении звезды (НЕ Earth).
+        const lookTarget = direction.clone().multiplyScalar(STAR_R * 0.95);
+        const gg2: any = globeRef.current; // eslint-disable-line @typescript-eslint/no-explicit-any
+        const ctrl2 = gg2?.controls?.();
+        const cam2 = gg2?.camera?.();
+        if (!cam2) {
+          debugLog(`[direct-flyby-v2] star: camera not ready`);
+          return;
+        }
+        // Расширяем maxDistance чтобы camera могла улететь на STAR_R*0.8 = 40000.
+        if (ctrl2) {
+          ctrl2.maxDistance = Math.max(ctrl2.maxDistance || 0, STAR_R);
+        }
+        // Снимаем holdRef + isDirectFlybyActiveRef блокировки.
+        isDirectFlybyActiveRef.current = true;
+        userOrbitInterruptedRef.current = false;
+        directFlybyPhaseRef.current = "approach";
+        const startCamPos = new THREE_NS.Vector3(cam2.position.x, cam2.position.y, cam2.position.z);
+        const startTargetPos = ctrl2?.target
+          ? new THREE_NS.Vector3(ctrl2.target.x, ctrl2.target.y, ctrl2.target.z)
+          : new THREE_NS.Vector3(0, 0, 0);
+        const startT = performance.now();
+        const DURATION_MS = 8000; // звёзды далеко — фикс 8 сек easeInOutCubic
+        const starFrame = () => {
+          if (!isDirectFlybyActiveRef.current) return;
+          const t = Math.min((performance.now() - startT) / DURATION_MS, 1);
+          const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+          cam2.position.lerpVectors(startCamPos, camTarget, ease);
+          if (ctrl2) {
+            ctrl2.target.lerpVectors(startTargetPos, lookTarget, ease);
+            ctrl2.update?.();
+          }
+          if (t >= 1) {
+            isDirectFlybyActiveRef.current = false;
+            directFlybyPhaseRef.current = "done";
+            holdRef.current = true;
+            debugLog(`[direct-flyby-v2] star complete key=${key} dir=(${direction.x.toFixed(2)},${direction.y.toFixed(2)},${direction.z.toFixed(2)})`);
+            return;
+          }
+          requestAnimationFrame(starFrame);
+        };
+        debugLog(`[direct-flyby-v2] star start key=${key} ra=${ra} dec=${dec} virtualPoint=(${virtualPoint.x.toFixed(0)},${virtualPoint.y.toFixed(0)},${virtualPoint.z.toFixed(0)})`);
+        requestAnimationFrame(starFrame);
+        return;
+      }
+
+      // PLANET BRANCH (существующая логика).
       const VALID_PLANETS = ["mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune"];
       if (key !== "moon" && key !== "sun" && !VALID_PLANETS.includes(key)) {
         debugLog(`[direct-flyby-v2] unknown key=${key}`);
