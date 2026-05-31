@@ -2496,7 +2496,6 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     // начале перехватывает и lerp'ит camera + controls.target к planet за 2.5 сек.
     const onDirectFlyby = (e: Event) => {
       const key = (e as CustomEvent).detail?.key;
-      if (!key) return;
       const debugLog = (msg: string) => {
         try {
           if (window.localStorage?.getItem("muzaai-screen-debug") === "1") {
@@ -2505,44 +2504,101 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         } catch { /* no-op */ }
         try { console.error(msg); } catch { /* no-op */ }
       };
-      // Найти planet mesh для key
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let targetPos: any = null;
-      if (key === "moon" && moonMeshRef.current?.position) {
-        targetPos = moonMeshRef.current.position.clone();
-      } else if (key === "sun" && sunMeshRef.current?.position) {
-        targetPos = sunMeshRef.current.position.clone();
+      // Босс 2026-05-30 (6-й «не работает тап планеты»): атомарный аудит — добавляем
+      // log на ВХОД listener'а. Если этого лога нет в Босс'овом скриншоте — значит
+      // listener вообще не зарегистрирован/event не дошёл (а не «логика не работает»).
+      debugLog(`[direct-flyby] listener INVOKED key=${key || "(empty)"}`);
+      if (!key) return;
+      // Босс 2026-05-30 (6-й инцидент) ROOT CAUSE FIX:
+      // ─────────────────────────────────────────────────────────────────────────
+      // Прямая camera.position manipulation в rAF lerp плохо работает в three-globe:
+      //   1. Каждый кадр classic-rAF мог пытаться выполнить pointOfView, но мы делали
+      //      early-return — это работало. НО для НЕ-classic режимов (если юзер успел
+      //      переключиться) early-return после tt>=1 → holdRef=true спасает от drift,
+      //      но если до начала flyby flightMode был "moon"/"solar" — moon/solar branch
+      //      на следующем tick'е захватывает камеру.
+      //   2. Прямая запись cam.position.set + ctrl.target.set ломается при OrbitControls
+      //      enableDamping (если будет включён) — controls.update() пересчитывает
+      //      spherical и перетирает наше изменение.
+      //   3. iPad Safari: WebKit camera matrix update порой задерживается на 1 frame.
+      // РЕШЕНИЕ: используем native three-globe API `pointOfView({lat, lng, altitude},
+      // durationMs)` — он сам корректно делает tween + обновляет controls.target в
+      // (0,0,0) (Earth-relative). Lat/lng объекта — через sub*Point функции (тот же
+      // источник истины что в positionSunMoon). Altitude — насколько НИЖЕ объекта
+      // встать (1.2 для planets — близко без оверлапа; 1.5 для Moon; 2.0 для Sun).
+      // Также синхронно ставим flightModeRef → "classic" чтобы НИ ОДИН другой режим
+      // не пытался захватить камеру в течение полёта.
+      // ─────────────────────────────────────────────────────────────────────────
+      let lat = 0;
+      let lng = 0;
+      let altitude = 1.2;
+      const now = Date.now();
+      if (key === "moon") {
+        const mp = subLunarPoint(now);
+        lat = mp[0];
+        lng = mp[1];
+        altitude = 0.9; // ближе к Луне (она на alt 1.5 от глобуса)
+      } else if (key === "sun") {
+        const sp = subsolarPoint(now);
+        lat = sp[0];
+        lng = sp[1];
+        altitude = 1.6; // Sun на alt 2.2 — встаём ниже чтобы видеть его и Землю
       } else {
-        const found = planetsRef.current.find(p => p.key === key);
-        if (found?.mesh?.position) {
-          targetPos = found.mesh.position.clone();
+        const VALID_PLANETS = ["mercury", "venus", "mars", "jupiter", "saturn", "uranus", "neptune"];
+        if (!VALID_PLANETS.includes(key)) {
+          debugLog(`[direct-flyby] unknown key=${key}`);
+          return;
         }
-      }
-      if (!targetPos) {
-        debugLog(`[direct-flyby] mesh not found for ${key}`);
-        return;
+        const pp = subPlanetPoint(key, now);
+        lat = pp[0];
+        lng = pp[1];
+        // Планеты на palt=14 (PLANET_WORLD_RADIUS/100-1) — это altitude=14 в
+        // три-globe-координатах. Встаём на altitude=12 — близко но не сквозь
+        // planet sprite. Зум до altitude=14 раскрыл бы планету в полный кадр,
+        // но 12 даёт хороший контекст (видна и planet, и небесный фон).
+        altitude = 12;
       }
       const g = globeRef.current;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const cam = g?.camera?.() as any;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const controls = (g as any)?.controls?.() as any;
-      const startCamPos = cam?.position?.clone?.() || new THREE_NS.Vector3();
-      const startTargetPos = controls?.target?.clone?.() || new THREE_NS.Vector3();
-      directFlybyRef.current = {
-        targetKey: key,
-        targetPos,
-        startCamPos,
-        startTargetPos,
-        startT: performance.now(),
-        durationMs: 2500,
-      };
-      // Босс 2026-05-30: гасим userInteracting/hold чтобы rAF не блокировал прямой flyby.
+      if (!g?.pointOfView) {
+        debugLog(`[direct-flyby] globe not ready key=${key}`);
+        return;
+      }
+      // КРИТИЧНО: переключаем в classic ПЕРЕД pointOfView. Это блокирует
+      // moon/solar/sun rAF-ветки на время полёта (они проверяют flightModeRef).
+      // После завершения tween — classic rAF мог бы попытаться вернуть camera к
+      // Земле через cycle_pano, поэтому СРАЗУ ставим holdRef=true чтобы classic
+      // тоже не двигал камеру до user-interaction.
+      flightModeRef.current = "classic";
+      singleSolarKeyRef.current = null;
       userInteractingRef.current = false;
-      holdRef.current = false;
-      debugLog(`[direct-flyby] start ${key} → pos=(${targetPos.x.toFixed(0)},${targetPos.y.toFixed(0)},${targetPos.z.toFixed(0)})`);
+      // ОТМЕНЯЕМ старый directFlybyRef (если он был активен — например двойной тап).
+      directFlybyRef.current = null;
+      // Ставим hold IMMEDIATELY — pointOfView tween три-globe управляет камерой
+      // независимо от нашего rAF, hold блокирует classic-mode pan drift.
+      holdRef.current = true;
+      try {
+        // Native three-globe tween — durationMs=2500ms, easing внутри.
+        // НЕ передаём третий arg (animationCallback) — не нужен.
+        g.pointOfView({ lat, lng, altitude }, 2500);
+        debugLog(`[direct-flyby] pointOfView START key=${key} lat=${lat.toFixed(1)} lng=${lng.toFixed(1)} alt=${altitude.toFixed(2)}`);
+        // Обновляем zoomTargetRef чтобы classic-rAF zoom-lerp не перетянул altitude.
+        zoomTargetRef.current = altitude;
+      } catch (err) {
+        debugLog(`[direct-flyby] pointOfView FAILED key=${key} err=${(err as Error)?.message || err}`);
+      }
     };
     window.addEventListener("muza:globe-direct-flyby", onDirectFlyby as EventListener);
+    // Босс 2026-05-30 (6-й инцидент) — фиксируем MOUNT event listener'а в дебаг-оверлее.
+    // Если на iPad появилось «[direct-flyby] listener MOUNTED» а после тапа НЕТ
+    // «listener INVOKED» — значит event не доходит (hitbox dispatch не работает или
+    // event на другом window). Если MOUNTED тоже нет — useEffect не запустился.
+    try {
+      if (window.localStorage?.getItem("muzaai-screen-debug") === "1") {
+        window.dispatchEvent(new CustomEvent("muza:debug-log", {
+          detail: `[direct-flyby] listener MOUNTED`,
+        }));
+      }
+    } catch { /* no-op */ }
 
     return () => {
       window.removeEventListener("muza:globe-flight", onFlight as EventListener);
@@ -3166,10 +3222,11 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         w.__muziaiDebugFlightMode = flightModeRef.current;
         w.__muziaiDebugSingleSolarKey = singleSolarKeyRef.current;
       } catch { /* no-op */ }
-      // Босс 2026-05-30 (5-й «летят к Земле»): ПРЯМОЙ FLYBY — самая высокая priority
-      // в rAF, ДО любых других веток (classic/solar/moon/sun/userInteracting).
-      // Lerp camera+target к РЕАЛЬНОЙ 3D-позиции planet mesh за 2.5 сек, easeInOutQuad.
-      // После завершения — hold позиции (camera замирает у planet), без возврата к Земле.
+      // Босс 2026-05-30 (6-й «не работает тап»): directFlybyRef pipeline DEPRECATED.
+      // Новая логика — native three-globe pointOfView() tween в listener onDirectFlyby
+      // (см. выше, line ~2497). Этот блок оставлен для backward-compat если кто-то
+      // ещё ставит directFlybyRef.current напрямую — но листенер больше его не пишет.
+      // Если ref не null — фолбэк-lerp как раньше. Иначе — пропускаем.
       if (directFlybyRef.current) {
         try {
           const fb = directFlybyRef.current;
