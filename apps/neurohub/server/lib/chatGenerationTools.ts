@@ -18,13 +18,28 @@
 //
 // См. Chat-tool-calling rule в CLAUDE.md.
 
-import { db, storage } from "../storage";
+import { db, storage, sqliteDb } from "../storage";
 import { users, generations } from "@shared/schema";
 import { eq, and, desc } from "drizzle-orm";
 import type { ToolDef, ToolHandler, ToolContext } from "./muzaTools";
 import { getCurrentPriceKopecks, getCurrentPriceLabel } from "./pricing";
 import { recordAuditEntry } from "./adminAuditLog";
 import { normalizeVocalParams } from "./normalizeVocalParams";
+
+// Eugene 2026-05-31 PACK C — premium paywall pricing. Источник правды:
+// routes.ts PREMIUM_TIERS.text_quality (29900 коп = 299 ₽/мес) +
+// PRICES.premium_lyrics_oneoff (14900 коп = 149 ₽). Pricing-single-source
+// rule — здесь дублируется только для approval-card preview; реальная
+// активация подписки идёт через Robokassa Result callback (routes.ts
+// TARIFF_TO_TIER → tier='text_quality').
+const PREMIUM_TEXT_QUALITY_KOPECKS = 29900;
+const PREMIUM_TEXT_QUALITY_LABEL = "299 ₽/мес";
+const PREMIUM_LYRICS_ONEOFF_KOPECKS = 14900;
+const PREMIUM_LYRICS_ONEOFF_LABEL = "149 ₽";
+
+// PUBLIC_URL для генерации payUrl (Reuse-working-solutions: тот же pattern
+// что в muzaTools.ts issue_invoice).
+const PUBLIC_URL = process.env.PUBLIC_URL || `https://${process.env.BASE_DOMAIN || "muzaai.ru"}`;
 
 // === Inline GPTunnel client (mirrors routes.ts:458 gptunnelFetch) ===
 const GPTUNNEL_BASE = process.env.GPTUNNEL_BASE || "https://gptunnel.ru/v1";
@@ -228,6 +243,32 @@ export const CHAT_GENERATION_TOOLS: ToolDef[] = [
         job_id: { type: "number", description: "ID генерации" },
       },
       required: ["job_id"],
+    },
+  },
+  {
+    // Eugene 2026-05-31 PACK C — premium paywall tool. Музa вызывает когда
+    // юзер общается долго (≥15 сообщений) БЕЗ единой генерации/оплаты —
+    // мягкий paywall для конвертации в premium-подписку или one-off.
+    // ВСЕГДА требует confirm_spend=true (Chat-tool-calling rule, защита от
+    // LLM-инициатив). Без confirm_spend → approval_required JSON с описанием
+    // тарифа + balance юзера + invoice preview. Реальная оплата — Robokassa
+    // через issue_invoice pipeline (Reuse-working-solutions rule).
+    name: "propose_premium_paywall",
+    description:
+      "Предложить юзеру премиум-paywall: подписка text_quality (299 ₽/мес, безлимит на 4-step lyrics + приоритет в очереди генерации) ИЛИ one-off premium lyrics draft (149 ₽). " +
+      "ИСПОЛЬЗОВАТЬ ТОЛЬКО когда юзер общается ≥15 сообщений БЕЗ единой оплаты/генерации (вяло-нейтральный диалог без commitment). " +
+      "НЕ навязывать активным юзерам которые уже генерят/платят. " +
+      "Тариф 'subscription' = подписка text_quality 299₽/мес; 'oneoff' = единичный premium draft 149₽. " +
+      "confirm_spend=false (или нет) → approval_required JSON с описанием. confirm_spend=true → выписывает счёт через invoice pipeline (Robokassa-payment-url). " +
+      "Не активирует подписку сама — это делает Robokassa Result callback после реальной оплаты.",
+    input_schema: {
+      type: "object",
+      properties: {
+        tariff: { type: "string", enum: ["subscription", "oneoff"], description: "'subscription' = premium_text_quality 299₽/мес; 'oneoff' = premium_lyrics_oneoff 149₽" },
+        reason: { type: "string", description: "Почему именно сейчас предлагаешь (1-200 chars): «много обсуждали, но не запускали» / «текст-черновик зрелый, давай переведём в премиум»." },
+        confirm_spend: { type: "boolean", description: "true = выписать счёт. false/отсутствует = approval_required с preview." },
+      },
+      required: ["tariff", "reason"],
     },
   },
 ];

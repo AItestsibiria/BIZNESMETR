@@ -3801,6 +3801,11 @@ export async function registerRoutes(
         }
       } catch {}
 
+      // Eugene 2026-05-31 PACK A FAB Музы — инжект FUNNEL_STAGE в dynamic context.
+      // Маркер собран выше (userMsgCount + stage label). LLM использует его для
+      // выбора напора (soft / propose-gen / persistent / premium-paywall / hard-cap).
+      if (funnelStageMarker) systemDynamic += funnelStageMarker;
+
       // Eugene 2026-05-18 Босс «администратору выдаёт всю информацию» —
       // если authUser = admin/super_admin, role пробрасывается в LLM core,
       // там filterToolsForRole откроет admin-tools и buildPersonaSystem
@@ -3933,6 +3938,9 @@ export async function registerRoutes(
         console.log(`[MUZA-INTENT-ROUTER] ${isAdminChat ? "admin (always-tools)" : "tool-intent"} → forceAnthropic for sess=${session.id.slice(0, 12)}`);
       }
 
+      // Eugene 2026-05-31 PACK A: maxTokens 400 → 280 (короче ответы, дешевле).
+      // 15-строчный post-processor ниже подстрахует если LLM всё равно выдаст
+      // длинно. См. consultantPersona.ts блок «ОГРАНИЧЕНИЕ ДЛИНЫ ОТВЕТА».
       let reply = await callUnifiedMuzaLLM({
         sessionId: session.id,
         userId: authUserId,
@@ -3940,7 +3948,7 @@ export async function registerRoutes(
         userText: text,
         history: llmHistory,
         dynamicContext: systemDynamic,
-        maxTokens: 400,
+        maxTokens: 280,
         role: muzaRole,
         onToolResult,
         forceAnthropic,
@@ -3982,7 +3990,7 @@ export async function registerRoutes(
               userText: text,
               history: llmHistory,
               dynamicContext: retryDynamic,
-              maxTokens: 400,
+              maxTokens: 280,
               role: muzaRole,
               onToolResult,
               forceAnthropic,
@@ -4137,6 +4145,31 @@ export async function registerRoutes(
         reply = pool[Math.floor(Math.random() * pool.length)];
         usedFallback = true;
       }
+
+      // Eugene 2026-05-31 PACK A FAB Музы — post-processor: cap 15 строк.
+      // LLM иногда выдаёт длинные простыни даже при maxTokens=280 (нумерованные
+      // списки / много \n\n). Юзер не читает > 15 строк. Если непустых строк
+      // больше 14 — обрезаем до 14 + добавляем мягкий tail-маркер.
+      try {
+        const lines = reply.split("\n");
+        const nonEmpty = lines.filter(l => l.trim().length > 0);
+        if (nonEmpty.length > 15) {
+          // Берём первые 14 непустых строк С СОХРАНЕНИЕМ пустых-разделителей
+          // между ними (для красной строки — Musa-message-format rule).
+          const kept: string[] = [];
+          let keptNonEmpty = 0;
+          for (const l of lines) {
+            if (l.trim().length > 0) {
+              if (keptNonEmpty >= 14) break;
+              keptNonEmpty++;
+            }
+            kept.push(l);
+          }
+          reply = kept.join("\n").trimEnd() + "\n…покажу остальное, если попросишь.";
+        }
+      } catch (e: any) {
+        console.warn("[muza/chat 15-line cap]", e?.message || e);
+      }
       // Eugene 2026-05-20 Босс «Облака убери из чата если пользователь сам
       // не попросит подсказки». Дефолтные QR-кнопки убраны — если Музa не
       // вернула [QR:] маркеры, оставляем пустые. Кнопки появляются ТОЛЬКО
@@ -4251,6 +4284,28 @@ export async function registerRoutes(
         .set({ lastMessageAt: new Date().toISOString() })
         .where(eq(chatbotSessions.id, session.id))
         .run();
+
+      // Eugene 2026-05-31 PACK A FAB Музы — fire-and-forget chat-cost recording
+      // в denga_chat_costs (см. Denga-agent rule). Считаем input как:
+      // systemDynamic + история (concat) + userText. Output = финальный reply
+      // после всех strip/cap. Provider — "unified-muza" (callUnifiedMuzaLLM
+      // абстрагирует chain; точный provider кэшируется в llmCore stats).
+      try {
+        const inputChars =
+          (systemDynamic ? systemDynamic.length : 0) +
+          llmHistory.reduce((acc, h) => acc + String(h.content || "").length, 0) +
+          text.length;
+        const outputChars = String(reply || "").length;
+        recordDengaChatCost({
+          userId: authUserId ?? null,
+          sessionId: session.id,
+          inputChars,
+          outputChars,
+          provider: "unified-muza",
+        });
+      } catch (e: any) {
+        console.warn("[muza/chat recordChatCost]", e?.message || e);
+      }
 
       // Re-extract memo с учётом нового user-message (для UI таблицы).
       const updatedMemo = extractMemoryFromHistory(loadSessionHistory(session.id, 30));
