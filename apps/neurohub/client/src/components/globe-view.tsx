@@ -4505,6 +4505,18 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
               solarStepStartT = now;
               solarStepIdx = 0;
               solarInitDone = true;
+              // 2026-05-31 Босс «Земля доминирует тур» (скрин 22:17): OrbitControls
+              // сами вызывают update() каждый кадр через globe.gl internal — это
+              // ПЕРЕТИРАЛО camera.lookAt(targetPos), возвращая камеру на orbit
+              // around controls.target=(0,0,0)=Земля. Тур фактически вращался
+              // вокруг Земли, target планет игнорировался. FIX: тот же pattern
+              // что direct-flyby (стр 2816) — controls.enabled=false на ВРЕМЯ
+              // всего тура. Restore в exit-блоках (completion + classic switch).
+              try {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const ctrlInit = (gg as any).controls?.();
+                if (ctrlInit) ctrlInit.enabled = false;
+              } catch { /* no-op */ }
               try {
                 if (window.localStorage?.getItem("muzaai-click-debug") === "1") {
                   console.error("[rAF/solar] INIT SOLAR_TOUR", {
@@ -5025,6 +5037,16 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           aiSubPhase = "";
           aiCyclesDone = 0;
           aiContInitDone = false;
+          // 2026-05-31 Босс: при выходе из solar/moon/sun ВСЕГДА восстанавливаем
+          // OrbitControls (тур их отключает чтобы не перетирать camera.lookAt).
+          // Иначе после тура globe «замерзает» — user не может крутить мышью.
+          if (lastFlightMode === "solar" || lastFlightMode === "moon" || lastFlightMode === "sun") {
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const ctrlR = (gg as any).controls?.();
+              if (ctrlR) ctrlR.enabled = true;
+            } catch { /* no-op */ }
+          }
           lastFlightMode = flightModeRef.current;
         }
         if (!aiInitDone) {
