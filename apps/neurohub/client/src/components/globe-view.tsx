@@ -4586,7 +4586,13 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 const entry = planetsRef.current.find((p) => p.key === key);
                 if (!entry?.mesh?.position) return null;
                 const fp = entry.mesh.position;
-                const d = Math.hypot(fp.x, fp.y, fp.z) || 1;
+                const d = Math.hypot(fp.x, fp.y, fp.z);
+                // 2026-05-31 Босс «тур на Venus застрял, видна Земля».
+                // ROOT CAUSE: если sprite ещё не позиционирована Schlyter ephemeris
+                // (d === 0 или < 0.01), старый код делал `d || 1` → target=(0,0,0) =
+                // центр Земли → камера летела В ЗЕМЛЮ. Теперь — return null,
+                // tour-loop пропустит шаг с toast (см. handler выше).
+                if (!Number.isFinite(d) || d < 0.01) return null;
                 // Внешние планеты ставим дальше (для разреженности тура).
                 const isOuter = key === "uranus" || key === "neptune";
                 const scale = (isOuter ? 240 : 200) / d;
@@ -4685,6 +4691,19 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
 
               const targetPos = getTargetPos(planetKey);
               if (!targetPos) {
+                // 2026-05-31 Босс «Тур по солнечной перебирал, на Venus застрял».
+                // ROOT CAUSE: getTargetPos(planetKey) возвращает null если sprite
+                // planetsRef.current[key] ещё не создан (lazy creation race) или
+                // mesh.position = (0,0,0) (не инициализирована Schlyter эфемерида).
+                // Был silent skip → юзер видел зависший label планеты, камера у Земли.
+                // Теперь — warn в DevTools + toast юзеру + явный label clear.
+                console.warn(`[solar-tour] targetPos=null для "${planetKey}" (idx=${solarStepIdx}) — пропускаю шаг. planetsRef sprite не готов / координаты (0,0,0)?`);
+                try {
+                  window.dispatchEvent(new CustomEvent("muza:toast", {
+                    detail: { message: `Планета «${planetKey}» ещё не загрузилась, тур продолжается дальше` },
+                  }));
+                } catch { /* no-op */ }
+                try { clearSolarLabelState(); } catch { /* no-op */ }
                 solarStepIdx += 1;
                 solarStepStartT = now;
                 const cpos = camera.position;
