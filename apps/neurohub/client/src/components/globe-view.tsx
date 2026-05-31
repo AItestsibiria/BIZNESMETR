@@ -2624,7 +2624,13 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       // ретраим до 30 кадров.
       let retries = 0;
       const MAX_RETRIES = 30;
-      const DURATION_MS = 2500;
+      // Босс 2026-05-31: эталон Земля↔Марс 10 сек. Среднее расстояние Земля-Марс
+      // ~0.65 AU = 975 units (1 AU = 1500). Скорость = 97.5 units/sec = 10.26 ms/unit.
+      // Для других планет — пропорционально дистанции от текущей позиции камеры.
+      // Cap [3 сек .. 60 сек] чтобы Нептун не летел 9 минут.
+      const MS_PER_UNIT = 10.26;
+      const MIN_DURATION_MS = 3000;
+      const MAX_DURATION_MS = 60000;
       const OFFSET = 40;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const gg: any = globeRef.current;
@@ -2689,6 +2695,13 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           ? new THREE_NS.Vector3(ctrl.target.x, ctrl.target.y, ctrl.target.z)
           : new THREE_NS.Vector3(0, 0, 0);
         const startT = performance.now();
+        // Босс 2026-05-31 пропорциональная длительность: расстояние от текущей
+        // позиции камеры до target планеты × ms_per_unit. Эталон Земля↔Марс=10с.
+        const initialMeshPos = new THREE_NS.Vector3();
+        try { mesh.getWorldPosition(initialMeshPos); } catch { /* no-op */ }
+        const flightDistance = startCamPos.distanceTo(initialMeshPos);
+        const DURATION_MS = Math.max(MIN_DURATION_MS, Math.min(MAX_DURATION_MS, flightDistance * MS_PER_UNIT));
+        debugLog(`[direct-flyby-v2] distance=${flightDistance.toFixed(0)} duration=${(DURATION_MS/1000).toFixed(1)}s`);
 
         const lerpFrame = () => {
           if (!isDirectFlybyActiveRef.current) {
