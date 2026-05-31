@@ -53,6 +53,10 @@ import {
 import * as THREE_NS from "three";
 import { GlobeLoader } from "@/components/globe-loader";
 import { setSolarLabelState, clearSolarLabelState } from "@/components/solar-label";
+// Босс 2026-05-31 (8-я попытка): реальные 3D-позиции планет в космосе.
+// Меркурий ~585, Юпитер ~7800, Нептун ~45075 world-units от центра Земли.
+// Камера летит к НАСТОЯЩЕЙ точке планеты, не к точке на сфере radius=1500.
+import { getPlanetGeocentric3D } from "@/lib/planetPositions";
 // Каталог реальных звёзд + созвездий (Босс 2026-05-30, VirtualSky-style hover-tooltip).
 import {
   BRIGHT_STARS,
@@ -961,21 +965,29 @@ function makePlanetSprite(rgb: [number, number, number], size: number): any {
 // поверхности/облаков). Босс 2026-05-30 «реальные цвета по NASA». Размеры
 // масштабированы для визуальной иерархии в звёздном небе на радиусе 1500:
 // Юпитер/Сатурн крупнее (газовые гиганты), Меркурий мельче, Земля reference ~26.
+// Босс 2026-05-31 (8-я попытка): размеры sprite в world-units. Раньше все планеты
+// были на дистанции 1500, использовался size=22..42 (≈1.5°). Теперь планеты
+// в РЕАЛЬНЫХ 3D-позициях (Меркурий ~585, Нептун ~45075) — нужен per-planet scale
+// пропорционально дистанции, иначе Нептун будет невидимой точкой. Эталон: ~2.5%
+// от дистанции = эффективный угловой размер ~1.5° (хорошо видно издалека).
+// На подлёте (lerp в direct-flyby останавливается на OFFSET=40 от планеты) sprite
+// заполнит большой кусок кадра — это норма (Босс хочет «подлёт к планете»).
 const PLANET_STYLE: Record<string, { rgb: [number, number, number]; size: number }> = {
-  // Меркурий — серо-коричневый регалит (NASA Mariner/Messenger): RGB 140,120,83
-  mercury: { rgb: [140, 120, 83], size: 22 },
-  // Венера — жёлто-белые облака H2SO4 (NASA Mariner 10 visible): RGB 232,213,168
-  venus:   { rgb: [232, 213, 168], size: 36 },
-  // Марс — красно-оранжевый оксид железа (Fe2O3) NASA Viking/MRO: RGB 193,68,14
-  mars:    { rgb: [193, 68, 14], size: 28 },
-  // Юпитер — оранжево-бежевый аммиак, доминирующий тон пояса (NASA Voyager/Juno): RGB 216,168,120
-  jupiter: { rgb: [216, 168, 120], size: 42 },
-  // Сатурн — бледно-золотой аммиак + углеводороды (NASA Cassini): RGB 227,214,167
-  saturn:  { rgb: [227, 214, 167], size: 38 },
-  // Уран — бирюзово-голубой метан в атмосфере (NASA Voyager 2): RGB 179,224,224
-  uranus:  { rgb: [179, 224, 224], size: 26 },
-  // Нептун — тёмно-синий метан (NASA Voyager 2): RGB 60,91,200
-  neptune: { rgb: [60, 91, 200], size: 26 },
+  // Меркурий — серо-коричневый регалит (NASA): дистанция от Земли 0.39..1.39 AU
+  //  → world-dist ≈ 585..2085 → size 30 (видно во всех фазах).
+  mercury: { rgb: [140, 120, 83], size: 30 },
+  // Венера — жёлто-белые облака (NASA): 0.72..1.72 AU → 1080..2580 → size 50.
+  venus:   { rgb: [232, 213, 168], size: 50 },
+  // Марс — оксид железа (NASA): 0.52..2.52 AU → 780..3780 → size 80.
+  mars:    { rgb: [193, 68, 14], size: 80 },
+  // Юпитер — газовый гигант (NASA): 4.20..6.20 AU → 6300..9300 → size 200.
+  jupiter: { rgb: [216, 168, 120], size: 200 },
+  // Сатурн (NASA): 8.58..10.58 AU → 12870..15870 → size 320.
+  saturn:  { rgb: [227, 214, 167], size: 320 },
+  // Уран (NASA): 18.20..20.20 AU → 27300..30300 → size 600.
+  uranus:  { rgb: [179, 224, 224], size: 600 },
+  // Нептун (NASA): 29.05..31.05 AU → 43575..46575 → size 900.
+  neptune: { rgb: [60, 91, 200], size: 900 },
 };
 
 // Радиус (мир) дальней небесной сферы для планет: ЗА Солнцем (Солнце ≈ 100·(1+2.2)=320)
@@ -2208,14 +2220,16 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         const c = g.getCoords(mp[1], mp[0], 1.5);
         moonMeshRef.current.position.set(c.x, c.y, c.z);
       }
-      // Планеты — на дальней сфере (alt = R/100−1), по подпланетной точке (RA/Dec).
+      // Босс 2026-05-31 (8-я попытка фикса flyby): планеты в РЕАЛЬНЫХ 3D-позициях
+      // относительно Земли — не на одной сфере radius=1500, а на честных расстояниях
+      // (Меркурий ~585, Юпитер ~7800, Нептун ~45075 world-units). Камера летит к
+      // НАСТОЯЩЕЙ точке планеты в космосе. Геоцентрические координаты считаются
+      // через Schlyter ephemeris (lib/planetPositions.ts).
       if (planetsRef.current.length) {
-        const palt = PLANET_WORLD_RADIUS / 100 - 1;
         const now = Date.now();
         for (const p of planetsRef.current) {
-          const pp = subPlanetPoint(p.key, now);
-          const c = g.getCoords(pp[1], pp[0], palt);
-          p.mesh.position.set(c.x, c.y, c.z);
+          const pos = getPlanetGeocentric3D(p.key, now);
+          p.mesh.position.set(pos.x, pos.y, pos.z);
         }
       }
       // Фаза Луны: направление на Солнце в мировых координатах (= нормаль позиции
@@ -2592,7 +2606,12 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         const prevMaxDistance = ctrl?.maxDistance ?? 600;
         const prevMinDistance = ctrl?.minDistance ?? 180;
         if (ctrl) {
-          ctrl.maxDistance = 2200;
+          // Босс 2026-05-31 (8-я попытка): расширяем maxDistance до 60000 —
+          // покрывает дистанцию до Нептуна (~45075 world-units). Раньше было 2200
+          // (рассчитано на плоский купол radius=1500). Без расширения OrbitControls
+          // clamp'нет camera position в радиусе 2200 и flyby «зависнет» в космосе
+          // на полпути к дальним планетам.
+          ctrl.maxDistance = 60000;
           ctrl.minDistance = 10;
         }
         const restoreControls = () => {
@@ -2689,7 +2708,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             // gesture — onStart выставит userInteractingRef и controls сам
             // подтянет камеру в [10..2200], что нормально (не вернёт к Земле).
             // НЕ зовём restoreControls() сразу — это и есть фикс.
-            debugLog(`[direct-flyby-v2] complete key=${key} (maxDistance kept at 2200)`);
+            debugLog(`[direct-flyby-v2] complete key=${key} (maxDistance kept at 60000)`);
             return;
           }
           requestAnimationFrame(lerpFrame);
@@ -3179,30 +3198,46 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       } catch {
         camPos = null;
       }
-      const palt = PLANET_WORLD_RADIUS / 100 - 1;
+      // Босс 2026-05-31: screen-projection теперь через mesh.position (как Moon/Sun)
+      // — позиции реальные 3D. Раньше использовался getScreenCoords(palt) → sprite
+      // плоско рендерится на купола, screen-coord совпадал, но flyby уезжал в космос.
+      // Теперь — единый источник правды: где sprite реально нарисован, там и тап-зона.
       const cosAlpha = camPos ? Math.sqrt(Math.max(0, 1 - (100 / cl) * (100 / cl))) : 1;
-      const now = Date.now();
+      const camForProj = (() => {
+        try { return gg.camera?.() || null; } catch { return null; }
+      })();
+      const elForProj = wrapRef.current;
+      const rectForProj = elForProj?.getBoundingClientRect?.();
       for (const p of planetsRef.current) {
-        const pp = subPlanetPoint(p.key, now);
+        const mp = p.mesh?.position;
+        if (!mp) continue;
+        // Skip до первого positionSunMoon (mesh ещё в 0,0,0).
+        if (mp.x === 0 && mp.y === 0 && mp.z === 0) continue;
         let visible = true;
         try {
-          const c0 = camPos;
-          if (c0) {
-            const pc = gg.getCoords?.(pp[1], pp[0], palt);
-            if (pc) {
-              const dpx = pc.x - c0.x, dpy = pc.y - c0.y, dpz = pc.z - c0.z;
-              const dpl = Math.hypot(dpx, dpy, dpz) || 1;
-              // Угол между «камера→центр Земли» и «камера→планета»: внутри диска Земли = скрыта.
-              const dotv = (-c0.x * dpx - c0.y * dpy - c0.z * dpz) / (cl * dpl);
-              if (dotv > cosAlpha) visible = false;
-            }
+          if (camPos) {
+            const dpx = mp.x - camPos.x, dpy = mp.y - camPos.y, dpz = mp.z - camPos.z;
+            const dpl = Math.hypot(dpx, dpy, dpz) || 1;
+            // Угол между «камера→центр Земли» и «камера→планета»: внутри диска Земли = скрыта.
+            const dotv = (-camPos.x * dpx - camPos.y * dpy - camPos.z * dpz) / (cl * dpl);
+            if (dotv > cosAlpha) visible = false;
           }
         } catch {
           visible = true;
         }
+        // Проекция через camera.project (тот же путь что Moon/Sun ниже).
         let sc: { x: number; y: number } | null = null;
         try {
-          sc = gg.getScreenCoords?.(pp[1], pp[0], palt);
+          if (camForProj && rectForProj) {
+            const v = new THREE_NS.Vector3(mp.x, mp.y, mp.z);
+            v.project(camForProj);
+            if (v.z < 1) {
+              sc = {
+                x: (v.x * 0.5 + 0.5) * rectForProj.width,
+                y: (-v.y * 0.5 + 0.5) * rectForProj.height,
+              };
+            }
+          }
         } catch {
           sc = null;
         }
@@ -4967,6 +5002,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       try {
         const cam = g.camera?.();
         if (cam) {
+          // Босс 2026-05-31 (8-я попытка): cam.far ≥ 500000 покрывает звёздное небо
+          // и реальные 3D-позиции планет (Нептун ≈ 45075 world-units от Земли,
+          // Уран ≈ 28800). Запас х10 даёт стабильную проекцию даже при подлёте
+          // к Нептуну. См. lib/planetPositions.ts (AU_SCALE=1500).
           cam.far = Math.max(cam.far || 0, 500000);
           // Босс 2026-05-30 субагент ROOT CAUSE «планеты просвечивают сквозь Землю»:
           // при far=500000 и дефолтном near=0.1 соотношение far/near=5 000 000 →
