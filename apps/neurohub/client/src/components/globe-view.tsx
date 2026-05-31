@@ -2840,16 +2840,16 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         if (ctrl2 && ctrl2.target) {
           ctrl2.target.set(lookTarget.x, lookTarget.y, lookTarget.z);
         }
+        let frameIdx = 0;
         const starFrame = () => {
           if (!isDirectFlybyActiveRef.current) {
-            // Aborted by another flight — restore controls + up anyway.
-            if (ctrl2) {
-              ctrl2.enabled = prevEnabled2;
-              ctrl2.maxDistance = prevMaxDistance2;
-            }
+            // Aborted by another flight — restore controls + up + dispose marker.
+            restoreControls();
             if (prevCamUp) {
               try { cam2.up.set(prevCamUp.x, prevCamUp.y, prevCamUp.z); } catch { /* no-op */ }
             }
+            disposeMarker();
+            debugLog(`[star-flight] aborted key=${key} dir=(${direction.x.toFixed(2)},${direction.y.toFixed(2)},${direction.z.toFixed(2)})`);
             return;
           }
           const t = Math.min((performance.now() - startT) / DURATION_MS, 1);
@@ -2864,21 +2864,28 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           }
           // Дополнительная гарантия — camera.lookAt(star) каждый кадр (если есть метод).
           try { cam2.lookAt?.(lookTarget); } catch { /* no-op */ }
+          // Debug overlay каждые 10 кадров: реальная дистанция камеры от origin,
+          // расстояние controls.target от origin, текущий progress t.
+          if (frameIdx % 10 === 0) {
+            const currentCamDist = cam2.position.length();
+            const ctrlTargetDist = ctrl2?.target ? new THREE_NS.Vector3(ctrl2.target.x, ctrl2.target.y, ctrl2.target.z).length() : 0;
+            debugLog(`[star-flight] frame=${frameIdx} key=${key} t=${t.toFixed(2)} currentCamDist=${currentCamDist.toFixed(0)} ctrlTargetDist=${ctrlTargetDist.toFixed(0)} camTargetR=${endDistFromOrigin.toFixed(0)} lookTargetR=${STAR_R_VISUAL}`);
+          }
+          frameIdx++;
           if (t >= 1) {
             isDirectFlybyActiveRef.current = false;
             directFlybyPhaseRef.current = "done";
             holdRef.current = true;
-            // Восстанавливаем юзер-управление + sync update один раз.
-            if (ctrl2) {
-              ctrl2.enabled = prevEnabled2;
-              try { ctrl2.update?.(); } catch { /* no-op */ }
-            }
-            debugLog(`[direct-flyby-v2] star complete key=${key} endDist=${endDistFromOrigin.toFixed(0)} dir=(${direction.x.toFixed(2)},${direction.y.toFixed(2)},${direction.z.toFixed(2)}) arcBoost=${arcBoost.toFixed(1)}`);
+            // Восстанавливаем юзер-управление (полный restore) + удаляем marker.
+            restoreControls();
+            disposeMarker();
+            const finalCamDist = cam2.position.length();
+            debugLog(`[star-flight] DONE key=${key} ra=${ra} dec=${dec} dir=(${direction.x.toFixed(3)},${direction.y.toFixed(3)},${direction.z.toFixed(3)}) starVisualR=${STAR_R_VISUAL} camTargetR=${endDistFromOrigin.toFixed(0)} lookTargetR=${STAR_R_VISUAL} finalCamDist=${finalCamDist.toFixed(0)} angle(camFwd,starDir)=${camFwdAngleDeg.toFixed(1)}deg arcBoost=${arcBoost.toFixed(2)}`);
             return;
           }
           requestAnimationFrame(starFrame);
         };
-        debugLog(`[direct-flyby-v2] star-debug key=${key} ra=${ra} dec=${dec} | startCamDist=${startDistFromOrigin.toFixed(0)} endCamDist=${endDistFromOrigin.toFixed(0)} starVisualR=${STAR_R_VISUAL} | dir=(${direction.x.toFixed(3)},${direction.y.toFixed(3)},${direction.z.toFixed(3)}) angle(camFwd,starDir)=${camFwdAngleDeg.toFixed(1)}deg angle(startPos,starDir)=${angleStartToStarDeg.toFixed(1)}deg arcBoost=${arcBoost.toFixed(2)} controlPointDist=${controlPoint.length().toFixed(0)} | virtualPoint=(${virtualPoint.x.toFixed(0)},${virtualPoint.y.toFixed(0)},${virtualPoint.z.toFixed(0)})`);
+        debugLog(`[star-flight] START key=${key} ra=${ra} dec=${dec} dir=(${direction.x.toFixed(3)},${direction.y.toFixed(3)},${direction.z.toFixed(3)}) starVisualR=${STAR_R_VISUAL} camTargetR=${endDistFromOrigin.toFixed(0)} lookTargetR=${STAR_R_VISUAL} startCamDist=${startDistFromOrigin.toFixed(0)} angle(camFwd,starDir)=${camFwdAngleDeg.toFixed(1)}deg angle(startPos,starDir)=${angleStartToStarDeg.toFixed(1)}deg arcBoost=${arcBoost.toFixed(2)} controlPointDist=${controlPoint.length().toFixed(0)} virtualPoint=(${virtualPoint.x.toFixed(0)},${virtualPoint.y.toFixed(0)},${virtualPoint.z.toFixed(0)})`);
         requestAnimationFrame(starFrame);
         return;
       }
