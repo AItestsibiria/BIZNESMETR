@@ -1871,33 +1871,12 @@ export async function registerRoutes(
         return;
       }
 
-      // Admin-panel-IP-hard-gate + email-fallback rule (Eugene 2026-05-30):
-      // админский вход с НЕТРАСТОВОГО IP не блокируется жёстко — высылается код
-      // и магическая ссылка на email админа. TTL 3 мин. Подтверждение через
-      // POST /api/auth/admin-ip-confirm {email, code} или GET .../link?token=...
-      if ((user.role === "admin" || user.role === "super_admin")
-          && getTrustedIpList().length > 0
-          && !isAdminTrustedIp(req)) {
-        try {
-          await adminIpFallbackInitiate({ user, req });
-        } catch (e: any) {
-          console.error("[admin-ip-fallback] init error:", e?.message || e);
-        }
-        try {
-          logUserActionFailure({
-            userId: user.id, channel: "web", action: "admin_login_ip_confirm_required",
-            statusCode: 202, errorCode: "ip_not_trusted",
-            errorMessage: "admin login from untrusted IP — email code sent",
-            endpoint: "/api/auth/login",
-          });
-        } catch { /* swallow */ }
-        res.status(202).json({
-          message: "IP не доверен. Код подтверждения отправлен на email. Действует 3 минуты.",
-          requireIpConfirm: true,
-          email: maskEmailForAdmin(user.email || ""),
-        });
-        return;
-      }
+      // Admin-panel-IP-hard-gate rule (Eugene 2026-05-31, уточнение):
+      // IP-проверка ПРИ ЛОГИНЕ УБРАНА — теперь даже админ получает токен
+      // без IP-check. IP-гейт остаётся ТОЛЬКО на admin endpoints
+      // (через requireAdmin middleware) и на frontend AdminGate (whoami-ip).
+      // Так личный кабинет автора всегда доступен, а админ-shell заблокирован
+      // до подтверждения IP (email-fallback показывается уже внутри AdminGate).
 
       const token = uuidv4();
       tokenStore.set(token, user.id);
