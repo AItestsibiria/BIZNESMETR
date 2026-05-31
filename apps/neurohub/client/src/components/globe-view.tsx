@@ -1446,37 +1446,63 @@ const PLANET_FRAGMENT_URANUS = SUN_NOISE + `
   }
 `;
 
-// Neptune — тёмно-синий, ветры, Великое Тёмное Пятно (gaussian dark spot).
+// Neptune — hi-end: глубокий ультрамарин, рекордные ветры (2100 км/ч),
+// дрейфующее Великое Тёмное Пятно + Scooter (быстрое белое пятно), яркий cyan rim.
 const PLANET_FRAGMENT_NEPTUNE = SUN_NOISE + `
   uniform vec3 sunDir;
   uniform float time;
   varying vec3 vWorldNormal;
   varying vec3 vPos;
   void main() {
-    float i = dot(normalize(vWorldNormal), normalize(sunDir));
-    float lit = smoothstep(-0.08, 0.12, i);
+    vec3 n = normalize(vWorldNormal);
+    vec3 sd = normalize(sunDir);
+    float i = dot(n, sd);
+    float lit = smoothstep(-0.16, 0.26, i);
     vec3 p = normalize(vPos);
-    // Базовый цвет Neptune rgb (79,134,247) — насыщенный тёмно-синий.
-    vec3 baseCol = vec3(0.31, 0.52, 0.92);
-    // Сильные ветры (~2000 км/ч) — выражённые полосы.
+    float t = time * 0.12;
     float lat = p.y;
-    float bandPattern = sin(lat * 16.0 + fbm3(p * 4.0) * 1.2);
-    vec3 zoneCol = vec3(0.38, 0.58, 0.96);
-    vec3 beltCol = vec3(0.22, 0.40, 0.78);
-    baseCol = mix(beltCol, zoneCol, smoothstep(-0.4, 0.4, bandPattern));
-    float t = time * 0.10;
-    float winds = fbm3(vec3(p.x * 9.0 + t, p.y * 13.0, p.z * 9.0));
-    baseCol *= 0.85 + winds * 0.30;
-    // Великое Тёмное Пятно — гауссиан в южном полушарии (~22°S).
-    vec3 spotCenter = normalize(vec3(0.30, -0.40, 0.86));
-    float spotD = length(p - spotCenter);
-    float spot = exp(-spotD * spotD * 22.0);
-    vec3 darkSpotCol = vec3(0.08, 0.16, 0.40);
-    baseCol = mix(baseCol, darkSpotCol, spot * 0.80);
-    // Полярные зоны — слегка темнее.
-    float polar = smoothstep(0.70, 0.95, abs(p.y));
-    baseCol = mix(baseCol, vec3(0.18, 0.30, 0.60), polar * 0.35);
-    vec3 base = baseCol * lit + vec3(0.010, 0.018, 0.030) * (1.0 - lit);
+    float lon = atan(p.z, p.x);
+    // Зональные jets ретроградные у экватора (Voyager 2).
+    float jetSpeed = sign(cos(lat * 6.0)) * (0.5 + 0.6 * sin(lat * 3.0));
+    float lonFlow = lon + t * jetSpeed;
+    // Полосы.
+    float bandCoarse = fbm3(vec3(cos(lonFlow) * 3.5, lat * 14.0, sin(lonFlow) * 3.5));
+    float bandFine   = fbm3(vec3(cos(lonFlow * 2.5) * 9.0, lat * 22.0, sin(lonFlow * 2.5) * 9.0));
+    // Палитра deep ocean blue.
+    vec3 colCobalt = vec3(0.20, 0.42, 0.86);  // основа
+    vec3 colSky    = vec3(0.45, 0.66, 0.98);  // светлые ветра
+    vec3 colDeep   = vec3(0.10, 0.22, 0.55);  // штормовые тени
+    vec3 baseCol = mix(colDeep, colSky, smoothstep(0.30, 0.72, bandCoarse));
+    baseCol = mix(baseCol, colCobalt, 0.4);
+    baseCol *= 0.85 + bandFine * 0.30;
+    // Великое Тёмное Пятно — антициклон, дрейф ~38 м/с (NASA fact).
+    vec3 gdsCenter = normalize(vec3(cos(t * 0.4 + 2.0) * 0.5, -0.40, sin(t * 0.4 + 2.0) * 0.86));
+    float gdsD = length(p - gdsCenter);
+    float gds = exp(-gdsD * gdsD * 26.0);
+    float gdsSwirl = sin(gdsD * 80.0 - t * 5.0) * 0.5 + 0.5;
+    vec3 gdsCol = mix(vec3(0.04, 0.10, 0.32), vec3(0.10, 0.20, 0.45), gdsSwirl);
+    baseCol = mix(baseCol, gdsCol, gds * 0.90);
+    // Scooter — быстрое белое пятно (Voyager 2 fact, дрейф ~16 часов).
+    vec3 scooterC = normalize(vec3(cos(t * 1.2) * 0.7, -0.10, sin(t * 1.2) * 0.71));
+    float scooterD = length(p - scooterC);
+    float scooter = exp(-scooterD * scooterD * 55.0);
+    baseCol = mix(baseCol, vec3(0.96, 0.98, 1.00), scooter * 0.50);
+    // Дополнительные белые методан-облака (Hubble fact).
+    for (int k = 0; k < 4; k++) {
+      float fk = float(k);
+      vec3 cC = normalize(vec3(cos(t * 0.6 + fk * 1.7) * 0.6, sin(fk * 0.8) * 0.5, sin(t * 0.6 + fk * 1.7) * 0.6));
+      float cD = length(p - cC);
+      float cM = exp(-cD * cD * 80.0);
+      baseCol += vec3(0.10, 0.12, 0.14) * cM * lit * 0.6;
+    }
+    // Полярные зоны.
+    float polar = smoothstep(0.75, 0.96, abs(lat));
+    baseCol = mix(baseCol, vec3(0.15, 0.28, 0.58), polar * 0.35);
+    // Освещение.
+    vec3 base = baseCol * (0.08 + lit * 0.95);
+    // Яркий cyan rim glow (метан рассеивает синий).
+    float fres = pow(1.0 - max(dot(n, normalize(-vPos)), 0.0), 2.2);
+    base += vec3(0.35, 0.72, 1.00) * fres * (0.30 + lit * 0.50);
     gl_FragColor = vec4(base, 1.0);
   }
 `;
