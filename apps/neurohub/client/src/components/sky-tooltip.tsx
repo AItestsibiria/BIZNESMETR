@@ -46,6 +46,32 @@ export function SkyTooltip() {
     return () => window.removeEventListener("muza:sky-hover", onHover);
   }, []);
 
+  // Босс 2026-05-31: тап по tooltip → flight к звезде/планете.
+  // Для star: detail.type='star' + ra/dec (RA в часах, Dec в градусах).
+  // Для planet: используем существующий direct-flyby pipeline через key.
+  const onTooltipClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!payload) return;
+    try {
+      if (payload.type === "star") {
+        window.dispatchEvent(new CustomEvent("muza:globe-direct-flyby", {
+          detail: {
+            type: "star",
+            key: payload.star.id,
+            ra: payload.star.ra,
+            dec: payload.star.dec,
+            name: payload.star.name,
+          },
+        }));
+      } else {
+        window.dispatchEvent(new CustomEvent("muza:globe-direct-flyby", {
+          detail: { type: "planet", key: payload.key },
+        }));
+      }
+    } catch { /* no-op */ }
+    setPayload(null); // закрываем tooltip
+  };
+
   if (!payload) return null;
 
   // Clamp к viewport: tooltip не должен вылезать за края экрана.
@@ -64,7 +90,7 @@ export function SkyTooltip() {
   const isStar = payload.type === "star";
   const node = (
     <div
-      className="pointer-events-none fixed z-[290] rounded-xl border border-purple-400/30 backdrop-blur-md"
+      className="fixed z-[290] rounded-xl border border-purple-400/30 backdrop-blur-md cursor-pointer active:scale-95 transition-transform"
       style={{
         left,
         top,
@@ -73,7 +99,10 @@ export function SkyTooltip() {
           "linear-gradient(135deg, rgba(26,15,46,0.88) 0%, rgba(10,10,23,0.92) 50%, rgba(15,24,48,0.88) 100%)",
         boxShadow:
           "0 8px 32px rgba(124,58,237,0.25), 0 0 16px rgba(0,212,255,0.15)",
+        pointerEvents: "auto",
       }}
+      onClick={onTooltipClick}
+      onPointerUp={(e) => { onTooltipClick(e as unknown as React.MouseEvent); }}
       data-testid="sky-tooltip"
     >
       <div className="p-3">
@@ -115,6 +144,10 @@ export function SkyTooltip() {
             </div>
           </>
         )}
+        {/* CTA «🚀 Лететь» — единый для star/planet. */}
+        <div className="mt-2 pt-2 border-t border-purple-400/15 text-center text-[11px] font-display font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent">
+          🚀 Лететь →
+        </div>
       </div>
     </div>
   );
