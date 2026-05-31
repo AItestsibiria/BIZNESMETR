@@ -2111,6 +2111,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // CustomEvent `muza:globe-solar-prefs`. Новый формат: `planets: string[]` (массив
   // ключей выбранных планет). Старый формат (innerPlanets/outerPlanets/shortTour
   // booleans) поддерживается через адаптацию в load-handler ниже.
+  // 2026-05-31 Solar tour helpers (Босс «Sun масштаб», «эффект движения», ...):
+  const solarTourActiveRef = useRef<boolean>(false);
+  const savedSunPosRef = useRef<{ x: number; y: number; z: number } | null>(null);
+  const spaceDustRef = useRef<any>(null); // THREE.Points (космическая пыль для parallax)
   const solarPrefsRef = useRef<{
     planets: string[];           // выбранные ключи: ["mercury","venus","earth","mars","jupiter","saturn","uranus","neptune"]
     satellites: boolean;         // показывать спутники планет
@@ -2282,7 +2286,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     const g = globeRef.current;
     if (!g?.getCoords) return;
     try {
-      if (sunMeshRef.current) {
+      if (sunMeshRef.current && !solarTourActiveRef.current) {
         const sp = subsolarPoint(Date.now());
         // Ближе к Земле (Босс 2026-05-29: панорама Луна+Земля+Солнце в кадре) — 3.0→2.2.
         const c = g.getCoords(sp[1], sp[0], 2.2);
@@ -4578,6 +4582,55 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 const ctrlInit = (gg as any).controls?.();
                 if (ctrlInit) ctrlInit.enabled = false;
               } catch { /* no-op */ }
+              // 2026-05-31 Sun mesh переезд: переносим sunMeshRef в реальную точку
+              // Солнца (1 AU) на время тура. positionSunMoon (раз в 60 сек) НЕ
+              // тронет sunMesh пока solarTourActiveRef=true. Сохраняем prev pos
+              // для restore при выходе из solar.
+              solarTourActiveRef.current = true;
+              try {
+                if (sunMeshRef.current && solarSnapshot.sun) {
+                  const cur = sunMeshRef.current.position;
+                  savedSunPosRef.current = { x: cur.x, y: cur.y, z: cur.z };
+                  sunMeshRef.current.position.set(
+                    solarSnapshot.sun.x,
+                    solarSnapshot.sun.y,
+                    solarSnapshot.sun.z,
+                  );
+                }
+              } catch { /* no-op */ }
+              // 2026-05-31 Эффект движения в космосе (parallax): создаём облако
+              // космической пыли (400 точек в кубе ±5000 wu от Земли). При
+              // движении камеры они видимо пролетают мимо. Точки крупные с
+              // sizeAttenuation=true — ближние большие, дальние маленькие.
+              try {
+                if (!spaceDustRef.current) {
+                  const N = 400;
+                  const positions = new Float32Array(N * 3);
+                  for (let i = 0; i < N; i++) {
+                    positions[i * 3 + 0] = (Math.random() - 0.5) * 10000;
+                    positions[i * 3 + 1] = (Math.random() - 0.5) * 10000;
+                    positions[i * 3 + 2] = (Math.random() - 0.5) * 10000;
+                  }
+                  const dustGeo = new THREE.BufferGeometry();
+                  dustGeo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+                  const dustMat = new THREE.PointsMaterial({
+                    size: 4,
+                    color: 0xffffff,
+                    sizeAttenuation: true,
+                    transparent: true,
+                    opacity: 0.55,
+                  });
+                  const dust = new THREE.Points(dustGeo, dustMat);
+                  scene.add(dust);
+                  spaceDustRef.current = dust;
+                }
+              } catch { /* no-op */ }
+              // 2026-05-31 Тост «🚀 Поехали!» при старте тура (Гагаринский запал).
+              try {
+                window.dispatchEvent(new CustomEvent("muza:toast", {
+                  detail: { message: "🚀 Поехали! Тур по Солнечной системе" },
+                }));
+              } catch { /* no-op */ }
               try {
                 if (window.localStorage?.getItem("muzaai-click-debug") === "1") {
                   console.error("[rAF/solar] INIT SOLAR_TOUR", {
@@ -4910,6 +4963,39 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                   }
                 }
 
+                // 2026-05-31 Sun mesh scaling при приближении (Босс «Солнце
+                // становится больше масштаб»). При orbit фазе sun-step камера
+                // на 80 wu от Sun → scale 18.75. При approach далеко → scale 1.
+                try {
+                  if (planetKey === "sun" && sunMeshRef.current && solarSnapshot.sun) {
+                    const sx = solarSnapshot.sun.x;
+                    const sy = solarSnapshot.sun.y;
+                    const sz = solarSnapshot.sun.z;
+                    const cd = Math.hypot(
+                      camera.position.x - sx,
+                      camera.position.y - sy,
+                      camera.position.z - sz,
+                    );
+                    const scale = Math.max(1, Math.min(25, 1500 / Math.max(60, cd)));
+                    sunMeshRef.current.scale.set(scale, scale, scale);
+                  }
+                } catch { /* no-op */ }
+                // 2026-05-31 Space dust follow camera (Босс «эффект движения в
+                // космосе»). Если камера ушла >4000 wu от центра облака —
+                // переносим облако в текущую позицию камеры (точки в random
+                // позициях ±5000 вокруг центра группы → камера всегда внутри).
+                try {
+                  if (spaceDustRef.current) {
+                    const dp = spaceDustRef.current.position;
+                    const dx = camera.position.x - dp.x;
+                    const dy = camera.position.y - dp.y;
+                    const dz = camera.position.z - dp.z;
+                    if (Math.hypot(dx, dy, dz) > 4000) {
+                      dp.set(camera.position.x, camera.position.y, camera.position.z);
+                    }
+                  }
+                } catch { /* no-op */ }
+
                 // OrbitControls target на текущий объект.
                 try {
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -5129,6 +5215,31 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const ctrlR = (gg as any).controls?.();
               if (ctrlR) ctrlR.enabled = true;
+            } catch { /* no-op */ }
+          }
+          // 2026-05-31 Cleanup solar tour: восстанавливаем Sun mesh + удаляем
+          // space dust + сбрасываем active-флаг.
+          if (lastFlightMode === "solar") {
+            solarTourActiveRef.current = false;
+            try {
+              if (sunMeshRef.current && savedSunPosRef.current) {
+                sunMeshRef.current.position.set(
+                  savedSunPosRef.current.x,
+                  savedSunPosRef.current.y,
+                  savedSunPosRef.current.z,
+                );
+                sunMeshRef.current.scale.set(1, 1, 1);
+                savedSunPosRef.current = null;
+              }
+            } catch { /* no-op */ }
+            try {
+              if (spaceDustRef.current) {
+                const dust = spaceDustRef.current;
+                dust.parent?.remove?.(dust);
+                dust.geometry?.dispose?.();
+                dust.material?.dispose?.();
+                spaceDustRef.current = null;
+              }
             } catch { /* no-op */ }
           }
           lastFlightMode = flightModeRef.current;

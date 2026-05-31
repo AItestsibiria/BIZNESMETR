@@ -147,9 +147,8 @@ export function PlanetMiniIcon({ planetKey, size = 28 }: { planetKey: string; si
 }
 
 const DEFAULT_PREFS: SolarPrefs = {
-  // Босс 2026-05-31: по умолчанию НИ ОДНА одиночная не выбрана. Юзер видит чистый
-  // wizard — только Полный тур доступен сразу, чекбоксы пустые.
-  planets: [],
+  // Босс 2026-05-31 v2: Луна отмечена по умолчанию (зачин тура).
+  planets: ["moon"],
   satellites: true,
   mainBelt: true,
   kuiperBelt: false,
@@ -543,6 +542,14 @@ export function SolarWizard({ open, onClose, onLaunch, originPoint, preselectKey
                   Поехали!
                 </button>
               )}
+              {/* 2026-05-31 Босс «кнопка сброса параметров выбора» */}
+              <button
+                type="button"
+                onClick={() => setPrefs({ ...DEFAULT_PREFS })}
+                className="mt-2 w-full h-9 rounded-xl text-xs font-medium text-white/70 bg-white/5 hover:bg-white/10 border border-white/10 active:scale-95 transition-all"
+              >
+                ↺ Сбросить параметры
+              </button>
             </div>
           </motion.div>
         </motion.div>
