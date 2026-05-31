@@ -19,6 +19,12 @@ import * as THREE_NS from "three";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const THREE: any = THREE_NS as any;
 
+// Единый радиус «небесной сферы» для звёзд + созвездий + flight-target.
+// Босс 2026-05-31 — unified STARFIELD_RADIUS:
+// раньше отрисовка использовала 280000, flight target — 50000 → камера не долетала.
+// Теперь оба значения из одной константы (Pricing-single-source-style).
+export const STARFIELD_RADIUS = 280000;
+
 export type SpectralClass = "O" | "B" | "A" | "F" | "G" | "K" | "M";
 
 export interface StarRecord {

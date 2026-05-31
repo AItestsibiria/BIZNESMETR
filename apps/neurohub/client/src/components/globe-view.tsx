@@ -61,6 +61,7 @@ import { getPlanetGeocentric3D } from "@/lib/planetPositions";
 import {
   BRIGHT_STARS,
   CONSTELLATIONS,
+  STARFIELD_RADIUS,
   raDecToVec3,
   magToSize,
   magToOpacity,
@@ -2688,34 +2689,90 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         //      кадра смотрит на звезду, Земля уходит из кадра.
         //   5) [NEW] CAMERA UP-VECTOR LOCK. Фиксируем cam.up = (0,1,0) — иначе на
         //      экстремальных склонах траектории three-globe может flip камеру.
-        const STAR_R_VISUAL = 280000; // должно совпадать с STAR_R при отрисовке звёзд
+        // Босс 2026-05-31 (unified STARFIELD_RADIUS + tuned factors):
+        //  - STAR_LOOK_FACTOR=1.0 — смотрим РОВНО на звезду (раньше 0.95 — взгляд
+        //    проходил перед ней, юзер видел чёрное пространство).
+        //  - STAR_CAMERA_FACTOR=0.85 — камера останавливается на 85% пути
+        //    (раньше 0.9 = почти упёрлись; 0.85 даёт небольшой буфер чтобы
+        //    звезда + соседи попадали в кадр).
+        const STAR_R_VISUAL = STARFIELD_RADIUS; // 280000, один источник со skyCatalog
+        const STAR_LOOK_FACTOR = 1.0;
+        const STAR_CAMERA_FACTOR = 0.85;
         // raDecToVec3 возвращает вектор длины radius; нормируем для direction.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const starVec: any = raDecToVec3(ra, dec, STAR_R_VISUAL);
         const direction = new THREE_NS.Vector3(starVec.x, starVec.y, starVec.z).normalize();
-        const virtualPoint = direction.clone().multiplyScalar(STAR_R_VISUAL);
-        // Camera position — на 90% пути к virtualPoint (звезда заметно крупная в кадре).
-        const camTarget = direction.clone().multiplyScalar(STAR_R_VISUAL * 0.9);
-        // controls.target — за камерой ещё на 5% (звезда впереди по направлению взгляда).
-        const lookTarget = direction.clone().multiplyScalar(STAR_R_VISUAL * 0.95);
+        const visualStarPoint = direction.clone().multiplyScalar(STAR_R_VISUAL);
+        const virtualPoint = visualStarPoint; // совместимость с debug-логом ниже
+        // Camera target — STAR_CAMERA_FACTOR от radius (рядом со звездой).
+        const camTarget = direction.clone().multiplyScalar(STAR_R_VISUAL * STAR_CAMERA_FACTOR);
+        // Look target — РОВНО на звезду (LOOK_FACTOR=1.0).
+        const lookTarget = direction.clone().multiplyScalar(STAR_R_VISUAL * STAR_LOOK_FACTOR);
         const gg2: any = globeRef.current; // eslint-disable-line @typescript-eslint/no-explicit-any
         const ctrl2 = gg2?.controls?.();
         const cam2 = gg2?.camera?.();
+        const scene2: any = gg2?.scene?.(); // eslint-disable-line @typescript-eslint/no-explicit-any
         if (!cam2) {
           debugLog(`[direct-flyby-v2] star: camera not ready`);
           return;
         }
-        // Расширяем maxDistance чтобы camera могла улететь на STAR_R_VISUAL*0.9 = 252000.
-        // Запоминаем prev-значения для восстановления при abort.
+        // Расширяем maxDistance чтобы camera могла улететь на STAR_R_VISUAL * 0.85.
+        // Запоминаем prev-значения для восстановления при abort/done.
         const prevMaxDistance2 = ctrl2?.maxDistance ?? 600;
         const prevEnabled2 = ctrl2?.enabled ?? true;
+        const prevAutoRotate2 = ctrl2?.autoRotate ?? false;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const prevCamUp: any = cam2.up ? new THREE_NS.Vector3(cam2.up.x, cam2.up.y, cam2.up.z) : null;
         if (ctrl2) {
           ctrl2.maxDistance = Math.max(ctrl2.maxDistance || 0, STAR_R_VISUAL);
           // Снимаем юзер-управление на время полёта — никаких drag/inertia/damping.
+          // autoRotate тоже OFF (иначе сцена медленно вращается и сбивает прицел).
           ctrl2.enabled = false;
+          ctrl2.autoRotate = false;
         }
+        // Визуальный marker — маленькая пурпурная сфера в visualStarPoint, чтобы
+        // юзер ВИДЕЛ куда мы летим и подтвердил что точка совпадает со звездой.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let starMarker: any = null;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let starMarkerGeo: any = null;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let starMarkerMat: any = null;
+        if (scene2) {
+          try {
+            starMarkerGeo = new THREE_NS.SphereGeometry(2000, 16, 16);
+            starMarkerMat = new THREE_NS.MeshBasicMaterial({
+              color: 0xff00ff,
+              transparent: true,
+              opacity: 0.6,
+              blending: THREE_NS.AdditiveBlending,
+              depthWrite: false,
+            });
+            starMarker = new THREE_NS.Mesh(starMarkerGeo, starMarkerMat);
+            starMarker.position.copy(visualStarPoint);
+            starMarker.frustumCulled = false;
+            (starMarker as { name?: string }).name = "star-flight-marker";
+            scene2.add(starMarker);
+          } catch (err) {
+            debugLog(`[star-flight] marker create failed: ${(err as Error)?.message || err}`);
+          }
+        }
+        const disposeMarker = () => {
+          if (!starMarker) return;
+          try { scene2?.remove?.(starMarker); } catch { /* no-op */ }
+          try { starMarkerGeo?.dispose?.(); } catch { /* no-op */ }
+          try { starMarkerMat?.dispose?.(); } catch { /* no-op */ }
+          starMarker = null;
+          starMarkerGeo = null;
+          starMarkerMat = null;
+        };
+        const restoreControls = () => {
+          if (!ctrl2) return;
+          ctrl2.enabled = prevEnabled2;
+          ctrl2.autoRotate = prevAutoRotate2;
+          ctrl2.maxDistance = prevMaxDistance2;
+          try { ctrl2.update?.(); } catch { /* no-op */ }
+        };
         // Lock up-vector (избегаем flip на полярных траекториях).
         try { cam2.up.set(0, 1, 0); } catch { /* no-op */ }
         // Удерживаем main rAF от вмешательства (classic/sun/moon/solar branches early-return).
@@ -3736,7 +3793,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       const el = wrapRef.current;
       if (!cam || !el) return;
       const rect = el.getBoundingClientRect();
-      const STAR_R = 280000;
+      const STAR_R = STARFIELD_RADIUS;
       // Чтобы не пересоздавать Vector3 каждый кадр, используем один-два scratch'а.
       // На 50 звёзд это копеечно, но всё равно good practice.
       for (const s of BRIGHT_STARS) {
@@ -5501,8 +5558,11 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         // sizeAttenuation:false → звёзды остаются видимыми точками на любой дистанции.
         if (scene && !deepStarsRef.current) {
           const group = new THREE.Group();
-          const STAR_R = 280000; // реальные звёзды
-          const CONST_R = 280000 * 0.998; // линии чуть ближе чем точки звёзд (anti-z-fight)
+          // Босс 2026-05-31: единый STARFIELD_RADIUS (skyCatalog.ts) для отрисовки
+          // звёзд + flight target — иначе камера летит к точке 50000, а звёзды
+          // нарисованы на 280000 → не долетает.
+          const STAR_R = STARFIELD_RADIUS; // реальные звёзды (= 280000)
+          const CONST_R = STARFIELD_RADIUS * 0.998; // линии чуть ближе чем точки (anti-z-fight)
           const BG_R = 230000;            // фоновые случайные звёзды
 
           // --- Слой 1: яркие звёзды каталога ---------------------------------
