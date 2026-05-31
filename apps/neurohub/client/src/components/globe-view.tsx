@@ -5072,11 +5072,15 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                   }
                 }
 
-                // 2026-05-31 Sun mesh scaling при приближении (Босс «Солнце
-                // становится больше масштаб»). При orbit фазе sun-step камера
-                // на 80 wu от Sun → scale 18.75. При approach далеко → scale 1.
+                // 2026-05-31 Sun mesh scaling ВО ВСЕХ кадрах solar tour
+                // (Босс «Солнце центр системы, из всех точек планет разный
+                // масштаб, при приближении крупнеет астрономически масштабная
+                // голливудская история»). Не только sun-step, а ВЕЗДЕ.
+                // Голливудский bias: scale = clamp(1..25, 1500/max(60, dist)).
+                // На Mercury (~900 wu) scale 1.67×, на Sun-orbit (80) 18.75×,
+                // на дальних 1× (минимум).
                 try {
-                  if (planetKey === "sun" && sunMeshRef.current && solarSnapshot.sun) {
+                  if (sunMeshRef.current && solarSnapshot.sun) {
                     const sx = solarSnapshot.sun.x;
                     const sy = solarSnapshot.sun.y;
                     const sz = solarSnapshot.sun.z;
