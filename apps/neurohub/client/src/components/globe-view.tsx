@@ -3133,7 +3133,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       // Готовимся к запуску lerp. Mesh может быть не готов на первом кадре —
       // ретраим до 30 кадров.
       let retries = 0;
-      const MAX_RETRIES = 30;
+      const MAX_RETRIES = 180;
       // Босс 2026-05-31: speedMode из localStorage solar-prefs.
       //   "light" — эталон Земля↔Марс 10 сек, cap [3..60с] (≈10.26 ms/unit)
       //   "slow"  — все полёты cap 180с (≈ms_per_unit = 180000/maxDist)
@@ -3173,11 +3173,24 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         if (!mesh) {
           retries++;
           if (retries >= MAX_RETRIES) {
-            debugLog(`[direct-flyby-v2] mesh NOT ready after ${MAX_RETRIES} retries — abort key=${key}`);
+            // 2026-05-31 Босс «при тапе на Venus камера осталась у Земли».
+            // Был silent abort через debugLog → юзер видел зависший лейбл без ошибки.
+            // Теперь — console.warn (видно в DevTools) + toast (видно юзеру) +
+            // fallback на solar-mode rotation (камера не висит зря).
+            console.warn(`[direct-flyby] mesh "${key}" не создан за ${MAX_RETRIES} кадров (3s). Возможно onGlobeReady ещё не отработал или makeSolarPlanetMesh упал.`);
+            try {
+              window.dispatchEvent(new CustomEvent("muza:toast", {
+                detail: { message: `Планета «${key}» ещё загружается, повторите через секунду` },
+              }));
+            } catch { /* no-op */ }
             isDirectFlybyActiveRef.current = false;
             return;
           }
-          debugLog(`[direct-flyby-v2] mesh NOT ready, retrying... (${retries}/${MAX_RETRIES})`);
+          // Ранее тут был debugLog который дёргался 30 раз молча — теперь только
+          // первый раз (на 1-м кадре) и каждые 60 (раз в секунду) чтобы не спамить.
+          if (retries === 1 || retries % 60 === 0) {
+            console.info(`[direct-flyby] жду создания меша "${key}" (${retries}/${MAX_RETRIES})…`);
+          }
           requestAnimationFrame(startLerp);
           return;
         }
