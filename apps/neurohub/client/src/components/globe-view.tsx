@@ -1991,6 +1991,16 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // НЕ переключая flightMode, НЕ дёргая moonResetRef/sunResetRef/buildSolarTour.
   // По завершению lerp флаг снимается + holdRef=true (классик не утянет камеру обратно).
   const isDirectFlybyActiveRef = useRef(false);
+  // Direct-flyby orbit-phase (Босс 2026-05-31, «облёт вокруг планеты 3 раза и далее
+  // по маршруту если пользователь не вмешался»). После APPROACH-фазы lerp'а к планете
+  // запускается ORBIT-фаза: 3 полных оборота вокруг планеты (30с light / 60с slow).
+  // Если юзер начал drag/touch (OrbitControls 'start') во время orbit — флаг ниже
+  // выставляется в true → orbit прерывается, holdRef=true, юзер steering'ует камерой.
+  const userOrbitInterruptedRef = useRef(false);
+  // Текущая фаза direct-flyby: "approach" (lerp к планете) → "orbit" (3 круга) → "done".
+  // Используется OrbitControls 'start'-listener: interrupt флаг ставим ТОЛЬКО когда
+  // phase === "orbit" (во время approach юзер не управляет — flyby идёт steady).
+  const directFlybyPhaseRef = useRef<"idle" | "approach" | "orbit" | "done">("idle");
   // 3-минутный таймер: после rotate юзером (с движением) → драфт от его ракурса
   // 3 мин, потом сценарий возобновляется (cycle_pano с начала). Босс 2026-05-30.
   const aiResumeAtRef = useRef<number>(0);
@@ -2619,6 +2629,10 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       directFlybyRef.current = null;
       // Активируем блокировку main rAF на время своего lerp.
       isDirectFlybyActiveRef.current = true;
+      // Phase init: approach (lerp к планете) → orbit (3 круга) → done.
+      // userOrbitInterrupted сбрасываем — новый flyby = свежий цикл.
+      directFlybyPhaseRef.current = "approach";
+      userOrbitInterruptedRef.current = false;
 
       // Готовимся к запуску lerp. Mesh может быть не готов на первом кадре —
       // ретраим до 30 кадров.
@@ -2710,9 +2724,18 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         const DURATION_MS = Math.max(MIN_DURATION_MS, Math.min(MAX_DURATION_MS, flightDistance * MS_PER_UNIT));
         debugLog(`[direct-flyby-v2] distance=${flightDistance.toFixed(0)} duration=${(DURATION_MS/1000).toFixed(1)}s`);
 
+        // Phase 2 (ORBIT) state — инициализируется при переходе approach → orbit.
+        // 3 полных оборота: light=30с (10с/круг), slow=60с (20с/круг).
+        let orbitStartT = 0;
+        const ORBIT_TOTAL_MS = speedMode === "slow" ? 60000 : 30000;
+        const ORBIT_RADIUS = OFFSET; // 40 — та же дистанция что в approach end-pos
+        const ORBIT_Y_OFFSET = 5; // чуть выше плоскости планеты — лучше обзор
+        const ORBIT_TURNS = 3;
+
         const lerpFrame = () => {
           if (!isDirectFlybyActiveRef.current) {
             // Внешне прервали (юзер начал ad-hoc gesture etc) — выходим.
+            directFlybyPhaseRef.current = "done";
             restoreControls();
             return;
           }
@@ -2721,6 +2744,7 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
           if (!curMesh) {
             debugLog(`[direct-flyby-v2] mesh disappeared mid-flight — abort key=${key}`);
             isDirectFlybyActiveRef.current = false;
+            directFlybyPhaseRef.current = "done";
             restoreControls();
             return;
           }
@@ -2736,64 +2760,104 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
             );
           }
 
-          // Direction от центра Земли (0,0,0) к мешу.
-          const dir = meshPos.clone();
-          const distFromCenter = dir.length();
-          if (distFromCenter < 0.001) {
-            // Меш в центре — невозможно, но guard.
-            isDirectFlybyActiveRef.current = false;
-            restoreControls();
-            return;
-          }
-          dir.divideScalar(distFromCenter); // normalize без allocation
+          // ===== PHASE 1 — APPROACH =====
+          if (directFlybyPhaseRef.current === "approach") {
+            // Direction от центра Земли (0,0,0) к мешу.
+            const dir = meshPos.clone();
+            const distFromCenter = dir.length();
+            if (distFromCenter < 0.001) {
+              // Меш в центре — невозможно, но guard.
+              isDirectFlybyActiveRef.current = false;
+              directFlybyPhaseRef.current = "done";
+              restoreControls();
+              return;
+            }
+            dir.divideScalar(distFromCenter); // normalize без allocation
 
-          // End camera position = mesh - dir*OFFSET (камера ВНЕ от центра Земли,
-          // смотрит на меш «из космоса»; чтобы быть ближе к мешу, чем к Земле,
-          // берём meshPos + dir*OFFSET — это "за мешем" с т.зр. центра Земли).
-          // Босс: «camera position = meshPos - dir.multiplyScalar(40) — назад от mesh
-          // на 40 world units». Здесь "назад от mesh" = ближе к Земле от меша,
-          // то есть meshPos - dir*OFFSET (т.к. dir указывает наружу от центра).
-          const endCamPos = meshPos.clone().sub(dir.clone().multiplyScalar(OFFSET));
+            // End camera position = mesh - dir*OFFSET (камера ВНЕ от центра Земли,
+            // смотрит на меш «из космоса»; чтобы быть ближе к мешу, чем к Земле,
+            // берём meshPos + dir*OFFSET — это "за мешем" с т.зр. центра Земли).
+            // Босс: «camera position = meshPos - dir.multiplyScalar(40) — назад от mesh
+            // на 40 world units». Здесь "назад от mesh" = ближе к Земле от меша,
+            // то есть meshPos - dir*OFFSET (т.к. dir указывает наружу от центра).
+            const endCamPos = meshPos.clone().sub(dir.clone().multiplyScalar(OFFSET));
 
-          const tNow = performance.now();
-          const tt = Math.min((tNow - startT) / DURATION_MS, 1);
-          // easeInOutCubic
-          const ease = tt < 0.5
-            ? 4 * tt * tt * tt
-            : 1 - Math.pow(-2 * tt + 2, 3) / 2;
+            const tNow = performance.now();
+            const tt = Math.min((tNow - startT) / DURATION_MS, 1);
+            // easeInOutCubic
+            const ease = tt < 0.5
+              ? 4 * tt * tt * tt
+              : 1 - Math.pow(-2 * tt + 2, 3) / 2;
 
-          cam.position.set(
-            startCamPos.x + (endCamPos.x - startCamPos.x) * ease,
-            startCamPos.y + (endCamPos.y - startCamPos.y) * ease,
-            startCamPos.z + (endCamPos.z - startCamPos.z) * ease,
-          );
-          if (ctrl?.target) {
-            ctrl.target.set(
-              startTargetPos.x + (meshPos.x - startTargetPos.x) * ease,
-              startTargetPos.y + (meshPos.y - startTargetPos.y) * ease,
-              startTargetPos.z + (meshPos.z - startTargetPos.z) * ease,
+            cam.position.set(
+              startCamPos.x + (endCamPos.x - startCamPos.x) * ease,
+              startCamPos.y + (endCamPos.y - startCamPos.y) * ease,
+              startCamPos.z + (endCamPos.z - startCamPos.z) * ease,
             );
-            try { ctrl.update?.(); } catch { /* no-op */ }
-          }
+            if (ctrl?.target) {
+              ctrl.target.set(
+                startTargetPos.x + (meshPos.x - startTargetPos.x) * ease,
+                startTargetPos.y + (meshPos.y - startTargetPos.y) * ease,
+                startTargetPos.z + (meshPos.z - startTargetPos.z) * ease,
+              );
+              try { ctrl.update?.(); } catch { /* no-op */ }
+            }
 
-          if (tt >= 1) {
-            // Финальный snap + удержание позиции.
-            holdRef.current = true;
-            userInteractingRef.current = false;
-            isDirectFlybyActiveRef.current = false;
-            // ВАЖНО: maxDistance НЕ восстанавливаем сразу — иначе при следующем
-            // ctrl.update() (например после damping) камера clamp'нется до 600
-            // и улетит обратно к Земле. Удерживаем расширенный maxDistance до
-            // выхода из 3D-режима / следующего управления. Тех мест где
-            // OrbitControls делает update() в холодную мало; holdRef.current=true
-            // блокирует main rAF и pointOfView не зовётся. Если юзер начнёт
-            // gesture — onStart выставит userInteractingRef и controls сам
-            // подтянет камеру в [10..2200], что нормально (не вернёт к Земле).
-            // НЕ зовём restoreControls() сразу — это и есть фикс.
-            debugLog(`[direct-flyby-v2] complete key=${key} (maxDistance kept at 60000)`);
+            if (tt >= 1) {
+              // Approach завершён — переходим в orbit фазу автоматически.
+              directFlybyPhaseRef.current = "orbit";
+              orbitStartT = performance.now();
+              userOrbitInterruptedRef.current = false;
+              debugLog(`[direct-flyby-v2] APPROACH complete → ORBIT start key=${key} (${ORBIT_TURNS} turns, ${(ORBIT_TOTAL_MS/1000).toFixed(0)}s)`);
+            }
+            requestAnimationFrame(lerpFrame);
             return;
           }
-          requestAnimationFrame(lerpFrame);
+
+          // ===== PHASE 2 — ORBIT =====
+          if (directFlybyPhaseRef.current === "orbit") {
+            // Юзер начал drag/touch (OrbitControls 'start' выставил флаг) — abort orbit,
+            // отдаём управление юзеру. holdRef=true чтобы main rAF не утянул камеру обратно.
+            if (userOrbitInterruptedRef.current) {
+              debugLog(`[direct-flyby-v2] ORBIT interrupted by user key=${key}`);
+              holdRef.current = true;
+              userInteractingRef.current = false;
+              isDirectFlybyActiveRef.current = false;
+              directFlybyPhaseRef.current = "done";
+              // НЕ зовём restoreControls() — см. комментарий в approach-complete ниже.
+              return;
+            }
+            const orbitElapsed = performance.now() - orbitStartT;
+            if (orbitElapsed >= ORBIT_TOTAL_MS) {
+              // 3 круга завершены без вмешательства юзера.
+              // TODO (Босс): «далее по маршруту» — следующая планета. Пока остаёмся
+              // у текущей (holdRef=true). Расширим когда появится маршрут.
+              debugLog(`[direct-flyby-v2] ORBIT complete (${ORBIT_TURNS} turns) key=${key} — hold position`);
+              holdRef.current = true;
+              userInteractingRef.current = false;
+              isDirectFlybyActiveRef.current = false;
+              directFlybyPhaseRef.current = "done";
+              return;
+            }
+            // Текущий угол: 0..2π × ORBIT_TURNS за orbitElapsed/ORBIT_TOTAL_MS.
+            const angle = (orbitElapsed / ORBIT_TOTAL_MS) * Math.PI * 2 * ORBIT_TURNS;
+            // Простая горизонтальная орбита вокруг planet в плоскости XZ (world Y axis).
+            // Радиус ORBIT_RADIUS (=40), Y чуть выше планеты для угла обзора.
+            cam.position.set(
+              meshPos.x + Math.cos(angle) * ORBIT_RADIUS,
+              meshPos.y + ORBIT_Y_OFFSET,
+              meshPos.z + Math.sin(angle) * ORBIT_RADIUS,
+            );
+            if (ctrl?.target) {
+              ctrl.target.copy(meshPos);
+              try { ctrl.update?.(); } catch { /* no-op */ }
+            }
+            requestAnimationFrame(lerpFrame);
+            return;
+          }
+
+          // Phase = "done" / "idle" — нечего делать.
+          return;
         };
         requestAnimationFrame(lerpFrame);
       };
@@ -5047,6 +5111,12 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         try {
           controls.addEventListener?.("start", () => {
             userInteractingRef.current = true;
+            // Босс 2026-05-31: облёт планеты прерывается ТОЛЬКО если юзер начал
+            // drag/touch ВО ВРЕМЯ orbit-фазы. Approach (lerp к планете) не
+            // прерывается — он быстрый, юзер всё равно ничего не успеет.
+            if (directFlybyPhaseRef.current === "orbit") {
+              userOrbitInterruptedRef.current = true;
+            }
             try { gestureStartPov = globeRef.current?.pointOfView?.(); } catch { gestureStartPov = null; }
           });
           controls.addEventListener?.("end", () => {
