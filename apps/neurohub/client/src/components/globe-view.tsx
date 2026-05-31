@@ -1287,10 +1287,12 @@ const PLANET_FRAGMENT_JUPITER = SUN_NOISE + `
 `;
 
 // Saturn — hi-end: пастельные пояса/зоны, hexagonal polar storm (Cassini fact),
-// мягкая полосность с зональными ветрами, тёплый Fresnel rim.
+// мягкая полосность, тёплый rim + ТЕНЬ ОТ КОЛЕЦ на планету (Cassini эпично).
 const PLANET_FRAGMENT_SATURN = SUN_NOISE + `
   uniform vec3 sunDir;
   uniform float time;
+  uniform float ringInner;
+  uniform float ringOuter;
   varying vec3 vWorldNormal;
   varying vec3 vPos;
   void main() {
@@ -1339,6 +1341,23 @@ const PLANET_FRAGMENT_SATURN = SUN_NOISE + `
     baseCol = mix(baseCol, vec3(0.58, 0.50, 0.36), southPolar * 0.4);
     // Освещение.
     vec3 base = baseCol * (0.10 + lit * 0.95);
+    // 2026-05-31 v6 ТЕНЬ КОЛЕЦ НА ПЛАНЕТУ (Cassini эпично):
+    // ring plane Y=0 (radius-scaled), точка vPos, light dir sd → t = -vPos.y/sd.y
+    // Intersection в ring plane = vPos + t * (-sd). Если |intersection.xz|
+    // в [ringInner..ringOuter] и t > 0 → ринг блокирует свет, dark band.
+    if (sd.y != 0.0) {
+      float t = -vPos.y / sd.y;
+      if (t > 0.0) {
+        vec2 ix = vPos.xz + (-sd.xz) * t;
+        float rd = length(ix);
+        if (rd > ringInner && rd < ringOuter) {
+          // Мягкие края тени (полутень).
+          float shadow = smoothstep(ringInner, ringInner + 0.5, rd) *
+                         (1.0 - smoothstep(ringOuter - 0.5, ringOuter, rd));
+          base *= 1.0 - shadow * 0.55 * lit;
+        }
+      }
+    }
     // Тёплый rim (атмосфера Saturn → fresnel жёлто-бежевый).
     float fres = pow(1.0 - max(dot(n, normalize(-vPos)), 0.0), 2.2);
     base += vec3(0.92, 0.78, 0.50) * fres * (0.18 + lit * 0.36);
@@ -1879,13 +1898,16 @@ function makeSolarPlanetMesh(key: string): { group: any; bodyMat: any; ringsMat?
     }
     const uniforms: Record<string, { value: unknown }> = {
       sunDir: { value: new THREE.Vector3(1, 0, 0) },
-      // Босс 2026-05-31 (LOD crossfade): плавное появление sphere-меша при подлёте
-      // камеры. positionSunMoon ставит uOpacity в [0..1] по distance(camera, planet).
-      // Линейная интерполяция между threshold 100R..60R: sprite фейдится out, sphere
-      // фейдится in — оба видны в overlap зоне, юзер не видит «прыжка».
       uOpacity: { value: 1.0 },
     };
     if (hasTime) uniforms.time = { value: 0 };
+    // 2026-05-31 v6 Saturn body shader использует ringInner/ringOuter для тени колец.
+    if (key === "saturn") {
+      const innerR = radius * 5 * 1.4;
+      const outerR = radius * 5 * 2.3;
+      uniforms.ringInner = { value: innerR };
+      uniforms.ringOuter = { value: outerR };
+    }
     // Inject opacity uniform + multiply gl_FragColor.a в каждом planet-фрагменте.
     // Все шейдеры завершаются строкой `gl_FragColor = vec4(base, 1.0);` — заменяем
     // alpha на `uOpacity`. Один централизованный fix вместо правки 7 фрагментов.
