@@ -4573,12 +4573,22 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 if (key === "moon") {
                   const mp = moonMeshRef.current?.position;
                   if (!mp) return null;
-                  // 2026-05-31 Босс «Тур застрял на Moon» (скрин 21:22) — то же что Venus.
-                  // Moon mesh существует, но позиция (0,0,0) пока ephemeris не отработала.
-                  // Старый код возвращал (0,0,0) = центр Земли → камера летела В Землю.
+                  // 2026-05-31 Босс «Moon — кадр доминирует Земля» (скрин 21:36).
+                  // Луна на ~250 от Earth, radius 5. Старый код target=mp,
+                  // orbitR=12 → camera approach встаёт между Earth и Moon
+                  // (~244 от центра, 8 от Moon). lookAt на Moon, но Earth (radius
+                  // 100) занимает ~60° FoV сзади камеры → доминирует кадр.
+                  // FIX: выносим target на distOut=320 от Earth в направлении Moon
+                  // — камера встаёт на ~332 от Earth, в 70..80 ЗА Moon. Земля
+                  // отодвигается далеко позади (dot < 0, за камерой). Луна
+                  // остаётся в центре кадра между камерой и Землёй.
+                  // d<100 — Moon не позиционирована эфемеридой (NaN / 0),
+                  // skip с toast.
                   const d = Math.hypot(mp.x, mp.y, mp.z);
-                  if (!Number.isFinite(d) || d < 0.01) return null;
-                  return { x: mp.x, y: mp.y, z: mp.z };
+                  if (!Number.isFinite(d) || d < 100) return null;
+                  const distOut = 320;
+                  const scale = distOut / d;
+                  return { x: mp.x * scale, y: mp.y * scale, z: mp.z * scale };
                 }
                 if (key === "main_belt") {
                   // Главный пояс — между Mars(orbitR~8) и Jupiter(orbitR~24). Центр ~50.
