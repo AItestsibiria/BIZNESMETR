@@ -62,6 +62,8 @@ import {
   BRIGHT_STARS,
   CONSTELLATIONS,
   STARFIELD_RADIUS,
+  STAR_LOOK_FACTOR,
+  STAR_CAMERA_FACTOR,
   raDecToVec3,
   magToSize,
   magToOpacity,
@@ -2011,6 +2013,14 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   // НЕ переключая flightMode, НЕ дёргая moonResetRef/sunResetRef/buildSolarTour.
   // По завершению lerp флаг снимается + holdRef=true (классик не утянет камеру обратно).
   const isDirectFlybyActiveRef = useRef(false);
+  // Босс 2026-05-31 (P0.1 — generation-counter mutex для concurrent flights):
+  // каждый новый flight (star/planet) увеличивает счётчик и сохраняет свой id
+  // в локальной переменной rAF-loop'а. Первой строкой кадра проверяем
+  // `flightIdRef.current !== myFlightId` — если кто-то стартовал новый flight,
+  // старый rAF aborts (restore controls + dispose marker + return). Защищает от
+  // double-tap по разным звёздам / star+planet почти одновременно / rAF
+  // переживший смену режима.
+  const flightIdRef = useRef(0);
   // Direct-flyby orbit-phase (Босс 2026-05-31, «облёт вокруг планеты 3 раза и далее
   // по маршруту если пользователь не вмешался»). После APPROACH-фазы lerp'а к планете
   // запускается ORBIT-фаза: 3 полных оборота вокруг планеты (30с light / 60с slow).
@@ -2459,6 +2469,19 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
   useEffect(() => {
     const onFlight = (e: Event) => {
       const m = (e as CustomEvent).detail?.mode;
+      // Босс 2026-05-31 (P0.3 — soft-block переключения режима во время активного flight):
+      // мьютекс P0.1 защищает rAF от race condition, но переключение flightMode
+      // во время полёта оставляет visual mismatch (плеер думает что в classic,
+      // камера ещё лерпит к звезде/планете). Показываем toast и игнорируем
+      // нажатие — юзер дождётся окончания полёта или явно прервёт другим тапом.
+      if (isDirectFlybyActiveRef.current) {
+        try {
+          window.dispatchEvent(new CustomEvent("muza:toast", {
+            detail: { message: "Подождите окончания полёта" },
+          }));
+        } catch { /* no-op */ }
+        return;
+      }
       if (m === "classic" || m === "ai" || m === "moon" || m === "solar" || m === "sun") {
         // Если попросили snanva "solar" а мы уже в "solar" — флаг restart.
         if (m === "solar" && flightModeRef.current === "solar") {
@@ -2512,6 +2535,18 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
     //   earth → ничего (мы и так на Земле)
     const onFlyTo = (e: Event) => {
       const key = (e as CustomEvent).detail?.key as string | undefined;
+      // Босс 2026-05-31 (P0.3 — soft-block re-launch flight через mode-system
+      // во время активного direct flyby): защита от случайного повторного тапа
+      // на UI-кнопке («Полёт» / «Солнечная»). Direct flight mutex (P0.1) уже
+      // защитит rAF, но мы не хотим лишнего dispatch на solar/moon переключение.
+      if (isDirectFlybyActiveRef.current) {
+        try {
+          window.dispatchEvent(new CustomEvent("muza:toast", {
+            detail: { message: "Подождите окончания полёта" },
+          }));
+        } catch { /* no-op */ }
+        return;
+      }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const w = window as any;
       const dbg = !!w.__muziaiDebug;
@@ -2646,6 +2681,19 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       };
       debugLog(`[direct-flyby-v2] INVOKED type=${targetType} key=${key || "(empty)"}`);
       if (!key) return;
+      // Босс 2026-05-31 (P0.3 — UX guard от случайного re-trigger flight):
+      // если flight уже активен — toast + игнор (НЕ abort предыдущего, это
+      // закрыто через flightId mutex P0.1). Защищает от двойного тапа по
+      // звезде/планете, когда юзер думает «не сработало» и тапает ещё раз.
+      if (isDirectFlybyActiveRef.current) {
+        try {
+          window.dispatchEvent(new CustomEvent("muza:toast", {
+            detail: { message: "Подождите окончания полёта" },
+          }));
+        } catch { /* no-op */ }
+        debugLog(`[direct-flyby-v2] ignored — flight already active (key=${key})`);
+        return;
+      }
 
       // ─────────────────────────────────────────────────────────────────────
       // STAR BRANCH — отдельная логика. НЕ использует Earth fallback,
@@ -2695,9 +2743,12 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         //  - STAR_CAMERA_FACTOR=0.85 — камера останавливается на 85% пути
         //    (раньше 0.9 = почти упёрлись; 0.85 даёт небольшой буфер чтобы
         //    звезда + соседи попадали в кадр).
-        const STAR_R_VISUAL = STARFIELD_RADIUS; // 280000, один источник со skyCatalog
-        const STAR_LOOK_FACTOR = 1.0;
-        const STAR_CAMERA_FACTOR = 0.85;
+        // Босс 2026-05-31 (P0.4 — единая точка правды): STAR_LOOK_FACTOR /
+        // STAR_CAMERA_FACTOR импортируются из skyCatalog (top of file).
+        // Локальный alias STAR_R_VISUAL = STARFIELD_RADIUS оставлен только для
+        // краткости в формулах ниже + читаемости debug-логов; это не drift
+        // (один источник правды — STARFIELD_RADIUS из skyCatalog.ts).
+        const STAR_R_VISUAL = STARFIELD_RADIUS; // alias для краткости
         // raDecToVec3 возвращает вектор длины radius; нормируем для direction.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const starVec: any = raDecToVec3(ra, dec, STAR_R_VISUAL);
@@ -2783,6 +2834,11 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         try { cam2.up.set(0, 1, 0); } catch { /* no-op */ }
         // Удерживаем main rAF от вмешательства (classic/sun/moon/solar branches early-return).
         isDirectFlybyActiveRef.current = true;
+        // Босс 2026-05-31 (P0.1 — generation-counter): новый flight = новый id.
+        // Локальная переменная starFrame() rAF-loop'а захватывает this id и
+        // первой строкой кадра сверяет с flightIdRef.current — расхождение
+        // означает что стартовал новый flight, текущий abort'ится чисто.
+        const myFlightId = ++flightIdRef.current;
         userOrbitInterruptedRef.current = false;
         directFlybyPhaseRef.current = "approach";
         // Дополнительно — фиксируем classic mode + holdRef, чтобы по завершении не было
@@ -2847,6 +2903,19 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         // ctrl.target = lookTarget — в restoreControls(lookTarget) после loop.
         let frameIdx = 0;
         const starFrame = () => {
+          // Босс 2026-05-31 (P0.1 — generation-counter check): если стартовал
+          // другой flight (новый tap по звезде/планете) — flightIdRef уже
+          // увеличился, наш myFlightId устарел → abort немедленно. НЕ ждём
+          // isDirectFlybyActiveRef (новый flight его уже снова в true поставил).
+          if (flightIdRef.current !== myFlightId) {
+            restoreControls(lookTarget);
+            if (prevCamUp) {
+              try { cam2.up.set(prevCamUp.x, prevCamUp.y, prevCamUp.z); } catch { /* no-op */ }
+            }
+            disposeMarker();
+            debugLog(`[star-flight] superseded by flight #${flightIdRef.current} (was #${myFlightId}) key=${key}`);
+            return;
+          }
           if (!isDirectFlybyActiveRef.current) {
             // Aborted by another flight — restore controls + up + dispose marker.
             // Abort — restore с финальным target (звезда), чтобы OrbitControls
@@ -2925,6 +2994,11 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       directFlybyRef.current = null;
       // Активируем блокировку main rAF на время своего lerp.
       isDirectFlybyActiveRef.current = true;
+      // Босс 2026-05-31 (P0.1 — generation-counter): новый planet flight = новый id.
+      // Все rAF-фреймы lerpFrame/startLerp/resumeOrbit захватывают этот id
+      // в замыкании; первой строкой каждого кадра сверяем с flightIdRef.current.
+      // Расхождение → abort + restore (старый flight «не переживает» новый tap).
+      const myFlightId = ++flightIdRef.current;
       // Phase init: approach (lerp к планете) → orbit (3 круга) → done.
       // userOrbitInterrupted сбрасываем — новый flyby = свежий цикл.
       directFlybyPhaseRef.current = "approach";
@@ -2958,6 +3032,12 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
       }
 
       const startLerp = () => {
+        // Босс 2026-05-31 (P0.1): новый flight стартовал пока ждали mesh →
+        // прекращаем retry-цикл, новый flight уже взял управление.
+        if (flightIdRef.current !== myFlightId) {
+          debugLog(`[direct-flyby-v2] startLerp superseded by flight #${flightIdRef.current} (was #${myFlightId}) key=${key}`);
+          return;
+        }
         const mesh = getMesh(key);
         if (!mesh) {
           retries++;
@@ -3034,6 +3114,12 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         // если за settle-period нет нового 'start'. Восстанавливает orbit с
         // того же progress (через pausedOrbitElapsedRef).
         resumeOrbitRef.current = () => {
+          // Босс 2026-05-31 (P0.1): пока стояли на паузе мог стартовать новый
+          // flight — наш orbit устарел, не возобновляем.
+          if (flightIdRef.current !== myFlightId) {
+            debugLog(`[direct-flyby-v2] resumeOrbit superseded by flight #${flightIdRef.current} (was #${myFlightId}) key=${key}`);
+            return;
+          }
           if (directFlybyPhaseRef.current === "done") return; // полёт уже завершён
           if (directFlybyPhaseRef.current !== "orbit") return; // не в orbit фазе
           isDirectFlybyActiveRef.current = true;
@@ -3045,6 +3131,16 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
         };
 
         const lerpFrame = () => {
+          // Босс 2026-05-31 (P0.1 — generation-counter check): новый flight
+          // стартовал → наш myFlightId устарел, abort + restore. НЕ опираемся
+          // на isDirectFlybyActiveRef (новый flight его уже снова в true
+          // поставил, fence через flightId — единственный надёжный мьютекс).
+          if (flightIdRef.current !== myFlightId) {
+            directFlybyPhaseRef.current = "done";
+            restoreControls();
+            debugLog(`[direct-flyby-v2] lerpFrame superseded by flight #${flightIdRef.current} (was #${myFlightId}) key=${key}`);
+            return;
+          }
           if (!isDirectFlybyActiveRef.current) {
             // Внешне прервали (юзер начал ad-hoc gesture etc) — выходим.
             directFlybyPhaseRef.current = "done";

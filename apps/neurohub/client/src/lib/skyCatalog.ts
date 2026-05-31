@@ -25,6 +25,20 @@ const THREE: any = THREE_NS as any;
 // Теперь оба значения из одной константы (Pricing-single-source-style).
 export const STARFIELD_RADIUS = 280000;
 
+// Босс 2026-05-31 (P0.4 — единая точка правды для star scale).
+// Раньше эти коэффициенты жили локальными `const` внутри `onDirectFlyby` в
+// globe-view.tsx. Любая правка одной звёздной формулы рисковала drift'ом
+// между визуальной звездой и flight-target. Теперь — экспорт из skyCatalog,
+// импорт в globe-view (No-duplicates + Reuse-working-solutions rules).
+//
+// STAR_LOOK_FACTOR=1.0 — смотрим РОВНО на звезду (раньше 0.95 — взгляд
+//   проходил перед ней, юзер видел чёрное пространство).
+// STAR_CAMERA_FACTOR=0.85 — камера останавливается на 85% пути
+//   (раньше 0.9 = почти упёрлись; 0.85 даёт небольшой буфер чтобы
+//   звезда + соседи попадали в кадр).
+export const STAR_LOOK_FACTOR = 1.0;
+export const STAR_CAMERA_FACTOR = 0.85;
+
 export type SpectralClass = "O" | "B" | "A" | "F" | "G" | "K" | "M";
 
 export interface StarRecord {
