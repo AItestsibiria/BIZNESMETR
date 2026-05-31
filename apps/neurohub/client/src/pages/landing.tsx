@@ -2948,17 +2948,7 @@ function PlaylistSection({ autoPlayId }: { autoPlayId?: number }) {
                 </div>
                 {/* Control buttons — Eugene 2026-05-18 Босс «кнопки вываливаются + громкость длинная» — flex-wrap + компактные icon-only + volume убран (остался в expanded modal + cover-details). */}
                 <div className="flex flex-wrap items-center gap-2 mt-3">
-                  {/* Босс 2026-05-30 п.3 + п.5: 🎧 счётчик слева от SkipBack +
-                      моргающая планета (1 раз / 3 мин) рядом. Same-zone-same-style:
-                      text-[13px] tabular-nums font-bold + brand-gradient. */}
-                  <span className="inline-flex items-center gap-1.5 select-none" aria-label="Прослушивания и индикатор">
-                    <PlayerPlanetBlink size={18} />
-                    <span
-                      className="text-[13px] tabular-nums font-bold bg-gradient-to-r from-purple-300 via-fuchsia-300 to-cyan-300 bg-clip-text text-transparent whitespace-nowrap"
-                      title="Прослушиваний всего"
-                      aria-label={`Прослушиваний: ${totalPlays.toLocaleString("ru-RU")}`}
-                    >🎧 {totalPlays > 0 ? totalPlays.toLocaleString("ru-RU") : "…"}</span>
-                  </span>
+                  {/* Босс 2026-05-31: счётчик 🎧 СЛЕВА от SkipBack убран. */}
                   <button onClick={skipPrev} aria-label="Предыдущий трек" className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center hover:bg-white/15 active:bg-white/20 transition-colors border border-white/10">
                     <SkipBack className="w-6 h-6 text-white/80" />
                   </button>
