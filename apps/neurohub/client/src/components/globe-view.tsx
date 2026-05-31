@@ -5074,21 +5074,48 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                     // для глубины»): 1500 точек (было 800), per-star aFreq
                     // (0.8..3.5) → соседние мерцают разной частотой = эффект
                     // волны/попеременности. Чуть меньше size для тонкости.
-                    const N4 = 1500;
+                    // 2026-05-31 v6 — реалистичный звёздный спектр (B/A/F/G/K/M):
+                    // голубые/белые/жёлтые/оранжевые/красные звёзды. Per-star color
+                    // attribute + size variation (большие реже, мелкие чаще).
+                    const N4 = 2500;
                     const pos4 = new Float32Array(N4 * 3);
                     const phase4 = new Float32Array(N4);
                     const freq4 = new Float32Array(N4);
+                    const col4 = new Float32Array(N4 * 3);
+                    const size4 = new Float32Array(N4);
+                    // Реалистичные spectral colors (Harvard classification).
+                    const palette: Array<[number, number, number, number]> = [
+                      [0.65, 0.75, 1.00, 0.05],  // O-type (blue) — 5%
+                      [0.80, 0.88, 1.00, 0.10],  // B-type (blue-white)
+                      [0.95, 0.97, 1.00, 0.15],  // A-type (white)
+                      [1.00, 0.98, 0.90, 0.25],  // F-type (yellow-white)
+                      [1.00, 0.95, 0.75, 0.20],  // G-type (yellow, Sun-like)
+                      [1.00, 0.82, 0.55, 0.15],  // K-type (orange)
+                      [1.00, 0.65, 0.40, 0.10],  // M-type (red dwarf)
+                    ];
                     for (let i = 0; i < N4; i++) {
                       pos4[i * 3 + 0] = (Math.random() - 0.5) * 100000;
                       pos4[i * 3 + 1] = (Math.random() - 0.5) * 100000;
                       pos4[i * 3 + 2] = (Math.random() - 0.5) * 100000;
                       phase4[i] = Math.random() * Math.PI * 2;
                       freq4[i] = 0.8 + Math.random() * 2.7;
+                      // Random pick by weighted prob.
+                      const u = Math.random();
+                      let cum = 0;
+                      let pi = 6;
+                      for (let k = 0; k < palette.length; k++) { cum += palette[k][3]; if (u < cum) { pi = k; break; } }
+                      col4[i * 3 + 0] = palette[pi][0];
+                      col4[i * 3 + 1] = palette[pi][1];
+                      col4[i * 3 + 2] = palette[pi][2];
+                      // Size: power-law (немного крупных + много мелких).
+                      size4[i] = 18 + Math.pow(Math.random(), 4) * 80;
                     }
                     const geo4 = new THREE.BufferGeometry();
                     geo4.setAttribute("position", new THREE.BufferAttribute(pos4, 3));
                     geo4.setAttribute("aPhase", new THREE.BufferAttribute(phase4, 1));
                     geo4.setAttribute("aFreq", new THREE.BufferAttribute(freq4, 1));
+                    geo4.setAttribute("aColor", new THREE.BufferAttribute(col4, 3));
+                    geo4.setAttribute("aSize", new THREE.BufferAttribute(size4, 1));
                     const twinkleMat = new THREE.ShaderMaterial({
                       transparent: true,
                       depthWrite: false,
@@ -5096,24 +5123,31 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                       vertexShader: `
                         attribute float aPhase;
                         attribute float aFreq;
+                        attribute vec3 aColor;
+                        attribute float aSize;
                         uniform float uTime;
                         varying float vTwinkle;
+                        varying vec3 vCol;
                         void main() {
                           vec4 mv = modelViewMatrix * vec4(position, 1.0);
                           gl_Position = projectionMatrix * mv;
-                          gl_PointSize = 40.0 / max(50.0, -mv.z);
-                          // Попеременное мерцание: per-star freq → волна по соседям.
+                          gl_PointSize = aSize / max(50.0, -mv.z);
                           vTwinkle = 0.35 + 0.65 * (0.5 + 0.5 * sin(uTime * aFreq + aPhase * 6.28));
+                          vCol = aColor;
                         }
                       `,
                       fragmentShader: `
                         varying float vTwinkle;
+                        varying vec3 vCol;
                         void main() {
                           vec2 c = gl_PointCoord - 0.5;
                           float d = length(c);
                           if (d > 0.5) discard;
-                          float alpha = (1.0 - smoothstep(0.15, 0.5, d)) * vTwinkle;
-                          gl_FragColor = vec4(1.0, 1.0, 1.0, alpha);
+                          // Двухслойный диск: яркое ядро + мягкий halo.
+                          float core = 1.0 - smoothstep(0.0, 0.20, d);
+                          float halo = 1.0 - smoothstep(0.15, 0.5, d);
+                          float alpha = (core * 0.95 + halo * 0.55) * vTwinkle;
+                          gl_FragColor = vec4(vCol, alpha);
                         }
                       `,
                     });
@@ -5567,14 +5601,21 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                     );
                     // 2026-05-31 v5 Sun panorama (Босс «огромное Солнце на 100%
                     // высоты»): на Sun-step scale до ×8 (corona radius ~240 wu).
-                    // На прочих шагах scale модулируется по cd (далёкое Солнце мелче).
-                    // sun_step=true когда текущий step.key='sun' → большой scale.
                     const isSunStep = SOLAR_TOUR[solarStepIdx]?.key === "sun";
                     const maxScale = isSunStep ? 8 : 3;
                     const k = isSunStep ? 2800 : 500;
-                    const minCd = isSunStep ? 350 : 350;
+                    const minCd = 350;
                     const scale = Math.max(1, Math.min(maxScale, k / Math.max(minCd, cd)));
                     sunMeshRef.current.scale.set(scale, scale, scale);
+                    // 2026-05-31 v6 Corona-rays intensity на Sun-step → epic ВАУ
+                    // panorama. uFlareIntensity boost при близкой Sun.
+                    if (isSunStep && sunCoronaMatRef.current?.uniforms?.uFlareIntensity) {
+                      const closeFactor = Math.max(0, Math.min(1, (1200 - cd) / 800));
+                      sunCoronaMatRef.current.uniforms.uFlareIntensity.value = Math.max(
+                        sunCoronaMatRef.current.uniforms.uFlareIntensity.value,
+                        closeFactor * 0.85,
+                      );
+                    }
                   }
                 } catch { /* no-op */ }
                 // 2026-05-31 v2: облако звёзд СТАТИЧНО (3 слоя, ±70000 wu объём
