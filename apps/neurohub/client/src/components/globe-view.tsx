@@ -6800,6 +6800,25 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                   vec3 col = mix(colNight, colDay, lit);
                   col = mix(col, colTerm, term * 0.55);
                   float alpha = clamp(clouds * (0.60 + lit * 0.35), 0.0, 0.95);
+                  // Молнии в грозовых облаках на тропиках (Босс «эпичнее»).
+                  // Гауссова вспышка в случайных точках экватора, time-pulsed.
+                  float lightning = 0.0;
+                  for (int li = 0; li < 4; li++) {
+                    float fl = float(li);
+                    float ph = sin(t * (3.0 + fl) + fl * 1.8);
+                    if (ph > 0.85) {
+                      vec3 strikeC = normalize(vec3(
+                        sin(t * 0.3 + fl * 1.7),
+                        sin(fl * 0.4) * 0.4,
+                        cos(t * 0.3 + fl * 1.7)
+                      ));
+                      float sd = length(q - strikeC);
+                      float flash = exp(-sd * sd * 280.0) * smoothstep(0.85, 0.95, ph);
+                      lightning = max(lightning, flash * cumulus);
+                    }
+                  }
+                  col += vec3(1.0, 1.0, 1.0) * lightning * (1.0 - lit) * 1.6;
+                  alpha = max(alpha, lightning * 0.85);
                   gl_FragColor = vec4(col, alpha);
                 }
               `,
