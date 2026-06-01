@@ -1496,8 +1496,10 @@ const PLANET_FRAGMENT_URANUS = SUN_NOISE + `
   }
 `;
 
-// Neptune — hi-end: глубокий ультрамарин, рекордные ветры (2100 км/ч),
-// дрейфующее Великое Тёмное Пятно + Scooter (быстрое белое пятно), яркий cyan rim.
+// Neptune — hi-end v7 (Босс «ближе ко 2-му фото, реалистичнее»):
+// глубокий ультрамариновый шар, мягкие зональные полосы (не контрастные),
+// Великое Тёмное Пятно с белым облачным шарфом cirrus сверху (NASA Voyager
+// 2 классический снимок), wispy methane cirrus streaks длинными полосами.
 const PLANET_FRAGMENT_NEPTUNE = SUN_NOISE + `
   uniform vec3 sunDir;
   uniform float time;
@@ -1509,50 +1511,58 @@ const PLANET_FRAGMENT_NEPTUNE = SUN_NOISE + `
     float i = dot(n, sd);
     float lit = smoothstep(-0.16, 0.26, i);
     vec3 p = normalize(vPos);
-    float t = time * 0.12;
+    float t = time * 0.06;
     float lat = p.y;
     float lon = atan(p.z, p.x);
-    // Зональные jets ретроградные у экватора (Voyager 2).
-    float jetSpeed = sign(cos(lat * 6.0)) * (0.5 + 0.6 * sin(lat * 3.0));
-    float lonFlow = lon + t * jetSpeed;
-    // Полосы.
-    float bandCoarse = fbm3(vec3(cos(lonFlow) * 3.5, lat * 14.0, sin(lonFlow) * 3.5));
-    float bandFine   = fbm3(vec3(cos(lonFlow * 2.5) * 9.0, lat * 22.0, sin(lonFlow * 2.5) * 9.0));
-    // Палитра deep ocean blue.
-    vec3 colCobalt = vec3(0.20, 0.42, 0.86);  // основа
-    vec3 colSky    = vec3(0.45, 0.66, 0.98);  // светлые ветра
-    vec3 colDeep   = vec3(0.10, 0.22, 0.55);  // штормовые тени
-    vec3 baseCol = mix(colDeep, colSky, smoothstep(0.30, 0.72, bandCoarse));
-    baseCol = mix(baseCol, colCobalt, 0.4);
-    baseCol *= 0.85 + bandFine * 0.30;
-    // Великое Тёмное Пятно — антициклон, дрейф ~38 м/с (NASA fact).
-    vec3 gdsCenter = normalize(vec3(cos(t * 0.4 + 2.0) * 0.5, -0.40, sin(t * 0.4 + 2.0) * 0.86));
-    float gdsD = length(p - gdsCenter);
-    float gds = exp(-gdsD * gdsD * 26.0);
-    float gdsSwirl = sin(gdsD * 80.0 - t * 5.0) * 0.5 + 0.5;
-    vec3 gdsCol = mix(vec3(0.04, 0.10, 0.32), vec3(0.10, 0.20, 0.45), gdsSwirl);
-    baseCol = mix(baseCol, gdsCol, gds * 0.90);
-    // Scooter — быстрое белое пятно (Voyager 2 fact, дрейф ~16 часов).
-    vec3 scooterC = normalize(vec3(cos(t * 1.2) * 0.7, -0.10, sin(t * 1.2) * 0.71));
-    float scooterD = length(p - scooterC);
-    float scooter = exp(-scooterD * scooterD * 55.0);
-    baseCol = mix(baseCol, vec3(0.96, 0.98, 1.00), scooter * 0.50);
-    // Дополнительные белые методан-облака (Hubble fact).
-    for (int k = 0; k < 4; k++) {
-      float fk = float(k);
-      vec3 cC = normalize(vec3(cos(t * 0.6 + fk * 1.7) * 0.6, sin(fk * 0.8) * 0.5, sin(t * 0.6 + fk * 1.7) * 0.6));
-      float cD = length(p - cC);
-      float cM = exp(-cD * cD * 80.0);
-      baseCol += vec3(0.10, 0.12, 0.14) * cM * lit * 0.6;
+    // Палитра: глубокий ультрамарин (точно как референс — насыщенный синий).
+    vec3 colDeep   = vec3(0.10, 0.22, 0.62);     // глубокий ультрамарин (база)
+    vec3 colMid    = vec3(0.18, 0.36, 0.82);     // средний синий
+    vec3 colLight  = vec3(0.42, 0.62, 0.95);     // светлая зона (мягкая полоса)
+    // Мягкие зональные полосы (низкоконтрастные, как на фото).
+    float band = sin(lat * 5.0) * 0.5 + 0.5;
+    float bandSoft = fbm3(vec3(lat * 8.0, t * 0.3, lat * 4.0));
+    band = mix(band, bandSoft, 0.45);
+    vec3 baseCol = mix(colDeep, colMid, band * 0.55);
+    baseCol = mix(baseCol, colLight, smoothstep(0.60, 0.80, band) * 0.25);
+    // Очень мягкие облачные edges.
+    float bandFine = fbm3(vec3(cos(lon) * 6.0, lat * 18.0, sin(lon) * 6.0));
+    baseCol *= 0.92 + bandFine * 0.16;
+    // ── WISPY CIRRUS streaks — длинные белые методановые облака (диагональные).
+    // 5 латитудных streaks с longitude-flow, как на NASA фото.
+    for (int li = 0; li < 5; li++) {
+      float fl = float(li);
+      float bandLat = -0.65 + fl * 0.28;                            // широты: -0.65..+0.47
+      float bandWidth = 0.04 + fl * 0.008;
+      float yDist = abs(lat - bandLat);
+      float bandMask = exp(-pow(yDist / bandWidth, 2.0));
+      // Длинные streaks по долготе с fbm-структурой (рваные облака).
+      float streakNoise = fbm3(vec3(cos(lon + fl * 1.3 + t * 0.4) * 8.0, lat * 12.0, sin(lon + fl * 1.3 + t * 0.4) * 8.0));
+      float streak = smoothstep(0.55, 0.78, streakNoise) * bandMask;
+      baseCol = mix(baseCol, vec3(0.92, 0.96, 1.00), streak * lit * (0.45 + fl * 0.05));
     }
-    // Полярные зоны.
-    float polar = smoothstep(0.75, 0.96, abs(lat));
-    baseCol = mix(baseCol, vec3(0.15, 0.28, 0.58), polar * 0.35);
+    // ── Великое Тёмное Пятно (Great Dark Spot) — крупный антициклон с
+    // белым облачным «шарфом» cirrus поверх (классический NASA Voyager 2).
+    vec3 gdsCenter = normalize(vec3(cos(t * 0.25 + 1.0) * 0.42, -0.40, sin(t * 0.25 + 1.0) * 0.90));
+    float gdsD = length(p - gdsCenter);
+    // Овальное пятно (не круглое — растянутое по долготе).
+    vec3 gdsLocal = p - gdsCenter;
+    float gdsOval = exp(-pow(gdsLocal.y * 5.0, 2.0) - pow((atan(gdsLocal.z, gdsLocal.x) - atan(-gdsCenter.z, -gdsCenter.x)) * 1.8, 2.0));
+    float gds = gdsOval * smoothstep(0.4, 0.0, gdsD);
+    vec3 gdsCol = vec3(0.06, 0.10, 0.30);                            // тёмное oval
+    baseCol = mix(baseCol, gdsCol, gds * 0.92);
+    // Белый облачный «шарф» — cirrus облака над и южнее пятна.
+    float scarfMask = exp(-pow((lat - (-0.32)) * 18.0, 2.0)) * exp(-pow((atan(p.z, p.x) - atan(-gdsCenter.z, -gdsCenter.x)) * 1.2, 2.0));
+    float scarfTex = fbm3(vec3(cos(lon * 3.0 + t) * 8.0, lat * 10.0, sin(lon * 3.0 + t) * 8.0));
+    float scarf = scarfMask * smoothstep(0.45, 0.75, scarfTex);
+    baseCol = mix(baseCol, vec3(0.96, 0.98, 1.00), scarf * lit * 0.78);
+    // Полярные зоны — слегка темнее.
+    float polar = smoothstep(0.78, 0.96, abs(lat));
+    baseCol = mix(baseCol, vec3(0.08, 0.18, 0.50), polar * 0.40);
     // Освещение.
-    vec3 base = baseCol * (0.08 + lit * 0.95);
-    // Яркий cyan rim glow (метан рассеивает синий).
-    float fres = pow(1.0 - max(dot(n, normalize(-vPos)), 0.0), 2.2);
-    base += vec3(0.35, 0.72, 1.00) * fres * (0.30 + lit * 0.50);
+    vec3 base = baseCol * (0.10 + lit * 0.92);
+    // Мягкий cyan rim (метан рассеивает синий-зелёный по лимбу).
+    float fres = pow(1.0 - max(dot(n, normalize(-vPos)), 0.0), 2.6);
+    base += vec3(0.28, 0.55, 0.90) * fres * (0.25 + lit * 0.45);
     gl_FragColor = vec4(base, 1.0);
   }
 `;
@@ -5564,15 +5574,17 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 // занимала ~40-60% кадра (визуально как Земля в classic).
                 let orbitR = 36;
                 // 2026-05-31 v6 Moon astronomical: radius 27.3, distance 6030 wu.
-                // orbitR=120 даёт FoV 2·atan(27/120)≈25° — Moon занимает 40%
-                // экрана (cinematic, не fullscreen). Земля 6000 wu — точка на фоне.
                 if (planetKey === "moon") orbitR = 120;
-                else if (planetKey === "mercury" || planetKey === "mars") orbitR = 24;
-                else if (planetKey === "venus") orbitR = 30;
-                else if (planetKey === "jupiter") orbitR = 90;
-                else if (planetKey === "saturn") orbitR = prefs.saturnThroughRings ? 70 : 95;
-                else if (planetKey === "uranus") orbitR = 60;
-                else if (planetKey === "neptune") orbitR = 60;
+                // 2026-05-31 v7 (Босс «расширить сцену от Марса, глубина»):
+                // orbitR увеличен ×2-3 → camera дальше → planet занимает 35-45%
+                // экрана, виден чёрный космос + звёзды по краям. Глубина сцены.
+                else if (planetKey === "mercury") orbitR = 50;
+                else if (planetKey === "mars") orbitR = 70;
+                else if (planetKey === "venus") orbitR = 60;
+                else if (planetKey === "jupiter") orbitR = 180;        // 90 → 180
+                else if (planetKey === "saturn") orbitR = prefs.saturnThroughRings ? 120 : 240; // 95 → 240
+                else if (planetKey === "uranus") orbitR = 150;         // 60 → 150
+                else if (planetKey === "neptune") orbitR = 150;        // 60 → 150
                 // 2026-05-31 v5 Earth close-up (Босс «детализация Земли ×5»):
                 // 220 → 180. Камера ближе → облака+aurora+specular видны отчётливо.
                 // Earth radius 100 + atmosphere 108 → FoV 2·atan(108/180)≈62° — 100% screen.
