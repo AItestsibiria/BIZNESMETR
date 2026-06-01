@@ -5180,15 +5180,65 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                   };
                   // 2026-05-31 v2 (Босс «крупнозернится на дальних планетах,
                   // нужна глубина сцены звёзд»): уменьшил size близких + добавил
-                  // мега-дальний слой ±150000 wu для глубины на Neptune.
-                  // Layer 1: близкие пылинки (400 шт, ±5000 wu) — быстрый parallax.
-                  dustGroup.add(makeLayer(400, 5000, 3, 0.6));
-                  // Layer 2: средние (1500 шт, ±25000 wu) — плавный parallax.
-                  dustGroup.add(makeLayer(1500, 25000, 6, 0.55));
-                  // Layer 3: дальние (3000 шт, ±70000 wu) — медленный parallax.
-                  dustGroup.add(makeLayer(3000, 70000, 10, 0.5));
-                  // Layer 3b: мега-дальние (5000 шт, ±150000 wu) — фон-глубина.
-                  dustGroup.add(makeLayer(5000, 150000, 18, 0.45));
+                  // 2026-05-31 v7 (Босс «звёзды-квадраты, нет чёткости/глубины»):
+                  // PointsMaterial с sizeAttenuation давал размытые «квадраты» на
+                  // close-distance — это видно на скрине (Saturn orbit). FIX: ВСЕ
+                  // звёзды через ShaderMaterial с disc-fragment + жёстким size cap.
+                  // Близкий слой убран (создавал huge particles в radius 100 wu).
+                  // Оставлены 3 объёмных слоя: средний (15k), дальний (60k), мега (150k).
+                  const makeStarLayer = (count: number, halfSize: number, sizeMin: number, sizeMax: number, minDist: number, opacity: number) => {
+                    const positions = new Float32Array(count * 3);
+                    const sizes = new Float32Array(count);
+                    for (let i = 0; i < count; i++) {
+                      // Position vне minDist от center (избегаем close-particles overlap).
+                      let x = 0, y = 0, z = 0, d = 0, tries = 0;
+                      do {
+                        x = (Math.random() - 0.5) * halfSize * 2;
+                        y = (Math.random() - 0.5) * halfSize * 2;
+                        z = (Math.random() - 0.5) * halfSize * 2;
+                        d = Math.hypot(x, y, z);
+                        tries++;
+                      } while (d < minDist && tries < 8);
+                      positions[i * 3 + 0] = x;
+                      positions[i * 3 + 1] = y;
+                      positions[i * 3 + 2] = z;
+                      sizes[i] = sizeMin + Math.pow(Math.random(), 3) * (sizeMax - sizeMin);
+                    }
+                    const geo = new THREE.BufferGeometry();
+                    geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+                    geo.setAttribute("aSize", new THREE.BufferAttribute(sizes, 1));
+                    const mat = new THREE.ShaderMaterial({
+                      transparent: true,
+                      depthWrite: false,
+                      uniforms: { uOpacity: { value: opacity } },
+                      vertexShader: `
+                        attribute float aSize;
+                        void main() {
+                          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+                          gl_Position = projectionMatrix * mv;
+                          // hard cap: max 3px чтобы не было квадратов
+                          gl_PointSize = clamp(aSize * 1500.0 / max(800.0, -mv.z), 0.6, 3.0);
+                        }
+                      `,
+                      fragmentShader: `
+                        uniform float uOpacity;
+                        void main() {
+                          vec2 c = gl_PointCoord - 0.5;
+                          float d = length(c);
+                          if (d > 0.5) discard;
+                          float a = (1.0 - smoothstep(0.15, 0.5, d)) * uOpacity;
+                          gl_FragColor = vec4(1.0, 1.0, 1.0, a);
+                        }
+                      `,
+                    });
+                    return new THREE.Points(geo, mat);
+                  };
+                  // Средний слой (минимум близких частиц): 1200 шт, ±15000 wu, minDist 800.
+                  dustGroup.add(makeStarLayer(1200, 15000, 0.6, 1.2, 800, 0.65));
+                  // Дальний: 2500 шт, ±60000 wu.
+                  dustGroup.add(makeStarLayer(2500, 60000, 0.5, 1.0, 2000, 0.55));
+                  // Мега-дальний фон: 4000 шт, ±150000 wu — depth backdrop.
+                  dustGroup.add(makeStarLayer(4000, 150000, 0.4, 0.8, 5000, 0.45));
                   // Layer 4: МЕРЦАЮЩИЕ звёзды (Босс «звёзды мерцают»).
                   // ShaderMaterial с time uniform + per-star random phase.
                   // 800 точек, ±40000 wu, sizeAttenuation=true → растут при подходе.
