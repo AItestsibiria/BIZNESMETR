@@ -1,0 +1,209 @@
+#!/usr/bin/env bash
+# Auto-deploy для clone.muziai.ru.
+# Раз в минуту проверяет ветку claude/add-claude-documentation-OW5V7
+# в репо aitestsibiria/biznesmetr. Если есть новые коммиты:
+#   1. pre-flight backup текущего dist
+#   2. git pull в /opt/neurohub-src
+#   3. npm install + npm run build
+#   4. swap dist в /var/www/neurohub
+#   5. pm2 restart neurohub
+#   6. health check; при ошибке — авто-rollback из backup
+#   7. лог в /var/log/neurohub-auto-deploy.log + git-комит в ветку clone-deploy-log
+#
+# Источник: aitestsibiria/biznesmetr (через локальный bare-clone в /opt/neurohub-src).
+# Рестрикции:
+#   - касается ТОЛЬКО /var/www/neurohub (clone). Prod /var/www/podaripesnu и
+#     /var/www/muziai — НЕ ТРОГАЕТ (даже если их назначат на этот же VPS).
+#   - подписан на единственную ветку — никакая другая не задеплоится.
+#   - rollback идемпотентный: если pm2 не поднялся за 30 сек, откатываем dist.
+
+set -euo pipefail
+
+# pm2 + systemd ловушка: systemd запускает service без HOME, и pm2
+# ищет daemon в /etc/.pm2 вместо /root/.pm2 — не находит процессов
+# и `pm2 restart neurohub` падает с "Process not found". Без этих
+# двух exports скрипт молча упадёт после build на этапе pm2 restart
+# (set -e + redirected stderr = тишина в логе).
+export HOME="${HOME:-/root}"
+export PM2_HOME="${PM2_HOME:-/root/.pm2}"
+
+REPO_URL="https://github.com/AItestsibiria/biznesmetr.git"
+BRANCH="claude/add-claude-documentation-OW5V7"
+SRC_DIR="/opt/neurohub-src"
+APP_DIR="/var/www/neurohub"
+PM2_NAME="neurohub"
+BACKUP_ROOT="/var/backups/neurohub-auto"
+LOG_FILE="/var/log/neurohub-auto-deploy.log"
+LOCK_FILE="/var/run/neurohub-auto-deploy.lock"
+HEALTH_URL="http://127.0.0.1:5000/api/example/ping"
+HEALTH_RETRIES=15
+
+ts() { date -u +'%Y-%m-%dT%H:%M:%SZ'; }
+log() { echo "[$(ts)] $*" | tee -a "$LOG_FILE" >&2; }
+
+# Single-instance gate — если предыдущий запуск ещё крутится, выходим тихо.
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+  exit 0
+fi
+
+# Первый запуск: клонируем репо в SRC_DIR. Дальнейшие — fetch+pull.
+if [[ ! -d "$SRC_DIR/.git" ]]; then
+  log "first run: cloning $REPO_URL into $SRC_DIR"
+  rm -rf "$SRC_DIR"
+  git clone --branch "$BRANCH" --depth 50 "$REPO_URL" "$SRC_DIR"
+fi
+
+cd "$SRC_DIR"
+git fetch --quiet origin "$BRANCH"
+REMOTE=$(git rev-parse "origin/$BRANCH")
+
+# Self-update FIRST: если скрипт в репо отличается от установленного,
+# обновляем себя ДО любых решений про deploy. Следующий тик systemd-таймера
+# выполнит уже новую версию.
+SCRIPT_PATH=$(readlink -f "$0")
+REPO_SCRIPT_PATH="$SRC_DIR/deploy/auto-deploy.sh"
+if [[ -f "$REPO_SCRIPT_PATH" ]] && [[ "$SCRIPT_PATH" != "$REPO_SCRIPT_PATH" ]]; then
+  if ! cmp -s "$SCRIPT_PATH" "$REPO_SCRIPT_PATH"; then
+    log "self-update: script changed in repo, copying new version"
+    cp "$REPO_SCRIPT_PATH" "$SCRIPT_PATH"
+    chmod +x "$SCRIPT_PATH"
+    log "self-update: done; next tick will run the new script"
+    exit 0
+  fi
+fi
+
+# SHA-tracking через отдельный файл /var/www/neurohub/.deployed-sha.
+# Сравниваем REMOTE (актуальный коммит в git) с тем, что мы УЖЕ задеплоили.
+# Преимущества перед сравнением `git rev-parse HEAD == origin/<branch>`:
+#   - после первого clone HEAD == origin сразу же, и старая логика
+#     никогда не запускала первый deploy → bug.
+#   - если deploy упал и rollback — .deployed-sha НЕ обновляется,
+#     следующий тик снова попробует, без вмешательства.
+DEPLOYED_SHA_FILE="$APP_DIR/.deployed-sha"
+DEPLOYED_SHA=$(cat "$DEPLOYED_SHA_FILE" 2>/dev/null || echo "")
+if [[ "$DEPLOYED_SHA" == "$REMOTE" ]]; then
+  exit 0
+fi
+
+LOCAL="$DEPLOYED_SHA"   # для совместимости с логом и git diff ниже
+log "deploy needed: deployed=${LOCAL:-<none>} → target=$REMOTE"
+SHORT_BEFORE="${LOCAL:0:7}"
+[[ -z "$SHORT_BEFORE" ]] && SHORT_BEFORE="initial"
+SHORT_AFTER="${REMOTE:0:7}"
+
+# 1. Pre-flight backup текущего dist
+TS=$(date +%Y%m%d-%H%M%S)
+mkdir -p "$BACKUP_ROOT"
+BACKUP_FILE="$BACKUP_ROOT/dist-$TS-$SHORT_BEFORE.tar.gz"
+if [[ -d "$APP_DIR/dist" ]]; then
+  tar czf "$BACKUP_FILE" -C "$APP_DIR" dist
+  log "backup: $BACKUP_FILE"
+fi
+
+# Чистим старые бэкапы — храним последние 10
+ls -1t "$BACKUP_ROOT"/dist-*.tar.gz 2>/dev/null | tail -n +11 | xargs -r rm -f
+
+# 2. Sync working tree to REMOTE — после first-clone мы УЖЕ на нужном SHA,
+# но reset --hard на $REMOTE гарантирует identical state даже если что-то
+# пошло криво между fetch и reset.
+git reset --hard "$REMOTE" >/dev/null
+git clean -fdq
+
+# 3. Сборка из apps/neurohub/
+SOURCE_PATH="$SRC_DIR/apps/neurohub"
+if [[ ! -d "$SOURCE_PATH" ]]; then
+  log "FAIL: $SOURCE_PATH not found in repo; aborting"
+  exit 2
+fi
+
+cd "$SOURCE_PATH"
+
+# Изолированный node_modules для билда. Раньше здесь был symlink на
+# /var/www/neurohub/node_modules — это опасно: 'npm install --omit=dev'
+# мог выпилить devDependencies из ПРОДА (там сидит pm2 neurohub).
+# Сейчас выгребаем любой существующий symlink/папку и ставим свежий.
+[[ -L node_modules ]] && unlink node_modules
+[[ -d node_modules ]] && rm -rf node_modules
+
+# Полная установка — включая devDependencies, потому что tsx (через
+# который собирается dist) сидит именно в devDeps. После билда node_modules
+# идёт в мусор; в /var/www/neurohub попадает только готовый dist/.
+# npm cache (~/.npm) переиспользуется между запусками — установка после
+# первого раза занимает секунды.
+if [[ -f package-lock.json ]]; then
+  npm ci --no-audit --no-fund 2>&1 | tail -20 | tee -a "$LOG_FILE" >&2 || {
+    log "FAIL: npm ci"
+    exit 3
+  }
+else
+  npm install --no-audit --no-fund 2>&1 | tail -20 | tee -a "$LOG_FILE" >&2 || {
+    log "FAIL: npm install"
+    exit 3
+  }
+fi
+
+npm run build 2>&1 | tail -30 | tee -a "$LOG_FILE" >&2 || {
+  log "FAIL: npm run build"
+  exit 4
+}
+
+# 4. Swap dist
+rm -rf "$APP_DIR/dist"
+cp -r "$SOURCE_PATH/dist" "$APP_DIR/dist"
+
+# 5. Restart
+pm2 restart "$PM2_NAME" --update-env >/dev/null
+log "pm2 restarted"
+
+# 6. Health check
+SUCCESS=0
+for i in $(seq 1 "$HEALTH_RETRIES"); do
+  sleep 2
+  if curl -fsS --max-time 3 "$HEALTH_URL" >/dev/null 2>&1; then
+    SUCCESS=1
+    log "health check passed (attempt $i)"
+    break
+  fi
+done
+
+if [[ "$SUCCESS" -ne 1 ]]; then
+  log "FAIL: health check did not pass; ROLLING BACK to $BACKUP_FILE"
+  pm2 stop "$PM2_NAME" >/dev/null || true
+  rm -rf "$APP_DIR/dist"
+  if [[ -f "$BACKUP_FILE" ]]; then
+    tar xzf "$BACKUP_FILE" -C "$APP_DIR"
+  fi
+  pm2 restart "$PM2_NAME" --update-env >/dev/null
+  log "rollback done"
+  exit 5
+fi
+
+# 7. Записать deploy report локально (без push'а — anonymous push в публичный
+# репо невозможен; чтобы я мог прочитать историю деплоев, пусть Perplexity
+# раз в день шлёт мне `tail -200 /var/log/neurohub-auto-deploy.log`).
+REPORT_DIR="/var/log/neurohub-auto-deploy.d"
+mkdir -p "$REPORT_DIR"
+REPORT_FILE="$REPORT_DIR/deploy-$TS.md"
+{
+  echo "# Auto-deploy $TS"
+  echo ""
+  echo "- Commit: $SHORT_BEFORE → $SHORT_AFTER"
+  echo "- Branch: $BRANCH"
+  echo "- Backup: $BACKUP_FILE"
+  echo "- Health: passed"
+  echo ""
+  echo "## Diff (last 20 commits)"
+  echo '```'
+  git log --oneline -20 "$LOCAL..$REMOTE" 2>/dev/null || echo "(no history)"
+  echo '```'
+} > "$REPORT_FILE"
+
+# Чистим старые отчёты — храним последние 50
+ls -1t "$REPORT_DIR"/deploy-*.md 2>/dev/null | tail -n +51 | xargs -r rm -f
+
+# Фиксируем успешно задеплоенный SHA. Только ПОСЛЕ всех проверок —
+# при rollback'е этот файл НЕ обновится, и следующий тик попробует снова.
+echo "$REMOTE" > "$DEPLOYED_SHA_FILE"
+
+log "deploy OK: $SHORT_BEFORE → $SHORT_AFTER"

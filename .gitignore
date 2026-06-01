@@ -1,0 +1,51 @@
+# Root-level safety net for the public repository.
+# apps/neurohub/.gitignore handles app-specific noise; this file
+# blocks accidental secret/database leaks anywhere in the tree.
+
+# Secrets — never commit, even by accident
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*credential*
+*secret*
+*.netrc
+*.htpasswd
+
+# Local databases / snapshots
+*.db
+*.db-shm
+*.db-wal
+data.db*
+
+# Backup tarballs (deploy/v304-*.tar.gz is the exception, see deploy/.gitignore)
+*.bak
+*.old
+
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Build outputs
+node_modules/
+dist/
+build/
+.cache/
+.next/
+
+# Logs
+*.log
+logs/
+
+# Local Perplexity / Claude scratchpads
+.perplexity/
+.claude/local/
+
+# Claude Code subagent worktrees (locally created)
+.claude/

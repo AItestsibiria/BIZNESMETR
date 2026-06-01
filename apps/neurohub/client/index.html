@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <!-- Eugene 2026-05-15 Босс «Музу в топ рейтинга до понедельника». SEO-fundament:
+         title/description с ключевиками «Муза», «MuzaAi», «AI музыка»; canonical
+         для перенаправления муziai → muzaai; structured data JSON-LD; sitemap. -->
+    <title>Муза · MuzaAi — Создай песню с ИИ за минуту | Музыка, обложка, текст</title>
+    <meta name="description" content="MuzaAi — создай песню с искусственным интеллектом за минуту. Готовый трек по тексту, теме или голосовому сообщению. Подарочный трек первым 1000 авторам." />
+    <meta name="keywords" content="муза, MuzaAi, ИИ музыка, создать песню онлайн, нейросеть для музыки, генерация песен, музыка с ИИ, обложка альбома AI, текст песни нейросеть, песня в подарок, поздравление песней" />
+    <meta name="author" content="MuzaAi — Муза" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+    <!-- Referrer-Policy: strict-origin-when-cross-origin защищает от UTM-leak
+         (cross-site Referer теряет path + query). Same-origin сохраняет всё. -->
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <meta name="yandex-verification" content="1cd1aa5e9660b262" />
+    <!-- Eugene 2026-05-23 marketing/SEO: verification placeholders для
+         Google Search Console и Bing Webmaster Tools. Босс получает
+         content-токен в панели регистрации поисковика → передаёт мне в
+         Claude chat → я заменяю значение content="" → commit + push →
+         Босс жмёт «Проверить». См. docs/SEARCH-ENGINE-REGISTRATION.md.
+         data-*-placeholder атрибуты — grep-якоря для авто-замены. -->
+    <meta name="google-site-verification" content="" data-google-placeholder="true" />
+    <meta name="msvalidate.01" content="" data-bing-placeholder="true" />
+    <!-- Mail.ru / Поиск Рамблер verification (опционально, ниша) -->
+    <meta name="wmail-verification" content="" data-mailru-placeholder="true" />
+    <link rel="canonical" href="https://muzaai.ru/" />
+
+    <!-- Open Graph (Telegram / iMessage / Facebook preview).
+         og:image PNG 512×512 (apple-touch-icon уже 180×180 — мало;
+         используем artwork-512.png — brand PNG из Brand-assets-registry).
+         Telegram/FB предпочитают 1200×630 — TODO создать брендовый PNG
+         нужного размера и обновить путь здесь. -->
+    <meta property="og:title" content="Муза · MuzaAi — Создай песню с ИИ за минуту" />
+    <meta property="og:description" content="MuzaAi — создай песню с искусственным интеллектом за минуту. Готовый трек по тексту, теме или голосовому сообщению. Подарочный трек первым 1000 авторам." />
+    <meta property="og:image" content="https://muzaai.ru/artwork-512.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
+    <meta property="og:image:alt" content="MuzaAi — Муза, ИИ-помощник для создания песен" />
+    <meta property="og:url" content="https://muzaai.ru/" />
+    <meta property="og:site_name" content="MuzaAi" />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="ru_RU" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Муза · MuzaAi — Создай песню с ИИ" />
+    <meta name="twitter:description" content="MuzaAi — создай песню с ИИ за минуту. По тексту, теме или голосу. Первый трек бесплатно." />
+    <meta name="twitter:image" content="https://muzaai.ru/artwork-512.png" />
+    <meta name="twitter:image:alt" content="MuzaAi — Муза, ИИ-помощник для создания песен" />
+
+    <!-- Schema.org structured data (для Яндекс / Google rich snippets).
+         Pricing-single-source rule: track price 399 RUB совпадает с
+         server PRICES.music (39900 копеек) — при изменении PRICES
+         обновить и здесь. -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "name": "MuzaAi",
+      "alternateName": ["Муза", "MuzaAi · Муза"],
+      "url": "https://muzaai.ru/",
+      "logo": "https://muzaai.ru/artwork-512.png",
+      "image": "https://muzaai.ru/artwork-512.png",
+      "description": "Муза — ИИ-помощник для создания музыки, песен, обложек и текстов. Платформа MuzaAi для РФ и СНГ.",
+      "sameAs": ["https://t.me/Muziaipodari_bot", "https://vk.com/muzaai"],
+      "address": { "@type": "PostalAddress", "addressCountry": "RU" },
+      "founder": {
+        "@type": "Person",
+        "name": "Муза",
+        "description": "Виртуальная ИИ-Муза — помощник по созданию музыки на MuzaAi"
+      }
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "MuzaAi · Муза",
+      "url": "https://muzaai.ru/",
+      "applicationCategory": "MusicApplication",
+      "operatingSystem": "Web, iOS, Android",
+      "inLanguage": "ru-RU",
+      "offers": {
+        "@type": "Offer",
+        "price": "399",
+        "priceCurrency": "RUB",
+        "availability": "https://schema.org/InStock",
+        "description": "Один полноценный трек — 399 ₽. Первый трек бесплатно для новых авторов."
+      },
+      "aggregateRating": { "@type": "AggregateRating", "ratingValue": "4.9", "reviewCount": "120" }
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Product",
+      "name": "Генерация трека с ИИ — MuzaAi",
+      "description": "Готовая песня от ИИ-Музы по тексту, теме или голосовому сообщению. Поп, рок, рэп, классика. Скачивание mp3 + обложка.",
+      "image": "https://muzaai.ru/artwork-512.png",
+      "brand": { "@type": "Brand", "name": "MuzaAi" },
+      "offers": {
+        "@type": "Offer",
+        "url": "https://muzaai.ru/#/music",
+        "price": "399",
+        "priceCurrency": "RUB",
+        "availability": "https://schema.org/InStock",
+        "seller": { "@type": "Organization", "name": "MuzaAi" }
+      }
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        { "@type": "ListItem", "position": 1, "name": "Главная", "item": "https://muzaai.ru/" },
+        { "@type": "ListItem", "position": 2, "name": "Создать песню", "item": "https://muzaai.ru/#/music" },
+        { "@type": "ListItem", "position": 3, "name": "Шаблоны", "item": "https://muzaai.ru/#/templates" }
+      ]
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "Сколько стоит создать песню в MuzaAi?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Один полноценный трек — 399 ₽. Текст песни — 99 ₽, обложка — 99 ₽. Первый трек бесплатно для новых авторов из РФ и СНГ."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Как MuzaAi генерирует музыку?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Музa принимает текст, тему или голосовое сообщение, подбирает стиль и голос, и генерирует готовый mp3-трек с обложкой за 1–3 минуты."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Какие жанры поддерживает MuzaAi?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Поп, рок, рэп, классика, электроника, фолк, джаз и десятки других направлений. Можно указать стиль текстом или выбрать готовый шаблон."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Можно ли использовать трек коммерчески?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Да, автор получает права на свой трек. Подробности — в Пользовательском соглашении на странице /privacy."
+          }
+        }
+      ]
+    }
+    </script>
+
+    <meta name="theme-color" content="#7c3aed" />
+    <!-- Eugene 2026-05-17: убраны старые PNG-иконки с lego «MuziAi» — теперь
+         только SVG (всегда актуальный бренд). iOS Safari fallback на favicon.svg. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=4" />
+    <!-- Eugene 2026-05-21 Босс: PWA «На экран Домой» для iOS.
+         apple-touch-icon обязателен для иконки на home screen.
+         180×180 PNG (Apple HIG для iPhone). MediaSession artwork использует
+         /api/cover/:id.jpg отдельно — наш PNG-logo НЕ показывается как
+         fallback на lock-screen (artwork всегда есть для треков). -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- Eugene 2026-05-18 8-я итерация LS: apple-mobile-web-app-title="MuzaAi"
+         (НЕ пустой) — это title который iOS показывает рядом с NowPlaying
+         как «app source» в Control Center. Пустой → iOS брал document.title
+         («MuzaAi — Создавай музыку с AI») и обрезал как fallback. Установка
+         "MuzaAi" делает source label чистым. Не влияет на title трека из
+         MediaSession.metadata.title (это разные слоты). -->
+    <meta name="apple-mobile-web-app-title" content="MuzaAi" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <!-- format-detection: отключает iOS auto-formatting телефонных номеров /
+         адресов / email как clickable links — иначе title треков с цифрами
+         (например «Поздравление на 30 лет») может стать tel:link. -->
+    <meta name="format-detection" content="telephone=no,address=no,email=no" />
+    <link rel="manifest" href="/manifest.json" />
+    <!-- Eugene 2026-05-29: шрифты self-hosted через @fontsource (см. main.tsx),
+         Google Fonts CDN убран — быстрее, без внешней зависимости/риска блокировки. -->
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      // Redirect non-hash routes to hash-router paths for share/play links
+      // so that direct URLs like /share/42 (sent in emails/QR) work with wouter's useHashLocation.
+      (function () {
+        var p = window.location.pathname;
+        var m = p.match(/^\/(share|play|track)\/([\w-]+)\/?$/);
+        if (m) {
+          var target = '/' + window.location.search + '#/' + m[1] + '/' + m[2];
+          window.location.replace(target);
+        }
+      })();
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+    <!-- Yandex.Metrika noscript fallback. Counter ID подставляется на
+         server-side (см. server/index.ts middleware __YM_COUNTER_ID__).
+         Если placeholder остался незаменённым — noscript не активен. -->
+    <noscript><div><img src="https://mc.yandex.ru/watch/__YM_COUNTER_ID__" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
+  </body>
+</html>

@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="50%" r="85%">
+      <stop offset="0%" stop-color="#3B2563"/>
+      <stop offset="50%" stop-color="#1E1B4B"/>
+      <stop offset="100%" stop-color="#0F1230"/>
+    </radialGradient>
+    <radialGradient id="centerGlow" cx="50%" cy="50%" r="55%">
+      <stop offset="0%" stop-color="#A78BFA" stop-opacity="0.55"/>
+      <stop offset="40%" stop-color="#D946EF" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#0F1230" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="muzaGrad" x1="0%" y1="20%" x2="100%" y2="80%">
+      <stop offset="0%" stop-color="#a78bfa"/>
+      <stop offset="50%" stop-color="#c4b5fd"/>
+      <stop offset="100%" stop-color="#60a5fa"/>
+    </linearGradient>
+    <linearGradient id="aiGrad" x1="0%" y1="20%" x2="100%" y2="80%">
+      <stop offset="0%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#67e8f9"/>
+    </linearGradient>
+    <linearGradient id="barGrad" x1="0%" y1="100%" x2="0%" y2="0%">
+      <stop offset="0%" stop-color="#7C3AED"/>
+      <stop offset="50%" stop-color="#D946EF"/>
+      <stop offset="100%" stop-color="#22d3ee"/>
+    </linearGradient>
+    <filter id="glow1" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="44"/>
+    </filter>
+    <filter id="glow2" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="12"/>
+    </filter>
+  </defs>
+
+  <!-- NO rounded corners — Apple iOS will mask automatically. NO transparency. -->
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <rect width="1024" height="1024" fill="url(#centerGlow)"/>
+
+  <g opacity="0.65">
+    <circle cx="120" cy="160" r="3" fill="#ffffff"/>
+    <circle cx="260" cy="120" r="2.4" fill="#ffffff" opacity="0.6"/>
+    <circle cx="400" cy="200" r="3" fill="#ffffff" opacity="0.5"/>
+    <circle cx="640" cy="140" r="3" fill="#ffffff" opacity="0.7"/>
+    <circle cx="800" cy="200" r="2.4" fill="#ffffff"/>
+    <circle cx="920" cy="280" r="2" fill="#ffffff" opacity="0.6"/>
+    <circle cx="80" cy="400" r="2.4" fill="#ffffff" opacity="0.5"/>
+    <circle cx="950" cy="480" r="3" fill="#ffffff" opacity="0.7"/>
+    <circle cx="70" cy="640" r="2" fill="#ffffff" opacity="0.4"/>
+    <circle cx="940" cy="760" r="3" fill="#ffffff" opacity="0.6"/>
+    <circle cx="160" cy="900" r="3" fill="#ffffff" opacity="0.5"/>
+    <circle cx="360" cy="950" r="2.4" fill="#ffffff" opacity="0.6"/>
+    <circle cx="680" cy="950" r="3" fill="#ffffff" opacity="0.7"/>
+    <circle cx="880" cy="920" r="2" fill="#ffffff" opacity="0.5"/>
+  </g>
+
+  <g transform="translate(512 560)">
+    <text font-family="Verdana, Helvetica, sans-serif" font-size="232" font-weight="900" text-anchor="middle" letter-spacing="-6" filter="url(#glow1)" opacity="0.55">
+      <tspan fill="#a78bfa">Muza</tspan><tspan fill="#60a5fa">Ai</tspan>
+    </text>
+    <text font-family="Verdana, Helvetica, sans-serif" font-size="232" font-weight="900" text-anchor="middle" letter-spacing="-6" filter="url(#glow2)">
+      <tspan fill="url(#muzaGrad)">Muza</tspan><tspan fill="url(#aiGrad)">Ai</tspan>
+    </text>
+    <text font-family="Verdana, Helvetica, sans-serif" font-size="232" font-weight="900" text-anchor="middle" letter-spacing="-6">
+      <tspan fill="url(#muzaGrad)">Muza</tspan><tspan fill="url(#aiGrad)">Ai</tspan>
+    </text>
+  </g>
+
+  <g transform="translate(512 920)">
+    <rect x="-210" y="-6" width="14" height="12" rx="4" fill="url(#barGrad)" opacity="0.8"/>
+    <rect x="-174" y="-18" width="14" height="36" rx="4" fill="url(#barGrad)" opacity="0.85"/>
+    <rect x="-138" y="-32" width="14" height="64" rx="4" fill="url(#barGrad)"/>
+    <rect x="-102" y="-44" width="14" height="88" rx="4" fill="url(#barGrad)"/>
+    <rect x="-66" y="-36" width="14" height="72" rx="4" fill="url(#barGrad)"/>
+    <rect x="-30" y="-52" width="14" height="104" rx="4" fill="url(#barGrad)"/>
+    <rect x="6" y="-44" width="14" height="88" rx="4" fill="url(#barGrad)"/>
+    <rect x="42" y="-56" width="14" height="112" rx="4" fill="url(#barGrad)"/>
+    <rect x="78" y="-40" width="14" height="80" rx="4" fill="url(#barGrad)"/>
+    <rect x="114" y="-48" width="14" height="96" rx="4" fill="url(#barGrad)"/>
+    <rect x="150" y="-28" width="14" height="56" rx="4" fill="url(#barGrad)"/>
+    <rect x="186" y="-16" width="14" height="32" rx="4" fill="url(#barGrad)" opacity="0.85"/>
+  </g>
+</svg>

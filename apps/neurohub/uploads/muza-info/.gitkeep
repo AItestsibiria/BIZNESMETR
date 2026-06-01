@@ -1,0 +1,3 @@
+# Uploads for muza-info plugin (admin-uploaded files attached to public info sections).
+# Served via /uploads/muza-info/<filename> through express.static (server/index.ts).
+# Auto-created at runtime via fs.mkdirSync — этот .gitkeep только для git visibility.

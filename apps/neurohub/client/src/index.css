@@ -1,0 +1,1414 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Подари Песню — Dark Premium Theme */
+:root {
+  --button-outline: rgba(0,0,0, .10);
+  --badge-outline: rgba(0,0,0, .05);
+  --opaque-button-border-intensity: -8;
+  --elevate-1: rgba(0,0,0, .03);
+  --elevate-2: rgba(0,0,0, .08);
+  --background: 0 0% 100%;
+  --foreground: 240 10% 4%;
+  --border: 240 6% 90%;
+  --card: 0 0% 98%;
+  --card-foreground: 240 10% 4%;
+  --card-border: 240 6% 90%;
+  --sidebar: 0 0% 97%;
+  --sidebar-foreground: 240 10% 4%;
+  --sidebar-border: 240 6% 90%;
+  --sidebar-primary: 263 70% 50%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 240 5% 92%;
+  --sidebar-accent-foreground: 240 10% 4%;
+  --sidebar-ring: 263 70% 50%;
+  --popover: 0 0% 99%;
+  --popover-foreground: 240 10% 4%;
+  --popover-border: 240 6% 90%;
+  --primary: 263 70% 50%;
+  --primary-foreground: 0 0% 98%;
+  --secondary: 217 91% 60%;
+  --secondary-foreground: 0 0% 98%;
+  --muted: 240 5% 92%;
+  --muted-foreground: 240 4% 46%;
+  --accent: 240 5% 92%;
+  --accent-foreground: 240 10% 4%;
+  --destructive: 0 63% 51%;
+  --destructive-foreground: 0 0% 98%;
+  --input: 240 6% 82%;
+  --ring: 263 70% 50%;
+  --chart-1: 263 70% 50%;
+  --chart-2: 217 91% 60%;
+  --chart-3: 187 92% 41%;
+  --chart-4: 43 74% 49%;
+  --chart-5: 27 87% 55%;
+  /* Eugene 2026-05-29: self-host — 'Inter Variable' (от @fontsource-variable/inter)
+     первым, 'Inter' как fallback. */
+  --font-sans: 'Inter Variable', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-serif: Georgia, serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  /* Display-шрифт для cosmic / DJ hi-tech акцентов (Eugene 2026-05-09).
+     Default: Space Grotesk (self-host @fontsource/space-grotesk). */
+  --font-display: 'Space Grotesk', 'Inter Variable', 'Inter', system-ui, sans-serif;
+  --radius: .625rem;
+  --shadow-2xs: 0px 1px 2px 0px hsl(0 0% 0% / 0.04);
+  --shadow-xs: 0px 1px 3px 0px hsl(0 0% 0% / 0.06);
+  --shadow-sm: 0px 2px 4px -1px hsl(0 0% 0% / 0.06);
+  --shadow: 0px 4px 6px -1px hsl(0 0% 0% / 0.08);
+  --shadow-md: 0px 6px 10px -1px hsl(0 0% 0% / 0.10);
+  --shadow-lg: 0px 10px 15px -3px hsl(0 0% 0% / 0.10);
+  --shadow-xl: 0px 20px 25px -5px hsl(0 0% 0% / 0.10);
+  --shadow-2xl: 0px 25px 50px -12px hsl(0 0% 0% / 0.25);
+  --tracking-normal: 0em;
+  --spacing: 0.25rem;
+
+  --sidebar-primary-border: hsl(var(--sidebar-primary));
+  --sidebar-accent-border: hsl(var(--sidebar-accent));
+  --primary-border: hsl(var(--primary));
+  --secondary-border: hsl(var(--secondary));
+  --muted-border: hsl(var(--muted));
+  --accent-border: hsl(var(--accent));
+  --destructive-border: hsl(var(--destructive));
+}
+
+/* DARK MODE — PRIMARY */
+.dark {
+  --button-outline: rgba(255,255,255, .10);
+  --badge-outline: rgba(255,255,255, .05);
+  --opaque-button-border-intensity: 9;
+  --elevate-1: rgba(255,255,255, .04);
+  --elevate-2: rgba(255,255,255, .09);
+  --background: 240 10% 4%;
+  --foreground: 0 0% 95%;
+  --border: 240 4% 14%;
+  --card: 240 6% 7%;
+  --card-foreground: 0 0% 95%;
+  --card-border: 240 4% 14%;
+  --sidebar: 240 8% 6%;
+  --sidebar-foreground: 0 0% 95%;
+  --sidebar-border: 240 4% 14%;
+  --sidebar-primary: 263 70% 50%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 263 30% 18%;
+  --sidebar-accent-foreground: 0 0% 95%;
+  --sidebar-ring: 263 70% 50%;
+  --popover: 240 6% 10%;
+  --popover-foreground: 0 0% 95%;
+  --popover-border: 240 4% 18%;
+  --primary: 263 70% 50%;
+  --primary-foreground: 0 0% 98%;
+  --secondary: 240 4% 16%;
+  --secondary-foreground: 0 0% 95%;
+  --muted: 240 4% 16%;
+  --muted-foreground: 240 5% 65%;
+  --accent: 263 30% 18%;
+  --accent-foreground: 0 0% 95%;
+  --destructive: 0 63% 51%;
+  --destructive-foreground: 0 0% 98%;
+  --input: 240 4% 20%;
+  --ring: 263 70% 50%;
+  --chart-1: 263 70% 60%;
+  --chart-2: 217 91% 65%;
+  --chart-3: 187 92% 50%;
+  --chart-4: 43 74% 60%;
+  --chart-5: 27 87% 60%;
+  --shadow-2xs: 0px 2px 0px 0px hsl(0 0% 0% / 0.00);
+  --shadow-xs: 0px 2px 0px 0px hsl(0 0% 0% / 0.00);
+  --shadow-sm: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 1px 2px -1px hsl(0 0% 0% / 0.00);
+  --shadow: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 1px 2px -1px hsl(0 0% 0% / 0.00);
+  --shadow-md: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 2px 4px -1px hsl(0 0% 0% / 0.00);
+  --shadow-lg: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 4px 6px -1px hsl(0 0% 0% / 0.00);
+  --shadow-xl: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 8px 10px -1px hsl(0 0% 0% / 0.00);
+  --shadow-2xl: 0px 2px 0px 0px hsl(0 0% 0% / 0.00);
+
+  --sidebar-primary-border: hsl(var(--sidebar-primary));
+  --sidebar-accent-border: hsl(var(--sidebar-accent));
+  --primary-border: hsl(var(--primary));
+  --secondary-border: hsl(var(--secondary));
+  --muted-border: hsl(var(--muted));
+  --accent-border: hsl(var(--accent));
+  --destructive-border: hsl(var(--destructive));
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    @apply dark;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+  }
+
+  /* Eugene 2026-05-29: глобальный предохранитель от горизонтального overflow
+     (Text-within-bounds / Layout-fit). Если какой-то блок шире вьюпорта —
+     страница НЕ уезжает вбок (не нужен авто-recenter как костыль).
+
+     Eugene 2026-05-30: усилено для Фрон-агента (overflow 206px@320 /
+     96px@430 на /,/music,/lyrics,/dashboard = shared-layout 526px-источник).
+     overflow-x:clip жёстче hidden — не создаёт scroll-context (sticky/fixed
+     работают как раньше), но Playwright scrollWidth у `documentElement`
+     перестаёт превышать clientWidth. Дополнительный max-w/min-w на #root —
+     любой случайно расширяющийся ребёнок (inline-style/whitespace-nowrap/
+     min-w без cap) не выдавливает родителя за вьюпорт. */
+  html, body {
+    overflow-x: clip;
+    max-width: 100vw;
+    width: 100%;
+  }
+  #root {
+    overflow-x: clip;
+    max-width: 100vw;
+    min-width: 0;
+  }
+}
+
+/* === SOUNDAI CUSTOM STYLES === */
+
+/* Display-шрифт (Eugene 2026-05-09): применять на h1, hero-CTA, /music page-title.
+   tracking-wider добавляет cosmic-feel; weight 600 на больших размерах. */
+.font-display {
+  font-family: var(--font-display);
+  font-feature-settings: "ss01" on, "ss02" on;
+  letter-spacing: 0.005em;
+}
+
+.font-display-spread {
+  font-family: var(--font-display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Gradient text utility */
+.gradient-text {
+  background: linear-gradient(135deg, #8b5cf6 0%, #3b82f6 50%, #06b6d4 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gradient-text-reverse {
+  background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 50%, #8b5cf6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Glass morphism — iOS systemUltraThinMaterialDark style */
+.glass-card {
+  background: rgba(18, 18, 22, 0.72);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  backdrop-filter: blur(40px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.3), inset 0 0.5px 0 rgba(255, 255, 255, 0.06);
+  transition: all 0.3s ease;
+}
+
+.glass-card:hover {
+  background: rgba(22, 22, 28, 0.78);
+  border-color: rgba(139, 92, 246, 0.25);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35), 0 0 40px rgba(139, 92, 246, 0.08), inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* Glass vibrancy — for text on glass backgrounds (iOS UIVibrancyEffect) */
+.glass-vibrancy {
+  color: rgba(255, 255, 255, 0.88);
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.05);
+}
+
+/* Gradient border card */
+.gradient-border {
+  position: relative;
+  background: linear-gradient(180deg, rgba(20, 14, 30, 0.85), rgba(14, 14, 24, 0.92));
+  -webkit-backdrop-filter: blur(40px) saturate(200%);
+  backdrop-filter: blur(40px) saturate(200%);
+  border-radius: 1rem;
+  isolation: isolate;
+}
+
+.gradient-border::before {
+  content: '';
+  position: absolute;
+  inset: -1.5px;
+  border-radius: inherit;
+  padding: 1.5px;
+  /* Brighter, more vibrant 4-color gradient (Eugene 2026-05-07 13:09) */
+  background: linear-gradient(135deg,
+    rgba(168, 85, 247, 0.85),  /* purple */
+    rgba(236, 72, 153, 0.65),  /* pink */
+    rgba(59, 130, 246, 0.7),   /* blue */
+    rgba(34, 211, 238, 0.85)   /* cyan */
+  );
+  background-size: 200% 200%;
+  animation: gradient-border-shift 8s ease-in-out infinite;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+  opacity: 0.85;
+}
+
+@keyframes gradient-border-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.gradient-border:hover::before {
+  opacity: 1;
+}
+
+/* Статичный спокойный вариант ободка (Босс 2026-05-29 «по периметру, вариант 1»):
+   без переливания, мягкая прозрачность ~35% — премиальный градиентный контур
+   по периметру плеера, не отвлекает. Свечение ::after остаётся. */
+.gradient-border-static::before {
+  animation: none;
+  background-position: 35% 50%;
+  opacity: 0.4;
+}
+.gradient-border-static:hover::before {
+  opacity: 0.55;
+}
+
+/* Глубокое мягкое свечение позади формы для «магического» вида */
+.gradient-border::after {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  z-index: -1;
+  border-radius: 1.5rem;
+  background: radial-gradient(circle at 30% 0%, rgba(168, 85, 247, 0.18), transparent 60%),
+              radial-gradient(circle at 80% 100%, rgba(34, 211, 238, 0.15), transparent 60%);
+  filter: blur(20px);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/* Animated gradient background for hero */
+.hero-gradient {
+  background: radial-gradient(ellipse 80% 50% at 50% -20%, rgba(139, 92, 246, 0.15), transparent),
+              radial-gradient(ellipse 60% 40% at 80% 50%, rgba(59, 130, 246, 0.08), transparent),
+              radial-gradient(ellipse 60% 40% at 20% 80%, rgba(6, 182, 212, 0.06), transparent);
+}
+
+/* Gradient button */
+.btn-gradient {
+  background: linear-gradient(135deg, #8b5cf6 0%, #3b82f6 100%);
+  color: white;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  border: none;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-gradient:hover {
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.4), 0 0 40px rgba(59, 130, 246, 0.2);
+  transform: translateY(-1px);
+}
+
+.btn-gradient:active {
+  transform: translateY(0px);
+}
+
+/* Equalizer bars animation */
+@keyframes equalizerBar {
+  0%, 100% { height: 20%; }
+  25% { height: 80%; }
+  50% { height: 40%; }
+  75% { height: 100%; }
+}
+
+.equalizer-bar {
+  animation: equalizerBar 1.2s ease-in-out infinite;
+}
+
+/* Price badge */
+.price-badge {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(59, 130, 246, 0.2));
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  padding: 0.25rem 0.75rem;
+  border-radius: 9999px;
+  font-weight: 700;
+  font-size: 0.875rem;
+  color: #c4b5fd;
+}
+
+/* Glow effect */
+.glow-purple {
+  box-shadow: 0 0 15px rgba(139, 92, 246, 0.15), 0 0 45px rgba(139, 92, 246, 0.05);
+}
+
+/* Navbar glass */
+.nav-glass {
+  background: rgb(9, 9, 11);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Karaoke scrollbar */
+.karaoke-scroll::-webkit-scrollbar {
+  width: 3px;
+}
+.karaoke-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.karaoke-scroll::-webkit-scrollbar-thumb {
+  background: rgba(139, 92, 246, 0.3);
+  border-radius: 3px;
+}
+.karaoke-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(139, 92, 246, 0.5);
+}
+
+/* Smooth scrollbar for dark theme */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: hsl(240 10% 4%);
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(240 4% 20%);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(240 4% 30%);
+}
+
+/* Audio player progress gradient */
+.audio-progress {
+  background: linear-gradient(90deg, #8b5cf6, #3b82f6, #06b6d4);
+}
+
+/* Pulse animation for loading */
+@keyframes gradientPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+.pulse-gradient {
+  animation: gradientPulse 2s ease-in-out infinite;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.8); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* FloatingConsultant — живая «дыхательная» анимация (Eugene 2026-05-12).
+   Медленная, не суетная. Дыхание + лёгкое покачивание + редкое моргание. */
+@keyframes consultantBreathe {
+  0%, 100% { transform: scale(1) translateY(0) rotate(0deg); }
+  25%      { transform: scale(1.008) translateY(-0.3px) rotate(0.6deg); }
+  50%      { transform: scale(1.015) translateY(-0.6px) rotate(0deg); }
+  75%      { transform: scale(1.008) translateY(-0.3px) rotate(-0.6deg); }
+}
+
+/* Eugene 2026-05-17 Босс: кнопка «Детали» (Maximize) должна моргать
+   нежно ненавязчиво — чтобы юзер заметил и узнал что туда можно тапнуть
+   для раскрытия cover details + swipe-навигации.
+   Период 5 сек, лёгкое усиление glow + scale (не overdone). */
+/* Eugene 2026-05-20 Босс: «нежно пульсирующий + поярче» — кнопка «Чат с Музой»
+   в облачке Музы. Период 2.4 сек, мягкое scale + glow дыхание. */
+@keyframes chatPulse {
+  0%, 100% {
+    box-shadow: 0 0 18px rgba(217,70,239,0.45), 0 0 0 0 rgba(217,70,239,0.4);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 28px rgba(217,70,239,0.75), 0 0 0 8px rgba(217,70,239,0);
+    transform: scale(1.04);
+  }
+}
+.animate-chat-pulse {
+  animation: chatPulse 2.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-chat-pulse { animation: none; }
+}
+
+@keyframes detailsPulse {
+  0%, 70%, 100% {
+    box-shadow: 0 0 12px rgba(168, 85, 247, 0.3);
+    transform: scale(1);
+  }
+  80% {
+    box-shadow: 0 0 24px rgba(168, 85, 247, 0.7), 0 0 36px rgba(34, 211, 238, 0.4);
+    transform: scale(1.06);
+  }
+  90% {
+    box-shadow: 0 0 18px rgba(168, 85, 247, 0.5);
+    transform: scale(1.03);
+  }
+}
+.animate-details-pulse {
+  animation: detailsPulse 5s ease-in-out infinite;
+}
+
+/* Подсветка обложки — ПЕРВОНАЧАЛЬНАЯ редакция №1 (Босс 2026-05-29 «найди
+   первоначальную 1 подсветку обложек и запушь»). Возврат к 7d1cb4e: шиммер +
+   пульсация (background-position + rotate + opacity 0.55→0.8), conic
+   brand-gradient, background-size 300%, 8с ease-in-out. Reduced-motion-safe. */
+@keyframes coverAuraShift {
+  0%   { background-position: 0% 50%; transform: rotate(0deg); opacity: 0.55; }
+  25%  { background-position: 50% 100%; opacity: 0.75; }
+  50%  { background-position: 100% 50%; transform: rotate(180deg); opacity: 0.65; }
+  75%  { background-position: 50% 0%; opacity: 0.8; }
+  100% { background-position: 0% 50%; transform: rotate(360deg); opacity: 0.55; }
+}
+.cover-aura {
+  /* Контраст + блеск (Босс 2026-05-29): яркие промежуточные стопы между
+     brand-цветами дают «шайн»-полосы (blesk). */
+  background: conic-gradient(from 0deg,
+    #7C3AED 0%,
+    #c9a8ff 10%,
+    #FF006E 25%,
+    #ffb3da 35%,
+    #00D4FF 50%,
+    #aef0ff 60%,
+    #FBBF24 75%,
+    #fff0bf 85%,
+    #7C3AED 100%);
+  background-size: 300% 300%;
+  animation: coverAuraShift 8s ease-in-out infinite;
+}
+/* Босс 2026-05-29: на свайпе поворот светового потока в 3 раза медленнее (24с). */
+.cover-aura-slow {
+  animation-duration: 24s;
+}
+.cover-aura-slow::after {
+  animation-duration: 9.6s;
+}
+/* Звёздная разноцветная пыль (Босс «блеск как звёздная разноцветная пыль») —
+   мерцающие разноцветные искры поверх ауры; screen-blend для свечения. */
+.cover-aura::after {
+  content: "";
+  position: absolute;
+  inset: -10%;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 18% 22%, #ffffff 0 1.6px, transparent 2.6px),
+    radial-gradient(circle at 73% 16%, #67e8f9 0 1.6px, transparent 2.6px),
+    radial-gradient(circle at 86% 62%, #f0abfc 0 1.6px, transparent 2.6px),
+    radial-gradient(circle at 33% 82%, #fde68a 0 1.6px, transparent 2.6px),
+    radial-gradient(circle at 55% 44%, #ffffff 0 1.2px, transparent 2px),
+    radial-gradient(circle at 9% 60%, #c4b5fd 0 1.2px, transparent 2px),
+    radial-gradient(circle at 64% 78%, #a5f3fc 0 1.2px, transparent 2px),
+    radial-gradient(circle at 42% 12%, #ffffff 0 1px, transparent 1.8px),
+    radial-gradient(circle at 90% 32%, #fbcfe8 0 1px, transparent 1.8px),
+    radial-gradient(circle at 26% 48%, #fff0bf 0 1px, transparent 1.8px);
+  mix-blend-mode: screen;
+  animation: coverAuraSparkle 3.2s ease-in-out infinite;
+}
+@keyframes coverAuraSparkle {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50%      { opacity: 0.95; transform: scale(1.05); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cover-aura {
+    animation: none;
+    opacity: 0.4;
+  }
+  .cover-aura::after { animation: none; opacity: 0.5; }
+}
+
+/* Eugene 2026-05-23 Босс «платформа на тестировании пульсирующей 1 раз
+   в 5 сек, ярко белая надпись, контур в стиле Музa Ай градиентами». */
+@keyframes betaPulse {
+  0%, 100% { opacity: 0.85; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.04); }
+}
+.beta-badge-pulse {
+  animation: betaPulse 5s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .beta-badge-pulse { animation: none; opacity: 1; }
+}
+.consultant-dance {
+  animation: consultantBreathe 6s ease-in-out infinite;
+  transform-origin: 50% 95%;
+}
+
+/* Блик глаз — закрываются раз в 5-6 сек, очень коротко. */
+@keyframes consultantBlink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  94%, 96%      { transform: scaleY(0.08); }
+}
+.consultant-eye {
+  animation: consultantBlink 5.5s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes consultantBlink2 {
+  0%, 92.2%, 100% { transform: scaleY(1); }
+  94.2%, 96.2%    { transform: scaleY(0.08); }
+}
+.consultant-eye-2 {
+  animation: consultantBlink2 5.5s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* Правая рука — лёгкое покачивание раз в ~12 секунд (приветствие). */
+@keyframes consultantWave {
+  0%, 80%, 100% { transform: rotate(0deg); }
+  84%           { transform: rotate(-8deg); }
+  88%           { transform: rotate(6deg); }
+  92%           { transform: rotate(-4deg); }
+  96%           { transform: rotate(0deg); }
+}
+.consultant-arm {
+  animation: consultantWave 12s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: 12px 5px;
+}
+
+/* Подарок-сцена (Eugene 2026-05-11): крышка открывается, ноты летят к звёздам */
+@keyframes giftLid {
+  0%, 50%   { transform: translate(0, 0) rotate(0deg); }
+  60%       { transform: translate(-2px, -3px) rotate(-12deg); }
+  90%       { transform: translate(-2px, -3px) rotate(-12deg); }
+  100%      { transform: translate(0, 0) rotate(0deg); }
+}
+.gift-lid {
+  transform-origin: 6px 16px;
+  animation: giftLid 5s ease-in-out 1 forwards;
+}
+@keyframes giftNoteFly {
+  0%   { opacity: 0; transform: translate(0, 0) scale(0.8); }
+  10%  { opacity: 1; transform: translate(0, -4px) scale(1); }
+  70%  { opacity: 1; transform: translate(-4px, -28px) scale(1.1); }
+  100% { opacity: 0; transform: translate(-8px, -38px) scale(0.9); }
+}
+
+/* Eugene 2026-05-14 Босс «кнопки появляются как шарики надуваются по
+   очереди слева направо посередине, читать неспеша». Bouncy scale-up
+   с лёгким overshoot. Применяется к QR-кнопкам Музы. */
+@keyframes qrBalloon {
+  0%   { opacity: 0; transform: scale(0); }
+  60%  { opacity: 1; transform: scale(1.12); }
+  80%  { transform: scale(0.96); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* Eugene 2026-05-14 Босс «Опубликовать по нажатии — образ радиоэфира».
+   Концентрические круги-волны вокруг кнопки когда трек published. */
+.radio-air-active::before,
+.radio-air-active::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 2px solid rgba(74, 222, 128, 0.6);
+  pointer-events: none;
+  animation: radioAirRipple 2.4s ease-out infinite;
+}
+.radio-air-active::after {
+  animation-delay: 1.2s;
+}
+@keyframes radioAirRipple {
+  0%   { transform: scale(1); opacity: 0.7; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+.gift-note {
+  animation: giftNoteFly 4.5s ease-out 1 forwards;
+  transform-origin: center;
+  opacity: 0;
+}
+@keyframes giftTwinkle {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50%      { opacity: 1; transform: scale(1.4); }
+}
+.gift-twinkle {
+  animation: giftTwinkle 2.2s ease-in-out 3 forwards;
+  transform-origin: center;
+}
+/* Static — анимации отключены (для клиентов / повторного посещения) */
+.gift-static .gift-lid,
+.gift-static .gift-note,
+.gift-static .gift-twinkle { animation: none !important; }
+.gift-static .gift-note { opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .gift-lid, .gift-note, .gift-twinkle { animation: none; }
+}
+
+/* Slide-in справа (Eugene 2026-05-11) — медленное появление */
+@keyframes consultantSlideIn {
+  0%   { opacity: 0; transform: translateX(60px); }
+  100% { opacity: 1; transform: translateX(0); }
+}
+@keyframes consultantSlideOut {
+  0%   { opacity: 1; transform: translateX(0); }
+  100% { opacity: 0; transform: translateX(60px); }
+}
+.consultant-slide-in {
+  animation: consultantSlideIn 0.6s cubic-bezier(0.22, 0.94, 0.4, 1) both;
+}
+.consultant-slide-out {
+  animation: consultantSlideOut 0.35s ease-in both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .consultant-dance { animation: none; }
+  .consultant-slide-in,
+  .consultant-slide-out { animation: none; }
+  .consultant-attention { animation: none; }
+}
+
+/* Eugene 2026-05-17 Босс: smart-триггер «обрати внимание» — Муза уже
+   видна, но юзер долго думает / форму бросил. Лёгкий bounce + glow. */
+@keyframes consultantAttention {
+  0%, 100% { transform: translateY(0); filter: drop-shadow(0 0 0 rgba(236, 72, 153, 0)); }
+  20%      { transform: translateY(-6px); filter: drop-shadow(0 0 12px rgba(236, 72, 153, 0.6)); }
+  40%      { transform: translateY(0); filter: drop-shadow(0 0 8px rgba(236, 72, 153, 0.4)); }
+  60%      { transform: translateY(-3px); filter: drop-shadow(0 0 10px rgba(236, 72, 153, 0.5)); }
+  80%      { transform: translateY(0); filter: drop-shadow(0 0 4px rgba(236, 72, 153, 0.3)); }
+}
+.consultant-attention {
+  animation: consultantAttention 2.5s ease-in-out 1;
+}
+
+@keyframes cosmicShimmer {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* DJ hi-tech utilities (Eugene 2026-05-09) === */
+
+@keyframes ledPulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 6px currentColor, 0 0 12px currentColor; }
+  50%      { opacity: 0.55; box-shadow: 0 0 3px currentColor, 0 0 6px currentColor; }
+}
+
+/* LED-индикатор — маленькая «лампочка» рядом с активным режимом */
+.led-indicator {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: ledPulse 1.6s ease-in-out infinite;
+}
+
+/* Hardware-button — inset shadow «глубины» + top highlight + neon edge.
+   Применяется к mode-tabs и voice tiles. */
+.hardware-button {
+  position: relative;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.5),
+    0 1px 2px rgba(0, 0, 0, 0.4);
+  transition: box-shadow 200ms ease, transform 100ms ease;
+}
+
+.hardware-button:active {
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.6),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.hardware-button[data-active="true"],
+.hardware-button[data-state="active"] {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    inset 0 0 18px rgba(34, 211, 238, 0.18),
+    0 0 18px rgba(34, 211, 238, 0.35),
+    0 0 36px rgba(139, 92, 246, 0.22);
+}
+
+/* Neon-ring — тонкая светящаяся обводка */
+.neon-ring-cyan {
+  box-shadow:
+    inset 0 0 0 1px rgba(34, 211, 238, 0.5),
+    0 0 14px rgba(34, 211, 238, 0.4);
+}
+
+.neon-ring-purple {
+  box-shadow:
+    inset 0 0 0 1px rgba(167, 139, 250, 0.5),
+    0 0 14px rgba(139, 92, 246, 0.4);
+}
+
+/* Subtle scan-lines overlay для DJ-hardware feel */
+.scan-lines::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    180deg,
+    transparent 0,
+    transparent 2px,
+    rgba(255, 255, 255, 0.015) 2px,
+    rgba(255, 255, 255, 0.015) 3px
+  );
+  border-radius: inherit;
+  z-index: 0;
+}
+
+@keyframes cosmicDisclosureIn {
+  0%   { opacity: 0; transform: scaleY(0.85) translateY(-6px); filter: blur(6px); }
+  60%  { opacity: 1; }
+  100% { opacity: 1; transform: scaleY(1) translateY(0); filter: blur(0); }
+}
+
+@keyframes cosmicDisclosureOut {
+  0%   { opacity: 1; transform: scale(1) translateY(0); filter: blur(0); box-shadow: 0 0 0 rgba(139,92,246,0); }
+  40%  { opacity: 0.85; box-shadow: 0 0 32px rgba(139,92,246,0.4), 0 0 64px rgba(59,130,246,0.25); }
+  100% { opacity: 0; transform: scale(0.92) translateY(-10px); filter: blur(10px); box-shadow: 0 0 0 rgba(139,92,246,0); }
+}
+
+.cosmic-disclosure-enter {
+  transform-origin: top center;
+  animation: cosmicDisclosureIn 0.34s ease-out forwards;
+}
+
+.cosmic-disclosure-exit {
+  transform-origin: top center;
+  animation: cosmicDisclosureOut 0.42s ease-in forwards;
+  pointer-events: none;
+}
+
+.btn-cosmic {
+  background: linear-gradient(270deg, #8b5cf6, #3b82f6, #06b6d4, #a855f7, #ec4899, #8b5cf6);
+  background-size: 300% 300%;
+  animation: cosmicShimmer 4s ease infinite;
+  color: white;
+  font-weight: 700;
+  border: none;
+  box-shadow: 0 0 24px rgba(139, 92, 246, 0.4), 0 0 48px rgba(59, 130, 246, 0.2);
+}
+
+.btn-cosmic:hover {
+  box-shadow: 0 0 32px rgba(139, 92, 246, 0.6), 0 0 64px rgba(59, 130, 246, 0.3);
+}
+
+
+.card-cosmic {
+  border: 2px solid transparent;
+  background-image: linear-gradient(#09090b, #09090b), linear-gradient(270deg, #8b5cf6, #3b82f6, #06b6d4, #a855f7);
+  background-origin: border-box;
+  background-clip: padding-box, border-box;
+  animation: cosmicShimmer 6s ease infinite;
+  background-size: 100% 100%, 300% 300%;
+  box-shadow: 0 0 30px rgba(139, 92, 246, 0.15), 0 0 60px rgba(59, 130, 246, 0.1);
+}
+
+/* Input focus glow */
+.input-glow:focus {
+  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.2), 0 0 20px rgba(139, 92, 246, 0.1);
+}
+
+@layer utilities {
+  input[type="search"]::-webkit-search-cancel-button {
+    @apply hidden;
+  }
+
+  [contenteditable][data-placeholder]:empty::before {
+    content: attr(data-placeholder);
+    color: hsl(var(--muted-foreground));
+    pointer-events: none;
+  }
+
+  .no-default-hover-elevate {}
+  .no-default-active-elevate {}
+
+  .toggle-elevate::before,
+  .toggle-elevate-2::before {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    inset: 0px;
+    border-radius: inherit;
+    z-index: -1;
+  }
+
+  .toggle-elevate.toggle-elevated::before {
+    background-color: var(--elevate-2);
+  }
+
+  .border.toggle-elevate::before {
+    inset: -1px;
+  }
+
+  .hover-elevate:not(.no-default-hover-elevate),
+  .active-elevate:not(.no-default-active-elevate),
+  .hover-elevate-2:not(.no-default-hover-elevate),
+  .active-elevate-2:not(.no-default-active-elevate) {
+    position: relative;
+    z-index: 0;
+  }
+
+  .hover-elevate:not(.no-default-hover-elevate)::after,
+  .active-elevate:not(.no-default-active-elevate)::after,
+  .hover-elevate-2:not(.no-default-hover-elevate)::after,
+  .active-elevate-2:not(.no-default-active-elevate)::after {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    inset: 0px;
+    border-radius: inherit;
+    z-index: 999;
+  }
+
+  .hover-elevate:hover:not(.no-default-hover-elevate)::after,
+  .active-elevate:active:not(.no-default-active-elevate)::after {
+    background-color: var(--elevate-1);
+  }
+
+  .hover-elevate-2:hover:not(.no-default-hover-elevate)::after,
+  .active-elevate-2:active:not(.no-default-active-elevate)::after {
+    background-color: var(--elevate-2);
+  }
+
+  .border.hover-elevate:not(.no-hover-interaction-elevate)::after,
+  .border.active-elevate:not(.no-active-interaction-elevate)::after,
+  .border.hover-elevate-2:not(.no-hover-interaction-elevate)::after,
+  .border.active-elevate-2:not(.no-active-interaction-elevate)::after {
+    inset: -1px;
+  }
+}
+
+/* Eugene 2026-05-17 — CoverDetailsModal обучающие анимации.
+   • cover-hint-pulse — обе стрелки в first-time hint overlay пульсируют
+     (scale + opacity), ~1.4s цикл. Без задержки между стрелками — синхрон.
+   • cover-arrow-wiggle-{left,right} — на mobile постоянная subtle нудж
+     влево-вправо ±3px каждые 4 сек, намёк что можно свайпнуть.
+*/
+@keyframes coverHintPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.85;
+    box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.4);
+  }
+  50% {
+    transform: scale(1.18);
+    opacity: 1;
+    box-shadow: 0 0 24px 8px rgba(168, 85, 247, 0.45);
+  }
+}
+.cover-hint-pulse {
+  animation: coverHintPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes coverArrowWiggleLeft {
+  0%, 100% { transform: translate(0, -50%); }
+  25%      { transform: translate(-3px, -50%); }
+  50%      { transform: translate(0, -50%); }
+}
+@keyframes coverArrowWiggleRight {
+  0%, 100% { transform: translate(0, -50%); }
+  25%      { transform: translate(3px, -50%); }
+  50%      { transform: translate(0, -50%); }
+}
+.cover-arrow-wiggle-left {
+  animation: coverArrowWiggleLeft 4s ease-in-out infinite;
+}
+.cover-arrow-wiggle-right {
+  animation: coverArrowWiggleRight 4s ease-in-out infinite;
+}
+
+/* ============================================================
+   Hi-tech accents (Eugene 2026-05-17, Brand-style consistency rule)
+   Subtle cyber/sci-fi-эффекты поверх brand-palette: Cyber Violet (#7C3AED),
+   Electric Blue (#00D4FF), Amber Glow (#FBBF24), Hot Magenta (#FF006E).
+   Все эффекты — CSS-only, mobile-first (iPhone Safari OK),
+   performance-friendly (никаких heavy JS particle systems).
+
+   Применение:
+   - .scan-line — overlay поверх hero / status panels
+   - .neon-text — hi-tech акценты в titles (поверх gradient-text)
+   - .animated-border — карточки требующие attention (status / live)
+   - .holographic — modal backdrops / featured cards
+   - .cyber-grid — фоновая сетка для admin / dashboard
+   - .particle-bg — лёгкие частицы вокруг ключевых CTA
+   - .hud-frame — sci-fi corner brackets вокруг панелей
+   ============================================================ */
+
+/* --- scan-line — animated horizontal scan поверх элемента --- */
+@keyframes scanLine {
+  0%, 100% { transform: translateY(0); opacity: 0; }
+  50%      { transform: translateY(100%); opacity: 0.6; }
+}
+.scan-line {
+  position: relative;
+  overflow: hidden;
+}
+.scan-line::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #00d4ff, transparent);
+  animation: scanLine 4s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* --- neon-text — neon glow поверх currentColor --- */
+.neon-text {
+  text-shadow:
+    0 0 8px currentColor,
+    0 0 16px currentColor;
+}
+
+/* --- animated-border — вращающийся gradient border (wrapper) --- */
+@keyframes borderRotate {
+  to { background-position: 400% center; }
+}
+.animated-border {
+  position: relative;
+  background: linear-gradient(
+    90deg,
+    #7c3aed,
+    #00d4ff,
+    #fbbf24,
+    #ff006e,
+    #7c3aed
+  );
+  background-size: 400% auto;
+  animation: borderRotate 8s linear infinite;
+  padding: 1.5px;
+  border-radius: inherit;
+}
+
+/* --- holographic — голографический shimmer фон --- */
+@keyframes holoShift {
+  0%, 100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+.holographic {
+  background: linear-gradient(
+    135deg,
+    rgba(124, 58, 237, 0.10),
+    rgba(0, 212, 255, 0.10),
+    rgba(255, 0, 110, 0.10)
+  );
+  background-size: 200% 200%;
+  animation: holoShift 12s ease infinite;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+/* --- cyber-grid — subtle hi-tech grid background --- */
+.cyber-grid {
+  background-image:
+    linear-gradient(rgba(124, 58, 237, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 212, 255, 0.04) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* --- particle-bg — лёгкие частицы (CSS-only) --- */
+@keyframes particleFloat {
+  0%, 100% { transform: translateY(0) translateX(0); opacity: 0.6; }
+  50%      { transform: translateY(-20px) translateX(10px); opacity: 1; }
+}
+@keyframes particleFloat2 {
+  0%, 100% { transform: translateY(0) translateX(0); opacity: 0.5; }
+  50%      { transform: translateY(18px) translateX(-12px); opacity: 0.9; }
+}
+.particle-bg {
+  position: relative;
+}
+.particle-bg::before,
+.particle-bg::after {
+  content: '';
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  background: radial-gradient(circle, #7c3aed 0%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+.particle-bg::before {
+  top: 10%;
+  left: 15%;
+  animation: particleFloat 6s ease-in-out infinite;
+}
+.particle-bg::after {
+  bottom: 12%;
+  right: 18%;
+  background: radial-gradient(circle, #00d4ff 0%, transparent 70%);
+  animation: particleFloat2 7s ease-in-out infinite 1s;
+}
+
+/* --- hud-frame — sci-fi corner brackets вокруг панели --- */
+.hud-frame {
+  position: relative;
+}
+.hud-frame::before,
+.hud-frame::after,
+.hud-frame > .hud-bl,
+.hud-frame > .hud-br {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 2px solid #00d4ff;
+  pointer-events: none;
+}
+.hud-frame::before {
+  top: -2px;
+  left: -2px;
+  border-right: none;
+  border-bottom: none;
+}
+.hud-frame::after {
+  top: -2px;
+  right: -2px;
+  border-left: none;
+  border-bottom: none;
+}
+.hud-frame > .hud-bl {
+  bottom: -2px;
+  left: -2px;
+  border-right: none;
+  border-top: none;
+}
+.hud-frame > .hud-br {
+  bottom: -2px;
+  right: -2px;
+  border-left: none;
+  border-top: none;
+}
+
+/* Eugene 2026-05-17 Босс «pulse-glow на номере для звонка» — мерцающий
+   glow между purple и cyan, чтобы юзер сразу заметил служебный номер с
+   которого ожидается звонок. Используется в phone-otp-form classical
+   flashcall step. */
+@keyframes phone-pulse {
+  0%, 100% {
+    box-shadow: 0 0 16px rgba(124, 58, 237, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 48px rgba(0, 212, 255, 0.8);
+  }
+}
+.phone-pulse {
+  animation: phone-pulse 2s ease-in-out infinite;
+}
+
+/* Eugene 2026-05-20 (I2 fix) Босс «attention animation на ЗВОНОК БЕСПЛАТНЫЙ».
+   Subtle glow + scale на amber→cyan баннере. 5-сек цикл — заметно но не
+   агрессивно. Используется в register-phone / login-phone. */
+@keyframes free-call-attention {
+  0%, 100% {
+    text-shadow: 0 0 16px rgba(251, 191, 36, 0.4), 0 0 32px rgba(0, 212, 255, 0.2);
+    transform: scale(1);
+  }
+  50% {
+    text-shadow: 0 0 24px rgba(251, 191, 36, 0.8), 0 0 48px rgba(0, 212, 255, 0.5);
+    transform: scale(1.03);
+  }
+}
+.free-call-attention {
+  animation: free-call-attention 5s ease-in-out infinite;
+  transform-origin: center;
+}
+
+/* Reduced motion — отключаем шевелящиеся эффекты для accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .scan-line::before,
+  .animated-border,
+  .holographic,
+  .particle-bg::before,
+  .particle-bg::after,
+  .phone-pulse,
+  .free-call-attention {
+    animation: none;
+  }
+}
+
+/* =========================================================================
+   Eugene 2026-05-24 Босс «глубина картинки и облака парящие в бесконечности
+   вне облаков красивые космические ноты». Decorative background для chat-
+   drawer (floating-consultant). CSS-only, reduced-motion-safe.
+
+   3 слоя глубины:
+   1. Deep-space radial gradient (статика)
+   2. 3 облака blur'нутых, разные размеры/скорости (parallax)
+   3. Floating cosmic notes — ♪ ♫ ♬ — в brand-цветах, drift по своим осям
+   ========================================================================= */
+
+.chat-cosmic-bg {
+  position: absolute;
+  inset: 0;
+  /* Eugene 2026-05-24 fix: z-index:-1 (было 0) — иначе фон paints НАД in-flow
+     content по CSS stacking order (z:0 absolute = step 7, content = step 3).
+     Кнопка «Ухожу» + другие контролы пропадали под фоном. С z:-1 cosmic-bg
+     ложится между drawer-background и chat content. */
+  z-index: -1;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+  /* Eugene 2026-05-26 Босс «фон за облачком = загруженная страница, она сквозь
+     облако». Убрали ОПАКОВУЮ deep-space базу (#0a0a17…) — она закрывала реальную
+     страницу. Остались лишь лёгкие брендовые свечения поверх прозрачного стекла,
+     так что сквозь backdrop-blur видно саму страницу. */
+  background:
+    radial-gradient(ellipse at 30% 20%, rgba(124, 58, 237, 0.10) 0%, transparent 55%),
+    radial-gradient(ellipse at 75% 80%, rgba(0, 212, 255, 0.07) 0%, transparent 60%);
+}
+
+
+/* Звёздное мерцание — мелкие точки через box-shadow */
+.chat-cosmic-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(1px 1px at 20% 30%, rgba(255, 255, 255, 0.85), transparent),
+    radial-gradient(1px 1px at 60% 70%, rgba(196, 181, 253, 0.75), transparent),
+    radial-gradient(1px 1px at 80% 15%, rgba(103, 232, 249, 0.7), transparent),
+    radial-gradient(1.5px 1.5px at 40% 85%, rgba(255, 255, 255, 0.6), transparent),
+    radial-gradient(1px 1px at 15% 60%, rgba(240, 171, 252, 0.55), transparent),
+    radial-gradient(1px 1px at 90% 50%, rgba(255, 255, 255, 0.7), transparent),
+    radial-gradient(1.2px 1.2px at 35% 10%, rgba(167, 139, 250, 0.65), transparent),
+    radial-gradient(1px 1px at 65% 40%, rgba(255, 255, 255, 0.55), transparent);
+  animation: cosmic-twinkle 6s ease-in-out infinite alternate;
+  opacity: 0.9;
+}
+
+/* Облака — слой над звёздами */
+.chat-cosmic-bg::after {
+  content: "";
+  position: absolute;
+  inset: -10%;
+  background:
+    radial-gradient(circle at 20% 30%, rgba(167, 139, 250, 0.25) 0%, transparent 22%),
+    radial-gradient(circle at 70% 60%, rgba(103, 232, 249, 0.20) 0%, transparent 26%),
+    radial-gradient(circle at 45% 85%, rgba(232, 121, 249, 0.18) 0%, transparent 24%);
+  filter: blur(28px);
+  animation: cosmic-clouds-drift 90s linear infinite;
+  opacity: 0.85;
+}
+
+@keyframes cosmic-twinkle {
+  0%   { opacity: 0.55; transform: translateY(0); }
+  50%  { opacity: 1; transform: translateY(-2px); }
+  100% { opacity: 0.7; transform: translateY(0); }
+}
+
+@keyframes cosmic-clouds-drift {
+  0%   { transform: translate3d(0, 0, 0); }
+  50%  { transform: translate3d(8%, -3%, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+
+/* Космические ноты — абсолютно позиционированные SVG в шапке chat-cosmic-bg.
+   Каждая нота — свой keyframe с разной скоростью + amplitude. */
+.cosmic-note {
+  position: absolute;
+  pointer-events: none;
+  font-family: "Times New Roman", serif;
+  font-weight: 700;
+  text-shadow:
+    0 0 8px currentColor,
+    0 0 16px currentColor,
+    0 0 24px rgba(255, 255, 255, 0.3);
+  opacity: 0.7;
+  will-change: transform, opacity;
+  user-select: none;
+}
+
+.cosmic-note-1 { top: 15%; left: 12%; font-size: 28px; color: #c4b5fd; animation: note-float-a 14s ease-in-out infinite; }
+.cosmic-note-2 { top: 35%; right: 18%; font-size: 22px; color: #67e8f9; animation: note-float-b 18s ease-in-out infinite 2s; }
+.cosmic-note-3 { top: 65%; left: 25%; font-size: 32px; color: #f0abfc; animation: note-float-c 16s ease-in-out infinite 1s; }
+.cosmic-note-4 { top: 78%; right: 15%; font-size: 20px; color: #fde68a; animation: note-float-d 20s ease-in-out infinite 3s; }
+.cosmic-note-5 { top: 8%; right: 30%; font-size: 18px; color: #a78bfa; animation: note-float-a 22s ease-in-out infinite 5s; }
+.cosmic-note-6 { top: 55%; right: 8%; font-size: 26px; color: #67e8f9; animation: note-float-c 15s ease-in-out infinite 4s; }
+.cosmic-note-7 { top: 88%; left: 50%; font-size: 24px; color: #c4b5fd; animation: note-float-b 19s ease-in-out infinite 6s; }
+
+@keyframes note-float-a {
+  0%   { transform: translate(0, 0) rotate(-6deg); opacity: 0.5; }
+  50%  { transform: translate(12px, -18px) rotate(8deg); opacity: 0.85; }
+  100% { transform: translate(0, 0) rotate(-6deg); opacity: 0.5; }
+}
+@keyframes note-float-b {
+  0%   { transform: translate(0, 0) rotate(4deg); opacity: 0.6; }
+  50%  { transform: translate(-14px, -22px) rotate(-10deg); opacity: 0.9; }
+  100% { transform: translate(0, 0) rotate(4deg); opacity: 0.6; }
+}
+@keyframes note-float-c {
+  0%   { transform: translate(0, 0) rotate(-3deg); opacity: 0.55; }
+  50%  { transform: translate(8px, -14px) rotate(12deg); opacity: 0.8; }
+  100% { transform: translate(0, 0) rotate(-3deg); opacity: 0.55; }
+}
+@keyframes note-float-d {
+  0%   { transform: translate(0, 0) rotate(0deg); opacity: 0.4; }
+  50%  { transform: translate(-10px, -16px) rotate(-8deg); opacity: 0.75; }
+  100% { transform: translate(0, 0) rotate(0deg); opacity: 0.4; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-cosmic-bg::before,
+  .chat-cosmic-bg::after,
+  .cosmic-note {
+    animation: none;
+  }
+}
+
+/* =========================================================================
+   Eugene 2026-05-24 Босс «раскрытая обложка из маленькой получила увеличение
+   подсветки заднего фона и продолжила светить как на плеере. При нажатии
+   уменьшилась в первоначальное положение».
+
+   cover-bloom — заполнение обложки из 60%→100% scale + opacity 0→1
+   cover-aura-bloom — параллельный bloom ауры: opacity 0→0.35 + scale 0.5→1
+   data-cover-state=closing — обратное направление (uses *-reverse)
+   ========================================================================= */
+
+@keyframes cover-bloom-in {
+  0%   { opacity: 0; transform: scale(0.55) translateY(-8px); }
+  60%  { opacity: 1; transform: scale(1.02) translateY(0); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes cover-bloom-out {
+  0%   { opacity: 1; transform: scale(1) translateY(0); }
+  100% { opacity: 0; transform: scale(0.55) translateY(-4px); }
+}
+
+@keyframes cover-aura-bloom-in {
+  /* Eugene 2026-05-24 Босс «подсветка должна быть такой же динамичной».
+     End opacity = 0.55 = стартовое значение coverAuraShift keyframe (см.
+     L425) — плавный handoff bloom-in → coverAuraShift без opacity-скачка.
+     Дальше coverAuraShift пульсирует 0.55→0.75→0.65→0.8→0.55 (как у main player). */
+  0%   { opacity: 0; transform: scale(0.4); }
+  70%  { opacity: 0.7; transform: scale(1.05); }
+  100% { opacity: 0.55; transform: scale(1); }
+}
+@keyframes cover-aura-bloom-out {
+  0%   { opacity: 0.55; transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.5); }
+}
+
+.cover-bloom {
+  transform-origin: top left;
+  animation: cover-bloom-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.cover-bloom[data-cover-state="closing"] {
+  animation: cover-bloom-out 280ms cubic-bezier(0.45, 0, 0.55, 1) both;
+}
+
+/* Eugene 2026-05-29 Босс «раскрытая обложка — волнообразная подсветка + скорость
+   вращения ×2 медленнее». Морфинг border-radius = «дышащий» блоб (не квадрат);
+   вращение coverAuraShift 8с → 16с. */
+@keyframes coverAuraWave {
+  0%, 100% { border-radius: 42% 58% 53% 47% / 47% 42% 58% 53%; }
+  33%      { border-radius: 58% 42% 47% 53% / 53% 58% 42% 47%; }
+  66%      { border-radius: 47% 53% 58% 42% / 42% 47% 53% 58%; }
+}
+.cover-aura-bloom {
+  transform-origin: center;
+  /* Базовое opacity управляется keyframe (не overrides cover-aura conic-rotation). */
+  opacity: 0;
+  /* Волнообразный блоб вместо квадрата (Босс 2026-05-29). */
+  border-radius: 42% 58% 53% 47% / 47% 42% 58% 53%;
+  animation:
+    cover-aura-bloom-in 520ms cubic-bezier(0.22, 1, 0.36, 1) both,
+    coverAuraShift 16s ease-in-out infinite,
+    coverAuraWave 11s ease-in-out infinite;
+}
+.cover-aura-bloom[data-cover-state="closing"] {
+  animation:
+    cover-aura-bloom-out 260ms cubic-bezier(0.45, 0, 0.55, 1) both,
+    coverAuraShift 16s ease-in-out infinite,
+    coverAuraWave 11s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cover-bloom,
+  .cover-aura-bloom {
+    animation: none !important;
+    opacity: 1;
+  }
+  .cover-aura-bloom { opacity: 0.35; }
+}
+
+/* Eugene 2026-05-26 Босс «при первом помещении земля на плеере моргает игриво,
+   стимулируя нажать». Игривое подмигивание иконки планеты (только 1-й заход). */
+@keyframes globe-wink {
+  0%, 70%, 100% { transform: scale(1) rotate(0deg); }
+  78% { transform: scale(1.18) rotate(-8deg); }
+  85% { transform: scale(0.92) rotate(6deg); }
+  92% { transform: scale(1.1) rotate(-3deg); }
+}
+@keyframes globe-wink-glow {
+  0%, 70%, 100% { box-shadow: 0 0 0 0 rgba(124,58,237,0); }
+  80% { box-shadow: 0 0 16px 4px rgba(217,70,239,0.55); }
+  90% { box-shadow: 0 0 10px 2px rgba(0,212,255,0.4); }
+}
+.animate-globe-wink { animation: globe-wink 2.6s ease-in-out infinite; transform-origin: center; }
+.animate-globe-wink-glow { animation: globe-wink-glow 2.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .animate-globe-wink, .animate-globe-wink-glow { animation: none !important; }
+}
+
+
+/* =========================================================================
+   Eugene 2026-05-25 Босс «любое окно открывается под формат устройства».
+   Responsive-windows rule. Источник (спецификация, fetch доков отдал 403):
+   - CSS Values 4: dynamic viewport units dvh/dvw — учитывают появление/скрытие
+     браузерного chrome (address bar) на мобильных; vh режет контент под ним.
+   - web.dev «large, small, dynamic viewport units» — для full-height панелей
+     использовать dvh, не vh.
+   - Apple HIG: env(safe-area-inset-*) — notch + home indicator.
+
+   Любое окно/модалка/popup/drawer ОБЯЗАНО использовать .fit-device (контент)
+   + .fit-device-overlay (фон). Никаких фиксированных px/vh, превышающих экран.
+   ========================================================================= */
+
+.fit-device-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Отступы = safe-area (notch/home indicator) + 12px минимум. */
+  padding:
+    calc(env(safe-area-inset-top, 0px) + 12px)
+    calc(env(safe-area-inset-right, 0px) + 12px)
+    calc(env(safe-area-inset-bottom, 0px) + 12px)
+    calc(env(safe-area-inset-left, 0px) + 12px);
+  overflow: hidden;
+}
+
+.fit-device {
+  /* Никогда не шире/выше видимой области устройства (dvh учитывает address bar). */
+  max-width: min(96vw, 640px);
+  max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 24px);
+  width: auto;
+  /* Контент длиннее экрана → внутренний скролл, окно не вылезает. */
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Полноэкранный вариант (большие панели) — почти весь экран минус safe-area. */
+.fit-device-full {
+  width: calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 16px);
+  height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 16px);
+  max-width: 100vw;
+  max-height: 100dvh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Изображение/медиа внутри окна — вписывается, не выходит за рамки. */
+.fit-device-media {
+  max-width: 100%;
+  max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 48px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
