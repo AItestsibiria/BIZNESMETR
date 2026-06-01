@@ -2040,8 +2040,11 @@ function makeSolarPlanetMesh(key: string): { group: any; bodyMat: any; ringsMat?
       });
       const ringGeom = new THREE.RingGeometry(innerR, outerR, 128, 1);
       const ringMesh = new THREE.Mesh(ringGeom, ringsMat);
+      // 2026-05-31 v10 (Босс «кольца по оси горизонта планеты НАСА»): убрали
+      // tilt 26.7° — кольца строго в плоскости экватора. Body не tilted, поэтому
+      // и rings должны лежать ровно (НАСА Cassini close-up — экваториальная
+      // ось планеты совпадает с плоскостью колец).
       ringMesh.rotation.x = Math.PI / 2;
-      ringMesh.rotation.y = THREE.MathUtils.degToRad(26.7);
       group.add(ringMesh);
       // ── PARTICLE BELT — реальные ледяные обломки Сатурна (миллиарды в реальности,
       // делаем 14000 в сцене). NASA distribution: B ring densest, Cassini gap empty,
@@ -2117,8 +2120,8 @@ function makeSolarPlanetMesh(key: string): { group: any; bodyMat: any; ringsMat?
         `,
       });
       const partMesh = new THREE.Points(partGeom, partMat);
+      // Частицы тоже в плоскости экватора (без axial tilt).
       partMesh.rotation.x = Math.PI / 2;
-      partMesh.rotation.y = THREE.MathUtils.degToRad(26.7);
       group.add(partMesh);
     }
     // 2026-05-31 v6 Jupiter faint ring (Voyager 1 discovery): тонкое пыльное
@@ -5758,26 +5761,14 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 else if (planetKey === "sun") orbitR = 350;
 
                 if (phaseT < step.approachMs) {
-                  // 2026-05-31 v6 Босс «одна скорость даже если меняется ракурс,
-                  // а то по-детски выглядит». ROOT: quintic ease создавал
-                  // ускорение→замедление каждого approach — рывки + childish pacing.
-                  // Заменено на quasi-uniform: 90% LINEAR (одна скорость), только
-                  // первые/последние 5% — smooth ramp (избежать инфинитного jerk на
-                  // start/stop). Эффект: камера летит с ОДНОЙ скоростью весь сегмент.
+                  // 2026-05-31 v10 (Босс «подлёт плавно, по мере приближения
+                  // планета вырастает плавно»). Linear distance даёт hyperbolic
+                  // size growth (резко в финале) — это не «плавно».
+                  // FIX: EASE-OUT QUART → distance падает быстро в начале,
+                  // медленно к концу → on-screen size планеты растёт ПЛАВНО,
+                  // без резкого «вырастания» в финале. Касается всех объектов.
                   const p = Math.min(1, phaseT / step.approachMs);
-                  let e: number;
-                  if (p < 0.05) {
-                    // smooth ramp-up (smoothstep 0..0.05 → 0..mappedTo 5%)
-                    const u = p / 0.05;
-                    e = u * u * (3 - 2 * u) * 0.05;
-                  } else if (p > 0.95) {
-                    // smooth ramp-down
-                    const u = (p - 0.95) / 0.05;
-                    const s = u * u * (3 - 2 * u);
-                    e = 0.95 + s * 0.05;
-                  } else {
-                    e = p;
-                  }
+                  const e = 1 - Math.pow(1 - p, 4);
                   const sp = solarStepStartCamPos || { x: 0, y: 0, z: 0 };
                   // Для поясов — flythrough: камера проходит СКВОЗЬ пояс. Цель — точка
                   // на противоположной стороне target от startCamPos.
@@ -5864,23 +5855,19 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                   // - Mercury, Venus: lookAt midpoint(planet, Earth) — обе в кадре
                   // - Earth: lookAt center — наш дом
                   // - Остальные: lookAt planet
-                  // 2026-05-31 v8 (Босс «облёт показывает Солнце вокруг каждой
-                  // планеты»): lookAt смещается от planet к Sun-side на 18%
-                  // дистанции → Солнце попадает в край кадра как яркий backlight.
-                  // planet остаётся 60-70% экрана с одной стороны.
-                  if (planetKey === "moon") {
-                    camera.lookAt(targetPos.x, targetPos.y, targetPos.z);
-                  } else if (planetKey === "earth") {
-                    camera.lookAt(0, 0, 0);
-                  } else if (planetKey === "sun" || planetKey === "main_belt" || planetKey === "kuiper_belt" || planetKey === "return") {
+                  // 2026-05-31 v10 (Босс «при облёте Луны/планет в кадре видно
+                  // Солнце, учитывая масштаб удаления»): lookAt смещается к Sun-side
+                  // на 0.22 → Солнце ВСЕГДА в кадре во время orbit. Sun mesh
+                  // scaled по cd (далеко = маленькая точка, близко = диск).
+                  if (planetKey === "sun" || planetKey === "main_belt" || planetKey === "kuiper_belt" || planetKey === "return") {
                     camera.lookAt(targetPos.x, targetPos.y, targetPos.z);
                   } else {
                     const sx = solarSnapshot.sun?.x ?? 0;
                     const sy = solarSnapshot.sun?.y ?? 0;
                     const sz = solarSnapshot.sun?.z ?? 0;
-                    const lx = targetPos.x + (sx - targetPos.x) * 0.18;
-                    const ly = targetPos.y + (sy - targetPos.y) * 0.18;
-                    const lz = targetPos.z + (sz - targetPos.z) * 0.18;
+                    const lx = targetPos.x + (sx - targetPos.x) * 0.22;
+                    const ly = targetPos.y + (sy - targetPos.y) * 0.22;
+                    const lz = targetPos.z + (sz - targetPos.z) * 0.22;
                     camera.lookAt(lx, ly, lz);
                   }
                 } else {
@@ -7046,38 +7033,39 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 varying vec3 vN;
                 varying vec3 vP;
                 varying vec3 vWN;
-                // 2026-05-31 v5 Земля ×5 детализация: multi-band atmospheric rim
-                // (тропосфера + стратосфера) + полярная aurora glow с волнистым
-                // движением. Розовый sunset УБРАН (Босс «убрать розовый ореол»).
+                // 2026-05-31 v10 (Босс «толщину в 10 раз тоньше, яркость −85%,
+                // нет строгой линии — к фото NASA»): радиус shell 108→102,
+                // pow 2/6→7/14 (острее лимб, нет bleed), intensity ×0.15.
+                // Aurora остаётся (она НЕ часть «ореола»).
                 void main() {
                   vec3 viewDir = normalize(-vP);
                   float fres = 1.0 - max(0.0, dot(vN, viewDir));
-                  // Двойной rim: внешний широкий + внутренний острый.
-                  float rimOuter = pow(fres, 2.0);   // широкая дымка
-                  float rimInner = pow(fres, 6.0);   // острый лимб
+                  float rimOuter = pow(fres, 7.0);    // тонкая дымка
+                  float rimInner = pow(fres, 14.0);   // ОЧЕНЬ острый лимб
                   vec3 lDir = normalize((viewMatrix * vec4(normalize(sunDir), 0.0)).xyz);
                   float sunDot = dot(vN, lDir);
                   float lit = smoothstep(-0.15, 0.45, sunDot);
-                  // Палитра: голубой rim + бирюзовый inner (тропосферный layer).
-                  vec3 colSky    = vec3(0.30, 0.62, 1.00);   // верхняя атмосфера
-                  vec3 colTeal   = vec3(0.50, 0.86, 1.00);   // тропосфера
-                  vec3 colDeep   = vec3(0.10, 0.30, 0.65);   // ночная сторона глубокая
+                  vec3 colSky    = vec3(0.30, 0.62, 1.00);
+                  vec3 colTeal   = vec3(0.50, 0.86, 1.00);
+                  vec3 colDeep   = vec3(0.10, 0.30, 0.65);
                   vec3 base = mix(colDeep, colSky, lit);
                   base = mix(base, colTeal, rimInner * 0.55);
-                  float intensity = (rimOuter * 0.42 + rimInner * 0.65) * (0.4 + lit * 0.7);
-                  // Aurora borealis — северный + южный (волнистое движение).
+                  // Intensity ослаблена в ~6× (с 0.65+0.42 до 0.10+0.06).
+                  float intensity = (rimOuter * 0.06 + rimInner * 0.10) * (0.4 + lit * 0.7);
+                  // Aurora borealis — остаётся (отдельный feature).
                   float polar = smoothstep(0.65, 0.92, abs(vWN.y));
                   float auroraWave = sin(vWN.x * 12.0 + time * 1.5) * 0.5 + 0.5;
                   auroraWave *= sin(vWN.z * 9.0 - time * 0.9) * 0.5 + 0.5;
                   vec3 auroraCol = mix(vec3(0.20, 1.00, 0.55), vec3(0.45, 0.85, 1.00), auroraWave);
                   float auroraI = polar * (0.30 + auroraWave * 0.50) * (0.4 + (1.0 - lit) * 0.6);
                   base += auroraCol * auroraI;
-                  intensity += auroraI * 0.65;
+                  intensity += auroraI * 0.55;
                   gl_FragColor = vec4(base, intensity);
                 }
               `,
             });
-            const atmoMesh = new THREE.Mesh(new THREE.SphereGeometry(108, 96, 96), atmoMat);
+            // 2026-05-31 v10 thickness 8→2 wu (×4 тоньше). Earth 100, shell 102.
+            const atmoMesh = new THREE.Mesh(new THREE.SphereGeometry(102, 96, 96), atmoMat);
             scene.add(atmoMesh);
             earthAtmosphereRef.current = atmoMesh;
             earthAtmoMatRef.current = atmoMat;
