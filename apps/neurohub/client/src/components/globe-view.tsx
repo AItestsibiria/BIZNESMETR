@@ -1286,8 +1286,9 @@ const PLANET_FRAGMENT_JUPITER = SUN_NOISE + `
   }
 `;
 
-// Saturn — hi-end: пастельные пояса/зоны, hexagonal polar storm (Cassini fact),
-// мягкая полосность, тёплый rim + ТЕНЬ ОТ КОЛЕЦ на планету (Cassini эпично).
+// Saturn — hi-end v8 (Босс «реальные фото NASA Cassini»): пастельные кремово-
+// персиковые полосы с soft cirrus облаками + ярко-ГОЛУБОЙ hexagonal storm на
+// северном полюсе с концентрическим «глазом» + тень от колец + soft rim.
 const PLANET_FRAGMENT_SATURN = SUN_NOISE + `
   uniform vec3 sunDir;
   uniform float time;
@@ -1299,48 +1300,72 @@ const PLANET_FRAGMENT_SATURN = SUN_NOISE + `
     vec3 n = normalize(vWorldNormal);
     vec3 sd = normalize(sunDir);
     float i = dot(n, sd);
-    float lit = smoothstep(-0.12, 0.22, i);
+    // Мягкий terminator (плотная атмосфера → длинный градиент day↔night).
+    float lit = smoothstep(-0.18, 0.32, i);
     vec3 p = normalize(vPos);
-    float t = time * 0.05;
+    float t = time * 0.04;
     float lat = p.y;
     float lon = atan(p.z, p.x);
-    // Зональные ветры Saturn — направление меняется по широте.
-    float jetSpeed = sign(cos(lat * 7.0)) * (0.25 + 0.55 * sin(lat * 3.5));
+    // Очень слабые зональные ветры (Сатурн спокойнее Юпитера).
+    float jetSpeed = sign(cos(lat * 8.0)) * 0.18;
     float lonFlow = lon + t * jetSpeed;
-    // Главные пояса (на Сатурне они мягче).
-    float EZ  = exp(-pow(lat * 16.0, 2.0));                  // Equatorial Zone (светлый)
-    float NTB = exp(-pow((lat - 0.30) * 14.0, 2.0));
-    float STB = exp(-pow((lat + 0.30) * 14.0, 2.0));
-    float NTeZ= exp(-pow((lat - 0.50) * 16.0, 2.0));
-    float STeZ= exp(-pow((lat + 0.50) * 16.0, 2.0));
-    // Турбулентность.
-    float turbCoarse = fbm3(vec3(cos(lonFlow) * 4.0, lat * 12.0, sin(lonFlow) * 4.0));
-    float turbFine   = fbm3(vec3(cos(lonFlow * 2.5) * 10.0, lat * 22.0, sin(lonFlow * 2.5) * 10.0));
-    // Палитра (мягче Юпитера, более бежевая).
-    vec3 zoneCream  = vec3(0.96, 0.91, 0.74);
-    vec3 zoneBright = vec3(1.00, 0.95, 0.80);
-    vec3 beltTan    = vec3(0.78, 0.62, 0.36);
-    vec3 baseCol = zoneCream;
-    baseCol = mix(baseCol, beltTan,    max(NTB, STB) * (0.45 + 0.30 * turbCoarse));
-    baseCol = mix(baseCol, beltTan * 0.85, max(NTeZ, STeZ) * 0.25);
-    baseCol = mix(baseCol, zoneBright, EZ * 0.40);
-    baseCol *= 0.88 + turbFine * 0.22;
-    // Hexagonal polar storm у северного полюса (NASA Cassini). 6-кратная симметрия.
-    if (lat > 0.78) {
-      float angle = atan(p.z, p.x);
-      float hex = cos(angle * 6.0 + t * 0.5);
-      float hexMask = smoothstep(0.78, 0.92, lat) * (0.5 + 0.5 * hex);
-      vec3 stormCol = vec3(0.62, 0.54, 0.38);
-      baseCol = mix(baseCol, stormCol, hexMask * 0.55);
-      // Тёмный центральный «глаз».
-      float eyeMask = smoothstep(0.92, 0.99, lat);
-      baseCol = mix(baseCol, vec3(0.35, 0.28, 0.18), eyeMask * 0.7);
+    // ── ПАЛИТРА Cassini RGB-аккуратный (с фото NASA, ближе к референсу):
+    //   полюс холодный кремовый-белый, средние широты тёплый персиково-охровый,
+    //   экватор более насыщенный охровый, юг возвращается к кремовому.
+    vec3 colColdCream = vec3(0.94, 0.91, 0.82);  // полярный кремовый
+    vec3 colMidCream  = vec3(0.96, 0.88, 0.72);  // средняя широта
+    vec3 colWarmPeach = vec3(0.92, 0.75, 0.52);  // тёплая полоса (45°)
+    vec3 colDeepOcher = vec3(0.78, 0.58, 0.36);  // глубокий охровый (экватор)
+    // Latitude-driven blend (smooth gradient, low contrast — как на фото).
+    float aLat = abs(lat);
+    vec3 baseCol = colColdCream;
+    baseCol = mix(baseCol, colMidCream,  smoothstep(0.05, 0.30, aLat));
+    baseCol = mix(baseCol, colWarmPeach, smoothstep(0.25, 0.55, aLat));
+    baseCol = mix(baseCol, colDeepOcher, smoothstep(0.50, 0.78, aLat));
+    baseCol = mix(baseCol, colMidCream,  smoothstep(0.70, 0.85, aLat));  // возвращ. к кремовому к полюсу
+    // Очень тонкие пояса (низкая контрастность как на NASA close-up).
+    float bandSoft = sin(lat * 28.0 + fbm3(vec3(lat * 6.0, 0.0, t * 0.5)) * 1.2);
+    float bandMask = smoothstep(0.2, 0.55, abs(bandSoft));
+    baseCol *= 0.96 + 0.06 * bandMask;
+    // White wispy cirrus streaks (на фото — 3-4 яркие облачные полосы).
+    for (int li = 0; li < 4; li++) {
+      float fl = float(li);
+      float clat = -0.55 + fl * 0.32;  // широты: -0.55, -0.23, 0.09, 0.41
+      float dy = lat - clat;
+      float bandMask2 = exp(-pow(dy * 22.0, 2.0));
+      float streakTex = fbm3(vec3(cos(lon * 4.0 + t * 0.6 + fl) * 6.0, lat * 14.0, sin(lon * 4.0 + t * 0.6 + fl) * 6.0));
+      float streak = smoothstep(0.62, 0.85, streakTex) * bandMask2;
+      baseCol = mix(baseCol, vec3(0.98, 0.96, 0.92), streak * lit * 0.45);
     }
-    // Южный полюс — мягкое затемнение.
-    float southPolar = smoothstep(0.78, 0.95, -lat);
-    baseCol = mix(baseCol, vec3(0.58, 0.50, 0.36), southPolar * 0.4);
-    // Освещение.
-    vec3 base = baseCol * (0.10 + lit * 0.95);
+    // Мелкая cirrus текстура (subtle turbulence).
+    float turbFine = fbm3(vec3(cos(lonFlow * 3.0) * 12.0, lat * 26.0, sin(lonFlow * 3.0) * 12.0));
+    baseCol *= 0.94 + turbFine * 0.12;
+    // ── HEXAGONAL POLAR STORM (NASA Cassini классика — ярко-голубой):
+    if (lat > 0.72) {
+      float angle = atan(p.z, p.x);
+      float polarF = smoothstep(0.72, 0.98, lat);
+      // 6-сторонний полигон через max(cos(θ + k×60°)).
+      float hex = cos(angle * 6.0 + t * 0.3);
+      // Концентрические облачные «волны» вокруг центра шторма.
+      float rings = sin((1.0 - lat) * 50.0 - t * 1.2) * 0.5 + 0.5;
+      // Цвета: глубокий cobalt → cyan → cream к границе.
+      vec3 stormDeep   = vec3(0.20, 0.42, 0.78);   // глубокий синий (eye)
+      vec3 stormCyan   = vec3(0.45, 0.72, 0.92);   // средний cyan (rings)
+      vec3 stormPale   = vec3(0.78, 0.92, 0.96);   // бледно-голубой (edge)
+      vec3 stormCol = mix(stormPale, stormCyan, rings);
+      // Hexagonal mask: жёстче выражена ближе к полюсу.
+      float hexFactor = (0.5 + 0.5 * hex);
+      vec3 hexMix = mix(stormCol, stormCol * 0.85, hexFactor);
+      baseCol = mix(baseCol, hexMix, polarF * 0.78);
+      // Чёткий тёмный «глаз» в самом центре.
+      float eyeF = smoothstep(0.94, 0.99, lat);
+      baseCol = mix(baseCol, stormDeep, eyeF * 0.85);
+    }
+    // Южный полюс — мягкое затемнение (тёплый коричневый, без шестиугольника).
+    float southPolar = smoothstep(0.82, 0.96, -lat);
+    baseCol = mix(baseCol, vec3(0.58, 0.46, 0.30), southPolar * 0.45);
+    // Освещение (с плотной атмосферой).
+    vec3 base = baseCol * (0.12 + lit * 0.92);
     // 2026-05-31 v6 ТЕНЬ КОЛЕЦ НА ПЛАНЕТУ (Cassini эпично):
     // ring plane Y=0 (radius-scaled), точка vPos, light dir sd → t = -vPos.y/sd.y
     // Intersection в ring plane = vPos + t * (-sd). Если |intersection.xz|
@@ -1424,10 +1449,19 @@ const SATURN_RINGS_FRAGMENT = `
     float density = dRing * 0.20 + cRing * 0.55 + bRing * 0.95 + aRing * 0.78 + fRing * 0.85;
     density *= 0.55 + micro * 0.45;
     density *= 0.70 + grain * 0.40;
-    // Базовый цвет колец — пастельный бежево-жёлтый. B-кольцо самое яркое.
-    vec3 ringColCold  = vec3(0.78, 0.74, 0.64);  // C ring (тёмный)
-    vec3 ringColWarm  = vec3(0.96, 0.90, 0.72);  // B ring (яркий)
-    vec3 ringCol = mix(ringColCold, ringColWarm, bRing + aRing * 0.7);
+    // 2026-05-31 v8 Палитра колец Cassini NASA close-up: cool grey-blue в C ring,
+    // warm cream-white в B ring (самое плотное и яркое), soft beige в A ring.
+    vec3 ringColC  = vec3(0.62, 0.66, 0.72);   // C ring — холодный серо-синий
+    vec3 ringColB  = vec3(0.98, 0.94, 0.84);   // B ring — кремово-белый (ярче всего)
+    vec3 ringColA  = vec3(0.88, 0.82, 0.68);   // A ring — soft beige
+    vec3 ringColF  = vec3(1.00, 0.95, 0.86);   // F ring — самое яркое колечко
+    vec3 ringCol = ringColC * cRing
+                 + ringColB * bRing
+                 + ringColA * aRing
+                 + ringColF * fRing;
+    // Нормализация (избегаем over-saturation в overlap зонах).
+    float ringMix = cRing + bRing + aRing + fRing + 0.001;
+    ringCol /= ringMix;
     // Тень от планеты — если точка кольца «за» планетой относительно Sun.
     // ringPos = vWorld; planet at origin. Если ringPos.dot(sunDir) < 0 И |ring⊥sunDir| < planetRadius — тень.
     vec3 sd = normalize(sunDir);
