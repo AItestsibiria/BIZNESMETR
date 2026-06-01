@@ -1909,6 +1909,10 @@ function makeSolarPlanetMesh(key: string): { group: any; bodyMat: any; ringsMat?
     const uniforms: Record<string, { value: unknown }> = {
       sunDir: { value: new THREE.Vector3(1, 0, 0) },
       uOpacity: { value: 1.0 },
+      // 2026-05-31 v7 (Босс «яркость свечения от Солнца уменьшается по мере
+      // удаления»): inverse-power закон ослабления. Передаётся per-planet
+      // через rAF (см. lookup ниже): Mercury→1.5, Earth→1.0, Neptune→0.28.
+      uSunBrightness: { value: 1.0 },
     };
     if (hasTime) uniforms.time = { value: 0 };
     // 2026-05-31 v6 Saturn body shader использует ringInner/ringOuter для тени колец.
@@ -1918,19 +1922,23 @@ function makeSolarPlanetMesh(key: string): { group: any; bodyMat: any; ringsMat?
       uniforms.ringInner = { value: innerR };
       uniforms.ringOuter = { value: outerR };
     }
-    // Inject opacity uniform + multiply gl_FragColor.a в каждом planet-фрагменте.
-    // Все шейдеры завершаются строкой `gl_FragColor = vec4(base, 1.0);` — заменяем
-    // alpha на `uOpacity`. Один централизованный fix вместо правки 7 фрагментов.
-    const fragmentWithOpacity = `uniform float uOpacity;\n` + fragment.replace(
+    // Inject opacity uniform + multiply gl_FragColor.a + RGB × uSunBrightness.
+    // 2026-05-31 v7 uSunBrightness — inverse-power закон ослабления освещения от
+    // Солнца с расстоянием. Mercury 1.5, Earth 1.0, Neptune 0.28. Применяется
+    // централизованно ко всем 7 planet shaders без правки каждого.
+    const fragmentWithOpacity = `uniform float uOpacity;\nuniform float uSunBrightness;\n` + fragment.replace(
       /gl_FragColor\s*=\s*vec4\(\s*([^,]+)\s*,\s*1\.0\s*\)\s*;/g,
-      "gl_FragColor = vec4($1, uOpacity);",
+      "gl_FragColor = vec4(($1) * uSunBrightness, uOpacity);",
     );
     const bodyMat = new THREE.ShaderMaterial({
       uniforms,
       vertexShader: PLANET_VERTEX,
+      // 2026-05-31 v7 (Босс «планеты непрозрачные, плотные»): body теперь opaque
+      // (transparent:false, depthWrite:true). Atmo shell BackSide остаётся
+      // transparent — рендерится как rim halo вокруг непрозрачной планеты.
       fragmentShader: fragmentWithOpacity,
-      transparent: true,
-      depthWrite: false,
+      transparent: false,
+      depthWrite: true,
     });
     const group = new THREE.Group();
     // 2026-05-31 Босс «масштаба не хватает, как при облёте Земли, детализация
@@ -5495,6 +5503,17 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                   if (tourMesh.atmoMat?.uniforms?.sunDir) {
                     tourMesh.atmoMat.uniforms.sunDir.value.set(nx, ny, nz);
                   }
+                  // 2026-05-31 v7 Inverse-power Sun brightness: distance planet→Sun
+                  // в AU. lookup для каждой планеты (Mercury самая яркая, Neptune
+                  // самая тёмная).
+                  const sunBrightLookup: Record<string, number> = {
+                    mercury: 1.55, venus: 1.20, mars: 0.78,
+                    jupiter: 0.42, saturn: 0.30, uranus: 0.28, neptune: 0.25,
+                  };
+                  const sb = sunBrightLookup[planetKey] ?? 1.0;
+                  if (tourMesh.bodyMat.uniforms.uSunBrightness) {
+                    tourMesh.bodyMat.uniforms.uSunBrightness.value = sb;
+                  }
                 }
                 if (tourMesh?.bodyMat?.uniforms?.time) {
                   tourMesh.bodyMat.uniforms.time.value = (now - solarStepStartT) / 1000;
@@ -5573,18 +5592,19 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                 // 15-50). orbitR ×3 чтобы камера была СНАРУЖИ planet и planet
                 // занимала ~40-60% кадра (визуально как Земля в classic).
                 let orbitR = 36;
-                // 2026-05-31 v6 Moon astronomical: radius 27.3, distance 6030 wu.
-                if (planetKey === "moon") orbitR = 120;
-                // 2026-05-31 v7 (Босс «расширить сцену от Марса, глубина»):
-                // orbitR увеличен ×2-3 → camera дальше → planet занимает 35-45%
-                // экрана, виден чёрный космос + звёзды по краям. Глубина сцены.
-                else if (planetKey === "mercury") orbitR = 50;
-                else if (planetKey === "mars") orbitR = 70;
-                else if (planetKey === "venus") orbitR = 60;
-                else if (planetKey === "jupiter") orbitR = 180;        // 90 → 180
-                else if (planetKey === "saturn") orbitR = prefs.saturnThroughRings ? 120 : 240; // 95 → 240
-                else if (planetKey === "uranus") orbitR = 150;         // 60 → 150
-                else if (planetKey === "neptune") orbitR = 150;        // 60 → 150
+                // 2026-05-31 v8 (Босс «планеты полностью в размер экрана с
+                // небольшими отступами слева/справа»): orbitR = cinematicR × 2.0
+                // → planet занимает ~70-80% экрана (60° FoV). Cinematic radius =
+                // base × 5: Mercury 15, Venus 20, Mars 20, Jupiter 50, Saturn 45,
+                // Uranus 35, Neptune 35.
+                if (planetKey === "moon") orbitR = 75;                          // r=27.3 → 80% screen
+                else if (planetKey === "mercury") orbitR = 32;                  // cR=15
+                else if (planetKey === "venus") orbitR = 42;                    // cR=20
+                else if (planetKey === "mars") orbitR = 42;                     // cR=20
+                else if (planetKey === "jupiter") orbitR = 110;                 // cR=50
+                else if (planetKey === "saturn") orbitR = prefs.saturnThroughRings ? 130 : 220; // с кольцами в кадре
+                else if (planetKey === "uranus") orbitR = 90;                   // cR=35 + ring
+                else if (planetKey === "neptune") orbitR = 80;                  // cR=35
                 // 2026-05-31 v5 Earth close-up (Босс «детализация Земли ×5»):
                 // 220 → 180. Камера ближе → облака+aurora+specular видны отчётливо.
                 // Earth radius 100 + atmosphere 108 → FoV 2·atan(108/180)≈62° — 100% screen.
@@ -5705,16 +5725,24 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                   // - Mercury, Venus: lookAt midpoint(planet, Earth) — обе в кадре
                   // - Earth: lookAt center — наш дом
                   // - Остальные: lookAt planet
+                  // 2026-05-31 v8 (Босс «облёт показывает Солнце вокруг каждой
+                  // планеты»): lookAt смещается от planet к Sun-side на 18%
+                  // дистанции → Солнце попадает в край кадра как яркий backlight.
+                  // planet остаётся 60-70% экрана с одной стороны.
                   if (planetKey === "moon") {
-                    // 2026-05-31 v6: Moon real distance (6030 wu) → lookAt прямо
-                    // на Moon. Земля 6000 wu в (0,0,0) — точка-bluedot на фоне.
                     camera.lookAt(targetPos.x, targetPos.y, targetPos.z);
-                  } else if (planetKey === "mercury" || planetKey === "venus") {
-                    camera.lookAt(targetPos.x * 0.5, targetPos.y * 0.5, targetPos.z * 0.5);
                   } else if (planetKey === "earth") {
                     camera.lookAt(0, 0, 0);
-                  } else {
+                  } else if (planetKey === "sun" || planetKey === "main_belt" || planetKey === "kuiper_belt" || planetKey === "return") {
                     camera.lookAt(targetPos.x, targetPos.y, targetPos.z);
+                  } else {
+                    const sx = solarSnapshot.sun?.x ?? 0;
+                    const sy = solarSnapshot.sun?.y ?? 0;
+                    const sz = solarSnapshot.sun?.z ?? 0;
+                    const lx = targetPos.x + (sx - targetPos.x) * 0.18;
+                    const ly = targetPos.y + (sy - targetPos.y) * 0.18;
+                    const lz = targetPos.z + (sz - targetPos.z) * 0.18;
+                    camera.lookAt(lx, ly, lz);
                   }
                 } else {
                   // Шаг завершён — dispose планеты+спутников или, для поясов, оставляем
