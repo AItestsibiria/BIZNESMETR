@@ -1330,16 +1330,43 @@ const PLANET_FRAGMENT_SATURN = SUN_NOISE + `
     // White wispy cirrus streaks (на фото — 3-4 яркие облачные полосы).
     for (int li = 0; li < 4; li++) {
       float fl = float(li);
-      float clat = -0.55 + fl * 0.32;  // широты: -0.55, -0.23, 0.09, 0.41
+      float clat = -0.55 + fl * 0.32;
       float dy = lat - clat;
       float bandMask2 = exp(-pow(dy * 22.0, 2.0));
       float streakTex = fbm3(vec3(cos(lon * 4.0 + t * 0.6 + fl) * 6.0, lat * 14.0, sin(lon * 4.0 + t * 0.6 + fl) * 6.0));
       float streak = smoothstep(0.62, 0.85, streakTex) * bandMask2;
       baseCol = mix(baseCol, vec3(0.98, 0.96, 0.92), streak * lit * 0.45);
     }
-    // Мелкая cirrus текстура (subtle turbulence).
-    float turbFine = fbm3(vec3(cos(lonFlow * 3.0) * 12.0, lat * 26.0, sin(lonFlow * 3.0) * 12.0));
-    baseCol *= 0.94 + turbFine * 0.12;
+    // 2026-05-31 v9 МЕЛОЧИ Cassini close-up:
+    // (1) Многомасштабная cirrus текстура (3 octaves для глубины).
+    float turbCoarse = fbm3(vec3(cos(lonFlow) * 5.0, lat * 8.0, sin(lonFlow) * 5.0));
+    float turbMid    = fbm3(vec3(cos(lonFlow * 2.0) * 12.0, lat * 18.0, sin(lonFlow * 2.0) * 12.0));
+    float turbFine   = fbm3(vec3(cos(lonFlow * 4.5) * 28.0, lat * 36.0, sin(lonFlow * 4.5) * 28.0));
+    baseCol *= 0.90 + turbCoarse * 0.08 + turbMid * 0.06 + turbFine * 0.06;
+    // (2) Festoon clouds — фестонные облачные арки на границах зон/поясов
+    // (характерная Cassini фишка — wave clouds над light/dark транзишн).
+    float festoonLat1 = exp(-pow((lat - 0.10) * 22.0, 2.0));
+    float festoonLat2 = exp(-pow((lat + 0.15) * 22.0, 2.0));
+    float festoonWave = sin(lon * 18.0 + t * 0.4 + turbCoarse * 4.0);
+    float festoons = max(festoonLat1, festoonLat2) * smoothstep(0.40, 0.90, festoonWave);
+    baseCol = mix(baseCol, vec3(0.98, 0.94, 0.86), festoons * lit * 0.35);
+    // (3) Мини-циклоны (small vortices) — крошечные тёмные точки в случайных
+    // точках средних широт. На Cassini фото есть точечные ovals.
+    for (int ci = 0; ci < 5; ci++) {
+      float fc = float(ci);
+      vec3 cyclC = normalize(vec3(
+        cos(fc * 2.1 + t * 0.15) * 0.6,
+        sin(fc * 0.7) * 0.55,
+        sin(fc * 2.1 + t * 0.15) * 0.6
+      ));
+      float cd = length(p - cyclC);
+      float cyclone = exp(-cd * cd * 350.0);
+      baseCol = mix(baseCol, vec3(0.55, 0.40, 0.22), cyclone * lit * 0.55);
+    }
+    // (4) Edge-of-bands brightening (anti-cyclonic clouds — ярче чем средний пояс).
+    float bandEdge = abs(sin(lat * 26.0 + t * 0.3));
+    float edgeBright = smoothstep(0.85, 0.98, bandEdge);
+    baseCol += vec3(0.04, 0.03, 0.02) * edgeBright * lit;
     // ── HEXAGONAL POLAR STORM (NASA Cassini классика — ярко-голубой):
     if (lat > 0.72) {
       float angle = atan(p.z, p.x);
@@ -1989,13 +2016,15 @@ function makeSolarPlanetMesh(key: string): { group: any; bodyMat: any; ringsMat?
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let ringsMat: any;
     if (key === "saturn") {
-      // Кольца тоже scale ×5 — пропорционально новому диаметру планеты.
       const innerR = cinematicR * 1.4;
       const outerR = cinematicR * 2.3;
-      // Кольца — тоже LOD crossfade через uOpacity (тот же uniform что у sphere).
+      // 2026-05-31 v9 (Босс «кольцо Сатурна это пояс астероидов»): кольца теперь
+      // ДВА слоя — (а) thin solid backdrop ring для gradient palette, (б) ТЫСЯЧИ
+      // particle-астероидов сверху (видны как зернистость близко). Backdrop сделан
+      // тоньше (alpha ×0.55), particles несут основной visual.
       const ringsFragment = `uniform float uOpacity;\n` + SATURN_RINGS_FRAGMENT.replace(
         /gl_FragColor\s*=\s*vec4\(\s*([^,]+)\s*,\s*([^)]+)\s*\)\s*;/g,
-        "gl_FragColor = vec4($1, ($2) * uOpacity);",
+        "gl_FragColor = vec4($1, ($2) * uOpacity * 0.55);",
       );
       ringsMat = new THREE.ShaderMaterial({
         uniforms: {
@@ -2011,10 +2040,86 @@ function makeSolarPlanetMesh(key: string): { group: any; bodyMat: any; ringsMat?
       });
       const ringGeom = new THREE.RingGeometry(innerR, outerR, 128, 1);
       const ringMesh = new THREE.Mesh(ringGeom, ringsMat);
-      // Кольца изначально в плоскости XY → поворачиваем в XZ + наклон 26.7° (Saturn axial tilt).
       ringMesh.rotation.x = Math.PI / 2;
       ringMesh.rotation.y = THREE.MathUtils.degToRad(26.7);
       group.add(ringMesh);
+      // ── PARTICLE BELT — реальные ледяные обломки Сатурна (миллиарды в реальности,
+      // делаем 14000 в сцене). NASA distribution: B ring densest, Cassini gap empty,
+      // A ring medium, F ring tight bright bracelet.
+      const partCount = 14000;
+      const partPos = new Float32Array(partCount * 3);
+      const partCol = new Float32Array(partCount * 3);
+      const partSize = new Float32Array(partCount);
+      // NASA-ring distribution (normalized 0..1 from inner to outer):
+      //   D 0.00-0.07 (5% частиц) | C 0.07-0.34 (20%) | B 0.34-0.62 (40%, densest)
+      //   Cassini 0.62-0.65 (skip) | A 0.65-0.92 (30%, with Encke 0.86-0.87 gap)
+      //   Roche 0.92-0.94 (skip) | F 0.94-0.98 (5%)
+      const zones = [
+        { from: 0.00, to: 0.05, density: 0.03, color: [0.78, 0.74, 0.62] }, // D
+        { from: 0.07, to: 0.34, density: 0.18, color: [0.65, 0.68, 0.72] }, // C
+        { from: 0.34, to: 0.62, density: 0.42, color: [0.98, 0.94, 0.84] }, // B (brightest)
+        { from: 0.65, to: 0.85, density: 0.22, color: [0.88, 0.82, 0.68] }, // A
+        { from: 0.87, to: 0.92, density: 0.10, color: [0.88, 0.82, 0.68] }, // A outer
+        { from: 0.94, to: 0.97, density: 0.05, color: [1.00, 0.96, 0.88] }, // F
+      ];
+      let pi = 0;
+      for (const zone of zones) {
+        const zoneCount = Math.floor(partCount * zone.density);
+        for (let k = 0; k < zoneCount && pi < partCount; k++, pi++) {
+          // Power-distribution within zone — clusters ближе к outer edge.
+          const u = Math.pow(Math.random(), 0.85);
+          const ringR_norm = zone.from + u * (zone.to - zone.from);
+          const r = innerR + ringR_norm * (outerR - innerR);
+          const θ = Math.random() * Math.PI * 2;
+          partPos[pi * 3 + 0] = Math.cos(θ) * r;
+          // Thin disc — частицы в плоскости с малой Y-дисперсией (~0.5% от R).
+          partPos[pi * 3 + 1] = (Math.random() - 0.5) * cinematicR * 0.012;
+          partPos[pi * 3 + 2] = Math.sin(θ) * r;
+          // Per-particle color variation (ice/rock mix ±15%).
+          const bright = 0.65 + Math.random() * 0.45;
+          partCol[pi * 3 + 0] = Math.min(1.0, zone.color[0] * bright);
+          partCol[pi * 3 + 1] = Math.min(1.0, zone.color[1] * bright);
+          partCol[pi * 3 + 2] = Math.min(1.0, zone.color[2] * bright);
+          // Size: most small ice chips + few large boulders (power-law).
+          partSize[pi] = 0.4 + Math.pow(Math.random(), 5) * 3.5;
+        }
+      }
+      // Trim if pi < partCount.
+      const partGeom = new THREE.BufferGeometry();
+      partGeom.setAttribute("position", new THREE.BufferAttribute(partPos.subarray(0, pi * 3), 3));
+      partGeom.setAttribute("aColor", new THREE.BufferAttribute(partCol.subarray(0, pi * 3), 3));
+      partGeom.setAttribute("aSize", new THREE.BufferAttribute(partSize.subarray(0, pi), 1));
+      const partMat = new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        uniforms: { uOpacity: { value: 1.0 } },
+        vertexShader: `
+          attribute vec3 aColor;
+          attribute float aSize;
+          varying vec3 vCol;
+          void main() {
+            vCol = aColor;
+            vec4 mv = modelViewMatrix * vec4(position, 1.0);
+            gl_Position = projectionMatrix * mv;
+            gl_PointSize = clamp(aSize * 200.0 / max(40.0, -mv.z), 0.6, 4.0);
+          }
+        `,
+        fragmentShader: `
+          uniform float uOpacity;
+          varying vec3 vCol;
+          void main() {
+            vec2 c = gl_PointCoord - 0.5;
+            float d = length(c);
+            if (d > 0.5) discard;
+            float a = (1.0 - smoothstep(0.15, 0.5, d)) * uOpacity;
+            gl_FragColor = vec4(vCol, a);
+          }
+        `,
+      });
+      const partMesh = new THREE.Points(partGeom, partMat);
+      partMesh.rotation.x = Math.PI / 2;
+      partMesh.rotation.y = THREE.MathUtils.degToRad(26.7);
+      group.add(partMesh);
     }
     // 2026-05-31 v6 Jupiter faint ring (Voyager 1 discovery): тонкое пыльное
     // кольцо, inner 1.40R outer 1.80R, opacity ~10%. Тоже tilt ~0 (плоскость экватора).
