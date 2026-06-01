@@ -5822,7 +5822,52 @@ function GlobeInner({ points }: { points: GlobePoint[] }) {
                       u * u * sp.z + 2 * u * e * mz + e * e * tz,
                     );
                   }
-                  camera.lookAt(targetPos.x, targetPos.y, targetPos.z);
+                  // 2026-05-31 v11 (Босс «медленный поворот в сторону Земли,
+                  // на половине пути медленно круговой обзор, смотрим на планету
+                  // куда летим»): lookAt split в 2 фазы со smoothstep между.
+                  // Фаза 1 (0-50%): смотрим назад на sp (departure point) →
+                  //   видна Земля+Солнце, всё уменьшается по мере отлёта.
+                  // Фаза 2 (50-100%): smooth pan от midpoint → к target+Sun-offset
+                  //   (планета вырастает, Sun в кадре).
+                  const sxSun = solarSnapshot.sun?.x ?? 0;
+                  const sySun = solarSnapshot.sun?.y ?? 0;
+                  const szSun = solarSnapshot.sun?.z ?? 0;
+                  let laX: number, laY: number, laZ: number;
+                  if (planetKey === "earth" || planetKey === "return") {
+                    laX = 0; laY = 0; laZ = 0;
+                  } else if (planetKey === "sun" || isBelt) {
+                    laX = targetPos.x; laY = targetPos.y; laZ = targetPos.z;
+                  } else {
+                    // Departure/forward lookAt mix.
+                    const halfBack = 0.48;
+                    const targetEnd = {
+                      x: targetPos.x + (sxSun - targetPos.x) * 0.22,
+                      y: targetPos.y + (sySun - targetPos.y) * 0.22,
+                      z: targetPos.z + (szSun - targetPos.z) * 0.22,
+                    };
+                    if (p < halfBack) {
+                      // Фаза 1: lookback → midpoint, медленно поворачиваемся
+                      const u = p / halfBack;
+                      const su = u * u * (3 - 2 * u);             // smoothstep
+                      const midX = (sp.x + targetPos.x) * 0.5;
+                      const midY = (sp.y + targetPos.y) * 0.5;
+                      const midZ = (sp.z + targetPos.z) * 0.5;
+                      laX = sp.x + (midX - sp.x) * su;
+                      laY = sp.y + (midY - sp.y) * su;
+                      laZ = sp.z + (midZ - sp.z) * su;
+                    } else {
+                      // Фаза 2: midpoint → target+sun offset.
+                      const u = (p - halfBack) / (1 - halfBack);
+                      const su = u * u * (3 - 2 * u);
+                      const midX = (sp.x + targetPos.x) * 0.5;
+                      const midY = (sp.y + targetPos.y) * 0.5;
+                      const midZ = (sp.z + targetPos.z) * 0.5;
+                      laX = midX + (targetEnd.x - midX) * su;
+                      laY = midY + (targetEnd.y - midY) * su;
+                      laZ = midZ + (targetEnd.z - midZ) * su;
+                    }
+                  }
+                  camera.lookAt(laX, laY, laZ);
                 } else if (phaseT < stepDuration && step.orbitMs > 0) {
                   // ORBIT: круги вокруг target. 2026-05-31 Босс «не качать камеру
                   // вверх-вниз» — yWave убран (yAmp=0), остаётся круговой облёт
